@@ -1467,3 +1467,70 @@ Asked to confirm whether ag's acceptance (above) satisfies the two conditions cx
 **Full convergence reached after 3 rounds** (2 independent Round 1 drafts, 1 cross-critique round resolving 4 major divergences with 2 conceded immediately by ag and 2 refined-then-accepted after ag's evidence-based pushback, 1 closing confirmation). Genuine adversarial process, not rubber-stamping — both peers moved off their Round 1 positions where the other's evidence was stronger (ag conceded on storage/layering/outcome-model/service-model in Round 2; cx conceded on layering and service-model in its own Round 2, then held and sharpened its storage and outcome-model positions with concrete evidence until ag explicitly accepted the refined versions in Round 3).
 
 `cc` will now consolidate this ledger into a canonical `ARCHITECTURE.md` design document. This ledger remains the process record; `ARCHITECTURE.md` is the clean deliverable.
+
+---
+
+# Meta-Review (Round 4+) — user-requested, 2026-07-27
+
+The Round 1-3 debate asked "is each mechanism correct." This pass asks a
+different question, mirroring the 2026-07-20 blueprint's own successful
+meta-review pass (5-Whys + MECE + feedback-loop, 3 further rounds after its
+main debate): **is `ARCHITECTURE.md` organized at the right level, and is
+it actually the smallest design that fully serves the stated purpose?**
+Still pre-TDD — this pass details/hardens the design, it does not start
+implementation. Same process rules as Round 1-3 (unlimited rounds, no
+artificial cap, alternating draft/critique, evidence over preference,
+symmetric deferral, stop only on genuine 2-consecutive-round convergence).
+
+**Five lenses, applied to `docs/design/ARCHITECTURE.md`:**
+
+1. **5-Whys.** For each major decision in ARCHITECTURE.md (SQLite-behind-
+   `StateStore`, the 3-layer `AskResult`, no resident daemon, feature-first
+   modules, the specific §16 open-questions list) — trace it back one more
+   "why" than the debate already did. Does the root justification still
+   hold, or does some decision rest on an assumption that was never
+   actually re-examined after Round 1's initial framing?
+2. **MECE.** Are the module/layer boundaries (§2, §2.1) actually mutually
+   exclusive and collectively exhaustive? Look specifically for: any
+   responsibility that could plausibly live in two different modules as
+   written; any real `hub.py` mechanism that doesn't map cleanly to
+   anything in the new structure (a gap); any two sections of
+   ARCHITECTURE.md that assert overlapping or mutually inconsistent rules.
+3. **Purpose-fit generalization.** The charter's mission is a multi-peer
+   AI CLI collaboration engine — not limited to exactly `cc`/`ag`/`cx`, not
+   Windows-only. Find spots where the current design is more specific than
+   the stated purpose actually requires (hardcoded assumptions that would
+   break for a 4th peer, a non-Windows host, or a peer with a materially
+   different invocation model) — but do NOT reintroduce the
+   over-generalization mistake the 2026-07-20 debate's own red-team pass
+   corrected (speculative flexibility for consumers/scenarios that don't
+   exist yet). Every generalization proposed here must cite what it's
+   generalizing FOR (a real, named gap), not "future-proofing" in the
+   abstract.
+4. **Token/feature efficiency.** Is there a mechanism in ARCHITECTURE.md
+   that costs more implementation/runtime complexity than the value it
+   returns for THIS purpose? Where could a simpler mechanism deliver the
+   same safety property (e.g., does every one of the 3 `AskResult` layers
+   need to be a full typed sub-object, or would a flatter shape lose
+   nothing real)? Flag over-engineering as concretely as the earlier
+   rounds flagged under-engineering (T87/T88/T89) — same evidentiary bar.
+5. **Virtuous-cycle feedback loop.** The shelved blueprint's own phase2-arch
+   document (§13.16) found a real gap in its OWN design: accumulated
+   Evidence was write-only, never improving future decisions. Does
+   ARCHITECTURE.md have the same gap? Concretely: do routing decisions
+   (§11), health thresholds (§10), or consensus/arbiter behavior (§8) ever
+   get informed by the outcomes recorded in the outbox/evidence store
+   (§4), or does evidence just accumulate without feeding back into future
+   policy? If it's a real gap, propose the smallest addition that closes
+   it — not a full recommendation-engine rebuild.
+
+**Deliverable:** a findings list per lens (each finding: cite the exact
+ARCHITECTURE.md section, state the concrete problem, propose a concrete
+fix or explicitly say "no fix warranted, documented as accepted"), leading
+to either direct edits to ARCHITECTURE.md (small, surgical) or a clearly
+justified "no change" verdict per section. `cc` conserves tokens this pass
+— `ag`/`cx` do the lens analysis; `cc` relays/synthesizes/applies edits.
+
+## Round 4
+
+*(pending)*
