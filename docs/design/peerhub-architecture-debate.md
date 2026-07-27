@@ -1871,4 +1871,155 @@ The revised architecture is cohesive at the domain level, but its dependency gra
 
 ## Round 8
 
-*(pending)*
+### ag.deepthink SSOT cross-check (Round 8)
+
+*(Originally written by ag to `round8-ag-ssot.md`; inlined here by cc.)*
+
+**Verdict: CONVERGED, 0 active duplications** — ag's central claim: `PeerDescriptor.profiles` (`ProfileDescriptor`: `profile_id`, `model_name`, `context_window_tokens`, `cost_weight`) is the sole owner of model/profile metadata, `PeerInstanceConfig.enabled_profile_ids` only foreign-keys into it. Proposed adding a canonical SSOT Ownership Matrix to §4.1 as a drift-prevention clarification. Full audit in `round8-ag-ssot.md`.
+
+**cc's direct check before proceeding to Round 9 (per the now-established practice): `grep -n "ProfileDescriptor" ARCHITECTURE.md` — the type is referenced 4 times (§6.1's `PeerDescriptor.profiles` field, twice in §6.2's `PeerAdapter` methods, once in §6.3's `SessionCapability.fingerprint`) but its fields are never defined anywhere in the document.** `model_name`, `context_window_tokens`, `cost_weight` — the exact fields ag cited as proof of ownership — do not exist in the text. ag verified against a type it must have inferred rather than read, the same failure class as Round 6.
+
+### cx.deepthink SSOT cross-check (Round 8)
+
+*(Written to the ledger by cc on cx's behalf — cx's sandbox again rejected a direct file write; returned as reply text, verbatim below.)*
+
+# peerhub Round 8 — cx.deepthink SSOT cross-check
+
+## Overall verdict
+
+The evidence/protocol SSOT work from Round 6-7 is strong, but the model/profile configuration path remains materially underspecified. The design also needs explicit temporal-ownership rules for health snapshots, consensus rounds, mutation records, and proposal fingerprints so historical copies cannot be mistaken for competing live authorities.
+
+## 1. Peer/model identity
+
+### Finding 1 — the configured model has no unambiguous owner
+
+**Sections:** §§6.1-6.2. `PeerDescriptor.profiles` owns adapter-level `ProfileDescriptor` values, while `PeerInstanceConfig` contains only `enabled_profile_ids`. The document never defines where the operational fact below lives: *"Instance `cx`, profile `deepthink`, runs model `gpt-5.6-sol` at `xhigh`."* If `ProfileDescriptor` contains the model pin, all instances sharing the adapter must share it. If `PeerInstanceConfig` or invocation arguments also contain it, the fact gains multiple writable copies.
+
+**Correct owner:** a configured profile binding inside `PeerInstanceConfig`:
+
+```python
+@dataclass(frozen=True)
+class PeerProfileBinding:
+    binding_id: str
+    profile_id: str
+    model_id: str
+    reasoning_effort: str
+    revision: str
+```
+
+Replace `enabled_profile_ids` with references to these bindings. Other appearances must be derived: `PeerDescriptor` describes profile kinds, supported controls, transports, and capabilities — not current model pins; `InvocationPlan.argv` is mechanically generated from the binding; routing and sessions reference `binding_id` plus revision; a request attempt freezes the binding ID/revision and resolved invocation digest; readiness evidence records the observed model and whether it matched the binding, never rewriting the configured pin. This distinguishes two legitimate facts: desired configured model (`PeerProfileBinding`) vs. model actually observed for a probe/attempt (immutable readiness/invocation evidence).
+
+### Finding 2 — runtime configuration and the database could both own `PeerInstanceConfig`
+
+**Sections:** §§2, 4, 14. §4 stores configured peer instances in SQLite, while `runtime.py` performs configuration resolution and §14 freezes a runtime configuration revision. The document does not say whether peer-instance/model configuration originates in a file or the database — that permits the exact trigger-incident shape: a config file and database row independently declaring the same model/profile binding.
+
+**Correct owner:** the SQLite `PeerInstanceConfig`/`PeerProfileBinding` records. External files may bootstrap or submit a governed configuration import; after import, dispatch, routing, readiness, and registry resolution read the database record only; the imported file is not a second live source; `runtime.py` owns process/bootstrap settings such as `PeerHubHome` and wiring, not operational peer/model pins; historical commands store the authoritative configuration revision/digest they used.
+
+## 2. Registry-style metadata
+
+### Finding 3 — mutable model metadata needs fact-specific owners
+
+**Sections:** §§6.1, 6.5, 10.1, 11. The architecture names profiles, model readiness, context requirements, cost policy, and capabilities without assigning each to an exact structure. Putting model ID, context window, cost tier, and availability into both descriptors and routing metadata would recreate today's registry drift.
+
+**Correct owners:**
+
+| Fact | Single owner |
+|---|---|
+| Adapter implementation capabilities — PIPE/PTY/session/stream support | `PeerDescriptor` |
+| Configured instance/profile/model/effort | `PeerProfileBinding` |
+| Observed executable/model/version/context capability | Immutable readiness/capability `EvidenceValue` |
+| Routing weights, cost classification, exclusions | Versioned `RoutingPolicy` |
+| Measured quota/headroom | `UsageEvidence` |
+| Actual attempt invocation | Request-attempt invocation digest/evidence |
+
+A declared context requirement may live in a profile binding, but a measured context capability belongs only to readiness evidence. Routing compares them; it must not copy the measured value into a mutable profile registry.
+
+### Finding 4 — `adapters.registry` must be a derived index, not another store
+
+**Sections:** §§2, 6.1. The registry validates descriptors and instances, but its persistence semantics are unstated. **Correct owners:** static adapter declaration = `PeerDescriptor` supplied by adapter code; operational instance and profile binding = database configuration records; registry = disposable, mechanically rebuilt index over those sources. If cached, the registry carries source revisions/digests and is discarded on mismatch — it must not persist independently editable copies of model IDs, capabilities, cost, or context-window figures.
+
+## 3. Evidence and projection ownership
+
+### Finding 5 — health projection versus `AdmissionSnapshot` needs an explicit temporal owner
+
+**Sections:** §§4, 10-10.1, 11. The pipeline is nearly correct: `EvidenceValue -> telemetry observation/projection -> health availability/admission -> AdmissionSnapshot -> RouteDecision`. But §4 stores "current health/admission projections," while routing consumes an `AdmissionSnapshot`. Without an explicit rule, both could become writable copies of "is this instance routable?"
+
+**Correct owner:** the versioned health projection written only by `health.service`. Immutable observations own measured facts; telemetry projections are rebuildable aggregates written only by `telemetry.projections`; the health projection owns the current policy classification for its policy/evidence revision; `AdmissionSnapshot` is an immutable historical freeze of that projection, identified by projection ID/revision/digest; `RouteDecision` references that snapshot and owns only the routing decision it made — it never independently writes `healthy`, `open`, or quarantine state; consensus rounds similarly reference or embed one frozen snapshot and never reread current health when deciding that round. This makes "healthy," "admitted," and "selected" three distinct facts with three distinct owners.
+
+### Checked — evidence algebra is single-owned
+
+**Sections:** §§2, 6.4, 10.1, 13.1. No finding. `core.evidence.EvidenceValue` owns measurement state, source, freshness, and error semantics. `UsageEvidence` correctly composes it rather than redefining the same fields.
+
+### Checked — presence is not a health copy
+
+**Section:** §2.1 rule 11. No finding. Coordination owns membership/contact heartbeat; health owns readiness and admission. Presence can be input evidence but cannot independently declare `HEALTHY` or `OPEN`.
+
+## 4. Consensus records
+
+### Finding 6 — frozen round fields and global policy need a precedence rule
+
+**Section:** §8. A round stores both a policy revision and copied decision inputs: electorate, decision rule, participation threshold, risk classification, override permission, and collaboration rate. A later consumer could reconstruct the round from either the frozen fields or the policy record referenced by `policy_revision` — those may legitimately differ after policy evolution.
+
+**Correct owner:** the immutable `RoundContract` is authoritative for that round. Global policy owns defaults only until round creation; creation validates the snapshot against the source policy and records `source_policy_revision` plus `round_contract_digest`; all later decisions use the frozen contract fields exclusively; the source policy reference is provenance, never a reconstruction path; voter health/readiness is either embedded as the round-owned frozen snapshot or referenced by immutable snapshot ID/digest — not copied and independently re-evaluated.
+
+### Finding 7 — the effective consensus result must be derived
+
+**Section:** §8. The document correctly retains both the base decision and later arbiter opinion. A third independently writable "final status" would drift from those two facts.
+
+**Correct owners:** base consensus result = immutable `ConsensusDecision`; arbiter result = immutable `ArbiterOpinion`; effective decision = pure derivation — arbiter override when authorized and present, otherwise base decision. Do not persist an independently editable `effective_decision`; if materialized for queries, treat it as a disposable projection keyed by both source revisions.
+
+### Checked — votes are single-owned
+
+**Section:** §8. No finding. One immutable `(round_id, voter_id)` vote is authoritative; resubmission is idempotent and conflicting replacement is rejected.
+
+## 5. Governance and proposal reconstruction
+
+### Finding 8 — mutation lifecycle records need explicit fact ownership
+
+**Section:** §12. `MutationRequest`, `MutationPlan`, target state, effect intents, and `TransitionReceipt` necessarily repeat identifiers and may repeat desired or committed values. Without strict roles, consumers could reconstruct the mutation from request, plan, or receipt differently.
+
+**Correct owners:** caller intent = immutable `MutationRequest`; authorized normalized execution = immutable `MutationPlan`, referencing `request_id` and request digest; current domain state = the target authoritative record; commit result = `TransitionReceipt`, referencing plan digest and committed target revision; external enforcement status = effect-intent/effect-result records referenced by the receipt. The receipt must not become a second copy of the full target record — it records transition identity, revisions, outcome, and evidence references. For sandbox broker files: pending file is untrusted transport; imported database `MutationRequest` becomes authoritative; archived file is provenance only and is never reread as current mutation state.
+
+### Finding 9 — proposal fingerprint must be server-derived from one canonical `FindingSet`
+
+**Section:** §13.3. The proposal record stores both findings and fingerprint identity. If producers can supply both, mismatched or differently normalized fingerprints can create duplicate proposals.
+
+**Correct owner:** the canonical normalized `FindingSet`. `governance.proposals` normalizes findings centrally; it derives the fingerprint using a versioned algorithm; store `finding_set`, `fingerprint`, and `fingerprint_algorithm_version` atomically; reject or ignore caller-supplied fingerprints; proposal lifecycle state is owned by the proposal record; handoff/dashboard entries remain projections of proposal events, as already specified. A changed normalization algorithm creates an explicit new fingerprint version; it must not silently reinterpret old proposals.
+
+### Checked — handoff/dashboard records are projections
+
+**Sections:** §§2.1, 13.3, 14. No finding. The proposal lifecycle is authoritative; handoff/dashboard entries are event-derived and must not be independently appended or used to reconstruct proposal status.
+
+## 6. Other SSOT checks
+
+### Checked — event schema
+
+**Sections:** §§2.1, 4-5. No finding. `core.protocol.EventEnvelope` is canonical; the outbox adds delivery metadata without defining another payload schema.
+
+### Checked — execution certainty and retry semantics
+
+**Sections:** §§2, 5, 9, 14. No finding. Shared enums are owned by `core.execution` and referenced by protocol and dispatch.
+
+### Checked — routing outcome
+
+**Section:** §11. No finding after the health-snapshot clarification. `RouteDecision` owns selection and exclusion reasoning for one request; it references configuration, policy, health, readiness, usage, and telemetry revisions rather than becoming another authority for those inputs.
+
+## Required SSOT edit set
+
+1. Add `PeerProfileBinding` under `PeerInstanceConfig`; make it the sole owner of configured model and reasoning effort.
+2. Declare SQLite configuration records authoritative; external configuration files are bootstrap/import inputs only.
+3. Assign adapter capabilities, measured model capabilities, routing cost policy, and usage evidence to distinct named owners.
+4. Declare `adapters.registry` a disposable derived index.
+5. Define health projection as the current policy authority; make `AdmissionSnapshot` and routing/consensus copies immutable revisioned freezes.
+6. State that a frozen `RoundContract`, not current global policy, governs its round.
+7. Derive effective consensus outcome from base decision plus arbiter opinion.
+8. Give mutation request, plan, target state, receipt, and effect result non-overlapping authoritative roles.
+9. Make proposal fingerprints centrally and mechanically derived from a versioned canonical `FindingSet`.
+
+**Final verdict: real SSOT findings exist, concentrated around configuration/model metadata and temporal snapshots.** The evidence, event, execution, vote, presence, and handoff-projection paths are already single-owned.
+
+---
+
+## Round 9
+
+*(pending — cc directly verified `ProfileDescriptor` has no field definitions anywhere in ARCHITECTURE.md before dispatching, contradicting ag's specific field-name claims; ag asked to re-verify concretely against cx's 9 findings)*
