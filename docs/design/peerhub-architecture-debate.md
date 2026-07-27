@@ -1836,4 +1836,18 @@ The revised architecture is cohesive at the domain level, but its dependency gra
 
 ## Round 7
 
-*(pending — reconciling ag's 0-finding verdict against cx's 16 findings; cc independently verified Finding 11 as real against the live file before dispatching this round)*
+### ag.deepthink reconciliation with cx's coupling findings (Round 7)
+
+*(Originally written by ag to `round7-ag-reconcile.md`; inlined here by cc.)*
+
+**Verdict: CONVERGED, 16 of 16 findings accepted, 0 contested.** ag went through each of cx's 16 findings individually and re-verified them concretely against the live `ARCHITECTURE.md` text (not just deferring because Finding 11 was independently confirmed real by cc) — including checking that `core.api` importing every feature service, while every feature service imports `core.protocol`/`core.evidence`/`core.context`, is a genuine package-level cycle under Python import semantics. Produced a consolidated 8-item edit set reconciling with its own already-accepted Round 4-5 items (no duplicated work). Full per-finding re-verification in `round7-ag-reconcile.md`.
+
+---
+
+## Outcome (Coupling Cross-Check)
+
+**Full convergence reached after 2 rounds**, but with a genuinely different shape than the earlier passes: `ag`'s independent Round 6 pass found **0** issues (100% DAG, 0 leakage) while `cx`'s independent Round 6 pass found **16**, including a real package cycle. `cc` did not treat ag's CONVERGED verdict as settling the question — cx's Finding 11 (a leftover `peer_id` reference contradicting §6.1a's `instance_id` decision) was independently checked against the live file BEFORE dispatching Round 7, confirmed real, and used to motivate ag re-examining its other 15 conclusions rather than resting on its initial "0 findings." ag then verified all 16 concretely and accepted all of them. This is the exact "verify directly, don't just trust a summary" practice the user asked to see more of.
+
+**Applied to `ARCHITECTURE.md`** (cc, mechanical synthesis of the converged 8-item set): `core/api.py` moved to a new `application/` package (`api.py` + `workflows.py`) so `core` is a true dependency leaf, closing the real `core <-> features` cycle; new `core/execution.py` for shared process-boundary types so `adapters` and `dispatch` stop needing to import each other; new `core/ports.py` `CommandSubmitter` so internal workers depend downward, not on `application.api`; `state/contract.py` (port) separated from new `persistence/sqlite.py` (implementation) so no feature needs to import a concrete backend; narrow `contract.py` published-DTO modules added to every feature (`dispatch`, `coordination`, `routing`, `consensus`, `health`, `telemetry`, `governance`) with an explicit new ownership rule that a feature may import a sibling's `contract.py` but never its `model.py`; `consensus.service` returns a `PeerInvocationIntent`/`ArbiterInvocationIntent` instead of calling `dispatch.service` directly; `UsageEvidence` redefined as `EvidenceValue[UsageMeasurement]` instead of duplicating the evidence state algebra; `telemetry.projections` now consumes a narrow `AttemptTerminalObserved` event instead of the full `dispatch.AskResult` (structurally enforcing §10.1's safety caveat rather than relying on convention); `health`/`routing` now read telemetry through a `TelemetryProjectionReader` snapshot interface, not internals; and the leftover `peer_id` in §7.3's session-binding key fixed to `instance_id`, matching §6.1a.
+
+**Outcome: the design is now believed to have an acyclic, minimally-coupled module dependency graph**, in addition to being complete (Round 4-5) and behaviorally correct (Round 1-3). Still pre-TDD; Phase 0 of §15 is the next authorized step, in a future round. Per the user's "몇 라운드만" (bounded, not unlimited) request, this pass stopped at 2 rounds given full convergence — `cc` did not continue probing for a Round 8 without a new reason to.
