@@ -1533,4 +1533,158 @@ justified "no change" verdict per section. `cc` conserves tokens this pass
 
 ## Round 4
 
+### ag.deepthink meta-review (Round 4)
+
+*(Originally written by ag to `round4-ag-metareview.md`; inlined here by cc.)*
+
+8 findings, all LOW severity, 0 HIGH. Summary: SQLite WAL startup-probe mechanism needed explicit definition (§4); `CompletionAssessor` should only run on terminal exit-0 (§9); "action proposals" vs "consensus rounds" need disambiguation since both used the word "proposal" (§2/§8); lease-sweep ownership needed an explicit home in `dispatch/service.py` (§7.2); `dispatch/pty.py` needs explicit cross-platform framing (POSIX pty vs Windows ConPTY) (§6.2); `AskResult`'s 3 sub-objects are worth keeping as-is (no change); `BudgetReservation` should default to `DISABLED`/no-op (§11); and a feedback-loop clause should connect terminal outcomes → health availability → admission → routing (§10/§11). Full findings in `round4-ag-metareview.md`.
+
+### cx.deepthink meta-review (Round 4)
+
+*(Written to the ledger by cc on cx's behalf — cx's sandbox again rejected a direct file write; returned as reply text, verbatim below.)*
+
+# peerhub Round 4 — cx.deepthink meta-review
+
+The design is substantively sound, but this pass found several real organization/minimality gaps. Surgical edits are warranted; no architectural reset is needed.
+
+## 1. 5-Whys
+
+### SQLite behind `StateStore` — no fix warranted
+
+**Sections:** §§3-4. The root justification still holds: independent processes require atomic ownership, uniqueness, CAS, and state-plus-outbox commits; T83/T89 demonstrate these are concrete correctness requirements; `StateStore` isolates domain logic for deterministic testing, not to speculate about multiple production backends; SQLite is explicitly limited to local filesystems and fails closed when its transaction probe fails. This remains the smallest credible authoritative store for the stated concurrency model.
+
+### Three-layer `AskResult` — no structural simplification warranted
+
+**Sections:** §§6.2, 7.1, 9, 13.2. The layers describe facts from different authorities (process supervisor: execution; adapter: vendor protocol; central assessor: task completion). Flattening them would not reduce the number of facts or producers; it would weaken their ownership boundary and make another T88-style conflation easier. One small correction under Lens 4: `effective_status` should be derived, not independently stored.
+
+### No resident daemon — no fix warranted
+
+**Section:** §3. The root reason remains absence of a measured continuous-subscription requirement. Transactional coordination already covers concurrent commands. The separate long-lived `serve --stdio` surface does not have equally strong justification — addressed under Lens 4.
+
+### Feature-first modules — root holds, boundary cleanup needed
+
+**Sections:** §§2-2.1. Feature-local models and services fit independently evolving state machines better than a generic five-layer directory tree. The remaining problems are duplicate or missing owners inside that structure, not a reason to abandon it.
+
+### The §16 "open questions" bucket is incorrectly organized
+
+**Sections:** §§4, 15-16. It mixes four different categories: actual Phase 0 decisions, implementation spikes, empirical validation, and trigger-gated future work that must not be decided yet. Inconsistencies: §16.5 calls unusual/network-filesystem support open, while §4 already resolves v1 as local-filesystem-only with fail-closed probing; §16.10/11/13 require future consumers/releases so Phase 0 cannot legitimately resolve them; Phase 7 promises current-plus-previous-major fixtures while §16.13 says that policy is undecided, but v1 has no previous major.
+
+**Fix:** Replace §16 with three lists — (1) Phase 0 decisions: state scope, provider granularity, health policy data, budget inclusion, default outcome wording; (2) Implementation/empirical spikes: PTY implementation, filesystem probe matrix, vendor session locator, provider-isolation boundary; (3) Explicitly deferred until trigger: broader public Python API, third-party adapter discovery, breaking-release support window. For v1, test protocol v1 only; decide previous-major support when the first breaking major is proposed.
+
+## 2. MECE
+
+### Duplicate `RuntimeContext` ownership
+
+**Section:** §2. Both `runtime.py` and `core/context.py` claim `RuntimeContext`. **Fix:** `core/context.py` owns the immutable `RuntimeContext`/`PathLayout` value types; `runtime.py` owns only configuration resolution and composition-root construction.
+
+### Duplicate protocol/error ownership
+
+**Sections:** §§2, 2.1, 5. `core.protocol` owns command/event schemas, negotiation, and stable error codes, while `ipc.commands`, `ipc.events`, and `core.errors` claim overlapping pieces. **Fix:** `core.protocol` = canonical transport-neutral command/event/envelope/version/`ErrorCode` types; `core.errors` = internal exception types + their mapping to protocol errors; `ipc.jsonl` = framing/serialization only; remove or rename `ipc.commands.py`/`ipc.events.py` to codecs if transport-specific encoding genuinely remains.
+
+### Current collaboration mechanisms have no feature owner
+
+**Sections:** §§1-2, 4. The architecture intends to replace `hub.py`'s communication and coordination, but its module map lacks ownership for several real mechanisms: sessions/room lifecycle (`hub.py:1363,1388,3532,3568`), durable send/broadcast/read state (`hub.py:1460,1531,1573`), node registration/presence (`hub.py:1658`), terminal duty and handoff (`hub.py:8690,8752,8793`), checkpoint/context/handoff state (`hub.py:8844,8929,11135`). `ipc/` is defined as command/event transport only, so it is not a valid owner for the mailbox/room domain.
+
+**Fix:** Add a feature package:
+
+```text
+coordination/
+  model.py       # Room, membership/presence, message, handoff/checkpoint,
+                 # terminal-assignment transitions
+  service.py
+```
+
+Add the corresponding authoritative records to §4. If any mechanism is intentionally excluded, §1 must say so explicitly instead of claiming full communication/coordination replacement.
+
+### Several important abstractions are described but have no module owner
+
+**Sections:** §§2, 6.4-6.5, 9, 10, 13.1. Missing/ambiguous owners: `CompletionAssessor`; shared `EvidenceValue`/`EvidenceRef` types; readiness-probe contract and receipts; cross-feature telemetry fan-out (currently under `health.collectors` even though usage evidence also serves routing). **Fix:** add explicit homes — `core/evidence.py`, `dispatch/completion.py`, `adapters/readiness.py`, `telemetry/collectors.py`, `telemetry/projections.py`. `health` should own health policy/transitions, not all telemetry collection.
+
+### "One mutating entrance" conflicts with internal workers
+
+**Sections:** §2.1 rule 3, §§3, 12, 14. Recovery sweeps, lease heartbeats, outbox/effect workers, and broker reconciliation must mutate state, yet the document literally says `core.api` is the only mutating entrance. **Fix:** clarify `core.api` is the sole **external** facade; every mutation (external or system-initiated) passes through the same application command handlers and `UnitOfWork`; internal workers submit typed system commands rather than invoking the public client facade or repositories directly.
+
+### Completion-contract optionality is inconsistent
+
+**Sections:** §§6.2, 7.1, 13.2. `AdapterRequest` permits an optional caller contract, but §13.2 says every dispatch freezes one. **Fix:** admission always freezes a contract — either caller-supplied or a canonical implicit contract whose only claim is delivery, producing `DELIVERED_UNVERIFIED` when valid protocol output exists.
+
+## 3. Purpose-fit generalization
+
+### Adapter type and configured peer instance are not clearly separated
+
+**Sections:** §§2.1 rule 7, 6.1, 7.3, 11. `PeerAdapter` describes a vendor integration, while session/routing/health records refer to `peer_id` — the document never defines whether `peer_id` means adapter kind, configured executable, account, or active instance. Ambiguous for a fourth peer using an existing adapter, two accounts of one vendor, or two executables with different readiness bindings.
+
+**Fix:** add a small configured-instance value:
+
+```text
+PeerInstanceConfig:
+  instance_id
+  adapter_id
+  executable_reference
+  enabled_profile_ids
+  account_id?
+  quota_pool_id?
+```
+
+Health, routing, leases, and sessions key on `instance_id`; adapter conformance keys on `adapter_id` + adapter version. This generalizes for a named real gap without inventing a plugin ecosystem.
+
+### Commands incorrectly require a workspace scope universally
+
+**Section:** §5. Coordinator operations (node listing, broker status, global health, config inspection) are not inherently workspace-scoped; requiring `workspace_scope` forces fake values. **Fix:** `scope: WorkspaceScope | GlobalScope`, each command schema declaring which scope kinds it accepts.
+
+### No additional host or transport generalization is warranted
+
+**Sections:** §§2.1, 3, 6.1-6.5, 16. No fix warranted — built-in `cc`/`cx`/`ag` modules don't hardcode identities into core policy; PIPE/PTY cover the three actual invocation models; process supervision is described through ports, not Windows APIs; the Windows PTY choice remains a localized implementation spike; HTTP peers/remote brokers/plugin signing/arbitrary transports lack a named current requirement.
+
+## 4. Token/feature efficiency
+
+### `effective_status` should be derived
+
+**Section:** §9. `AskResult` contains 3 authoritative subobjects plus a fourth status summarizing them — if independently persisted/constructed, permits contradictory combinations. **Fix:** make `effective_status` a pure computed property/central reducer output; persist the three evidence layers + the policy revision used to derive status. The three subobjects stay — they're the T88 safety boundary.
+
+### Budget reservation is premature v1 machinery
+
+**Sections:** §§4, 11, 16.1, 16.12. The document defines a reservation state machine before deciding whether v1 includes budget authority, whether providers report request-level cost vs. account/pool headroom only, and what reservable unit would be authoritative — a state machine can't be correctly specified before those facts exist. **Fix:** keep usage evidence + no-budget routing in v1; move `BudgetReservation` to a conditional design note activated only if Phase 0 identifies a measured oversubscription problem + an authoritative reservable unit.
+
+### Long-lived `serve --stdio` lacks a named v1 consumer
+
+**Sections:** §§3, 5, 15 Phase 6. The design correctly rejects a daemon (continuous subscription unmeasured) but then includes a multi-command foreground service without citing a consumer needing connection reuse — today's `hub.py` command surface is one-shot. **Fix:** preserve the versioned JSONL envelope, but v1 surfaces = embedded API + one-shot CLI/JSONL only. Defer persistent `serve --stdio` until a real client needs multi-command connection state.
+
+### Publishing a conformance kit is ahead of the third-party-adapter decision
+
+**Sections:** §§2, 15 Phase 3, 16.11. Built-in adapters need shared conformance tests, but publishing `peerhub.testing` creates a supported public API + compatibility burden with no external adapter consumer yet (§16.11 already correctly defers discovery). **Fix:** keep conformance fixtures in repository tests for v1; publish a supported kit only when the first external adapter is accepted.
+
+### SQLite abstraction and the outbox are not over-engineering
+
+**Sections:** §§4, 12, 14. No fix warranted — the store interface enables pure tests and preserves ownership; the atomic outbox closes a real crash boundary between state and external effects. Replacing either with direct repository writes or best-effort logging would lose identified safety properties.
+
+## 5. Virtuous-cycle feedback loop
+
+### Evidence is not wholly write-only, but the outcome-to-policy path is underspecified
+
+**Sections:** §§4, 7, 10-11, 14. Routing already consumes current usage/admission evidence, so this is not as empty as the shelved blueprint's loop. However, the architecture never explicitly maps completed attempts, probe results, provider failures, latency, or process-integrity failures into the immutable observations and mutable projections that later health/routing decisions consume — terminal outcomes can enter the outbox and remain audit-only as written.
+
+**Smallest fix:** add one deterministic feedback paragraph and owner — `telemetry.projections` maps classified attempt/probe/provider outcomes into immutable observations and revisioned per-instance/profile projections; the terminal transition commits its normalized observation alongside request state and the outbox; projections track only operationally meaningful facts (infrastructure failure category, verified process integrity, latency, freshness, failure streak, measured quota state); health consumes these projections to derive admission; routing may consume a frozen, policy-declared reliability/latency projection with minimum-sample/freshness rules, recording supporting evidence references in its decision; every new decision emits evidence again, completing the loop; projections are rebuildable idempotently from immutable observations. **Important safety caveat: semantic `INCOMPLETE`/`UNVERIFIED` results must not automatically damage peer health unless a versioned policy explicitly classifies the failure as peer-caused — otherwise task difficulty would contaminate reliability.**
+
+### Consensus and arbiter rules should not self-tune
+
+**Sections:** §§8, 14. No automatic feedback fix warranted for electorate, unanimity, risk classification, or arbiter authority — those are governed policy, not optimization weights. Historical consensus evidence may support a human/R:10 policy revision, but must not silently rewrite constitutional behavior.
+
+## Recommended surgical edit set
+
+1. Clean up duplicate context/protocol/error ownership in §2.
+2. Add explicit `coordination` and `telemetry` feature ownership.
+3. Clarify internal mutation handling under §2.1.
+4. Define configured peer instances and global/workspace command scopes.
+5. Make the implicit completion contract and derived `effective_status` explicit.
+6. Defer budget reservations, persistent stdio hosting, and a published conformance API until their named triggers exist.
+7. Add the deterministic outcome-observation-projection loop for health and routing.
+8. Reclassify §16 into Phase 0 decisions, empirical spikes, and trigger-gated deferrals.
+
+Overall verdict: **targeted revision warranted**. The core architecture remains valid; the necessary changes primarily remove ambiguity, omit three premature v1 surfaces, restore missing coordination ownership, and close the evidence feedback loop.
+
+---
+
+## Round 5
+
 *(pending)*
