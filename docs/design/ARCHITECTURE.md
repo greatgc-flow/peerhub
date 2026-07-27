@@ -5,17 +5,24 @@
 > 1-3 (main architecture, full convergence), a Round 4-5 meta-review pass
 > (5-Whys/MECE/purpose-fit-generalization/efficiency/feedback-loop lenses,
 > fully converged, found and fixed a real completeness gap — missing
-> `coordination` ownership — plus 7 smaller organizational issues), and a
+> `coordination` ownership — plus 7 smaller organizational issues), a
 > Round 6-7 coupling/anti-spaghetti cross-check (fully converged, found and
 > fixed a real package-cycle risk around `core.api` plus 15 smaller
-> coupling/interface issues, after `ag`'s initial "0 findings" pass was
-> independently re-verified against `cx`'s evidence rather than accepted at
-> face value — one finding, a leftover `peer_id` reference, was confirmed
-> directly against the live text before the reconciliation round). Full
-> process record in `docs/design/peerhub-architecture-debate.md`. No code,
-> tests, or scaffolding exist yet. A future, separately-authorized round
-> starts TDD implementation against this document, beginning with Phase 0
-> below.
+> coupling/interface issues), and a Round 8-9 SSOT cross-check (fully
+> converged, triggered by a real same-session incident where a single live
+> config fact had 4 independently-writable copies that drifted — found and
+> fixed the analogous gap in this design: the configured peer/model pin had
+> no single named owner, closed with a new `PeerProfileBinding` type plus a
+> full SSOT ownership matrix, §4.1). **`ag`'s "0 findings" verdict was wrong
+> and independently re-verified against `cx`'s evidence, not accepted at
+> face value, in every one of the last three rounds** (Round 6: a leftover
+> `peer_id` reference, confirmed directly against the live text; Round 8:
+> `ag` cited specific fields of a type, `ProfileDescriptor`, that a direct
+> `grep` proved were never actually defined anywhere in this document).
+> Full process record in `docs/design/peerhub-architecture-debate.md`. No
+> code, tests, or scaffolding exist yet. A future, separately-authorized
+> round starts TDD implementation against this document, beginning with
+> Phase 0 below.
 
 ## 1. Mission
 
@@ -100,7 +107,7 @@ peerhub/
   adapters/
     contract.py                  # PeerAdapter + optional capability protocols (UsageProvider, SessionCapability)
     instance.py                   # PeerInstanceConfig — see §6.1a
-    registry.py                    # descriptor/instance resolution, adapter-conformance/v1 validation
+    registry.py                    # DISPOSABLE derived index over PeerDescriptor + PeerInstanceConfig (§4.1) -- never an independent store
     readiness.py                    # readiness probe contract & receipts (§6.5)
     builtins/
       claude.py                   # ClaudeAdapter (cc)
@@ -197,10 +204,12 @@ MCP is not a foundation; if added later, it is a translation adapter over this s
 
 **Resolved (Round 2-3, backend location fixed Round 6-7): `StateStore`/`UnitOfWork` interface in `state/contract.py`; SQLite (`persistence/sqlite.py`) is the supported v1 backend.** Domain code depends on the interface, never on `sqlite3` directly. (Round 6-7, Finding 4: the interface and the implementation must live in different packages — `state/contract.py` stays a pure port with zero feature-model imports, while `persistence/sqlite.py` is the only place allowed to import feature `contract.py` modules to persist/hydrate their records. No feature imports `persistence`; only `runtime.py` wires the two together.)
 
+**Round 8-9 SSOT fix: these SQLite records are the single *operational* source of truth for peer/model configuration — not a file.** This closes the exact failure shape a live incident hit during this same debate: the portable-dev-env's real `cc.deepthink` model ID had 4 independently-writable locations (an orchestration file, a capability-declarations file, routing-target strings, and a model-registry file), none derived from the others, so one legitimate model bump required a coordinated 4-file edit and drifted silently until hardcoded tests caught it. External configuration (YAML/JSON, however it's authored) may **bootstrap or submit a governed import** of peer/profile/model configuration, but once imported it is not a second live source — dispatch, routing, readiness, and the adapter registry (§6.1) read only the SQLite record. See the SSOT Ownership Matrix (§4.1) for the complete per-fact ownership table.
+
 One SQLite database per configured `PeerHubHome`:
 
 - Request, request-attempt, process-lease, and session-binding records.
-- Configured peer instances (`PeerInstanceConfig` — §6.1a).
+- Configured peer instances and their profile-to-model bindings (`PeerInstanceConfig` + `PeerProfileBinding` — §6.1a; §4.1).
 - Room, membership/presence, message, and handoff/checkpoint records (`coordination` — new in Round 4-5, closes the gap noted in §2).
 - Health observations, telemetry projections, and current health/admission projections.
 - Routing decisions.
@@ -216,6 +225,29 @@ Required store properties: short `BEGIN IMMEDIATE` write transactions with revis
 This is intentionally a local, not distributed, design. SQLite removes the bespoke JSON-file locking that caused T83, and directly supplies the atomicity/uniqueness the observed defect classes (T83, T89) need. **The DB must be enforced on a local filesystem** (not SMB/NFS) — v1 fails startup if its lock/transaction probe fails rather than claim unmeasured safety on network filesystems (`TEST NEEDED` if that support matrix is ever wanted).
 
 A future non-SQLite backend is acceptable only if it passes the identical multi-process/crash-boundary/uniqueness/state-plus-outbox test suite as SQLite — v1 ships exactly one backend, not two.
+
+### 4.1 SSOT ownership matrix (Round 8-9)
+
+Every fact category below has exactly one canonical owner. Everything in the third column is a reference (by ID/revision/digest) or a mechanically-derived/immutable-freeze projection — never an independently-writable second copy.
+
+| Fact category | Canonical owner | Everyone else references or derives it |
+|---|---|---|
+| Adapter implementation capabilities (transports, session/stream support) | `PeerDescriptor` (adapter code, §6.1) | `adapters.registry` indexes it; nothing else declares capabilities |
+| Configured instance identity, model pin, reasoning effort | `PeerInstanceConfig` + `PeerProfileBinding` (SQLite, §6.1a) | `dispatch`, `routing`, `health`, `coordination` all key on `instance_id`; `InvocationPlan.argv` is generated from the binding, never independently specified |
+| Observed executable/model/version/context capability | Immutable readiness `EvidenceValue` (§6.5) | Compared against the configured binding by policy; never copied back into it |
+| Routing weights, cost classification, terminal exclusions | Versioned `RoutingPolicy` (§11) | `RouteDecision` records which policy revision it used, never redefines the policy |
+| Measured quota/headroom | `UsageEvidence` (§6.4) | Routing reads it as evidence; never cached as a second mutable figure |
+| Health availability + admission policy classification | The live projection owned by `health.service` (§10) | `AdmissionSnapshot` is an immutable revisioned freeze of it; `RouteDecision`/consensus reference the snapshot ID and never independently write `HEALTHY`/`OPEN`/quarantine state |
+| Raw/aggregated telemetry observations | `telemetry.projections`, fed only by the narrow `AttemptTerminalObserved`/`ReadinessObserved`/`UsageObserved` events (§10.1) | `health.service` reads via `TelemetryProjectionReader`; telemetry itself never computes admission states |
+| Consensus round rules (electorate, decision rule, risk classification) | The frozen `RoundContract` created with the round (§8) | Global policy supplies the input at creation time only; later policy changes never retroactively alter an in-flight or decided round — the round records `source_policy_revision` as provenance, not a re-derivation path |
+| Consensus outcome | `ConsensusDecision` (base) + optional `ArbiterOpinion` (override), both immutable (§8) | "Effective decision" is a pure derived read (arbiter override if authorized and present, else base) — never a third persisted field |
+| Votes | One immutable `(round_id, voter_id)` row (§8) | Nothing else stores or recomputes a vote |
+| Mutation lifecycle | `MutationRequest` (intent) → `MutationPlan` (authorized) → target record (current state) → `TransitionReceipt` (commit result) (§12) | Each stage references the prior stage's ID/digest; `TransitionReceipt` never duplicates the full target record, only transition identity/revisions/evidence refs |
+| Proposal identity/deduplication | The canonical normalized `FindingSet` and its server-derived fingerprint, computed only by `governance.proposals` (§13.3) | Caller-supplied fingerprints are rejected; handoff/dashboard entries are read-only projections of proposal/outbox events, never independently appended |
+| Wire schemas (commands/events/errors) | `core.protocol` (§2.1 rule 1) | `ipc` only frames/serializes what protocol defines |
+| Shared evidence/execution vocabulary | `core.evidence.EvidenceValue`, `core.execution` (§2.1 rules) | `UsageEvidence` composes `EvidenceValue` rather than redefining it; protocol errors and `ExecutionOutcome` share one `ExecutionCertainty` enum |
+
+`adapters.registry` itself is a **disposable, mechanically rebuilt derived index** over `PeerDescriptor` declarations and `PeerInstanceConfig`/`PeerProfileBinding` records — if cached, it carries the source revisions/digests it was built from and is discarded on mismatch. It never persists an independently editable copy of a model ID, capability, cost figure, or context-window value.
 
 ## 5. Public command, event, and error contract
 
@@ -256,6 +288,19 @@ class PeerDescriptor:
     capabilities: frozenset[Capability]      # SESSION, STREAM, GRACEFUL_CANCEL...
     usage_provider_id: str | None
     readiness_probe_id: str
+
+
+@dataclass(frozen=True)
+class ProfileDescriptor:
+    """Round 8-9 SSOT fix: this type was referenced 4 times in earlier rounds
+    but never actually defined — the gap that let Round 8's coupling check
+    initially (wrongly) assume it owned the model pin. It does NOT: this is
+    adapter-level, generic profile-KIND metadata, shared by every instance
+    of this adapter. The configured model pin is instance-level and lives
+    in PeerProfileBinding (§6.1a) instead — see the §4.1 ownership matrix."""
+    profile_id: str                          # "standard" / "effort" / "deepthink" / a specialty name
+    profile_class: str                       # "tier" | "specialty"
+    supports_reasoning_effort: bool
 ```
 
 Profile, account, and quota-pool identifiers are data, never inferred from peer names. Registry loading validates uniqueness and referential integrity before a runtime is admitted. A descriptor declaring a capability it doesn't actually implement is a load-time error, not a runtime surprise.
@@ -270,12 +315,29 @@ class PeerInstanceConfig:
     instance_id: str
     adapter_id: str                    # which PeerDescriptor/adapter implementation
     executable_reference: str
-    enabled_profile_ids: tuple[str, ...]
+    profile_bindings: tuple[PeerProfileBinding, ...]
     account_id: str | None
     quota_pool_id: str | None
+
+
+@dataclass(frozen=True)
+class PeerProfileBinding:
+    """Round 8-9 SSOT fix (replaces the earlier bare `enabled_profile_ids:
+    tuple[str, ...]`, which had no field for the model pin at all): the
+    SINGLE owner of "which model does this instance's this profile actually
+    run." Stored in SQLite as part of PeerInstanceConfig (§4.1) — never
+    duplicated into ProfileDescriptor, InvocationPlan literals, or a
+    separate registry file. This is exactly the fact that had 4
+    independently-writable copies in the real incident that motivated this
+    round; here it has exactly one."""
+    binding_id: str
+    profile_id: str                    # references ProfileDescriptor.profile_id (§6.1)
+    model_id: str                       # e.g. "claude-opus-5", "gpt-5.6-sol" — the actual configured pin
+    reasoning_effort: str | None
+    revision: str
 ```
 
-**Health, routing, leases, and sessions key on `instance_id`.** Adapter conformance (§6.5) keys on `adapter_id` + adapter version. This closes a real, named gap (multi-account/multi-executable configurations) without inventing a speculative plugin ecosystem.
+**Health, routing, leases, and sessions key on `instance_id`.** Adapter conformance (§6.5) keys on `adapter_id` + adapter version. `InvocationPlan.argv` (§6.2) is mechanically generated from the resolved `PeerProfileBinding`, never independently specified. A request attempt freezes the `binding_id` + `revision` it used; readiness evidence (§6.5) records the *observed* model and whether it matched the binding, and never rewrites the configured pin itself. This closes a real, named gap (multi-account/multi-executable configurations) without inventing a speculative plugin ecosystem.
 
 ### 6.2 `PeerAdapter`
 
@@ -399,9 +461,11 @@ DRAFT -> VOTING -> DECIDING -> APPROVED | REJECTED | ESCALATED
                   -> EXPIRED -> ESCALATED
 ```
 
-Creating a round atomically freezes: full electorate, policy revision + collaboration rate, decision rule + minimum participation, risk classification + whether arbiter override is permitted, health/readiness evidence for every voter (**without deleting any voter** — the `required_voters` reduction bug in today's `hub.py:7619-7701`, where an unavailable voter can silently shrink the unanimity denominator, must not recur), deadline, proposer + subject digest, round revision.
+Creating a round atomically freezes an immutable **`RoundContract`** (Round 8-9 SSOT naming — see §4.1): full electorate, policy revision + collaboration rate, decision rule + minimum participation, risk classification + whether arbiter override is permitted, health/readiness evidence for every voter (**without deleting any voter** — the `required_voters` reduction bug in today's `hub.py:7619-7701`, where an unavailable voter can silently shrink the unanimity denominator, must not recur), deadline, proposer + subject digest, round revision.
 
-`(round_id, voter_id)` is unique; identical resubmission is idempotent, a different second vote is rejected; votes are immutable evidence; the decision reducer is pure over the frozen contract + votes; the base result and any later override are both retained, never overwritten.
+**Round 8-9 SSOT fix — precedence rule:** the frozen `RoundContract` is authoritative for its round, full stop. Global policy owns the *defaults that fed the contract at creation time* — it is never re-consulted to reconstruct or reinterpret a round after the fact. If policy evolves mid-round or after a round closes, the round's own frozen fields still govern it; `policy_revision` is retained as provenance (which policy generation the contract was built from), not a live pointer a consumer could dereference to get a different, "more current" answer for the same round.
+
+`(round_id, voter_id)` is unique; identical resubmission is idempotent, a different second vote is rejected; votes are immutable evidence; the decision reducer is pure over the frozen contract + votes; the base result and any later override are both retained, never overwritten. **The "effective" decision a caller sees is a pure derived read** — `arbiter_opinion if (authorized and present) else base_decision` — never a third independently-persisted field that could itself drift from the two source facts.
 
 **Arbiter invocation ownership (Round 6-7, Finding 6):** `consensus.service` owns round policy and transitions — it does not call `dispatch.service` directly (that would be a sideways cross-feature service call, and would force consensus's own tests to require process orchestration). Instead, when DIR-005 final-arbiter selection is required, `consensus.service` returns an immutable `PeerInvocationIntent`/`ArbiterInvocationIntent` (published via `consensus/contract.py`). `application.workflows` executes that intent through `dispatch.service` and submits the resulting vote/opinion back to consensus as a new command — a separate application transition after the base result commits, never inside the consensus transaction itself.
 
@@ -463,6 +527,8 @@ Two orthogonal projections over immutable observations, replacing today's overla
 
 A rate-limit reset ends `COOLDOWN` only, not general health. **Administrative "recover" authorizes a probe — it does not write HEALTHY/GREEN directly** (today's `hub.py:3501-3524` does the latter, erasing the distinction between "attempt recovery" and "measured proof of readiness"). Reopening requires a fresh successful probe tied to the current executable/readiness/adapter fingerprint. Routing consumes one frozen `AdmissionSnapshot`; it never mutates health during selection. Stale/unavailable evidence is never fabricated as healthy.
 
+**Round 8-9 SSOT fix — temporal ownership:** `health.service` owns the single *live* availability/admission projection described above — it is the only writer. `AdmissionSnapshot` is an **immutable, revisioned freeze** of that projection at the moment `routing.service` or a consensus round needed one, identified by projection ID/revision/digest — never a second place that independently re-decides "is this instance routable." `RouteDecision` (§11) and a consensus round's frozen contract (§8) both *reference* the snapshot they used; neither ever writes `HEALTHY`/`OPEN`/quarantine state itself. This keeps "healthy" (health.service's call), "admitted" (the frozen snapshot a decision was made against), and "selected" (that decision's own outcome) as three distinct facts with three distinct owners, never three places that could each separately claim the same one.
+
 ### 10.1 Evidence feedback loop (Round 4-5 addition)
 
 **Gap found:** the Round 1-3 design's outbox/evidence store (§4) is not *wholly* write-only — routing already consumes current usage/admission evidence — but the path from a terminal `AskResult` (§9) back into future health/routing decisions was never explicit. As written, a terminal outcome could land in the outbox and stay audit-only forever, missing the same category of gap the shelved blueprint's own phase2-arch document found in itself (§13.16, Evidence Feedback Loop).
@@ -505,7 +571,9 @@ MutationRequest -> authorized + domain validated + expected-revision checked
                  -> TransitionReceipt(COMPLETED | EFFECT_FAILED)
 ```
 
-`MutationRequest` carries operation/command/correlation IDs, actor/client attribution, policy revision, target record ID, expected record revision, typed desired transition. Authorization + domain-invariant validation happen before plan commit; the transaction commits the new authoritative record, immutable receipt, and outbox/effect intent together; filesystem/process effects happen after commit and reconcile idempotently; cross-record/cross-workspace operations are explicit sagas, not claimed distributed transactions. Sandboxed clients may submit a create-only immutable request file (a bridge for restricted adapter/tool sandboxes — cx's Round 1 draft hit exactly this limitation trying to write files directly during this very debate; the broker-inbox pattern generalizes that real constraint); the privileged broker validates and imports it by request ID, with database uniqueness making repeated imports harmless. `AuditedOperation` remains available for attempts that produce evidence without mutating authoritative state.
+`MutationRequest` carries operation/command/correlation IDs, actor/client attribution, policy revision, target record ID, expected record revision, typed desired transition. Authorization + domain-invariant validation happen before plan commit; the transaction commits the new authoritative record, immutable receipt, and outbox/effect intent together; filesystem/process effects happen after commit and reconcile idempotently; cross-record/cross-workspace operations are explicit sagas, not claimed distributed transactions. Sandboxed clients may submit a create-only immutable request file (a bridge for restricted adapter/tool sandboxes — cx's Round 1 draft hit exactly this limitation trying to write files directly during this very debate; the broker-inbox pattern generalizes that real constraint); the privileged broker validates and imports it by request ID, with database uniqueness making repeated imports harmless. Once imported, the pending file is spent transport, not a second live copy — the database `MutationRequest` is authoritative, and an archived copy of the file is provenance only, never re-read as current state. `AuditedOperation` remains available for attempts that produce evidence without mutating authoritative state.
+
+**Round 8-9 SSOT fix — non-overlapping roles, not a chain of copies:** `MutationRequest` (caller intent), `MutationPlan` (authorized/normalized execution), the target record (current domain state), and `TransitionReceipt` (commit result) each reference the prior stage by ID/digest rather than duplicating its content. In particular, `TransitionReceipt` records transition identity, revisions, outcome, and evidence references — it must never become a second full copy of the target record. A consumer reconstructing "what happened to this mutation" reads the receipt for the outcome and the target record for current state; it does not have two different valid paths to the same answer.
 
 ## 13. Structural prevention of T87, T88, T89
 
@@ -523,7 +591,7 @@ Structurally prevented by §9's three-layer `AskResult` — `ProcessExit(0)` can
 
 **Observed in `hub.py`/portable-dev-env:** every session end launches self-care unconditionally (`ctx_end.py:472-480`); missing `commit_count` silently defaults to `0` (`saturation_scan.py:219-229`); `0 % 10 == 0` makes the "every-10th-commit" scan run every single time (`saturation_scan.py:279-285`); any nonempty stdout triggers `proposal-add` (`self_care.py:244-264`); proposal creation only increments a filename sequence, no content dedup (`hub.py:10438-10472`) — 60+ near-duplicate proposal files accumulated in one day as a direct result.
 
-**Prevention:** trigger evaluation returns `DUE | NOT_DUE | INDETERMINATE` — a missing or malformed counter is `INDETERMINATE`, never silently coerced to a numeric default. A persisted trigger cursor compares real source revisions, not modulo arithmetic alone. A scan emits a normalized `FindingSet` with a fingerprint over sorted stable finding identities. Proposal identity is `(proposal_kind, workspace_scope, finding_fingerprint, lifecycle_generation)`; a database unique partial index permits at most one active proposal per identity, with creation as one transaction (insert-on-conflict/read-existing) so concurrent session-end processes still converge on the same proposal. A genuinely changed finding set gets a different fingerprint and may create a new proposal; rediscovering an identical closed set follows an explicit reopen/cooldown policy, never a bare filename counter. Pending handoff/dashboard entries are projections of the proposal/outbox event, never independently appended.
+**Prevention:** trigger evaluation returns `DUE | NOT_DUE | INDETERMINATE` — a missing or malformed counter is `INDETERMINATE`, never silently coerced to a numeric default. A persisted trigger cursor compares real source revisions, not modulo arithmetic alone. A scan emits a normalized `FindingSet` with a fingerprint over sorted stable finding identities. **(Round 8-9 SSOT fix: the fingerprint is computed exclusively, server-side, by `governance.proposals` from that canonical `FindingSet` — a caller-supplied fingerprint is rejected outright, never accepted as an alternative source, so mismatched or differently-normalized client fingerprints can't create duplicate proposals the uniqueness index fails to catch. A changed normalization algorithm gets an explicit new `fingerprint_algorithm_version`, never a silent reinterpretation of old proposals under the same version.)** Proposal identity is `(proposal_kind, workspace_scope, finding_fingerprint, lifecycle_generation)`; a database unique partial index permits at most one active proposal per identity, with creation as one transaction (insert-on-conflict/read-existing) so concurrent session-end processes still converge on the same proposal. A genuinely changed finding set gets a different fingerprint and may create a new proposal; rediscovering an identical closed set follows an explicit reopen/cooldown policy, never a bare filename counter. Pending handoff/dashboard entries are projections of the proposal/outbox event, never independently appended.
 
 ## 14. Other failure semantics
 

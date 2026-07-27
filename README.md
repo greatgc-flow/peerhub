@@ -4,11 +4,12 @@ A lightweight, installable coordination layer for orchestrating multiple AI CLI 
 ## Status
 
 Pre-implementation. The target architecture has been designed and converged
-through a 7-round adversarial review (`ag`/`cx`/`cc`) — 3 rounds of core
+through a 9-round adversarial review (`ag`/`cx`/`cc`) — 3 rounds of core
 architecture debate, a 2-round meta-review (5-Whys/MECE/purpose-fit/
-efficiency/feedback-loop), and a 2-round coupling/anti-spaghetti
-cross-check that found and fixed a real module dependency cycle — and is
-documented in
+efficiency/feedback-loop), a 2-round coupling/anti-spaghetti cross-check
+that found and fixed a real module dependency cycle, and a 2-round SSOT
+cross-check (triggered by a real same-session config-drift incident) that
+found and fixed the analogous gap in this design — and is documented in
 [`docs/design/ARCHITECTURE.md`](docs/design/ARCHITECTURE.md). No code exists
 yet — implementation starts at Phase 0 of that document's TDD plan, in a
 future, separately-authorized round. The full debate record, including
