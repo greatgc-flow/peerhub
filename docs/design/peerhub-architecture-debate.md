@@ -1702,3 +1702,59 @@ Overall verdict: **targeted revision warranted**. The core architecture remains 
 **Applied to `ARCHITECTURE.md`** (cc, mechanical synthesis, no further peer dispatch needed): duplicate `RuntimeContext`/protocol/error ownership resolved (§2, §2.1); new `coordination/` package added for room/mailbox/presence/handoff, closing the real completeness gap (§2, §4, new Phase 3.5); new `telemetry/` package split out of `health/` (§2); `core.api`'s "only mutating entrance" clarified as external-only, with internal workers using typed system commands (§2.1 rule 3); `PeerInstanceConfig` + `GlobalScope` added to separate adapter-kind from configured-instance and stop forcing fake workspace scopes (§5, new §6.1a); completion-contract optionality inconsistency fixed — always frozen, implicit-or-explicit (§6.2); `effective_status` made a derived property, not a persisted 4th field (§9); evidence feedback loop added as new §10.1 with an explicit safety caveat (incomplete/unverified results must not auto-damage health unless policy-classified as peer-caused); budget reservation, persistent `serve --stdio`, and the published conformance kit all deferred out of v1 with the shape preserved as a conditional note (§3, §11, §15 Phase 3); §16 reclassified from one flat list into Phase-0-decisions / implementation-spikes / trigger-gated-deferrals, fixing 2 live inconsistencies with already-resolved sections.
 
 **Outcome: the design is now believed complete for its stated purpose** (multi-peer AI CLI coordination, replacing hub.py's dispatch/routing/consensus/health/coordination responsibilities in full — the one real scope gap this pass found is now closed) and is the smallest version of itself both peers could defend under 5 different adversarial lenses. Still pre-TDD; Phase 0 of §15 is the next authorized step, in a future round.
+
+---
+
+# Coupling / Anti-Spaghetti Cross-Check (Round 6+) — user-requested, 2026-07-27
+
+User endorsed the direct-verification pattern (ag re-checking cx's citations
+rather than deferring on volume) and asked for a **few more, bounded**
+rounds — not unlimited this time — with one specific new lens: is
+`ARCHITECTURE.md`'s feature-first module structure (§2, as revised in
+Round 4-5) actually free of spaghetti coupling, or did adding `coordination/`
+and `telemetry/` introduce hidden cross-feature entanglement? Still pre-TDD
+— this checks the design document, not real code (none exists yet).
+
+**The lens, precisely:**
+
+1. **Dependency graph.** Draw the actual allowed dependency direction
+   between every feature package (`core`, `state`, `adapters`, `dispatch`,
+   `coordination`, `routing`, `consensus`, `health`, `telemetry`, `ipc`,
+   `governance`). Is it acyclic? Any package that both depends on and is
+   depended on by another (a cycle) is a spaghetti finding by definition.
+2. **Interface minimality.** For each feature, what EXACTLY does another
+   feature import from it? Is that surface small, explicit, and stable —
+   or does anything reach past a `service.py` into another feature's
+   `model.py` internals, private state, or a specific dataclass field
+   that was never declared as part of a public contract?
+3. **Shared-concern leakage.** Do `core/evidence.py`, `state/contract.py`,
+   and `core/protocol.py` actually stay the single source for their
+   concerns, or did Round 4-5's edits accidentally leave a duplicate or
+   near-duplicate definition inside a feature package (the same mistake
+   that caused the original `RuntimeContext`/protocol duplication cx
+   found last round — check specifically whether that class of mistake
+   recurred anywhere else)?
+4. **New-module fit check.** `coordination/` and `telemetry/` are the two
+   newest packages. Do they cleanly depend on `core`/`state`/`adapters`
+   only, or do they reach sideways into `dispatch`/`health`/`routing`
+   internals instead of going through those features' own `service.py`
+   entrances? Concretely: how does `telemetry.projections` (§10.1) get
+   the terminal `AskResult` it needs — through a clean event/hook
+   `dispatch.service` exposes, or by reading `dispatch`'s internal state
+   directly?
+5. **Concrete refactor proposal, only if something real is found.** Any
+   finding must come with either a specific interface fix (rename/move/
+   narrow a specific import or field) or an explicit "checked, no
+   spaghetti here" verdict — no restructuring for its own sake, no
+   speculative interface layers for hypothetical future coupling that
+   doesn't exist yet (same discipline as the Round 4-5 generalization
+   lens).
+
+**Process:** same as before (evidence over preference, `cc` conserves
+tokens, `ag` writes to a file / `cx` returns text since its sandbox
+still can't write) but **bounded** — target 2-3 rounds, not unlimited;
+`cc` will check in with the user if it looks like more are needed.
+
+## Round 6
+
+*(pending)*
