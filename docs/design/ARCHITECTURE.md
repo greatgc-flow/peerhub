@@ -1,9 +1,13 @@
 # peerhub — Target Architecture (v1, pre-TDD)
 
 > Status: converged design, **not yet implemented**. This is the canonical
-> deliverable of the 2026-07-27 `ag`/`cx`/`cc` architecture debate
-> (3 rounds, full convergence — process record in
-> `docs/design/peerhub-architecture-debate.md`). No code, tests, or
+> deliverable of the 2026-07-27 `ag`/`cx`/`cc` architecture debate — Round
+> 1-3 (main architecture, full convergence) plus a Round 4-5 meta-review
+> pass (5-Whys/MECE/purpose-fit-generalization/efficiency/feedback-loop
+> lenses, also fully converged) that found and fixed a real completeness
+> gap (missing `coordination` ownership) and 7 smaller organizational
+> issues. Full process record in
+> `docs/design/peerhub-architecture-debate.md`. No code, tests, or
 > scaffolding exist yet. A future, separately-authorized round starts TDD
 > implementation against this document, beginning with Phase 0 below.
 
@@ -26,17 +30,31 @@ not just "fixed this once."
 
 ## 2. Module structure
 
+> **Round 4-5 meta-review note:** the tree below fixes 3 real gaps the
+> converged Round 1-3 design still had: duplicate `RuntimeContext` ownership
+> (`runtime.py` vs `core/context.py`), duplicate protocol/error ownership
+> (`core.protocol` vs `ipc.commands`/`ipc.events`/`core.errors`), and —
+> most significantly — **no owner at all for `hub.py`'s real room/mailbox/
+> presence/handoff coordination mechanisms** (`hub.py:1363,1388,1460,1531,
+> 1573,1658,3532,3568,8690,8752,8793,8844,8929,11135` — `action_init_session`,
+> `action_end_session`, `action_send`, `action_broadcast`, `action_check`,
+> `action_mark_read`, `action_update_status`, terminal-duty handoff), despite
+> §1 claiming full communication/coordination replacement. Confirmed by both
+> `ag` and `cx` as a genuine Round 1-3 completeness miss, not polish — see
+> the ledger's Round 4-5 meta-review.
+
 ```text
 peerhub/
   __init__.py                 # public Client, typed public values, version only
   client.py                   # thin in-process/remote client; never direct storage
-  runtime.py                  # immutable RuntimeContext and composition root
+  runtime.py                  # configuration resolution & composition-root construction ONLY
 
   core/
-    api.py                    # canonical application facade (the ONE mutating entrance)
-    context.py                 # PathLayout & RuntimeContext
-    protocol.py                 # wire protocol & command/event schemas
-    errors.py                   # stable machine error codes
+    api.py                    # canonical application facade (the ONE mutating EXTERNAL entrance — §2.1 rule 3)
+    context.py                 # owns RuntimeContext & PathLayout (immutable value types)
+    protocol.py                 # owns ALL wire schemas: command/event/envelope/version/ErrorCode types
+    errors.py                   # internal exception types + their mapping to protocol.ErrorCode
+    evidence.py                  # shared EvidenceValue/EvidenceRef algebra (MEASURED/ABSENT/UNAVAILABLE/ERROR/STALE)
 
   state/
     contract.py                 # StateStore / UnitOfWork interfaces — domain depends on THIS, not sqlite3
@@ -45,7 +63,9 @@ peerhub/
 
   adapters/
     contract.py                  # PeerAdapter + optional capability protocols (UsageProvider, SessionCapability)
-    registry.py                   # descriptor/config resolution, adapter-conformance/v1 validation
+    instance.py                   # PeerInstanceConfig — see §6.1a
+    registry.py                    # descriptor/instance resolution, adapter-conformance/v1 validation
+    readiness.py                    # readiness probe contract & receipts (§6.5)
     builtins/
       claude.py                   # ClaudeAdapter (cc)
       codex.py                     # CodexAdapter (cx)
@@ -58,6 +78,11 @@ peerhub/
     pipe.py                           # concrete pipe runner
     pty.py                             # concrete PTY runner
     artifacts.py                       # staged input/output ArtifactMaterializer
+    completion.py                       # CompletionAssessor — see §9
+
+  coordination/                          # NEW (Round 4-5): rooms, mailbox, presence, handoff — replaces this
+    model.py                              # PURE room/membership/presence/message/handoff/checkpoint reducers
+    service.py                             # coordination orchestration (send/broadcast/read/handoff)
 
   routing/
     model.py                            # PURE RouteDecision reducer
@@ -69,13 +94,14 @@ peerhub/
 
   health/
     model.py                                # PURE availability/admission/quarantine reducers
-    collectors.py                            # dependency-declared telemetry fan-out (T87 fix)
-    service.py                                # health/recovery orchestration
+    service.py                               # health/recovery orchestration (policy & transitions ONLY)
+
+  telemetry/                                 # NEW (Round 4-5): split out of health/ — feeds health AND routing
+    collectors.py                             # dependency-declared fan-out (T87 fix)
+    projections.py                             # outcome -> observation -> projection feedback loop — see §10.1
 
   ipc/
-    commands.py                                # versioned command envelopes
-    events.py                                   # versioned event/evidence envelopes
-    jsonl.py                                     # framed JSONL transport + version negotiation
+    jsonl.py                                     # framing, serialization, version negotiation ONLY
     cli.py                                        # CLI translation to the same command bus
 
   governance/
@@ -83,19 +109,22 @@ peerhub/
     broker.py                                      # governed mutation broker (CAS, journal, effect workers)
     proposals.py                                    # fingerprint-deduplicated proposal engine (T89 fix)
 
-  testing/                                          # published adapter-conformance kit — not runtime policy
+  # NOT present in v1 (Round 4-5 deferral — see §16): a published `testing/`
+  # conformance-kit package. Fixtures live in the repository's own test
+  # suite until a real third-party adapter needs a public kit.
 ```
 
 ### 2.1 Ownership rules
 
-1. **`core.protocol` owns compatibility, not behavior.** Schemas, correlation, version negotiation, stable error codes. Cannot import `state`/`adapters`/infrastructure internals.
+1. **`core.protocol` owns compatibility, not behavior.** ALL schemas, correlation, version negotiation, stable error codes — the canonical, transport-neutral source (Round 4-5: `ipc.commands`/`ipc.events` were a duplicate ownership claim and are removed; `ipc.jsonl` only frames/serializes what `core.protocol` defines). Cannot import `state`/`adapters`/infrastructure internals.
 2. **`*/model.py` modules are pure.** They accept values and return transition decisions/effect intents. No file I/O, no clock reads, no environment access, no vendor state.
-3. **`core.api` is the only mutating entrance.** CLI, JSONL, and the embedded `Client` all submit the same typed commands, so every authorization, idempotency, state-transition, and audit rule is transport-independent.
+3. **`core.api` is the only mutating *external* entrance.** CLI, JSONL, and the embedded `Client` all submit the same typed commands. **(Round 4-5 clarification: this does not forbid internal system-initiated mutation.)** Recovery sweeps, lease heartbeats, outbox/effect workers, and broker reconciliation all mutate state too — they do so by submitting typed *system* commands through the same application command handlers and `UnitOfWork`, never by calling repositories or the public `Client` facade directly. Every mutation, external or internal, gets identical authorization/idempotency/audit treatment.
 4. **`adapters` translates; it does not coordinate.** Adapters plan invocations and decode vendor output. They cannot spawn processes, select peers, modify health, persist sessions, acquire leases, append audit events, or decide task success.
 5. **Infrastructure (runners, `state.sqlite`) executes plans, not policy.** A PTY runner can emit chunks and terminate a process tree, but cannot decide to retry, quarantine, or invoke an arbiter.
-6. **`RuntimeContext` is immutable dependency injection**, constructed once per process — not a mutable global.
+6. **`RuntimeContext` is immutable dependency injection**, owned and constructed by `core.context`; `runtime.py` resolves configuration and builds the composition root but does not itself define the type. Constructed once per process — never a mutable global.
 7. **Concrete peer IDs stay in `adapters.builtins` registration/config.** Core code selects capabilities and descriptors, never `if peer == "cx"`.
 8. **Vendor installation is outside the engine.** A descriptor supplies a configured executable reference; readiness canonicalizes and probes it. `peerhub` does not install, update, authenticate, or bundle vendor CLIs (this boundary is permanent — see the portable-dev-env's own 2026-07-27 T82 re-scope, which drew the identical line from the other side).
+9. **`coordination` owns room/mailbox/presence/handoff state — not `ipc`.** (Round 4-5.) `ipc` is command/event *transport*; it is not a valid owner for the actual room/membership/message/checkpoint domain, which is a real, currently-implemented part of what §1 commits to replacing.
 
 ## 3. Hosting model
 
@@ -104,9 +133,11 @@ peerhub/
 Two deployment forms, same command/event schema as the compatibility surface in both:
 
 - **Embedded**: `from peerhub import Client` — `Client` invokes `core.api` directly in the same Python process. This is the default, CLI-first mode.
-- **Foreground service**: `peerhub serve --stdio` hosts the same runtime for a longer JSONL session (multiple correlated commands over one connection), for the lifetime of that connection only. Not installed or managed as an OS service.
+- **One-shot CLI/JSONL**: `peerhub` as a subprocess handling one correlated command (or a short synchronous exchange), matching today's `hub.py` usage pattern exactly.
 
-Multiple independent CLI/stdio host processes coordinate safely through the transactional store (unique idempotency keys, owner-aware leases with process-birth identity, durable outbox events, startup recovery sweeps) — this covers concurrent dispatches without needing a singleton broker. A resident daemon is deliberately deferred: add one only when a measured requirement for continuous cross-client event subscription (not just concurrent dispatch) actually appears — symmetric-deferral rule, same as the shelved blueprint's own process discipline.
+**Round 4-5 deferral:** a **persistent, multi-command `serve --stdio` connection** is explicitly **not in v1** — it was in the Round 1-3 design but has no named v1 consumer needing connection reuse; today's `hub.py` command surface is one-shot throughout. The versioned JSONL envelope (§5) is preserved so adding a persistent host later doesn't change command semantics, but v1 ships embedded + one-shot only. Add persistent hosting when a real client needs multi-command connection state, not speculatively.
+
+Multiple independent CLI/embedded host processes coordinate safely through the transactional store (unique idempotency keys, owner-aware leases with process-birth identity, durable outbox events, startup recovery sweeps) — this covers concurrent dispatches without needing a singleton broker. A resident daemon is deliberately deferred: add one only when a measured requirement for continuous cross-client event subscription (not just concurrent dispatch) actually appears — symmetric-deferral rule, same as the shelved blueprint's own process discipline.
 
 MCP is not a foundation; if added later, it is a translation adapter over this same command/event service.
 
@@ -117,12 +148,14 @@ MCP is not a foundation; if added later, it is a translation adapter over this s
 One SQLite database per configured `PeerHubHome`:
 
 - Request, request-attempt, process-lease, and session-binding records.
-- Health observations and current health/admission projections.
+- Configured peer instances (`PeerInstanceConfig` — §6.1a).
+- Room, membership/presence, message, and handoff/checkpoint records (`coordination` — new in Round 4-5, closes the gap noted in §2).
+- Health observations, telemetry projections, and current health/admission projections.
 - Routing decisions.
 - Consensus rounds, electorate snapshots, votes, and arbiter opinions.
 - Proposal finding sets, trigger cursors, and proposal lifecycles.
 - Mutation requests, receipts, effect intents, and an event outbox.
-- Optional budget reservations.
+- **Not in v1** (Round 4-5 deferral, §16): budget reservations. No reservation table ships until Phase 0 identifies a measured oversubscription problem and an authoritative reservable unit — see §11.
 
 Large transcripts, staged prompts, and output artifacts remain files referenced by content digest and length — not embedded in the database.
 
@@ -134,7 +167,9 @@ A future non-SQLite backend is acceptable only if it passes the identical multi-
 
 ## 5. Public command, event, and error contract
 
-All commands carry: `protocol_version`, `command_id` (caller-generated idempotency key), `correlation_id`, `client_id`, `workspace_scope`, `expected_policy_revision?`, `method`, `params`.
+All commands carry: `protocol_version`, `command_id` (caller-generated idempotency key), `correlation_id`, `client_id`, `scope`, `expected_policy_revision?`, `method`, `params`.
+
+**Round 4-5 fix:** `scope` is `WorkspaceScope | GlobalScope`, not a bare `workspace_scope` — coordinator-level operations (node listing, broker status, global health, configuration inspection) aren't inherently workspace-scoped, and forcing a fake workspace value on them was a real modeling gap. Each command schema declares which scope kind(s) it accepts.
 
 All events carry: `protocol_version`, `event_id`, `correlation_id`, `request_id?`, `round_id?`, `sequence` (monotonic within the correlated stream), `occurred_at`, `kind`, `payload`, `evidence_refs[]`.
 
@@ -173,6 +208,23 @@ class PeerDescriptor:
 
 Profile, account, and quota-pool identifiers are data, never inferred from peer names. Registry loading validates uniqueness and referential integrity before a runtime is admitted. A descriptor declaring a capability it doesn't actually implement is a load-time error, not a runtime surprise.
 
+### 6.1a `PeerInstanceConfig` (Round 4-5 fix — adapter type vs. configured instance)
+
+The Round 1-3 design left `peer_id` ambiguous: session/routing/health records referenced it, but the document never said whether it meant the adapter kind (`claude`), a configured executable, an account, or a running instance — ambiguous the moment a fourth peer reuses an existing adapter, or two accounts of one vendor / two executables need distinct readiness bindings.
+
+```python
+@dataclass(frozen=True)
+class PeerInstanceConfig:
+    instance_id: str
+    adapter_id: str                    # which PeerDescriptor/adapter implementation
+    executable_reference: str
+    enabled_profile_ids: tuple[str, ...]
+    account_id: str | None
+    quota_pool_id: str | None
+```
+
+**Health, routing, leases, and sessions key on `instance_id`.** Adapter conformance (§6.5) keys on `adapter_id` + adapter version. This closes a real, named gap (multi-account/multi-executable configurations) without inventing a speculative plugin ecosystem.
+
 ### 6.2 `PeerAdapter`
 
 ```python
@@ -203,7 +255,7 @@ class PeerAdapter(Protocol):
         ...
 ```
 
-**`AdapterRequest`**: the already-authorized request ID, prompt content/reference, workspace scope, profile, requested session policy, and an optional caller-supplied `CompletionContract` — the adapter never evaluates that contract itself.
+**`AdapterRequest`**: the already-authorized request ID, prompt content/reference, workspace scope, profile, requested session policy, and a `CompletionContract` — the adapter never evaluates it, only carries it. **(Round 4-5 fix: admission always freezes a contract, never a bare optional.)** If the caller didn't supply one, admission freezes a canonical implicit contract whose only claim is delivery — producing `DELIVERED_UNVERIFIED` on valid protocol output, never an unevaluated gap. This replaces an inconsistency in the Round 1-3 text (§6.2 said "optional," §13.2 said "every dispatch freezes one").
 
 **`InvocationPlan`**: immutable argv tokens, cwd policy, environment delta, transport kind, stdin payload, timeout/silence policy, redacted display form; declarative `ArtifactSpec` values (content bytes/reference, SHA-256, expected length, access mode, lifecycle) with artifact-path placeholders rather than adapter-created files; optional session action `NONE | CREATE | RESUME`; optional graceful-cancel recipe (the process supervisor still owns escalation/tree termination); no shell command string, no ambient environment capture.
 
@@ -307,7 +359,15 @@ class AskResult:
     execution: ExecutionOutcome
     protocol: ProtocolAssessment
     completion: CompletionAssessment
-    effective_status: AskStatus
+    policy_revision: str
+
+    @property
+    def effective_status(self) -> AskStatus:
+        """Round 4-5 fix: DERIVED, not independently stored/persisted —
+        a persisted 4th field could contradict the 3 evidence layers it's
+        supposed to summarize. Pure computed property (or an equivalent
+        central reducer output) over (execution, protocol, completion)."""
+        ...
 
 class ExecutionOutcome:
     started: bool
@@ -347,11 +407,34 @@ Two orthogonal projections over immutable observations, replacing today's overla
 
 A rate-limit reset ends `COOLDOWN` only, not general health. **Administrative "recover" authorizes a probe — it does not write HEALTHY/GREEN directly** (today's `hub.py:3501-3524` does the latter, erasing the distinction between "attempt recovery" and "measured proof of readiness"). Reopening requires a fresh successful probe tied to the current executable/readiness/adapter fingerprint. Routing consumes one frozen `AdmissionSnapshot`; it never mutates health during selection. Stale/unavailable evidence is never fabricated as healthy.
 
+### 10.1 Evidence feedback loop (Round 4-5 addition)
+
+**Gap found:** the Round 1-3 design's outbox/evidence store (§4) is not *wholly* write-only — routing already consumes current usage/admission evidence — but the path from a terminal `AskResult` (§9) back into future health/routing decisions was never explicit. As written, a terminal outcome could land in the outbox and stay audit-only forever, missing the same category of gap the shelved blueprint's own phase2-arch document found in itself (§13.16, Evidence Feedback Loop).
+
+**Smallest fix that closes it**, owned by `telemetry.projections`:
+
+1. The terminal transition commits its normalized observation alongside request state and the outbox, in the same transaction.
+2. `telemetry.projections` maps classified attempt/probe/provider outcomes into immutable observations and revisioned per-instance/profile projections — tracking only operationally meaningful facts: infrastructure failure category, verified process integrity, latency, freshness, failure streak, measured quota state.
+3. `health.service` consumes these projections to derive `AdmissionSnapshot` (§10).
+4. `routing.service` (§11) may consume a frozen, policy-declared reliability/latency projection under minimum-sample and freshness rules, recording the supporting evidence references in its own `RouteDecision`.
+5. Every new decision emits evidence again — the loop closes and stays rebuildable: projections are idempotently reconstructable from immutable observations, never authoritative in their own right.
+
+**Safety caveat (non-negotiable):** a semantic `INCOMPLETE`/`UNVERIFIED` `CompletionAssessment` must **never** automatically degrade peer health unless a versioned policy explicitly classifies the specific failure as peer-caused (vs. task-difficulty-caused). Otherwise a peer would be penalized for correctly reporting honest uncertainty on a hard task — exactly the dishonesty §9 was built to prevent, reintroduced one layer up.
+
+Consensus/arbiter policy (§8) is explicitly **excluded** from this loop: electorate, unanimity, risk classification, and arbiter authority are governed policy, not optimization weights, and must never self-tune from historical outcomes. Evidence may inform a human/R:10 policy revision; it must never silently rewrite constitutional behavior.
+
 ## 11. Routing and budget
 
 Pure decision over requested capabilities/profile constraints, readiness binding, admission snapshot, measured usage/headroom evidence, in-flight reservations, terminal exclusion/cost policy, task-size/context requirements, and a deterministic request ID. Returns a durable `RouteDecision`: all candidates, exclusions with reason+evidence, representative profiles, effective weights, seed/draw if stochastic, selected target, policy revision — matching the audit shape `hub.py`'s current routing already demonstrates is achievable. Missing usage is `ABSENT`/`UNAVAILABLE`, never zero.
 
-Optional `BudgetReservation` authority (only if enabled — `peerhub` must support an explicit no-budget mode, never a fake provider): `RESERVED -> DISPATCH_INTENT -> LAUNCHED -> CONSUMED | CONSUMED_UNKNOWN`; `RESERVED -> RELEASED` only if definitively pre-dispatch. The usage provider reports evidence; it cannot itself reserve/release budget. A crash after dispatch intent conservatively becomes `CONSUMED_UNKNOWN`.
+**Round 4-5 deferral: no `BudgetReservation` state machine in v1.** The Round 1-3 design specified one before deciding whether v1 even includes budget authority, whether providers report request-level cost vs. account/pool headroom only, or what the authoritative reservable unit would be — a state machine can't be correctly specified before those facts exist. v1 ships usage evidence + no-budget routing only, in explicit no-budget mode (never a fake/zero provider). The shape below is preserved as a **conditional design note**, activated only if Phase 0 characterization finds a measured oversubscription problem and names an authoritative reservable unit:
+
+```text
+RESERVED -> DISPATCH_INTENT -> LAUNCHED -> CONSUMED | CONSUMED_UNKNOWN
+RESERVED -> RELEASED   # only if definitively pre-dispatch
+```
+
+The usage provider would report evidence only; it would never itself reserve/release budget. A crash after dispatch intent would conservatively become `CONSUMED_UNKNOWN`.
 
 ## 12. Governed mutations and brokered effects
 
@@ -397,29 +480,48 @@ Structurally prevented by §9's three-layer `AskResult` — `ProcessExit(0)` can
 - **Phase 0 — behavioral inventory and contract freeze.** Enumerate current `hub.py` commands, error codes, state files, adapter profiles, session scopes, guard effects. Capture golden transcripts (pipe, PTY, session create/resume, timeout, broker vote merge, consensus close, health close/recover, routing audit). Write decision records for storage scope and process model. Specify protocol v1 commands/events/errors/SQLite invariants. **No package code until this compatibility set is agreed.**
 - **Phase 1 — pure domain and store kernel.** TDD every reducer (request/attempt/lease/session/health/admission/consensus/proposal/mutation/budget). TDD the SQLite repositories, CAS, uniqueness, command idempotency, atomic outbox. Inject clock/IDs/process-identity. Fault-inject every transaction boundary. No real peer adapter yet.
 - **Phase 2 — fake-peer vertical dispatch slice.** One fake pipe + one fake PTY executable. Invocation/artifact materialization, incremental events, deadlines, cancellation, process-birth identity, lease heartbeats, crash recovery. TDD every transition around `DISPATCH_INTENT`/spawn. Establish the three-layer outcome model. Prove no model call ever occurs under a store transaction.
-- **Phase 3 — adapter/provider conformance.** Publish the conformance kit. Migrate built-ins incrementally (simplest pipe adapter first, then PTY/staging, then the richest JSONL/session adapter). Every adapter passes create/resume, decoder, artifact, cancellation, error, fingerprint fixtures. Test the valid `usage_provider=None` case. Live probes are opt-in empirical tests, never routine CI blockers.
+- **Phase 3 — adapter/provider conformance.** Build the conformance fixtures **inside the repository's own test suite** (Round 4-5 deferral: do NOT publish a `peerhub.testing` package in v1 — that creates a supported public API and compatibility burden with no external adapter consumer yet; publish a kit only when the first third-party adapter is actually accepted, consistent with §16's third-party-adapter deferral). Migrate built-ins incrementally (simplest pipe adapter first, then PTY/staging, then the richest JSONL/session adapter). Every adapter passes create/resume, decoder, artifact, cancellation, error, fingerprint fixtures. Test the valid `usage_provider=None` case. Live probes are opt-in empirical tests, never routine CI blockers.
+- **Phase 3.5 — coordination slice.** Room/membership/presence/message/handoff/checkpoint reducers and service (`coordination/` — §2), covering the mechanisms `hub.py` currently implements at the cited line ranges. Golden transcripts for send/broadcast/read/handoff, matching Phase 0's characterization set.
 - **Phase 4 — telemetry, health, routing.** Dependency-declared collector fan-out + typed evidence first, including T87 differential tests. Availability/admission projections + probe-based recovery. Routing as pure policy with golden decisions. Provider-process isolation + failure-amplification tests before enabling live usage routing.
 - **Phase 5 — consensus, proposals, governed mutations.** Frozen electorate/rule, immutable votes, timeouts, arbiter separation, atomic decision outbox. Finding fingerprints, trigger cursors, active-proposal uniqueness, concurrent T89 tests. `MutationRequest`/`Plan`/`Receipt`, broker-inbox import, effect worker, saga reconciliation.
 - **Phase 6 — versioned surfaces and strangler integration.** Expose the JSONL service + CLI through the same `core.api`. Run current `hub.py` in shadow/dual-read mode against `peerhub` decisions. Move one mechanism at a time behind the facade with rollback. Never maintain two write authorities for the same record. Retire old paths only after behavior/recovery/evidence parity is demonstrated.
 - **Phase 7 — hardening and release.** Concurrent-client, crash-at-every-transition, malformed/truncated-protocol, provider-exhaustion, process-tree-leak, long-run proposal-dedup tests. Golden fixtures for current + previous major protocol. Local-filesystem transaction/locking probes on supported platforms. Normal PyPI package release with a console entry point. No vendor CLI bundling, no self-updater, no package-manager orchestration, no host-lifecycle framework — that boundary is permanent (§2.1 rule 8).
 
-## 16. Open questions carried forward (not blocking — resolve during Phase 0 characterization)
+## 16. Remaining questions (reclassified, Round 4-5)
 
-Storage, layering, outcome-model, and service-model are resolved (§§3-4, 9). Remaining, from the Round 1 drafts, not yet contested but not yet decided either:
+Storage, layering, outcome-model, service-model, coordination ownership,
+and the completion-contract/status inconsistencies are all resolved
+(§§2-4, 6.1a, 9, 10.1). The old flat "13 open questions" list conflated
+four genuinely different categories (cx's Round 4 finding) and contained
+two live inconsistencies with resolved sections (network-filesystem
+support already resolved local-only in §4; "current + previous major"
+in Phase 7 assumed a policy §16.13 called undecided, but v1 has no
+previous major to support). Reclassified below; no item here blocks
+Phase 0 from starting.
 
-1. `UsageProvider` granularity — per-request cost estimates, or pool/account quota percentage only?
-2. Windows PTY emulation approach for `AgyAdapter` (vendor a thin WinPTY wrapper vs. rely on standard-library bindings).
-3. Proposal-dedup tombstone TTL — how long a closed/rejected fingerprint stays in the index before a re-proposal is allowed.
-4. State scope — one `PeerHubHome` DB per user vs. per-workspace, and how one service coordinates multiple workspaces if per-user.
-5. SQLite behavior on network/unusual filesystems — `TEST NEEDED`, not assumed.
-6. Default UI wording for `DELIVERED_UNVERIFIED` — honest without making ordinary asks look failed.
-7. Whether a scoped, empirically-verified vendor-state locator can ever qualify as a `SessionCapability` (modification-time selection alone must not).
-8. Provider isolation cost boundary — which collectors need a supervised worker process vs. safe in-process execution.
-9. Concrete health failure categories/thresholds/cooldowns — policy data, not hardcoded in reducers.
-10. Public Python surface beyond the stable `Client` — wait for a real second consumer's concrete need before stabilizing more internals.
-11. Third-party adapter discovery/signing — wait for a real third-party adapter before designing this.
-12. Budget-authority v1 inclusion — optional authority with an explicit no-budget mode; exact inclusion point needs product-scope confirmation.
-13. Protocol support window (current + previous major, per the blueprint) — final call depends on release cadence and consumer upgrade tolerance.
+### 16.1 Phase 0 decisions (must be resolved before/during Phase 0)
+
+1. State scope — one `PeerHubHome` DB per user vs. per-workspace, and how one service coordinates multiple workspaces if per-user.
+2. `UsageProvider` granularity — per-request cost estimates, or pool/account quota percentage only?
+3. Concrete health failure categories/thresholds/cooldowns — policy data, not hardcoded in reducers.
+4. Whether v1 includes any budget authority at all (§11) — a Phase 0 decision, not an implementation detail.
+5. Default UI wording for `DELIVERED_UNVERIFIED` — honest without making ordinary asks look failed.
+
+### 16.2 Implementation/empirical spikes (resolved by building and measuring, not by debate)
+
+6. Windows PTY emulation approach for `AgyAdapter` (POSIX `pty`/`termios` on Linux/macOS; native ConPTY via `ctypes` or a `winpty` binding on Windows — cross-platform from the start, not a Windows-only assumption).
+7. SQLite lock/transaction probe behavior on the actual target filesystem matrix — `TEST NEEDED`, not assumed; v1 stays local-filesystem-only per §4 regardless of outcome.
+8. Whether a scoped, empirically-verified vendor-state locator can ever qualify as a `SessionCapability` (modification-time selection alone must not — §6.3).
+9. Provider isolation cost boundary — which telemetry collectors need a supervised worker process vs. safe in-process execution.
+10. Proposal-dedup tombstone TTL — how long a closed/rejected fingerprint stays in the index before a re-proposal is allowed.
+
+### 16.3 Explicitly deferred until a real trigger fires (do not design speculatively)
+
+11. Public Python surface beyond the stable `Client` — wait for a real second consumer's concrete need before stabilizing more internals.
+12. Third-party adapter discovery/signing, and publishing the `peerhub.testing` conformance kit (§15 Phase 3) — wait for a real third-party adapter.
+13. Protocol support window beyond v1 (e.g. "current + previous major") — v1 has no previous major; decide when the first breaking major is actually proposed, test protocol v1 only until then.
+14. Persistent `serve --stdio` hosting (§3) — wait for a real client needing multi-command connection reuse.
+15. `BudgetReservation` state machine (§11) — wait for Phase 0 to find a measured oversubscription problem and name an authoritative reservable unit.
 
 ---
 
