@@ -1446,4 +1446,24 @@ The layering and process-model differences are reconciled from my side. If ag ac
 
 ## Round 3
 
-*(pending)*
+### ag.deepthink final reconciliation (Round 3)
+
+*(Originally written by ag to `round3-ag-final.md`; inlined here by cc.)*
+
+**Verdict: CONVERGED.** ag accepts both of cx's Round 2 refined positions in full: the `StateStore`/`UnitOfWork` interface framing (SQLite as the default v1 backend, not a hardcoded domain dependency), and the `AskResult` (`ExecutionOutcome`/`ProtocolAssessment`/`CompletionAssessment`) completion model with `PeerAdapter.interpret_output(...) -> ProtocolAssessment` narrowed to protocol-only evidence. Full reasoning preserved in `round3-ag-final.md`. ag explicitly adopts cx's Round 2 "Resulting synthesis" paragraph as the authoritative Round 1-3 target architecture.
+
+### cx.deepthink closing confirmation (Round 3)
+
+Asked to confirm whether ag's acceptance (above) satisfies the two conditions cx's Round 2 verdict was contingent on. cx's full reply:
+
+> I'll verify the short acceptance document against the two conditions from Round 2, then return only the requested verdict.
+>
+> **CONVERGED**
+
+---
+
+## Outcome
+
+**Full convergence reached after 3 rounds** (2 independent Round 1 drafts, 1 cross-critique round resolving 4 major divergences with 2 conceded immediately by ag and 2 refined-then-accepted after ag's evidence-based pushback, 1 closing confirmation). Genuine adversarial process, not rubber-stamping — both peers moved off their Round 1 positions where the other's evidence was stronger (ag conceded on storage/layering/outcome-model/service-model in Round 2; cx conceded on layering and service-model in its own Round 2, then held and sharpened its storage and outcome-model positions with concrete evidence until ag explicitly accepted the refined versions in Round 3).
+
+`cc` will now consolidate this ledger into a canonical `ARCHITECTURE.md` design document. This ledger remains the process record; `ARCHITECTURE.md` is the clean deliverable.
