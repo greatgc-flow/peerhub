@@ -1156,4 +1156,294 @@ These are open questions, not hidden assumptions.
 
 ## Round 2
 
+### ag.deepthink critique of cx's draft (Round 2)
+
+*(Originally written by ag to `round2-ag-critique-of-cx.md`; inlined here by cc per the charter's single-ledger rule.)*
+
+**Verdict: CONVERGED** — ag accepts cx's Round 1 positions on all 4 divergence points (SQLite authoritative storage, pure-domain hexagonal layering, 3-layer task outcome model, foreground/stdio service model with no resident daemon), with one packaging refinement (co-locate `ports` protocols with their functional module instead of a separate top-level `ports/` tree, to avoid excess directory depth) and one added operational constraint (SQLite DB must be enforced on local filesystem, not SMB/NFS, for WAL lock safety). Full reasoning, evidence citations, and the consensus table are preserved in `round2-ag-critique-of-cx.md` in this same directory.
+
+Consensus table ag produced:
+
+| Area | Decision |
+|---|---|
+| Authoritative Store | Single local SQLite DB per `PeerHubHome` (local filesystem enforced, WAL mode, atomic outbox). |
+| Architecture / Layering | Hexagonal with 100% pure domain state reducers + single `ApplicationService` entry point. |
+| Outcome Model | 3-layer: execution outcome, peer-protocol outcome, task outcome (`DELIVERED_UNVERIFIED` default for prose). |
+| Service Model | In-process `Client` + foreground `peerhub serve --stdio`. No background OS daemon. |
+| Adapter Contract | `PeerAdapter` + optional `UsageProvider` split; adapters translate protocol, never orchestrate. |
+| Defect Safeguards | Pipeline fan-out (T87); 3-layer outcome model (T88); DB unique index + SHA-256 fingerprinting (T89). |
+
+---
+
+### cx.deepthink critique of ag's draft (Round 2)
+
+*(Written to the ledger by cc on cx's behalf — cx's sandbox again rejected a direct file write; returned as reply text, verbatim below.)*
+
+# peerhub Round 2 — cx.deepthink critique of ag's draft
+
+## Overall assessment
+
+The drafts are closer than their directory trees suggest. We agree on the critical behavioral invariants: UUID-keyed leases, process-birth identity, dispatch intent before spawn, immutable votes, independent telemetry collectors, fingerprint-based proposal deduplication, adapter/provider separation, and incremental strangler migration.
+
+The real disagreements are narrower:
+
+- What persistence mechanism makes those invariants authoritative under concurrent CLI processes and crashes?
+- What result model prevents T88 without pretending arbitrary task completeness is machine-decidable?
+
+I am withdrawing two unnecessarily strong implications from my Round 1 draft:
+
+- The logical dependency rules do not require five mirrored top-level layer trees.
+- A resident daemon is not required for v1.
+
+## 1. Authoritative storage
+
+**Position now: SYNTHESIS, with SQLite as the recommended/default v1 backend.**
+
+Ag's flatter package layout does not inherently require SQLite. Package layering and persistence technology are independent questions. A correct file-backed implementation is possible, but "per-record lock files plus atomic rename" is not sufficient by itself for all the invariants both drafts require.
+
+### What a lighter file store can do correctly
+
+The current implementation proves that a file-backed design can repair individual races:
+
+- Session read-modify-write is now performed under one lock (`_sys/core/hub.py:4081-4096`).
+- Leases are UUID-keyed and ownership-checked under a lease lock (`hub.py:10707-10773`).
+- Consensus votes use a per-round lock, fresh reads, and immutable/idempotent merge semantics (`hub.py:7715-7757`, `7781-7830`).
+- Broker mutations use expected-revision hashes, a shared resource lock, and atomic replacement (`hub.py:819-859`).
+
+A deliberately small system could therefore store each aggregate in one JSON file and serialize its updates under one lock.
+
+### Where per-record locks stop being enough
+
+The target architecture also requires:
+
+- A request transition and its client-visible event to commit together.
+- One active proposal per normalized finding fingerprint under concurrent session-end processes.
+- One immutable vote per voter/round.
+- Command idempotency across separate CLI processes.
+- One live session binding per scope.
+- Lease state, request state, and recovery evidence that cannot contradict one another.
+- Durable effect intents that survive a crash between authoritative commit and filesystem/process enforcement.
+- Idempotent handoff/history projections rather than separately appended side effects.
+
+Per-record lock files do not provide atomic state-plus-outbox publication when those are different files. There are only three ways around that:
+
+1. Put the complete aggregate and its outbox in one increasingly large file under a global lock.
+2. Design a write-ahead journal, transaction IDs, commit markers, recovery rules, uniqueness indexes, and compaction for the file store.
+3. Use an existing local transactional engine.
+
+Option 2 is effectively a bespoke database. Option 1 can be correct, but it serializes unrelated writes and makes append-only evidence, indexing, pruning, and concurrent streaming progressively awkward. SQLite already supplies local transactions, uniqueness constraints, revision checks, crash recovery, and indexing through the Python standard library. It is not a distributed-system dependency or external service.
+
+T89 makes this particularly concrete. Ag proposes checking existing open proposals by fingerprint. Under two concurrent session-end processes, "check, then create a file" still races unless the fingerprint index and proposal creation share one lock/transaction. A SQLite partial unique index makes the acceptance criterion structural; a file implementation needs an equivalent global index and transaction protocol.
+
+### Recommendation
+
+Adopt ag's simpler module organization, but add an explicit authoritative-state boundary:
+
+```text
+peerhub/
+  core/
+    api.py
+    context.py
+  state/
+    contract.py
+    sqlite.py
+    migrations/
+  adapters/
+  dispatch/
+  routing/
+  consensus/
+  health/
+  ipc/
+  governance/
+```
+
+The domain should depend on a `StateStore`/`UnitOfWork` contract, not on `sqlite3`. SQLite should be the supported v1 backend. JSON and Markdown remain suitable for:
+
+- User-owned configuration.
+- Imported legacy state.
+- Human-readable exports and projections.
+- Create-only broker inbox requests from restricted clients.
+- Transcripts and large artifacts referenced by digest.
+
+A future file backend is acceptable only if it passes the same multi-process, crash-boundary, uniqueness, and state-plus-outbox tests. I would not make two persistence implementations part of v1.
+
+### What remains unresolved
+
+Ag did not specify an authoritative store or atomic publication model. This point remains open until one of these is accepted:
+
+- SQLite as the v1 authority behind a store interface; or
+- A concrete lighter transaction design that covers atomic state plus outbox, concurrent deduplication, command idempotency, and recovery — not only per-record locked replacement.
+
+## 2. Layering depth
+
+**Position now: SYNTHESIS, physically closer to ag's layout.**
+
+My Round 1 tree overexpressed logical boundaries as physical package depth. A mirrored set of `domain/dispatch.py`, `application/dispatch.py`, `ports/process.py`, and `infrastructure/process/pipe.py` is defensible, but it adds navigation cost and duplicate naming for a local coordinator with a small number of bounded mechanisms.
+
+Ag's feature-first packages already identify the correct cohesive areas: `dispatch`, `routing`, `consensus`, `health`, `ipc`, `governance`, `adapters`, `core`.
+
+The important requirement is dependency direction, not the number of directory levels.
+
+### Recommended reconciliation
+
+Use a feature-first modular monolith, with purity enforced inside each feature:
+
+```text
+peerhub/
+  core/
+    api.py
+    context.py
+    protocol.py
+    errors.py
+
+  state/
+    contract.py
+    sqlite.py
+
+  adapters/
+    contract.py
+    registry.py
+    builtins/
+
+  dispatch/
+    model.py          # pure request/session/lease transitions
+    service.py         # orchestration
+    process.py          # process-supervisor port/types
+    pipe.py               # concrete runner
+    pty.py                # concrete runner
+    artifacts.py
+
+  routing/
+    model.py          # pure RouteDecision
+    service.py
+
+  consensus/
+    model.py          # pure round/vote reducer
+    service.py
+
+  health/
+    model.py          # pure availability/admission reducers
+    collectors.py
+    service.py
+
+  ipc/
+    commands.py
+    events.py
+    jsonl.py
+    cli.py
+
+  governance/
+    mutations.py
+    broker.py
+    proposals.py
+```
+
+Rules still matter:
+
+- `model.py` modules are pure and cannot read files, environment, clocks, or vendor state.
+- `service.py` modules coordinate effects through typed boundaries.
+- Only the composition root selects concrete storage, runners, clocks, and adapters.
+- Adapters cannot persist sessions, route, update health, acquire leases, or decide task completion.
+- CLI and JSONL paths invoke the same canonical API.
+- Import-boundary tests enforce these rules.
+
+This keeps the useful part of my design — pure transition reducers and explicit effect boundaries — without requiring a five-layer directory hierarchy.
+
+One specific adjustment is needed to ag's tree: `dispatch/engine.py` should not combine policy/orchestration, raw process effects, stream parsing, and state transition rules in one module. It can remain under the flat `dispatch` package, but those responsibilities should be separated internally.
+
+### Resolution
+
+I no longer consider physical layering a contested architecture point. Ag's flatter feature layout is preferable if the dependency and ownership rules above are made normative.
+
+## 3. Task-completion outcome model
+
+**Position now: MY SEMANTIC SPLIT, with a simpler combined result type.**
+
+Ag's `OutputValidationResult(is_valid, is_truncated, failure_reason)` leaves a real T88 gap. It is not merely a less ceremonial spelling of the three-layer model.
+
+### Concrete gaps
+
+**A. `is_valid` conflates different questions** — a result may be a valid process execution, validly parsed vendor output, a valid assistant message, or incomplete relative to the user's requested deliverable. Those are different facts. One `is_valid` Boolean cannot preserve which layer failed.
+
+**B. `is_truncated` describes only one symptom** — the observed T88 response was not necessarily transport-truncated. It was a complete-looking sentence announcing intended delegation while failing to perform the work. Other under-delivery shapes: a long answer omitting a required artifact; a report file never created; a structured answer missing required fields; an assistant refusal wrapped in valid vendor JSON; a response with progress but no terminal result; a correct short answer to a genuinely short task. Text length and delegation markers are useful signals, not a completeness proof.
+
+**C. Ag's method lacks the evidence needed to verify the actual T88 request** — its signature is `validate_output(query, raw_output, exit_code)`. The real heavy test required a report file that was never created (`_sys/ai/backlog.json:2300-2312`). The proposed method receives no artifact manifest, workspace effect evidence, structured completion contract, or session/process evidence. It cannot reliably detect that failure.
+
+**D. Task semantics do not belong to the peer adapter** — Claude, Codex, and Antigravity differ in invocation grammar, terminal stream, vendor events, and session identity. Whether "create report X" was fulfilled is peer-independent. Putting this decision in each adapter guarantees three divergent definitions of completion.
+
+**E. Targeted retry may be unsafe** — ag's T88 section says validation failure can trigger targeted retry or fallback. Once the first peer may have executed tools or mutations, replay can duplicate side effects. The current hub already suppresses automatic retry after possible dispatch for this reason (`hub.py:1951-1978`). Output suspicion cannot override replay safety.
+
+### Recommended synthesis
+
+Keep one public `AskResult`, but make its internal evidence explicit:
+
+```python
+@dataclass(frozen=True)
+class AskResult:
+    execution: ExecutionOutcome
+    protocol: ProtocolAssessment
+    completion: CompletionAssessment
+    effective_status: AskStatus
+
+class ExecutionOutcome:
+    started: bool
+    exit_code: int | None
+    timed_out: bool
+    cancelled: bool
+    execution_certainty: ExecutionCertainty
+
+class ProtocolAssessment:
+    parsed: bool
+    response_present: bool
+    vendor_completion_marker: bool | None
+    suspected_truncation: bool
+    protocol_failure: ProtocolFailure | None
+
+class CompletionAssessment:
+    state: VERIFIED | INCOMPLETE | UNVERIFIED | NOT_APPLICABLE
+    failed_requirements: tuple[RequirementFailure, ...]
+    evidence_refs: tuple[EvidenceRef, ...]
+```
+
+Ag's method can survive after being narrowed and renamed: `PeerAdapter.interpret_output(...) -> ProtocolAssessment`. It may report malformed/truncated vendor framing, empty response, vendor error, progress-without-terminal marker, or a suspicious delegation marker. **It must not decide task fulfillment.**
+
+A central `CompletionAssessor` evaluates a caller-supplied `CompletionContract` against the parsed peer result, required output fields/schema, required artifact/effect receipts, expected files under an authorized scope, and an optional caller verifier. If no verifiable completion criterion exists, exit 0 plus a valid response becomes `DELIVERED_UNVERIFIED`, not `SUCCEEDED_VERIFIED` — an honest delivery state, not a failure. A UI can still show a compact status (`verified`/`delivered`/`incomplete`/`failed`/`interrupted`); the internal evidence stays separate so health, retries, billing, and callers don't infer the wrong thing.
+
+### Resolution
+
+This remains a substantive open point. Ag's current three-field `OutputValidationResult` does not structurally prevent T88. It becomes sufficient only if it is re-scoped to peer-protocol validation and paired with a separate task-level completion assessment.
+
+## 4. Service/process model
+
+**Position now: SYNTHESIS, leaning toward ag's embedded/CLI-first implementation. A resident daemon is not required for v1.**
+
+My Round 1 draft used "application service" and "local service" too closely, making a logical enforcement boundary sound like an OS-resident daemon requirement. Those are different things.
+
+**Mandatory: application service** — `PeerHub` needs one canonical application API in code so embedded callers, the CLI, JSONL transport, and a possible future MCP adapter all invoke the same admission, idempotency, lease, routing, consensus, and mutation rules. This is a logical application service or facade. It does not imply a background daemon.
+
+**Not mandatory: resident daemon** — ag's strangler/delegation-facade model can satisfy v1 if each CLI call hosts a `PeerHubRuntime` for the lifetime of the operation. A `peerhub serve --stdio` process can host the same runtime for a longer JSONL session; it is a service for the connection's lifetime but need not be installed or managed as a resident OS service.
+
+**Multi-client behavior without a daemon** — multiple independent CLI/stdio host processes can coordinate through the transactional store: commands use unique idempotency keys, leases identify their owner runtime and process birth identity, outbox events are durable, a client can stream its own request's live events and later query persisted events, and recovery sweeps run at startup and before affected operations. This is sufficient for concurrent dispatches; it does not provide instantaneous push of unrelated events from one client's operation to every other client. That stronger cross-client subscription model would justify a singleton local broker/daemon, but the charter establishes multiple AI peers, not yet multiple external clients requiring continuous cross-client subscriptions. Under the debate's symmetric-deferral rule, the resident daemon should remain out until a real consumer requires one.
+
+### Resolution
+
+The reconciled v1 position: embedded client and CLI first; canonical in-process application service mandatory; optional `serve --stdio` JSONL host over the same API; no resident daemon or OS service in v1; durable store and owner-aware leases make concurrent host processes safe; add a singleton daemon only when a measured external-client requirement justifies it. I no longer consider this point contested.
+
+## Resulting synthesis
+
+The smallest surviving architecture is therefore: ag's feature-first module organization; pure transition models inside feature packages; one canonical application API; an explicit authoritative-state module, with SQLite as the proposed v1 backend behind a `StateStore` interface (not a hard `sqlite3` dependency in domain code); stateless peer adapters plus optional usage/session/readiness capabilities; embedded/CLI-first hosting with optional foreground JSONL stdio; three distinct result-evidence layers inside one compact `AskResult`; no resident daemon; no bespoke packaging or vendor-CLI lifecycle system.
+
+## Verdict: OPEN
+
+Two points remain contested:
+
+1. **Authoritative persistence.** Ag must either accept a transactional state boundary with SQLite as the v1 default (behind a `StateStore` interface) or provide a concrete lighter design that guarantees atomic state-plus-outbox publication, multi-process idempotency, proposal uniqueness, vote uniqueness, session-binding uniqueness, and crash recovery. "CAS file updates" or per-record lock files alone do not cover that complete set.
+2. **T88 completion semantics.** Ag must either accept the execution/protocol/completion distinction — packaged in one `AskResult` — or demonstrate how its current `validate_output(query, raw_output, exit_code)` can detect missing required artifacts, distinguish valid vendor framing from task fulfillment, preserve honest uncertainty, and prevent unsafe retries.
+
+The layering and process-model differences are reconciled from my side. If ag accepts the two corrections above, the Round 1 drafts are structurally compatible and the next round can focus on narrower contract details rather than competing architectures.
+
+---
+
+## Round 3
+
 *(pending)*
