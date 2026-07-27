@@ -1757,4 +1757,83 @@ still can't write) but **bounded** — target 2-3 rounds, not unlimited;
 
 ## Round 6
 
-*(pending)*
+### ag.deepthink coupling cross-check (Round 6)
+
+*(Originally written by ag to `round6-ag-coupling.md`; inlined here by cc.)*
+
+**Verdict: CONVERGED, 0 findings.** ag's dependency-graph analysis places `core.api` at a separate "Level 3" above the feature services (functionally agreeing it sits at the top of the stack), and reports 0 cycles, 0 shared-concern leakages, 0 sideways coupling from `coordination`/`telemetry`. Full analysis in `round6-ag-coupling.md`.
+
+### cx.deepthink coupling cross-check (Round 6)
+
+*(Written to the ledger by cc on cx's behalf — cx's sandbox again rejected a direct file write; returned as reply text, verbatim below.)*
+
+# peerhub Round 6 — cx.deepthink coupling cross-check
+
+## Overall verdict
+
+The revised architecture is cohesive at the domain level, but its dependency graph is not yet demonstrably acyclic. One package cycle is definite, one boundary implies a second cycle, and three cross-feature paths remain underspecified enough that implementation could easily become spaghetti. The fixes are localized: move application orchestration out of `core`, separate the SQLite implementation from the state contract package, formalize cross-feature contracts, and use typed events/intents for telemetry and coordination integration.
+
+## 1. Dependency graph
+
+**Finding 1 — `core` has a definite package cycle** (§§2, 2.1, 5, 10.1). As specified: `core.api -> dispatch/coordination/routing/consensus/health/telemetry/governance`, and those features `-> core.protocol/core.evidence/core.context`. A canonical application facade cannot dispatch commands without depending on feature services; those services necessarily depend on core types. Therefore `core <-> feature packages` — a package cycle under the charter's definition. **Fix:** move `core/api.py` to a top-level `application/` package (`api.py`, `workflows.py`). `application` may depend on every feature service; `core` remains a leaf containing only shared values, protocol schemas, evidence algebra, execution primitives, narrow ports. `client.py` and `ipc.cli/jsonl` call `application.api`, not `core.api`.
+
+**Finding 2 — `RuntimeContext` could recreate the same cycle** (§§2, 2.1 rule 6). If `RuntimeContext` contains feature services, repositories, runners, or adapters, `core.context` must import those packages, and features importing `core.context` create another cycle, turning the context into a service locator. **Fix:** `core.context` owns only low-level immutable values (`PathLayout`, command scope, policy revision, clock/ID ports, execution metadata); `runtime.py` owns the composed `Runtime` object containing feature-service instances; feature services receive narrow constructor dependencies, never the whole runtime container.
+
+**Finding 3 — adapter/process boundary implies `adapters <-> dispatch`** (§§2, 6.1-6.2). `dispatch.process` is assigned process-supervisor port/types, while `PeerAdapter.interpret_output()` accepts `ProcessTerminalEvidence` and invocation planning uses `TransportLimits`; `dispatch.service` necessarily imports `PeerAdapter`. As written this implies `dispatch -> adapters.contract` AND `adapters.contract -> dispatch.process`. **Fix:** move neutral process-boundary values (`TransportKind`, `TransportLimits`, `ProcessTerminalEvidence`, `ExecutionCertainty`, `RetryDisposition`, `Deadline`) into `core/execution.py`. Both adapters and dispatch import these from `core.execution`. `ProtocolAssessment`/`InvocationPlan`/decoder contracts stay adapter-owned. Adapters must never import `dispatch`.
+
+**Finding 4 — `state.contract` and `state.sqlite` in one package leave a latent feature cycle** (§§2, 4). Feature services import `state.contract`; a typed SQLite implementation must persist/hydrate feature records — if `state.sqlite` imports feature contracts/models, the package graph becomes `feature -> state.contract`, `state.sqlite -> feature`, and because both live in `state`, that's `state <-> feature`. Avoiding it only via untyped dict exchange would replace the cycle with persistence leakage. **Fix:** separate port from implementation — `state/contract.py` (generic `UnitOfWork`/transaction/outbox contracts only) vs. a new `persistence/sqlite.py` + `migrations/` (may depend on `state.contract` + public feature contracts; no feature imports `persistence`; `runtime.py` wires implementations to ports).
+
+**Corrected acyclic direction:** `core` (nothing feature-specific) ← `state.contract`/adapter contracts/feature contracts+models ← feature services ← `application.api`/`workflows` ← `client`/`ipc`; separately `persistence.sqlite -> state.contract` + public feature contracts, `runtime -> application + persistence + concrete adapters/runners`. Within the feature-service level, sibling services should not call one another directly — cross-feature workflows belong in `application.workflows`; stable snapshots flow through public contracts.
+
+## 2. Interface minimality
+
+**Finding 5 — public feature DTOs currently live implicitly in `model.py`** (§§2, 7-12). `AskResult`, `RouteDecision`, `AdmissionSnapshot`, telemetry projections, room/conversation references, consensus decisions/invocation intents, mutation receipts all cross feature boundaries, but the tree provides only `model.py`/`service.py` for most features — consumers would need to import reducer internals, or services would expose undocumented internal dataclasses. **Fix:** add a narrow `contract.py` per feature that genuinely has cross-feature values (`dispatch/contract.py`, `coordination/contract.py`, `routing/contract.py`, `consensus/contract.py`, `health/contract.py`, `telemetry/contract.py`, `governance/contract.py`). Rules: another feature may import a sibling's `contract.py`, never its `model.py`; only `application` calls sibling `service.py` methods; `model.py` reducers/state stay feature-private; public contracts expose immutable values/IDs/revisions/evidence references, never repository objects or mutable projections.
+
+**Finding 6 — consensus invocation ownership is ambiguous** (§§2, 8). `consensus.service` owns "arbiter invocation," but invocation is a dispatch concern — directly calling `dispatch.service` creates a sideways service dependency and makes consensus tests require process orchestration. **Fix:** consensus returns an immutable `PeerInvocationIntent`/`ArbiterInvocationIntent`; `application.workflows` executes it through dispatch and submits the resulting vote/opinion back to consensus. Consensus owns round policy/transitions; dispatch owns execution.
+
+**Finding 7 — internal workers need a non-cyclic command submission port** (§2.1 rule 3, §§12, 14). Broker workers, recovery sweeps, and effect workers must submit typed system commands. Once `core.api` moves to `application`, those workers must NOT import `application.api` (application already imports their feature services — that would be circular). **Fix:** a narrow lower-level port, `core.ports.CommandSubmitter: submit(CommandEnvelope) -> CommandReceipt`; `application` implements it, workers receive it via constructor injection, knowing only the envelope/receipt, not the application facade.
+
+## 3. Shared-concern leakage
+
+**Finding 8 — `UsageEvidence` repeats the `EvidenceValue` state algebra** (§§2, 6.4, 13.1). `core.evidence.EvidenceValue` already owns `MEASURED|ABSENT|UNAVAILABLE|ERROR|STALE`; `UsageEvidence` independently carries the identical state set plus the same freshness/source/error concepts — near-duplicate ownership. **Fix:** `UsageEvidence = EvidenceValue[UsageMeasurement]`, where `UsageMeasurement` owns only usage-specific numeric fields + quota scope; source/freshness/error-state/timestamps/raw-evidence-reference stay exclusively in `core.evidence`. Readiness/collector evidence should reuse the same algebra rather than re-inventing state enums.
+
+**Finding 9 — execution certainty needs one owner** (§§5, 7, 9, 14). `execution_certainty` appears in both the public error envelope and `ExecutionOutcome` with no explicit shared owner — protocol and dispatch could define incompatible enums. **Fix:** `core.execution.ExecutionCertainty` is canonical; `core.protocol` references it in errors, dispatch references it in `ExecutionOutcome`. Same for `RetryDisposition`.
+
+**Finding 10 — outbox events must use the protocol event envelope directly** (§§4-5, 10.1, 14). The document names both an event outbox and canonical protocol events but never explicitly prohibits `state.contract` from defining a separate `OutboxEvent`. **Fix:** state explicitly that the outbox stores `core.protocol.EventEnvelope` plus delivery/checkpoint metadata; `state.contract` must not define another event payload schema.
+
+**Finding 11 — legacy peer/scope identity remains in the dispatch model** (§§5, 6.1a, 7.3). §6.1a says sessions key on `instance_id`, but §7.3 still specifies `(workspace_scope, peer_id, profile_id, conversation_scope)` — this leaks the superseded identity model into a feature boundary. **[cc independently verified this against the live file — confirmed real, not a stale reading: ARCHITECTURE.md line 338 still reads `peer_id` verbatim.]** **Fix:** `(WorkspaceScopeId, instance_id, profile_id, conversation_scope)`. Global-scope commands cannot create/resume sessions. `instance_id` is always the configured peer instance; `adapter_id` is never used as runtime identity.
+
+**Checked, no finding:** protocol/error duplication from Round 4 is confirmed resolved — `core.protocol` owns wire schemas/error codes, `ipc` is limited to framing/serialization, `core.errors` maps internal failures into canonical codes without a second wire envelope.
+
+## 4. New-module fit
+
+**Finding 12 — telemetry should not receive the full `AskResult`** (§§9, 10.1). `telemetry.projections` needs operational facts, not dispatch's complete internal result — importing `AskResult` would couple telemetry to execution field layout, adapter protocol assessment, and completion semantics, AND risks telemetry using semantic completion evidence despite §10.1's own safety prohibition (the safety caveat becomes much easier to accidentally violate if the forbidden field is sitting right there in the object telemetry already holds). **Fix:** dispatch commits and emits a narrow canonical event instead (`AttemptTerminalObserved`: `instance_id`, `profile_id`, `transport`, `operational_failure_category?`, `execution_certainty`, `process_integrity`, `started_at`, `terminal_at`, `latency`, `evidence_refs` — defined in `core.protocol`). `telemetry.projections` consumes it idempotently from the outbox; it never imports `dispatch`, reads request tables, or receives raw `CompletionAssessment`. Probe/provider paths similarly emit typed `ReadinessObserved`/`UsageObserved` events.
+
+**Finding 13 — telemetry consumers need snapshots, not projection internals** (§§10-11). The text says `health.service`/`routing.service` consume "these projections" but names no public boundary — direct access to `telemetry.projections` fields or tables would couple policy code to aggregation internals. **Fix:** `telemetry.contract` exposes an immutable, revisioned reader: `TelemetryProjectionReader.get(instance_id, profile_id) -> OperationalProjectionSnapshot`, containing only measurements/freshness/sample-count/evidence-references — no admission/routing policy decision.
+
+**Finding 14 — telemetry and health ownership needs one explicit dividing rule** (§§4, 10-10.1). The semantic split is good but should be normative, not implied: telemetry owns measured observations/empirical aggregates; health owns policy classifications (`HEALTHY`/`COOLDOWN`/`QUARANTINED`/`OPEN`). **Fix:** add an ownership rule forbidding telemetry from emitting admission states and health from recomputing raw collector aggregates — `health.service` maps one frozen telemetry snapshot plus readiness/admin evidence into an `AdmissionSnapshot`.
+
+**Finding 15 — coordination must use events for cross-feature effects** (§§2, 4, 7.3, 12-14). Several real coordination transitions imply other-feature effects: new topic/room closure should retire old dispatch session bindings; proposal lifecycle changes should update handoff/dashboard projections; terminal-duty selection may consider health eligibility; consensus/dispatch completion may append room history/checkpoints. If `coordination.service` directly imports dispatch/governance/health/consensus internals to do this, the new package becomes a central coupling hub. **Fix:** `RoomSuperseded`/`ConversationScopeRetired` event → an application handler issues a dispatch `RetireSessionScope` system command; `ProposalLifecycleChanged` event → coordination updates its handoff projection without importing governance models; terminal assignment receives a prepared `TerminalCandidate` list with evidence references, coordination doesn't query health/routing tables directly; request/consensus history updates consume canonical terminal/decision events. Coordination owns its own state transitions; `application` owns cross-feature sagas.
+
+**Finding 16 — presence and health must not duplicate one another** (§§2, 4, 10). `coordination` owns presence while `health` owns availability/admission — without a boundary, both could accumulate `online`/`last_seen`/`available`/gate fields independently. **Fix:** coordination presence = registered membership, heartbeat/contact timestamp, terminal-duty ownership; health = executable readiness, provider state, operational failures, cooldown/quarantine, admission. Presence may be evidence supplied TO health policy; it never directly equals `HEALTHY`/`OPEN`.
+
+## 5. Concrete refactor set
+
+1. Move `core.api` to `application.api`/`workflows`.
+2. Keep `core.context` free of feature-service references; compose services in `runtime.py`.
+3. Move shared execution-boundary types into `core.execution`.
+4. Split `state.contract` from `persistence.sqlite`.
+5. Add narrow public `contract.py` surfaces for cross-feature values; forbid sibling `model.py` imports.
+6. Have application workflows, not feature services, coordinate sibling service calls.
+7. Feed telemetry through canonical terminal/probe/usage events — not `AskResult` or dispatch tables.
+8. Integrate coordination through events and typed effect intents.
+9. Reuse the core evidence/execution/event algebras instead of redefining usage states, execution certainty, or outbox envelopes.
+10. Replace the remaining session `peer_id` key with `instance_id`.
+
+**Current verdict: real coupling findings exist; targeted refactor required.** The domain decomposition itself is good — especially the new coordination/telemetry split — but the application facade, persistence backend, process boundary, and cross-feature event paths must be repositioned before implementation to prevent those good feature boundaries from collapsing into cyclic imports.
+
+---
+
+## Round 7
+
+*(pending — reconciling ag's 0-finding verdict against cx's 16 findings; cc independently verified Finding 11 as real against the live file before dispatching this round)*
