@@ -1,0 +1,13 @@
+{
+  "fixture_id": "CJ-06",
+  "domain": "cli-jsonl",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "characterization_scope": "legacy admission rejection exit mapping; PeerHub v1 must expose structured admission error",
+  "execution_input": {"command_line": "python _sys/core/hub.py health-precheck --peer nonexistent"},
+  "observed_outcome": {"exit_code": 1, "stdout_summary": "Governance Health Pre-Check FAILED. Scope=nonexistent"},
+  "artifacts": {"transcript": "CJ-06.transcript.json", "transcript_sha256": "7c75e266123c367074850a66a4fe5b966170c2241e226c96cf3b439a3a42a9bb"},
+  "blocker": null,
+  "record_sha256": "ca58a3b253f576a20c33099c119a7167ecdcdba5004c722de7122ab3c7b67e8e",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

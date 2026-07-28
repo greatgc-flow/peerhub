@@ -1,0 +1,1 @@
+{"command_sequence":["broadcast --from ag --msg phase0-cr03-broadcast-order --force-tier0"],"stdout":"[HUB] SENT ag→cx | thread=b-3605 | id=5 type=MSG\n[HUB] SENT ag→cc | thread=b-3605 | id=6 type=MSG\n[HUB] BROADCAST ag -> cx,cc | thread=b-3605","exit_code":0,"state_projection":{"thread_id":"b-3605","recipient_order":["cx","cc"],"message_ids":[5,6]}}

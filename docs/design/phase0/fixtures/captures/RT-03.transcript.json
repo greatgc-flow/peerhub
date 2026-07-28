@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py credit-status --peer ag --json","exit_code":3,"stderr_summary":"reset credits are not declared for peer ag","interpretation":"absence is explicit unsupported capability, not zero quota"}

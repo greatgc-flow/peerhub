@@ -1,0 +1,1 @@
+{"command_sequence":["inspect existing ag session binding a1cb5","init-session --agent ag --room fixture-r1 --force-tier0","inspect resulting state"],"stdout":"a12ea\n{\"ag_member_session\":\"a12ea\",\"room_id\":\"fixture-r1\"}","exit_code":0,"state_projection":{"prior_session_id":"a1cb5","result_session_id":"a12ea","room_id":"fixture-r1","compatible_resume":false}}

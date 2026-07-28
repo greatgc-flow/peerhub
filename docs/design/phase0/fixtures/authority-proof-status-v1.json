@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "purpose": "Additive authority-cutover proof status overlay; separate from the 54 behavioral fixture contract.",
+  "namespace": "AC",
+  "controlled_fake_runner_exit_required": false,
+  "phase0_behavioral_exit_required": false,
+  "cutover_capture_required_before_execution": true,
+  "fixtures": {
+    "AC-01": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-02": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-03": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-04": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-05": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-06": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-07": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-08": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-09": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false}
+  }
+}

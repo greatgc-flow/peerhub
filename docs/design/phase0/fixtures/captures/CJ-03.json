@@ -1,0 +1,13 @@
+{
+  "fixture_id": "CJ-03",
+  "domain": "cli-jsonl",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "characterization_scope": "legacy argparse invalid-argument behavior; not a v1 JSONL envelope assertion",
+  "execution_input": {"command_line": "python _sys/core/hub.py status --bogus"},
+  "observed_outcome": {"exit_code": 2, "stderr_summary": "unrecognized arguments: --bogus"},
+  "artifacts": {"transcript": "CJ-03.transcript.json", "transcript_sha256": "8e7ef1ebcb7c8f00de39b5f7eb8400318c1a724b7973625901c8ae6f61225d99"},
+  "blocker": null,
+  "record_sha256": "f8f8aa63b862decd9323230c7669874c995a14b82cadcb7d23343b3aa9678752",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

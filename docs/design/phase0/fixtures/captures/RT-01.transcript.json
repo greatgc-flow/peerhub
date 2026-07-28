@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py discover --needs reasoning --effort high","exit_code":0,"stdout_summary":"one eligible peer: cx; score=12; status=GREEN; tier=mid","redaction":"capability list omitted; it is configuration-derived and non-semantic to selection result"}

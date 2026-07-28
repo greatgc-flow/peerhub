@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py status --bogus","exit_code":2,"stderr_summary":"unrecognized arguments: --bogus","redaction":"argparse usage banner omitted as non-semantic duplicate"}

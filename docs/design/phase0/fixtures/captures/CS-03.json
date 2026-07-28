@@ -1,0 +1,14 @@
+{
+  "fixture_id": "CS-03",
+  "domain": "consensus",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "round_id": "r-56b8", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["initial ag agree vote", "conflicting ag disagree vote"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic subject", "absolute paths omitted"]},
+  "observed_outcome": {"exit_codes": [0, 1], "original_vote": "agree", "conflicting_vote": "disagree", "conflicting_vote_applied": false, "error": "VOTE_ALREADY_CAST"},
+  "artifacts": {"transcript": "CS-03.transcript.json", "transcript_sha256": "082713e10adb7c435db38be694d604cc9a6ca1d89bf864b9c383e3d86ff262c8"},
+  "blocker": null,
+  "record_sha256": "97fb3f1ea379cb11855bea3f357fefb715a70dec5e393c47ff8c1715a10b3d7d",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

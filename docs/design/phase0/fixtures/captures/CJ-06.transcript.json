@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py health-precheck --peer nonexistent","exit_code":1,"stdout_summary":"Governance Health Pre-Check FAILED. Scope=nonexistent","redaction":"warning line omitted as non-semantic runtime context"}

@@ -1,0 +1,15 @@
+{
+  "$schema": "peerhub.phase0.fixture-record.v1",
+  "fixture_id": "DP-01",
+  "domain": "dispatch-pipe",
+  "capture_class": "CONTROLLED_FAKE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"provider_calls": false, "child": "local deterministic Python process"},
+  "execution_input": {"command_sequence": ["pytest test_small_flushed_chunks_keep_pipe_alive_until_clean_exit"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic child output only"]},
+  "observed_outcome": {"process_layer": "spawned local child", "stream_layer": "8 flushed one-byte chunks preserved", "completion_layer": "return code 0", "legacy_protocol_layer": "not separately persisted", "required_v1_result": "delivered terminal result with process/protocol/completion layers separately recorded"},
+  "artifacts": {"transcript": "DP-01.transcript.json", "transcript_sha256": "b3c3d9d29185db04f0b4f9c733ddb59bfe188f024c6d47ee91b8826036ac0e93"},
+  "blocker": {"id": "LEGACY-DP01-PROTOCOL-LAYER-01", "status": "observed", "detail": "Legacy regression proves process streaming and completion but has no durable protocol-layer receipt; PeerHub V1 must persist the three layers independently."},
+  "record_sha256": "7aad6f8b98030b052dd38b97c11b1f9fa169467d228c799bb7156ab51842dd2f",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

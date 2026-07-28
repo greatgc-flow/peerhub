@@ -1,0 +1,14 @@
+{
+  "fixture_id": "SL-05",
+  "domain": "session-lease",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "live_state_mutated": false, "existing_assignment_peer": "ag"},
+  "execution_input": {"command_sequence": ["terminal-heartbeat --peer cx --lease-id term-lease-af4fd630239e --force-tier0"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic fixture identifiers", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 0, "wrong_peer": "cx", "wrong_peer_renewal_accepted": true, "required_v1_result": "reject without mutation"},
+  "artifacts": {"transcript": "CR-05.transcript.json", "transcript_sha256": "a87221addef0a8f321429c41d3abaf90ed896192b06364322a12bc2fb63c2433"},
+  "blocker": {"id": "LEGACY-SL05-OWNER-IDENTITY-01", "status": "observed", "detail": "Legacy terminal heartbeat compares only lease_id and accepts a heartbeat supplied as a different peer; PeerHub v1 must fence by owner/principal and process-birth identity."},
+  "record_sha256": "08896c12b6ca6d97a515b221d96e295ff8afe47bdb847033d731d5ca31be29e0",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

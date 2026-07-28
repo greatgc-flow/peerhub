@@ -1,0 +1,17 @@
+{
+  "$schema": "peerhub.phase0.fixture-record.v1",
+  "fixture_id": "CJ-01",
+  "domain": "cli-jsonl",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {
+    "engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb",
+    "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"
+  },
+  "preconditions": {},
+  "execution_input": {},
+  "redaction": {"applied": true, "rules": []},
+  "observed_outcome": {},
+  "artifacts": {},
+  "blocker": null,
+  "record_sha256": "REPLACE_WITH_CANONICAL_RECORD_DIGEST"
+}

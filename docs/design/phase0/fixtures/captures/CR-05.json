@@ -1,0 +1,14 @@
+{
+  "fixture_id": "CR-05",
+  "domain": "coordination-room-mailbox-handoff",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "room": "fixture-r1", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["terminal-handoff --agent cc --peer ag --reason phase0-cr05-assignment --force-tier0", "terminal-heartbeat --peer ag --lease-id term-lease-af4fd630239e --force-tier0"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic fixture identifiers", "absolute paths omitted"]},
+  "observed_outcome": {"exit_codes": [0, 0], "assigned_peer": "ag", "lease_id": "term-lease-af4fd630239e", "owner_heartbeat_accepted": true},
+  "artifacts": {"transcript": "CR-05.transcript.json", "transcript_sha256": "a87221addef0a8f321429c41d3abaf90ed896192b06364322a12bc2fb63c2433"},
+  "blocker": null,
+  "record_sha256": "beb0137660f5eaa9b95e4a9c44b0ccb5b19c2ef15a7663b9d6f5aa4ef957f345",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

@@ -1,0 +1,13 @@
+{
+  "fixture_id": "RT-03",
+  "domain": "routing",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "characterization_scope": "legacy absence/unsupported usage capability is explicit and not zero quota",
+  "execution_input": {"command_line": "python _sys/core/hub.py credit-status --peer ag --json"},
+  "observed_outcome": {"exit_code": 3, "stderr_summary": "reset credits are not declared for peer ag"},
+  "artifacts": {"transcript": "RT-03.transcript.json", "transcript_sha256": "e042d65d4d17dc091080ec862ab28385bb2fa0bbb078ff943614d31bb61ba62a"},
+  "blocker": null,
+  "record_sha256": "93b3d6ffef0f71d3798acb4b431a423ba4cd308101611f367215e999d3cfbcb9",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

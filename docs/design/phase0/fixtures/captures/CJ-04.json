@@ -1,0 +1,13 @@
+{
+  "fixture_id": "CJ-04",
+  "domain": "cli-jsonl",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "characterization_scope": "legacy CLI has no protocol negotiation surface; PeerHub v1 requires an explicit mismatch envelope",
+  "execution_input": {"command_line": "python _sys/core/hub.py --protocol-major 999 status"},
+  "observed_outcome": {"exit_code": 2, "stderr_summary": "legacy CLI has no --protocol-major option; parser treats 999 as an invalid action"},
+  "artifacts": {"transcript": "CJ-04.transcript.json", "transcript_sha256": "dce68970448bf30d7893647fe3bff6ef5ec1e5c6d80eeec0f7a2158a8e714bdd"},
+  "blocker": null,
+  "record_sha256": "5f055f6833ff0a44893b90dc1b5b50c0ac881232ddbcb3fb742bac43d6e5949e",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

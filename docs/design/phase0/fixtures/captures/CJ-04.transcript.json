@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py --protocol-major 999 status","exit_code":2,"stderr_summary":"legacy CLI has no --protocol-major option; parser treats 999 as an invalid action"}

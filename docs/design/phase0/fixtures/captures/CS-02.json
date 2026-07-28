@@ -1,0 +1,14 @@
+{
+  "fixture_id": "CS-02",
+  "domain": "consensus",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "round_id": "r-bcf8", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["repeat identical ag vote on r-bcf8"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic subject", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 0, "result": "idempotent no-op", "voter": "ag", "vote": "agree", "reason": "phase0-idempotent"},
+  "artifacts": {"transcript": "CS-01.transcript.json", "transcript_sha256": "d60b76b6fc3c3024bf4ac2040d165d5762c66303edcab8590294674f320b4ef8"},
+  "blocker": null,
+  "record_sha256": "01e7eace6df8dfa129d2d9628c54d6f805071c417d1aaf09141fc6e9c7bd6668",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

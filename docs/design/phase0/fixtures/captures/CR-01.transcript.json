@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py --ai-root <isolated-root> end-session --agent ag","exit_code":0,"stdout_summary":"session ended","state_after_sha256":"5e7f5081f27908304f3fa82900c67c05b8752a0a1855233127a3dbcc3f604b23"}

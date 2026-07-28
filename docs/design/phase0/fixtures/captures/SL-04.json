@@ -1,0 +1,14 @@
+{
+  "fixture_id": "SL-04",
+  "domain": "session-lease",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "prior_lease_id": "term-lease-af4fd630239e", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["terminal-handoff --agent cc --peer ag --reason phase0-sl04-second-lease --force-tier0"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic reason", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 0, "new_lease_id": "term-lease-f4cf22a2e769", "independent_active_leases": 1, "required_v1_result": "two independent same-peer leases"},
+  "artifacts": {"transcript": "SL-04.transcript.json", "transcript_sha256": "606b26723150b74555fa3f7e22cac5cca7b8e0d11db4fb79bd551d227d008726"},
+  "blocker": {"id": "LEGACY-SL04-SINGLE-ASSIGNMENT-01", "status": "observed", "detail": "Legacy state stores one human_interface_assignment; a later same-peer handoff replaces the prior lease rather than retaining independently renewable/closable leases."},
+  "record_sha256": "dd416c3e63cbda35c94b517975563aae2830e494eb1c2929fe3e58d3b7cb7b89",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

@@ -1,0 +1,14 @@
+{
+  "fixture_id": "HR-03",
+  "domain": "health-recovery",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"live_state_mutated": false, "peer": "cx", "prior_dispatch": "evidence review only", "provider_answer_received": false},
+  "execution_input": {"command_sequence": ["peer-status --all", "health-precheck --peer cx"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["network endpoint omitted", "no review prompt content retained"]},
+  "observed_outcome": {"exit_codes": [0, 1], "health": "RED", "gate": "closed", "admission": "rejected", "failure_class": "operational_error:timeout"},
+  "artifacts": {"transcript": "HR-03.transcript.json", "transcript_sha256": "c64bcf5fe03f8652bf66e3a5a9dc5fa07ccf981232c55e51b748691daf26b9bf"},
+  "blocker": {"id": "CX-TRANSPORT-REVIEW-01", "status": "external_runtime", "detail": "CX review could not execute because Codex transport connections were refused; no model verdict exists and no automatic retry will occur."},
+  "record_sha256": "32cb84775f59f89653e294a029284735099e520e0572379bd1e9343d19352e5d",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

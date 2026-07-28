@@ -1,0 +1,13 @@
+{
+  "fixture_id": "RT-01",
+  "domain": "routing",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "characterization_scope": "legacy eligible candidate discovery under declared reasoning/high request",
+  "execution_input": {"command_line": "python _sys/core/hub.py discover --needs reasoning --effort high"},
+  "observed_outcome": {"exit_code": 0, "stdout_summary": "one eligible peer: cx; score=12; status=GREEN; tier=mid"},
+  "artifacts": {"transcript": "RT-01.transcript.json", "transcript_sha256": "fa54af9977b61a94659abe580c7c8f86a0ae5236e053bcdefb6a913d798c0921"},
+  "blocker": null,
+  "record_sha256": "e8f23ffe39fdb4d20f634a0123eddeaa824fbce598f02e763a6a94019cdd423c",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

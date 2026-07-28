@@ -1,0 +1,8 @@
+{
+  "capture": "DP-04 read-only legacy output-cap inspection",
+  "executed_at": "2026-07-28",
+  "inspection": "hub.py records PTY chunk telemetry fields chunks_observed, chunks_recorded, chunks_truncated, and bytes_total; no dispatch-pipe output byte cap or output-cap termination category was found.",
+  "conclusion": "Telemetry retention truncation is not a process output cap. Legacy cannot provide the required bounded-process outcome for DP-04.",
+  "provider_calls": false,
+  "exit_code": 0
+}

@@ -1,0 +1,14 @@
+{
+  "fixture_id": "CS-06",
+  "domain": "consensus",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "round_id": "r-6194", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["consensus proposal", "ag dissent vote"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic subject", "absolute paths omitted"]},
+  "observed_outcome": {"exit_codes": [0, 0], "status": "rejected", "outcome": "disagree", "dissent": "ag=disagree", "arbiter_opinion_recorded": false},
+  "artifacts": {"transcript": "CS-06.transcript.json", "transcript_sha256": "6f65d4f622901cc07012b377cb697fbbdd8303d0aa244f7109944225ee42d467"},
+  "blocker": {"id": "LEGACY-CS06-ARBITER-SEPARATION-01", "status": "observed", "detail": "Legacy auto-arbiter skipped with no durable independent arbiter opinion; PeerHub v1 must model dissent, opinion, and effective outcome separately."},
+  "record_sha256": "6afa0d317b5c88f3a0c31c76af7385f506d38dba9501a597ebdba09f81a7fed4",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

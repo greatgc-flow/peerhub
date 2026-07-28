@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py discover --needs impossible-capability --effort high","exit_code":0,"stdout_summary":"no matching peers; fallback=rotating"}

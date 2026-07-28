@@ -1,0 +1,15 @@
+{
+  "$schema": "peerhub.phase0.fixture-record.v1",
+  "fixture_id": "DP-04",
+  "domain": "dispatch-pipe",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"provider_calls": false},
+  "execution_input": {"command_sequence": ["read-only source inspection of pipe/PTY output handling"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": []},
+  "observed_outcome": {"legacy_output_cap": "absent", "required_v1_result": "output cap stops/categorizes bounded process without unbounded exposure"},
+  "artifacts": {"transcript": "DP-04.transcript.json", "transcript_sha256": "65b5c5304d656576c7047af0e05a98d84af1f059a953ff813c21fd20ad68220f"},
+  "blocker": {"id": "LEGACY-DP04-OUTPUT-CAP-01", "status": "observed", "detail": "Legacy only truncates recorded PTY telemetry chunks; it has no bounded pipe-output process cap or terminal category. PeerHub V1 requires a deterministic fake-process capture and implementation."},
+  "record_sha256": "a1eb06dac94a497b5227aad941123d7b2a4f8973b3d4ac2a23b9f1f90613029d",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

@@ -1,0 +1,14 @@
+{
+  "fixture_id": "SL-02",
+  "domain": "session-lease",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "room": "fixture-r1", "prior_ag_session_id": "a1cb5", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["init-session --agent ag --room fixture-r1 --force-tier0"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic fixture room", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 0, "prior_session_id": "a1cb5", "result_session_id": "a12ea", "compatible_resume": false, "fingerprint_checked": false},
+  "artifacts": {"transcript": "SL-02.transcript.json", "transcript_sha256": "da4cacdab7012ffd16a3eb56bc7d60b8109ca9dfe3da27a49a824d4801b91427"},
+  "blocker": {"id": "LEGACY-SL02-RESUME-BINDING-01", "status": "observed", "detail": "Legacy init-session replaces the member session ID on re-entry and has no frozen fingerprint/configuration binding; PeerHub v1 requires explicit compatible resume semantics."},
+  "record_sha256": "2e115ef216c436344787b9f8786f724661eed6a1a257a57eda235934f4f4f833",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

@@ -1,0 +1,1 @@
+{"command_sequence":["send --from ag --to cx --msg phase0-cr02-read-transition --force-tier0","mark-read --target cx --id 4 --force-tier0"],"stdout":"[HUB] SENT ag→cx | thread=t-c950 | id=4 type=MSG\n[READ] 1개 메시지 읽음 처리","exit_code":0,"state_projection":{"message_id":4,"from":"ag","to":"cx","status":"read","thread_id":"t-c950","unread_count":2}}

@@ -1,0 +1,13 @@
+{
+  "fixture_id": "RT-02",
+  "domain": "routing",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "characterization_scope": "legacy capability exclusion/fallback",
+  "execution_input": {"command_line": "python _sys/core/hub.py discover --needs impossible-capability --effort high"},
+  "observed_outcome": {"exit_code": 0, "stdout_summary": "no matching peers; fallback=rotating"},
+  "artifacts": {"transcript": "RT-02.transcript.json", "transcript_sha256": "da81efb43afab21c97a7eb52f64b92242d5d756d078f33f301b28b9fd18cf1eb"},
+  "blocker": null,
+  "record_sha256": "66f0d9c975e4cbfb63f1a60fc6a79143778779f0ee63780b56cb10d282c77b10",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

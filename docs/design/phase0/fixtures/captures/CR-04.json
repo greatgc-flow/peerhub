@@ -1,0 +1,14 @@
+{
+  "fixture_id": "CR-04",
+  "domain": "coordination-room-mailbox-handoff",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "room": "fixture-r1", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["checkpoint --agent ag --msg phase0-cr04-handoff-boundary --force-tier0", "read sessions/fixture-r1/handoff.json"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic checkpoint note", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 0, "checkpoint_persisted": true, "handoff_sha256": "952aaece51403b16c995cfd8b3dda57190327253d79637ad279d2b2be0c46a88e", "immutable_source_reference": false},
+  "artifacts": {"transcript": "CR-04.transcript.json", "transcript_sha256": "7e5113ad193ffbb64898293f0bbd0d054098353a5d8656b3100693bfede29fbc"},
+  "blocker": {"id": "LEGACY-CR04-IMMUTABLE-SOURCE-01", "status": "observed", "detail": "Legacy checkpoint writes mutable handoff text only; v1 must add an immutable source reference to satisfy CR-04."},
+  "record_sha256": "a833db7a4e74b1fdb9311087efd4803e56125f21393608d475082742714b9a10",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}
