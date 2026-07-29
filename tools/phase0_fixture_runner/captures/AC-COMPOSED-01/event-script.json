@@ -1,0 +1,168 @@
+{
+  "schema_version": 2,
+  "clock": [
+    1800,
+    1801
+  ],
+  "ids": [
+    "run-AC-COMPOSED-01-r2",
+    "event-AC-COMPOSED-01-01",
+    "event-AC-COMPOSED-01-02"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-composed-cutover",
+      "command_type": "ordered-cutover-pipeline",
+      "idempotency_key": "AC-COMPOSED-01",
+      "payload": {
+        "proof_id": "AC-COMPOSED-01"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-composed-cutover",
+      "command_type": "ordered-cutover-pipeline",
+      "idempotency_key": "AC-COMPOSED-01",
+      "payload": {
+        "proof_id": "AC-COMPOSED-01"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-COMPOSED-01",
+    "oracle_id": "authority_composed_cutover.accomposed01.golden_ordered_cutover",
+    "oracle_version": 1,
+    "inputs": {
+      "identity": {
+        "fixture_id": "AC-02-01",
+        "inputs": {
+          "operation": "OPEN",
+          "open_context": "NORMAL",
+          "known_bindings": [
+            {
+              "workspace_home_id": "workspace-home-compose",
+              "database_identity": "database-compose",
+              "resolved_identity": {
+                "volume_guid": "volume-compose",
+                "file_id": "file-compose"
+              },
+              "home_content_digest": "content-compose",
+              "recorded_presented_path": "D:/peerhub"
+            }
+          ],
+          "observed_home": {
+            "workspace_home_id": "workspace-home-compose",
+            "database_identity": "database-compose",
+            "resolved_identity": {
+              "volume_guid": "volume-compose",
+              "file_id": "file-compose"
+            },
+            "home_content_digest": "content-compose",
+            "presented_path": "P:/peerhub"
+          },
+          "relocation_receipt": null
+        }
+      },
+      "drain": {
+        "fixture_id": "AC-08-01",
+        "inputs": {
+          "elapsed_seconds": 30,
+          "admission_closed": true,
+          "new_lease_attempts": 1,
+          "leases": [
+            {
+              "lease_id": "lease-compose-terminal",
+              "status": "TERMINAL",
+              "terminal_receipt": true,
+              "operation_may_have_external_effect": false,
+              "provider_effect_visible": false,
+              "classification": {
+                "lookup_status": "RESOLVED",
+                "ratified_table_digest": "fixture-ratified-safe-abort-digest-v1",
+                "observed_table_digest": "fixture-ratified-safe-abort-digest-v1",
+                "static_effect_class": "CONFIG_ONLY",
+                "static_effect_phase": "PRE_EFFECT",
+                "self_declared_effect_class": "CONFIG_ONLY",
+                "self_declared_effect_phase": "PRE_EFFECT"
+              },
+              "process_birth_match": true,
+              "identity_known": true,
+              "lock_owner_known": true,
+              "admission_hashes_unchanged": true
+            }
+          ]
+        }
+      },
+      "custody": {
+        "fixture_id": "AC-05-01",
+        "inputs": {
+          "declared_write_scope": [
+            "legacy/a.json",
+            "legacy/b.json"
+          ],
+          "admission_snapshot": [
+            {
+              "path": "legacy/a.json",
+              "exists": true,
+              "digest": "sha-compose-a"
+            },
+            {
+              "path": "legacy/b.json",
+              "exists": true,
+              "digest": "sha-compose-b"
+            }
+          ],
+          "precommit_snapshot": [
+            {
+              "path": "legacy/b.json",
+              "exists": true,
+              "digest": "sha-compose-b"
+            },
+            {
+              "path": "legacy/a.json",
+              "exists": true,
+              "digest": "sha-compose-a"
+            }
+          ],
+          "observed_legacy_writes": [],
+          "post_abort_attempt": {
+            "lease_safely_aborted": false,
+            "attempted": false,
+            "effect_observed": false
+          },
+          "custody_observation": {
+            "object_exclusivity_provable": true,
+            "namespace_custody_provable": true,
+            "failure_facts": []
+          }
+        }
+      },
+      "marker": {
+        "fixture_id": "AC-04-04",
+        "inputs": {
+          "admission_epoch": 7,
+          "phase": "CUTOVER_DRAINING",
+          "contenders": [
+            {
+              "contender_id": "compose-contender"
+            },
+            {
+              "contender_id": "compose-contender-loser"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

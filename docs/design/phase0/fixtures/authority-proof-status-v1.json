@@ -7,6 +7,10 @@
   "cutover_capture_required_before_execution": true,
   "umbrella_note": "AC-0X umbrella IDs remain V1_SPEC_ONLY / cutover_execution_eligible=false until every AC-0X-YY child sub-fixture is SPEC_FAITHFUL AND a separate future real-OS-integration track (not modeled here, per AUTHORITY-PROOF-SCOPING-DECISION-R1.md) exists. A SPEC_FAITHFUL child proves PeerHub's decision logic is correct given the stated observations; it never proves Windows actually produces those observations.",
   "fixtures": {
+    "AC-COMPOSED-01": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "golden path: identity confirmed -> drain safe-completes -> custody/rehash shows no drift -> real SQLite marker CAS commits (verified by direct inspection: exactly one committed marker row). Composed by genuinely importing and invoking AC-02/AC-08/AC-05/AC-04's own real oracle/adapter functions, not a reimplementation."},
+    "AC-COMPOSED-02": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "identity gate failure halts the pipeline before drain ever runs; zero marker attempt, real SQLite file never created (verified by direct inspection)"},
+    "AC-COMPOSED-03": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "drain INCOMPLETE_SAFE halts the pipeline before custody/rehash runs; zero marker attempt"},
+    "AC-COMPOSED-04": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "custody CUTOVER_INPUT_DRIFT halts the pipeline before marker CAS; zero marker attempt"},
     "AC-01": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
     "AC-01-01": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
     "AC-01-02": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
