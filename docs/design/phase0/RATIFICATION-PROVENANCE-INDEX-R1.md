@@ -100,18 +100,28 @@ it does not edit the protocol body or change `r-aec7`:
 
 ## Remaining decision chain
 
-As of `session-2026-07-29-ac-track`: AC-01..AC-09 authority-cutover evidence
-is complete (superseding the "AC evidence" item below as a future round --
-it is now a *finished*, ratified item, not a remaining one). The next
-non-overlapping ratifications are: static 90-action identity and disposition
-inventory; runtime-health invariants; a V1 capture-production specification
-for the 35 remaining legacy-only behavioral IDs (DP-01..05, SL-01..06,
-CR-01..06, CS-01..06, HR-01..03, RT-01..03, GB-02/06, CJ-01/03/04/06); and a
-`CONTROLLED-FAKE-RUNNER-CONTRACT-R3` ratification resolving the 15 `OPEN`
-items in `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` (needed to unblock
-DP-06). Final action-fixture linkage remains blocked pending per-action
-fields and evidence adequacy. Capture acceptance, broker implementation,
-cutover, and Phase 0 exit remain separate future rounds.
+As of `session-2026-07-29-hr-track` (following `-ac-track` and `-sl-track`
+earlier the same session): AC-01..AC-09 authority-cutover evidence and the
+V1 capture-production specification for all 35 originally legacy-only
+behavioral IDs (DP-01..05, SL-01..06, CR-01..06, CS-01..06, HR-01..03,
+RT-01..03, GB-02/06, CJ-01/03/04/06) are both complete -- superseding both
+as future rounds below; they are now *finished*, ratified items. All 54
+total contract IDs in `fixture-status-v1.json` show `evidence_status:
+V1_CAPTURE`. ag.deepthink and cx.deepthink both independently ACKed this
+milestone characterization (`session-2026-07-29-final-ratify`, same
+query-file-ask-plus-ACK mechanism, cc's own review as the third vote); no
+Hub-minted round ID.
+
+The next non-overlapping ratifications are: static 90-action identity and
+disposition inventory; a `CONTROLLED-FAKE-RUNNER-CONTRACT-R3` ratification
+resolving the 15 `OPEN` items in `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md`
+(the only remaining blocker on `TDD-READINESS-GATE-R1.md` condition 1's
+substance, since DP-06 alone still carries `coverage_scope:
+PENDING_FAITHFUL_MAPPING_REVIEW`); and, once that clears, condition 1 is
+substantively met and TDD start can be considered against conditions 2-3.
+Final action-fixture linkage remains blocked pending per-action fields and
+evidence adequacy. Capture acceptance, broker implementation, cutover, and
+Phase 0 exit remain separate future rounds.
 
 ## Integrity rule
 
