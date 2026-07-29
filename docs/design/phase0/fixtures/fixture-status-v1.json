@@ -53,11 +53,11 @@
     "GB-04": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
     "GB-05": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
     "GB-06": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
-    "CJ-01": {"evidence_status": "LEGACY_CAPTURE", "legacy_v1_gap": false, "phase0_exit_eligible": false},
+    "CJ-01": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "CANDIDATE envelope schema (legacy is an argparse CLI, no legacy JSONL envelope spec exists to observe from); models read-only dispatch requiring no idempotency key"},
     "CJ-02": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
-    "CJ-03": {"evidence_status": "LEGACY_CAPTURE", "legacy_v1_gap": false, "phase0_exit_eligible": false},
-    "CJ-04": {"evidence_status": "LEGACY_CAPTURE", "legacy_v1_gap": false, "phase0_exit_eligible": false},
+    "CJ-03": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "CANDIDATE envelope schema; models envelope-shape rejection (ENVELOPE_MALFORMED, exit_code 2) isolated from framing/version stages, which are fact-injected as already-passed"},
+    "CJ-04": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "CANDIDATE envelope schema; models version/schema negotiation occurring after framing+JSON parsing per SUPERSESSION-AND-CROSSWALK-R1.md frozen ordering, with supported-version evidence in the rejection output"},
     "CJ-05": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
-    "CJ-06": {"evidence_status": "LEGACY_CAPTURE", "legacy_v1_gap": false, "phase0_exit_eligible": false}
+    "CJ-06": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "CANDIDATE exit-code family table (ENVELOPE_MALFORMED/PROTOCOL_VERSION_UNSUPPORTED=2, ACTOR_UNAUTHORIZED/ADMISSION_REVISION_MISMATCH=3, the latter matching command_authz.py's existing exit_code=3 by convention); models redaction of sensitive input from the generic rejection message"}
   }
 }

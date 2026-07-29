@@ -1,0 +1,1 @@
+{"adapter_id":"cli_envelope.cj03.reference","adapter_version":1,"fixture_id":"CJ-03","output":{"effect_certainty":"NOT_STARTED","error_code":"ENVELOPE_MALFORMED","exit_code":2,"status":"REJECTED","zero_dispatch_calls":true,"zero_outbox_writes":true,"zero_receipt_writes":true,"zero_state_mutations":true},"schema_version":1}

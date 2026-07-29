@@ -23,6 +23,7 @@ from .authority_recovery import (
 )
 from .authority_shadow import authority_shadow_registrations
 from .broker import broker_registrations
+from .cli_envelope import cli_envelope_registrations
 from .command_authz import command_authz_registrations
 from .consensus import consensus_registrations
 from .contract import (
@@ -50,6 +51,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *routing_registrations(),
         *routing_discovery_registrations(),
         *broker_registrations(),
+        *cli_envelope_registrations(),
         *governance_broker_registrations(),
         *command_authz_registrations(),
         *coordination_room_registrations(),

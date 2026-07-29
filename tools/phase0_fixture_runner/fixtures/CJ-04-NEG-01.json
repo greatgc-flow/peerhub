@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "clock": [2520, 2521],
+  "ids": [
+    "run-CJ-04-NEG-01-r2",
+    "event-CJ-04-NEG-01-01",
+    "event-CJ-04-NEG-01-02"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "cli-envelope",
+      "command_type": "cli-envelope-proof",
+      "idempotency_key": "CJ-04-NEG-01",
+      "payload": {
+        "proof_id": "CJ-04-NEG-01"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "cli-envelope",
+      "command_type": "cli-envelope-proof",
+      "idempotency_key": "CJ-04-NEG-01",
+      "payload": {
+        "proof_id": "CJ-04-NEG-01"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CJ-04-NEG-01",
+    "oracle_id": "cli_envelope.cj04.unsupported_version_evidence",
+    "oracle_version": 1,
+    "inputs": {
+      "protocol_major": 2,
+      "schema_name": "peerhub.request.v1",
+      "supported_protocol_majors": [1],
+      "supported_schema_names": [
+        "peerhub.request.v1"
+      ]
+    }
+  }
+}

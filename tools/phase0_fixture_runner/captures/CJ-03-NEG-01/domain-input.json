@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CJ-03-NEG-01","inputs":{"framing_valid":true,"malformed_reason":"MISSING_ACTOR_IDENTITY","protocol_supported":true},"oracle_id":"cli_envelope.cj03.malformed_pre_effect_rejection","oracle_version":1,"schema_version":1}
