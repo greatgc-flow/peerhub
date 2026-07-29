@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "clock": [2400, 2401],
+  "ids": [
+    "run-GB-02-NEG-01-r2",
+    "event-GB-02-NEG-01-01",
+    "event-GB-02-NEG-01-02"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "governance-broker",
+      "command_type": "governance-broker-proof",
+      "idempotency_key": "GB-02-NEG-01",
+      "payload": {
+        "proof_id": "GB-02-NEG-01"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "governance-broker",
+      "command_type": "governance-broker-proof",
+      "idempotency_key": "GB-02-NEG-01",
+      "payload": {
+        "proof_id": "GB-02-NEG-01"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "GB-02-NEG-01",
+    "oracle_id": "governance_broker.gb02.isolated_cas_staleness",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "ISOLATED_CAS_CONTENTION",
+      "facts": {
+        "initial_revision": 17,
+        "initial_value": "normalized-base",
+        "requests": [
+          {
+            "request_id": "gb02-commit",
+            "payload_value": "gb02-commit",
+            "expected_revision": 17,
+            "target_revision": 18,
+            "cas_verdict": "MATCH"
+          },
+          {
+            "request_id": "gb02-stale",
+            "payload_value": "gb02-stale",
+            "expected_revision": 17,
+            "target_revision": 18,
+            "cas_verdict": "STALE"
+          }
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "clock": [2410, 2411],
+  "ids": [
+    "run-GB-06-r2",
+    "event-GB-06-01",
+    "event-GB-06-02"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "governance-broker",
+      "command_type": "governance-broker-proof",
+      "idempotency_key": "GB-06",
+      "payload": {
+        "proof_id": "GB-06"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "governance-broker",
+      "command_type": "governance-broker-proof",
+      "idempotency_key": "GB-06",
+      "payload": {
+        "proof_id": "GB-06"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "GB-06",
+    "oracle_id": "governance_broker.gb06.lock_contention_release",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "LOCK_CONTENTION_RELEASE",
+      "facts": {
+        "resource_id": "governance-state",
+        "actions": [
+          {
+            "action_id": "lock-ag",
+            "operation": "LOCK",
+            "peer_id": "ag"
+          },
+          {
+            "action_id": "lock-cx",
+            "operation": "LOCK",
+            "peer_id": "cx"
+          },
+          {
+            "action_id": "unlock-ag",
+            "operation": "UNLOCK",
+            "peer_id": "ag"
+          }
+        ]
+      }
+    }
+  }
+}
