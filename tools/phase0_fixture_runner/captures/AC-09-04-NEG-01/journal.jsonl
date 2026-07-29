@@ -1,0 +1,2 @@
+{"event":{"client_id":"authority-quota","command_type":"quota-authority","idempotency_key":"AC-09-04-NEG-01","payload":{"proof_id":"AC-09-04-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-09-04-NEG-01-01","observed_monotonic":1930,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"authority-quota","command_type":"quota-authority","idempotency_key":"AC-09-04-NEG-01","payload":{"proof_id":"AC-09-04-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-09-04-NEG-01-02","observed_monotonic":1931,"record_type":"INPUT_EVENT","sequence":1}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "clock": [1930, 1931],
+  "ids": ["run-AC-09-04-r2", "event-AC-09-04-01", "event-AC-09-04-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-quota",
+      "command_type": "quota-authority",
+      "idempotency_key": "AC-09-04",
+      "payload": {"proof_id": "AC-09-04"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-quota",
+      "command_type": "quota-authority",
+      "idempotency_key": "AC-09-04",
+      "payload": {"proof_id": "AC-09-04"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-09-04",
+    "oracle_id": "authority_quota.ac0904.routing_advice_not_authorization",
+    "oracle_version": 1,
+    "inputs": {
+      "evaluation_kind": "DISPATCH_AUTHORIZATION",
+      "current_evidence_epoch": 0,
+      "maximum_evidence_age_epochs": 0,
+      "workspace_requests": [],
+      "routing_recommendation": {
+        "recommendation_id": "routing-advice-09-04",
+        "provider_id": "provider-preferred",
+        "recommended_workspace_id": "workspace-dispatch",
+        "advisory_only": true
+      },
+      "manual_dispatch_authorization": null
+    }
+  }
+}

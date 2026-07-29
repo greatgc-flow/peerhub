@@ -17,6 +17,7 @@ from .authority_identity import (
 from .authority_json_custody import (
     authority_json_custody_registrations,
 )
+from .authority_quota import authority_quota_registrations
 from .authority_recovery import (
     authority_recovery_registrations,
 )
@@ -49,6 +50,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *authority_external_effect_registrations(),
         *authority_recovery_registrations(),
         *authority_drain_registrations(),
+        *authority_quota_registrations(),
         *authority_composed_cutover_registrations(),
     )
 )

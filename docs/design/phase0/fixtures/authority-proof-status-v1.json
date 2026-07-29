@@ -67,6 +67,10 @@
     "AC-08-05": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "process_birth_match is an injected fact standing in for real OS process-identity determination, per AUTHORITY-PROOF-SCOPING-DECISION-R1.md's non-abstractable-items list"},
     "AC-08-06": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
     "AC-08-07": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
-    "AC-09": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false}
+    "AC-09": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-09-01": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "missing provider-account quota evidence is surfaced explicitly (QUOTA_EVIDENCE_UNAVAILABLE) rather than assumed available or exhausted, since the workspace database owns no quota state of its own -- adapter evidence is the only source"},
+    "AC-09-02": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "present-but-stale evidence (age past an injected freshness boundary) is surfaced explicitly (QUOTA_EVIDENCE_STALE) and never treated as authoritative for a sufficiency decision"},
+    "AC-09-03": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "two independent workspaces referencing the same provider_account_id are evaluated purely from their own injected evidence with zero cross-workspace coordination, reservation, or allocation -- proves V1 neither reserves nor allocates a provider quota across workspaces"},
+    "AC-09-04": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "an advisory routing recommendation without a manual dispatch authorization never authorizes a dispatch -- proves the contract's 'manually authorized dispatch is therefore distinct from a routing recommendation' rule; all disposition/evidence-state labels in this module are internal proof vocabulary, the contract text names no machine-readable AC-09 codes"}
   }
 }
