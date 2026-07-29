@@ -1,0 +1,2 @@
+{"event":{"client_id":"authority-json-custody","command_type":"json-custody-precommit-check","idempotency_key":"AC-05-07","payload":{"proof_id":"AC-05-07"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-05-07-01","observed_monotonic":1560,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"authority-json-custody","command_type":"json-custody-precommit-check","idempotency_key":"AC-05-07","payload":{"proof_id":"AC-05-07"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-05-07-02","observed_monotonic":1561,"record_type":"INPUT_EVENT","sequence":1}

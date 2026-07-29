@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "clock": [1500, 1501],
+  "ids": ["run-AC-05-01-r2", "event-AC-05-01-01", "event-AC-05-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-json-custody",
+      "command_type": "json-custody-precommit-check",
+      "idempotency_key": "AC-05-01",
+      "payload": {"proof_id": "AC-05-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-json-custody",
+      "command_type": "json-custody-precommit-check",
+      "idempotency_key": "AC-05-01",
+      "payload": {"proof_id": "AC-05-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-05-01",
+    "oracle_id": "authority_json_custody.ac0501.stable_declared_scope",
+    "oracle_version": 1,
+    "inputs": {
+      "declared_write_scope": ["legacy/state.json", "legacy/peers.json"],
+      "admission_snapshot": [
+        {"path": "legacy/state.json", "exists": true, "digest": "sha-state-01"},
+        {"path": "legacy/peers.json", "exists": true, "digest": "sha-peers-01"}
+      ],
+      "precommit_snapshot": [
+        {"path": "legacy/peers.json", "exists": true, "digest": "sha-peers-01"},
+        {"path": "legacy/state.json", "exists": true, "digest": "sha-state-01"}
+      ],
+      "observed_legacy_writes": [],
+      "post_abort_attempt": {
+        "lease_safely_aborted": false,
+        "attempted": false,
+        "effect_observed": false
+      },
+      "custody_observation": {
+        "object_exclusivity_provable": true,
+        "namespace_custody_provable": true,
+        "failure_facts": []
+      }
+    }
+  }
+}

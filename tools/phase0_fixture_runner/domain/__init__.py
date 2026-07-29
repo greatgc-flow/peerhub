@@ -7,6 +7,9 @@ from .authority_filesystem import (
 from .authority_identity import (
     authority_identity_registrations,
 )
+from .authority_json_custody import (
+    authority_json_custody_registrations,
+)
 from .broker import broker_registrations
 from .command_authz import command_authz_registrations
 from .contract import (
@@ -30,6 +33,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *authority_filesystem_registrations(),
         *authority_identity_registrations(),
         *authority_fence_registrations(),
+        *authority_json_custody_registrations(),
     )
 )
 

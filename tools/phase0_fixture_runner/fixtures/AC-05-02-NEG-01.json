@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "clock": [1510, 1511],
+  "ids": ["run-AC-05-02-NEG-01-r2", "event-AC-05-02-NEG-01-01", "event-AC-05-02-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-json-custody",
+      "command_type": "json-custody-precommit-check",
+      "idempotency_key": "AC-05-02-NEG-01",
+      "payload": {"proof_id": "AC-05-02-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-json-custody",
+      "command_type": "json-custody-precommit-check",
+      "idempotency_key": "AC-05-02-NEG-01",
+      "payload": {"proof_id": "AC-05-02-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-05-02-NEG-01",
+    "oracle_id": "authority_json_custody.ac0502.changed_declared_file",
+    "oracle_version": 1,
+    "inputs": {
+      "declared_write_scope": ["legacy/state.json"],
+      "admission_snapshot": [
+        {"path": "legacy/state.json", "exists": true, "digest": "sha-state-admission-02"}
+      ],
+      "precommit_snapshot": [
+        {"path": "legacy/state.json", "exists": true, "digest": "sha-state-changed-02"}
+      ],
+      "observed_legacy_writes": [],
+      "post_abort_attempt": {
+        "lease_safely_aborted": false,
+        "attempted": false,
+        "effect_observed": false
+      },
+      "custody_observation": {
+        "object_exclusivity_provable": true,
+        "namespace_custody_provable": true,
+        "failure_facts": []
+      }
+    }
+  }
+}
