@@ -13,10 +13,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from domain import (
+    DOMAIN_REGISTRY,
+    DomainContractError,
+    IsolatedDomainContext,
+    write_domain_artifacts,
+)
+
 CONTRACT_NAME = "CONTROLLED-FAKE-RUNNER-CONTRACT-R2"
 SCRIPT_SCHEMA_VERSION = 1
+SUPPORTED_SCRIPT_SCHEMA_VERSIONS = frozenset({1, 2})
 TRANSCRIPT_SCHEMA_VERSION = 1
 FIXTURE_RECORD_SCHEMA_VERSION = 1
+DOMAIN_FIXTURE_RECORD_SCHEMA_VERSION = 2
 
 SUPPORTED_EVENTS = frozenset(
     {
@@ -67,6 +76,7 @@ class _PreparedScript:
     events: tuple[Any, ...]
     interrupt_after_append: int | None
     expect: dict[str, Any] | None
+    domain_case: dict[str, Any] | None
 
     @property
     def run_id(self) -> str:
@@ -206,12 +216,16 @@ def _prepare_script(parsed: Any) -> _PreparedScript:
 
     # JSON framing and parsing have completed before this first
     # version/schema decision.
-    if parsed.get("schema_version") != SCRIPT_SCHEMA_VERSION:
+    schema_version = parsed.get("schema_version")
+    if (
+        type(schema_version) is not int
+        or schema_version not in SUPPORTED_SCRIPT_SCHEMA_VERSIONS
+    ):
         raise _ContractViolation(
             "SCRIPT_VERSION_UNSUPPORTED",
             (
-                f"supported={SCRIPT_SCHEMA_VERSION};"
-                f"received={parsed.get('schema_version')}"
+                "supported=1,2;"
+                f"received={schema_version}"
             ),
         )
 
@@ -223,6 +237,8 @@ def _prepare_script(parsed: Any) -> _PreparedScript:
         "interrupt_after_append",
         "expect",
     }
+    if schema_version == 2:
+        allowed.add("domain_case")
     unknown = sorted(set(parsed) - allowed)
     if unknown:
         raise _ContractViolation(
@@ -317,13 +333,21 @@ def _prepare_script(parsed: Any) -> _PreparedScript:
             "expect must be an object",
         )
 
+    domain_case = parsed.get("domain_case")
+    if domain_case is not None and not isinstance(domain_case, dict):
+        raise _ContractViolation(
+            "INVALID_DOMAIN_CASE",
+            "domain_case must be an object",
+        )
+
     return _PreparedScript(
-        schema_version=SCRIPT_SCHEMA_VERSION,
+        schema_version=schema_version,
         clock=tuple(clock),
         ids=tuple(ids),
         events=tuple(events),
         interrupt_after_append=interrupt,
         expect=copy.deepcopy(expect),
+        domain_case=copy.deepcopy(domain_case),
     )
 
 
@@ -1057,6 +1081,7 @@ def _finish_fixture(
     status: str,
     diagnostics: list[dict[str, Any]],
     expectations: dict[str, Any],
+    domain_verification: dict[str, Any] | None,
 ) -> Path:
     event_script_path = root / "event-script.json"
     journal_path = root / "journal.jsonl"
@@ -1110,8 +1135,22 @@ def _finish_fixture(
         "transcript_raw_sha256": transcript_sha256,
     }
 
+    if domain_verification is not None:
+        artifact_paths.update(
+            copy.deepcopy(
+                domain_verification.get("artifact_paths", {})
+            )
+        )
+        digests.update(
+            copy.deepcopy(domain_verification.get("digests", {}))
+        )
+
     fixture_record = {
-        "schema_version": FIXTURE_RECORD_SCHEMA_VERSION,
+        "schema_version": (
+            DOMAIN_FIXTURE_RECORD_SCHEMA_VERSION
+            if domain_verification is not None
+            else FIXTURE_RECORD_SCHEMA_VERSION
+        ),
         "runner_contract": CONTRACT_NAME,
         "script_schema_version": script_schema_version,
         "fixture_id": fixture_id,
@@ -1136,6 +1175,15 @@ def _finish_fixture(
         "expectations": expectations,
         "diagnostics": diagnostics,
     }
+    if domain_verification is not None:
+        fixture_record["domain_verification"] = copy.deepcopy(
+            domain_verification
+        )
+        if (
+            status == "V1_CAPTURE"
+            and domain_verification.get("status") == "PASS"
+        ):
+            fixture_record["coverage_scope"] = "SPEC_FAITHFUL"
 
     # The fixture record is deliberately written last. A partial or
     # crashed run therefore cannot leave a V1_CAPTURE claim behind.
@@ -1261,12 +1309,16 @@ def run_fixture(
             status=preflight_status or "RUNNER_ERROR",
             diagnostics=preflight_diagnostics,
             expectations=default_expectations,
+            domain_verification=None,
         )
 
     journal_path = root / "journal.jsonl"
     status: str | None = None
     diagnostics: list[dict[str, Any]] = []
     expectations = default_expectations
+    domain_required = DOMAIN_REGISTRY.requires_verification(fixture_id)
+    domain_declared = prepared.domain_case is not None
+    domain_verification: dict[str, Any] | None = None
 
     try:
         for sequence, event in enumerate(prepared.events):
@@ -1357,11 +1409,73 @@ def run_fixture(
                     }
                 )
             else:
-                status = (
-                    "V1_CAPTURE"
-                    if expectations["passed"]
-                    else "ASSERTION_FAILED"
-                )
+                if not expectations["passed"]:
+                    status = "ASSERTION_FAILED"
+                elif prepared.domain_case is None:
+                    if domain_required:
+                        status = "DOMAIN_VERIFICATION_REQUIRED"
+                        domain_verification = {
+                            "declared": False,
+                            "required": True,
+                            "status": "MISSING",
+                            "fixture_id": fixture_id,
+                            "artifact_paths": {},
+                            "digests": {},
+                        }
+                        diagnostics.append(
+                            {
+                                "code": "DOMAIN_VERIFICATION_REQUIRED",
+                                "detail": f"fixture_id={fixture_id}",
+                            }
+                        )
+                    else:
+                        status = "V1_CAPTURE"
+                else:
+                    try:
+                        domain_result = DOMAIN_REGISTRY.verify(
+                            prepared.domain_case,
+                            fixture_id,
+                            IsolatedDomainContext(
+                                root=root,
+                                clock=prepared.clock,
+                                ids=prepared.ids,
+                            ),
+                        )
+                        domain_verification = write_domain_artifacts(
+                            root,
+                            domain_result,
+                        )
+                    except DomainContractError as exc:
+                        status = "CONTRACT_VIOLATION"
+                        domain_verification = {
+                            "declared": True,
+                            "required": domain_required,
+                            "status": "ERROR",
+                            "fixture_id": fixture_id,
+                            "error": {
+                                "code": exc.code,
+                                "detail": exc.detail,
+                            },
+                            "artifact_paths": {},
+                            "digests": {},
+                        }
+                        diagnostics.append(
+                            {
+                                "code": exc.code,
+                                "detail": exc.detail,
+                            }
+                        )
+                    else:
+                        if domain_result.passed:
+                            status = "V1_CAPTURE"
+                        else:
+                            status = "DOMAIN_ASSERTION_FAILED"
+                            diagnostics.append(
+                                {
+                                    "code": "DOMAIN_ASSERTION_FAILED",
+                                    "detail": f"fixture_id={fixture_id}",
+                                }
+                            )
 
     except Exception as exc:
         # An unexpected but containable failure produces an explicit
@@ -1377,6 +1491,19 @@ def run_fixture(
             }
         )
 
+    if (
+        domain_verification is None
+        and (domain_required or domain_declared)
+    ):
+        domain_verification = {
+            "declared": domain_declared,
+            "required": domain_required,
+            "status": "SKIPPED_CORE_GATE_FAILED",
+            "fixture_id": fixture_id,
+            "artifact_paths": {},
+            "digests": {},
+        }
+
     return _finish_fixture(
         root=root,
         fixture_id=fixture_id,
@@ -1387,4 +1514,5 @@ def run_fixture(
         status=status or "RUNNER_ERROR",
         diagnostics=diagnostics,
         expectations=expectations,
+        domain_verification=domain_verification,
     )

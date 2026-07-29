@@ -1,30 +1,28 @@
 {
-  "schema_version": 1,
-  "clock": [200, 201, 202, 203, 204],
-  "ids": ["run-DT-02-r1", "event-DT-02-01", "event-DT-02-02", "event-DT-02-03", "event-DT-02-04", "event-DT-02-05"],
+  "schema_version": 2,
+  "clock": [200, 201, 202, 203],
+  "ids": [
+    "run-DT-02-r2",
+    "event-DT-02-01",
+    "event-DT-02-02",
+    "event-DT-02-03",
+    "event-DT-02-04"
+  ],
   "events": [
-    {
-      "type": "SPAWNED",
-      "identity": {
-        "token": "pty-DT-02",
-        "pid": 1002,
-        "birth": "birth-DT-02"
-      }
-    },
     {
       "type": "CHUNK",
       "bytes": "4g==",
-      "t": 201
+      "t": 200
     },
     {
       "type": "CHUNK",
       "bytes": "gqwN",
-      "t": 202
+      "t": 201
     },
     {
       "type": "CHUNK",
       "bytes": "Cg==",
-      "t": 203
+      "t": 202
     },
     {
       "type": "EXIT",
@@ -34,8 +32,26 @@
   "expect": {
     "terminal_classification": "EXITED",
     "exit_code": 0,
-    "ordered_event_types": ["SPAWNED", "CHUNK", "CHUNK", "CHUNK", "EXIT"],
+    "ordered_event_types": [
+      "CHUNK",
+      "CHUNK",
+      "CHUNK",
+      "EXIT"
+    ],
     "effect_certainty": "STARTED",
     "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-02",
+    "oracle_id": "transport.dt02.incremental_framing",
+    "oracle_version": 1,
+    "inputs": {
+      "chunks_base64": [
+        "4g==",
+        "gqwN",
+        "Cg=="
+      ]
+    }
   }
 }

@@ -1,5 +1,2 @@
-{"event":{"identity":{"birth":"birth-DT-05-root","pid":1005,"token":"pty-DT-05-root"},"type":"SPAWNED"},"event_id":"event-DT-05-01","observed_monotonic":500,"record_type":"INPUT_EVENT","sequence":0}
-{"event":{"identities":[{"birth":"birth-DT-05-root","pid":1005,"token":"pty-DT-05-root"},{"birth":"birth-DT-05-child","pid":1006,"token":"pty-DT-05-child"}],"state":"running","type":"TREE_STATE"},"event_id":"event-DT-05-02","observed_monotonic":501,"record_type":"INPUT_EVENT","sequence":1}
-{"event":{"type":"CANCEL_ACK"},"event_id":"event-DT-05-03","observed_monotonic":502,"record_type":"INPUT_EVENT","sequence":2}
-{"event":{"identities":[],"state":"terminated","type":"TREE_STATE"},"event_id":"event-DT-05-04","observed_monotonic":503,"record_type":"INPUT_EVENT","sequence":3}
-{"event":{"code":143,"type":"EXIT"},"event_id":"event-DT-05-05","observed_monotonic":504,"record_type":"INPUT_EVENT","sequence":4}
+{"event":{"t":500,"type":"PROCESS_DEADLINE"},"event_id":"event-DT-05-01","observed_monotonic":500,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"error":{"code":"CANCELLATION_CLEANUP_FAILED","unresolved_tokens":["pty-DT-05-child"]},"type":"CLEANUP_ERROR"},"event_id":"event-DT-05-02","observed_monotonic":501,"record_type":"INPUT_EVENT","sequence":1}

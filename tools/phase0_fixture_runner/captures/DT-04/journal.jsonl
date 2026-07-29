@@ -1,4 +1,1 @@
-{"event":{"identity":{"birth":"birth-DT-04","pid":1004,"token":"pty-DT-04"},"type":"SPAWNED"},"event_id":"event-DT-04-01","observed_monotonic":400,"record_type":"INPUT_EVENT","sequence":0}
-{"event":{"t":401,"type":"PROCESS_DEADLINE"},"event_id":"event-DT-04-02","observed_monotonic":401,"record_type":"INPUT_EVENT","sequence":1}
-{"event":{"type":"CANCEL_ACK"},"event_id":"event-DT-04-03","observed_monotonic":402,"record_type":"INPUT_EVENT","sequence":2}
-{"event":{"code":143,"type":"EXIT"},"event_id":"event-DT-04-04","observed_monotonic":403,"record_type":"INPUT_EVENT","sequence":3}
+{"event":{"t":400,"type":"PROCESS_DEADLINE"},"event_id":"event-DT-04-01","observed_monotonic":400,"record_type":"INPUT_EVENT","sequence":0}

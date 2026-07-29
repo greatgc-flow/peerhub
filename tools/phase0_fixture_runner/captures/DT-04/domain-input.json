@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"DT-04","inputs":{"kill_acknowledged":false,"soft_cancel_acknowledged":false,"spawn_observed":false,"terminate_acknowledged":false,"tree_closed":false},"oracle_id":"transport.dt04.cancellation_ladder","oracle_version":1,"schema_version":1}

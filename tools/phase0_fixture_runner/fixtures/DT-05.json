@@ -1,52 +1,56 @@
 {
-  "schema_version": 1,
-  "clock": [500, 501, 502, 503, 504],
-  "ids": ["run-DT-05-r1", "event-DT-05-01", "event-DT-05-02", "event-DT-05-03", "event-DT-05-04", "event-DT-05-05"],
+  "schema_version": 2,
+  "clock": [500, 501],
+  "ids": [
+    "run-DT-05-r2",
+    "event-DT-05-01",
+    "event-DT-05-02"
+  ],
   "events": [
     {
-      "type": "SPAWNED",
-      "identity": {
-        "token": "pty-DT-05-root",
-        "pid": 1005,
-        "birth": "birth-DT-05-root"
+      "type": "PROCESS_DEADLINE",
+      "t": 500
+    },
+    {
+      "type": "CLEANUP_ERROR",
+      "error": {
+        "code": "CANCELLATION_CLEANUP_FAILED",
+        "unresolved_tokens": [
+          "pty-DT-05-child"
+        ]
       }
-    },
-    {
-      "type": "TREE_STATE",
-      "identities": [
-        {
-          "token": "pty-DT-05-root",
-          "pid": 1005,
-          "birth": "birth-DT-05-root"
-        },
-        {
-          "token": "pty-DT-05-child",
-          "pid": 1006,
-          "birth": "birth-DT-05-child"
-        }
-      ],
-      "state": "running"
-    },
-    {
-      "type": "CANCEL_ACK"
-    },
-    {
-      "type": "TREE_STATE",
-      "identities": [],
-      "state": "terminated"
-    },
-    {
-      "type": "EXIT",
-      "code": 143
     }
   ],
   "expect": {
-    "terminal_classification": "EXITED",
-    "exit_code": 143,
-    "ordered_event_types": ["SPAWNED", "TREE_STATE", "CANCEL_ACK", "TREE_STATE", "EXIT"],
-    "cancel_ack": true,
-    "effect_certainty": "STARTED",
-    "execution_outcome": "FAILED",
-    "process_tokens": ["pty-DT-05-child", "pty-DT-05-root"]
+    "terminal_classification": "PROCESS_TIMEOUT",
+    "ordered_event_types": [
+      "PROCESS_DEADLINE",
+      "CLEANUP_ERROR"
+    ],
+    "cleanup_error_count": 1,
+    "effect_certainty": "MAY_HAVE_STARTED",
+    "execution_outcome": "FAILED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-05",
+    "oracle_id": "transport.dt05.tree_closure",
+    "oracle_version": 1,
+    "inputs": {
+      "initial_identities": [
+        "pty-DT-05-root",
+        "pty-DT-05-child"
+      ],
+      "post_cancellation_observations": [
+        {
+          "token": "pty-DT-05-root",
+          "state": "TERMINATED"
+        },
+        {
+          "token": "pty-DT-05-child",
+          "state": "IDENTITY_UNCERTAIN"
+        }
+      ]
+    }
   }
 }

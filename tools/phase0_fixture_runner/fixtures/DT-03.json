@@ -1,29 +1,58 @@
 {
-  "schema_version": 1,
-  "clock": [300, 301, 302],
-  "ids": ["run-DT-03-r1", "event-DT-03-01", "event-DT-03-02", "event-DT-03-03"],
+  "schema_version": 2,
+  "clock": [300],
+  "ids": [
+    "run-DT-03-r2",
+    "event-DT-03-01"
+  ],
   "events": [
     {
-      "type": "SPAWNED",
-      "identity": {
-        "token": "pty-DT-03",
-        "pid": 1003,
-        "birth": "birth-DT-03"
-      }
-    },
-    {
       "type": "SILENCE",
-      "t": 301
-    },
-    {
-      "type": "PROCESS_DEADLINE",
-      "t": 302
+      "t": 300
     }
   ],
   "expect": {
     "terminal_classification": "SILENCE_TIMEOUT",
-    "ordered_event_types": ["SPAWNED", "SILENCE", "PROCESS_DEADLINE"],
-    "effect_certainty": "STARTED",
+    "ordered_event_types": [
+      "SILENCE"
+    ],
+    "effect_certainty": "MAY_HAVE_STARTED",
     "execution_outcome": "FAILED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-03",
+    "oracle_id": "transport.dt03.independent_timeouts",
+    "oracle_version": 1,
+    "inputs": {
+      "timelines": [
+        {
+          "timeline_id": "silence",
+          "events": [
+            {
+              "type": "OUTPUT_OBSERVED",
+              "t": 1
+            },
+            {
+              "type": "SILENCE",
+              "t": 10
+            }
+          ]
+        },
+        {
+          "timeline_id": "process",
+          "events": [
+            {
+              "type": "OUTPUT_OBSERVED",
+              "t": 1
+            },
+            {
+              "type": "PROCESS_DEADLINE",
+              "t": 20
+            }
+          ]
+        }
+      ]
+    }
   }
 }

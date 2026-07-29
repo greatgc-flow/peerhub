@@ -1,0 +1,1 @@
+{"adapter_id":"transport.dt-05.fault-injected","adapter_version":1,"fixture_id":"DT-05-NEG-01","output":{"all_initial_identities_accounted_for":true,"cleanup_classification":null,"cleanup_complete":true,"terminated_tokens":["pty-DT-05-child","pty-DT-05-root"],"unresolved_tokens":[]},"schema_version":1}
