@@ -19,6 +19,21 @@ new hash-bound unanimous round.
 | `r-aec7` | Protocol v1 and authority-cutover design semantics | Hub record `068c9d1cb3fb394c32df72b4a97037e5a50e69644fc27b9b87a8960955778a24`; protocol `7bd70ba40b4489d3523216c1e33d6012a88d72f2183d56c8354d4b62834ec0f4`; cutover `b0c7e05eba10a3c948eb581135fff6150e2c5e0bf81595af4a246c6aa7b4c2db` | implementation, database creation, migration, authority cutover, provider effects |
 | `r-517f` | first controlled-fake runner bootstrap | Hub record `224fbac27b0188cf718cd289afa060cb9c525c4f18ce6e92591bd858ec3e4203`; runner R2 `30d693621885b5887bbfdff470869e2e3aaab32de71e92a009c6754210d1b422` | Phase 0 exit, production features, cutover, host mutation broker |
 | `r-eb81` | corrected hash-bound controlled-fake bootstrap | Hub record `cd7be8ad1026f994a30ab036acbadc6b00fc0aa42b150f132d58f2c9263a010f`; R12 `74cf9a5e0b599a72744d22b68c5bff8a64f43457093aea4eef20916d856b2a37`, including its 13-row manifest and R11-record hash `606b20bba107515d0e84d63df3926123db403a2d49e9da1bb29b777fa8ab7125` | any scope excluded by R12, including live Hub/provider work, broker, cutover, and Phase 0 exit |
+| `session-2026-07-29-ac-track` (not a `hub.py consensus-propose`/`consensus-vote` round -- see note below) | AC-01..AC-09 authority-cutover proof-matrix completion (sub-fixture-family level, 78 fixtures across 9 domain-oracle modules + the composed integration scenario) + DT-01/DT-06 faithful-mapping resolution (3-round unlimited adversarial critique between ag.deepthink/cx.deepthink, cc-reconciled) | `authority-proof-status-v1.json` SHA-256 `6a7570cd93327cff8bf578be15179ad0b89f44a20910385c87dee298055522e4`; `fixture-status-v1.json` SHA-256 `55feeb000698273af05150a34693594d35869f568811b6fb05f241b3d030e186`; `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` SHA-256 `4d5f81318d059b90a24628690aac00ffcd2953eaa82043f09496a756d5e08703`; `AUTHORITY-PROOF-SCOPING-DECISION-R1.md` SHA-256 `6cad44a5d9c33e48da0de3dad504cadeb4f1db93829f8c357ef6d67a038bb6f7` | TDD start (`TDD-READINESS-GATE-R1.md` condition 1 remains unmet: 32 of the original 54 behavioral IDs remain `LEGACY_CAPTURE`, DP-06 remains `PENDING_FAITHFUL_MAPPING_REVIEW`); Phase 0 exit; cutover execution (AC-0X umbrella IDs remain `V1_SPEC_ONLY` per the two-track design, unchanged); any `CONTROLLED-FAKE-RUNNER-CONTRACT-R3` amendment (the 15 `OPEN` items in `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` remain unresolved backlog) |
+
+**Note on the `session-2026-07-29-ac-track` row's provenance mechanism**: unlike
+`r-aec7`/`r-517f`/`r-eb81`, this round did not go through `hub.py
+consensus-propose`/`consensus-vote` and does not have a Hub-minted round ID.
+It used the same query-file `ask` + explicit ACK mechanism used for every
+individual AC module review earlier in the same session: cc proposed the
+exact entry text above verbatim to ag.deepthink and cx.deepthink in parallel,
+both independently replied ACK with no requested wording changes, and cc
+(the terminal peer for this session) recorded its own affirming review as the
+third vote. This satisfies the Integrity rule's substance (three independent
+reviews, hash-bound artifacts, unanimous) but not its letter (a Hub-issued
+round ID). If a future session wants this formally re-minted through
+`consensus-propose`/`consensus-vote`, that is additive and does not require
+rewriting this row.
 
 ## Binding interpretations
 
@@ -52,12 +67,18 @@ it does not edit the protocol body or change `r-aec7`:
 
 ## Remaining decision chain
 
-The next non-overlapping ratifications are: static 90-action identity and
-disposition inventory; runtime-health invariants; and a V1 capture-production
-specification for the 35 legacy-only behavioral IDs. Final action-fixture
-linkage remains blocked pending per-action fields and evidence adequacy.
-Capture acceptance, broker implementation, AC evidence, cutover, and Phase 0
-exit remain separate future rounds.
+As of `session-2026-07-29-ac-track`: AC-01..AC-09 authority-cutover evidence
+is complete (superseding the "AC evidence" item below as a future round --
+it is now a *finished*, ratified item, not a remaining one). The next
+non-overlapping ratifications are: static 90-action identity and disposition
+inventory; runtime-health invariants; a V1 capture-production specification
+for the 32 remaining legacy-only behavioral IDs (DP-01..05, SL-01..06,
+CR-01..06, CS-01..06, HR-01..03, RT-01..03, GB-02/06, CJ-01/03/04/06); and a
+`CONTROLLED-FAKE-RUNNER-CONTRACT-R3` ratification resolving the 15 `OPEN`
+items in `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` (needed to unblock
+DP-06). Final action-fixture linkage remains blocked pending per-action
+fields and evidence adequacy. Capture acceptance, broker implementation,
+cutover, and Phase 0 exit remain separate future rounds.
 
 ## Integrity rule
 
