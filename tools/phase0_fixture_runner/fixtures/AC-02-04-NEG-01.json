@@ -1,0 +1,75 @@
+{
+  "schema_version": 2,
+  "clock": [1230, 1231],
+  "ids": ["run-AC-02-04-NEG-01-r2", "event-AC-02-04-NEG-01-01", "event-AC-02-04-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-04-NEG-01",
+      "payload": {"proof_id": "AC-02-04-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-04-NEG-01",
+      "payload": {"proof_id": "AC-02-04-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-02-04-NEG-01",
+    "oracle_id": "authority_identity.ac0204.audited_relocation_import",
+    "oracle_version": 1,
+    "inputs": {
+      "operation": "RELOCATION_IMPORT",
+      "open_context": "NORMAL",
+      "known_bindings": [
+        {
+          "workspace_home_id": "workspace-home-04",
+          "database_identity": "database-identity-04",
+          "resolved_identity": {
+            "volume_guid": "volume-guid-source-04",
+            "file_id": "file-id-source-04"
+          },
+          "home_content_digest": "export-content-digest-04",
+          "recorded_presented_path": "D:/portable/peerhub"
+        }
+      ],
+      "observed_home": {
+        "workspace_home_id": "workspace-home-04",
+        "database_identity": "database-identity-04",
+        "resolved_identity": {
+          "volume_guid": "volume-guid-target-04",
+          "file_id": "file-id-target-04"
+        },
+        "home_content_digest": "import-content-digest-04",
+        "presented_path": "E:/relocated/peerhub"
+      },
+      "relocation_receipt": {
+        "receipt_id": "relocation-receipt-04",
+        "source_workspace_home_id": "workspace-home-04",
+        "source_database_identity": "database-identity-04",
+        "source_identity": {
+          "volume_guid": "volume-guid-source-04",
+          "file_id": "file-id-source-04"
+        },
+        "target_identity": {
+          "volume_guid": "volume-guid-target-04",
+          "file_id": "file-id-target-04"
+        },
+        "export_digest": "export-content-digest-04",
+        "import_digest": "import-content-digest-04",
+        "audited_export": true
+      }
+    }
+  }
+}

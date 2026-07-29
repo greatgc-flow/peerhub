@@ -3,6 +3,9 @@
 from .authority_filesystem import (
     authority_filesystem_registrations,
 )
+from .authority_identity import (
+    authority_identity_registrations,
+)
 from .broker import broker_registrations
 from .command_authz import command_authz_registrations
 from .contract import (
@@ -24,6 +27,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *broker_registrations(),
         *command_authz_registrations(),
         *authority_filesystem_registrations(),
+        *authority_identity_registrations(),
     )
 )
 

@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "clock": [1200, 1201],
+  "ids": ["run-AC-02-01-r2", "event-AC-02-01-01", "event-AC-02-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-01",
+      "payload": {"proof_id": "AC-02-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-01",
+      "payload": {"proof_id": "AC-02-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-02-01",
+    "oracle_id": "authority_identity.ac0201.matching_identity",
+    "oracle_version": 1,
+    "inputs": {
+      "operation": "OPEN",
+      "open_context": "NORMAL",
+      "known_bindings": [
+        {
+          "workspace_home_id": "workspace-home-01",
+          "database_identity": "database-identity-01",
+          "resolved_identity": {
+            "volume_guid": "volume-guid-home-01",
+            "file_id": "file-id-home-01"
+          },
+          "home_content_digest": "content-digest-home-01",
+          "recorded_presented_path": "D:/portable/peerhub"
+        }
+      ],
+      "observed_home": {
+        "workspace_home_id": "workspace-home-01",
+        "database_identity": "database-identity-01",
+        "resolved_identity": {
+          "volume_guid": "volume-guid-home-01",
+          "file_id": "file-id-home-01"
+        },
+        "home_content_digest": "content-digest-home-01",
+        "presented_path": "P:/peerhub"
+      },
+      "relocation_receipt": null
+    }
+  }
+}
