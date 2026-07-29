@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "clock": [1700, 1701],
+  "ids": ["run-AC-03-01-NEG-01-r2", "event-AC-03-01-NEG-01-01", "event-AC-03-01-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-shadow",
+      "command_type": "shadow-validation",
+      "idempotency_key": "AC-03-01-NEG-01",
+      "payload": {"proof_id": "AC-03-01-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-shadow",
+      "command_type": "shadow-validation",
+      "idempotency_key": "AC-03-01-NEG-01",
+      "payload": {"proof_id": "AC-03-01-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-03-01-NEG-01",
+    "oracle_id": "authority_shadow.ac0301.same_revision_equivalence",
+    "oracle_version": 1,
+    "inputs": {
+      "initial_consecutive_equivalence_streak": 2,
+      "baseline_source_revision": "source-v1",
+      "baseline_configuration_revision": "config-v1",
+      "comparisons": [
+        {
+          "comparison_id": "shadow-01-01",
+          "source_revision": "source-v1",
+          "configuration_revision": "config-v1",
+          "candidate_value": "dispatch:alpha",
+          "legacy_value": "dispatch:alpha"
+        },
+        {
+          "comparison_id": "shadow-01-02",
+          "source_revision": "source-v1",
+          "configuration_revision": "config-v1",
+          "candidate_value": "dispatch:beta",
+          "legacy_value": "dispatch:beta"
+        }
+      ]
+    }
+  }
+}
