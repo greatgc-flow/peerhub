@@ -1,0 +1,2 @@
+{"event":{"client_id":"process-lifecycle","command_type":"process-lifecycle-authority","idempotency_key":"DT-01-NEG-01","payload":{"proof_id":"DT-01-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-DT-01-NEG-01-01","observed_monotonic":100,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"process-lifecycle","command_type":"process-lifecycle-authority","idempotency_key":"DT-01-NEG-01","payload":{"proof_id":"DT-01-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-DT-01-NEG-01-02","observed_monotonic":101,"record_type":"INPUT_EVENT","sequence":1}

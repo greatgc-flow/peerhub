@@ -219,7 +219,7 @@ class ControlledFakeRunnerTests(unittest.TestCase):
 
             record_path = run_fixture(
                 script_path,
-                "DT-06",
+                "GENERIC-CLEANUP-PROCESS-TIMEOUT-01",
                 temporary_path / "run",
             )
             record = self._read_record(record_path)

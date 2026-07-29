@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"DT-06","inputs":{"chunk_count":1,"cleanup_error_count":1,"exit_code":1,"spawned":true},"oracle_id":"process_lifecycle.dt06.exit_failure_with_cleanup_error","oracle_version":1,"schema_version":1}
