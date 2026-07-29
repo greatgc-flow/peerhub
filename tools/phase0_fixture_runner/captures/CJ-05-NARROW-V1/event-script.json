@@ -1,7 +1,7 @@
 {
-  "schema_version": 2,
+  "schema_version": 1,
   "clock": [1010, 1011],
-  "ids": ["run-CJ-05-r2", "event-CJ-05-01", "event-CJ-05-02"],
+  "ids": ["run-CJ-05-r1", "event-CJ-05-01", "event-CJ-05-02"],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -36,28 +36,5 @@
     "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
     "effect_certainty": "NOT_STARTED",
     "execution_outcome": "REJECTED"
-  },
-  "domain_case": {
-    "contract_version": 1,
-    "fixture_id": "CJ-05",
-    "oracle_id": "command_authz.cj05.authorization_before_effects",
-    "oracle_version": 1,
-    "inputs": {
-      "envelope": {
-        "actor_identity": "actor-unauthorized",
-        "client_request_key": "request-CJ-05",
-        "expected_configuration_revision": 17,
-        "expected_policy_revision": 9,
-        "workspace_scope": "workspace-CJ-05"
-      },
-      "authorization": {
-        "actor_authorized": false
-      },
-      "current_revisions": {
-        "current_configuration_revision": 17,
-        "current_policy_revision": 9
-      },
-      "injected_command_id": "command-CJ-05-never-return"
-    }
   }
 }

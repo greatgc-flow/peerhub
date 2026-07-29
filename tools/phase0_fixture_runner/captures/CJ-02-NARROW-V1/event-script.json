@@ -1,7 +1,7 @@
 {
-  "schema_version": 2,
+  "schema_version": 1,
   "clock": [1000, 1001],
-  "ids": ["run-CJ-02-r2", "event-CJ-02-01", "event-CJ-02-02"],
+  "ids": ["run-CJ-02-r1", "event-CJ-02-01", "event-CJ-02-02"],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -35,28 +35,5 @@
     "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
     "effect_certainty": "NOT_STARTED",
     "execution_outcome": "SUCCEEDED"
-  },
-  "domain_case": {
-    "contract_version": 1,
-    "fixture_id": "CJ-02",
-    "oracle_id": "command_authz.cj02.valid_admission",
-    "oracle_version": 1,
-    "inputs": {
-      "envelope": {
-        "actor_identity": "actor-authorized",
-        "client_request_key": "request-CJ-02",
-        "expected_configuration_revision": 17,
-        "expected_policy_revision": 9,
-        "workspace_scope": "workspace-CJ-02"
-      },
-      "authorization": {
-        "actor_authorized": true
-      },
-      "current_revisions": {
-        "current_configuration_revision": 17,
-        "current_policy_revision": 9
-      },
-      "injected_command_id": "command-CJ-02-001"
-    }
   }
 }

@@ -1,6 +1,7 @@
 """Domain-oracle verification for Phase 0 controlled-fake fixtures."""
 
 from .broker import broker_registrations
+from .command_authz import command_authz_registrations
 from .contract import (
     DomainContractError,
     DomainRunResult,
@@ -18,6 +19,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *health_registrations(),
         *routing_registrations(),
         *broker_registrations(),
+        *command_authz_registrations(),
     )
 )
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
-  "clock": [1000, 1001],
-  "ids": ["run-CJ-02-r2", "event-CJ-02-01", "event-CJ-02-02"],
+  "clock": [1002, 1003],
+  "ids": ["run-CJ-02-NEG-01-r2", "event-CJ-02-NEG-01-01", "event-CJ-02-NEG-01-02"],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -38,7 +38,7 @@
   },
   "domain_case": {
     "contract_version": 1,
-    "fixture_id": "CJ-02",
+    "fixture_id": "CJ-02-NEG-01",
     "oracle_id": "command_authz.cj02.valid_admission",
     "oracle_version": 1,
     "inputs": {
