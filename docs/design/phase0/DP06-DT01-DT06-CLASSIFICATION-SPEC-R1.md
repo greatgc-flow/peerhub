@@ -128,6 +128,6 @@ get a genuinely independent oracle. Listed, not resolved:
 3. The 15 OPEN items above are recorded as backlog for a future
    `CONTROLLED-FAKE-RUNNER-CONTRACT-R3` ratification round, not resolved by
    fiat in this document.
-4. The remaining 32 fully-`LEGACY_CAPTURE` behavioral IDs (DP-01..05,
+4. The remaining 35 fully-`LEGACY_CAPTURE` behavioral IDs (DP-01..05,
    SL-01..06, CR-01..06, CS-01..06, HR-01..03, RT-01..03, GB-02/06,
    CJ-01/03/04/06) are out of scope here and untouched.
