@@ -1,0 +1,1 @@
+{"fixture_id":"HR-04-NEG-01","oracle_id":"health.hr04.authority_clearance","oracle_version":1,"output":{"circuit_state":"CIRCUIT_OPEN","clearance_applied":false,"reason":"QUARANTINE_AUTHORITY_INSUFFICIENT"},"schema_version":1}

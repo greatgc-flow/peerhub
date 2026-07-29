@@ -1,0 +1,78 @@
+{
+  "schema_version": 2,
+  "clock": [
+    703,
+    704,
+    705
+  ],
+  "ids": [
+    "run-HR-04-NEG-01-r2",
+    "event-HR-04-NEG-01-01",
+    "event-HR-04-NEG-01-02",
+    "event-HR-04-NEG-01-03"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "health-controller",
+      "command_type": "health-reconcile",
+      "idempotency_key": "HR-04-authority-negative",
+      "payload": {
+        "auto_receipt": {
+          "fingerprint": "fingerprint-current",
+          "gate_generation": 7,
+          "incident": "incident-current",
+          "timestamp": 700
+        },
+        "manual_quarantine": {
+          "authority": "security",
+          "state": "CLOSED"
+        }
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "health-probe-HR-04-NEG-01",
+        "pid": 2104,
+        "birth": "birth-HR-04-NEG-01"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "SPAWNED",
+      "EXIT"
+    ],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "HR-04-NEG-01",
+    "oracle_id": "health.hr04.authority_clearance",
+    "oracle_version": 1,
+    "inputs": {
+      "clearance_receipt": {
+        "incident": "incident-current",
+        "gate_generation": 7,
+        "timestamp": 700,
+        "fingerprint": "fingerprint-current"
+      },
+      "current": {
+        "incident": "incident-current",
+        "gate_generation": 7,
+        "timestamp": 700,
+        "fingerprint": "fingerprint-current"
+      },
+      "quarantine_authority_class": "SECURITY"
+    }
+  }
+}

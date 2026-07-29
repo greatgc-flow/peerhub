@@ -7,9 +7,15 @@ from .contract import (
     StaticDomainRegistry,
     write_domain_artifacts,
 )
+from .health import health_registrations
 from .transport import transport_registrations
 
-DOMAIN_REGISTRY = StaticDomainRegistry(transport_registrations())
+DOMAIN_REGISTRY = StaticDomainRegistry(
+    (
+        *transport_registrations(),
+        *health_registrations(),
+    )
+)
 
 __all__ = [
     "DOMAIN_REGISTRY",

@@ -1,0 +1,83 @@
+{
+  "schema_version": 2,
+  "clock": [
+    723,
+    724,
+    725
+  ],
+  "ids": [
+    "run-HR-06-NEG-01-r2",
+    "event-HR-06-NEG-01-01",
+    "event-HR-06-NEG-01-02",
+    "event-HR-06-NEG-01-03"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "health-controller",
+      "command_type": "health-recovery-cas",
+      "idempotency_key": "HR-06-stale-negative",
+      "payload": {
+        "failed_probe": {
+          "backoff_incremented": true,
+          "circuit": "CIRCUIT_OPEN"
+        },
+        "success_requirements": [
+          "incident",
+          "gate_generation",
+          "timestamp",
+          "fingerprint"
+        ],
+        "stale_receipt_result": "NO_OP"
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "health-probe-HR-06-NEG-01",
+        "pid": 2106,
+        "birth": "birth-HR-06-NEG-01"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 1
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 1,
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "SPAWNED",
+      "EXIT"
+    ],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "FAILED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "HR-06-NEG-01",
+    "oracle_id": "health.hr06.cas_probe_transition",
+    "oracle_version": 1,
+    "inputs": {
+      "probe_result": "SUCCESS",
+      "reported": {
+        "revision": 12,
+        "incident": "incident-current",
+        "gate_generation": 7,
+        "timestamp": 720,
+        "fingerprint": "fingerprint-stale"
+      },
+      "current": {
+        "revision": 12,
+        "incident": "incident-current",
+        "gate_generation": 7,
+        "timestamp": 720,
+        "fingerprint": "fingerprint-current",
+        "backoff_count": 4,
+        "circuit_state": "CIRCUIT_CLOSED"
+      }
+    }
+  }
+}

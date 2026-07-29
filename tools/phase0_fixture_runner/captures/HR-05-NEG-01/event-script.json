@@ -1,0 +1,70 @@
+{
+  "schema_version": 2,
+  "clock": [
+    713,
+    714,
+    715
+  ],
+  "ids": [
+    "run-HR-05-NEG-01-r2",
+    "event-HR-05-NEG-01-01",
+    "event-HR-05-NEG-01-02",
+    "event-HR-05-NEG-01-03"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "administrator",
+      "command_type": "authorize-recovery-probe",
+      "idempotency_key": "HR-05-second-probe-negative",
+      "payload": {
+        "direct_gate_open": false,
+        "direct_healthy_write": false,
+        "recovery_probe_limit": 1
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "health-probe-HR-05-NEG-01",
+        "pid": 2105,
+        "birth": "birth-HR-05-NEG-01"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 1
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 1,
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "SPAWNED",
+      "EXIT"
+    ],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "FAILED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "HR-05-NEG-01",
+    "oracle_id": "health.hr05.one_probe_grant",
+    "oracle_version": 1,
+    "inputs": {
+      "grant_remaining_probes": 1,
+      "probe_attempts": [
+        {
+          "attempt_id": "probe-attempt-1"
+        },
+        {
+          "attempt_id": "probe-attempt-2"
+        }
+      ],
+      "current_health_value": "RED",
+      "current_gate_state": "GATE_CLOSED",
+      "verified_probe_receipt_applied": false
+    }
+  }
+}

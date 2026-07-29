@@ -1,7 +1,16 @@
 {
-  "schema_version": 1,
-  "clock": [700, 701, 702],
-  "ids": ["run-HR-04-r1", "event-HR-04-01", "event-HR-04-02", "event-HR-04-03"],
+  "schema_version": 2,
+  "clock": [
+    700,
+    701,
+    702
+  ],
+  "ids": [
+    "run-HR-04-r2",
+    "event-HR-04-01",
+    "event-HR-04-02",
+    "event-HR-04-03"
+  ],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -37,8 +46,33 @@
   "expect": {
     "terminal_classification": "EXITED",
     "exit_code": 0,
-    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT"],
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "SPAWNED",
+      "EXIT"
+    ],
     "effect_certainty": "STARTED",
     "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "HR-04",
+    "oracle_id": "health.hr04.authority_clearance",
+    "oracle_version": 1,
+    "inputs": {
+      "clearance_receipt": {
+        "incident": "incident-current",
+        "gate_generation": 7,
+        "timestamp": 700,
+        "fingerprint": "fingerprint-current"
+      },
+      "current": {
+        "incident": "incident-current",
+        "gate_generation": 7,
+        "timestamp": 700,
+        "fingerprint": "fingerprint-current"
+      },
+      "quarantine_authority_class": "SECURITY"
+    }
   }
 }

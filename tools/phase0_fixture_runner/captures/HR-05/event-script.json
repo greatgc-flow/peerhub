@@ -1,7 +1,16 @@
 {
-  "schema_version": 1,
-  "clock": [710, 711, 712],
-  "ids": ["run-HR-05-r1", "event-HR-05-01", "event-HR-05-02", "event-HR-05-03"],
+  "schema_version": 2,
+  "clock": [
+    710,
+    711,
+    712
+  ],
+  "ids": [
+    "run-HR-05-r2",
+    "event-HR-05-01",
+    "event-HR-05-02",
+    "event-HR-05-03"
+  ],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -30,8 +39,32 @@
   "expect": {
     "terminal_classification": "EXITED",
     "exit_code": 1,
-    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT"],
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "SPAWNED",
+      "EXIT"
+    ],
     "effect_certainty": "STARTED",
     "execution_outcome": "FAILED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "HR-05",
+    "oracle_id": "health.hr05.one_probe_grant",
+    "oracle_version": 1,
+    "inputs": {
+      "grant_remaining_probes": 1,
+      "probe_attempts": [
+        {
+          "attempt_id": "probe-attempt-1"
+        },
+        {
+          "attempt_id": "probe-attempt-2"
+        }
+      ],
+      "current_health_value": "RED",
+      "current_gate_state": "GATE_CLOSED",
+      "verified_probe_receipt_applied": false
+    }
   }
 }
