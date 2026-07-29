@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "clock": [1132, 1133],
+  "ids": ["run-AC-01-04-NEG-01-r2", "event-AC-01-04-NEG-01-01", "event-AC-01-04-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-04-NEG-01",
+      "payload": {"proof_id": "AC-01-04"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-04-NEG-01",
+      "payload": {"proof_id": "AC-01-04"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-01-04-NEG-01",
+    "oracle_id": "authority_filesystem.ac0104.network_rejection",
+    "oracle_version": 1,
+    "inputs": {
+      "resolution_graph": {
+        "entries": [
+          {
+            "presented_path": "SMB:/authority/peerhub",
+            "entry_node_id": "physical-04"
+          }
+        ],
+        "nodes": [
+          {
+            "node_id": "physical-04",
+            "node_kind": "PHYSICAL",
+            "reported_filesystem": "NTFS",
+            "resolved_filesystem": "NTFS",
+            "storage_scope": "NETWORK",
+            "redirected": false,
+            "virtualized": false,
+            "volume_guid": "network-volume-guid-04",
+            "file_id": "network-file-id-04"
+          }
+        ]
+      },
+      "capability_observations": {
+        "stable_identity_available": true,
+        "wal_mode_available": true,
+        "shared_memory_available": true,
+        "exclusive_lock_available": true,
+        "atomic_rename_available": true,
+        "namespace_custody_available": true
+      },
+      "lock_attempts": []
+    }
+  }
+}

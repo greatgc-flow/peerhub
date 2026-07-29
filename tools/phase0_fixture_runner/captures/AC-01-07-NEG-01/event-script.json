@@ -1,0 +1,77 @@
+{
+  "schema_version": 2,
+  "clock": [1162, 1163],
+  "ids": ["run-AC-01-07-NEG-01-r2", "event-AC-01-07-NEG-01-01", "event-AC-01-07-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-07-NEG-01",
+      "payload": {"proof_id": "AC-01-07"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-07-NEG-01",
+      "payload": {"proof_id": "AC-01-07"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-01-07-NEG-01",
+    "oracle_id": "authority_filesystem.ac0107.resolved_target_trust",
+    "oracle_version": 1,
+    "inputs": {
+      "resolution_graph": {
+        "entries": [
+          {
+            "presented_path": "D:/reported-ntfs/peerhub",
+            "entry_node_id": "presented-07"
+          }
+        ],
+        "nodes": [
+          {
+            "node_id": "presented-07",
+            "node_kind": "ALIAS",
+            "reported_filesystem": "NTFS",
+            "target_node_id": "redirect-07"
+          },
+          {
+            "node_id": "redirect-07",
+            "node_kind": "ALIAS",
+            "reported_filesystem": "NTFS",
+            "target_node_id": "physical-07"
+          },
+          {
+            "node_id": "physical-07",
+            "node_kind": "PHYSICAL",
+            "reported_filesystem": "NTFS",
+            "resolved_filesystem": "EXFAT",
+            "storage_scope": "NETWORK",
+            "redirected": true,
+            "virtualized": true,
+            "volume_guid": "redirected-volume-guid-07",
+            "file_id": "redirected-file-id-07"
+          }
+        ]
+      },
+      "capability_observations": {
+        "stable_identity_available": true,
+        "wal_mode_available": true,
+        "shared_memory_available": true,
+        "exclusive_lock_available": true,
+        "atomic_rename_available": true,
+        "namespace_custody_available": true
+      },
+      "lock_attempts": []
+    }
+  }
+}
