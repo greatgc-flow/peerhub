@@ -31,6 +31,7 @@ from .contract import (
     StaticDomainRegistry,
     write_domain_artifacts,
 )
+from .dispatch_pipe import dispatch_pipe_registrations
 from .health import health_registrations
 from .process_lifecycle import process_lifecycle_registrations
 from .routing import routing_registrations
@@ -38,6 +39,7 @@ from .transport import transport_registrations
 
 DOMAIN_REGISTRY = StaticDomainRegistry(
     (
+        *dispatch_pipe_registrations(),
         *transport_registrations(),
         *health_registrations(),
         *process_lifecycle_registrations(),

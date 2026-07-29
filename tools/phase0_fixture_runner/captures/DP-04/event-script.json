@@ -1,0 +1,48 @@
+{
+  "schema_version": 2,
+  "clock": [2030, 2031],
+  "ids": ["run-DP-04-r2", "event-DP-04-01", "event-DP-04-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-04",
+      "payload": {"proof_id": "DP-04"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-04",
+      "payload": {"proof_id": "DP-04"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DP-04",
+    "oracle_id": "dispatch_pipe.dp04.output_cap_exceeded",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "OUTPUT_CAP",
+      "validation_accepted": true,
+      "spawn_observed": true,
+      "process_identity_token": "process-DP-04",
+      "chunk_records": [
+        {"chunk_id": "chunk-DP-04-01", "byte_count": 5, "frame_complete": true},
+        {"chunk_id": "chunk-DP-04-02", "byte_count": 5, "frame_complete": true}
+      ],
+      "exit_observed": false,
+      "exit_code": null,
+      "output_limit_bytes": 8,
+      "deadline_reached": false,
+      "tree_kill_observed": true
+    }
+  }
+}

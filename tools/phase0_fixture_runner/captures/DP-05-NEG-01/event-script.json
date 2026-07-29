@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "clock": [2040, 2041],
+  "ids": ["run-DP-05-NEG-01-r2", "event-DP-05-NEG-01-01", "event-DP-05-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-05-NEG-01",
+      "payload": {"proof_id": "DP-05-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-05-NEG-01",
+      "payload": {"proof_id": "DP-05-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DP-05-NEG-01",
+    "oracle_id": "dispatch_pipe.dp05.deadline_tree_kill",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "HARD_DEADLINE",
+      "validation_accepted": true,
+      "spawn_observed": true,
+      "process_identity_token": "process-DP-05",
+      "chunk_records": [],
+      "exit_observed": true,
+      "exit_code": 15,
+      "output_limit_bytes": null,
+      "deadline_reached": true,
+      "tree_kill_observed": true
+    }
+  }
+}

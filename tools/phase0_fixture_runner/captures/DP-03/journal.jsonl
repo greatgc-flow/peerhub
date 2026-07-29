@@ -1,0 +1,2 @@
+{"event":{"client_id":"dispatch-pipe","command_type":"dispatch-pipe-evaluation","idempotency_key":"DP-03","payload":{"proof_id":"DP-03"},"type":"INTENT_PERSISTED"},"event_id":"event-DP-03-01","observed_monotonic":2020,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"dispatch-pipe","command_type":"dispatch-pipe-evaluation","idempotency_key":"DP-03","payload":{"proof_id":"DP-03"},"type":"INTENT_PERSISTED"},"event_id":"event-DP-03-02","observed_monotonic":2021,"record_type":"INPUT_EVENT","sequence":1}
