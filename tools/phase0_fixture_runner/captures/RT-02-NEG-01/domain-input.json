@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"RT-02-NEG-01","inputs":{"case_kind":"CAPABILITY_MISMATCH","facts":{"candidate":{"candidate_id":"ag","capability_match":false,"score":0,"status":"GREEN","tier":"mid"},"peer_capabilities":["cpu"],"required_capability":"gpu"}},"oracle_id":"routing_discovery.rt02.reasoned_exclusion","oracle_version":1,"schema_version":1}

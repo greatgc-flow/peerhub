@@ -1,0 +1,2 @@
+{"event":{"client_id":"routing-discovery","command_type":"routing-discovery-proof","idempotency_key":"RT-02","payload":{"proof_id":"RT-02"},"type":"INTENT_PERSISTED"},"event_id":"event-RT-02-01","observed_monotonic":2200,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"routing-discovery","command_type":"routing-discovery-proof","idempotency_key":"RT-02","payload":{"proof_id":"RT-02"},"type":"INTENT_PERSISTED"},"event_id":"event-RT-02-02","observed_monotonic":2201,"record_type":"INPUT_EVENT","sequence":1}

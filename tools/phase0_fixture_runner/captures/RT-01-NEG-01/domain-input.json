@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"RT-01-NEG-01","inputs":{"case_kind":"ELIGIBLE_SELECTION","facts":{"candidate":{"candidate_id":"cx","capability_match":true,"score":12,"status":"GREEN","tier":"mid"}}},"oracle_id":"routing_discovery.rt01.structured_audit","oracle_version":1,"schema_version":1}
