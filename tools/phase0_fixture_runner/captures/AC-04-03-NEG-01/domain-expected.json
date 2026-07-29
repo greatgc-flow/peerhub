@@ -1,0 +1,1 @@
+{"fixture_id":"AC-04-03-NEG-01","oracle_id":"authority_fence.ac0403.mandatory_final_epoch_recheck","oracle_version":1,"output":{"committed_epoch":8,"contenders":[],"decision":"REJECTED","disposition":"FENCED_STALE_EPOCH","error_code":null,"final_recheck_performed":true,"legacy_write_mutations":0,"marker_count":0,"retry_count":0},"schema_version":1}

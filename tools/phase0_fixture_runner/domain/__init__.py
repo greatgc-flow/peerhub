@@ -1,5 +1,6 @@
 """Domain-oracle verification for Phase 0 controlled-fake fixtures."""
 
+from .authority_fence import authority_fence_registrations
 from .authority_filesystem import (
     authority_filesystem_registrations,
 )
@@ -28,6 +29,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *command_authz_registrations(),
         *authority_filesystem_registrations(),
         *authority_identity_registrations(),
+        *authority_fence_registrations(),
     )
 )
 

@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"AC-04-05-NEG-01","inputs":{"admission_epoch":7,"contender_id":"contender-stale","persisted_epoch":8,"phase":"CUTOVER_DRAINING"},"oracle_id":"authority_fence.ac0405.stale_admission_marker_cas","oracle_version":1,"schema_version":1}

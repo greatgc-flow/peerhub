@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"AC-04-02","inputs":{"committed_epoch":7,"final_epoch":7,"lease_epoch":6,"lease_valid":true,"write_id":"legacy-write-stale"},"oracle_id":"authority_fence.ac0402.stale_lease_epoch_fenced","oracle_version":1,"schema_version":1}

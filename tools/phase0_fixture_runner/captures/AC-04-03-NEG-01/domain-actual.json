@@ -1,0 +1,1 @@
+{"adapter_id":"authority_fence.ac0403.fault_injected","adapter_version":1,"fixture_id":"AC-04-03-NEG-01","output":{"committed_epoch":8,"contenders":[],"decision":"ACCEPTED","disposition":"WRITE_COMMITTED","error_code":null,"final_recheck_performed":false,"legacy_write_mutations":1,"marker_count":0,"retry_count":0},"schema_version":1}
