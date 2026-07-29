@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "clock": [1610, 1611],
+  "ids": ["run-AC-08-02-r2", "event-AC-08-02-01", "event-AC-08-02-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-drain",
+      "command_type": "drain-evidence-evaluation",
+      "idempotency_key": "AC-08-02",
+      "payload": {"proof_id": "AC-08-02"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-drain",
+      "command_type": "drain-evidence-evaluation",
+      "idempotency_key": "AC-08-02",
+      "payload": {"proof_id": "AC-08-02"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-08-02",
+    "oracle_id": "authority_drain.ac0802.cooperative_cancellation",
+    "oracle_version": 1,
+    "inputs": {
+      "elapsed_seconds": 90,
+      "admission_closed": true,
+      "new_lease_attempts": 0,
+      "leases": [
+        {
+          "lease_id": "lease-active-90",
+          "status": "ACTIVE",
+          "terminal_receipt": false,
+          "operation_may_have_external_effect": false,
+          "provider_effect_visible": false,
+          "classification": {
+            "lookup_status": "RESOLVED",
+            "ratified_table_digest": "fixture-ratified-safe-abort-digest-v1",
+            "observed_table_digest": "fixture-ratified-safe-abort-digest-v1",
+            "static_effect_class": "CONFIG_ONLY",
+            "static_effect_phase": "PRE_EFFECT",
+            "self_declared_effect_class": "CONFIG_ONLY",
+            "self_declared_effect_phase": "PRE_EFFECT"
+          },
+          "process_birth_match": true,
+          "identity_known": true,
+          "lock_owner_known": true,
+          "admission_hashes_unchanged": true
+        }
+      ]
+    }
+  }
+}

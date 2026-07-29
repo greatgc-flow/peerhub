@@ -42,6 +42,13 @@
     "AC-06": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
     "AC-07": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
     "AC-08": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false},
+    "AC-08-01": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
+    "AC-08-02": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
+    "AC-08-03": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
+    "AC-08-04": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "compares injected classification evidence against an injected ratified digest; the currently-committed hub-actions-v1.csv/action-fixture-policy-v1.csv do not yet contain ratified config-only/pre-effect safe-abort classifications (ACTION-INVENTORY-RECEIPT-R1.md explicitly disclaims this) -- a real safe-abort classification table and digest remain a separate open freeze item"},
+    "AC-08-05": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "process_birth_match is an injected fact standing in for real OS process-identity determination, per AUTHORITY-PROOF-SCOPING-DECISION-R1.md's non-abstractable-items list"},
+    "AC-08-06": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
+    "AC-08-07": {"evidence_status": "V1_CAPTURE", "cutover_execution_eligible": false, "coverage_scope": "SPEC_FAITHFUL"},
     "AC-09": {"evidence_status": "V1_SPEC_ONLY", "cutover_execution_eligible": false}
   }
 }

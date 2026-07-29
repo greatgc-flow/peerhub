@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "clock": [1650, 1651],
+  "ids": ["run-AC-08-06-r2", "event-AC-08-06-01", "event-AC-08-06-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-drain",
+      "command_type": "drain-evidence-evaluation",
+      "idempotency_key": "AC-08-06",
+      "payload": {"proof_id": "AC-08-06"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-drain",
+      "command_type": "drain-evidence-evaluation",
+      "idempotency_key": "AC-08-06",
+      "payload": {"proof_id": "AC-08-06"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-08-06",
+    "oracle_id": "authority_drain.ac0806.external_effect_receipt",
+    "oracle_version": 1,
+    "inputs": {
+      "elapsed_seconds": 120,
+      "admission_closed": true,
+      "new_lease_attempts": 0,
+      "leases": [
+        {
+          "lease_id": "lease-external-unreceipted",
+          "status": "TERMINAL",
+          "terminal_receipt": false,
+          "operation_may_have_external_effect": true,
+          "provider_effect_visible": false,
+          "classification": {
+            "lookup_status": "RESOLVED",
+            "ratified_table_digest": "fixture-ratified-safe-abort-digest-v1",
+            "observed_table_digest": "fixture-ratified-safe-abort-digest-v1",
+            "static_effect_class": "EXTERNAL_EFFECT",
+            "static_effect_phase": "MAY_HAVE_STARTED",
+            "self_declared_effect_class": "CONFIG_ONLY",
+            "self_declared_effect_phase": "PRE_EFFECT"
+          },
+          "process_birth_match": true,
+          "identity_known": true,
+          "lock_owner_known": true,
+          "admission_hashes_unchanged": true
+        }
+      ]
+    }
+  }
+}
