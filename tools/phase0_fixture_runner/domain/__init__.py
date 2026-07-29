@@ -4,6 +4,9 @@ from .authority_composed_cutover import (
     authority_composed_cutover_registrations,
 )
 from .authority_drain import authority_drain_registrations
+from .authority_external_effect import (
+    authority_external_effect_registrations,
+)
 from .authority_fence import authority_fence_registrations
 from .authority_filesystem import (
     authority_filesystem_registrations,
@@ -40,6 +43,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *authority_shadow_registrations(),
         *authority_fence_registrations(),
         *authority_json_custody_registrations(),
+        *authority_external_effect_registrations(),
         *authority_drain_registrations(),
         *authority_composed_cutover_registrations(),
     )
