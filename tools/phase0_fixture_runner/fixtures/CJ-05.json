@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "clock": [1010, 1011],
+  "ids": ["run-CJ-05-r1", "event-CJ-05-01", "event-CJ-05-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "client-CJ-05",
+      "command_type": "mutating-method",
+      "idempotency_key": "idempotency-CJ-05",
+      "payload": {
+        "actor_identity": "actor-unauthorized",
+        "client_request_key": "request-CJ-05",
+        "expected_configuration_revision": 17,
+        "expected_policy_revision": 9,
+        "workspace_scope": "workspace-CJ-05"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "client-CJ-05",
+      "command_type": "mutating-method",
+      "idempotency_key": "idempotency-CJ-05",
+      "payload": {
+        "actor_identity": "actor-unauthorized",
+        "client_request_key": "request-CJ-05",
+        "expected_configuration_revision": 17,
+        "expected_policy_revision": 9,
+        "workspace_scope": "workspace-CJ-05",
+        "unauthorized": true
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_PAYLOAD_MISMATCH",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "REJECTED"
+  }
+}

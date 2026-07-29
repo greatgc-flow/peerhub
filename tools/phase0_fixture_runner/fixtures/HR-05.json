@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "clock": [710, 711, 712],
+  "ids": ["run-HR-05-r1", "event-HR-05-01", "event-HR-05-02", "event-HR-05-03"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "administrator",
+      "command_type": "authorize-recovery-probe",
+      "idempotency_key": "HR-05-single-probe",
+      "payload": {
+        "direct_gate_open": false,
+        "direct_healthy_write": false,
+        "recovery_probe_limit": 1
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "health-probe-HR-05",
+        "pid": 1105,
+        "birth": "birth-HR-05"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 1
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 1,
+    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT"],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "FAILED"
+  }
+}

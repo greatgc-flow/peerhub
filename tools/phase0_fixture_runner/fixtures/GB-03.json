@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "clock": [910, 911, 912],
+  "ids": ["run-GB-03-r1", "event-GB-03-01", "event-GB-03-02", "event-GB-03-03"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker-client",
+      "command_type": "mutate",
+      "idempotency_key": "GB-03-key",
+      "payload": {
+        "value": 1
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker-client",
+      "command_type": "mutate",
+      "idempotency_key": "GB-03-key",
+      "payload": {
+        "value": 1
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker-client",
+      "command_type": "mutate",
+      "idempotency_key": "GB-03-key",
+      "payload": {
+        "value": 2
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  }
+}

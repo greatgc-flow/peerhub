@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "clock": [900, 901],
+  "ids": ["run-GB-01-r1", "event-GB-01-01", "event-GB-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker",
+      "command_type": "cas-commit",
+      "idempotency_key": "GB-01-atomic-commit",
+      "payload": {
+        "outbox_row": "outbox-GB-01",
+        "pending_receipt": "receipt-GB-01",
+        "target_revision": 42
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker",
+      "command_type": "cas-commit",
+      "idempotency_key": "GB-01-atomic-commit",
+      "payload": {
+        "outbox_row": "outbox-GB-01",
+        "pending_receipt": "receipt-GB-01",
+        "target_revision": 42
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  }
+}

@@ -1,0 +1,5 @@
+{"event":{"identity":{"birth":"birth-DT-02","pid":1002,"token":"pty-DT-02"},"type":"SPAWNED"},"event_id":"event-DT-02-01","observed_monotonic":200,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"bytes":"4g==","t":201,"type":"CHUNK"},"event_id":"event-DT-02-02","observed_monotonic":201,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"bytes":"gqwN","t":202,"type":"CHUNK"},"event_id":"event-DT-02-03","observed_monotonic":202,"record_type":"INPUT_EVENT","sequence":2}
+{"event":{"bytes":"Cg==","t":203,"type":"CHUNK"},"event_id":"event-DT-02-04","observed_monotonic":203,"record_type":"INPUT_EVENT","sequence":3}
+{"event":{"code":0,"type":"EXIT"},"event_id":"event-DT-02-05","observed_monotonic":204,"record_type":"INPUT_EVENT","sequence":4}

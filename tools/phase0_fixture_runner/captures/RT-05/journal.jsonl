@@ -1,0 +1,3 @@
+{"event":{"client_id":"router","command_type":"automatic-route","idempotency_key":"RT-05-seeded-selection","payload":{"equal_candidates":["candidate-a","candidate-b"],"request_id":"request-RT-05","selected_candidate":"candidate-a","snapshot_id":"snapshot-RT-05"},"type":"INTENT_PERSISTED"},"event_id":"event-RT-05-01","observed_monotonic":810,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"identity":{"birth":"birth-RT-05","pid":1205,"token":"candidate-a"},"type":"SPAWNED"},"event_id":"event-RT-05-02","observed_monotonic":811,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"code":0,"type":"EXIT"},"event_id":"event-RT-05-03","observed_monotonic":812,"record_type":"INPUT_EVENT","sequence":2}

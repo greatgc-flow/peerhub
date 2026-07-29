@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "clock": [720, 721, 722],
+  "ids": ["run-HR-06-r1", "event-HR-06-01", "event-HR-06-02", "event-HR-06-03"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "health-controller",
+      "command_type": "health-recovery-cas",
+      "idempotency_key": "HR-06-fingerprint",
+      "payload": {
+        "failed_probe": {
+          "backoff_incremented": true,
+          "circuit": "CIRCUIT_OPEN"
+        },
+        "success_requirements": ["incident", "gate_generation", "timestamp", "fingerprint"],
+        "stale_receipt_result": "NO_OP"
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "health-probe-HR-06",
+        "pid": 1106,
+        "birth": "birth-HR-06"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 1
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 1,
+    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT"],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "FAILED"
+  }
+}

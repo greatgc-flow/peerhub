@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "clock": [930, 931, 932, 933],
+  "ids": ["run-GB-05-r1", "event-GB-05-01", "event-GB-05-02", "event-GB-05-03", "event-GB-05-04"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker",
+      "command_type": "claim-effect",
+      "idempotency_key": "GB-05-claim",
+      "payload": {
+        "attempt_id": "attempt-GB-05",
+        "outbox_id": "outbox-GB-05",
+        "request_id": "request-GB-05",
+        "result": "EFFECT_SUCCEEDED"
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "effect-worker-GB-05",
+        "pid": 1305,
+        "birth": "birth-GB-05"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    },
+    {
+      "type": "CLEANUP_ERROR",
+      "error": {
+        "code": "COMPETING_RECEIPT_REJECTED"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT", "CLEANUP_ERROR"],
+    "cleanup_error_count": 1,
+    "effect_certainty": "STARTED",
+    "execution_outcome": "SUCCEEDED"
+  }
+}

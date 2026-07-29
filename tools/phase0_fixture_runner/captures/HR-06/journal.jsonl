@@ -1,0 +1,3 @@
+{"event":{"client_id":"health-controller","command_type":"health-recovery-cas","idempotency_key":"HR-06-fingerprint","payload":{"failed_probe":{"backoff_incremented":true,"circuit":"CIRCUIT_OPEN"},"stale_receipt_result":"NO_OP","success_requirements":["incident","gate_generation","timestamp","fingerprint"]},"type":"INTENT_PERSISTED"},"event_id":"event-HR-06-01","observed_monotonic":720,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"identity":{"birth":"birth-HR-06","pid":1106,"token":"health-probe-HR-06"},"type":"SPAWNED"},"event_id":"event-HR-06-02","observed_monotonic":721,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"code":1,"type":"EXIT"},"event_id":"event-HR-06-03","observed_monotonic":722,"record_type":"INPUT_EVENT","sequence":2}

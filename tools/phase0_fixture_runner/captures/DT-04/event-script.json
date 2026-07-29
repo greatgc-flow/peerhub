@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "clock": [400, 401, 402, 403],
+  "ids": ["run-DT-04-r1", "event-DT-04-01", "event-DT-04-02", "event-DT-04-03", "event-DT-04-04"],
+  "events": [
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "pty-DT-04",
+        "pid": 1004,
+        "birth": "birth-DT-04"
+      }
+    },
+    {
+      "type": "PROCESS_DEADLINE",
+      "t": 401
+    },
+    {
+      "type": "CANCEL_ACK"
+    },
+    {
+      "type": "EXIT",
+      "code": 143
+    }
+  ],
+  "expect": {
+    "terminal_classification": "PROCESS_TIMEOUT",
+    "exit_code": 143,
+    "ordered_event_types": ["SPAWNED", "PROCESS_DEADLINE", "CANCEL_ACK", "EXIT"],
+    "cancel_ack": true,
+    "effect_certainty": "STARTED",
+    "execution_outcome": "FAILED"
+  }
+}
