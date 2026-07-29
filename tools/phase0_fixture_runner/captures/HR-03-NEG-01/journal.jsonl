@@ -1,0 +1,2 @@
+{"event":{"client_id":"health-recovery","command_type":"health-recovery-proof","idempotency_key":"HR-03-NEG-01","payload":{"proof_id":"HR-03-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-HR-03-NEG-01-01","observed_monotonic":2720,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"health-recovery","command_type":"health-recovery-proof","idempotency_key":"HR-03-NEG-01","payload":{"proof_id":"HR-03-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-HR-03-NEG-01-02","observed_monotonic":2721,"record_type":"INPUT_EVENT","sequence":1}

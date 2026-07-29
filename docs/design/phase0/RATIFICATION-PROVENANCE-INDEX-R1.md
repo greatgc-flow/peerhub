@@ -45,6 +45,17 @@ clarifications, incorporated into the bound spec doc before this row was
 written), and cc recorded its own affirming review plus the implementation
 or verification as the third vote.
 
+| `session-2026-07-29-hr-track` (not a `hub.py consensus-propose`/`consensus-vote` round -- see note below) | HR-01..HR-03 health-recovery classification and implementation (2-round unlimited unanimous adversarial critique between ag.deepthink/cx.deepthink + 2-part Final Call ACK, cc-reconciled): resolved a document-vs-document scope conflict between CONTRACT.md's one-fixture-per-ID allocation and RUNTIME-HEALTH-SEMANTICS-R1.md's ten-item required-fixture list; HR-03 built as an 8-row scenario matrix under one ID with oracle-derived (never fixture-injected) classification and short-circuit checks; HR-02 folds in the previously-uncovered "revalidation unsupported by an adapter" item as its own OBS-grounded positive case; cc independently verified against the actual committed code (correcting an incorrect peer claim) that HR-05/HR-06 already cover 2 of the 3 required items neither peer's first pass had fully allocated | `fixture-status-v1.json` SHA-256 `6676adef506cb57dd064c914d3cb54233f94bd6ba6e66d73479186f49b390a78`; `HR-01-03-HEALTH-RECOVERY-CLASSIFICATION-SPEC-R1.md` SHA-256 `4b805385daacd785e8d58e9d49eeaae695d35d007072312ab14ed50543428f91` | TDD start (`TDD-READINESS-GATE-R1.md` condition 1 requires all 54 contract IDs at `V1_CAPTURE`; this round completes the last 3 of the original 35 `LEGACY_CAPTURE`-only behavioral IDs, so all 54 entries in `fixture-status-v1.json` now show `evidence_status: V1_CAPTURE` -- **but DP-06 alone, already `V1_CAPTURE` before this session started, still carries `coverage_scope: PENDING_FAITHFUL_MAPPING_REVIEW` and `phase0_exit_eligible: false` per the unrelated, still-open `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` finding -- this round neither touches nor resolves that gap, and condition 1's substance is not met until a future `CONTROLLED-FAKE-RUNNER-CONTRACT-R3` ratification closes it**); Phase 0 exit; a general HR-03 failure-class-to-policy-action mapping (explicit OPEN backlog, no HR-03 row asserts one) |
+
+**Note on the `session-2026-07-29-hr-track` row's provenance mechanism**: same
+mechanism as `session-2026-07-29-ac-track`/`session-2026-07-29-sl-track`
+above -- no Hub-minted round ID; cc proposed the design synthesis to
+ag.deepthink and cx.deepthink in parallel across two Final Call rounds (the
+second incorporating three concrete schema corrections cx raised on the
+first), both independently and unconditionally ACKed the corrected design,
+and cc recorded its own affirming review plus the implementation and direct
+code verification as the third vote.
+
 **Post-ACK correction**: the entry text ag/cx ACK'd originally said "32 of
 the original 54" and "32 remaining legacy-only behavioral IDs." This was a
 counting error -- DT-01/DT-06 were never part of the 35-fixture

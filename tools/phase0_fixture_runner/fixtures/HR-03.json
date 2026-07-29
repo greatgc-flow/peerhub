@@ -1,0 +1,110 @@
+{
+  "schema_version": 2,
+  "clock": [2720, 2721],
+  "ids": ["run-HR-03-r2", "event-HR-03-01", "event-HR-03-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "health-recovery",
+      "command_type": "health-recovery-proof",
+      "idempotency_key": "HR-03",
+      "payload": {"proof_id": "HR-03"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "health-recovery",
+      "command_type": "health-recovery-proof",
+      "idempotency_key": "HR-03",
+      "payload": {"proof_id": "HR-03"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "HR-03",
+    "oracle_id": "health_recovery.hr03.measured_failure_matrix",
+    "oracle_version": 1,
+    "inputs": {
+      "scenarios": [
+        {
+          "scenario_id": "executable-unavailable",
+          "attempted_stages": [
+            {"stage": "resolve_executable", "stage_status": "FAILED"}
+          ]
+        },
+        {
+          "scenario_id": "environment-unavailable",
+          "attempted_stages": [
+            {"stage": "resolve_executable", "stage_status": "OK"},
+            {"stage": "validate_environment", "stage_status": "FAILED"}
+          ]
+        },
+        {
+          "scenario_id": "auth-unavailable",
+          "attempted_stages": [
+            {"stage": "resolve_executable", "stage_status": "OK"},
+            {"stage": "validate_environment", "stage_status": "OK"},
+            {"stage": "authenticate", "stage_status": "FAILED"}
+          ]
+        },
+        {
+          "scenario_id": "network-unavailable",
+          "attempted_stages": [
+            {"stage": "resolve_executable", "stage_status": "OK"},
+            {"stage": "validate_environment", "stage_status": "OK"},
+            {"stage": "authenticate", "stage_status": "OK"},
+            {"stage": "connect_network", "stage_status": "FAILED"}
+          ]
+        },
+        {
+          "scenario_id": "provider-unavailable",
+          "attempted_stages": [
+            {"stage": "resolve_executable", "stage_status": "OK"},
+            {"stage": "validate_environment", "stage_status": "OK"},
+            {"stage": "authenticate", "stage_status": "OK"},
+            {"stage": "connect_network", "stage_status": "OK"},
+            {"stage": "call_provider", "stage_status": "FAILED"}
+          ]
+        },
+        {
+          "scenario_id": "quota-exhausted",
+          "attempted_stages": [
+            {"stage": "resolve_executable", "stage_status": "OK"},
+            {"stage": "validate_environment", "stage_status": "OK"},
+            {"stage": "authenticate", "stage_status": "OK"},
+            {"stage": "connect_network", "stage_status": "OK"},
+            {"stage": "call_provider", "stage_status": "OK"},
+            {"stage": "check_usage_admission", "stage_status": "FAILED"}
+          ],
+          "usage_failure_reason": "QUOTA_EXHAUSTED"
+        },
+        {
+          "scenario_id": "rate-limited",
+          "attempted_stages": [
+            {"stage": "resolve_executable", "stage_status": "OK"},
+            {"stage": "validate_environment", "stage_status": "OK"},
+            {"stage": "authenticate", "stage_status": "OK"},
+            {"stage": "connect_network", "stage_status": "OK"},
+            {"stage": "call_provider", "stage_status": "OK"},
+            {"stage": "check_usage_admission", "stage_status": "FAILED"}
+          ],
+          "usage_failure_reason": "RATE_LIMITED"
+        },
+        {
+          "scenario_id": "legacy-operational-timeout",
+          "legacy_observation": {
+            "failure_class": "operational_error:timeout",
+            "health": "RED",
+            "gate": "closed",
+            "admission": "rejected"
+          }
+        }
+      ]
+    }
+  }
+}

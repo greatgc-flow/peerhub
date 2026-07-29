@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"HR-01","inputs":{"peer_id":"ag","readiness_evidence":{"integrity_verified":true,"issued_at":1000,"observed_at":1050,"receipt_id":"readiness-HR-01","runtime_revision":"runtime-r17","valid_until":1100},"sealed_runtime_revision":"runtime-r17"},"oracle_id":"health_recovery.hr01.fresh_readiness_projection","oracle_version":1,"schema_version":1}

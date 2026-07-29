@@ -1,0 +1,1 @@
+{"fixture_id":"HR-02","oracle_id":"health_recovery.hr02.expired_revalidation_required","oracle_version":1,"output":{"admission":{"decision":"REJECTED","reason_code":"READINESS_STALE"},"gate_state":"CLOSED","readiness_state":"READINESS_STALE","revalidation_action":"REVALIDATION_REQUIRED","zero_dispatch_calls":true},"schema_version":1}
