@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "clock": [934, 935, 936, 937],
+  "ids": ["run-GB-05-NEG-01-r2", "event-GB-05-NEG-01-01", "event-GB-05-NEG-01-02", "event-GB-05-NEG-01-03", "event-GB-05-NEG-01-04"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker",
+      "command_type": "claim-effect",
+      "idempotency_key": "GB-05-negative-claim",
+      "payload": {
+        "attempt_id": "attempt-GB-05-negative",
+        "outbox_id": "outbox-GB-05-negative",
+        "request_id": "request-GB-05-negative"
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "effect-worker-GB-05-negative",
+        "pid": 2305,
+        "birth": "birth-GB-05-NEG-01"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    },
+    {
+      "type": "CLEANUP_ERROR",
+      "error": {
+        "code": "COMPETING_RECEIPT_REJECTED"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT", "CLEANUP_ERROR"],
+    "cleanup_error_count": 1,
+    "effect_certainty": "STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "GB-05-NEG-01",
+    "oracle_id": "broker.gb05.immutable_terminal_receipt",
+    "oracle_version": 1,
+    "inputs": {
+      "request_id": "request-GB-05-negative",
+      "outbox_id": "outbox-GB-05-negative",
+      "attempt_id": "attempt-GB-05-negative",
+      "first_owner_id": "owner-first",
+      "first_terminal_kind": "EFFECT_SUCCEEDED",
+      "second_owner_id": "owner-second",
+      "second_terminal_kind": "EFFECT_FAILED"
+    }
+  }
+}

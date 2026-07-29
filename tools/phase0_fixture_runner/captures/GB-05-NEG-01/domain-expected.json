@@ -1,0 +1,1 @@
+{"fixture_id":"GB-05-NEG-01","oracle_id":"broker.gb05.immutable_terminal_receipt","oracle_version":1,"output":{"second_disposition":"COMPETING_RECEIPT_REJECTED","stored_receipt":{"attempt_id":"attempt-GB-05-negative","outbox_id":"outbox-GB-05-negative","owner_id":"owner-first","request_id":"request-GB-05-negative","terminal_result":"EFFECT_SUCCEEDED"}},"schema_version":1}

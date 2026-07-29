@@ -1,0 +1,1 @@
+{"fixture_id":"GB-01-NEG-01","oracle_id":"broker.gb01.atomic_cas_commit","oracle_version":1,"output":{"both_or_neither":true,"outbox_row_present":false,"pending_receipt_present":false,"revision_row_present":false},"schema_version":1}

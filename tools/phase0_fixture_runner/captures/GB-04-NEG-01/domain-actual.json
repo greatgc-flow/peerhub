@@ -1,0 +1,1 @@
+{"adapter_id":"broker.gb04.fault_injected","adapter_version":1,"fixture_id":"GB-04-NEG-01","output":{"blind_replays":1,"outbox_disposition":"BLINDLY_REDISPATCHED","transition_applies":1},"schema_version":1}

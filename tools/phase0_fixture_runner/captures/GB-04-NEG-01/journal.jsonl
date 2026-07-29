@@ -1,0 +1,1 @@
+{"event":{"client_id":"broker","command_type":"reconcile-pending-outbox","idempotency_key":"GB-04-negative-pending","payload":{"outbox_row":"outbox-GB-04-negative","pending_journal":"journal-GB-04-negative","state_transition":"committed"},"type":"INTENT_PERSISTED"},"event_id":"event-GB-04-NEG-01-01","observed_monotonic":921,"record_type":"INPUT_EVENT","sequence":0}

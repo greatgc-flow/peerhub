@@ -284,7 +284,7 @@ class ControlledFakeRunnerTests(unittest.TestCase):
 
             record_path = run_fixture(
                 script_path,
-                "GB-03",
+                "GENERIC-IDEMPOTENCY-01",
                 temporary_path / "run",
             )
             record = self._read_record(record_path)

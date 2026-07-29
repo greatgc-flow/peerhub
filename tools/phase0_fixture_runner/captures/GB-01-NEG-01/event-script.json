@@ -1,0 +1,47 @@
+{
+  "schema_version": 2,
+  "clock": [903, 904],
+  "ids": ["run-GB-01-NEG-01-r2", "event-GB-01-NEG-01-01", "event-GB-01-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker",
+      "command_type": "cas-commit",
+      "idempotency_key": "GB-01-before-commit",
+      "payload": {
+        "outbox_row": "outbox-GB-01-negative",
+        "pending_receipt": "receipt-GB-01-negative",
+        "target_revision": 43
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker",
+      "command_type": "cas-commit",
+      "idempotency_key": "GB-01-before-commit",
+      "payload": {
+        "outbox_row": "outbox-GB-01-negative",
+        "pending_receipt": "receipt-GB-01-negative",
+        "target_revision": 43
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "GB-01-NEG-01",
+    "oracle_id": "broker.gb01.atomic_cas_commit",
+    "oracle_version": 1,
+    "inputs": {
+      "target_revision": 43,
+      "pending_receipt": "receipt-GB-01-negative",
+      "outbox_row": "outbox-GB-01-negative",
+      "fault_point": "BEFORE_COMMIT"
+    }
+  }
+}

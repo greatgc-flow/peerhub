@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "clock": [900, 901],
-  "ids": ["run-GB-01-r1", "event-GB-01-01", "event-GB-01-02"],
+  "ids": ["run-GB-01-r2", "event-GB-01-01", "event-GB-01-02"],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -31,5 +31,17 @@
     "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
     "effect_certainty": "NOT_STARTED",
     "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "GB-01",
+    "oracle_id": "broker.gb01.atomic_cas_commit",
+    "oracle_version": 1,
+    "inputs": {
+      "target_revision": 42,
+      "pending_receipt": "receipt-GB-01",
+      "outbox_row": "outbox-GB-01",
+      "fault_point": "NONE"
+    }
   }
 }

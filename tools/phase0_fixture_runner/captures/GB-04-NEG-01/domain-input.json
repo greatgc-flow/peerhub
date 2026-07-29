@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"GB-04-NEG-01","inputs":{"outbox_id":"outbox-GB-04-negative","outbox_state":"PENDING_UNCOMMITTED","transition_id":"transition-GB-04-negative"},"oracle_id":"broker.gb04.recovery_without_replay","oracle_version":1,"schema_version":1}
