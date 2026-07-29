@@ -1,0 +1,1 @@
+{"adapter_id":"coordination_room.cr02.fault","adapter_version":1,"fixture_id":"CR-02-NEG-01","output":{"decision":"MESSAGE_READ","details":{"message_id":4,"read_transition_count":2,"recipient":"cx","sender":"ag","terminal_status":"READ","thread_id":"t-c950"},"rule_tier":"OBS"},"schema_version":1}

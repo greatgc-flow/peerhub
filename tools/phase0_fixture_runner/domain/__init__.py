@@ -31,6 +31,7 @@ from .contract import (
     StaticDomainRegistry,
     write_domain_artifacts,
 )
+from .coordination_room import coordination_room_registrations
 from .dispatch_pipe import dispatch_pipe_registrations
 from .health import health_registrations
 from .process_lifecycle import process_lifecycle_registrations
@@ -46,6 +47,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *routing_registrations(),
         *broker_registrations(),
         *command_authz_registrations(),
+        *coordination_room_registrations(),
         *authority_filesystem_registrations(),
         *authority_identity_registrations(),
         *authority_shadow_registrations(),

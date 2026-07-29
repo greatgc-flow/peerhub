@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "clock": [2100, 2101],
+  "ids": ["run-CR-04-NEG-01-r2", "event-CR-04-NEG-01-01", "event-CR-04-NEG-01-02"],
+  "events": [
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-04-NEG-01", "payload": {"proof_id": "CR-04-NEG-01"}},
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-04-NEG-01", "payload": {"proof_id": "CR-04-NEG-01"}}
+  ],
+  "expect": {"terminal_classification": "IDEMPOTENCY_HIT", "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"], "effect_certainty": "NOT_STARTED", "execution_outcome": "SUCCEEDED"},
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CR-04-NEG-01",
+    "oracle_id": "coordination_room.cr04.checkpoint_source_reference",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "CHECKPOINT",
+      "facts": {
+        "checkpoint_id": "checkpoint-cr04",
+        "checkpoint_scope": "authority-cutover-review",
+        "checkpoint_persisted": true,
+        "source_reference": {
+          "reference_type": "SOURCE_DIGEST",
+          "reference_value": "sha256:cr04-frozen-source"
+        }
+      }
+    }
+  }
+}

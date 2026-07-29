@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "clock": [2100, 2101],
+  "ids": ["run-CR-06-NEG-01-r2", "event-CR-06-NEG-01-01", "event-CR-06-NEG-01-02"],
+  "events": [
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-06-NEG-01", "payload": {"proof_id": "CR-06-NEG-01"}},
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-06-NEG-01", "payload": {"proof_id": "CR-06-NEG-01"}}
+  ],
+  "expect": {"terminal_classification": "IDEMPOTENCY_HIT", "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"], "effect_certainty": "NOT_STARTED", "execution_outcome": "SUCCEEDED"},
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CR-06-NEG-01",
+    "oracle_id": "coordination_room.cr06.serialized_retirement",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "SERIALIZED_RETIRE_SET",
+      "facts": {
+        "retired_history_ids": ["handoff-retired-01"],
+        "contender_active_ids": ["handoff-active-a", "handoff-active-b"],
+        "winning_active_id": "handoff-active-a"
+      }
+    }
+  }
+}

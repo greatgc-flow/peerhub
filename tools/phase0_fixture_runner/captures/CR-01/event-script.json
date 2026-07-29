@@ -1,0 +1,26 @@
+{
+  "schema_version": 2,
+  "clock": [2100, 2101],
+  "ids": ["run-CR-01-r2", "event-CR-01-01", "event-CR-01-02"],
+  "events": [
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-01", "payload": {"proof_id": "CR-01"}},
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-01", "payload": {"proof_id": "CR-01"}}
+  ],
+  "expect": {"terminal_classification": "IDEMPOTENCY_HIT", "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"], "effect_certainty": "NOT_STARTED", "execution_outcome": "SUCCEEDED"},
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CR-01",
+    "oracle_id": "coordination_room.cr01.session_close",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "SESSION_CLOSE",
+      "facts": {
+        "session_id": "room-session-01",
+        "members": ["ag", "cx", "cc"],
+        "state_before_digest": "state-before-cr01",
+        "state_after_digest": "state-after-cr01",
+        "close_exit_code": 0
+      }
+    }
+  }
+}

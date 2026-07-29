@@ -1,0 +1,1 @@
+{"adapter_id":"coordination_room.cr04.fault","adapter_version":1,"fixture_id":"CR-04-NEG-01","output":{"decision":"CHECKPOINT_RECORDED","details":{"checkpoint_id":"checkpoint-cr04","checkpoint_persisted":true,"checkpoint_scope":"authority-cutover-review","immutable_source_reference_recorded":true,"source_reference":null},"rule_tier":"CANDIDATE"},"schema_version":1}

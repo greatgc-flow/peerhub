@@ -1,0 +1,1 @@
+{"adapter_id":"coordination_room.cr03.fault","adapter_version":1,"fixture_id":"CR-03-NEG-01","output":{"decision":"BROADCAST_DELIVERED","details":{"message_ids":[6,5],"recipient_order":["cx","cc"],"thread_id":"b-3605"},"rule_tier":"OBS"},"schema_version":1}
