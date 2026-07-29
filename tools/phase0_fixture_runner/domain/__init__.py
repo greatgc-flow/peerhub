@@ -40,6 +40,7 @@ from .health import health_registrations
 from .process_lifecycle import process_lifecycle_registrations
 from .routing import routing_registrations
 from .routing_discovery import routing_discovery_registrations
+from .session_lease import session_lease_registrations
 from .transport import transport_registrations
 
 DOMAIN_REGISTRY = StaticDomainRegistry(
@@ -50,6 +51,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *process_lifecycle_registrations(),
         *routing_registrations(),
         *routing_discovery_registrations(),
+        *session_lease_registrations(),
         *broker_registrations(),
         *cli_envelope_registrations(),
         *governance_broker_registrations(),

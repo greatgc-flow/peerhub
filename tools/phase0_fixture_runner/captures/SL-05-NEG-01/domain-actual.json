@@ -1,0 +1,1 @@
+{"adapter_id":"session_lease.sl05.fault_injected","adapter_version":1,"fixture_id":"SL-05-NEG-01","output":{"code":"LEASE_FENCE_VIOLATION","fencing_token":32,"lease_id":"lease-SL-05","revision":13,"status":"ACCEPTED","zero_state_mutations":false},"schema_version":1}

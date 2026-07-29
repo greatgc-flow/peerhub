@@ -35,6 +35,16 @@ round ID). If a future session wants this formally re-minted through
 `consensus-propose`/`consensus-vote`, that is additive and does not require
 rewriting this row.
 
+| `session-2026-07-29-sl-track` (not a `hub.py consensus-propose`/`consensus-vote` round -- see note below) | SL-01..SL-06 session-lease classification and implementation (2-round unlimited unanimous adversarial critique between ag.deepthink/cx.deepthink + Final Call ACK, cc-reconciled): separate Session/SessionLease records, flat lease store, SL-05 fencing on an authenticated `owner_principal_id` rather than a self-asserted `owner_peer_id`, SL-06 dedicated `lease_authority_certainty` orthogonal to `effect_certainty` | `fixture-status-v1.json` SHA-256 `8188ec8bac5ef3924a61eeff7ca8575bd900fbd805215620304818f90fc24777`; `SL-01-06-SESSION-LEASE-CLASSIFICATION-SPEC-R1.md` SHA-256 `3e6862ab388dbf7f7bae56facfc35eca5e2175cb61177b676773df236e1f8b0d` | TDD start (`TDD-READINESS-GATE-R1.md` condition 1 remains unmet: this round moves SL-01..06 out of the 35 `LEGACY_CAPTURE` behavioral IDs; combined with prior rounds this session that already resolved DP-01..05/CR-01..06/CS-01..06/RT-01..03/GB-02/06/CJ-01/03/04/06, only HR-01..03 (3 IDs) remain `LEGACY_CAPTURE`); Phase 0 exit; a general SL-06 recovery policy engine (only one concrete trigger/decision pair was fact-injected, per the ratified OPEN backlog) |
+
+**Note on the `session-2026-07-29-sl-track` row's provenance mechanism**: same
+mechanism as `session-2026-07-29-ac-track` above -- no Hub-minted round ID;
+cc proposed the design synthesis to ag.deepthink and cx.deepthink in
+parallel, both independently ACKed (cx with two narrow wording
+clarifications, incorporated into the bound spec doc before this row was
+written), and cc recorded its own affirming review plus the implementation
+or verification as the third vote.
+
 **Post-ACK correction**: the entry text ag/cx ACK'd originally said "32 of
 the original 54" and "32 remaining legacy-only behavioral IDs." This was a
 counting error -- DT-01/DT-06 were never part of the 35-fixture
