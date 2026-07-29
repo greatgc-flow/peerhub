@@ -1,0 +1,67 @@
+{
+  "schema_version": 2,
+  "clock": [1810, 1811],
+  "ids": ["run-AC-07-02-r2", "event-AC-07-02-01", "event-AC-07-02-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-02",
+      "payload": {"proof_id": "AC-07-02"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-02",
+      "payload": {"proof_id": "AC-07-02"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-07-02",
+    "oracle_id": "authority_recovery.ac0702.post_marker_receipt_recovery",
+    "oracle_version": 1,
+    "inputs": {
+      "recovery_kind": "FORWARD_RECOVERY",
+      "failure_position": "POST_MARKER",
+      "attempt_id": "transition-attempt-07-02",
+      "attempt_record_present": true,
+      "marker_committed": true,
+      "authority_before_recovery": "PEERHUB",
+      "transition_receipt": {
+        "receipt_id": "transition-receipt-07-02",
+        "attempt_id": "transition-attempt-07-02",
+        "recorded_receipt_digest": "receipt-digest-07-02",
+        "observed_receipt_digest": "receipt-digest-07-02",
+        "restore_artifact_id": "staging-artifact-07-02",
+        "restore_artifact_digest": "artifact-digest-07-02",
+        "peerhub_commit_watermark": 200,
+        "forward_epoch": 40
+      },
+      "restore_artifact": {
+        "artifact_id": "staging-artifact-07-02",
+        "artifact_kind": "STAGING",
+        "observed_digest": "artifact-digest-07-02",
+        "custody_verified": true
+      },
+      "retired_ratified": false,
+      "rollback_preconditions": {
+        "drain_complete": false,
+        "hashes_verified": false,
+        "identity_verified": false,
+        "backup_requirement_satisfied": false,
+        "receipt_requirement_satisfied": false
+      },
+      "rollback_fence": null,
+      "peerhub_mutations": []
+    }
+  }
+}

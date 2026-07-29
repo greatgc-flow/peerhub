@@ -1,0 +1,71 @@
+{
+  "schema_version": 2,
+  "clock": [1840, 1841],
+  "ids": ["run-AC-07-05-NEG-01-r2", "event-AC-07-05-NEG-01-01", "event-AC-07-05-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-05-NEG-01",
+      "payload": {"proof_id": "AC-07-05-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-05-NEG-01",
+      "payload": {"proof_id": "AC-07-05-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-07-05-NEG-01",
+    "oracle_id": "authority_recovery.ac0705.inverse_fenced_rollback",
+    "oracle_version": 1,
+    "inputs": {
+      "recovery_kind": "ROLLBACK",
+      "failure_position": "NONE",
+      "attempt_id": "transition-attempt-07-05",
+      "attempt_record_present": true,
+      "marker_committed": true,
+      "authority_before_recovery": "PEERHUB",
+      "transition_receipt": {
+        "receipt_id": "transition-receipt-07-05",
+        "attempt_id": "transition-attempt-07-05",
+        "recorded_receipt_digest": "receipt-digest-07-05",
+        "observed_receipt_digest": "receipt-digest-07-05",
+        "restore_artifact_id": "backup-artifact-07-05",
+        "restore_artifact_digest": "artifact-digest-07-05",
+        "peerhub_commit_watermark": 500,
+        "forward_epoch": 41
+      },
+      "restore_artifact": {
+        "artifact_id": "backup-artifact-07-05",
+        "artifact_kind": "BACKUP",
+        "observed_digest": "artifact-digest-07-05",
+        "custody_verified": true
+      },
+      "retired_ratified": false,
+      "rollback_preconditions": {
+        "drain_complete": true,
+        "hashes_verified": true,
+        "identity_verified": true,
+        "backup_requirement_satisfied": true,
+        "receipt_requirement_satisfied": true
+      },
+      "rollback_fence": {
+        "admission_epoch": 42,
+        "committed_epoch": 42,
+        "final_epoch": 42
+      },
+      "peerhub_mutations": []
+    }
+  }
+}

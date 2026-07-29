@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "clock": [1850, 1851],
+  "ids": ["run-AC-07-06-NEG-01-r2", "event-AC-07-06-NEG-01-01", "event-AC-07-06-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-06-NEG-01",
+      "payload": {"proof_id": "AC-07-06-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-06-NEG-01",
+      "payload": {"proof_id": "AC-07-06-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-07-06-NEG-01",
+    "oracle_id": "authority_recovery.ac0706.peerhub_era_writes_refusal",
+    "oracle_version": 1,
+    "inputs": {
+      "recovery_kind": "ROLLBACK",
+      "failure_position": "NONE",
+      "attempt_id": "transition-attempt-07-06",
+      "attempt_record_present": true,
+      "marker_committed": true,
+      "authority_before_recovery": "PEERHUB",
+      "transition_receipt": {
+        "receipt_id": "transition-receipt-07-06",
+        "attempt_id": "transition-attempt-07-06",
+        "recorded_receipt_digest": "receipt-digest-07-06",
+        "observed_receipt_digest": "receipt-digest-07-06",
+        "restore_artifact_id": "backup-artifact-07-06",
+        "restore_artifact_digest": "artifact-digest-07-06",
+        "peerhub_commit_watermark": 600,
+        "forward_epoch": 42
+      },
+      "restore_artifact": {
+        "artifact_id": "backup-artifact-07-06",
+        "artifact_kind": "BACKUP",
+        "observed_digest": "artifact-digest-07-06",
+        "custody_verified": true
+      },
+      "retired_ratified": false,
+      "rollback_preconditions": {
+        "drain_complete": true,
+        "hashes_verified": true,
+        "identity_verified": true,
+        "backup_requirement_satisfied": true,
+        "receipt_requirement_satisfied": true
+      },
+      "rollback_fence": {
+        "admission_epoch": 43,
+        "committed_epoch": 43,
+        "final_epoch": 43
+      },
+      "peerhub_mutations": [
+        {
+          "mutation_id": "mutation-before-watermark",
+          "fact_id": "routing-config",
+          "commit_watermark": 600,
+          "in_restore_scope": true
+        },
+        {
+          "mutation_id": "mutation-after-outside-scope",
+          "fact_id": "unrelated-audit-log",
+          "commit_watermark": 601,
+          "in_restore_scope": false
+        },
+        {
+          "mutation_id": "mutation-after-in-scope-01",
+          "fact_id": "operational-state-alpha",
+          "commit_watermark": 601,
+          "in_restore_scope": true
+        },
+        {
+          "mutation_id": "mutation-after-in-scope-02",
+          "fact_id": "operational-state-beta",
+          "commit_watermark": 605,
+          "in_restore_scope": true
+        }
+      ]
+    }
+  }
+}

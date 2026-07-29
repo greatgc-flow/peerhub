@@ -17,6 +17,9 @@ from .authority_identity import (
 from .authority_json_custody import (
     authority_json_custody_registrations,
 )
+from .authority_recovery import (
+    authority_recovery_registrations,
+)
 from .authority_shadow import authority_shadow_registrations
 from .broker import broker_registrations
 from .command_authz import command_authz_registrations
@@ -44,6 +47,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *authority_fence_registrations(),
         *authority_json_custody_registrations(),
         *authority_external_effect_registrations(),
+        *authority_recovery_registrations(),
         *authority_drain_registrations(),
         *authority_composed_cutover_registrations(),
     )
