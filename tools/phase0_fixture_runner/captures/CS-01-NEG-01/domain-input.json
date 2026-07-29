@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CS-01-NEG-01","inputs":{"case_kind":"PROPOSAL_FREEZE","facts":{"decision_rule":"UNANIMOUS","exclusions":[{"reason":"health_red","voter_id":"cx"}],"policy_revision":"consensus-policy-v1","round_id":"r-bcf8","voters":["cc","ag","cx"]}},"oracle_id":"consensus.cs01.round_contract_freeze","oracle_version":1,"schema_version":1}

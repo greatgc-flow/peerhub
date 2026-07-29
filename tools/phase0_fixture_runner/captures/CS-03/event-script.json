@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "clock": [2320, 2321],
+  "ids": ["run-CS-03-r2", "event-CS-03-01", "event-CS-03-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-03",
+      "payload": {"proof_id": "CS-03"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-03",
+      "payload": {"proof_id": "CS-03"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CS-03",
+    "oracle_id": "consensus.cs03.conflicting_vote_rejected",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "CONFLICTING_REPEAT_VOTE",
+      "facts": {
+        "round_id": "r-bcf8",
+        "existing_vote": {
+          "voter_id": "ag",
+          "vote_value": "AGREE",
+          "reason": "initial-vote"
+        },
+        "attempted_vote": {
+          "voter_id": "ag",
+          "vote_value": "DISAGREE",
+          "reason": "conflicting-vote"
+        }
+      }
+    }
+  }
+}

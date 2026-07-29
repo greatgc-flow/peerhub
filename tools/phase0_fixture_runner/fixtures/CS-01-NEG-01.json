@@ -1,0 +1,48 @@
+{
+  "schema_version": 2,
+  "clock": [2300, 2301],
+  "ids": ["run-CS-01-NEG-01-r2", "event-CS-01-NEG-01-01", "event-CS-01-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-01-NEG-01",
+      "payload": {"proof_id": "CS-01-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-01-NEG-01",
+      "payload": {"proof_id": "CS-01-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CS-01-NEG-01",
+    "oracle_id": "consensus.cs01.round_contract_freeze",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "PROPOSAL_FREEZE",
+      "facts": {
+        "round_id": "r-bcf8",
+        "policy_revision": "consensus-policy-v1",
+        "decision_rule": "UNANIMOUS",
+        "voters": ["cc", "ag", "cx"],
+        "exclusions": [
+          {
+            "voter_id": "cx",
+            "reason": "health_red"
+          }
+        ]
+      }
+    }
+  }
+}

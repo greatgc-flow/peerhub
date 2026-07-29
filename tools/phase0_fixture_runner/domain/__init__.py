@@ -24,6 +24,7 @@ from .authority_recovery import (
 from .authority_shadow import authority_shadow_registrations
 from .broker import broker_registrations
 from .command_authz import command_authz_registrations
+from .consensus import consensus_registrations
 from .contract import (
     DomainContractError,
     DomainRunResult,
@@ -48,6 +49,7 @@ DOMAIN_REGISTRY = StaticDomainRegistry(
         *broker_registrations(),
         *command_authz_registrations(),
         *coordination_room_registrations(),
+        *consensus_registrations(),
         *authority_filesystem_registrations(),
         *authority_identity_registrations(),
         *authority_shadow_registrations(),

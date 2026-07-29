@@ -1,0 +1,2 @@
+{"event":{"client_id":"consensus","command_type":"consensus-evaluation","idempotency_key":"CS-02-NEG-01","payload":{"proof_id":"CS-02-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-CS-02-NEG-01-01","observed_monotonic":2310,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"consensus","command_type":"consensus-evaluation","idempotency_key":"CS-02-NEG-01","payload":{"proof_id":"CS-02-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-CS-02-NEG-01-02","observed_monotonic":2311,"record_type":"INPUT_EVENT","sequence":1}
