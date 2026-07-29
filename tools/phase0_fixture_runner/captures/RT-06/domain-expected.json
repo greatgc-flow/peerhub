@@ -1,0 +1,1 @@
+{"fixture_id":"RT-06","oracle_id":"routing.rt06.pre_dispatch_drift","oracle_version":1,"output":{"dispatch_count":0,"replanning_input_revision":11,"result":"CONFIGURATION_STALE"},"schema_version":1}

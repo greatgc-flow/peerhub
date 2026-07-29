@@ -8,12 +8,14 @@ from .contract import (
     write_domain_artifacts,
 )
 from .health import health_registrations
+from .routing import routing_registrations
 from .transport import transport_registrations
 
 DOMAIN_REGISTRY = StaticDomainRegistry(
     (
         *transport_registrations(),
         *health_registrations(),
+        *routing_registrations(),
     )
 )
 

@@ -1,0 +1,71 @@
+{
+  "schema_version": 2,
+  "clock": [
+    813,
+    814,
+    815
+  ],
+  "ids": [
+    "run-RT-05-NEG-01-r2",
+    "event-RT-05-NEG-01-01",
+    "event-RT-05-NEG-01-02",
+    "event-RT-05-NEG-01-03"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "router",
+      "command_type": "automatic-route",
+      "idempotency_key": "RT-05-unsorted-negative",
+      "payload": {
+        "equal_candidates": [
+          "candidate-a",
+          "candidate-b"
+        ],
+        "request_id": "request-RT-05",
+        "snapshot_id": "snapshot-RT-05",
+        "selected_candidate": "candidate-a"
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "candidate-a",
+        "pid": 2205,
+        "birth": "birth-RT-05-NEG-01"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "SPAWNED",
+      "EXIT"
+    ],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "SUCCEEDED",
+    "process_tokens": [
+      "candidate-a"
+    ]
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "RT-05-NEG-01",
+    "oracle_id": "routing.rt05.deterministic_tie_selection",
+    "oracle_version": 1,
+    "inputs": {
+      "request_id": "request-RT-05",
+      "snapshot_digest": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+      "candidate_set": [
+        "candidate-b",
+        "candidate-a"
+      ]
+    }
+  }
+}

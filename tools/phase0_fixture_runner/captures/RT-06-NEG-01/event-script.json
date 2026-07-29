@@ -1,0 +1,57 @@
+{
+  "schema_version": 2,
+  "clock": [
+    822,
+    823
+  ],
+  "ids": [
+    "run-RT-06-NEG-01-r2",
+    "event-RT-06-NEG-01-01",
+    "event-RT-06-NEG-01-02"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "router",
+      "command_type": "automatic-route",
+      "idempotency_key": "RT-06-stale-negative",
+      "payload": {
+        "admission_snapshot": "snapshot-revision-10",
+        "current_configuration_revision": 11,
+        "dispatch": false,
+        "required_result": "CONFIGURATION_STALE"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "router",
+      "command_type": "automatic-route",
+      "idempotency_key": "RT-06-stale-negative",
+      "payload": {
+        "admission_snapshot": "snapshot-revision-10",
+        "current_configuration_revision": 11,
+        "dispatch": false,
+        "required_result": "CONFIGURATION_STALE"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "RT-06-NEG-01",
+    "oracle_id": "routing.rt06.pre_dispatch_drift",
+    "oracle_version": 1,
+    "inputs": {
+      "frozen_configuration_revision": 10,
+      "current_configuration_revision": 11
+    }
+  }
+}

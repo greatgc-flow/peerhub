@@ -1,7 +1,16 @@
 {
-  "schema_version": 1,
-  "clock": [800, 801, 802],
-  "ids": ["run-RT-04-r1", "event-RT-04-01", "event-RT-04-02", "event-RT-04-03"],
+  "schema_version": 2,
+  "clock": [
+    800,
+    801,
+    802
+  ],
+  "ids": [
+    "run-RT-04-r2",
+    "event-RT-04-01",
+    "event-RT-04-02",
+    "event-RT-04-03"
+  ],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -34,9 +43,37 @@
   "expect": {
     "terminal_classification": "EXITED",
     "exit_code": 0,
-    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT"],
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "SPAWNED",
+      "EXIT"
+    ],
     "effect_certainty": "STARTED",
     "execution_outcome": "SUCCEEDED",
-    "process_tokens": ["candidate-eligible"]
+    "process_tokens": [
+      "candidate-eligible"
+    ]
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "RT-04",
+    "oracle_id": "routing.rt04.exclusion",
+    "oracle_version": 1,
+    "inputs": {
+      "candidates": [
+        {
+          "candidate_id": "candidate-terminal",
+          "role": "TERMINAL"
+        },
+        {
+          "candidate_id": "candidate-eligible",
+          "role": "ELIGIBLE"
+        },
+        {
+          "candidate_id": "candidate-excluded",
+          "role": "EXCLUDED"
+        }
+      ]
+    }
   }
 }

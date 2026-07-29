@@ -1,7 +1,14 @@
 {
-  "schema_version": 1,
-  "clock": [820, 821],
-  "ids": ["run-RT-06-r1", "event-RT-06-01", "event-RT-06-02"],
+  "schema_version": 2,
+  "clock": [
+    820,
+    821
+  ],
+  "ids": [
+    "run-RT-06-r2",
+    "event-RT-06-01",
+    "event-RT-06-02"
+  ],
   "events": [
     {
       "type": "INTENT_PERSISTED",
@@ -30,8 +37,21 @@
   ],
   "expect": {
     "terminal_classification": "IDEMPOTENCY_HIT",
-    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
     "effect_certainty": "NOT_STARTED",
     "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "RT-06",
+    "oracle_id": "routing.rt06.pre_dispatch_drift",
+    "oracle_version": 1,
+    "inputs": {
+      "frozen_configuration_revision": 10,
+      "current_configuration_revision": 11
+    }
   }
 }
