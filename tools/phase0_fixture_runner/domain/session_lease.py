@@ -84,6 +84,12 @@ _LEASE_AUTHORITY_CERTAINTIES = frozenset(
         "FENCED_FOR_FUTURE_WRITES",
     }
 )
+_EXTERNAL_EFFECT_CERTAINTIES = frozenset(
+    {
+        "NOT_STARTED",
+        "MAY_HAVE_STARTED",
+    }
+)
 _SL05_STATUSES = frozenset(
     {
         "REJECTED",
@@ -148,6 +154,20 @@ def _require_input_enum(
     return actual
 
 
+def _require_optional_input_enum(
+    value: Any,
+    allowed: frozenset[str],
+    path: str,
+) -> str | None:
+    if value is None:
+        return None
+    return _require_input_enum(
+        value,
+        allowed,
+        path,
+    )
+
+
 def _require_output_enum(
     value: Any,
     allowed: frozenset[str],
@@ -160,6 +180,20 @@ def _require_output_enum(
             f"{path} unsupported={actual}",
         )
     return actual
+
+
+def _require_optional_output_enum(
+    value: Any,
+    allowed: frozenset[str],
+    path: str,
+) -> str | None:
+    if value is None:
+        return None
+    return _require_output_enum(
+        value,
+        allowed,
+        path,
+    )
 
 
 def _require_string_list(
@@ -510,6 +544,37 @@ def _validate_sl03_inputs(
     return validated
 
 
+def _validate_stale_cas_seed(
+    value: Any,
+    path: str,
+) -> dict[str, Any]:
+    stale = require_mapping(value, path)
+    require_exact_fields(
+        stale,
+        {
+            "target_lease_id",
+            "fencing_token",
+            "revision",
+        },
+        path=path,
+    )
+
+    return {
+        "target_lease_id": require_string(
+            stale["target_lease_id"],
+            f"{path}.target_lease_id",
+        ),
+        "fencing_token": require_nonnegative_int(
+            stale["fencing_token"],
+            f"{path}.fencing_token",
+        ),
+        "revision": require_nonnegative_int(
+            stale["revision"],
+            f"{path}.revision",
+        ),
+    }
+
+
 def _validate_sl04_inputs(
     raw_inputs: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -525,6 +590,8 @@ def _validate_sl04_inputs(
             "lease_a",
             "lease_b",
             "renew_target_lease_id",
+            "close_target_lease_id",
+            "stale_cas",
         },
         path="inputs",
     )
@@ -550,6 +617,14 @@ def _validate_sl04_inputs(
             inputs["renew_target_lease_id"],
             "inputs.renew_target_lease_id",
         ),
+        "close_target_lease_id": require_string(
+            inputs["close_target_lease_id"],
+            "inputs.close_target_lease_id",
+        ),
+        "stale_cas": _validate_stale_cas_seed(
+            inputs["stale_cas"],
+            "inputs.stale_cas",
+        ),
     }
 
     if (
@@ -570,6 +645,44 @@ def _validate_sl04_inputs(
             (
                 "SL-04 requires lease_a as the "
                 "renewal target"
+            ),
+        )
+
+    if (
+        validated["close_target_lease_id"]
+        != validated["lease_b"]["lease_id"]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-04 requires lease_b as the "
+                "close target"
+            ),
+        )
+
+    if (
+        validated["stale_cas"]["target_lease_id"]
+        != validated["lease_a"]["lease_id"]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-04 requires the stale-CAS replay "
+                "to target the already-renewed lease_a"
+            ),
+        )
+
+    if (
+        validated["stale_cas"]["fencing_token"]
+        != validated["lease_a"]["fencing_token"]
+        or validated["stale_cas"]["revision"]
+        != validated["lease_a"]["revision"]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-04 stale-CAS values must replay "
+                "lease_a's pre-renewal fence tuple"
             ),
         )
 
@@ -622,6 +735,10 @@ def _validate_sl05_inputs(
             "authenticated_principal_id",
             "instance_id",
             "process_birth_identity",
+            "asserted_session_id",
+            "asserted_lease_id",
+            "asserted_fencing_token",
+            "asserted_revision",
         },
         path="inputs.requester",
     )
@@ -714,6 +831,40 @@ def _validate_sl05_inputs(
                     ),
                 )
             ),
+            "asserted_session_id": require_string(
+                requester["asserted_session_id"],
+                (
+                    "inputs.requester."
+                    "asserted_session_id"
+                ),
+            ),
+            "asserted_lease_id": require_string(
+                requester["asserted_lease_id"],
+                (
+                    "inputs.requester."
+                    "asserted_lease_id"
+                ),
+            ),
+            "asserted_fencing_token": (
+                require_nonnegative_int(
+                    requester[
+                        "asserted_fencing_token"
+                    ],
+                    (
+                        "inputs.requester."
+                        "asserted_fencing_token"
+                    ),
+                )
+            ),
+            "asserted_revision": (
+                require_nonnegative_int(
+                    requester["asserted_revision"],
+                    (
+                        "inputs.requester."
+                        "asserted_revision"
+                    ),
+                )
+            ),
         },
     }
 
@@ -749,6 +900,94 @@ def _validate_sl05_inputs(
             ),
         )
 
+    if (
+        validated["requester"]["instance_id"]
+        != validated["persisted"][
+            "owner_instance_id"
+        ]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-05 requires a matching "
+                "owner instance identity"
+            ),
+        )
+
+    if (
+        validated["requester"][
+            "process_birth_identity"
+        ]
+        != validated["persisted"][
+            "owner_process_birth_identity"
+        ]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-05 requires a matching "
+                "process birth identity"
+            ),
+        )
+
+    if (
+        validated["requester"][
+            "asserted_session_id"
+        ]
+        != validated["session_id"]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-05 requires a matching "
+                "asserted session ID"
+            ),
+        )
+
+    if (
+        validated["requester"][
+            "asserted_lease_id"
+        ]
+        != validated["lease_id"]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-05 requires a matching "
+                "asserted lease ID"
+            ),
+        )
+
+    if (
+        validated["requester"][
+            "asserted_fencing_token"
+        ]
+        != validated["persisted"][
+            "fencing_token"
+        ]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-05 requires a matching "
+                "asserted fencing token"
+            ),
+        )
+
+    if (
+        validated["requester"][
+            "asserted_revision"
+        ]
+        != validated["persisted"]["revision"]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-05 requires a matching "
+                "asserted revision"
+            ),
+        )
+
     return validated
 
 
@@ -762,25 +1001,33 @@ def _validate_sl06_inputs(
     require_exact_fields(
         inputs,
         {
+            "recovery_receipt_id",
             "session_id",
             "lease_id",
+            "detected_at",
             "recovery_actor_principal_id",
             "trigger",
+            "mismatch_dimensions",
+            "evidence_digest",
             "policy_id",
+            "policy_revision",
             "decision",
             "certainty_before_policy",
             "certainty_after_policy",
+            "external_effect_certainty",
             "pre_lifecycle_state",
             "pre_revision",
             "pre_fencing_token",
             "post_lifecycle_state",
-            "post_revision",
-            "post_fencing_token",
         },
         path="inputs",
     )
 
-    validated = {
+    return {
+        "recovery_receipt_id": require_string(
+            inputs["recovery_receipt_id"],
+            "inputs.recovery_receipt_id",
+        ),
         "session_id": require_string(
             inputs["session_id"],
             "inputs.session_id",
@@ -788,6 +1035,10 @@ def _validate_sl06_inputs(
         "lease_id": require_string(
             inputs["lease_id"],
             "inputs.lease_id",
+        ),
+        "detected_at": require_nonnegative_int(
+            inputs["detected_at"],
+            "inputs.detected_at",
         ),
         "recovery_actor_principal_id": (
             require_string(
@@ -805,9 +1056,21 @@ def _validate_sl06_inputs(
             _RECOVERY_TRIGGERS,
             "inputs.trigger",
         ),
+        "mismatch_dimensions": _require_string_list(
+            inputs["mismatch_dimensions"],
+            "inputs.mismatch_dimensions",
+        ),
+        "evidence_digest": require_string(
+            inputs["evidence_digest"],
+            "inputs.evidence_digest",
+        ),
         "policy_id": require_string(
             inputs["policy_id"],
             "inputs.policy_id",
+        ),
+        "policy_revision": require_nonnegative_int(
+            inputs["policy_revision"],
+            "inputs.policy_revision",
         ),
         "decision": _require_input_enum(
             inputs["decision"],
@@ -832,6 +1095,15 @@ def _validate_sl06_inputs(
                 "inputs.certainty_after_policy",
             )
         ),
+        "external_effect_certainty": (
+            _require_optional_input_enum(
+                inputs[
+                    "external_effect_certainty"
+                ],
+                _EXTERNAL_EFFECT_CERTAINTIES,
+                "inputs.external_effect_certainty",
+            )
+        ),
         "pre_lifecycle_state": require_string(
             inputs["pre_lifecycle_state"],
             "inputs.pre_lifecycle_state",
@@ -850,43 +1122,7 @@ def _validate_sl06_inputs(
             inputs["post_lifecycle_state"],
             "inputs.post_lifecycle_state",
         ),
-        "post_revision": require_nonnegative_int(
-            inputs["post_revision"],
-            "inputs.post_revision",
-        ),
-        "post_fencing_token": (
-            require_nonnegative_int(
-                inputs["post_fencing_token"],
-                "inputs.post_fencing_token",
-            )
-        ),
     }
-
-    if (
-        validated["post_revision"]
-        != validated["pre_revision"] + 1
-    ):
-        raise DomainContractError(
-            "DOMAIN_INPUT_INVALID",
-            (
-                "SL-06 post_revision must advance "
-                "exactly once"
-            ),
-        )
-
-    if (
-        validated["post_fencing_token"]
-        != validated["pre_fencing_token"] + 1
-    ):
-        raise DomainContractError(
-            "DOMAIN_INPUT_INVALID",
-            (
-                "SL-06 post_fencing_token must "
-                "advance exactly once"
-            ),
-        )
-
-    return validated
 
 
 def validate_session_lease_inputs(
@@ -1272,6 +1508,176 @@ def _validate_lease_result(
     }
 
 
+_SL04_STALE_STATUSES = frozenset(
+    {
+        "REJECTED",
+        "ACCEPTED",
+    }
+)
+
+
+def _validate_sl04_renew_result(
+    value: Any,
+    path: str,
+) -> dict[str, Any]:
+    result = require_mapping(value, path)
+    require_exact_fields(
+        result,
+        {
+            "renewed_lease",
+            "unaffected_lease_b",
+        },
+        path=path,
+    )
+    return {
+        "renewed_lease": _validate_lease_result(
+            result["renewed_lease"],
+            f"{path}.renewed_lease",
+        ),
+        "unaffected_lease_b": _validate_lease_result(
+            result["unaffected_lease_b"],
+            f"{path}.unaffected_lease_b",
+        ),
+    }
+
+
+def _validate_sl04_close_result(
+    value: Any,
+    path: str,
+) -> dict[str, Any]:
+    result = require_mapping(value, path)
+    require_exact_fields(
+        result,
+        {
+            "closed_lease_b",
+            "unaffected_lease_a",
+        },
+        path=path,
+    )
+    return {
+        "closed_lease_b": _validate_closed_lease_result(
+            result["closed_lease_b"],
+            f"{path}.closed_lease_b",
+        ),
+        "unaffected_lease_a": _validate_lease_result(
+            result["unaffected_lease_a"],
+            f"{path}.unaffected_lease_a",
+        ),
+    }
+
+
+def _validate_closed_lease_result(
+    value: Any,
+    path: str,
+) -> dict[str, Any]:
+    lease = require_mapping(value, path)
+    require_exact_fields(
+        lease,
+        {
+            "lease_id",
+            "owner_peer_id",
+            "owner_principal_id",
+            "owner_instance_id",
+            "owner_process_birth_identity",
+            "fencing_token",
+            "revision",
+            "lifecycle_state",
+        },
+        path=path,
+    )
+
+    return {
+        "lease_id": require_string(
+            lease["lease_id"],
+            f"{path}.lease_id",
+        ),
+        "owner_peer_id": require_string(
+            lease["owner_peer_id"],
+            f"{path}.owner_peer_id",
+        ),
+        "owner_principal_id": require_string(
+            lease["owner_principal_id"],
+            f"{path}.owner_principal_id",
+        ),
+        "owner_instance_id": require_string(
+            lease["owner_instance_id"],
+            f"{path}.owner_instance_id",
+        ),
+        "owner_process_birth_identity": (
+            require_string(
+                lease[
+                    "owner_process_birth_identity"
+                ],
+                (
+                    f"{path}."
+                    "owner_process_birth_identity"
+                ),
+            )
+        ),
+        "fencing_token": require_nonnegative_int(
+            lease["fencing_token"],
+            f"{path}.fencing_token",
+        ),
+        "revision": require_nonnegative_int(
+            lease["revision"],
+            f"{path}.revision",
+        ),
+        "lifecycle_state": _require_literal(
+            lease["lifecycle_state"],
+            "CLOSED",
+            f"{path}.lifecycle_state",
+        ),
+    }
+
+
+def _validate_sl04_stale_cas_rejection(
+    value: Any,
+    path: str,
+) -> dict[str, Any]:
+    result = require_mapping(value, path)
+    require_exact_fields(
+        result,
+        {
+            "status",
+            "code",
+            "lease_id",
+            "fencing_token",
+            "revision",
+            "zero_state_mutations",
+        },
+        path=path,
+    )
+
+    return {
+        "status": _require_output_enum(
+            result["status"],
+            _SL04_STALE_STATUSES,
+            f"{path}.status",
+        ),
+        "code": _require_literal(
+            result["code"],
+            "LEASE_FENCE_VIOLATION",
+            f"{path}.code",
+        ),
+        "lease_id": require_string(
+            result["lease_id"],
+            f"{path}.lease_id",
+        ),
+        "fencing_token": require_nonnegative_int(
+            result["fencing_token"],
+            f"{path}.fencing_token",
+        ),
+        "revision": require_nonnegative_int(
+            result["revision"],
+            f"{path}.revision",
+        ),
+        "zero_state_mutations": require_bool(
+            result["zero_state_mutations"],
+            f"{path}.zero_state_mutations",
+        ),
+    }
+
+
 def _validate_sl04_output(
     raw_output: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -1282,20 +1688,27 @@ def _validate_sl04_output(
     require_exact_fields(
         output,
         {
-            "renewed_lease",
-            "unchanged_lease",
+            "renew_result",
+            "close_result",
+            "stale_cas_rejection",
         },
         path="output",
     )
 
     return {
-        "renewed_lease": _validate_lease_result(
-            output["renewed_lease"],
-            "output.renewed_lease",
+        "renew_result": _validate_sl04_renew_result(
+            output["renew_result"],
+            "output.renew_result",
         ),
-        "unchanged_lease": _validate_lease_result(
-            output["unchanged_lease"],
-            "output.unchanged_lease",
+        "close_result": _validate_sl04_close_result(
+            output["close_result"],
+            "output.close_result",
+        ),
+        "stale_cas_rejection": (
+            _validate_sl04_stale_cas_rejection(
+                output["stale_cas_rejection"],
+                "output.stale_cas_rejection",
+            )
         ),
     }
 
@@ -1358,14 +1771,20 @@ def _validate_recovery_receipt(
     require_exact_fields(
         receipt,
         {
+            "recovery_receipt_id",
             "session_id",
             "lease_id",
+            "detected_at",
             "recovery_actor_principal_id",
             "trigger",
+            "mismatch_dimensions",
+            "evidence_digest",
             "policy_id",
+            "policy_revision",
             "decision",
             "certainty_before_policy",
             "certainty_after_policy",
+            "external_effect_certainty",
             "pre_lifecycle_state",
             "pre_revision",
             "pre_fencing_token",
@@ -1377,6 +1796,10 @@ def _validate_recovery_receipt(
     )
 
     return {
+        "recovery_receipt_id": require_string(
+            receipt["recovery_receipt_id"],
+            f"{path}.recovery_receipt_id",
+        ),
         "session_id": require_string(
             receipt["session_id"],
             f"{path}.session_id",
@@ -1384,6 +1807,10 @@ def _validate_recovery_receipt(
         "lease_id": require_string(
             receipt["lease_id"],
             f"{path}.lease_id",
+        ),
+        "detected_at": require_nonnegative_int(
+            receipt["detected_at"],
+            f"{path}.detected_at",
         ),
         "recovery_actor_principal_id": require_string(
             receipt[
@@ -1399,9 +1826,21 @@ def _validate_recovery_receipt(
             _RECOVERY_TRIGGERS,
             f"{path}.trigger",
         ),
+        "mismatch_dimensions": _require_string_list(
+            receipt["mismatch_dimensions"],
+            f"{path}.mismatch_dimensions",
+        ),
+        "evidence_digest": require_string(
+            receipt["evidence_digest"],
+            f"{path}.evidence_digest",
+        ),
         "policy_id": require_string(
             receipt["policy_id"],
             f"{path}.policy_id",
+        ),
+        "policy_revision": require_nonnegative_int(
+            receipt["policy_revision"],
+            f"{path}.policy_revision",
         ),
         "decision": _require_output_enum(
             receipt["decision"],
@@ -1424,6 +1863,15 @@ def _validate_recovery_receipt(
                 ],
                 _LEASE_AUTHORITY_CERTAINTIES,
                 f"{path}.certainty_after_policy",
+            )
+        ),
+        "external_effect_certainty": (
+            _require_optional_output_enum(
+                receipt[
+                    "external_effect_certainty"
+                ],
+                _EXTERNAL_EFFECT_CERTAINTIES,
+                f"{path}.external_effect_certainty",
             )
         ),
         "pre_lifecycle_state": require_string(
@@ -1665,27 +2113,113 @@ def _oracle_output(
         owner_peer_id = raw_inputs[
             "owner_peer_id"
         ]
-        return {
-            "renewed_lease": _lease_result(
-                lease_a,
-                owner_peer_id,
-                fencing_token=(
-                    lease_a["fencing_token"] + 1
-                ),
-                revision=lease_a["revision"] + 1,
+        renewed_a = _lease_result(
+            lease_a,
+            owner_peer_id,
+            fencing_token=(
+                lease_a["fencing_token"] + 1
             ),
-            "unchanged_lease": _lease_result(
+            revision=lease_a["revision"] + 1,
+        )
+        closed_b = dict(
+            _lease_result(
                 lease_b,
                 owner_peer_id,
-                fencing_token=lease_b[
+                fencing_token=(
+                    lease_b["fencing_token"] + 1
+                ),
+                revision=lease_b["revision"] + 1,
+            )
+        )
+        closed_b["lifecycle_state"] = "CLOSED"
+        return {
+            "renew_result": {
+                "renewed_lease": renewed_a,
+                "unaffected_lease_b": _lease_result(
+                    lease_b,
+                    owner_peer_id,
+                    fencing_token=lease_b[
+                        "fencing_token"
+                    ],
+                    revision=lease_b["revision"],
+                ),
+            },
+            "close_result": {
+                "closed_lease_b": closed_b,
+                "unaffected_lease_a": dict(
+                    renewed_a
+                ),
+            },
+            "stale_cas_rejection": {
+                "status": "REJECTED",
+                "code": "LEASE_FENCE_VIOLATION",
+                "lease_id": lease_a["lease_id"],
+                "fencing_token": renewed_a[
                     "fencing_token"
                 ],
-                revision=lease_b["revision"],
-            ),
+                "revision": renewed_a["revision"],
+                "zero_state_mutations": True,
+            },
         }
 
     if base_fixture_id == "SL-05":
         persisted = raw_inputs["persisted"]
+        requester = raw_inputs["requester"]
+        fence_pairs = (
+            (
+                requester["asserted_peer_id"],
+                persisted["owner_peer_id"],
+            ),
+            (
+                requester[
+                    "authenticated_principal_id"
+                ],
+                persisted["owner_principal_id"],
+            ),
+            (
+                requester["instance_id"],
+                persisted["owner_instance_id"],
+            ),
+            (
+                requester[
+                    "process_birth_identity"
+                ],
+                persisted[
+                    "owner_process_birth_identity"
+                ],
+            ),
+            (
+                requester["asserted_session_id"],
+                raw_inputs["session_id"],
+            ),
+            (
+                requester["asserted_lease_id"],
+                raw_inputs["lease_id"],
+            ),
+            (
+                requester[
+                    "asserted_fencing_token"
+                ],
+                persisted["fencing_token"],
+            ),
+            (
+                requester["asserted_revision"],
+                persisted["revision"],
+            ),
+        )
+        mismatches = [
+            claimed != actual
+            for claimed, actual in fence_pairs
+        ]
+        if not any(mismatches):
+            raise DomainContractError(
+                "DOMAIN_INPUT_INVALID",
+                (
+                    "SL-05 requester unexpectedly "
+                    "satisfies the full fence tuple"
+                ),
+            )
+
         return {
             "status": "REJECTED",
             "code": "LEASE_FENCE_VIOLATION",
@@ -1699,23 +2233,35 @@ def _oracle_output(
 
     return {
         "receipt": {
-            key: raw_inputs[key]
-            for key in (
-                "session_id",
-                "lease_id",
-                "recovery_actor_principal_id",
-                "trigger",
-                "policy_id",
-                "decision",
-                "certainty_before_policy",
-                "certainty_after_policy",
-                "pre_lifecycle_state",
-                "pre_revision",
-                "pre_fencing_token",
-                "post_lifecycle_state",
-                "post_revision",
-                "post_fencing_token",
-            )
+            **{
+                key: raw_inputs[key]
+                for key in (
+                    "recovery_receipt_id",
+                    "session_id",
+                    "lease_id",
+                    "detected_at",
+                    "recovery_actor_principal_id",
+                    "trigger",
+                    "mismatch_dimensions",
+                    "evidence_digest",
+                    "policy_id",
+                    "policy_revision",
+                    "decision",
+                    "certainty_before_policy",
+                    "certainty_after_policy",
+                    "external_effect_certainty",
+                    "pre_lifecycle_state",
+                    "pre_revision",
+                    "pre_fencing_token",
+                    "post_lifecycle_state",
+                )
+            },
+            "post_revision": (
+                raw_inputs["pre_revision"] + 1
+            ),
+            "post_fencing_token": (
+                raw_inputs["pre_fencing_token"] + 1
+            ),
         }
     }
 
@@ -1839,32 +2385,127 @@ def _subject_output(
         }
 
     if base_fixture_id == "SL-04":
-        target_id = raw_inputs[
+        owner_peer_id = raw_inputs[
+            "owner_peer_id"
+        ]
+        renew_target = raw_inputs[
             "renew_target_lease_id"
         ]
-        results: dict[str, dict[str, Any]] = {}
+        close_target = raw_inputs[
+            "close_target_lease_id"
+        ]
+        current: dict[str, dict[str, Any]] = {
+            "lease_a": dict(
+                raw_inputs["lease_a"]
+            ),
+            "lease_b": dict(
+                raw_inputs["lease_b"]
+            ),
+        }
 
-        for lease_name in ("lease_a", "lease_b"):
-            lease = raw_inputs[lease_name]
-            is_target = (
-                lease["lease_id"] == target_id
+        for lease in current.values():
+            if lease["lease_id"] == renew_target:
+                lease["fencing_token"] += 1
+                lease["revision"] += 1
+
+        renew_result = {
+            "renewed_lease": _lease_result(
+                current["lease_a"],
+                owner_peer_id,
+                fencing_token=current[
+                    "lease_a"
+                ]["fencing_token"],
+                revision=current["lease_a"][
+                    "revision"
+                ],
+            ),
+            "unaffected_lease_b": _lease_result(
+                current["lease_b"],
+                owner_peer_id,
+                fencing_token=current[
+                    "lease_b"
+                ]["fencing_token"],
+                revision=current["lease_b"][
+                    "revision"
+                ],
+            ),
+        }
+
+        for lease in current.values():
+            if lease["lease_id"] == close_target:
+                lease["fencing_token"] += 1
+                lease["revision"] += 1
+
+        closed_lease_b = dict(
+            _lease_result(
+                current["lease_b"],
+                owner_peer_id,
+                fencing_token=current[
+                    "lease_b"
+                ]["fencing_token"],
+                revision=current["lease_b"][
+                    "revision"
+                ],
             )
-            results[lease_name] = _lease_result(
-                lease,
-                raw_inputs["owner_peer_id"],
-                fencing_token=(
-                    lease["fencing_token"]
-                    + (1 if is_target else 0)
-                ),
-                revision=(
-                    lease["revision"]
-                    + (1 if is_target else 0)
+        )
+        closed_lease_b["lifecycle_state"] = (
+            "CLOSED"
+        )
+
+        close_result = {
+            "closed_lease_b": closed_lease_b,
+            "unaffected_lease_a": _lease_result(
+                current["lease_a"],
+                owner_peer_id,
+                fencing_token=current[
+                    "lease_a"
+                ]["fencing_token"],
+                revision=current["lease_a"][
+                    "revision"
+                ],
+            ),
+        }
+
+        stale = raw_inputs["stale_cas"]
+        target_lease = next(
+            lease
+            for lease in current.values()
+            if lease["lease_id"]
+            == stale["target_lease_id"]
+        )
+        is_stale = (
+            stale["fencing_token"]
+            != target_lease["fencing_token"]
+            or stale["revision"]
+            != target_lease["revision"]
+        )
+        if not is_stale:
+            raise DomainContractError(
+                "DOMAIN_INPUT_INVALID",
+                (
+                    "SL-04 stale-CAS replay "
+                    "unexpectedly matches current "
+                    "state"
                 ),
             )
 
         return {
-            "renewed_lease": results["lease_a"],
-            "unchanged_lease": results["lease_b"],
+            "renew_result": renew_result,
+            "close_result": close_result,
+            "stale_cas_rejection": {
+                "status": "REJECTED",
+                "code": "LEASE_FENCE_VIOLATION",
+                "lease_id": target_lease[
+                    "lease_id"
+                ],
+                "fencing_token": target_lease[
+                    "fencing_token"
+                ],
+                "revision": target_lease[
+                    "revision"
+                ],
+                "zero_state_mutations": True,
+            },
         }
 
     if base_fixture_id == "SL-05":
@@ -1885,6 +2526,16 @@ def _subject_output(
             == persisted[
                 "owner_process_birth_identity"
             ]
+            and requester["asserted_session_id"]
+            == raw_inputs["session_id"]
+            and requester["asserted_lease_id"]
+            == raw_inputs["lease_id"]
+            and requester[
+                "asserted_fencing_token"
+            ]
+            == persisted["fencing_token"]
+            and requester["asserted_revision"]
+            == persisted["revision"]
         )
         if full_owner_match:
             raise DomainContractError(
@@ -1905,22 +2556,37 @@ def _subject_output(
 
     receipt: dict[str, Any] = {}
     for field in (
+        "recovery_receipt_id",
         "session_id",
         "lease_id",
+        "detected_at",
         "recovery_actor_principal_id",
         "trigger",
+        "mismatch_dimensions",
+        "evidence_digest",
         "policy_id",
+        "policy_revision",
         "decision",
         "certainty_before_policy",
         "certainty_after_policy",
+        "external_effect_certainty",
         "pre_lifecycle_state",
         "pre_revision",
         "pre_fencing_token",
         "post_lifecycle_state",
-        "post_revision",
-        "post_fencing_token",
     ):
         receipt[field] = raw_inputs[field]
+
+    (
+        receipt["post_revision"],
+        receipt["post_fencing_token"],
+    ) = (
+        value + 1
+        for value in (
+            raw_inputs["pre_revision"],
+            raw_inputs["pre_fencing_token"],
+        )
+    )
 
     return {"receipt": receipt}
 
@@ -2104,9 +2770,22 @@ class FaultInjectedSessionLeaseAdapter:
         elif self._base == "SL-03":
             output["zero_state_mutations"] = False
         elif self._base == "SL-04":
-            output["unchanged_lease"][
-                "fencing_token"
-            ] += 1
+            stale = raw_inputs["stale_cas"]
+            prior = output["stale_cas_rejection"]
+            output["stale_cas_rejection"] = {
+                "status": "ACCEPTED",
+                "code": "LEASE_FENCE_VIOLATION",
+                "lease_id": stale[
+                    "target_lease_id"
+                ],
+                "fencing_token": (
+                    prior["fencing_token"] + 1
+                ),
+                "revision": (
+                    prior["revision"] + 1
+                ),
+                "zero_state_mutations": False,
+            }
         else:
             output["receipt"][
                 "post_fencing_token"

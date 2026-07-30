@@ -51,6 +51,37 @@ was made.
   stale "Remaining decision chain" section, which still described
   `CONTROLLED-FAKE-RUNNER-CONTRACT-R3` as future work despite it already
   being ratified earlier the same session. Commit `7a0bf02`.
+- **SL-04/05/06**: expanded to match `SL-01-06-SESSION-LEASE-CLASSIFICATION-SPEC-R1.md`'s
+  own ratified text. SL-04 now also proves close-L2-leaves-L1-active and
+  stale-CAS-cannot-mutate-either (previously only create+renew-L1). SL-05's
+  fence check now covers the full ratified 8-field tuple (was 4 identity
+  fields) and the oracle independently derives REJECTED via a
+  list/`any()` mismatch scan (was a hardcoded static dict); the subject
+  independently derives the same result via a boolean AND-chain, giving
+  genuine algorithmic diversity between the two roles. SL-06's receipt now
+  includes all ratified fields (`recovery_receipt_id`, `detected_at`,
+  `mismatch_dimensions`, `evidence_digest`, `policy_revision`, optional
+  `external_effect_certainty`), and `post_revision`/`post_fencing_token`
+  are derived as `pre + 1` independently by the oracle (inline addition)
+  and subject (generator-unpacking) instead of being accepted as
+  pre-validated input and echoed. Drafted by cx.deepthink from a fully
+  specified brief, cc verified the diff directly (oracle/subject
+  independence, fixture symmetry, exact-fields validation) before
+  running the suite. 262/262 tests green. `docs/design/phase0/fixtures/
+  captures/SL-0{4,5,6}.json` were checked and confirmed to be the
+  original immutable OBS-tier legacy-defect records (unrelated to the
+  CANDIDATE-tier fixture schema) -- correctly untouched, no
+  `-NARROW-V1` preservation applies here (that pattern is for cases where
+  a persisted *runner-generated* capture is superseded, which does not
+  exist for SL). ag.deepthink reviewed the full diff against 4 targeted
+  questions (independence, stale-CAS genuineness, fixture/validator
+  alignment) and returned a clean ACK; one of its line citations (oracle
+  mismatch-scan attributed to session_lease.py:852-856) was checked and
+  is wrong -- that line range is inside the input validator, the actual
+  mismatch-scan is ~2165-2232 -- the same citation-accuracy pattern noted
+  earlier this session with ag. The substantive finding was independently
+  re-verified by cc by reading the actual code before trusting it, and
+  holds. Committed.
 - **DP-06 capture metadata**: reviewed and NOT changed -- the raw
   `fixture-record.json`'s `runner_contract: CONTROLLED-FAKE-RUNNER-
   CONTRACT-R2` field is accurate as written; it describes the runner's
@@ -83,48 +114,10 @@ oracle/subject logic (lines ~786, ~884), and the fault adapter (line
 ~1013). fixture-status-v1.json's CR-05 note already documents this exact
 spec (added 2026-07-30) so it need not be re-derived.
 
-### SL-01..06 (Critical, largest remaining item)
+### SL-04/05/06 -- FIXED (2026-07-30, see "Fixed and verified" above)
 
-`SL-01-06-SESSION-LEASE-CLASSIFICATION-SPEC-R1.md`'s own ratified text
-promises more than `session_lease.py` implements. Confirmed gaps (cx's
-Round 2 finding, cc spot-verified SL-04 directly):
+### SL-01/02 (low priority, still open)
 
-- **SL-04**: spec text (lines 119-123) promises the fixture proves
-  create-L1+L2, renew-L1-leaves-L2-unchanged, **close-L2-leaves-L1-active**,
-  and **stale-CAS-on-either-cannot-mutate-the-other**. The actual
-  implementation only tests create+renew-L1. CONTRACT.md's own SL-04
-  one-liner names "closable" explicitly -- this is not fully modeled.
-  **Fix**: expand SL-04's fixture to a richer vector including a close-L2
-  step (verify L1 remains untouched and still renewable) and a stale-CAS
-  step (a renewal/close attempt using a stale fencing_token/revision on
-  either lease must be rejected with zero mutation to both).
-- **SL-05**: currently checks four owner fields
-  (`owner_peer_id`/`owner_principal_id`/`owner_instance_id`/
-  `owner_process_birth_identity`) but the ratified fence tuple also names
-  `session_id`, `lease_id`, `fencing_token`, `revision` (8 fields total).
-  The oracle also hardcodes the REJECTED literal rather than deriving it
-  from comparing `requester` against `persisted` (relies entirely on the
-  input validator's precondition to guarantee it's always the rejection
-  branch). **Fix**: extend the fence-check to the full 8-field tuple; make
-  `SessionLeaseOracle`'s SL-05 branch independently evaluate the predicate
-  (compare each of the 8 fields) rather than returning a static dict.
-- **SL-06**: the ratified spec's receipt schema (lines ~135+) names
-  `recovery_receipt_id`, `detected_at`, `mismatch_dimensions`,
-  `evidence_digest`, `policy_revision` (separate from `policy_id`), and an
-  optional `external_effect_certainty` -- none of these are in the actual
-  implemented receipt. Additionally, `post_revision`/`post_fencing_token`
-  are accepted as pre-validated INPUT (constrained to `pre + 1` by the
-  validator) and merely echoed into the output, rather than the
-  oracle/subject deriving `post = pre + 1` themselves -- weaker
-  independent-verification than the pattern established elsewhere (e.g.
-  HR-03's post-fix forward/backward dual derivation). **Fix**: add the
-  missing receipt fields as additional fact-injected/echoed inputs (closing
-  the doc-vs-code gap is straightforward); separately, remove
-  `post_revision`/`post_fencing_token` as direct inputs and instead compute
-  them as `pre_revision + 1`/`pre_fencing_token + 1` inside the oracle AND
-  independently inside the subject, so the fault (currently: adapter drops
-  the pre-computed advance) becomes a fault in the adapter's own arithmetic
-  instead of a dropped pass-through field.
 - **SL-01/02**: lower priority than SL-04/05/06. SL-01 claims atomic
   persistence via pure claimed-state comparison, which
   `DOMAIN-ORACLE-VERIFIER-CONTRACT-R1.md` says cannot actually prove
@@ -137,12 +130,9 @@ Round 2 finding, cc spot-verified SL-04 directly):
   values come from unrelated fixture fields in practice, but worth adding
   as an explicit check for defense in depth.
 
-**Recommended sequencing when resumed**: SL-04 and SL-05 first (both tie
-directly to a CONTRACT.md MUST clause, both security/correctness relevant),
-then SL-06's receipt-field completeness and derivation fix, then SL-01/02
-as lower-priority hardening. After code changes: preserve old captures
-under `-NARROW-V1`, regenerate real evidence, re-run the full suite, update
-`fixture-status-v1.json` notes, get an ag.deepthink review.
+SL-01/02 remain open, non-blocking, lower priority than everything else in
+this document; pick up only after CR-05, the contract.py/CR-06 fix, and
+the hash-binding manifest below are done, if at all.
 
 ### contract.py outcome-taint denylist (Moderate)
 

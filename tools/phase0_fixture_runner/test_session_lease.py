@@ -500,37 +500,81 @@ class SessionLeaseDomainTests(unittest.TestCase):
         self.assertEqual(
             output,
             {
-                "renewed_lease": {
+                "renew_result": {
+                    "renewed_lease": {
+                        "lease_id": "lease-SL-04-A",
+                        "owner_peer_id": "ag",
+                        "owner_principal_id": (
+                            "principal-ag"
+                        ),
+                        "owner_instance_id": (
+                            "instance-ag-A"
+                        ),
+                        "owner_process_birth_identity": (
+                            "birth-ag-A"
+                        ),
+                        "fencing_token": 11,
+                        "revision": 5,
+                        "lifecycle_state": "ACTIVE",
+                    },
+                    "unaffected_lease_b": {
+                        "lease_id": "lease-SL-04-B",
+                        "owner_peer_id": "ag",
+                        "owner_principal_id": (
+                            "principal-ag"
+                        ),
+                        "owner_instance_id": (
+                            "instance-ag-B"
+                        ),
+                        "owner_process_birth_identity": (
+                            "birth-ag-B"
+                        ),
+                        "fencing_token": 20,
+                        "revision": 8,
+                        "lifecycle_state": "ACTIVE",
+                    },
+                },
+                "close_result": {
+                    "closed_lease_b": {
+                        "lease_id": "lease-SL-04-B",
+                        "owner_peer_id": "ag",
+                        "owner_principal_id": (
+                            "principal-ag"
+                        ),
+                        "owner_instance_id": (
+                            "instance-ag-B"
+                        ),
+                        "owner_process_birth_identity": (
+                            "birth-ag-B"
+                        ),
+                        "fencing_token": 21,
+                        "revision": 9,
+                        "lifecycle_state": "CLOSED",
+                    },
+                    "unaffected_lease_a": {
+                        "lease_id": "lease-SL-04-A",
+                        "owner_peer_id": "ag",
+                        "owner_principal_id": (
+                            "principal-ag"
+                        ),
+                        "owner_instance_id": (
+                            "instance-ag-A"
+                        ),
+                        "owner_process_birth_identity": (
+                            "birth-ag-A"
+                        ),
+                        "fencing_token": 11,
+                        "revision": 5,
+                        "lifecycle_state": "ACTIVE",
+                    },
+                },
+                "stale_cas_rejection": {
+                    "status": "REJECTED",
+                    "code": "LEASE_FENCE_VIOLATION",
                     "lease_id": "lease-SL-04-A",
-                    "owner_peer_id": "ag",
-                    "owner_principal_id": (
-                        "principal-ag"
-                    ),
-                    "owner_instance_id": (
-                        "instance-ag-A"
-                    ),
-                    "owner_process_birth_identity": (
-                        "birth-ag-A"
-                    ),
                     "fencing_token": 11,
                     "revision": 5,
-                    "lifecycle_state": "ACTIVE",
-                },
-                "unchanged_lease": {
-                    "lease_id": "lease-SL-04-B",
-                    "owner_peer_id": "ag",
-                    "owner_principal_id": (
-                        "principal-ag"
-                    ),
-                    "owner_instance_id": (
-                        "instance-ag-B"
-                    ),
-                    "owner_process_birth_identity": (
-                        "birth-ag-B"
-                    ),
-                    "fencing_token": 20,
-                    "revision": 8,
-                    "lifecycle_state": "ACTIVE",
+                    "zero_state_mutations": True,
                 },
             },
         )
@@ -545,41 +589,26 @@ class SessionLeaseDomainTests(unittest.TestCase):
             )
 
         self.assertFalse(result.passed)
+        actual = result.domain_actual["output"]
+        expected = result.domain_expected["output"]
+
         self.assertEqual(
-            result.domain_actual["output"],
+            actual["renew_result"],
+            expected["renew_result"],
+        )
+        self.assertEqual(
+            actual["close_result"],
+            expected["close_result"],
+        )
+        self.assertEqual(
+            actual["stale_cas_rejection"],
             {
-                "renewed_lease": {
-                    "lease_id": "lease-SL-04-A",
-                    "owner_peer_id": "ag",
-                    "owner_principal_id": (
-                        "principal-ag"
-                    ),
-                    "owner_instance_id": (
-                        "instance-ag-A"
-                    ),
-                    "owner_process_birth_identity": (
-                        "birth-ag-A"
-                    ),
-                    "fencing_token": 11,
-                    "revision": 5,
-                    "lifecycle_state": "ACTIVE",
-                },
-                "unchanged_lease": {
-                    "lease_id": "lease-SL-04-B",
-                    "owner_peer_id": "ag",
-                    "owner_principal_id": (
-                        "principal-ag"
-                    ),
-                    "owner_instance_id": (
-                        "instance-ag-B"
-                    ),
-                    "owner_process_birth_identity": (
-                        "birth-ag-B"
-                    ),
-                    "fencing_token": 21,
-                    "revision": 8,
-                    "lifecycle_state": "ACTIVE",
-                },
+                "status": "ACCEPTED",
+                "code": "LEASE_FENCE_VIOLATION",
+                "lease_id": "lease-SL-04-A",
+                "fencing_token": 12,
+                "revision": 6,
+                "zero_state_mutations": False,
             },
         )
 
@@ -639,17 +668,28 @@ class SessionLeaseDomainTests(unittest.TestCase):
             output,
             {
                 "receipt": {
+                    "recovery_receipt_id": (
+                        "receipt-SL-06"
+                    ),
                     "session_id": "session-SL-06",
                     "lease_id": "lease-SL-06",
+                    "detected_at": 100,
                     "recovery_actor_principal_id": (
                         "principal-recovery"
                     ),
                     "trigger": (
                         "PROCESS_BIRTH_MISMATCH"
                     ),
+                    "mismatch_dimensions": [
+                        "owner_process_birth_identity"
+                    ],
+                    "evidence_digest": (
+                        "sha256:evidence-sl06-0001"
+                    ),
                     "policy_id": (
                         "session-lease-recovery-v1"
                     ),
+                    "policy_revision": 1,
                     "decision": "FENCE_AND_CLOSE",
                     "certainty_before_policy": (
                         "PRIOR_HOLDER_UNVERIFIED"
@@ -657,6 +697,7 @@ class SessionLeaseDomainTests(unittest.TestCase):
                     "certainty_after_policy": (
                         "FENCED_FOR_FUTURE_WRITES"
                     ),
+                    "external_effect_certainty": None,
                     "pre_lifecycle_state": "ACTIVE",
                     "pre_revision": 8,
                     "pre_fencing_token": 40,
@@ -681,17 +722,28 @@ class SessionLeaseDomainTests(unittest.TestCase):
             result.domain_actual["output"],
             {
                 "receipt": {
+                    "recovery_receipt_id": (
+                        "receipt-SL-06"
+                    ),
                     "session_id": "session-SL-06",
                     "lease_id": "lease-SL-06",
+                    "detected_at": 100,
                     "recovery_actor_principal_id": (
                         "principal-recovery"
                     ),
                     "trigger": (
                         "PROCESS_BIRTH_MISMATCH"
                     ),
+                    "mismatch_dimensions": [
+                        "owner_process_birth_identity"
+                    ],
+                    "evidence_digest": (
+                        "sha256:evidence-sl06-0001"
+                    ),
                     "policy_id": (
                         "session-lease-recovery-v1"
                     ),
+                    "policy_revision": 1,
                     "decision": "FENCE_AND_CLOSE",
                     "certainty_before_policy": (
                         "PRIOR_HOLDER_UNVERIFIED"
@@ -699,6 +751,7 @@ class SessionLeaseDomainTests(unittest.TestCase):
                     "certainty_after_policy": (
                         "FENCED_FOR_FUTURE_WRITES"
                     ),
+                    "external_effect_certainty": None,
                     "pre_lifecycle_state": "ACTIVE",
                     "pre_revision": 8,
                     "pre_fencing_token": 40,
@@ -763,13 +816,18 @@ class SessionLeaseDomainTests(unittest.TestCase):
                             ]
                         )
                     elif fixture_id == "SL-04-NEG-01":
-                        self.assertNotEqual(
-                            actual["unchanged_lease"][
-                                "fencing_token"
-                            ],
-                            expected["unchanged_lease"][
-                                "fencing_token"
-                            ],
+                        self.assertEqual(
+                            actual[
+                                "stale_cas_rejection"
+                            ]["status"],
+                            "ACCEPTED",
+                        )
+                        self.assertFalse(
+                            actual[
+                                "stale_cas_rejection"
+                            ][
+                                "zero_state_mutations"
+                            ]
                         )
                     elif fixture_id == "SL-05-NEG-01":
                         self.assertEqual(
