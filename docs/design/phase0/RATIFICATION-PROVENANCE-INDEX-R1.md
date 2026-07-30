@@ -129,6 +129,25 @@ not bound by this row and remains only informally described in the
 direct verification serve as the third vote alongside ag's ACK; cx was not
 separately asked to re-verify this specific row.
 
+| `session-2026-07-30-remediation-track` (not a `hub.py consensus-propose`/`consensus-vote` round -- see note below) | Closes the unlimited final full cross-review requested 2026-07-30 (explicitly authorized to revise already-ratified work). 8 real defects found and fixed: RT-03 ABSENT/UNAVAILABLE mislabeling, HR-03 oracle/subject independence violation (+ `coverage_scope` downgrade to `PENDING_FAITHFUL_MAPPING_REVIEW`), CJ-01..06 non-canonical error codes, SL-04 missing close/stale-CAS coverage, SL-05 narrow 4-field fence check + hardcoded oracle, SL-06 missing receipt fields + non-derived post-state, CR-05 self-asserted-identity trust bug, CR-06 answer-injection bug -- plus SL-02 defense-in-depth hardening and the source-evidence hash-binding manifest (previous row). Full account, fix specs, and Round 3 final-verification results (ag.deepthink thorough pass: clean ACK; cx.deepthink lighter pass: ACK on code, caught one real stale-hash citation in the remediation doc's own prose, corrected) in `FINAL-CROSS-REVIEW-REMEDIATION-R1.md`. SL-01 remains open as a pre-existing, previously-accepted narrower-scope decision, not a new finding | `FINAL-CROSS-REVIEW-REMEDIATION-R1.md` SHA-256 to be computed at commit time and is itself covered by `source-evidence-manifest-v1.json`'s successor generation, not this row directly (the manifest binds source/test/fixture bytes, not this narrative doc) | TDD start; Phase 0 exit; cutover execution; R3 backlog items #2-15; SL-01 hardening (still open) |
+
+**Note on the `session-2026-07-30-remediation-track` row's provenance
+mechanism**: same mechanism as all `-track` rows above -- no Hub-minted
+round ID. cc ran the full 3-round cross-review + fix cycle across five
+commits (`7a0bf02`, `560352c`, `2e88547`, `7e33b3d`, `98bc92d`), delegating
+code drafting to cx.deepthink (SL-05/06, CR-05/06) from fully specified
+briefs and independently verifying every draft against the live files
+before applying it, then dispatched a genuinely thorough Round 3
+verification to ag.deepthink (primary, unhurried, line-by-line) and a
+lighter confirmatory pass to cx.deepthink in parallel. Both returned ACKs
+on all code; both rounds also independently demonstrated why hash/line
+citations from either peer must be re-verified rather than trusted --
+ag's Round 3 summary and this document's own hash-binding-gap section
+each cited a since-superseded manifest hash, both caught by direct
+recomputation (ag's by cc, this document's by cx) before being left in
+the permanent record. cc's own direct code verification across every
+fixed item serves as the third vote alongside both peers' ACKs.
+
 ## Binding interpretations
 
 1. R11 did not bind the R11 decision-record document itself; R12 did so. The

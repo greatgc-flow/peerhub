@@ -1,12 +1,14 @@
 # Final Cross-Review Remediation R1
 
-Status: in-progress remediation record for the unlimited final full
-cross-review requested 2026-07-30, explicitly authorized to revise
-already-ratified work. Two rounds (independent ag.deepthink + cx.deepthink
-audits, then cross-validation) found real defects across the session's
-Phase 0 work. This document records what has been fixed and verified, and
-what remains, with precise fix specifications so remaining work can be
-picked up without re-deriving the analysis.
+Status: CLOSED (2026-07-30) remediation record for the unlimited final
+full cross-review requested 2026-07-30, explicitly authorized to revise
+already-ratified work. Three rounds (independent ag.deepthink +
+cx.deepthink audits, cross-validation, then a final Round 3 verification
+pass) found and fixed 8 real defects across the session's Phase 0 work,
+plus closed the ratification hash-binding gap. Only SL-01 remains open,
+as a previously-accepted narrower-scope decision, not a new finding.
+Folded into `RATIFICATION-PROVENANCE-INDEX-R1.md` as the
+`session-2026-07-30-remediation-track` row.
 
 ## Process
 
@@ -157,7 +159,10 @@ earlier row in the document rather than recomputed, which cc caught as
 stale/wrong by direct recomputation before it entered the permanent
 record (see `RATIFICATION-PROVENANCE-INDEX-R1.md`'s new row's provenance
 note for the full account). The manifest's own hash
-(`2ac5a69ad12b74d9337861e339c6a0716ac5b8ce695f46d7505ff2555d7068f2`) is
+(`5f53f3df646835bba0f286cc41d53ae722d328b3fc24cd9b7be45e44f008b013` as of
+the SL-02 regeneration below; the manifest's initial hash from the
+CR-05/06 commit was `2ac5a69a...`, superseded, not silently overwritten --
+see `RATIFICATION-PROVENANCE-INDEX-R1.md`'s row for both values) is
 bound in a new `session-2026-07-30-source-manifest-track` row in
 `RATIFICATION-PROVENANCE-INDEX-R1.md`, and `TDD-READINESS-GATE-CLOSURE-R1.md`'s
 condition 6 now carries an explicit supersession note pointing at that
@@ -165,9 +170,37 @@ row (additive, not a silent rewrite). ag.deepthink ACKed the manifest's
 scope and drafted the row prose; cx was not separately asked to re-verify
 this specific item.
 
-## Round 3 (final validation) -- not yet run
+## Round 3 (final validation)
 
-Once the above items are fixed, a final round should send both peers the
-complete before/after diff and this document, asking for a clean ACK or
-further findings, before folding this remediation into the ratification
-index as its own row.
+ag.deepthink ran a thorough, unhurried line-by-line pass over all 10
+fixed items (RT-03, HR-03, CJ-01..06 as one item, SL-04, SL-05, SL-06,
+CR-05, CR-06, SL-02, hash manifest) against the live code and this
+document: **clean ACK**, no drift, no new gaps, backlog scoping and
+document self-consistency both confirmed correct. One citation in ag's
+own summary (item #10) quoted the manifest's hash as `2ac5a69a...` --
+that was the value from the CR-05/06 commit message, already superseded
+by the `5f53f3df...` regeneration after the SL-02 fix; cc verified the
+row in `RATIFICATION-PROVENANCE-INDEX-R1.md` itself is correct (carries
+`5f53f3df...`), so this is a stale citation in ag's response text only,
+not an error in the actual ratified record.
+
+cx.deepthink ran a lighter confirmatory pass in parallel (self-consistency
+check on the SL-05/06 and CR-05/06 fixes it drafted itself, independent
+check on RT-03/HR-03/CJ-01..06 via direct line citations it verified
+itself, plus sampled hash checks against the manifest): **ACK on the
+code, with one real documentation-only finding** -- this document's own
+hash-binding-gap section (above) still cited the manifest's superseded
+`2ac5a69a...` hash instead of the current `5f53f3df...` one, which
+`RATIFICATION-PROVENANCE-INDEX-R1.md` already had correct. Fixed
+immediately per cx's finding. cx could not re-run the test suite itself
+(local `python.exe` did not start in its environment) and said so
+explicitly rather than silently skipping that check -- its ACK rests on
+static code/hash verification only, which is disclosed here rather than
+presented as equivalent to a live test run.
+
+Net: two independent peers, two independently-caught real staleness
+issues in prose (ag's own summary text citing an outdated hash; this
+document's own hash-binding section citing an outdated hash) -- zero
+issues found in the actual committed code or fixtures across either
+review. This remediation is folded into
+`RATIFICATION-PROVENANCE-INDEX-R1.md` as its own closing row below.
