@@ -82,6 +82,35 @@ was made.
   earlier this session with ag. The substantive finding was independently
   re-verified by cc by reading the actual code before trusting it, and
   holds. Committed.
+- **CR-05**: `coordination_room.py`'s heartbeat facts now include
+  `assigned_peer_principal_id`/`authenticated_principal_id` alongside the
+  self-asserted `heartbeat_peer`; acceptance requires
+  `heartbeat_peer == assigned_peer` AND
+  `authenticated_principal_id == assigned_peer_principal_id`, mirroring
+  SL-05's `requester`/`persisted` split. CR-05-NEG-01 was redefined
+  (rather than adding a `-NEG-02`, per this doc's own "or a `-NEG-02`"
+  alternative) to test the actually-security-relevant spoof case --
+  asserted peer matches, authenticated principal does not -- since that
+  fully subsumes the old blunt self-assertion-mismatch case once
+  authenticated_principal_id is the real authority check. Oracle derives
+  acceptance with a plain `and`-expression; subject derives it via a
+  tuple-of-booleans + `all()` (structurally distinct, same independence
+  discipline as SL-05).
+- **CR-06 (contract.py outcome-taint denylist)**: fixed at the actual
+  defect site per this doc's own prior finding -- `winning_active_id` was
+  removed as a direct input fact entirely and replaced with
+  `contender_fencing_tokens` (a distinct fencing token per contender,
+  matching this codebase's existing fencing-token-as-authority
+  convention). The oracle derives the winner via
+  `sorted(...)[-1][0]`; the subject derives it independently via
+  `max(..., key=...)` over the contender-ID list -- structurally
+  distinct. `contract.py`'s `_FORBIDDEN_OUTCOME_KEYS` itself was left
+  unchanged, as originally decided (the fix belongs in
+  `coordination_room.py`'s derivation, not a bigger denylist).
+  Both CR-05 and CR-06 drafted by cx.deepthink from a fully specified
+  brief in one dispatch; cc verified the diff directly (validator
+  exact-fields, oracle/subject independence, fixture value consistency)
+  before running the suite. 262/262 tests green. Committed.
 - **DP-06 capture metadata**: reviewed and NOT changed -- the raw
   `fixture-record.json`'s `runner_contract: CONTROLLED-FAKE-RUNNER-
   CONTRACT-R2` field is accurate as written; it describes the runner's
@@ -93,28 +122,7 @@ was made.
 
 ## Flagged, not yet fixed (precise specs below)
 
-### CR-05 (High, security-relevant)
-
-`coordination_room.py`'s CR-05 positive/negative pair only tests
-self-asserted `heartbeat_peer == assigned_peer` string equality -- the
-exact self-asserted-identity trust pattern `session_lease.py`'s SL-05 was
-built to fix. It never tests the SL-05-style spoof (asserted peer matches,
-authenticated principal does not).
-
-**Fix spec**: add `authenticated_principal_id` to `_validate_heartbeat_facts`
-(coordination_room.py line ~363) alongside the existing self-asserted
-`heartbeat_peer`. Acceptance requires `heartbeat_peer == assigned_peer` AND
-`authenticated_principal_id` matching the assigned peer's true owner
-principal (mirror SL-05's `requester`/`persisted` split exactly). Add a
-new fixture vector (or a `-NEG-02`) for the spoof case specifically:
-asserted peer matches, principal does not -- expect rejection with zero
-mutation. Update `_validate_case_kind_specific` (line ~463),
-`validate_coordination_room_output`'s CR-05 branch (line ~654), the
-oracle/subject logic (lines ~786, ~884), and the fault adapter (line
-~1013). fixture-status-v1.json's CR-05 note already documents this exact
-spec (added 2026-07-30) so it need not be re-derived.
-
-### SL-04/05/06 -- FIXED (2026-07-30, see "Fixed and verified" above)
+### CR-05, CR-06/contract.py, SL-04/05/06 -- FIXED (2026-07-30, see "Fixed and verified" above)
 
 ### SL-01/02 (low priority, still open)
 
@@ -131,52 +139,30 @@ spec (added 2026-07-30) so it need not be re-derived.
   as an explicit check for defense in depth.
 
 SL-01/02 remain open, non-blocking, lower priority than everything else in
-this document; pick up only after CR-05, the contract.py/CR-06 fix, and
-the hash-binding manifest below are done, if at all.
+this document; pick up only after the hash-binding manifest below is
+done, if at all.
 
-### contract.py outcome-taint denylist (Moderate)
+### Ratification hash-binding gap -- FIXED (2026-07-30)
 
-`_FORBIDDEN_OUTCOME_KEYS` (line 17) is a flat global denylist that misses
-schema-specific circularity: `coordination_room.py`'s CR-06 accepts
-`winning_active_id` as a direct input and echoes it as the winner with no
-independent derivation from contender/CAS facts -- genuine answer
-injection, the exact thing `reject_outcome_claims` exists to prevent.
-`session_lease.py`'s SL-06 accepting `decision` as input is NOT the same
-category of defect (it is an explicitly ratified, OPEN-tagged fact
-injection per the SL-01-06 classification spec's own scope decision, not a
-final-answer echo) -- do not add `decision` to a blanket denylist, per
-cx's own explicit caution in Round 2.
-
-**Fix spec**: this needs a per-schema check, not a larger global word
-list. For CR-06 specifically: derive the winner from the actual
-contender/CAS facts (whichever contender's fencing/CAS evidence is
-authoritative) rather than accepting `winning_active_id` as a fact.
-`_FORBIDDEN_OUTCOME_KEYS` itself is fine to leave as a coarse first-pass
-filter; the real fix is in `coordination_room.py`'s CR-06 oracle/subject
-logic, not in `contract.py`.
-
-### Ratification hash-binding gap (Critical, procedural)
-
-Every ratification row in `RATIFICATION-PROVENANCE-INDEX-R1.md` and
-`TDD-READINESS-GATE-CLOSURE-R1.md` binds design-document and status-overlay
-hashes, but never the actual domain module / test / fixture source bytes
-being certified. `DOMAIN-ORACLE-VERIFIER-CONTRACT-R1.md` requires oracle,
-adapter, schemas, vectors, and specifications to be hash-bound together.
-Nothing currently proves the reviewed-and-ACKed source bytes are the bytes
-actually shipped.
-
-**Fix spec**: after the SL/CR-05/contract.py fixes above land, generate one
-canonical evidence manifest (a new JSON file, e.g.
-`docs/design/phase0/fixtures/source-evidence-manifest-v1.json`) listing
-raw-byte SHA-256 for every file under `tools/phase0_fixture_runner/domain/`,
-every `test_*.py`, every fixture JSON, and every capture directory's
-`fixture-record.json`. Bind that manifest's own hash in a new
-`RATIFICATION-PROVENANCE-INDEX-R1.md` row, through the same unanimous
-ag.deepthink + cx.deepthink + cc mechanism used throughout this session.
-This is the actual condition-6-grade closure this cross-review's finding
-#1 was asking for; `TDD-READINESS-GATE-CLOSURE-R1.md`'s existing condition-6
-disposition should be superseded by (not silently replaced by) this new
-row once it exists.
+`docs/design/phase0/fixtures/source-evidence-manifest-v1.json` now binds
+raw-byte SHA-256 for all 336 files across 4 categories: 27 domain modules,
+26 test modules, 217 fixture JSON scripts, 66 legacy capture records
+(`.json` + `.transcript.json`). Generated by a small deterministic script
+(`hashlib.sha256` over raw bytes) run directly by cc, NOT delegated to a
+peer -- an LLM cannot reliably reproduce a SHA-256 digest, and this was
+concretely demonstrated in this same fix: ag.deepthink's drafted
+ratification row cited a `fixture-status-v1.json` hash copied from an
+earlier row in the document rather than recomputed, which cc caught as
+stale/wrong by direct recomputation before it entered the permanent
+record (see `RATIFICATION-PROVENANCE-INDEX-R1.md`'s new row's provenance
+note for the full account). The manifest's own hash
+(`2ac5a69ad12b74d9337861e339c6a0716ac5b8ce695f46d7505ff2555d7068f2`) is
+bound in a new `session-2026-07-30-source-manifest-track` row in
+`RATIFICATION-PROVENANCE-INDEX-R1.md`, and `TDD-READINESS-GATE-CLOSURE-R1.md`'s
+condition 6 now carries an explicit supersession note pointing at that
+row (additive, not a silent rewrite). ag.deepthink ACKed the manifest's
+scope and drafted the row prose; cx was not separately asked to re-verify
+this specific item.
 
 ## Round 3 (final validation) -- not yet run
 

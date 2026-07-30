@@ -109,6 +109,26 @@ mechanical correction to prose describing an already-ratified, unchanged
 fixture corpus (the underlying AC-track completion is unaffected), not a
 new ratification, so it was not re-routed through a fresh ACK round.
 
+| `session-2026-07-30-source-manifest-track` (not a `hub.py consensus-propose`/`consensus-vote` round -- see note below) | Source implementation, test suite, and fixture artifact SHA-256 evidence manifest (`docs/design/phase0/fixtures/source-evidence-manifest-v1.json`) ratified: closes the procedural gap where prior ratification rows bound only design documents and status overlays but never the actual domain module source bytes (`tools/phase0_fixture_runner/domain/*.py`, 27 files), test files (`tools/phase0_fixture_runner/test_*.py`, 26 files), fixture JSON vectors (`tools/phase0_fixture_runner/fixtures/*.json`, 217 files), and legacy capture records (`docs/design/phase0/fixtures/captures/*.json` including `.transcript.json`, 66 files) -- 336 files total, each bound by a deterministically computed (`hashlib.sha256` over raw file bytes, not LLM-estimated) raw-byte SHA-256. Supersedes the condition-6 disposition in `TDD-READINESS-GATE-CLOSURE-R1.md` | `source-evidence-manifest-v1.json` SHA-256 `2ac5a69ad12b74d9337861e339c6a0716ac5b8ce695f46d7505ff2555d7068f2` | TDD start; Phase 0 exit; cutover execution; R3 backlog items #2-15; SL-01/02 hardening (still open, see `FINAL-CROSS-REVIEW-REMEDIATION-R1.md`) |
+
+**Note on the `session-2026-07-30-source-manifest-track` row's provenance
+mechanism**: same mechanism as the `-ac-track`/`-sl-track`/`-hr-track`/
+`-dp06-r3-track`/`-gate-closure-track` rows above -- no Hub-minted round
+ID; cc generated the manifest via a small deterministic script (peers were
+not asked to compute hashes themselves, since an LLM cannot reliably
+reproduce a raw SHA-256 digest) and dispatched the binding-row draft
+request to ag.deepthink, which independently ACKed the manifest's scope
+and drafted this row's prose. ag's first draft cited a `fixture-status-
+v1.json` SHA-256 copied from an earlier row in this document rather than
+recomputed against the file's current (session-mutated) content; cc
+caught this by independently recomputing the hash (`88b4c5aa...`, not
+`ad489af3...`) and removed that citation from this row entirely rather
+than including a stale value -- `fixture-status-v1.json`'s current hash is
+not bound by this row and remains only informally described in the
+`fixture-status-v1.json` notes it carries. cc's own script execution and
+direct verification serve as the third vote alongside ag's ACK; cx was not
+separately asked to re-verify this specific row.
+
 ## Binding interpretations
 
 1. R11 did not bind the R11 decision-record document itself; R12 did so. The

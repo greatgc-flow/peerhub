@@ -17,7 +17,9 @@
       "facts": {
         "lease_id": "term-lease-af4fd630239e",
         "assigned_peer": "ag",
-        "heartbeat_peer": "cx",
+        "assigned_peer_principal_id": "principal-ag",
+        "heartbeat_peer": "ag",
+        "authenticated_principal_id": "principal-cx",
         "lease_open": true
       }
     }

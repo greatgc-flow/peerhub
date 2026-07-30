@@ -370,7 +370,9 @@ def _validate_heartbeat_facts(
         {
             "lease_id",
             "assigned_peer",
+            "assigned_peer_principal_id",
             "heartbeat_peer",
+            "authenticated_principal_id",
             "lease_open",
         },
         path=path,
@@ -389,9 +391,17 @@ def _validate_heartbeat_facts(
             facts["assigned_peer"],
             f"{path}.assigned_peer",
         ),
+        "assigned_peer_principal_id": require_string(
+            facts["assigned_peer_principal_id"],
+            f"{path}.assigned_peer_principal_id",
+        ),
         "heartbeat_peer": require_string(
             facts["heartbeat_peer"],
             f"{path}.heartbeat_peer",
+        ),
+        "authenticated_principal_id": require_string(
+            facts["authenticated_principal_id"],
+            f"{path}.authenticated_principal_id",
         ),
         "lease_open": True,
     }
@@ -407,7 +417,7 @@ def _validate_retire_set_facts(
         {
             "retired_history_ids",
             "contender_active_ids",
-            "winning_active_id",
+            "contender_fencing_tokens",
         },
         path=path,
     )
@@ -419,14 +429,41 @@ def _validate_retire_set_facts(
         facts["contender_active_ids"],
         f"{path}.contender_active_ids",
     )
-    winner = require_string(
-        facts["winning_active_id"],
-        f"{path}.winning_active_id",
-    )
-    if len(contenders) != 2 or winner not in contenders:
+    if len(contenders) != 2:
         raise DomainContractError(
             "DOMAIN_INPUT_INVALID",
-            f"{path} requires two contenders and one named winner",
+            f"{path} requires exactly two contenders",
+        )
+
+    raw_tokens = require_mapping(
+        facts["contender_fencing_tokens"],
+        f"{path}.contender_fencing_tokens",
+    )
+    if set(raw_tokens) != set(contenders):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                f"{path}.contender_fencing_tokens keys must "
+                "exactly match contender_active_ids"
+            ),
+        )
+    tokens = {
+        contender: require_nonnegative_int(
+            raw_tokens[contender],
+            (
+                f"{path}.contender_fencing_tokens."
+                f"{contender}"
+            ),
+        )
+        for contender in contenders
+    }
+    if len(set(tokens.values())) != 2:
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                f"{path}.contender_fencing_tokens "
+                "must be distinct"
+            ),
         )
     if set(retired) & set(contenders):
         raise DomainContractError(
@@ -436,7 +473,7 @@ def _validate_retire_set_facts(
     return {
         "retired_history_ids": retired,
         "contender_active_ids": contenders,
-        "winning_active_id": winner,
+        "contender_fencing_tokens": tokens,
     }
 
 
@@ -462,13 +499,19 @@ def _validate_fixture_vector(
 
     if base == "CR-05":
         is_negative = fixture_id.endswith(_NEGATIVE_SUFFIX)
-        is_owner = facts["heartbeat_peer"] == facts["assigned_peer"]
+        is_owner = (
+            facts["heartbeat_peer"]
+            == facts["assigned_peer"]
+            and facts["authenticated_principal_id"]
+            == facts["assigned_peer_principal_id"]
+        )
         if is_owner == is_negative:
             raise DomainContractError(
                 "DOMAIN_INPUT_INVALID",
                 (
-                    f"{base} positive requires the current owner; "
-                    "negative requires a non-owner heartbeat"
+                    f"{base} positive requires the authenticated "
+                    "current owner; negative requires a spoofed "
+                    "or non-owner heartbeat"
                 ),
             )
 
@@ -783,7 +826,12 @@ def _oracle_output(
             },
         }
     if case_kind == "OWNER_HEARTBEAT":
-        accepted = facts["heartbeat_peer"] == facts["assigned_peer"]
+        accepted = (
+            facts["heartbeat_peer"]
+            == facts["assigned_peer"]
+            and facts["authenticated_principal_id"]
+            == facts["assigned_peer_principal_id"]
+        )
         return {
             "rule_tier": "OBS",
             "decision": (
@@ -798,6 +846,11 @@ def _oracle_output(
                 "owner_heartbeat_accepted": accepted,
             },
         }
+
+    winner = sorted(
+        facts["contender_fencing_tokens"].items(),
+        key=lambda pair: pair[1],
+    )[-1][0]
     return {
         "rule_tier": "OBS",
         "decision": "SERIALIZED_TRANSITION",
@@ -806,7 +859,7 @@ def _oracle_output(
             "retired_history_ids": list(
                 facts["retired_history_ids"]
             ),
-            "active_ids": [facts["winning_active_id"]],
+            "active_ids": [winner],
         },
     }
 
@@ -880,9 +933,17 @@ def _reference_output(
             },
         }
     if case_kind == "OWNER_HEARTBEAT":
-        owner_match = (
-            facts["assigned_peer"] == facts["heartbeat_peer"]
+        owner_checks = (
+            (
+                facts["assigned_peer"]
+                == facts["heartbeat_peer"]
+            ),
+            (
+                facts["assigned_peer_principal_id"]
+                == facts["authenticated_principal_id"]
+            ),
         )
+        owner_match = all(owner_checks)
         return {
             "rule_tier": "OBS",
             "decision": (
@@ -897,16 +958,22 @@ def _reference_output(
                 "owner_heartbeat_accepted": owner_match,
             },
         }
+
     retained_history = [
         item for item in facts["retired_history_ids"]
     ]
+    tokens = facts["contender_fencing_tokens"]
+    winner = max(
+        facts["contender_active_ids"],
+        key=lambda candidate: tokens[candidate],
+    )
     return {
         "rule_tier": "OBS",
         "decision": "SERIALIZED_TRANSITION",
         "details": {
             "serialized_transition": True,
             "retired_history_ids": retained_history,
-            "active_ids": [facts["winning_active_id"]],
+            "active_ids": [winner],
         },
     }
 
