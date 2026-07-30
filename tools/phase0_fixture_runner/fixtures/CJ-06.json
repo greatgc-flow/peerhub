@@ -41,7 +41,7 @@
     "oracle_id": "cli_envelope.cj06.redacted_error_mapping",
     "oracle_version": 1,
     "inputs": {
-      "error_code": "ADMISSION_REVISION_MISMATCH",
+      "error_code": "CONFIGURATION_STALE",
       "raw_sensitive_value": "workspace-secret-CJ-06"
     }
   }

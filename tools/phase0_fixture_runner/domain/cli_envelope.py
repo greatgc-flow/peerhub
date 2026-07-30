@@ -56,15 +56,24 @@ _MALFORMED_REASONS = frozenset(
     }
 )
 
-# Exit code 3 intentionally matches command_authz.py's auth/admission family.
+# Frozen Protocol V1 CLI exit families: protocol/validation=2,
+# authorization=3, admission=4.
 _EXIT_CODE_BY_ERROR_CODE = {
-    "ENVELOPE_MALFORMED": 2,
-    "PROTOCOL_VERSION_UNSUPPORTED": 2,
+    "MALFORMED_ENVELOPE": 2,
+    "PROTOCOL_VERSION_MISMATCH": 2,
+    "SCHEMA_VERSION_UNSUPPORTED": 2,
+    "CONFIGURATION_STALE": 4,
+    "POLICY_STALE": 4,
     "ACTOR_UNAUTHORIZED": 3,
-    "ADMISSION_REVISION_MISMATCH": 3,
 }
 _ERROR_CODES = frozenset(
     _EXIT_CODE_BY_ERROR_CODE
+)
+_CJ04_ERROR_CODES = frozenset(
+    {
+        "PROTOCOL_VERSION_MISMATCH",
+        "SCHEMA_VERSION_UNSUPPORTED",
+    }
 )
 
 
@@ -519,7 +528,7 @@ def _validate_cj03_output(
         ),
         "error_code": _require_literal(
             output["error_code"],
-            "ENVELOPE_MALFORMED",
+            "MALFORMED_ENVELOPE",
             "output.error_code",
         ),
         "exit_code": require_nonnegative_int(
@@ -578,9 +587,9 @@ def _validate_cj04_output(
             "REJECTED",
             "output.status",
         ),
-        "error_code": _require_literal(
+        "error_code": _require_output_enum(
             output["error_code"],
-            "PROTOCOL_VERSION_UNSUPPORTED",
+            _CJ04_ERROR_CODES,
             "output.error_code",
         ),
         "exit_code": require_nonnegative_int(
@@ -732,9 +741,9 @@ def _oracle_output(
     if base_fixture_id == "CJ-03":
         return {
             "status": "REJECTED",
-            "error_code": "ENVELOPE_MALFORMED",
+            "error_code": "MALFORMED_ENVELOPE",
             "exit_code": _EXIT_CODE_BY_ERROR_CODE[
-                "ENVELOPE_MALFORMED"
+                "MALFORMED_ENVELOPE"
             ],
             "effect_certainty": "NOT_STARTED",
             "zero_state_mutations": True,
@@ -744,13 +753,22 @@ def _oracle_output(
         }
 
     if base_fixture_id == "CJ-04":
+        protocol_unsupported = (
+            raw_inputs["protocol_major"]
+            not in raw_inputs[
+                "supported_protocol_majors"
+            ]
+        )
+        error_code = (
+            "PROTOCOL_VERSION_MISMATCH"
+            if protocol_unsupported
+            else "SCHEMA_VERSION_UNSUPPORTED"
+        )
         return {
             "status": "REJECTED",
-            "error_code": (
-                "PROTOCOL_VERSION_UNSUPPORTED"
-            ),
+            "error_code": error_code,
             "exit_code": _EXIT_CODE_BY_ERROR_CODE[
-                "PROTOCOL_VERSION_UNSUPPORTED"
+                error_code
             ],
             "effect_certainty": "NOT_STARTED",
             "supported_protocol_majors": list(
@@ -830,7 +848,7 @@ def _subject_output(
                 "CJ-03 stage facts do not isolate malformed shape",
             )
 
-        error_code = "ENVELOPE_MALFORMED"
+        error_code = "MALFORMED_ENVELOPE"
         return {
             "status": "REJECTED",
             "error_code": error_code,
@@ -875,7 +893,9 @@ def _subject_output(
             )
 
         error_code = (
-            "PROTOCOL_VERSION_UNSUPPORTED"
+            "PROTOCOL_VERSION_MISMATCH"
+            if not protocol_supported
+            else "SCHEMA_VERSION_UNSUPPORTED"
         )
         return {
             "status": "REJECTED",

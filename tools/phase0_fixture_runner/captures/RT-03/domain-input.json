@@ -1,1 +1,1 @@
-{"contract_version":1,"fixture_id":"RT-03","inputs":{"case_kind":"USAGE_UNDECLARED","facts":{"peer_id":"ag","usage_evidence_state":"UNDECLARED"}},"oracle_id":"routing_discovery.rt03.absent_usage_evidence","oracle_version":1,"schema_version":1}
+{"contract_version":1,"fixture_id":"RT-03","inputs":{"case_kind":"USAGE_UNDECLARED","facts":{"peer_id":"ag","usage_evidence_state":"UNDECLARED"}},"oracle_id":"routing_discovery.rt03.unavailable_usage_evidence","oracle_version":1,"schema_version":1}

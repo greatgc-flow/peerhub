@@ -1327,6 +1327,110 @@ def _derived_scenario_result(
     }
 
 
+def _subject_scenario_result(
+    scenario: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Independently derive one HR-03 row via a forward stage scan.
+
+    Deliberately algorithmically distinct from
+    ``_derived_scenario_result`` (which is oracle-only): that function
+    finds the LAST attempted-stage entry and slices the canonical tuple
+    after its index. This function instead walks the canonical stage
+    order FORWARD, looking up each stage's outcome in a dict built from
+    attempted_stages, stopping at the first stage that is either not
+    OK or was never attempted at all. A defect in either derivation
+    would not, in general, be masked by agreement with the other.
+    """
+
+    if (
+        scenario["scenario_id"]
+        == _LEGACY_SCENARIO_ID
+    ):
+        observation = scenario[
+            "legacy_observation"
+        ]
+        return {
+            "scenario_id": scenario["scenario_id"],
+            "failure_class": observation[
+                "failure_class"
+            ],
+            "health": observation["health"],
+            "gate": observation["gate"],
+            "admission": observation["admission"],
+        }
+
+    attempted_stages = scenario[
+        "attempted_stages"
+    ]
+    attempted_by_name = {
+        row["stage"]: row["stage_status"]
+        for row in attempted_stages
+    }
+
+    boundary_stage = None
+    for stage in _CANONICAL_STAGES:
+        outcome = attempted_by_name.get(stage)
+        if outcome != "OK":
+            boundary_stage = stage
+            break
+
+    if boundary_stage is None:
+        raise DomainContractError(
+            "DOMAIN_ADAPTER_INVALID",
+            (
+                "no failure boundary found in "
+                "attempted_stages"
+            ),
+        )
+
+    boundary_index = _CANONICAL_STAGES.index(
+        boundary_stage
+    )
+    downstream = [
+        stage
+        for stage in _CANONICAL_STAGES
+        if (
+            _CANONICAL_STAGES.index(stage)
+            > boundary_index
+        )
+    ]
+    present_downstream = [
+        stage
+        for stage in downstream
+        if stage in attempted_by_name
+    ]
+
+    if boundary_stage == "check_usage_admission":
+        classification = scenario[
+            "usage_failure_reason"
+        ]
+    else:
+        classification = (
+            _STAGE_CLASSIFICATIONS[
+                boundary_stage
+            ]
+        )
+
+    return {
+        "scenario_id": scenario["scenario_id"],
+        "classification": classification,
+        "admission": "REJECTED",
+        "attempted_trace": [
+            {
+                "stage": row["stage"],
+                "outcome": row["stage_status"],
+            }
+            for row in attempted_stages
+        ],
+        "forbidden_downstream_stages": (
+            downstream
+        ),
+        "forbidden_stages_present": (
+            present_downstream
+        ),
+    }
+
+
 def _oracle_output(
     base_fixture_id: str,
     raw_inputs: Mapping[str, Any],
@@ -1401,7 +1505,7 @@ def _subject_output(
     ] = []
     for scenario in raw_inputs["scenarios"]:
         scenario_results.append(
-            _derived_scenario_result(
+            _subject_scenario_result(
                 scenario
             )
         )

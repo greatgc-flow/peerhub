@@ -24,7 +24,7 @@ _NEGATIVE_SUFFIX = "-NEG-01"
 _ORACLE_IDS = {
     "RT-01": "routing_discovery.rt01.structured_audit",
     "RT-02": "routing_discovery.rt02.reasoned_exclusion",
-    "RT-03": "routing_discovery.rt03.absent_usage_evidence",
+    "RT-03": "routing_discovery.rt03.unavailable_usage_evidence",
 }
 
 _CASE_KINDS = frozenset(
@@ -39,11 +39,11 @@ _DECISIONS = frozenset(
     {
         "CANDIDATE_SELECTED",
         "CANDIDATE_EXCLUDED",
-        "USAGE_ABSENT",
+        "USAGE_UNAVAILABLE",
     }
 )
 _STATUSES = frozenset({"GREEN"})
-_USAGE_DISPOSITIONS = frozenset({"ABSENT", "DECLARED"})
+_USAGE_DISPOSITIONS = frozenset({"UNAVAILABLE", "DECLARED"})
 
 
 def _base_fixture_id(fixture_id: str) -> str:
@@ -454,10 +454,10 @@ def _oracle_output(
 
     return {
         "rule_tier": "OBS",
-        "decision": "USAGE_ABSENT",
+        "decision": "USAGE_UNAVAILABLE",
         "details": {
             "peer_id": facts["peer_id"],
-            "usage_disposition": "ABSENT",
+            "usage_disposition": "UNAVAILABLE",
             "usage_value": None,
         },
     }
@@ -509,10 +509,10 @@ def _reference_output(
 
     return {
         "rule_tier": "OBS",
-        "decision": "USAGE_ABSENT",
+        "decision": "USAGE_UNAVAILABLE",
         "details": {
             "peer_id": facts["peer_id"],
-            "usage_disposition": "ABSENT",
+            "usage_disposition": "UNAVAILABLE",
             "usage_value": None,
         },
     }

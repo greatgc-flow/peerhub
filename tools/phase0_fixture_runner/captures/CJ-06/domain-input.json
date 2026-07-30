@@ -1,1 +1,1 @@
-{"contract_version":1,"fixture_id":"CJ-06","inputs":{"error_code":"ADMISSION_REVISION_MISMATCH","raw_sensitive_value":"workspace-secret-CJ-06"},"oracle_id":"cli_envelope.cj06.redacted_error_mapping","oracle_version":1,"schema_version":1}
+{"contract_version":1,"fixture_id":"CJ-06","inputs":{"error_code":"CONFIGURATION_STALE","raw_sensitive_value":"workspace-secret-CJ-06"},"oracle_id":"cli_envelope.cj06.redacted_error_mapping","oracle_version":1,"schema_version":1}

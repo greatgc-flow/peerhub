@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import hashlib
 import json
 import tempfile
@@ -274,7 +275,7 @@ class CliEnvelopeDomainTests(unittest.TestCase):
             output,
             {
                 "status": "REJECTED",
-                "error_code": "ENVELOPE_MALFORMED",
+                "error_code": "MALFORMED_ENVELOPE",
                 "exit_code": 2,
                 "effect_certainty": "NOT_STARTED",
                 "zero_state_mutations": True,
@@ -298,7 +299,7 @@ class CliEnvelopeDomainTests(unittest.TestCase):
             result.domain_actual["output"],
             {
                 "status": "REJECTED",
-                "error_code": "ENVELOPE_MALFORMED",
+                "error_code": "MALFORMED_ENVELOPE",
                 "exit_code": 2,
                 "effect_certainty": "NOT_STARTED",
                 "zero_state_mutations": False,
@@ -322,7 +323,7 @@ class CliEnvelopeDomainTests(unittest.TestCase):
             {
                 "status": "REJECTED",
                 "error_code": (
-                    "PROTOCOL_VERSION_UNSUPPORTED"
+                    "PROTOCOL_VERSION_MISMATCH"
                 ),
                 "exit_code": 2,
                 "effect_certainty": "NOT_STARTED",
@@ -350,7 +351,7 @@ class CliEnvelopeDomainTests(unittest.TestCase):
             {
                 "status": "REJECTED",
                 "error_code": (
-                    "PROTOCOL_VERSION_UNSUPPORTED"
+                    "PROTOCOL_VERSION_MISMATCH"
                 ),
                 "exit_code": 2,
                 "effect_certainty": "NOT_STARTED",
@@ -359,6 +360,42 @@ class CliEnvelopeDomainTests(unittest.TestCase):
                 "zero_state_mutations": True,
                 "zero_dispatch_calls": True,
             },
+        )
+
+    def test_cj04_schema_only_mismatch_uses_frozen_code(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            domain_case = copy.deepcopy(
+                self._load_script("CJ-04")[
+                    "domain_case"
+                ]
+            )
+            domain_case["inputs"][
+                "protocol_major"
+            ] = 1
+            domain_case["inputs"][
+                "schema_name"
+            ] = "peerhub.request.v2"
+
+            result = DOMAIN_REGISTRY.verify(
+                domain_case,
+                "CJ-04",
+                self._context(Path(temporary)),
+            )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(
+            result.domain_expected["output"][
+                "error_code"
+            ],
+            "SCHEMA_VERSION_UNSUPPORTED",
+        )
+        self.assertEqual(
+            result.domain_expected["output"][
+                "exit_code"
+            ],
+            2,
         )
 
     def test_cj06_positive_exact_classification(
@@ -373,10 +410,12 @@ class CliEnvelopeDomainTests(unittest.TestCase):
         self.assertEqual(
             cli_envelope._EXIT_CODE_BY_ERROR_CODE,
             {
-                "ENVELOPE_MALFORMED": 2,
-                "PROTOCOL_VERSION_UNSUPPORTED": 2,
+                "MALFORMED_ENVELOPE": 2,
+                "PROTOCOL_VERSION_MISMATCH": 2,
+                "SCHEMA_VERSION_UNSUPPORTED": 2,
+                "CONFIGURATION_STALE": 4,
+                "POLICY_STALE": 4,
                 "ACTOR_UNAUTHORIZED": 3,
-                "ADMISSION_REVISION_MISMATCH": 3,
             },
         )
         self.assertEqual(
@@ -384,12 +423,12 @@ class CliEnvelopeDomainTests(unittest.TestCase):
             {
                 "status": "REJECTED",
                 "error_code": (
-                    "ADMISSION_REVISION_MISMATCH"
+                    "CONFIGURATION_STALE"
                 ),
-                "exit_code": 3,
+                "exit_code": 4,
                 "message": (
                     "request rejected: "
-                    "ADMISSION_REVISION_MISMATCH"
+                    "CONFIGURATION_STALE"
                 ),
                 "zero_state_mutations": True,
                 "zero_receipt_writes": True,
@@ -417,12 +456,12 @@ class CliEnvelopeDomainTests(unittest.TestCase):
             {
                 "status": "REJECTED",
                 "error_code": (
-                    "ADMISSION_REVISION_MISMATCH"
+                    "CONFIGURATION_STALE"
                 ),
-                "exit_code": 3,
+                "exit_code": 4,
                 "message": (
                     "request rejected: "
-                    "ADMISSION_REVISION_MISMATCH: "
+                    "CONFIGURATION_STALE: "
                     "workspace-secret-CJ-06"
                 ),
                 "zero_state_mutations": True,

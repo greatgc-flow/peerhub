@@ -1,1 +1,1 @@
-{"fixture_id":"RT-03-NEG-01","oracle_id":"routing_discovery.rt03.absent_usage_evidence","oracle_version":1,"output":{"decision":"USAGE_ABSENT","details":{"peer_id":"ag","usage_disposition":"ABSENT","usage_value":null},"rule_tier":"OBS"},"schema_version":1}
+{"fixture_id":"RT-03-NEG-01","oracle_id":"routing_discovery.rt03.unavailable_usage_evidence","oracle_version":1,"output":{"decision":"USAGE_UNAVAILABLE","details":{"peer_id":"ag","usage_disposition":"UNAVAILABLE","usage_value":null},"rule_tier":"OBS"},"schema_version":1}

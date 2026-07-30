@@ -1,0 +1,1 @@
+{"fixture_id":"CJ-03-NEG-01","oracle_id":"cli_envelope.cj03.malformed_pre_effect_rejection","oracle_version":1,"output":{"effect_certainty":"NOT_STARTED","error_code":"ENVELOPE_MALFORMED","exit_code":2,"status":"REJECTED","zero_dispatch_calls":true,"zero_outbox_writes":true,"zero_receipt_writes":true,"zero_state_mutations":true},"schema_version":1}

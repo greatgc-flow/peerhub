@@ -28,11 +28,13 @@ _ORACLE_IDS = {
     ),
 }
 
+_EXIT_CODE_BY_REJECTION_REASON = {
+    "ACTOR_UNAUTHORIZED": 3,
+    "CONFIGURATION_STALE": 4,
+    "POLICY_STALE": 4,
+}
 _REJECTION_REASONS = frozenset(
-    {
-        "ACTOR_UNAUTHORIZED",
-        "ADMISSION_REVISION_MISMATCH",
-    }
+    _EXIT_CODE_BY_REJECTION_REASON
 )
 
 _EFFECT_CERTAINTIES = frozenset(
@@ -473,15 +475,37 @@ class CommandAuthzOracle:
         authorized = raw_inputs["authorization"][
             "actor_authorized"
         ]
-        reason = (
-            "ACTOR_UNAUTHORIZED"
-            if not authorized
-            else "ADMISSION_REVISION_MISMATCH"
-        )
+        envelope = raw_inputs["envelope"]
+        current = raw_inputs["current_revisions"]
+
+        if not authorized:
+            reason = "ACTOR_UNAUTHORIZED"
+        elif (
+            envelope["expected_configuration_revision"]
+            != current["current_configuration_revision"]
+        ):
+            # Deterministic precedence when both revisions are stale:
+            # configuration is reported before policy.
+            reason = "CONFIGURATION_STALE"
+        elif (
+            envelope["expected_policy_revision"]
+            != current["current_policy_revision"]
+        ):
+            reason = "POLICY_STALE"
+        else:
+            raise DomainContractError(
+                "DOMAIN_INPUT_INVALID",
+                "CJ-05 input unexpectedly admissible",
+            )
+
         return {
             "status": "REJECTED",
             "reason": reason,
-            "exit_code": 3,
+            "exit_code": (
+                _EXIT_CODE_BY_REJECTION_REASON[
+                    reason
+                ]
+            ),
             "effect_certainty": "NOT_STARTED",
             "retryable": False,
             "command_id": None,
@@ -597,13 +621,19 @@ class CommandAuthzSubjectAdapter:
                     "CJ-05 input unexpectedly admissible",
                 )
             rejection_reason = (
-                "ADMISSION_REVISION_MISMATCH"
+                "CONFIGURATION_STALE"
+                if not configuration_matches
+                else "POLICY_STALE"
             )
 
         return {
             "status": "REJECTED",
             "reason": rejection_reason,
-            "exit_code": 3,
+            "exit_code": (
+                _EXIT_CODE_BY_REJECTION_REASON[
+                    rejection_reason
+                ]
+            ),
             "effect_certainty": "NOT_STARTED",
             "retryable": False,
             "command_id": None,
@@ -673,11 +703,26 @@ class FaultInjectedCommandAuthzAdapter:
         actor_authorized = raw_inputs[
             "authorization"
         ]["actor_authorized"]
-        reason = (
-            "ACTOR_UNAUTHORIZED"
-            if not actor_authorized
-            else "ADMISSION_REVISION_MISMATCH"
-        )
+        envelope = raw_inputs["envelope"]
+        current = raw_inputs["current_revisions"]
+
+        if not actor_authorized:
+            reason = "ACTOR_UNAUTHORIZED"
+        elif (
+            envelope["expected_configuration_revision"]
+            != current["current_configuration_revision"]
+        ):
+            reason = "CONFIGURATION_STALE"
+        elif (
+            envelope["expected_policy_revision"]
+            != current["current_policy_revision"]
+        ):
+            reason = "POLICY_STALE"
+        else:
+            raise DomainContractError(
+                "DOMAIN_INPUT_INVALID",
+                "CJ-05 input unexpectedly admissible",
+            )
 
         # Fault: the adapter consumes and exposes the command ID
         # and performs writes before applying the admission checks.
@@ -687,7 +732,11 @@ class FaultInjectedCommandAuthzAdapter:
         return {
             "status": "REJECTED",
             "reason": reason,
-            "exit_code": 3,
+            "exit_code": (
+                _EXIT_CODE_BY_REJECTION_REASON[
+                    reason
+                ]
+            ),
             "effect_certainty": "MAY_HAVE_STARTED",
             "retryable": False,
             "command_id": leaked_command_id,

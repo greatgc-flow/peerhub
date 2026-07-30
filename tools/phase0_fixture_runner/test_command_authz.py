@@ -232,7 +232,7 @@ class DomainCommandAuthzTests(unittest.TestCase):
                 },
             )
 
-    def test_authorized_revision_mismatch_is_distinct(
+    def test_authorized_configuration_mismatch_is_distinct(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -262,8 +262,9 @@ class DomainCommandAuthzTests(unittest.TestCase):
             output = result.domain_actual["output"]
             self.assertEqual(
                 output["reason"],
-                "ADMISSION_REVISION_MISMATCH",
+                "CONFIGURATION_STALE",
             )
+            self.assertEqual(output["exit_code"], 4)
             self.assertIsNone(output["command_id"])
             self.assertEqual(
                 output["effect_certainty"],
@@ -277,6 +278,81 @@ class DomainCommandAuthzTests(unittest.TestCase):
                 "zero_dispatch_calls",
             ):
                 self.assertTrue(output[key], key)
+
+    def test_authorized_policy_mismatch_is_distinct(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = copy.deepcopy(
+                self._load_script("CJ-05")[
+                    "domain_case"
+                ]["inputs"]
+            )
+            inputs["authorization"][
+                "actor_authorized"
+            ] = True
+            inputs["current_revisions"][
+                "current_policy_revision"
+            ] = 10
+
+            result = DOMAIN_REGISTRY.verify(
+                self._case(
+                    "CJ-05",
+                    inputs,
+                ),
+                "CJ-05",
+                self._context(root),
+            )
+
+            self.assertTrue(result.passed)
+            output = result.domain_actual["output"]
+            self.assertEqual(
+                output["reason"],
+                "POLICY_STALE",
+            )
+            self.assertEqual(output["exit_code"], 4)
+            self.assertEqual(
+                output["effect_certainty"],
+                "NOT_STARTED",
+            )
+
+    def test_configuration_staleness_precedes_policy(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            inputs = copy.deepcopy(
+                self._load_script("CJ-05")[
+                    "domain_case"
+                ]["inputs"]
+            )
+            inputs["authorization"][
+                "actor_authorized"
+            ] = True
+            inputs["current_revisions"][
+                "current_configuration_revision"
+            ] = 18
+            inputs["current_revisions"][
+                "current_policy_revision"
+            ] = 10
+
+            result = DOMAIN_REGISTRY.verify(
+                self._case(
+                    "CJ-05",
+                    inputs,
+                ),
+                "CJ-05",
+                self._context(root),
+            )
+
+            self.assertTrue(result.passed)
+            output = result.domain_actual["output"]
+            self.assertEqual(
+                output["reason"],
+                "CONFIGURATION_STALE",
+            )
+            self.assertEqual(output["exit_code"], 4)
 
     def test_cj05_late_authorization_fault_is_caught(
         self,

@@ -142,7 +142,7 @@ class RoutingDiscoveryDomainTests(unittest.TestCase):
         expected = {
             "RT-01": ("CANDIDATE", "CANDIDATE_SELECTED"),
             "RT-02": ("CANDIDATE", "CANDIDATE_EXCLUDED"),
-            "RT-03": ("OBS", "USAGE_ABSENT"),
+            "RT-03": ("OBS", "USAGE_UNAVAILABLE"),
         }
 
         with tempfile.TemporaryDirectory() as temporary:
@@ -205,7 +205,7 @@ class RoutingDiscoveryDomainTests(unittest.TestCase):
         self.assertEqual(usage["peer_id"], "ag")
         self.assertEqual(
             usage["usage_disposition"],
-            "ABSENT",
+            "UNAVAILABLE",
         )
         self.assertIsNone(usage["usage_value"])
 

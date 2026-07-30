@@ -99,6 +99,16 @@ not a change to what was actually ratified (AC-track completion and
 DT-01/DT-06 resolution are unaffected either way), so it was not re-routed
 through a fresh ACK round.
 
+**Post-ACK correction (2026-07-30, found during the final full cross-review)**:
+the `session-2026-07-29-ac-track` entry text says "78 fixtures across 9
+domain-oracle modules." The actual `authority-proof-status-v1.json` corpus
+is 56 positive evidence scripts (52 `AC-0X-YY` children + 4 `AC-COMPOSED-0N`
+composed scenarios) and 109 total scripts including negatives. "78" does
+not match any real count in the corpus and its origin is unclear. This is a
+mechanical correction to prose describing an already-ratified, unchanged
+fixture corpus (the underlying AC-track completion is unaffected), not a
+new ratification, so it was not re-routed through a fresh ACK round.
+
 ## Binding interpretations
 
 1. R11 did not bind the R11 decision-record document itself; R12 did so. The
@@ -143,13 +153,25 @@ milestone characterization (`session-2026-07-29-final-ratify`, same
 query-file-ask-plus-ACK mechanism, cc's own review as the third vote); no
 Hub-minted round ID.
 
+**Superseded by `session-2026-07-30-dp06-r3-track` and
+`session-2026-07-30-gate-closure-track`** (both below): `CONTROLLED-FAKE-
+RUNNER-CONTRACT-R3.md` has since been ratified, resolving backlog item #1
+only (the DP-06 dispatch-boundary ambiguity) -- it was never scoped to
+resolve all 15 `OPEN` items in `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md`,
+only item #1; items #2-15 remain genuinely open. DP-06 now carries
+`coverage_scope: SPEC_FAITHFUL`. `TDD-READINESS-GATE-CLOSURE-R1.md`
+independently verified all 6 `TDD-READINESS-GATE-R1.md` conditions against
+the actual repository state (see that row below) -- conditions 1, 2, and 5
+are MET; conditions 3-4 are "Phase 0 evidence ready" pending a real source
+test suite that does not yet exist. A further `session-2026-07-30-full-
+audit-track` round (see below) found and is remediating several real
+implementation-fidelity defects surfaced by an unlimited final cross-review
+requested explicitly to allow revising already-ratified work.
+
 The next non-overlapping ratifications are: static 90-action identity and
-disposition inventory; a `CONTROLLED-FAKE-RUNNER-CONTRACT-R3` ratification
-resolving the 15 `OPEN` items in `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md`
-(the only remaining blocker on `TDD-READINESS-GATE-R1.md` condition 1's
-substance, since DP-06 alone still carries `coverage_scope:
-PENDING_FAITHFUL_MAPPING_REVIEW`); and, once that clears, condition 1 is
-substantively met and TDD start can be considered against conditions 2-3.
+disposition inventory; the full-audit remediation's own binding round (a
+new comprehensive evidence manifest covering source code, not just design
+docs and status overlays -- see the full-audit-track row's finding #1).
 Final action-fixture linkage remains blocked pending per-action fields and
 evidence adequacy. Capture acceptance, broker implementation, cutover, and
 Phase 0 exit remain separate future rounds.

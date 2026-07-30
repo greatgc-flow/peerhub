@@ -1,0 +1,48 @@
+{
+  "schema_version": 2,
+  "clock": [2530, 2531],
+  "ids": [
+    "run-CJ-06-NEG-01-r2",
+    "event-CJ-06-NEG-01-01",
+    "event-CJ-06-NEG-01-02"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "cli-envelope",
+      "command_type": "cli-envelope-proof",
+      "idempotency_key": "CJ-06-NEG-01",
+      "payload": {
+        "proof_id": "CJ-06-NEG-01"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "cli-envelope",
+      "command_type": "cli-envelope-proof",
+      "idempotency_key": "CJ-06-NEG-01",
+      "payload": {
+        "proof_id": "CJ-06-NEG-01"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CJ-06-NEG-01",
+    "oracle_id": "cli_envelope.cj06.redacted_error_mapping",
+    "oracle_version": 1,
+    "inputs": {
+      "error_code": "ADMISSION_REVISION_MISMATCH",
+      "raw_sensitive_value": "workspace-secret-CJ-06"
+    }
+  }
+}
