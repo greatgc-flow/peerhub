@@ -119,7 +119,7 @@ class ControlledFakeRunnerTests(unittest.TestCase):
         self,
     ) -> None:
         script = {
-            "schema_version": 1,
+            "schema_version": 2,
             "clock": [10],
             "ids": [
                 "run-interruption-001",
@@ -141,6 +141,24 @@ class ControlledFakeRunnerTests(unittest.TestCase):
                     "INTENT_PERSISTED"
                 ],
                 "reducer_replay_idempotent": True,
+            },
+            "domain_case": {
+                "contract_version": 1,
+                "fixture_id": "DP-06",
+                "oracle_id": (
+                    "dispatch_pipe_recovery.dp06."
+                    "dispatch_intent_boundary"
+                ),
+                "oracle_version": 1,
+                "inputs": {
+                    "injected_command_id": (
+                        "dispatch-intent-dp06"
+                    ),
+                    "append_completed": True,
+                    "later_terminal_evidence_present": (
+                        False
+                    ),
+                },
             },
         }
 

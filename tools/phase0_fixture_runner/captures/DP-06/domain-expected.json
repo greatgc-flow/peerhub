@@ -1,0 +1,1 @@
+{"fixture_id":"DP-06","oracle_id":"dispatch_pipe_recovery.dp06.dispatch_intent_boundary","oracle_version":1,"output":{"automatically_replayed":false,"effect_certainty":"MAY_HAVE_STARTED","execution_outcome":"UNKNOWN","terminal_classification":"START_UNCERTAIN"},"schema_version":1}

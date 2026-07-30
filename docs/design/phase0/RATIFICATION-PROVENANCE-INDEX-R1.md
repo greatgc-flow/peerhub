@@ -56,6 +56,21 @@ first), both independently and unconditionally ACKed the corrected design,
 and cc recorded its own affirming review plus the implementation and direct
 code verification as the third vote.
 
+| `session-2026-07-30-dp06-r3-track` (not a `hub.py consensus-propose`/`consensus-vote` round -- see note below) | `CONTROLLED-FAKE-RUNNER-CONTRACT-R3.md` ratified, resolving R3 backlog item #1 (DP-06's dispatch-boundary ambiguity) via an independent-verification round (not re-deriving from R2 alone, but cross-referencing fixtures/CONTRACT.md's own DP-06 line, ARCHITECTURE.md, the retained V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md, and PROTOCOL-V1-FREEZE.md, all independently verified by cc against the actual files): durable journal append of `INTENT_PERSISTED` (not reduction) is the dispatch-intent replay-safety boundary; DP-06 implemented in a new `dispatch_pipe_recovery.py` module, original real mechanical capture preserved under `captures/DP-06-NARROW-V1/`. DP-06 moves `coverage_scope` from `PENDING_FAITHFUL_MAPPING_REVIEW` to `SPEC_FAITHFUL` -- **all 54 contract IDs in `fixture-status-v1.json` now show `coverage_scope: SPEC_FAITHFUL`**, closing the gap the `session-2026-07-29-hr-track` row above left open | `fixture-status-v1.json` SHA-256 `ad489af35b978b7a1b5c60c9749ec315449d66e172edd9b498e49a01c192eead`; `CONTROLLED-FAKE-RUNNER-CONTRACT-R3.md` SHA-256 `b784623ff070da0e553164a4bb9f896e4eab0d49e41d3acc724f9dc2c4c602f3` | TDD start (`TDD-READINESS-GATE-R1.md` condition 1's `V1_CAPTURE`/`SPEC_FAITHFUL` substance is now met for all 54 IDs, but conditions 2-3 -- the controlled-fake runner contract freeze and R3 health-implementation-test adoption -- are separate, unverified-by-this-round claims); Phase 0 exit; cutover; R3 backlog items #2-15 (out-of-order stream events, terminal-event precedence, `TREE_STATE`/`CANCEL_ACK` schemas, idempotency binding schema, unterminated-script classification, parse/version/schema-negotiation failure classification, exit-code domain, clock validation, full enum closure, `MAY_HAVE_STARTED` vs `UNKNOWN` distinction, multiple `CLEANUP_ERROR` handling, cleanup-degrading-success, identity-reuse handling -- all remain open backlog, genuinely independent of DP-06) |
+
+**Note on the `session-2026-07-30-dp06-r3-track` row's provenance mechanism**:
+same mechanism as the `-ac-track`/`-sl-track`/`-hr-track` rows above -- no
+Hub-minted round ID; cc proposed the R3 amendment text to ag.deepthink and
+cx.deepthink for Final Call ACK after an independent-verification round
+where both peers confirmed the same substantive conclusion via different
+argument paths (ag: architectural precedent alone suffices; cx: the
+substantive answer is correct but requires an explicit R3 rule, not just
+citing precedent -- cc adopted cx's procedural position while agreeing with
+ag's substance), both unconditionally ACKed the final amendment text, and cc
+recorded its own affirming review plus the implementation and direct
+citation verification (every cited passage checked against the actual files
+before being relied on) as the third vote.
+
 **Post-ACK correction**: the entry text ag/cx ACK'd originally said "32 of
 the original 54" and "32 remaining legacy-only behavioral IDs." This was a
 counting error -- DT-01/DT-06 were never part of the 35-fixture

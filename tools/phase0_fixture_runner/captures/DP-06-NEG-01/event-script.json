@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "clock": [2300, 2301],
+  "ids": [
+    "run-DP-06-NEG-01-r2",
+    "event-DP-06-NEG-01-01",
+    "event-DP-06-NEG-01-02"
+  ],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe-recovery",
+      "command_type": "dispatch-intent-recovery",
+      "idempotency_key": "DP-06-NEG-01",
+      "payload": {
+        "proof_id": "DP-06-NEG-01"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe-recovery",
+      "command_type": "dispatch-intent-recovery",
+      "idempotency_key": "DP-06-NEG-01",
+      "payload": {
+        "proof_id": "DP-06-NEG-01"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": [
+      "INTENT_PERSISTED",
+      "INTENT_PERSISTED"
+    ],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DP-06-NEG-01",
+    "oracle_id": "dispatch_pipe_recovery.dp06.dispatch_intent_boundary",
+    "oracle_version": 1,
+    "inputs": {
+      "injected_command_id": "dispatch-intent-dp06",
+      "append_completed": true,
+      "later_terminal_evidence_present": false
+    }
+  }
+}

@@ -35,6 +35,9 @@ from .contract import (
 )
 from .coordination_room import coordination_room_registrations
 from .dispatch_pipe import dispatch_pipe_registrations
+from .dispatch_pipe_recovery import (
+    dispatch_pipe_recovery_registrations,
+)
 from .governance_broker import governance_broker_registrations
 from .health import health_registrations
 from .health_recovery import health_recovery_registrations
@@ -47,6 +50,7 @@ from .transport import transport_registrations
 DOMAIN_REGISTRY = StaticDomainRegistry(
     (
         *dispatch_pipe_registrations(),
+        *dispatch_pipe_recovery_registrations(),
         *transport_registrations(),
         *health_registrations(),
         *health_recovery_registrations(),
