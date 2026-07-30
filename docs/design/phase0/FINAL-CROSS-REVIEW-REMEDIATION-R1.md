@@ -124,23 +124,24 @@ was made.
 
 ### CR-05, CR-06/contract.py, SL-04/05/06 -- FIXED (2026-07-30, see "Fixed and verified" above)
 
-### SL-01/02 (low priority, still open)
+### SL-01/02 (low priority)
 
-- **SL-01/02**: lower priority than SL-04/05/06. SL-01 claims atomic
-  persistence via pure claimed-state comparison, which
+- **SL-02**: FIXED (2026-07-30) -- added an explicit
+  `stored_session_id != new_lease_id` check to `_validate_sl02_inputs`
+  (session_lease.py), defense-in-depth per the ratified design's own
+  "`session_id != lease_id`; neither is derived from the other" rule.
+  Trivial, done directly by cc (not delegated -- too small to be worth a
+  peer round-trip). 262/262 tests still green; hash manifest regenerated.
+- **SL-01**: intentionally left as-is. It claims atomic persistence via
+  pure claimed-state comparison, which
   `DOMAIN-ORACLE-VERIFIER-CONTRACT-R1.md` says cannot actually prove
   atomicity (would need an isolated-SQLite subject adapter, matching the
   pattern already used for `broker.py`/GB-01/03/04/05, to be a genuine
-  proof rather than a modeled claim) -- flagged but not required to block
-  this remediation pass given the narrower scope decision already
-  documented for SL-01. SL-02's `stored_session_id != new_lease_id`
-  invariant is not explicitly validator-enforced; low risk since the two
-  values come from unrelated fixture fields in practice, but worth adding
-  as an explicit check for defense in depth.
-
-SL-01/02 remain open, non-blocking, lower priority than everything else in
-this document; pick up only after the hash-binding manifest below is
-done, if at all.
+  proof rather than a modeled claim). This was already an accepted,
+  documented narrower-scope decision for SL-01 before this cross-review,
+  not a new finding -- reopening it into a full SQLite-adapter rebuild is
+  a real scope expansion, not a bug fix, so it stays open backlog rather
+  than being folded into this remediation pass.
 
 ### Ratification hash-binding gap -- FIXED (2026-07-30)
 

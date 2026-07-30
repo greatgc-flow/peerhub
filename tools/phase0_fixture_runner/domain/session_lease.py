@@ -494,6 +494,19 @@ def _validate_sl02_inputs(
             ),
         )
 
+    if (
+        validated["stored_session_id"]
+        == validated["new_lease_id"]
+    ):
+        raise DomainContractError(
+            "DOMAIN_INPUT_INVALID",
+            (
+                "SL-02 requires independent "
+                "stored_session_id and new_lease_id "
+                "values"
+            ),
+        )
+
     return validated
 
 

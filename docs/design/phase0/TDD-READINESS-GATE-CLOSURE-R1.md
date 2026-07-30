@@ -111,7 +111,8 @@ overlays, not the actual domain module / test / fixture source bytes. That
 gap is closed by the `session-2026-07-30-source-manifest-track` row in
 `RATIFICATION-PROVENANCE-INDEX-R1.md`, which hash-binds
 `docs/design/phase0/fixtures/source-evidence-manifest-v1.json` (SHA-256
-`2ac5a69ad12b74d9337861e339c6a0716ac5b8ce695f46d7505ff2555d7068f2`) --
+`5f53f3df646835bba0f286cc41d53ae722d328b3fc24cd9b7be45e44f008b013`, see
+`RATIFICATION-PROVENANCE-INDEX-R1.md` for the regeneration note) --
 raw-byte SHA-256 for all 336 domain/test/fixture/legacy-capture files. This
 document's original bound hashes below remain valid and are not rewritten;
 the new row is an additive supersession, not a replacement.
