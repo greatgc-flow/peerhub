@@ -71,6 +71,22 @@ recorded its own affirming review plus the implementation and direct
 citation verification (every cited passage checked against the actual files
 before being relied on) as the third vote.
 
+| `session-2026-07-30-gate-closure-track` (not a `hub.py consensus-propose`/`consensus-vote` round -- see note below) | `TDD-READINESS-GATE-CLOSURE-R1.md` ratified: independent verification of all 6 `TDD-READINESS-GATE-R1.md` conditions against the actual repository state. Condition 1 (all 54 fixtures `V1_CAPTURE`/`SPEC_FAITHFUL`) and condition 5 (AC proof-matrix: 9 umbrella IDs `V1_SPEC_ONLY`, 52 `AC-0X-YY` children + 4 `AC-COMPOSED-0N` scenarios `V1_CAPTURE`, cutover gated) confirmed MET. Condition 2 (runner isolation, append-before-reduce, canonical transcript, deterministic clock/IDs, no provider) confirmed against the actual `runner.py` source. Conditions 3-4 confirmed as "Phase 0 evidence ready," explicitly not claimed as literally true pre-TDD since no real source test suite exists yet. An independent Fable-5 review found no discrepancies; cx.deepthink's independent review caught three real inaccuracies in the first draft that neither ag.deepthink nor the Fable-5 review caught (an overclaimed "host-only receipt minting" property contradicted by HR-04's own fact-injected `clearance_receipt` input; a false claim that `REVISION_CONFLICT`/`EPOCH_STALE` appear in `authority_fence.py`, when only `CUTOVER_EPOCH_CONTENDED` does; and an imprecise "56 child sub-fixtures" count that conflates 52 true children with 4 distinct `AC-COMPOSED` scenarios) plus a self-contradiction cc introduced while fixing the first two. All corrected and independently re-verified line-by-line by both ag.deepthink and cx.deepthink against the current file on disk | `fixture-status-v1.json` SHA-256 `ad489af35b978b7a1b5c60c9749ec315449d66e172edd9b498e49a01c192eead`; `authority-proof-status-v1.json` SHA-256 `6a7570cd93327cff8bf578be15179ad0b89f44a20910385c87dee298055522e4`; `TDD-READINESS-GATE-CLOSURE-R1.md` SHA-256 `d2eab2adcef08d76b305c6e128dd6d02d9c72e351413cf8fd3439b7c282fcc20` | TDD start (explicitly: conditions 3-4 require a real source test suite that does not yet exist; this closure certifies the Phase 0 evidence prerequisite, not the future tests themselves); Phase 0 exit; cutover execution; R3 backlog items #2-15 |
+
+**Note on the `session-2026-07-30-gate-closure-track` row's provenance
+mechanism**: same mechanism as the `-ac-track`/`-sl-track`/`-hr-track`/
+`-dp06-r3-track` rows above -- no Hub-minted round ID; cc drafted the
+closure document and dispatched it to ag.deepthink, cx.deepthink, and an
+independently-spawned Fable-5 agent for verification (per the standing
+collaboration protocol naming `cc.fable` as a required voice for
+final-Phase-0-scope rounds); cx.deepthink's finding of three real
+inaccuracies (and a fourth self-contradiction introduced mid-correction)
+went through two further correction-and-re-verify cycles, including one
+round where cx's own review response appeared to reference a stale cached
+read of the file and required an explicit fresh-read request before
+confirming; cc recorded its own affirming review, direct code inspection,
+and the implementation as the third vote alongside the unanimous peer ACKs.
+
 **Post-ACK correction**: the entry text ag/cx ACK'd originally said "32 of
 the original 54" and "32 remaining legacy-only behavioral IDs." This was a
 counting error -- DT-01/DT-06 were never part of the 35-fixture
