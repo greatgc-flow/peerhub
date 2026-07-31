@@ -1,5 +1,17 @@
 # Slice 3 Kickoff R1 — Request/Attempt Reducers + Command Idempotency (DP+CJ)
 
+**CLOSED 2026-07-31** (commit `1b55826`). ag's first implementation attempt
+was rejected in full after cx's independent review found it deleted ~800
+lines of shipped Slice 1/2 persistence code behind an "omitted for
+brevity" placeholder and invented four non-frozen vocabulary enums; cc
+reverted it fully before rework began. cx reimplemented from scratch
+across 4 batches (to avoid the same truncation failure mode), cc verifying
+syntax/vocabulary/truncation after each batch and fixing one small
+test-fixture ID-source collision directly (not a production defect).
+ag then gave an independent from-scratch final review, actually executing
+`pytest` itself (not just reading code) and returning **CLEAN ACK**, 75/75
+passing, matching the same closure step Slice 1 and Slice 2 each received.
+
 Status: ratified. Produced by a 2-round adversarial mutual-critique between
 ag.deepthink and cx.deepthink (2026-07-31), reconciled by cc with direct
 independent verification of every load-bearing citation against the live
