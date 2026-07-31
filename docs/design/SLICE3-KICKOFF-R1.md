@@ -110,6 +110,39 @@ does not reopen the ratified reducer/lifecycle ordering (decision 2); it
 only fixes the DTO/CAS shape to match that ordering. Re-dispatched to
 cx.deepthink for implementation with this resolution given explicitly.
 
+## Addendum 2 (2026-07-31): outbox migration-0003 compatibility policy
+
+On retry, cx.deepthink again stopped correctly rather than guessing:
+decision 5's "generalize/rebuild" instruction did not specify how existing
+Slice 1 `outbox_events`/`effect_receipts` rows and foreign keys survive
+the migration, nor how `PROTOCOL-V1-FREEZE.md` §9's required
+`outbox_position` consumer checkpointing is persisted (no checkpoint
+table existed).
+
+**Resolved, accepting cx's own proposed schema (cc judgment call, not a
+full second peer-debate round, to keep momentum -- correctness is proven
+by the full Slice 1/2/3 regression suite after implementation, not by
+further debate):**
+- Rebuild `outbox_events` in place: add `outbox_position INTEGER PRIMARY
+  KEY AUTOINCREMENT`, `event_id TEXT NOT NULL UNIQUE`, protocol/schema/
+  correlation/event fields, and make `request_id`/`transition_receipt_id`
+  nullable (governance rows keep them populated; dispatch rows leave them
+  null).
+- Rebuild `effect_receipts` in the same migration so its FK targets the
+  rebuilt table; preserve existing governance rows in deterministic
+  `(created_at, event_id)` order.
+- Add `outbox_checkpoints(consumer_id PRIMARY KEY, outbox_position,
+  event_id, revision)` with revision-guarded CAS, satisfying §9's
+  checkpoint requirement (previously unspecified).
+- One physical outbox table serves both governance and dispatch;
+  governance recovery filters on non-null `transition_receipt_id`.
+
+Re-dispatched to cx.deepthink a second time with this resolution given
+explicitly. If implementation surfaces the full Slice 1 regression suite
+failing against this schema, that is the actual falsification test for
+this addendum, and it must be treated as such (fix the schema, not the
+tests).
+
 ## File list
 
 Create:
