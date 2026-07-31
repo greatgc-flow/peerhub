@@ -1,13 +1,17 @@
 """CANDIDATE-tier session-lease rules for SL-01 through SL-06.
 
-The module operates only on injected session, binding, lease, identity,
-and recovery facts. It performs no real process, filesystem, network, or
-operating-system operations.
+The module operates on injected session, binding, lease, identity, and
+recovery facts. The SL-01 subject persists only to SQLite inside the
+isolated fixture root. It performs no process or network operations and
+no storage access outside that isolated root.
 """
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from .contract import (
@@ -54,6 +58,11 @@ _BINDING_FIELDS = frozenset(
         "profile_revision",
         "effective_tier",
         "binding_schema_version",
+    }
+)
+_SL01_FAULT_POINTS = frozenset(
+    {
+        "AFTER_SESSION_INSERT_BEFORE_LEASE_INSERT",
     }
 )
 
@@ -365,6 +374,7 @@ def _validate_sl01_inputs(
             "owner_principal_id",
             "owner_instance_id",
             "owner_process_birth_identity",
+            "fault_point",
         },
         path="inputs",
     )
@@ -402,6 +412,11 @@ def _validate_sl01_inputs(
                 "inputs."
                 "owner_process_birth_identity"
             ),
+        ),
+        "fault_point": _require_input_enum(
+            inputs["fault_point"],
+            _SL01_FAULT_POINTS,
+            "inputs.fault_point",
         ),
     }
 
@@ -2651,7 +2666,7 @@ class SessionLeaseOracle:
 
 
 class SessionLeaseSubjectAdapter:
-    """Pure reference adapter over injected lease facts."""
+    """Reference adapter; SL-01 uses only fixture-root SQLite."""
 
     adapter_version = 1
 
@@ -2678,8 +2693,6 @@ class SessionLeaseSubjectAdapter:
         raw_inputs: Mapping[str, Any],
         context: IsolatedDomainContext,
     ) -> Mapping[str, Any]:
-        del context
-
         if fixture_id != self._base:
             raise DomainContractError(
                 "DOMAIN_FIXTURE_UNSUPPORTED",
@@ -2689,13 +2702,251 @@ class SessionLeaseSubjectAdapter:
                 ),
             )
 
+        if self._base == "SL-01":
+            return self._sl01(
+                raw_inputs,
+                context,
+                interrupt_after_session_insert=False,
+                commit_before_fault=False,
+            )
+
         return _subject_output(
             self._base,
             raw_inputs,
         )
 
+    def _database_path(
+        self,
+        context: IsolatedDomainContext,
+    ) -> Path:
+        if not context.root.is_dir():
+            raise DomainContractError(
+                "DOMAIN_ROOT_INVALID",
+                "SL-01 fixture root does not exist",
+            )
 
-class FaultInjectedSessionLeaseAdapter:
+        path = (
+            context.root
+            / "sl01-session-lease.sqlite"
+        )
+        if path.exists():
+            raise DomainContractError(
+                "DOMAIN_ROOT_INVALID",
+                (
+                    "SL-01 SQLite database "
+                    "already exists"
+                ),
+            )
+        return path
+
+    def _sl01(
+        self,
+        inputs: Mapping[str, Any],
+        context: IsolatedDomainContext,
+        *,
+        interrupt_after_session_insert: bool,
+        commit_before_fault: bool,
+    ) -> dict[str, Any]:
+        database_path = self._database_path(
+            context
+        )
+        connection = sqlite3.connect(
+            str(database_path),
+            isolation_level=None,
+        )
+        binding = inputs["binding"]
+        binding_json = canonical_json_bytes(
+            binding
+        ).decode("utf-8")
+
+        try:
+            connection.execute(
+                """
+                CREATE TABLE sessions (
+                    session_id TEXT PRIMARY KEY,
+                    binding_json TEXT NOT NULL,
+                    binding_fingerprint TEXT NOT NULL,
+                    lifecycle_state TEXT NOT NULL,
+                    revision INTEGER NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE leases (
+                    lease_id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    lease_kind TEXT NOT NULL,
+                    owner_peer_id TEXT NOT NULL,
+                    owner_principal_id TEXT NOT NULL,
+                    owner_instance_id TEXT NOT NULL,
+                    owner_process_birth_identity TEXT NOT NULL,
+                    fencing_token INTEGER NOT NULL,
+                    revision INTEGER NOT NULL,
+                    lifecycle_state TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute("BEGIN")
+            connection.execute(
+                """
+                INSERT INTO sessions (
+                    session_id,
+                    binding_json,
+                    binding_fingerprint,
+                    lifecycle_state,
+                    revision
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    inputs["session_id"],
+                    binding_json,
+                    fingerprint(binding),
+                    "ACTIVE",
+                    1,
+                ),
+            )
+
+            if interrupt_after_session_insert:
+                if (
+                    inputs["fault_point"]
+                    != (
+                        "AFTER_SESSION_INSERT_"
+                        "BEFORE_LEASE_INSERT"
+                    )
+                ):
+                    raise DomainContractError(
+                        "DOMAIN_INPUT_INVALID",
+                        (
+                            "SL-01 interruption does "
+                            "not match fault_point"
+                        ),
+                    )
+                if commit_before_fault:
+                    connection.execute("COMMIT")
+                else:
+                    connection.execute("ROLLBACK")
+            else:
+                connection.execute(
+                    """
+                    INSERT INTO leases (
+                        lease_id,
+                        session_id,
+                        lease_kind,
+                        owner_peer_id,
+                        owner_principal_id,
+                        owner_instance_id,
+                        owner_process_birth_identity,
+                        fencing_token,
+                        revision,
+                        lifecycle_state
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        inputs["lease_id"],
+                        inputs["session_id"],
+                        inputs["lease_kind"],
+                        binding["peer_id"],
+                        inputs["owner_principal_id"],
+                        inputs["owner_instance_id"],
+                        inputs[
+                            "owner_process_birth_identity"
+                        ],
+                        1,
+                        1,
+                        "ACTIVE",
+                    ),
+                )
+                connection.execute("COMMIT")
+        finally:
+            connection.close()
+
+        return self._read_sl01_state(
+            database_path
+        )
+
+    def _read_sl01_state(
+        self,
+        database_path: Path,
+    ) -> dict[str, Any]:
+        connection = sqlite3.connect(
+            str(database_path)
+        )
+        try:
+            session_row = connection.execute(
+                """
+                SELECT
+                    session_id,
+                    binding_json,
+                    binding_fingerprint,
+                    lifecycle_state,
+                    revision
+                FROM sessions
+                LIMIT 1
+                """
+            ).fetchone()
+            lease_row = connection.execute(
+                """
+                SELECT
+                    lease_id,
+                    session_id,
+                    lease_kind,
+                    owner_peer_id,
+                    owner_principal_id,
+                    owner_instance_id,
+                    owner_process_birth_identity,
+                    fencing_token,
+                    revision,
+                    lifecycle_state
+                FROM leases
+                LIMIT 1
+                """
+            ).fetchone()
+        finally:
+            connection.close()
+
+        session = (
+            None
+            if session_row is None
+            else {
+                "session_id": session_row[0],
+                "binding": json.loads(
+                    session_row[1]
+                ),
+                "binding_fingerprint": (
+                    session_row[2]
+                ),
+                "lifecycle_state": session_row[3],
+                "revision": session_row[4],
+            }
+        )
+        lease = (
+            None
+            if lease_row is None
+            else {
+                "lease_id": lease_row[0],
+                "session_id": lease_row[1],
+                "lease_kind": lease_row[2],
+                "owner_peer_id": lease_row[3],
+                "owner_principal_id": lease_row[4],
+                "owner_instance_id": lease_row[5],
+                "owner_process_birth_identity": (
+                    lease_row[6]
+                ),
+                "fencing_token": lease_row[7],
+                "revision": lease_row[8],
+                "lifecycle_state": lease_row[9],
+            }
+        )
+        return {
+            "session": session,
+            "lease": lease,
+        }
+
+
+class FaultInjectedSessionLeaseAdapter(
+    SessionLeaseSubjectAdapter
+):
     """One isolated session-lease defect per negative fixture."""
 
     adapter_version = 1
@@ -2728,8 +2979,6 @@ class FaultInjectedSessionLeaseAdapter:
         raw_inputs: Mapping[str, Any],
         context: IsolatedDomainContext,
     ) -> Mapping[str, Any]:
-        del context
-
         if fixture_id != self._fixture_id:
             raise DomainContractError(
                 "DOMAIN_FIXTURE_UNSUPPORTED",
@@ -2738,6 +2987,18 @@ class FaultInjectedSessionLeaseAdapter:
                     f"fixture_id={fixture_id}"
                 ),
             )
+
+        if self._base == "SL-01":
+            output = self._sl01(
+                raw_inputs,
+                context,
+                interrupt_after_session_insert=False,
+                commit_before_fault=False,
+            )
+            output["lease"]["lease_id"] = (
+                output["session"]["session_id"]
+            )
+            return output
 
         if self._base == "SL-05":
             persisted = raw_inputs["persisted"]
@@ -2772,11 +3033,7 @@ class FaultInjectedSessionLeaseAdapter:
             raw_inputs,
         )
 
-        if self._base == "SL-01":
-            output["lease"]["lease_id"] = (
-                output["session"]["session_id"]
-            )
-        elif self._base == "SL-02":
+        if self._base == "SL-02":
             output["session_id"] = (
                 "legacy-replacement-session-SL-02"
             )

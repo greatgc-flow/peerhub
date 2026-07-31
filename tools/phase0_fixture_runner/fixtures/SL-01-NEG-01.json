@@ -47,7 +47,8 @@
       "lease_kind": "SESSION_MEMBERSHIP",
       "owner_principal_id": "principal-ag",
       "owner_instance_id": "instance-ag-01",
-      "owner_process_birth_identity": "birth-ag-100"
+      "owner_process_birth_identity": "birth-ag-100",
+      "fault_point": "AFTER_SESSION_INSERT_BEFORE_LEASE_INSERT"
     }
   }
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -87,7 +88,7 @@ class SessionLeaseDomainTests(unittest.TestCase):
             self._context(root),
         )
 
-    def test_module_has_no_real_os_access(
+    def test_module_has_no_unapproved_os_access(
         self,
     ) -> None:
         source = Path(
@@ -100,13 +101,11 @@ class SessionLeaseDomainTests(unittest.TestCase):
             "http",
             "multiprocessing",
             "os",
-            "pathlib",
             "psutil",
             "requests",
             "shutil",
             "signal",
             "socket",
-            "sqlite3",
             "subprocess",
             "urllib",
             "win32",
@@ -200,6 +199,172 @@ class SessionLeaseDomainTests(unittest.TestCase):
                         ],
                         "PASS",
                     )
+
+    def test_sl01_direct_sqlite_persistence(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result = self._verify(
+                "SL-01",
+                root,
+            )
+
+            self.assertTrue(result.passed)
+            database_path = (
+                root
+                / "sl01-session-lease.sqlite"
+            )
+            self.assertTrue(database_path.is_file())
+
+            connection = sqlite3.connect(
+                str(database_path)
+            )
+            try:
+                session_rows = connection.execute(
+                    """
+                    SELECT
+                        session_id,
+                        lifecycle_state,
+                        revision
+                    FROM sessions
+                    """
+                ).fetchall()
+                lease_rows = connection.execute(
+                    """
+                    SELECT
+                        lease_id,
+                        session_id,
+                        lifecycle_state,
+                        revision
+                    FROM leases
+                    """
+                ).fetchall()
+            finally:
+                connection.close()
+
+            self.assertEqual(
+                session_rows,
+                [
+                    (
+                        "session-SL-01",
+                        "ACTIVE",
+                        1,
+                    )
+                ],
+            )
+            self.assertEqual(
+                lease_rows,
+                [
+                    (
+                        "lease-SL-01",
+                        "session-SL-01",
+                        "ACTIVE",
+                        1,
+                    )
+                ],
+            )
+
+    def test_sl01_fault_point_rollback_and_partial_commit_probe(
+        self,
+    ) -> None:
+        inputs = self._inputs("SL-01")
+        adapter = (
+            session_lease
+            .SessionLeaseSubjectAdapter("SL-01")
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            parent = Path(temporary)
+            rollback_root = parent / "rollback"
+            partial_root = parent / "partial"
+            rollback_root.mkdir()
+            partial_root.mkdir()
+
+            rollback_output = adapter._sl01(
+                inputs,
+                self._context(rollback_root),
+                interrupt_after_session_insert=True,
+                commit_before_fault=False,
+            )
+            self.assertEqual(
+                rollback_output,
+                {
+                    "session": None,
+                    "lease": None,
+                },
+            )
+
+            rollback_connection = sqlite3.connect(
+                str(
+                    rollback_root
+                    / "sl01-session-lease.sqlite"
+                )
+            )
+            try:
+                rollback_session_count = (
+                    rollback_connection.execute(
+                        "SELECT COUNT(*) FROM sessions"
+                    ).fetchone()[0]
+                )
+                rollback_lease_count = (
+                    rollback_connection.execute(
+                        "SELECT COUNT(*) FROM leases"
+                    ).fetchone()[0]
+                )
+            finally:
+                rollback_connection.close()
+
+            self.assertEqual(
+                rollback_session_count,
+                0,
+            )
+            self.assertEqual(
+                rollback_lease_count,
+                0,
+            )
+
+            partial_output = adapter._sl01(
+                inputs,
+                self._context(partial_root),
+                interrupt_after_session_insert=True,
+                commit_before_fault=True,
+            )
+            self.assertIsNotNone(
+                partial_output["session"]
+            )
+            self.assertIsNone(
+                partial_output["lease"]
+            )
+
+            partial_connection = sqlite3.connect(
+                str(
+                    partial_root
+                    / "sl01-session-lease.sqlite"
+                )
+            )
+            try:
+                partial_session_count = (
+                    partial_connection.execute(
+                        "SELECT COUNT(*) FROM sessions"
+                    ).fetchone()[0]
+                )
+                partial_lease_count = (
+                    partial_connection.execute(
+                        "SELECT COUNT(*) FROM leases"
+                    ).fetchone()[0]
+                )
+            finally:
+                partial_connection.close()
+
+            self.assertEqual(
+                partial_session_count,
+                1,
+            )
+            self.assertEqual(
+                partial_lease_count,
+                0,
+            )
 
     def test_sl01_positive_exact_classification(
         self,
