@@ -87,6 +87,29 @@ file:line evidence, matching cx's conclusions.
    deferred to the later Fault Boundary/Health slice; Slice 3 only builds
    the capability to represent `START_UNCERTAIN`/`MAY_HAVE_STARTED`.
 
+## Addendum (2026-07-31): `attempt_id` nullability on the lease CAS tuple
+
+cx.deepthink, implementing directly from this document, correctly stopped
+before writing any code and flagged a genuine internal contradiction this
+document did not resolve: decision 4 ratifies a pre-spawn `RESERVED` lease
+created at admission, before any attempt exists (the reducer order is
+`admit_request -> prepare_request -> create_attempt -> record_dispatch_intent`),
+yet `PROTOCOL-V1-FREEZE.md` §9 item 13 requires `attempt_id` in the lease
+CAS tuple. A `RESERVED` lease cannot carry a mandatory `attempt_id` before
+`create_attempt` has run. This document did not authorize an implementer
+to resolve that silently, and cx did not -- it stopped and asked, per its
+brief.
+
+**Resolved, mirroring the already-ratified treatment of
+`owner_process_birth_identity`:** `attempt_id` on the lease/`LeaseFenceTuple`
+is `str | None`, absent while `RESERVED`, and becomes mandatory (checked at
+the reducer and CAS layers) from `DISPATCH_INTENT` onward -- the same
+optional-until-bound shape already ratified for process identity, applied
+consistently to the other field with the identical RESERVED-time gap. This
+does not reopen the ratified reducer/lifecycle ordering (decision 2); it
+only fixes the DTO/CAS shape to match that ordering. Re-dispatched to
+cx.deepthink for implementation with this resolution given explicitly.
+
 ## File list
 
 Create:
