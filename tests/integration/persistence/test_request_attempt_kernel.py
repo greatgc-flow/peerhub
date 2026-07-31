@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.core.errors import InvalidMutationError
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
@@ -29,7 +30,9 @@ from peerhub.dispatch.contract import (
     ProtocolAssessment,
     RequestState,
 )
-from peerhub.dispatch.model import authorize_retry
+from peerhub.dispatch.model import (
+    record_dispatch_intent as reduce_dispatch_intent,
+)
 from peerhub.dispatch.service import DispatchService
 from peerhub.governance.contract import OutboxState
 from peerhub.persistence.sqlite import SqliteStateStore
@@ -325,7 +328,7 @@ def test_active_attempt_uniqueness_and_monotonic_numbering(
     store: SqliteStateStore,
 ) -> None:
     service = _service(store)
-    admitted, _, _ = _admit(service)
+    admitted, _, first_lease = _admit(service)
     service.prepare_request(admitted.command_id)
     first_attempt = service.create_attempt(
         admitted.command_id
@@ -333,11 +336,6 @@ def test_active_attempt_uniqueness_and_monotonic_numbering(
 
     with pytest.raises(sqlite3.IntegrityError):
         service.create_attempt(admitted.command_id)
-
-    with store.unit_of_work() as unit:
-        assert unit.list_attempts(admitted.command_id) == (
-            first_attempt,
-        )
 
     failed_request, failed_attempt = (
         service.fail_pre_dispatch(
@@ -347,33 +345,159 @@ def test_active_attempt_uniqueness_and_monotonic_numbering(
         )
     )
 
-    retried_request, retried_attempt = authorize_retry(
-        failed_request,
-        failed_attempt,
+    (
+        retried_request,
+        retried_attempt,
+        retry_lease,
+    ) = service.authorize_retry(
+        failed_request.command_id,
+        failed_attempt.attempt_id,
         reconciliation_complete=False,
-        updated_at=600,
+        heartbeat_timeout_ms=5_000,
     )
+
     assert retried_attempt == failed_attempt
     assert retried_request.state is RequestState.PREPARED
-
-    with store.unit_of_work() as unit:
-        current = unit.get_request(admitted.command_id)
-        assert current == failed_request
-        assert unit.cas_update_request(
-            current,
-            retried_request,
-        )
-        unit.commit()
+    assert retry_lease.lease_id != first_lease.lease_id
+    assert retried_request.lease_id == retry_lease.lease_id
+    assert retry_lease.fence.attempt_id is None
 
     second_attempt = service.create_attempt(
         admitted.command_id
     )
     assert second_attempt.attempt_number == 2
+    assert second_attempt.lease_id == retry_lease.lease_id
 
     with store.unit_of_work() as unit:
         attempts = unit.list_attempts(admitted.command_id)
+        persisted_request = unit.get_request(
+            admitted.command_id
+        )
+        persisted_retry_lease = unit.get_lease(
+            retry_lease.lease_id
+        )
 
     assert [item.attempt_number for item in attempts] == [1, 2]
+    assert persisted_request == retried_request
+    assert persisted_retry_lease == retry_lease
+
+
+def test_reconciled_start_uncertain_retry_rotates_lease(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    admitted, _, original_lease = _admit(service)
+    service.prepare_request(admitted.command_id)
+    first_attempt = service.create_attempt(
+        admitted.command_id
+    )
+    _, _, bound_original_lease = (
+        service.record_dispatch_intent(
+            admitted.command_id,
+            first_attempt.attempt_id,
+        )
+    )
+    uncertain_request, uncertain_attempt = (
+        service.record_start_uncertain(
+            admitted.command_id,
+            first_attempt.attempt_id,
+        )
+    )
+
+    (
+        retried_request,
+        interrupted_attempt,
+        retry_lease,
+    ) = service.authorize_retry(
+        admitted.command_id,
+        first_attempt.attempt_id,
+        reconciliation_complete=True,
+        heartbeat_timeout_ms=5_000,
+    )
+
+    assert uncertain_request.state is RequestState.START_UNCERTAIN
+    assert retried_request.state is RequestState.PREPARED
+    assert interrupted_attempt.state is RequestState.INTERRUPTED
+    assert interrupted_attempt.reconciliation_complete
+    assert retry_lease.lease_id != original_lease.lease_id
+    assert retry_lease.fence.fencing_token > (
+        bound_original_lease.fence.fencing_token
+    )
+    assert retried_request.lease_id == retry_lease.lease_id
+    assert retry_lease.fence.attempt_id is None
+
+    second_attempt = service.create_attempt(
+        admitted.command_id
+    )
+    assert second_attempt.attempt_number == 2
+    assert second_attempt.lease_id == retry_lease.lease_id
+
+    (
+        second_intent_request,
+        second_intent_attempt,
+        second_intent_lease,
+    ) = service.record_dispatch_intent(
+        admitted.command_id,
+        second_attempt.attempt_id,
+    )
+    assert (
+        second_intent_request.state
+        is RequestState.DISPATCH_INTENT
+    )
+    assert (
+        second_intent_attempt.state
+        is RequestState.DISPATCH_INTENT
+    )
+    assert (
+        second_intent_lease.fence.attempt_id
+        == second_attempt.attempt_id
+    )
+
+
+def test_dispatch_bundle_cas_rejects_null_attempt_id(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    admitted, _, reserved = _admit(service)
+    prepared = service.prepare_request(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id)
+
+    (
+        intent_request,
+        intent_attempt,
+        intent_lease,
+    ) = reduce_dispatch_intent(
+        prepared,
+        attempt,
+        reserved,
+        updated_at=500,
+    )
+    invalid_lease = replace(
+        intent_lease,
+        fence=replace(
+            intent_lease.fence,
+            attempt_id=None,
+        ),
+    )
+
+    with pytest.raises(
+        InvalidMutationError,
+        match="requires attempt_id",
+    ):
+        with store.unit_of_work() as unit:
+            unit.cas_update_dispatch_bundle(
+                prepared,
+                intent_request,
+                attempt,
+                intent_attempt,
+                reserved,
+                invalid_lease,
+            )
+
+    with store.unit_of_work() as unit:
+        assert unit.get_request(admitted.command_id) == prepared
+        assert unit.get_attempt(attempt.attempt_id) == attempt
+        assert unit.get_lease(reserved.lease_id) == reserved
 
 
 def test_outbox_checkpoint_uses_revision_guarded_cas(

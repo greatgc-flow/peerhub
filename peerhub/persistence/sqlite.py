@@ -15,7 +15,10 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any
 
-from peerhub.core.errors import WorkspaceIdentityMismatchError
+from peerhub.core.errors import (
+    InvalidMutationError,
+    WorkspaceIdentityMismatchError,
+)
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import (
     CommandID,
@@ -339,6 +342,14 @@ class SqliteStateStore:
                 connection.executescript(
                     self._migration_text(
                         "0003_command_request_attempt.sql"
+                    )
+                )
+
+            versions = self._migration_versions(connection)
+            if 4 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0004_idempotency_aliases.sql"
                     )
                 )
 
@@ -1751,6 +1762,32 @@ class SqliteUnitOfWork:
         updated_lease: LeaseSnapshot,
     ) -> bool:
         """Atomically CAS a request, attempt, and complete lease fence."""
+
+        attempt_bound_states = {
+            RequestState.DISPATCH_INTENT,
+            RequestState.START_UNCERTAIN,
+            RequestState.RUNNING,
+            RequestState.CANCELLING,
+            RequestState.ASSESSING,
+            RequestState.SUCCEEDED_VERIFIED,
+            RequestState.DELIVERED_UNVERIFIED,
+            RequestState.INCOMPLETE,
+            RequestState.FAILED,
+            RequestState.INTERRUPTED,
+            RequestState.CANCELLED,
+        }
+        if updated_request.state in attempt_bound_states:
+            if updated_lease.fence.attempt_id is None:
+                raise InvalidMutationError(
+                    "dispatch-or-later lease requires attempt_id"
+                )
+            if (
+                updated_lease.fence.attempt_id
+                != updated_attempt.attempt_id
+            ):
+                raise InvalidMutationError(
+                    "lease attempt_id does not match dispatch attempt"
+                )
 
         connection = self._db()
         connection.execute("SAVEPOINT dispatch_bundle")

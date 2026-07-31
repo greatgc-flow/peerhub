@@ -135,6 +135,27 @@ class TestRequestAttemptModel(unittest.TestCase):
         )
         return prepared, attempt
 
+    def _retry_lease(
+        self,
+        command_id: CommandID | None = None,
+        *,
+        lease_id: str = "lease-02",
+        created_at: int = 105,
+    ):
+        return reserve_lease(
+            LeaseReservationRequest(
+                session_id="session-01",
+                owner_principal_id="principal-01",
+                owner_instance_id="instance-01",
+                heartbeat_timeout_ms=5_000,
+                command_id=command_id or self.command_id,
+                authority_epoch=8,
+            ),
+            lease_id=lease_id,
+            fencing_token=18,
+            created_at=created_at,
+        )
+
     def test_prepare_and_create_attempt(self) -> None:
         prepared, attempt = self._prepared()
         self.assertEqual(prepared.state, RequestState.PREPARED)
@@ -267,6 +288,7 @@ class TestRequestAttemptModel(unittest.TestCase):
             authorize_retry(
                 request,
                 uncertain,
+                self._retry_lease(),
                 reconciliation_complete=False,
                 updated_at=105,
             )
@@ -289,11 +311,13 @@ class TestRequestAttemptModel(unittest.TestCase):
         request, previous = authorize_retry(
             request,
             uncertain,
+            self._retry_lease(),
             reconciliation_complete=True,
             updated_at=105,
         )
 
         self.assertEqual(request.state, RequestState.PREPARED)
+        self.assertEqual(request.lease_id, "lease-02")
         self.assertEqual(
             previous.state,
             RequestState.INTERRUPTED,
@@ -353,10 +377,16 @@ class TestRequestAttemptModel(unittest.TestCase):
         retried, prior = authorize_retry(
             uncertain_request,
             uncertain_attempt,
+            self._retry_lease(
+                CommandID("command-replay"),
+                lease_id="lease-replay-02",
+                created_at=202,
+            ),
             reconciliation_complete=False,
             updated_at=202,
         )
         self.assertEqual(retried.state, RequestState.PREPARED)
+        self.assertEqual(retried.lease_id, "lease-replay-02")
         self.assertEqual(prior.state, RequestState.INTERRUPTED)
 
 

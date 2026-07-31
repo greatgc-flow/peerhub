@@ -57,6 +57,9 @@ from .model import (
     admit_request as reduce_admit_request,
 )
 from .model import (
+    authorize_retry as reduce_authorize_retry,
+)
+from .model import (
     begin_assessment as reduce_begin_assessment,
 )
 from .model import (
@@ -410,11 +413,17 @@ class DispatchService:
         self,
         unit: DispatchUnitOfWork,
         submission: ValidatedSubmission,
+        *,
+        created_at: int,
     ) -> tuple[
-        RequestSnapshot,
-        AdmissionReceipt,
-        LeaseSnapshot,
-    ] | None:
+        tuple[
+            RequestSnapshot,
+            AdmissionReceipt,
+            LeaseSnapshot,
+        ] | None,
+        ClientRequestBinding | None,
+        CommandIdempotencyBinding | None,
+    ]:
         envelope = submission.envelope
         client_binding = unit.get_client_request_binding(
             envelope.client_id,
@@ -462,23 +471,61 @@ class DispatchService:
                 "client-request and idempotency bindings disagree"
             )
 
+        if client_binding is None and key_binding is None:
+            return (None, None, None)
+
         if client_binding is not None:
-            return self._load_admission(
-                unit,
-                command_id=client_binding.command_id,
-                admission_receipt_id=(
-                    client_binding.admission_receipt_id
-                ),
+            command_id = client_binding.command_id
+            admission_receipt_id = (
+                client_binding.admission_receipt_id
             )
-        if key_binding is not None:
-            return self._load_admission(
-                unit,
-                command_id=key_binding.command_id,
-                admission_receipt_id=(
-                    key_binding.admission_receipt_id
-                ),
+        else:
+            if key_binding is None:
+                raise AssertionError(
+                    "idempotency binding selection is unreachable"
+                )
+            command_id = key_binding.command_id
+            admission_receipt_id = (
+                key_binding.admission_receipt_id
             )
-        return None
+
+        admission = self._load_admission(
+            unit,
+            command_id=command_id,
+            admission_receipt_id=admission_receipt_id,
+        )
+
+        missing_client_binding = None
+        if client_binding is None:
+            missing_client_binding = ClientRequestBinding(
+                client_id=envelope.client_id,
+                client_request_id=envelope.client_request_id,
+                payload_digest=submission.payload_digest,
+                command_id=command_id,
+                admission_receipt_id=admission_receipt_id,
+                created_at=created_at,
+            )
+
+        missing_key_binding = None
+        if (
+            key_binding is None
+            and envelope.idempotency_key is not None
+        ):
+            missing_key_binding = CommandIdempotencyBinding(
+                client_id=envelope.client_id,
+                command_type=envelope.method,
+                idempotency_key=envelope.idempotency_key,
+                payload_digest=submission.payload_digest,
+                command_id=command_id,
+                admission_receipt_id=admission_receipt_id,
+                created_at=created_at,
+            )
+
+        return (
+            admission,
+            missing_client_binding,
+            missing_key_binding,
+        )
 
     @staticmethod
     def _require_request(
@@ -600,15 +647,44 @@ class DispatchService:
                 authenticated_principal
             )
 
+        admitted_at = self._clock.now()
         with self._store.unit_of_work() as unit:
-            existing = self._find_idempotent_admission(
+            (
+                existing,
+                missing_client_binding,
+                missing_key_binding,
+            ) = self._find_idempotent_admission(
                 unit,
                 submission,
+                created_at=admitted_at,
             )
             if existing is not None:
+                aliases_added = False
+                if missing_client_binding is not None:
+                    unit.add_client_request_binding(
+                        missing_client_binding
+                    )
+                    self._faults.hit(
+                        FaultPoint
+                        .AFTER_CLIENT_REQUEST_BINDING_WRITE
+                    )
+                    aliases_added = True
+                if missing_key_binding is not None:
+                    unit.add_command_idempotency_binding(
+                        missing_key_binding
+                    )
+                    self._faults.hit(
+                        FaultPoint
+                        .AFTER_IDEMPOTENCY_BINDING_WRITE
+                    )
+                    aliases_added = True
+
+                if aliases_added:
+                    self._faults.hit(FaultPoint.BEFORE_COMMIT)
+                    unit.commit()
+                    self._faults.hit(FaultPoint.AFTER_COMMIT)
                 return existing
 
-            admitted_at = self._clock.now()
             command_id = CommandID(
                 self._ids.new_id("command")
             )
@@ -1076,6 +1152,97 @@ class DispatchService:
 
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return (updated_request, updated_attempt)
+
+    def authorize_retry(
+        self,
+        command_id: CommandID | str,
+        previous_attempt_id: str,
+        *,
+        reconciliation_complete: bool,
+        heartbeat_timeout_ms: int,
+    ) -> tuple[
+        RequestSnapshot,
+        AttemptSnapshot,
+        LeaseSnapshot,
+    ]:
+        """Atomically rotate to a fresh RESERVED lease for a retry."""
+
+        with self._store.unit_of_work() as unit:
+            request = self._require_request(unit, command_id)
+            previous_attempt = self._require_attempt(
+                unit,
+                previous_attempt_id,
+            )
+            current_lease = self._require_lease(
+                unit,
+                request.lease_id,
+            )
+            timestamp = self._clock.now()
+
+            new_lease = reserve_lease(
+                LeaseReservationRequest(
+                    session_id=current_lease.session_id,
+                    owner_principal_id=(
+                        current_lease.fence.owner_principal_id
+                    ),
+                    owner_instance_id=(
+                        current_lease.fence.owner_instance_id
+                    ),
+                    heartbeat_timeout_ms=heartbeat_timeout_ms,
+                    command_id=request.command_id,
+                    authority_epoch=(
+                        current_lease.fence.authority_epoch
+                    ),
+                    owner_peer_id=(
+                        current_lease.fence.owner_peer_id
+                    ),
+                ),
+                lease_id=self._ids.new_id("lease"),
+                fencing_token=unit.allocate_fencing_token(),
+                created_at=timestamp,
+            )
+            updated_request, updated_attempt = (
+                reduce_authorize_retry(
+                    request,
+                    previous_attempt,
+                    new_lease,
+                    reconciliation_complete=(
+                        reconciliation_complete
+                    ),
+                    updated_at=timestamp,
+                )
+            )
+
+            unit.add_lease(new_lease)
+            self._faults.hit(FaultPoint.AFTER_LEASE_WRITE)
+
+            if not unit.cas_update_request(
+                request,
+                updated_request,
+            ):
+                self._raise_request_cas(unit, request)
+            self._faults.hit(FaultPoint.AFTER_REQUEST_CAS)
+
+            if updated_attempt != previous_attempt:
+                if not unit.cas_update_attempt(
+                    previous_attempt,
+                    updated_attempt,
+                ):
+                    self._raise_attempt_cas(
+                        unit,
+                        previous_attempt,
+                    )
+                self._faults.hit(FaultPoint.AFTER_ATTEMPT_CAS)
+
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return (
+            updated_request,
+            updated_attempt,
+            new_lease,
+        )
 
     def create_session_and_lease(
         self,

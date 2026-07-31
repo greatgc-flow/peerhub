@@ -304,3 +304,85 @@ def test_concurrent_identical_submissions_converge_on_one_command(
     assert len(events) == 1
     assert binding is not None
     assert str(binding.command_id) == "command-1"
+
+
+def test_partial_identity_replay_binds_each_missing_alias(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    first_request, first_receipt, first_lease = _admit(
+        service,
+        _envelope(),
+    )
+
+    by_client_request = _admit(
+        service,
+        _envelope(idempotency_key="idempotency-alias"),
+    )
+    assert by_client_request == (
+        first_request,
+        first_receipt,
+        first_lease,
+    )
+
+    by_idempotency_key = _admit(
+        service,
+        _envelope(
+            client_request_id="client-request-alias",
+            idempotency_key="idempotency-01",
+        ),
+    )
+    assert by_idempotency_key == (
+        first_request,
+        first_receipt,
+        first_lease,
+    )
+
+    with store.unit_of_work() as unit:
+        key_alias = unit.get_command_idempotency_binding(
+            "client-01",
+            "peer.ask",
+            "idempotency-alias",
+        )
+        client_alias = unit.get_client_request_binding(
+            "client-01",
+            "client-request-alias",
+        )
+        events = unit.list_outbox_events(
+            (OutboxState.PENDING,),
+            limit=100,
+        )
+
+    assert key_alias is not None
+    assert key_alias.command_id == first_request.command_id
+    assert (
+        key_alias.admission_receipt_id
+        == first_receipt.admission_receipt_id
+    )
+    assert client_alias is not None
+    assert client_alias.command_id == first_request.command_id
+    assert (
+        client_alias.admission_receipt_id
+        == first_receipt.admission_receipt_id
+    )
+    assert len(events) == 1
+
+    with pytest.raises(DuplicateClientRequestError):
+        _admit(
+            service,
+            _envelope(
+                client_request_id="client-request-alias",
+                idempotency_key="idempotency-new",
+                params={"prompt": "changed"},
+            ),
+        )
+
+    with pytest.raises(IdempotencyPayloadMismatchError):
+        _admit(
+            service,
+            _envelope(
+                client_request_id="client-request-new",
+                idempotency_key="idempotency-alias",
+                params={"prompt": "changed"},
+            ),
+        )

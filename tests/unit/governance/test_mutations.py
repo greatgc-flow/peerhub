@@ -105,6 +105,7 @@ def test_plan_rejects_stale_expected_revision() -> None:
 
 
 def test_receipt_outbox_and_effect_receipt_are_derived() -> None:
+    event_id = "11111111-1111-4111-8111-111111111111"
     plan = plan_mutation(
         _request(),
         None,
@@ -114,13 +115,13 @@ def test_receipt_outbox_and_effect_receipt_are_derived() -> None:
     transition = build_transition_receipt(
         plan,
         receipt_id="receipt-derived",
-        outbox_event_id="event-derived",
+        outbox_event_id=event_id,
         committed_at=10,
     )
     event = build_outbox_event(
         plan,
         transition,
-        event_id="event-derived",
+        event_id=event_id,
         correlation_id="correlation-derived",
         created_at=10,
     )
@@ -149,6 +150,30 @@ def test_receipt_outbox_and_effect_receipt_are_derived() -> None:
 
     assert effect.outbox_event_id == event.event_id
     assert effect.outcome is EffectOutcome.EFFECT_SUCCEEDED
+
+
+def test_outbox_event_rejects_non_uuid_event_id() -> None:
+    plan = plan_mutation(
+        _request(),
+        None,
+        plan_id="plan-invalid-event-id",
+        planned_at=10,
+    )
+    transition = build_transition_receipt(
+        plan,
+        receipt_id="receipt-invalid-event-id",
+        outbox_event_id="not-a-uuid",
+        committed_at=10,
+    )
+
+    with pytest.raises(ValueError, match="event_id"):
+        build_outbox_event(
+            plan,
+            transition,
+            event_id="not-a-uuid",
+            correlation_id="correlation-invalid-event-id",
+            created_at=10,
+        )
 
 
 def test_mutation_reducer_has_no_sqlite_or_persistence_import() -> None:

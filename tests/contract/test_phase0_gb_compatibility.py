@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from fakes import FakeClock, FakeIdSource, RaisingFaultInjector
+from fakes import (
+    FakeClock,
+    FakeIdSource,
+    RaisingFaultInjector,
+    deterministic_uuid4,
+)
 from peerhub.core.errors import (
     ExclusiveClaimConflictError,
     IdempotencyPayloadMismatchError,
@@ -102,7 +107,9 @@ def test_gb01_atomic_transition_commits_all_records(
 
     pending = broker.recover_pending_effects()
     assert len(pending) == 1
-    assert pending[0].event.event_id == "outbox-GB-01"
+    assert pending[0].event.event_id == deterministic_uuid4(
+        "outbox-GB-01"
+    )
     assert (
         pending[0].transition_receipt
         == result.receipt

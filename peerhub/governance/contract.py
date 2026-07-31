@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import math
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 
-from peerhub.core.protocol import CommandID, JsonValue
+from peerhub.core.protocol import (
+    CommandID,
+    JsonValue,
+    require_uuid4,
+)
 
 
 class MutationDisposition(str, Enum):
@@ -79,6 +84,10 @@ def _freeze_json(value: object) -> JsonValue:
     if value is None or isinstance(value, bool):
         return value
     if type(value) is int:
+        return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("JSON numbers must be finite")
         return value
     if isinstance(value, str):
         return unicodedata.normalize("NFC", value)
@@ -396,8 +405,12 @@ class OutboxEvent:
     consumed_at: int | None = None
 
     def __post_init__(self) -> None:
-        for name in (
+        object.__setattr__(
+            self,
             "event_id",
+            require_uuid4(self.event_id, "event_id"),
+        )
+        for name in (
             "schema_version",
             "correlation_id",
             "event_kind",

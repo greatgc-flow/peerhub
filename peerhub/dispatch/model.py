@@ -768,13 +768,39 @@ def complete_attempt(
 def authorize_retry(
     request: RequestSnapshot,
     previous_attempt: AttemptSnapshot,
+    new_lease: LeaseSnapshot,
     *,
     reconciliation_complete: bool,
     updated_at: int,
 ) -> tuple[RequestSnapshot, AttemptSnapshot]:
-    """Authorize a new attempt only when replay is proven safe."""
+    """Authorize a new attempt only under a fresh RESERVED lease."""
 
     _require_same_command(request, previous_attempt)
+    if previous_attempt.lease_id != request.lease_id:
+        raise InvalidMutationError(
+            "previous attempt does not use the request lease"
+        )
+    if new_lease.lease_id == request.lease_id:
+        raise InvalidMutationError(
+            "retry requires a freshly reserved lease"
+        )
+    if new_lease.fence.command_id != request.command_id:
+        raise InvalidMutationError(
+            "retry lease command ID does not match request"
+        )
+    if new_lease.state is not LeaseState.RESERVED:
+        raise InvalidMutationError(
+            "retry requires a RESERVED lease"
+        )
+    if new_lease.fence.attempt_id is not None:
+        raise InvalidMutationError(
+            "retry lease is already bound to an attempt"
+        )
+    if new_lease.fence.owner_process_birth_identity is not None:
+        raise InvalidMutationError(
+            "retry lease already has process identity"
+        )
+
     if request.state is RequestState.SUCCEEDED_VERIFIED:
         raise InvalidMutationError(
             "verified successful requests cannot be retried"
@@ -838,6 +864,7 @@ def authorize_retry(
 
     updated_request = replace(
         request,
+        lease_id=new_lease.lease_id,
         state=RequestState.PREPARED,
         revision=request.revision + 1,
         updated_at=updated_at,

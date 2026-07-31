@@ -201,3 +201,57 @@ production must not copy their tables or reducer implementations
    Slice 1/2 regression suite. Completion requires rollback cleanliness,
    byte-stable canonical payloads, no external I/O inside transactions,
    and zero Phase 2 process behavior.
+
+## Addendum 3 (2026-08-01): re-cross-check remediation
+
+A fresh independent cross-check before Slice 4 (ag.deepthink + cx.deepthink,
+same brief, reconciled by cc with direct citation verification) found
+ag.deepthink's earlier CLOSED/CLEAN-ACK review (above) had missed 5 real
+defects. cx.deepthink fixed all 5, cc independently ran the resulting
+81/81 suite (75 prior + 6 new regression tests) green. See
+`project_peerhub_slice3_recross_check_2026_07_31` in the collaboration
+memory for the full incident record.
+
+**Fixed** (all with a regression test that failed before the fix):
+1. `canonical_json_bytes()` now implements real RFC 8785 JCS finite-float
+   canonicalization instead of rejecting every float (`core/protocol.py`).
+2. `_find_idempotent_admission()` now independently binds whichever of the
+   two identities (client-request, idempotency-key) was missing on a
+   partial-match replay, instead of silently reusing the old admission
+   (`dispatch/service.py`, migration `0004_idempotency_aliases.sql` removes
+   the erroneous `UNIQUE(command_id)`/`UNIQUE(admission_receipt_id)`
+   constraints that blocked multiple aliases).
+3. `authorize_retry()` now reserves and rotates to a fresh lease per retry
+   attempt, matching `ARCHITECTURE.md:433` (`dispatch/model.py`,
+   `dispatch/service.py`).
+4. `cas_update_dispatch_bundle()` now enforces the addendum-1 invariant
+   (non-null `attempt_id` from `DISPATCH_INTENT` onward) as an explicit
+   postcondition at the CAS layer, not just in the pure reducer
+   (`persistence/sqlite.py`).
+5. `event_id` is now a validated RFC 4122 UUIDv4 on both `EventEnvelope`
+   and `OutboxEvent`, per `PROTOCOL-V1-FREEZE.md` sec9 item 5
+   (`core/protocol.py`, `governance/contract.py`).
+
+**Resolved as documentation-only (does not block Slice 4), each citation
+independently verified by cc against live source:**
+
+1. **Pre-admission diagnostic ownership.** Decision 1's null-`command_id`
+   plus server-diagnostic-ID requirement is deferred to the future
+   `application.api` ingress boundary, which must mint the diagnostic ID
+   and translate every `PeerHubError` (`core/errors.py:10` -- confirmed its
+   base class carries only `message`/`details`, no diagnostic-ID field)
+   into the frozen error envelope. Phase 1 domain services stay
+   exception-based.
+2. **`CANCELLING -> ASSESSING`.** Ratified as an intentional edge, not a
+   deviation: `CANCELLING` records that cooperative cancellation began, not
+   terminal evidence; `begin_assessment()` (`dispatch/model.py:683-710` --
+   confirmed it accepts both `RUNNING` and `CANCELLING`) correctly waits
+   for real terminal evidence before the centrally-derived `AskResult`
+   picks the final state. `ARCHITECTURE.md` sec7.1's diagram should be
+   updated to show this edge.
+3. **Migration 0003 with a non-empty `leases` table.** Confirmed
+   (`0003_command_request_attempt.sql:17-21`) it fails closed via a CHECK
+   constraint rather than fabricating authority identities for pre-existing
+   Slice 2 leases. Retained as the permanent policy: such stores must be
+   drained/recreated during Phase 1; a production upgrade path needs a
+   separately ratified reconciliation migration with durable provenance.

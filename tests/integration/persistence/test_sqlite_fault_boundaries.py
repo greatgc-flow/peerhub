@@ -133,6 +133,7 @@ def test_broken_partial_commit_probe_is_observable(
 ) -> None:
     """Prove the suite can observe a target-only broken commit."""
 
+    event_id = "22222222-2222-4222-8222-222222222222"
     store = _store(tmp_path, "broken-probe")
     request = _request("broken")
     plan = plan_mutation(
@@ -144,13 +145,13 @@ def test_broken_partial_commit_probe_is_observable(
     receipt = build_transition_receipt(
         plan,
         receipt_id="receipt-broken",
-        outbox_event_id="outbox-broken",
+        outbox_event_id=event_id,
         committed_at=120,
     )
     event = build_outbox_event(
         plan,
         receipt,
-        event_id="outbox-broken",
+        event_id=event_id,
         correlation_id=request.correlation_id,
         created_at=120,
     )

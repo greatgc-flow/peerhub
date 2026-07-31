@@ -18,6 +18,7 @@ from peerhub.core.protocol import (
     CommandEnvelope,
     CommandID,
     ErrorCode,
+    EventEnvelope,
     canonical_json_bytes,
 )
 from peerhub.dispatch.contract import (
@@ -198,42 +199,76 @@ class TestPhase0DpCjCompatibility(unittest.TestCase):
         self.assertNotEqual(first_digest, second_digest)
 
     def test_digest_formula_is_independently_pinned(self) -> None:
-        envelope = _envelope()
-        contract = _contract()
-        projection = {
-            "protocol_major": PROTOCOL_MAJOR,
-            "schema_version": SCHEMA_VERSION,
-            "authenticated_principal": "principal-01",
-            "scope": envelope.scope,
-            "method": "peer.ask",
-            "params": {"prompt": "hello"},
-            "expected_revisions": {
-                "policy": 7,
-                "configuration": 11,
-            },
-            "completion_contract": {
-                "contract_id": "contract-01",
-                "kind": "FIELD_REQUIRED",
-                "requirements": [
-                    {
-                        "field": "status",
-                        "expected": "ok",
-                    }
-                ],
-                "replay_safe": False,
-            },
-        }
-        expected = hashlib.sha256(
-            canonical_json_bytes(projection)
-        ).hexdigest()
+        envelope = _envelope(params={"ratio": 1e-6})
         self.assertEqual(
             canonical_payload_digest(
                 envelope,
                 authenticated_principal="principal-01",
-                completion_contract=contract,
+                completion_contract=_contract(),
             ),
-            expected,
+            "b8e4ed1c146743cad319afb1f0193de8"
+            "ed6aeae162ca9d60797293868471153e",
         )
+
+    def test_rfc8785_finite_float_vectors_are_pinned(self) -> None:
+        self.assertEqual(
+            canonical_json_bytes(
+                {
+                    "numbers": [
+                        333333333.33333329,
+                        1e30,
+                        4.50,
+                        2e-3,
+                        1e-27,
+                        -0.0,
+                    ]
+                }
+            ),
+            (
+                b'{"numbers":[333333333.3333333,1e+30,4.5,'
+                b"0.002,1e-27,0]}"
+            ),
+        )
+
+        for non_finite in (
+            float("nan"),
+            float("inf"),
+            float("-inf"),
+        ):
+            with self.assertRaises(ValueError):
+                canonical_json_bytes({"number": non_finite})
+
+    def test_protocol_event_id_requires_uuid4(self) -> None:
+        valid_event_id = (
+            "123e4567-e89b-42d3-a456-426614174000"
+        )
+        event = EventEnvelope(
+            protocol_major=PROTOCOL_MAJOR,
+            protocol_minor=PROTOCOL_MINOR,
+            schema_version=SCHEMA_VERSION,
+            event_id=valid_event_id,
+            correlation_id="correlation-event",
+            occurred_at=100,
+            kind="ADMITTED",
+            payload={"command_id": "command-01"},
+        )
+        self.assertEqual(event.event_id, valid_event_id)
+
+        for invalid_event_id in (
+            "outbox-event-1",
+            "123e4567-e89b-12d3-a456-426614174000",
+        ):
+            with self.assertRaises(ValueError):
+                EventEnvelope(
+                    protocol_major=PROTOCOL_MAJOR,
+                    protocol_minor=PROTOCOL_MINOR,
+                    schema_version=SCHEMA_VERSION,
+                    event_id=invalid_event_id,
+                    correlation_id="correlation-event",
+                    occurred_at=100,
+                    kind="ADMITTED",
+                    payload={"command_id": "command-01"},
+                )
 
     def test_dp02_pre_dispatch_failure_is_not_started(
         self,

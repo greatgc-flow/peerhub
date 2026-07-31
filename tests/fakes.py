@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections import deque
 from collections.abc import Iterable
+from uuid import UUID
 
 from peerhub.governance.broker import FaultPoint
+
+
+def deterministic_uuid4(seed: str) -> str:
+    """Derive a stable test-only UUIDv4 from a readable seed."""
+
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    return str(UUID(bytes=digest[:16], version=4))
 
 
 class FakeClock:
@@ -37,7 +46,10 @@ class FakeIdSource:
         if not self._values:
             raise AssertionError("FakeIdSource is exhausted")
         self.namespaces.append(namespace)
-        return self._values.popleft()
+        value = self._values.popleft()
+        if namespace == "outbox-event":
+            return deterministic_uuid4(value)
+        return value
 
 
 class DeterministicClock:
@@ -65,7 +77,10 @@ class SequentialIdSource:
 
         count = self._counters.get(namespace, 0) + 1
         self._counters[namespace] = count
-        return f"{namespace}-{count}"
+        value = f"{namespace}-{count}"
+        if namespace == "outbox-event":
+            return deterministic_uuid4(value)
+        return value
 
 
 class RaisingFaultInjector:

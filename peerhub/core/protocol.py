@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import math
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import NewType, TypeAlias
+from uuid import RFC_4122, UUID
 
 
 PROTOCOL_MAJOR = 1
@@ -17,7 +19,7 @@ SCHEMA_VERSION = "1.0.0"
 
 CommandID = NewType("CommandID", str)
 
-JsonScalar: TypeAlias = str | int | bool | None
+JsonScalar: TypeAlias = str | int | float | bool | None
 JsonValue: TypeAlias = (
     JsonScalar
     | tuple["JsonValue", ...]
@@ -104,13 +106,43 @@ def require_text(value: str, name: str) -> str:
     return unicodedata.normalize("NFC", value)
 
 
+def require_uuid4(value: str, name: str) -> str:
+    """Validate and return one canonical RFC 4122 UUIDv4 string."""
+
+    normalized = require_text(value, name)
+    try:
+        parsed = UUID(normalized)
+    except ValueError as exc:
+        raise ValueError(
+            f"{name} must be an RFC 4122 UUIDv4"
+        ) from exc
+    if parsed.version != 4 or parsed.variant != RFC_4122:
+        raise ValueError(f"{name} must be an RFC 4122 UUIDv4")
+    return str(parsed)
+
+
+def _normalize_json_string(value: str) -> str:
+    normalized = unicodedata.normalize("NFC", value)
+    try:
+        normalized.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(
+            "JSON strings cannot contain unpaired surrogates"
+        ) from exc
+    return normalized
+
+
 def _freeze_json_value(value: object) -> JsonValue:
     if value is None or isinstance(value, bool):
         return value
     if type(value) is int:
         return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("JSON numbers must be finite")
+        return value
     if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
+        return _normalize_json_string(value)
     if isinstance(value, (list, tuple)):
         return tuple(_freeze_json_value(item) for item in value)
     if isinstance(value, Mapping):
@@ -118,7 +150,7 @@ def _freeze_json_value(value: object) -> JsonValue:
         for raw_key, raw_value in value.items():
             if not isinstance(raw_key, str):
                 raise ValueError("JSON object keys must be strings")
-            key = unicodedata.normalize("NFC", raw_key)
+            key = _normalize_json_string(raw_key)
             if key in frozen:
                 raise ValueError(
                     f"duplicate JSON key after normalization: {key}"
@@ -146,8 +178,12 @@ def _normalize_json_value(value: object) -> object:
         return value
     if type(value) is int:
         return value
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("JSON numbers must be finite")
+        return value
     if isinstance(value, str):
-        return unicodedata.normalize("NFC", value)
+        return _normalize_json_string(value)
     if isinstance(value, (list, tuple)):
         return [_normalize_json_value(item) for item in value]
     if isinstance(value, Mapping):
@@ -155,7 +191,7 @@ def _normalize_json_value(value: object) -> object:
         for raw_key, raw_value in value.items():
             if not isinstance(raw_key, str):
                 raise ValueError("JSON object keys must be strings")
-            key = unicodedata.normalize("NFC", raw_key)
+            key = _normalize_json_string(raw_key)
             if key in normalized:
                 raise ValueError(
                     f"duplicate JSON key after normalization: {key}"
@@ -167,22 +203,130 @@ def _normalize_json_value(value: object) -> object:
     )
 
 
-def canonical_json_bytes(value: object) -> bytes:
-    """Encode supported values as deterministic canonical JSON bytes.
+def _expand_exponential_number(raw: str) -> str:
+    sign = ""
+    unsigned = raw
+    if unsigned.startswith("-"):
+        sign = "-"
+        unsigned = unsigned[1:]
 
-    Protocol v1 deliberately admits only integer JSON numbers in this
-    kernel. Floating-point values, including non-finite values, are
-    rejected before encoding rather than being serialized ambiguously.
-    """
+    mantissa, raw_exponent = unsigned.split("e", 1)
+    exponent = int(raw_exponent)
+    integer, _, fraction = mantissa.partition(".")
+    digits = integer + fraction
+    decimal_position = len(integer) + exponent
+
+    if decimal_position <= 0:
+        expanded = "0." + ("0" * -decimal_position) + digits
+    elif decimal_position >= len(digits):
+        expanded = digits + ("0" * (decimal_position - len(digits)))
+    else:
+        expanded = (
+            digits[:decimal_position]
+            + "."
+            + digits[decimal_position:]
+        )
+    return sign + expanded
+
+
+def _fixed_to_scientific(raw: str) -> str:
+    sign = ""
+    unsigned = raw
+    if unsigned.startswith("-"):
+        sign = "-"
+        unsigned = unsigned[1:]
+
+    integer, _, fraction = unsigned.partition(".")
+    digits = integer + fraction
+    first_nonzero = next(
+        index
+        for index, digit in enumerate(digits)
+        if digit != "0"
+    )
+    significant = digits[first_nonzero:].rstrip("0")
+    exponent = len(integer) - first_nonzero - 1
+    coefficient = significant[0]
+    if len(significant) > 1:
+        coefficient += "." + significant[1:]
+    exponent_text = (
+        f"+{exponent}" if exponent >= 0 else str(exponent)
+    )
+    return f"{sign}{coefficient}e{exponent_text}"
+
+
+def _canonical_float(value: float) -> str:
+    if not math.isfinite(value):
+        raise ValueError("JSON numbers must be finite")
+    if value == 0.0:
+        return "0"
+
+    raw = repr(value).lower()
+    absolute = abs(value)
+
+    # ECMAScript Number::toString, as required by RFC 8785, uses
+    # fixed notation in this interval and scientific notation outside it.
+    if 1e-6 <= absolute < 1e21:
+        if "e" in raw:
+            return _expand_exponential_number(raw)
+        if raw.endswith(".0"):
+            return raw[:-2]
+        return raw
+
+    if "e" in raw:
+        mantissa, raw_exponent = raw.split("e", 1)
+        if mantissa.endswith(".0"):
+            mantissa = mantissa[:-2]
+        exponent = int(raw_exponent)
+        exponent_text = (
+            f"+{exponent}" if exponent >= 0 else str(exponent)
+        )
+        return f"{mantissa}e{exponent_text}"
+    return _fixed_to_scientific(raw)
+
+
+def _canonical_json_text(value: object) -> str:
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if type(value) is int:
+        return str(value)
+    if type(value) is float:
+        return _canonical_float(value)
+    if isinstance(value, str):
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    if isinstance(value, list):
+        return "[" + ",".join(
+            _canonical_json_text(item) for item in value
+        ) + "]"
+    if isinstance(value, Mapping):
+        # RFC 8785 sorts object member names as UTF-16 code units.
+        keys = sorted(
+            value,
+            key=lambda item: item.encode("utf-16-be"),
+        )
+        return "{" + ",".join(
+            _canonical_json_text(key)
+            + ":"
+            + _canonical_json_text(value[key])
+            for key in keys
+        ) + "}"
+    raise ValueError(
+        f"unsupported JSON value type: {type(value).__name__}"
+    )
+
+
+def canonical_json_bytes(value: object) -> bytes:
+    """Encode an NFC-normalized value using RFC 8785 JCS."""
 
     normalized = _normalize_json_value(value)
-    return json.dumps(
-        normalized,
-        ensure_ascii=False,
-        allow_nan=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    return _canonical_json_text(normalized).encode("utf-8")
 
 
 def _validate_protocol_component(value: int, name: str) -> None:
@@ -336,9 +480,14 @@ class EventEnvelope:
             "protocol_minor",
         )
 
+        object.__setattr__(
+            self,
+            "event_id",
+            require_uuid4(self.event_id, "event_id"),
+        )
+
         for name in (
             "schema_version",
-            "event_id",
             "correlation_id",
             "kind",
         ):
