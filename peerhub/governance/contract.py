@@ -27,7 +27,7 @@ class TransitionStatus(str, Enum):
 
 
 class OutboxState(str, Enum):
-    """The recoverable lifecycle of one effect intent."""
+    """The recoverable lifecycle of one outbox event."""
 
     PENDING = "PENDING"
     CLAIMED = "CLAIMED"
@@ -52,6 +52,15 @@ def _text(value: str, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
     return unicodedata.normalize("NFC", value)
+
+
+def _optional_text(
+    value: str | None,
+    name: str,
+) -> str | None:
+    if value is None:
+        return None
+    return _text(value, name)
 
 
 def _nonnegative(value: int, name: str) -> int:
@@ -361,15 +370,26 @@ class TransitionReceipt:
 
 @dataclass(frozen=True)
 class OutboxEvent:
-    """A durable effect intent awaiting idempotent consumption."""
+    """One canonical protocol-wide durable outbox event."""
 
     event_id: str
-    request_id: str
-    transition_receipt_id: str
-    topic: str
+    protocol_major: int
+    protocol_minor: int
+    schema_version: str
+    correlation_id: str
+    occurred_at: int
+    event_kind: str
     payload: Mapping[str, JsonValue]
     state: OutboxState
     created_at: int
+    request_id: str | None = None
+    transition_receipt_id: str | None = None
+    topic: str | None = None
+    outbox_position: int | None = None
+    round_id: str | None = None
+    evidence_refs: tuple[str, ...] = field(default_factory=tuple)
+    predecessor_digest: str | None = None
+    recovery_context: Mapping[str, JsonValue] | None = None
     claimed_by: str | None = None
     claim_attempt_id: str | None = None
     claimed_at: int | None = None
@@ -378,14 +398,38 @@ class OutboxEvent:
     def __post_init__(self) -> None:
         for name in (
             "event_id",
-            "request_id",
-            "transition_receipt_id",
-            "topic",
+            "schema_version",
+            "correlation_id",
+            "event_kind",
         ):
             object.__setattr__(
                 self,
                 name,
                 _text(getattr(self, name), name),
+            )
+        object.__setattr__(
+            self,
+            "protocol_major",
+            _nonnegative(self.protocol_major, "protocol_major"),
+        )
+        object.__setattr__(
+            self,
+            "protocol_minor",
+            _nonnegative(self.protocol_minor, "protocol_minor"),
+        )
+        object.__setattr__(
+            self,
+            "occurred_at",
+            _nonnegative(self.occurred_at, "occurred_at"),
+        )
+        object.__setattr__(
+            self,
+            "created_at",
+            _nonnegative(self.created_at, "created_at"),
+        )
+        if self.created_at < self.occurred_at:
+            raise ValueError(
+                "created_at cannot precede occurred_at"
             )
         if not isinstance(self.state, OutboxState):
             raise ValueError("state must be an OutboxState")
@@ -394,20 +438,42 @@ class OutboxEvent:
             "payload",
             _freeze_mapping(self.payload),
         )
+
+        for name in (
+            "request_id",
+            "transition_receipt_id",
+            "topic",
+            "round_id",
+            "predecessor_digest",
+            "claimed_by",
+            "claim_attempt_id",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                _optional_text(getattr(self, name), name),
+            )
+
+        if self.outbox_position is not None:
+            object.__setattr__(
+                self,
+                "outbox_position",
+                _positive(
+                    self.outbox_position,
+                    "outbox_position",
+                ),
+            )
         object.__setattr__(
             self,
-            "created_at",
-            _nonnegative(self.created_at, "created_at"),
+            "evidence_refs",
+            _freeze_references(self.evidence_refs),
         )
-
-        for name in ("claimed_by", "claim_attempt_id"):
-            value = getattr(self, name)
-            if value is not None:
-                object.__setattr__(
-                    self,
-                    name,
-                    _text(value, name),
-                )
+        if self.recovery_context is not None:
+            object.__setattr__(
+                self,
+                "recovery_context",
+                _freeze_mapping(self.recovery_context),
+            )
         for name in ("claimed_at", "consumed_at"):
             value = getattr(self, name)
             if value is not None:
@@ -417,22 +483,32 @@ class OutboxEvent:
                     _nonnegative(value, name),
                 )
 
-        has_claim = (
-            self.claimed_by is not None
-            and self.claim_attempt_id is not None
-            and self.claimed_at is not None
+        claim_fields = (
+            self.claimed_by,
+            self.claim_attempt_id,
+            self.claimed_at,
         )
+        claim_is_absent = all(
+            value is None for value in claim_fields
+        )
+        claim_is_complete = all(
+            value is not None for value in claim_fields
+        )
+
         if self.state is OutboxState.PENDING:
-            if has_claim or self.consumed_at is not None:
+            if not claim_is_absent or self.consumed_at is not None:
                 raise ValueError(
                     "pending outbox event cannot carry claim data"
                 )
         elif self.state is OutboxState.CLAIMED:
-            if not has_claim or self.consumed_at is not None:
+            if not claim_is_complete or self.consumed_at is not None:
                 raise ValueError(
-                    "claimed outbox event requires claim data"
+                    "claimed outbox event requires complete claim data"
                 )
-        elif not has_claim or self.consumed_at is None:
+        elif (
+            not claim_is_complete
+            or self.consumed_at is None
+        ):
             raise ValueError(
                 "consumed outbox event requires claim and consume data"
             )
@@ -511,10 +587,25 @@ class PendingEffect:
             raise ValueError(
                 "disposition must be a RecoveryDisposition"
             )
+        if self.event.transition_receipt_id is None:
+            raise ValueError(
+                "pending governance effect needs a transition receipt"
+            )
+        if self.event.request_id is None:
+            raise ValueError(
+                "pending governance effect needs a request ID"
+            )
         if (
             self.event.transition_receipt_id
             != self.transition_receipt.receipt_id
         ):
             raise ValueError(
                 "event and transition receipt do not match"
+            )
+        if (
+            self.event.request_id
+            != self.transition_receipt.request_id
+        ):
+            raise ValueError(
+                "event and transition request IDs do not match"
             )

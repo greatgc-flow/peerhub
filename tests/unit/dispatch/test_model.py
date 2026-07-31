@@ -6,6 +6,7 @@ import unittest
 
 from peerhub.core.errors import StaleRevisionError
 from peerhub.core.execution import ExecutionCertainty
+from peerhub.core.protocol import CommandID
 from peerhub.dispatch.contract import (
     LeaseCloseRequest,
     LeaseCreateRequest,
@@ -36,6 +37,7 @@ class TestDispatchModelReducers(unittest.TestCase):
             pid=1234,
             process_creation_time=5000,
         )
+        self.command_id = CommandID("command-01")
         self.fence = LeaseFenceTuple(
             session_id="session-01",
             lease_id="lease-01",
@@ -44,6 +46,9 @@ class TestDispatchModelReducers(unittest.TestCase):
             owner_principal_id="principal-ag",
             owner_instance_id="instance-ag-01",
             owner_process_birth_identity=self.process_id,
+            command_id=self.command_id,
+            authority_epoch=1,
+            attempt_id="attempt-01",
             owner_peer_id="ag",
         )
         self.create_req = LeaseCreateRequest(
@@ -52,6 +57,9 @@ class TestDispatchModelReducers(unittest.TestCase):
             owner_instance_id="instance-ag-01",
             owner_process_birth_identity=self.process_id,
             heartbeat_timeout_ms=5000,
+            command_id=self.command_id,
+            attempt_id="attempt-01",
+            authority_epoch=1,
             owner_peer_id="ag",
         )
         self.binding_key = SessionBindingKey(
@@ -82,6 +90,9 @@ class TestDispatchModelReducers(unittest.TestCase):
             owner_principal_id="principal-cx",
             owner_instance_id="instance-ag-01",
             owner_process_birth_identity=other_process,
+            command_id=self.command_id,
+            authority_epoch=1,
+            attempt_id="attempt-01",
         )
         is_match, mismatches = validate_lease_fence(
             self.fence,
@@ -94,6 +105,28 @@ class TestDispatchModelReducers(unittest.TestCase):
             mismatches,
         )
 
+    def test_command_attempt_and_epoch_are_fenced(self) -> None:
+        bad_fence = LeaseFenceTuple(
+            session_id=self.fence.session_id,
+            lease_id=self.fence.lease_id,
+            fencing_token=self.fence.fencing_token,
+            revision=self.fence.revision,
+            owner_principal_id=self.fence.owner_principal_id,
+            owner_instance_id=self.fence.owner_instance_id,
+            owner_process_birth_identity=self.process_id,
+            command_id=CommandID("command-other"),
+            authority_epoch=2,
+            attempt_id="attempt-other",
+        )
+        is_match, mismatches = validate_lease_fence(
+            self.fence,
+            bad_fence,
+        )
+        self.assertFalse(is_match)
+        self.assertIn("command_id", mismatches)
+        self.assertIn("attempt_id", mismatches)
+        self.assertIn("authority_epoch", mismatches)
+
     def test_owner_peer_id_is_descriptive_only(self) -> None:
         requester = LeaseFenceTuple(
             session_id=self.fence.session_id,
@@ -103,6 +136,9 @@ class TestDispatchModelReducers(unittest.TestCase):
             owner_principal_id=self.fence.owner_principal_id,
             owner_instance_id=self.fence.owner_instance_id,
             owner_process_birth_identity=self.process_id,
+            command_id=self.command_id,
+            authority_epoch=1,
+            attempt_id="attempt-01",
             owner_peer_id="different-descriptive-peer",
         )
 
@@ -124,6 +160,8 @@ class TestDispatchModelReducers(unittest.TestCase):
         self.assertEqual(lease.state, LeaseState.ACTIVE)
         self.assertEqual(lease.heartbeat_expires_at, 6000)
         self.assertEqual(lease.fence.fencing_token, 1)
+        self.assertEqual(lease.fence.command_id, self.command_id)
+        self.assertEqual(lease.fence.attempt_id, "attempt-01")
 
     def test_renew_lease_reducer_advances_revision(self) -> None:
         lease = create_lease(
@@ -160,6 +198,9 @@ class TestDispatchModelReducers(unittest.TestCase):
             owner_principal_id="principal-ag",
             owner_instance_id="instance-ag-01",
             owner_process_birth_identity=self.process_id,
+            command_id=self.command_id,
+            authority_epoch=1,
+            attempt_id="attempt-01",
         )
         renew_req = LeaseRenewRequest(
             lease_id="lease-01",
@@ -248,7 +289,9 @@ class TestDispatchModelReducers(unittest.TestCase):
             ExecutionCertainty.TERMINAL,
         )
 
-    def test_recovery_identity_mismatch_has_no_effect_certainty(self) -> None:
+    def test_recovery_identity_mismatch_has_no_effect_certainty(
+        self,
+    ) -> None:
         lease = create_lease(
             self.create_req,
             lease_id="lease-01",
@@ -299,7 +342,10 @@ class TestDispatchModelReducers(unittest.TestCase):
             updated_at=2000,
         )
         self.assertTrue(is_compatible)
-        self.assertEqual(updated.state, SessionBindingState.ACTIVE)
+        self.assertEqual(
+            updated.state,
+            SessionBindingState.ACTIVE,
+        )
         self.assertEqual(updated.revision, 1)
 
     def test_session_resume_mismatch_advances_revision(self) -> None:
@@ -325,7 +371,10 @@ class TestDispatchModelReducers(unittest.TestCase):
             updated_at=2000,
         )
         self.assertFalse(is_compatible)
-        self.assertEqual(updated.state, SessionBindingState.STALE)
+        self.assertEqual(
+            updated.state,
+            SessionBindingState.STALE,
+        )
         self.assertEqual(updated.revision, 2)
 
 

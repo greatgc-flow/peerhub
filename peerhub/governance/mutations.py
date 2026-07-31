@@ -9,7 +9,13 @@ from peerhub.core.errors import (
     InvalidMutationError,
     StaleRevisionError,
 )
-from peerhub.core.protocol import JsonValue, canonical_json_bytes
+from peerhub.core.protocol import (
+    PROTOCOL_MAJOR,
+    PROTOCOL_MINOR,
+    SCHEMA_VERSION,
+    JsonValue,
+    canonical_json_bytes,
+)
 
 from .contract import (
     EffectOutcome,
@@ -155,9 +161,10 @@ def build_outbox_event(
     receipt: TransitionReceipt,
     *,
     event_id: str,
+    correlation_id: str,
     created_at: int,
 ) -> OutboxEvent:
-    """Return the durable effect intent for a committed plan."""
+    """Return the canonical outbox event for a committed plan."""
 
     if receipt.plan_id != plan.plan_id:
         raise InvalidMutationError(
@@ -177,10 +184,16 @@ def build_outbox_event(
     }
     return OutboxEvent(
         event_id=event_id,
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        correlation_id=correlation_id,
+        occurred_at=created_at,
+        event_kind="governance.effect.requested",
+        payload=payload,
         request_id=plan.request_id,
         transition_receipt_id=receipt.receipt_id,
         topic="governance.effect.requested",
-        payload=payload,
         state=OutboxState.PENDING,
         created_at=created_at,
     )
@@ -201,6 +214,14 @@ def build_effect_receipt(
     if event.state is not OutboxState.CLAIMED:
         raise InvalidMutationError(
             "effect result requires a claimed outbox event"
+        )
+    if event.request_id is None:
+        raise InvalidMutationError(
+            "effect result requires a governance request ID"
+        )
+    if event.transition_receipt_id is None:
+        raise InvalidMutationError(
+            "effect result requires a transition receipt"
         )
     if (
         event.claimed_by != owner_id

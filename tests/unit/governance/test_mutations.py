@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -120,23 +121,19 @@ def test_receipt_outbox_and_effect_receipt_are_derived() -> None:
         plan,
         transition,
         event_id="event-derived",
+        correlation_id="correlation-derived",
         created_at=10,
     )
 
     assert event.state is OutboxState.PENDING
+    assert event.correlation_id == "correlation-derived"
+    assert event.event_kind == "governance.effect.requested"
     assert "next_state" not in event.payload
     assert event.payload["target_revision"] == 1
 
-    claimed = type(event)(
-        event_id=event.event_id,
-        request_id=event.request_id,
-        transition_receipt_id=(
-            event.transition_receipt_id
-        ),
-        topic=event.topic,
-        payload=event.payload,
+    claimed = replace(
+        event,
         state=OutboxState.CLAIMED,
-        created_at=event.created_at,
         claimed_by="owner-unit",
         claim_attempt_id="attempt-unit",
         claimed_at=11,

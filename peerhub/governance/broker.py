@@ -8,6 +8,7 @@ from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
     ExclusiveClaimConflictError,
     IdempotencyPayloadMismatchError,
+    InvalidMutationError,
     RecordNotFoundError,
     StaleRevisionError,
 )
@@ -106,7 +107,7 @@ class GovernanceUnitOfWork(UnitOfWork, Protocol):
         ...
 
     def add_outbox_event(self, event: OutboxEvent) -> None:
-        """Persist a pending outbox event."""
+        """Persist a pending canonical outbox event."""
 
         ...
 
@@ -123,8 +124,9 @@ class GovernanceUnitOfWork(UnitOfWork, Protocol):
         states: tuple[OutboxState, ...],
         *,
         limit: int,
+        governance_only: bool = False,
     ) -> tuple[OutboxEvent, ...]:
-        """Return outbox events in deterministic order."""
+        """Return canonical outbox events in workspace order."""
 
         ...
 
@@ -205,6 +207,20 @@ class GovernanceBroker:
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
 
+    @staticmethod
+    def _require_governance_event(
+        event: OutboxEvent,
+    ) -> None:
+        if (
+            event.request_id is None
+            or event.transition_receipt_id is None
+            or event.topic is None
+        ):
+            raise InvalidMutationError(
+                "governance effect processing requires a "
+                "governance-linked outbox event"
+            )
+
     def submit(
         self,
         request: MutationRequest,
@@ -265,6 +281,7 @@ class GovernanceBroker:
                 plan,
                 receipt,
                 event_id=receipt.outbox_event_id,
+                correlation_id=request.correlation_id,
                 created_at=timestamp,
             )
             target = apply_mutation_plan(
@@ -326,7 +343,7 @@ class GovernanceBroker:
         self,
         event_id: str,
     ) -> OutboxEvent | None:
-        """Return one outbox event."""
+        """Return one canonical outbox event."""
 
         with self._store.unit_of_work() as unit:
             return unit.get_outbox_event(event_id)
@@ -345,7 +362,7 @@ class GovernanceBroker:
         *,
         limit: int = 100,
     ) -> tuple[PendingEffect, ...]:
-        """Discover committed effects without replaying transitions."""
+        """Discover governance effects without replaying transitions."""
 
         if type(limit) is not int or limit < 1:
             raise ValueError("limit must be a positive integer")
@@ -357,11 +374,21 @@ class GovernanceBroker:
                     OutboxState.CLAIMED,
                 ),
                 limit=limit,
+                governance_only=True,
             )
             pending: list[PendingEffect] = []
             for event in events:
-                receipt = unit.get_transition_receipt(
+                self._require_governance_event(event)
+                transition_receipt_id = (
                     event.transition_receipt_id
+                )
+                if transition_receipt_id is None:
+                    raise RuntimeError(
+                        "governance outbox event has no "
+                        "transition receipt"
+                    )
+                receipt = unit.get_transition_receipt(
+                    transition_receipt_id
                 )
                 if receipt is None:
                     raise RuntimeError(
@@ -389,7 +416,7 @@ class GovernanceBroker:
         owner_id: str,
         attempt_id: str,
     ) -> OutboxEvent:
-        """Exclusively claim one pending effect intent."""
+        """Exclusively claim one pending governance effect intent."""
 
         with self._store.unit_of_work() as unit:
             event = unit.get_outbox_event(event_id)
@@ -398,6 +425,7 @@ class GovernanceBroker:
                     "outbox_event",
                     event_id,
                 )
+            self._require_governance_event(event)
 
             if (
                 event.state is OutboxState.CLAIMED
@@ -462,6 +490,7 @@ class GovernanceBroker:
                     "outbox_event",
                     event_id,
                 )
+            self._require_governance_event(event)
             if (
                 event.state is not OutboxState.CLAIMED
                 or event.claimed_by != owner_id

@@ -92,6 +92,8 @@ def test_fault_after_target_write_rolls_back_all_rows(
         )
         assert unit.get_outbox_event("outbox-rollback") is None
 
+    store.close()
+
 
 def test_fault_before_commit_rolls_back_receipt_and_outbox(
     tmp_path: Path,
@@ -123,6 +125,8 @@ def test_fault_before_commit_rolls_back_receipt_and_outbox(
     assert clean.get_target("target-before") is None
     assert clean.recover_pending_effects() == ()
 
+    store.close()
+
 
 def test_broken_partial_commit_probe_is_observable(
     tmp_path: Path,
@@ -147,6 +151,7 @@ def test_broken_partial_commit_probe_is_observable(
         plan,
         receipt,
         event_id="outbox-broken",
+        correlation_id=request.correlation_id,
         created_at=120,
     )
     target = apply_mutation_plan(
@@ -155,10 +160,11 @@ def test_broken_partial_commit_probe_is_observable(
         updated_at=120,
     )
 
-    # This deliberately models the regression: a broken broker commits
-    # the target before writing its receipt and outbox event.
     with store.unit_of_work() as broken_unit:
-        assert broken_unit.compare_and_set_target(None, target)
+        assert broken_unit.compare_and_set_target(
+            None,
+            target,
+        )
         broken_unit.commit()
 
     with store.unit_of_work() as inspection:
@@ -177,3 +183,5 @@ def test_broken_partial_commit_probe_is_observable(
         ids=FakeIdSource([]),
     )
     assert clean.recover_pending_effects() == ()
+
+    store.close()

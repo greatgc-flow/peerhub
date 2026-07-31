@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from peerhub.core.context import PathLayout
+from peerhub.core.protocol import CommandID
 from peerhub.dispatch.contract import (
     LeaseCloseRequest,
     LeaseCreateRequest,
@@ -54,13 +55,16 @@ class TestSessionLeaseKernel(unittest.TestCase):
         self.store.close()
         self.temp_dir.cleanup()
 
-    def _create(self) -> tuple[object, object]:
+    def _create(self):
         request = LeaseCreateRequest(
             session_id="session-kernel-01",
             owner_principal_id="principal-kernel",
             owner_instance_id="inst-01",
             owner_process_birth_identity=self.process_identity,
             heartbeat_timeout_ms=5000,
+            command_id=CommandID("command-kernel-01"),
+            attempt_id="attempt-kernel-01",
+            authority_epoch=1,
         )
         return self.service.create_session_and_lease(
             self.key,
@@ -73,26 +77,37 @@ class TestSessionLeaseKernel(unittest.TestCase):
         binding, lease = self._create()
         self.assertEqual(binding.revision, 1)
         self.assertEqual(lease.state, LeaseState.ACTIVE)
-
-        renew_request = LeaseRenewRequest(
-            lease_id=lease.lease_id,
-            fence=lease.fence,
+        self.assertEqual(
+            lease.fence.command_id,
+            CommandID("command-kernel-01"),
         )
+        self.assertEqual(
+            lease.fence.attempt_id,
+            "attempt-kernel-01",
+        )
+        self.assertEqual(lease.fence.authority_epoch, 1)
+
         renewed = self.service.renew_lease(
-            renew_request,
+            LeaseRenewRequest(
+                lease_id=lease.lease_id,
+                fence=lease.fence,
+            ),
             heartbeat_timeout_ms=5000,
         )
         self.assertEqual(renewed.state, LeaseState.RENEWED)
         self.assertEqual(renewed.fence.revision, 2)
 
-        close_request = LeaseCloseRequest(
-            lease_id=lease.lease_id,
-            fence=renewed.fence,
+        closed = self.service.close_lease(
+            LeaseCloseRequest(
+                lease_id=lease.lease_id,
+                fence=renewed.fence,
+            )
         )
-        closed = self.service.close_lease(close_request)
         self.assertEqual(closed.state, LeaseState.RELEASED)
 
-    def test_session_binding_cas_rejects_stale_snapshot(self) -> None:
+    def test_session_binding_cas_rejects_stale_snapshot(
+        self,
+    ) -> None:
         binding, _ = self._create()
         updated = replace(
             binding,
@@ -103,7 +118,10 @@ class TestSessionLeaseKernel(unittest.TestCase):
 
         with self.store.unit_of_work() as unit:
             self.assertTrue(
-                unit.cas_update_session_binding(binding, updated)
+                unit.cas_update_session_binding(
+                    binding,
+                    updated,
+                )
             )
             unit.commit()
 
@@ -115,7 +133,10 @@ class TestSessionLeaseKernel(unittest.TestCase):
         )
         with self.store.unit_of_work() as unit:
             self.assertFalse(
-                unit.cas_update_session_binding(binding, stale_update)
+                unit.cas_update_session_binding(
+                    binding,
+                    stale_update,
+                )
             )
 
         with self.store.unit_of_work() as unit:
@@ -127,7 +148,7 @@ class TestSessionLeaseKernel(unittest.TestCase):
                 SessionBindingState.STALE,
             )
 
-    def test_recovery_receipt_round_trips_through_production_repository(
+    def test_recovery_receipt_round_trips_through_repository(
         self,
     ) -> None:
         _, lease = self._create()

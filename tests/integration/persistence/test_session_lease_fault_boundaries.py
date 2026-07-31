@@ -1,4 +1,4 @@
-"""Fault-boundary tests using the production SQLite dispatch repository."""
+"""Fault-boundary tests using the production SQLite repository."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from peerhub.core.context import PathLayout
+from peerhub.core.protocol import CommandID
 from peerhub.dispatch.contract import (
     LeaseCreateRequest,
     LeaseState,
@@ -58,16 +59,26 @@ class TestSessionLeaseFaultBoundaries(unittest.TestCase):
         self.store.close()
         self.temp_dir.cleanup()
 
-    def _request(self, session_id: str) -> LeaseCreateRequest:
+    def _request(
+        self,
+        session_id: str,
+    ) -> LeaseCreateRequest:
         return LeaseCreateRequest(
             session_id=session_id,
             owner_principal_id="principal-fault",
             owner_instance_id="inst-fault",
             owner_process_birth_identity=self.process_identity,
             heartbeat_timeout_ms=5000,
+            command_id=CommandID(
+                f"command-{session_id}"
+            ),
+            attempt_id=f"attempt-{session_id}",
+            authority_epoch=1,
         )
 
-    def test_creation_fault_rolls_back_binding_and_lease(self) -> None:
+    def test_creation_fault_rolls_back_binding_and_lease(
+        self,
+    ) -> None:
         fault_service = DispatchService(
             self.store,
             clock=DeterministicClock(start=1000),
@@ -91,7 +102,9 @@ class TestSessionLeaseFaultBoundaries(unittest.TestCase):
             )
             self.assertIsNone(unit.get_lease("lease-1"))
 
-    def test_recovery_fault_rolls_back_lease_and_receipt(self) -> None:
+    def test_recovery_fault_rolls_back_lease_and_receipt(
+        self,
+    ) -> None:
         clean_service = DispatchService(
             self.store,
             clock=DeterministicClock(start=1000),
@@ -132,9 +145,14 @@ class TestSessionLeaseFaultBoundaries(unittest.TestCase):
                 current_lease.state,
                 LeaseState.ACTIVE,
             )
-            self.assertEqual(current_lease.fence.revision, 1)
+            self.assertEqual(
+                current_lease.fence.revision,
+                1,
+            )
             self.assertIsNone(
-                unit.get_recovery_receipt("recovery-receipt-1")
+                unit.get_recovery_receipt(
+                    "recovery-receipt-1"
+                )
             )
 
 

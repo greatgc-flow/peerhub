@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import TracebackType
 
 from .core.context import RuntimeContext
+from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
 from .persistence.sqlite import SqliteStateStore
 
@@ -17,6 +18,7 @@ class Runtime:
     context: RuntimeContext
     state_store: SqliteStateStore
     governance_broker: GovernanceBroker
+    dispatch_service: DispatchService
 
     def close(self) -> None:
         """Release resources owned by this runtime."""
@@ -41,7 +43,7 @@ class Runtime:
 
 
 def create_runtime(context: RuntimeContext) -> Runtime:
-    """Create the Slice 1 runtime from immutable injected dependencies."""
+    """Create the composed Phase 1 runtime."""
 
     state_store = SqliteStateStore(
         context.paths.database_path,
@@ -54,8 +56,14 @@ def create_runtime(context: RuntimeContext) -> Runtime:
         clock=context.clock,
         ids=context.ids,
     )
+    dispatch_service = DispatchService(
+        state_store,
+        clock=context.clock,
+        ids=context.ids,
+    )
     return Runtime(
         context=context,
         state_store=state_store,
         governance_broker=governance_broker,
+        dispatch_service=dispatch_service,
     )
