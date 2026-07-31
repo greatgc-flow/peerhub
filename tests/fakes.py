@@ -40,6 +40,34 @@ class FakeIdSource:
         return self._values.popleft()
 
 
+class DeterministicClock:
+    """Auto-incrementing deterministic clock starting from a fixed value."""
+
+    def __init__(self, start: int = 0) -> None:
+        self._next = start
+
+    def now(self) -> int:
+        """Return the next timestamp, incrementing by one each call."""
+
+        value = self._next
+        self._next += 1
+        return value
+
+
+class SequentialIdSource:
+    """Generate deterministic, namespace-prefixed sequential identifiers."""
+
+    def __init__(self) -> None:
+        self._counters: dict[str, int] = {}
+
+    def new_id(self, namespace: str) -> str:
+        """Return the next sequential identifier for the given namespace."""
+
+        count = self._counters.get(namespace, 0) + 1
+        self._counters[namespace] = count
+        return f"{namespace}-{count}"
+
+
 class RaisingFaultInjector:
     """Raise at exactly one named transaction boundary."""
 

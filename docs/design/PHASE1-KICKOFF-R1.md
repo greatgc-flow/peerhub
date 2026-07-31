@@ -132,12 +132,34 @@ production code -- its tables prove behavior, not final schema. Rename
 outbox/effect-intent terms in production types (cx's Round 2
 qualification).
 
-**Slice 2 (immediately next, not part of this kickoff's authorized
-scope but named for sequencing): SL session/lease kernel**, consuming
-the now-proven persistence engine; adds `core/execution.py`,
+**Slice 2 (SL session/lease kernel)**, consuming the now-proven
+persistence engine; adds `core/execution.py`,
 `dispatch/{contract,model,service}.py`, normalized `instance_id`/
 `owner_principal_id`/`process_birth_identity` types (replacing SL's
 legacy `peer_id` vocabulary), `0002_dispatch_session_lease.sql`.
+
+**Slice 2 authorization addendum (2026-07-31)**: this document originally
+named Slice 2 for sequencing only, explicitly not authorized by this
+kickoff round. The user directed proceeding to Slice 2 the same day.
+Implementation surfaced real defects on first pass (found by
+cx.deepthink's review of ag.deepthink's draft: a session-binding CAS
+with no revision guard -- a genuine concurrent-overwrite race; an
+`ExecutionCertainty` enum violating `PROTOCOL-V1-FREEZE.md`'s
+already-frozen vocabulary, the same recurring mistake class as
+DP-06/CJ/RT-03/HR-03; integration tests silently bypassing the real
+production repository via a test-local duplicate class, which is why
+the CAS bug wasn't caught; a fence-check bypass via an empty
+`owner_peer_id` default; a backwards evidence-certainty mapping in
+lease recovery; and SL-02/RESERVED-state/coordinator-epoch gaps versus
+`ARCHITECTURE.md`'s full §7.2/§7.3 state machines). Presented with the
+findings, the user explicitly chose full rework with honest scope
+narrowing over a partial patch or abandoning the slice. cx.deepthink
+reworked all 6 confirmed issues; cc independently re-verified each
+directly against the live files; ag.deepthink gave a clean final ACK
+after its own independent line-by-line check. 39/39 tests pass. This
+retroactively constitutes Slice 2's authorization, at the human-decision
+altitude the original scope note reserved it for -- not a peer-only ACK
+substituting for that decision.
 
 Full subsequent order (unchanged from `ARCHITECTURE.md` §15, sequencing
 only, each slice its own future authorization checkpoint): GB -> SL ->

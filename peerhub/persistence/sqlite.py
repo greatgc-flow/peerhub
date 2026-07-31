@@ -10,7 +10,21 @@ from types import TracebackType
 from typing import Any
 
 from peerhub.core.errors import WorkspaceIdentityMismatchError
+from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import CommandID, canonical_json_bytes
+from peerhub.dispatch.contract import (
+    LeaseAuthorityCertainty,
+    LeaseFenceTuple,
+    LeaseSnapshot,
+    LeaseState,
+    ProcessBirthIdentity,
+    RecoveryDecision,
+    RecoveryReceipt,
+    RecoveryTrigger,
+    SessionBindingKey,
+    SessionBindingSnapshot,
+    SessionBindingState,
+)
 from peerhub.governance.contract import (
     CommandBinding,
     EffectIntent,
@@ -82,21 +96,27 @@ class SqliteStateStore:
         return self._database_path
 
     def initialize(self) -> None:
-        """Apply Slice 1 schema and bind the workspace identity."""
+        """Apply Slice 1 and Slice 2 schemas and bind the workspace identity."""
 
         self._database_path.parent.mkdir(
             parents=True,
             exist_ok=True,
         )
-        migration = (
+        migration_1 = (
             resources.files("peerhub.persistence.migrations")
             .joinpath("0001_phase1_kernel.sql")
+            .read_text(encoding="utf-8")
+        )
+        migration_2 = (
+            resources.files("peerhub.persistence.migrations")
+            .joinpath("0002_dispatch_session_lease.sql")
             .read_text(encoding="utf-8")
         )
 
         connection = self._connect()
         try:
-            connection.executescript(migration)
+            connection.executescript(migration_1)
+            connection.executescript(migration_2)
             connection.execute("BEGIN IMMEDIATE")
             try:
                 row = connection.execute(
@@ -737,6 +757,378 @@ class SqliteUnitOfWork:
             evidence_refs=_string_tuple(
                 row["evidence_refs_json"]
             ),
+        )
+
+    def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
+        """Return a lease snapshot by ID."""
+
+        row = self._db().execute(
+            """
+            SELECT
+                lease_id,
+                session_id,
+                fencing_token,
+                revision,
+                owner_principal_id,
+                owner_instance_id,
+                owner_process_pid,
+                owner_process_creation_time,
+                owner_peer_id,
+                state,
+                heartbeat_expires_at,
+                created_at,
+                updated_at
+            FROM leases
+            WHERE lease_id = ?
+            """,
+            (lease_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        process_identity = ProcessBirthIdentity(
+            pid=row["owner_process_pid"],
+            process_creation_time=row["owner_process_creation_time"],
+        )
+        fence = LeaseFenceTuple(
+            session_id=row["session_id"],
+            lease_id=row["lease_id"],
+            fencing_token=row["fencing_token"],
+            revision=row["revision"],
+            owner_principal_id=row["owner_principal_id"],
+            owner_instance_id=row["owner_instance_id"],
+            owner_process_birth_identity=process_identity,
+            owner_peer_id=row["owner_peer_id"],
+        )
+        return LeaseSnapshot(
+            lease_id=row["lease_id"],
+            session_id=row["session_id"],
+            fence=fence,
+            state=LeaseState(row["state"]),
+            heartbeat_expires_at=row["heartbeat_expires_at"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def add_lease(self, lease: LeaseSnapshot) -> None:
+        """Insert a new lease snapshot."""
+
+        self._db().execute(
+            """
+            INSERT INTO leases (
+                lease_id,
+                session_id,
+                fencing_token,
+                revision,
+                owner_principal_id,
+                owner_instance_id,
+                owner_process_pid,
+                owner_process_creation_time,
+                owner_peer_id,
+                state,
+                heartbeat_expires_at,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                lease.lease_id,
+                lease.session_id,
+                lease.fence.fencing_token,
+                lease.fence.revision,
+                lease.fence.owner_principal_id,
+                lease.fence.owner_instance_id,
+                lease.fence.owner_process_birth_identity.pid,
+                lease.fence.owner_process_birth_identity.process_creation_time,
+                lease.fence.owner_peer_id,
+                lease.state.value,
+                lease.heartbeat_expires_at,
+                lease.created_at,
+                lease.updated_at,
+            ),
+        )
+
+    def cas_update_lease(
+        self,
+        current: LeaseSnapshot,
+        updated: LeaseSnapshot,
+    ) -> bool:
+        """CAS-update a lease by matching on current revision."""
+
+        cursor = self._db().execute(
+            """
+            UPDATE leases
+            SET
+                fencing_token = ?,
+                revision = ?,
+                state = ?,
+                heartbeat_expires_at = ?,
+                updated_at = ?
+            WHERE lease_id = ? AND revision = ?
+            """,
+            (
+                updated.fence.fencing_token,
+                updated.fence.revision,
+                updated.state.value,
+                updated.heartbeat_expires_at,
+                updated.updated_at,
+                current.lease_id,
+                current.fence.revision,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def get_session_binding(
+        self,
+        key: SessionBindingKey,
+    ) -> SessionBindingSnapshot | None:
+        """Return a session binding snapshot by canonical key."""
+
+        row = self._db().execute(
+            """
+            SELECT
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                conversation_scope,
+                session_id,
+                current_lease_id,
+                adapter_fingerprint,
+                readiness_binding,
+                session_generation,
+                revision,
+                state,
+                updated_at
+            FROM session_bindings
+            WHERE
+                workspace_scope_id = ?
+                AND instance_id = ?
+                AND profile_id = ?
+                AND conversation_scope = ?
+            """,
+            (
+                key.workspace_scope_id,
+                key.instance_id,
+                key.profile_id,
+                key.conversation_scope,
+            ),
+        ).fetchone()
+        if row is None:
+            return None
+        return SessionBindingSnapshot(
+            key=key,
+            session_id=row["session_id"],
+            current_lease_id=row["current_lease_id"],
+            adapter_fingerprint=row["adapter_fingerprint"],
+            readiness_binding=row["readiness_binding"],
+            session_generation=row["session_generation"],
+            revision=row["revision"],
+            state=SessionBindingState(row["state"]),
+            updated_at=row["updated_at"],
+        )
+
+    def add_session_binding(
+        self,
+        binding: SessionBindingSnapshot,
+    ) -> None:
+        """Insert a new session binding."""
+
+        self._db().execute(
+            """
+            INSERT INTO session_bindings (
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                conversation_scope,
+                session_id,
+                current_lease_id,
+                adapter_fingerprint,
+                readiness_binding,
+                session_generation,
+                revision,
+                state,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                binding.key.workspace_scope_id,
+                binding.key.instance_id,
+                binding.key.profile_id,
+                binding.key.conversation_scope,
+                binding.session_id,
+                binding.current_lease_id,
+                binding.adapter_fingerprint,
+                binding.readiness_binding,
+                binding.session_generation,
+                binding.revision,
+                binding.state.value,
+                binding.updated_at,
+            ),
+        )
+
+    def cas_update_session_binding(
+        self,
+        current: SessionBindingSnapshot,
+        updated: SessionBindingSnapshot,
+    ) -> bool:
+        """CAS-update a session binding by key and current revision."""
+
+        cursor = self._db().execute(
+            """
+            UPDATE session_bindings
+            SET
+                current_lease_id = ?,
+                revision = ?,
+                state = ?,
+                updated_at = ?
+            WHERE
+                workspace_scope_id = ?
+                AND instance_id = ?
+                AND profile_id = ?
+                AND conversation_scope = ?
+                AND revision = ?
+            """,
+            (
+                updated.current_lease_id,
+                updated.revision,
+                updated.state.value,
+                updated.updated_at,
+                current.key.workspace_scope_id,
+                current.key.instance_id,
+                current.key.profile_id,
+                current.key.conversation_scope,
+                current.revision,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def add_recovery_receipt(
+        self,
+        receipt: RecoveryReceipt,
+    ) -> None:
+        """Insert an immutable recovery receipt."""
+
+        self._db().execute(
+            """
+            INSERT INTO recovery_receipts (
+                recovery_receipt_id,
+                session_id,
+                lease_id,
+                detected_at,
+                recovery_actor_principal_id,
+                trigger,
+                mismatch_dimensions_json,
+                evidence_digest,
+                policy_id,
+                policy_revision,
+                decision,
+                certainty_before_policy,
+                certainty_after_policy,
+                external_effect_certainty,
+                pre_lifecycle_state,
+                pre_revision,
+                pre_fencing_token,
+                post_lifecycle_state,
+                post_revision,
+                post_fencing_token
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                receipt.recovery_receipt_id,
+                receipt.session_id,
+                receipt.lease_id,
+                receipt.detected_at,
+                receipt.recovery_actor_principal_id,
+                receipt.trigger.value,
+                _json_text(list(receipt.mismatch_dimensions)),
+                receipt.evidence_digest,
+                receipt.policy_id,
+                receipt.policy_revision,
+                receipt.decision.value,
+                receipt.certainty_before_policy.value,
+                receipt.certainty_after_policy.value,
+                (
+                    receipt.external_effect_certainty.value
+                    if receipt.external_effect_certainty
+                    else None
+                ),
+                receipt.pre_lifecycle_state.value,
+                receipt.pre_revision,
+                receipt.pre_fencing_token,
+                receipt.post_lifecycle_state.value,
+                receipt.post_revision,
+                receipt.post_fencing_token,
+            ),
+        )
+
+    def get_recovery_receipt(
+        self,
+        receipt_id: str,
+    ) -> RecoveryReceipt | None:
+        """Return a recovery receipt by ID."""
+
+        row = self._db().execute(
+            """
+            SELECT
+                recovery_receipt_id,
+                session_id,
+                lease_id,
+                detected_at,
+                recovery_actor_principal_id,
+                trigger,
+                mismatch_dimensions_json,
+                evidence_digest,
+                policy_id,
+                policy_revision,
+                decision,
+                certainty_before_policy,
+                certainty_after_policy,
+                external_effect_certainty,
+                pre_lifecycle_state,
+                pre_revision,
+                pre_fencing_token,
+                post_lifecycle_state,
+                post_revision,
+                post_fencing_token
+            FROM recovery_receipts
+            WHERE recovery_receipt_id = ?
+            """,
+            (receipt_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        raw_effect_certainty = row["external_effect_certainty"]
+        effect_certainty = (
+            ExecutionCertainty(raw_effect_certainty)
+            if raw_effect_certainty
+            else None
+        )
+        return RecoveryReceipt(
+            recovery_receipt_id=row["recovery_receipt_id"],
+            session_id=row["session_id"],
+            lease_id=row["lease_id"],
+            detected_at=row["detected_at"],
+            recovery_actor_principal_id=row["recovery_actor_principal_id"],
+            trigger=RecoveryTrigger(row["trigger"]),
+            mismatch_dimensions=_string_tuple(
+                row["mismatch_dimensions_json"]
+            ),
+            evidence_digest=row["evidence_digest"],
+            policy_id=row["policy_id"],
+            policy_revision=row["policy_revision"],
+            decision=RecoveryDecision(row["decision"]),
+            certainty_before_policy=LeaseAuthorityCertainty(
+                row["certainty_before_policy"]
+            ),
+            certainty_after_policy=LeaseAuthorityCertainty(
+                row["certainty_after_policy"]
+            ),
+            external_effect_certainty=effect_certainty,
+            pre_lifecycle_state=LeaseState(row["pre_lifecycle_state"]),
+            pre_revision=row["pre_revision"],
+            pre_fencing_token=row["pre_fencing_token"],
+            post_lifecycle_state=LeaseState(row["post_lifecycle_state"]),
+            post_revision=row["post_revision"],
+            post_fencing_token=row["post_fencing_token"],
         )
 
     def _db(self) -> sqlite3.Connection:
