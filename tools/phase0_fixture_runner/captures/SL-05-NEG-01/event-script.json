@@ -44,7 +44,11 @@
         "asserted_peer_id": "ag",
         "authenticated_principal_id": "principal-cx",
         "instance_id": "instance-ag-05",
-        "process_birth_identity": "birth-ag-500"
+        "process_birth_identity": "birth-ag-500",
+        "asserted_session_id": "session-SL-05",
+        "asserted_lease_id": "lease-SL-05",
+        "asserted_fencing_token": 31,
+        "asserted_revision": 12
       }
     }
   }

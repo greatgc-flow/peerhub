@@ -2,7 +2,8 @@
   "schema_version": "1.0",
   "purpose": "Machine-readable evidence-status overlay for all Phase 0 fixture IDs. It does not alter historical capture records.",
   "canonical_status_vocabulary": ["LEGACY_CAPTURE", "V1_SPEC_ONLY", "V1_CAPTURE", "BLOCKED_LIVE_CAPTURE"],
-  "v1_capture_status": "NOT_CAPTURED",
+  "v1_capture_status": "V1_CAPTURE_COMPLETE",
+  "v1_capture_status_note": "Stale as 'NOT_CAPTURED' until 2026-07-31 (flagged by cx.deepthink during the final closure ratification round, cc confirmed and fixed): this top-level summary field was never updated as fixtures were promoted to V1_CAPTURE over the course of Phase 0, even after all 54 fixtures reached that status. All 54 fixtures.<fixtures>.evidence_status are the authoritative per-ID source of truth and were never wrong; only this top-level summary field was stale.",
   "fixture_count": 54,
   "fixtures": {
     "DP-01": {"evidence_status": "V1_CAPTURE", "legacy_v1_gap": true, "phase0_exit_eligible": false, "coverage_scope": "SPEC_FAITHFUL", "note": "process/protocol/completion layers separately recorded is a CANDIDATE-tier proposed shape (legacy has no protocol-layer receipt at all, per blocker LEGACY-DP01-PROTOCOL-LAYER-01) -- not extracted from legacy observation, a net-new design"},

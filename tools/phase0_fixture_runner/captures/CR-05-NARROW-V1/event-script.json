@@ -1,0 +1,25 @@
+{
+  "schema_version": 2,
+  "clock": [2100, 2101],
+  "ids": ["run-CR-05-r2", "event-CR-05-01", "event-CR-05-02"],
+  "events": [
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-05", "payload": {"proof_id": "CR-05"}},
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-05", "payload": {"proof_id": "CR-05"}}
+  ],
+  "expect": {"terminal_classification": "IDEMPOTENCY_HIT", "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"], "effect_certainty": "NOT_STARTED", "execution_outcome": "SUCCEEDED"},
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CR-05",
+    "oracle_id": "coordination_room.cr05.owner_heartbeat",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "OWNER_HEARTBEAT",
+      "facts": {
+        "lease_id": "term-lease-af4fd630239e",
+        "assigned_peer": "ag",
+        "heartbeat_peer": "ag",
+        "lease_open": true
+      }
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CR-05-NEG-01","inputs":{"case_kind":"OWNER_HEARTBEAT","facts":{"assigned_peer":"ag","heartbeat_peer":"cx","lease_id":"term-lease-af4fd630239e","lease_open":true}},"oracle_id":"coordination_room.cr05.owner_heartbeat","oracle_version":1,"schema_version":1}

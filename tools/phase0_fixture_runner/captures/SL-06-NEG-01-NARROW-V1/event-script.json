@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "clock": [2650, 2651],
+  "ids": ["run-SL-06-NEG-01-r2", "event-SL-06-NEG-01-01", "event-SL-06-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-06-NEG-01",
+      "payload": {"proof_id": "SL-06-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-06-NEG-01",
+      "payload": {"proof_id": "SL-06-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "SL-06-NEG-01",
+    "oracle_id": "session_lease.sl06.recovery_receipt",
+    "oracle_version": 1,
+    "inputs": {
+      "session_id": "session-SL-06",
+      "lease_id": "lease-SL-06",
+      "recovery_actor_principal_id": "principal-recovery",
+      "trigger": "PROCESS_BIRTH_MISMATCH",
+      "policy_id": "session-lease-recovery-v1",
+      "decision": "FENCE_AND_CLOSE",
+      "certainty_before_policy": "PRIOR_HOLDER_UNVERIFIED",
+      "certainty_after_policy": "FENCED_FOR_FUTURE_WRITES",
+      "pre_lifecycle_state": "ACTIVE",
+      "pre_revision": 8,
+      "pre_fencing_token": 40,
+      "post_lifecycle_state": "CLOSED",
+      "post_revision": 9,
+      "post_fencing_token": 41
+    }
+  }
+}

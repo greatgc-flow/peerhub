@@ -1,11 +1,18 @@
 # TDD Readiness Gate Closure R1
 
-Status: proposed closure record for `TDD-READINESS-GATE-R1.md`'s condition 6
-("A new ratification round binds protocol, authority, fixture, and
-dependency hashes without rewriting historical frozen documents"). Produced
-by cc's direct verification of conditions 1-5 against the actual repository
-state (2026-07-30), pending ag.deepthink + cx.deepthink + cc.fable review.
-Rewrites no historical frozen document; binds hashes only.
+Status: RATIFIED (2026-07-30) closure record for `TDD-READINESS-GATE-R1.md`'s
+condition 6 ("A new ratification round binds protocol, authority, fixture,
+and dependency hashes without rewriting historical frozen documents").
+Produced by cc's direct verification of conditions 1-5 against the actual
+repository state, then reviewed by ag.deepthink, cx.deepthink, and an
+independent Fable-5 review (see Disposition below and
+`RATIFICATION-PROVENANCE-INDEX-R1.md`'s `session-2026-07-30-gate-closure-track`
+row) -- all three completed, cx's review caught and corrected three real
+inaccuracies before ACK. Rewrites no historical frozen document; binds
+hashes only. (Status line corrected 2026-07-31 -- previously stale as
+"proposed... pending review" even though the review below had already
+completed; flagged by cx.deepthink during the final closure ratification
+round.)
 
 ## Per-condition verification
 
@@ -151,8 +158,13 @@ the new row is an additive supersession, not a replacement.
 
 ## Disposition
 
-Pending: unanimous ACK from ag.deepthink, cx.deepthink, and an independent
-cc.fable review (per the standing collaboration protocol for
-final-Phase-0-scope ratification rounds), each verifying the per-condition
-claims above against the actual repository state rather than taking this
-document's claims on faith.
+RATIFIED: unanimous ACK obtained from ag.deepthink, cx.deepthink, and an
+independent cc.fable review (per the standing collaboration protocol for
+final-Phase-0-scope ratification rounds), each having verified the
+per-condition claims above against the actual repository state rather
+than taking this document's claims on faith. cx.deepthink's review
+caught three real inaccuracies in the first draft (see the
+"cx.deepthink's independent review caught three real inaccuracies"
+passage above); all were corrected and re-verified line-by-line by both
+ag.deepthink and cx.deepthink before this disposition was recorded as
+final.

@@ -1,0 +1,1 @@
+{"fixture_id":"CR-06-NEG-01","oracle_id":"coordination_room.cr06.serialized_retirement","oracle_version":1,"output":{"decision":"SERIALIZED_TRANSITION","details":{"active_ids":["handoff-active-a"],"retired_history_ids":["handoff-retired-01"],"serialized_transition":true},"rule_tier":"OBS"},"schema_version":1}

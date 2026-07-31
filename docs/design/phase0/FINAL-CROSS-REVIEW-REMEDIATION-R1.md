@@ -204,3 +204,76 @@ document's own hash-binding section citing an outdated hash) -- zero
 issues found in the actual committed code or fixtures across either
 review. This remediation is folded into
 `RATIFICATION-PROVENANCE-INDEX-R1.md` as its own closing row below.
+
+## Addendum (2026-07-31): stale generated-capture-record defect, found and fixed
+
+A separate unlimited final closure ratification round (dispatched to
+decide whether to freeze Phase 0 at this state) found a real,
+freeze-blocking defect that every prior round in this document missed:
+`tools/phase0_fixture_runner/captures/<ID>/` holds the actual generated
+V1_CAPTURE evidence (`event-script.json`, `fixture-record.json`, etc.)
+for every fixture -- a directory distinct from
+`docs/design/phase0/fixtures/captures/`, which holds only flat, immutable
+legacy OBS-tier records. Every code/fixture fix in this remediation
+(SL-01, SL-04/05/06, CR-05/06, HR-03 -- 7 base IDs, 14 with their NEG-01
+pairs) updated `tools/phase0_fixture_runner/fixtures/*.json` and verified
+via the live test suite (which regenerates fresh output in temp
+directories on every run), but never regenerated the PERSISTED capture
+directories -- so the checked-in canonical evidence for all 14 of those
+fixtures still reflected the pre-fix scripts and outputs, while
+`fixture-status-v1.json` claimed `SPEC_FAITHFUL` for all of them.
+
+Found by cx.deepthink (a repository-wide script-hash comparison between
+`fixtures/*.json` and each `captures/<ID>/event-script.json`), verified
+directly by cc (confirmed `captures/CR-06/event-script.json` still had
+`winning_active_id` instead of `contender_fencing_tokens`). ag.deepthink
+independently reviewed 5 unrelated fixtures and found no equivalent
+issue in them, but did not itself catch this specific defect in its own
+first-pass review -- the repository-wide script-hash comparison cx ran is
+what surfaced it.
+
+**Fix**: all 14 stale capture directories preserved under `-NARROW-V1`
+(matching the established pattern from the RT-03/HR-03/CJ fixes earlier
+in this remediation, which correctly did this), then regenerated fresh
+via `run_fixture.py` from the current fixture scripts. All 7 positives
+now show `V1_CAPTURE`/`SPEC_FAITHFUL`/`PASS`; all 7 negatives show
+`DOMAIN_ASSERTION_FAILED`/`FAIL`; every regenerated `event-script.json`
+is now byte-identical to its source `fixtures/*.json` (spot-verified for
+CR-06 directly).
+
+**Also fixed in the same pass** (all found by cx in the same round):
+- `fixture-status-v1.json`'s top-level `v1_capture_status` field was
+  stale at `"NOT_CAPTURED"` despite all 54 per-ID entries correctly
+  showing `V1_CAPTURE` -- corrected to `V1_CAPTURE_COMPLETE` with an
+  explanatory note; per-ID entries were never wrong.
+- `RATIFICATION-PROVENANCE-INDEX-R1.md`'s top-level "Status: proposed"
+  line and `TDD-READINESS-GATE-CLOSURE-R1.md`'s "Status: proposed... /
+  Disposition: pending" language both predated the ACK rounds those same
+  documents go on to describe as completed -- corrected to reflect
+  actual ratified/completed status.
+- `source-evidence-manifest-v1.json` extended (schema v1 -> v2) to also
+  cover `runner.py`/`run_fixture.py` and every generated
+  `fixture-record.json` under `tools/phase0_fixture_runner/captures/`
+  (259 records) -- v1 only covered domain/test/fixture/legacy-capture
+  source, never the actual generated evidence or the entry points that
+  produce it, which is exactly the class of gap this round found.
+
+**Not fixed, named as remaining backlog rather than silently dropped**
+(cx's findings, not independently re-verified item-by-item by cc beyond
+confirming they are real open items in the cited files): the
+"Finalized design decisions" table in `RATIFICATION-PROVENANCE-INDEX-R1.md`
+interleaves prose notes between table rows, which some renderers may
+show as multiple separate tables rather than one continuous table
+(cosmetic, not a content error); the index still names the static
+90-action inventory ratification and action-fixture linkage as
+unresolved (lines ~239-244 of that file); `authority-proof-status-v1.json`
+records unratified public error codes, safe-abort classification,
+rollback vocabulary, and real-OS integration as open items. All were
+already known open items, not newly discovered defects, but were missing
+from the "here is the complete deferred backlog" framing this round used
+when proposing the freeze -- named explicitly now so the freeze decision
+is made with the complete list in view.
+
+ag.deepthink and cx.deepthink both re-reviewed after these fixes; see
+`RATIFICATION-PROVENANCE-INDEX-R1.md`'s `session-2026-07-31-final-closure-track`
+row for the outcome.

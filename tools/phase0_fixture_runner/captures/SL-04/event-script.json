@@ -48,7 +48,13 @@
         "fencing_token": 20,
         "revision": 8
       },
-      "renew_target_lease_id": "lease-SL-04-A"
+      "renew_target_lease_id": "lease-SL-04-A",
+      "close_target_lease_id": "lease-SL-04-B",
+      "stale_cas": {
+        "target_lease_id": "lease-SL-04-A",
+        "fencing_token": 10,
+        "revision": 4
+      }
     }
   }
 }

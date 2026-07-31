@@ -1,0 +1,51 @@
+{
+  "schema_version": 2,
+  "clock": [2640, 2641],
+  "ids": ["run-SL-05-NEG-01-r2", "event-SL-05-NEG-01-01", "event-SL-05-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-05-NEG-01",
+      "payload": {"proof_id": "SL-05-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-05-NEG-01",
+      "payload": {"proof_id": "SL-05-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "SL-05-NEG-01",
+    "oracle_id": "session_lease.sl05.owner_fence",
+    "oracle_version": 1,
+    "inputs": {
+      "session_id": "session-SL-05",
+      "lease_id": "lease-SL-05",
+      "persisted": {
+        "owner_peer_id": "ag",
+        "owner_principal_id": "principal-ag",
+        "owner_instance_id": "instance-ag-05",
+        "owner_process_birth_identity": "birth-ag-500",
+        "fencing_token": 31,
+        "revision": 12
+      },
+      "requester": {
+        "asserted_peer_id": "ag",
+        "authenticated_principal_id": "principal-cx",
+        "instance_id": "instance-ag-05",
+        "process_birth_identity": "birth-ag-500"
+      }
+    }
+  }
+}

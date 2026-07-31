@@ -17,7 +17,10 @@
       "facts": {
         "retired_history_ids": ["handoff-retired-01"],
         "contender_active_ids": ["handoff-active-a", "handoff-active-b"],
-        "winning_active_id": "handoff-active-a"
+        "contender_fencing_tokens": {
+          "handoff-active-a": 12,
+          "handoff-active-b": 11
+        }
       }
     }
   }
