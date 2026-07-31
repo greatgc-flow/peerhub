@@ -113,6 +113,26 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                     "check_usage_admission",
                 ],
                 "forbidden_stages_present": [],
+                "policy_action": {
+                    "scope": "root",
+                    "subject": "adapter-root",
+                    "circuit_state": "CIRCUIT_OPEN",
+                    "quarantine_authority_class": (
+                        "AUTOMATIC"
+                    ),
+                    "receipt": {
+                        "incident": (
+                            "incident-HR-03-"
+                            "executable-unavailable"
+                        ),
+                        "gate_generation": 1,
+                        "timestamp": 2720,
+                        "fingerprint": (
+                            "fingerprint-executable-"
+                            "unavailable"
+                        ),
+                    },
+                },
             },
             {
                 "scenario_id": (
@@ -143,6 +163,26 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                     "check_usage_admission",
                 ],
                 "forbidden_stages_present": [],
+                "policy_action": {
+                    "scope": "environment",
+                    "subject": "env-sandbox-v1",
+                    "circuit_state": "CIRCUIT_OPEN",
+                    "quarantine_authority_class": (
+                        "AUTOMATIC"
+                    ),
+                    "receipt": {
+                        "incident": (
+                            "incident-HR-03-"
+                            "environment-unavailable"
+                        ),
+                        "gate_generation": 1,
+                        "timestamp": 2720,
+                        "fingerprint": (
+                            "fingerprint-environment-"
+                            "unavailable"
+                        ),
+                    },
+                },
             },
             {
                 "scenario_id": "auth-unavailable",
@@ -172,6 +212,26 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                     "check_usage_admission",
                 ],
                 "forbidden_stages_present": [],
+                "policy_action": {
+                    "scope": "root",
+                    "subject": "auth-root",
+                    "circuit_state": "CIRCUIT_OPEN",
+                    "quarantine_authority_class": (
+                        "AUTOMATIC"
+                    ),
+                    "receipt": {
+                        "incident": (
+                            "incident-HR-03-"
+                            "auth-unavailable"
+                        ),
+                        "gate_generation": 1,
+                        "timestamp": 2720,
+                        "fingerprint": (
+                            "fingerprint-auth-"
+                            "unavailable"
+                        ),
+                    },
+                },
             },
             {
                 "scenario_id": (
@@ -210,6 +270,26 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                     "check_usage_admission",
                 ],
                 "forbidden_stages_present": [],
+                "policy_action": {
+                    "scope": "root",
+                    "subject": "net-transport-main",
+                    "circuit_state": "CIRCUIT_OPEN",
+                    "quarantine_authority_class": (
+                        "AUTOMATIC"
+                    ),
+                    "receipt": {
+                        "incident": (
+                            "incident-HR-03-"
+                            "network-unavailable"
+                        ),
+                        "gate_generation": 1,
+                        "timestamp": 2720,
+                        "fingerprint": (
+                            "fingerprint-network-"
+                            "unavailable"
+                        ),
+                    },
+                },
             },
             {
                 "scenario_id": (
@@ -251,6 +331,26 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                     "check_usage_admission"
                 ],
                 "forbidden_stages_present": [],
+                "policy_action": {
+                    "scope": "profile",
+                    "subject": "ag.gptoss",
+                    "circuit_state": "CIRCUIT_OPEN",
+                    "quarantine_authority_class": (
+                        "AUTOMATIC"
+                    ),
+                    "receipt": {
+                        "incident": (
+                            "incident-HR-03-"
+                            "provider-unavailable"
+                        ),
+                        "gate_generation": 1,
+                        "timestamp": 2720,
+                        "fingerprint": (
+                            "fingerprint-provider-"
+                            "unavailable"
+                        ),
+                    },
+                },
             },
             {
                 "scenario_id": "quota-exhausted",
@@ -292,6 +392,26 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                 ],
                 "forbidden_downstream_stages": [],
                 "forbidden_stages_present": [],
+                "policy_action": {
+                    "scope": "quota_family",
+                    "subject": "family-gemini",
+                    "circuit_state": "CIRCUIT_OPEN",
+                    "quarantine_authority_class": (
+                        "AUTOMATIC"
+                    ),
+                    "receipt": {
+                        "incident": (
+                            "incident-HR-03-"
+                            "quota-exhausted"
+                        ),
+                        "gate_generation": 1,
+                        "timestamp": 2720,
+                        "fingerprint": (
+                            "fingerprint-quota-"
+                            "exhausted"
+                        ),
+                    },
+                },
             },
             {
                 "scenario_id": "rate-limited",
@@ -333,6 +453,7 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                 ],
                 "forbidden_downstream_stages": [],
                 "forbidden_stages_present": [],
+                "policy_action": None,
             },
             {
                 "scenario_id": (
@@ -828,6 +949,104 @@ class HealthRecoveryDomainTests(unittest.TestCase):
                     (second_root / name).read_bytes(),
                     name,
                 )
+
+    def test_hr03_policy_action_scope_follows_evidence_subject(
+        self,
+    ) -> None:
+        """HR-03's policy_action scope must come from the
+        fact-injected evidence_subject, never a hardcoded
+        classification -> scope lookup. Feed a scenario shaped like
+        `executable-unavailable` but with evidence_subject.scope
+        deliberately set to `profile` (not the fixture's usual
+        `root`) and confirm both independent derivations honor the
+        injected fact rather than a hardcoded value.
+        """
+
+        scenario = {
+            "scenario_id": (
+                "executable-unavailable"
+            ),
+            "attempted_stages": [
+                {
+                    "stage": "resolve_executable",
+                    "stage_status": "FAILED",
+                }
+            ],
+            "evidence_subject": {
+                "scope": "profile",
+                "subject": "not-actually-root",
+            },
+            "policy_receipt": {
+                "incident": "incident-test",
+                "gate_generation": 3,
+                "timestamp": 999,
+                "fingerprint": "fingerprint-test",
+            },
+        }
+
+        oracle_action = (
+            health_recovery._derived_policy_action(
+                scenario
+            )
+        )
+        subject_action = (
+            health_recovery._subject_policy_action(
+                scenario
+            )
+        )
+
+        for action in (oracle_action, subject_action):
+            self.assertEqual(
+                action["scope"], "profile"
+            )
+            self.assertEqual(
+                action["subject"],
+                "not-actually-root",
+            )
+            self.assertEqual(
+                action["circuit_state"],
+                "CIRCUIT_OPEN",
+            )
+            self.assertEqual(
+                action["quarantine_authority_class"],
+                "AUTOMATIC",
+            )
+            self.assertEqual(
+                action["receipt"]["gate_generation"],
+                3,
+            )
+
+        self.assertEqual(
+            oracle_action, subject_action
+        )
+
+    def test_hr03_policy_action_null_for_admission_only(
+        self,
+    ) -> None:
+        scenario = {
+            "scenario_id": "rate-limited",
+            "attempted_stages": [
+                {
+                    "stage": "check_usage_admission",
+                    "stage_status": "FAILED",
+                }
+            ],
+            "usage_failure_reason": (
+                "RATE_LIMITED"
+            ),
+            "admission_only": True,
+        }
+
+        self.assertIsNone(
+            health_recovery._derived_policy_action(
+                scenario
+            )
+        )
+        self.assertIsNone(
+            health_recovery._subject_policy_action(
+                scenario
+            )
+        )
 
 
 if __name__ == "__main__":

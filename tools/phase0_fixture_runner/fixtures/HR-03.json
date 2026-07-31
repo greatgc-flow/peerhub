@@ -28,21 +28,35 @@
     "contract_version": 1,
     "fixture_id": "HR-03",
     "oracle_id": "health_recovery.hr03.measured_failure_matrix",
-    "oracle_version": 1,
+    "oracle_version": 2,
     "inputs": {
       "scenarios": [
         {
           "scenario_id": "executable-unavailable",
           "attempted_stages": [
             {"stage": "resolve_executable", "stage_status": "FAILED"}
-          ]
+          ],
+          "evidence_subject": {"scope": "root", "subject": "adapter-root"},
+          "policy_receipt": {
+            "incident": "incident-HR-03-executable-unavailable",
+            "gate_generation": 1,
+            "timestamp": 2720,
+            "fingerprint": "fingerprint-executable-unavailable"
+          }
         },
         {
           "scenario_id": "environment-unavailable",
           "attempted_stages": [
             {"stage": "resolve_executable", "stage_status": "OK"},
             {"stage": "validate_environment", "stage_status": "FAILED"}
-          ]
+          ],
+          "evidence_subject": {"scope": "environment", "subject": "env-sandbox-v1"},
+          "policy_receipt": {
+            "incident": "incident-HR-03-environment-unavailable",
+            "gate_generation": 1,
+            "timestamp": 2720,
+            "fingerprint": "fingerprint-environment-unavailable"
+          }
         },
         {
           "scenario_id": "auth-unavailable",
@@ -50,7 +64,14 @@
             {"stage": "resolve_executable", "stage_status": "OK"},
             {"stage": "validate_environment", "stage_status": "OK"},
             {"stage": "authenticate", "stage_status": "FAILED"}
-          ]
+          ],
+          "evidence_subject": {"scope": "root", "subject": "auth-root"},
+          "policy_receipt": {
+            "incident": "incident-HR-03-auth-unavailable",
+            "gate_generation": 1,
+            "timestamp": 2720,
+            "fingerprint": "fingerprint-auth-unavailable"
+          }
         },
         {
           "scenario_id": "network-unavailable",
@@ -59,7 +80,14 @@
             {"stage": "validate_environment", "stage_status": "OK"},
             {"stage": "authenticate", "stage_status": "OK"},
             {"stage": "connect_network", "stage_status": "FAILED"}
-          ]
+          ],
+          "evidence_subject": {"scope": "root", "subject": "net-transport-main"},
+          "policy_receipt": {
+            "incident": "incident-HR-03-network-unavailable",
+            "gate_generation": 1,
+            "timestamp": 2720,
+            "fingerprint": "fingerprint-network-unavailable"
+          }
         },
         {
           "scenario_id": "provider-unavailable",
@@ -69,7 +97,15 @@
             {"stage": "authenticate", "stage_status": "OK"},
             {"stage": "connect_network", "stage_status": "OK"},
             {"stage": "call_provider", "stage_status": "FAILED"}
-          ]
+          ],
+          "evidence_subject": {"scope": "profile", "subject": "ag.gptoss"},
+          "policy_receipt": {
+            "incident": "incident-HR-03-provider-unavailable",
+            "gate_generation": 1,
+            "timestamp": 2720,
+            "fingerprint": "fingerprint-provider-unavailable"
+          },
+          "http_status": 500
         },
         {
           "scenario_id": "quota-exhausted",
@@ -81,7 +117,15 @@
             {"stage": "call_provider", "stage_status": "OK"},
             {"stage": "check_usage_admission", "stage_status": "FAILED"}
           ],
-          "usage_failure_reason": "QUOTA_EXHAUSTED"
+          "usage_failure_reason": "QUOTA_EXHAUSTED",
+          "evidence_subject": {"scope": "quota_family", "subject": "family-gemini"},
+          "policy_receipt": {
+            "incident": "incident-HR-03-quota-exhausted",
+            "gate_generation": 1,
+            "timestamp": 2720,
+            "fingerprint": "fingerprint-quota-exhausted"
+          },
+          "verified_family_evidence": true
         },
         {
           "scenario_id": "rate-limited",
@@ -93,7 +137,8 @@
             {"stage": "call_provider", "stage_status": "OK"},
             {"stage": "check_usage_admission", "stage_status": "FAILED"}
           ],
-          "usage_failure_reason": "RATE_LIMITED"
+          "usage_failure_reason": "RATE_LIMITED",
+          "admission_only": true
         },
         {
           "scenario_id": "legacy-operational-timeout",

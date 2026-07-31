@@ -427,6 +427,79 @@ def _validate_attempted_stage(
     }
 
 
+_POLICY_SCOPES = frozenset(
+    {
+        "root",
+        "profile",
+        "quota_family",
+        "environment",
+    }
+)
+
+
+def _validate_evidence_subject(
+    value: Any,
+    path: str,
+) -> dict[str, Any]:
+    subject = require_mapping(value, path)
+    require_exact_fields(
+        subject,
+        {
+            "scope",
+            "subject",
+        },
+        path=path,
+    )
+    return {
+        "scope": _require_input_enum(
+            subject["scope"],
+            _POLICY_SCOPES,
+            f"{path}.scope",
+        ),
+        "subject": require_string(
+            subject["subject"],
+            f"{path}.subject",
+        ),
+    }
+
+
+def _validate_policy_receipt(
+    value: Any,
+    path: str,
+) -> dict[str, Any]:
+    receipt = require_mapping(value, path)
+    require_exact_fields(
+        receipt,
+        {
+            "incident",
+            "gate_generation",
+            "timestamp",
+            "fingerprint",
+        },
+        path=path,
+    )
+    return {
+        "incident": require_string(
+            receipt["incident"],
+            f"{path}.incident",
+        ),
+        "gate_generation": (
+            require_nonnegative_int(
+                receipt["gate_generation"],
+                f"{path}.gate_generation",
+            )
+        ),
+        "timestamp": require_nonnegative_int(
+            receipt["timestamp"],
+            f"{path}.timestamp",
+        ),
+        "fingerprint": require_string(
+            receipt["fingerprint"],
+            f"{path}.fingerprint",
+        ),
+    }
+
+
 def _validate_nonlegacy_scenario(
     value: Any,
     path: str,
@@ -449,6 +522,26 @@ def _validate_nonlegacy_scenario(
         required_fields.add(
             "usage_failure_reason"
         )
+
+    if scenario_id == "rate-limited":
+        required_fields.add(
+            "admission_only"
+        )
+    else:
+        required_fields.add(
+            "evidence_subject"
+        )
+        required_fields.add(
+            "policy_receipt"
+        )
+        if scenario_id == "provider-unavailable":
+            required_fields.add(
+                "http_status"
+            )
+        elif scenario_id == "quota-exhausted":
+            required_fields.add(
+                "verified_family_evidence"
+            )
 
     require_exact_fields(
         scenario,
@@ -599,6 +692,102 @@ def _validate_nonlegacy_scenario(
         validated[
             "usage_failure_reason"
         ] = usage_failure_reason
+
+    if scenario_id == "rate-limited":
+        admission_only = require_bool(
+            scenario["admission_only"],
+            f"{path}.admission_only",
+        )
+        if not admission_only:
+            raise DomainContractError(
+                "DOMAIN_INPUT_INVALID",
+                (
+                    f"{path}.admission_only must be "
+                    "true for the rate-limited row"
+                ),
+            )
+        validated["admission_only"] = True
+    else:
+        evidence_subject = (
+            _validate_evidence_subject(
+                scenario["evidence_subject"],
+                f"{path}.evidence_subject",
+            )
+        )
+        expected_scope = {
+            "executable-unavailable": "root",
+            "environment-unavailable": (
+                "environment"
+            ),
+            "auth-unavailable": "root",
+            "network-unavailable": "root",
+            "provider-unavailable": "profile",
+            "quota-exhausted": "quota_family",
+        }[scenario_id]
+        if (
+            evidence_subject["scope"]
+            != expected_scope
+        ):
+            raise DomainContractError(
+                "DOMAIN_INPUT_INVALID",
+                (
+                    f"{path}.evidence_subject.scope "
+                    f"must be {expected_scope} for "
+                    f"{scenario_id}"
+                ),
+            )
+        validated[
+            "evidence_subject"
+        ] = evidence_subject
+        validated[
+            "policy_receipt"
+        ] = _validate_policy_receipt(
+            scenario["policy_receipt"],
+            f"{path}.policy_receipt",
+        )
+
+        if scenario_id == "provider-unavailable":
+            http_status = (
+                require_nonnegative_int(
+                    scenario["http_status"],
+                    f"{path}.http_status",
+                )
+            )
+            if http_status != 500:
+                raise DomainContractError(
+                    "DOMAIN_INPUT_INVALID",
+                    (
+                        f"{path}.http_status must be "
+                        "500 for the generic-failure "
+                        "provider-unavailable row"
+                    ),
+                )
+            validated[
+                "http_status"
+            ] = http_status
+        elif scenario_id == "quota-exhausted":
+            verified = require_bool(
+                scenario[
+                    "verified_family_evidence"
+                ],
+                (
+                    f"{path}."
+                    "verified_family_evidence"
+                ),
+            )
+            if not verified:
+                raise DomainContractError(
+                    "DOMAIN_INPUT_INVALID",
+                    (
+                        f"{path}."
+                        "verified_family_evidence "
+                        "must be true"
+                    ),
+                )
+            validated[
+                "verified_family_evidence"
+            ] = True
+
     return validated
 
 
@@ -1004,6 +1193,96 @@ def _validate_attempted_trace_row(
     }
 
 
+def _validate_policy_action(
+    value: Any,
+    path: str,
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+
+    action = require_mapping(value, path)
+    require_exact_fields(
+        action,
+        {
+            "scope",
+            "subject",
+            "circuit_state",
+            "quarantine_authority_class",
+            "receipt",
+        },
+        path=path,
+    )
+
+    receipt = require_mapping(
+        action["receipt"],
+        f"{path}.receipt",
+    )
+    require_exact_fields(
+        receipt,
+        {
+            "incident",
+            "gate_generation",
+            "timestamp",
+            "fingerprint",
+        },
+        path=f"{path}.receipt",
+    )
+
+    return {
+        "scope": _require_output_enum(
+            action["scope"],
+            _POLICY_SCOPES,
+            f"{path}.scope",
+        ),
+        "subject": require_string(
+            action["subject"],
+            f"{path}.subject",
+        ),
+        "circuit_state": _require_literal(
+            action["circuit_state"],
+            "CIRCUIT_OPEN",
+            f"{path}.circuit_state",
+        ),
+        "quarantine_authority_class": (
+            _require_literal(
+                action[
+                    "quarantine_authority_class"
+                ],
+                "AUTOMATIC",
+                (
+                    f"{path}."
+                    "quarantine_authority_class"
+                ),
+            )
+        ),
+        "receipt": {
+            "incident": require_string(
+                receipt["incident"],
+                f"{path}.receipt.incident",
+            ),
+            "gate_generation": (
+                require_nonnegative_int(
+                    receipt["gate_generation"],
+                    (
+                        f"{path}.receipt."
+                        "gate_generation"
+                    ),
+                )
+            ),
+            "timestamp": (
+                require_nonnegative_int(
+                    receipt["timestamp"],
+                    f"{path}.receipt.timestamp",
+                )
+            ),
+            "fingerprint": require_string(
+                receipt["fingerprint"],
+                f"{path}.receipt.fingerprint",
+            ),
+        },
+    }
+
+
 def _validate_nonlegacy_result(
     value: Any,
     path: str,
@@ -1018,6 +1297,7 @@ def _validate_nonlegacy_result(
             "attempted_trace",
             "forbidden_downstream_stages",
             "forbidden_stages_present",
+            "policy_action",
         },
         path=path,
     )
@@ -1070,6 +1350,10 @@ def _validate_nonlegacy_result(
                     "forbidden_stages_present"
                 ),
             )
+        ),
+        "policy_action": _validate_policy_action(
+            result["policy_action"],
+            f"{path}.policy_action",
         ),
     }
 
@@ -1264,6 +1548,36 @@ def _classification_for_scenario(
     ]
 
 
+def _derived_policy_action(
+    scenario: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Independently derive one HR-03 row's policy_action.
+
+    Deliberately structurally distinct from
+    ``_subject_policy_action`` (subject-only): this function checks the
+    falsy ``admission_only`` fact directly and builds the result via a
+    plain dict literal. The subject counterpart instead checks for the
+    presence of the ``evidence_subject`` key and builds the result via a
+    dict-merge. A defect in either derivation would not, in general, be
+    masked by agreement with the other.
+    """
+
+    if scenario.get("admission_only"):
+        return None
+
+    evidence = scenario["evidence_subject"]
+    receipt = scenario["policy_receipt"]
+    return {
+        "scope": evidence["scope"],
+        "subject": evidence["subject"],
+        "circuit_state": "CIRCUIT_OPEN",
+        "quarantine_authority_class": (
+            "AUTOMATIC"
+        ),
+        "receipt": dict(receipt),
+    }
+
+
 def _derived_scenario_result(
     scenario: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -1324,6 +1638,46 @@ def _derived_scenario_result(
             for stage in forbidden
             if stage in attempted_names
         ],
+        "policy_action": _derived_policy_action(
+            scenario
+        ),
+    }
+
+
+def _subject_policy_action(
+    scenario: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Independently derive one HR-03 row's policy_action.
+
+    Structurally distinct from ``_derived_policy_action`` (see that
+    function's docstring): checks for the presence of the
+    ``evidence_subject`` key rather than the truthiness of
+    ``admission_only``, and builds the result via a dict-merge rather
+    than a plain dict literal.
+    """
+
+    if "evidence_subject" not in scenario:
+        return None
+
+    merged = {
+        **scenario["evidence_subject"],
+        "circuit_state": "CIRCUIT_OPEN",
+        "quarantine_authority_class": (
+            "AUTOMATIC"
+        ),
+    }
+    return {
+        "scope": merged["scope"],
+        "subject": merged["subject"],
+        "circuit_state": merged[
+            "circuit_state"
+        ],
+        "quarantine_authority_class": (
+            merged["quarantine_authority_class"]
+        ),
+        "receipt": dict(
+            scenario["policy_receipt"]
+        ),
     }
 
 
@@ -1427,6 +1781,9 @@ def _subject_scenario_result(
         ),
         "forbidden_stages_present": (
             present_downstream
+        ),
+        "policy_action": _subject_policy_action(
+            scenario
         ),
     }
 
@@ -1536,6 +1893,8 @@ class HealthRecoveryOracle:
                 ),
             }
         )
+        if base_fixture_id == "HR-03":
+            self.oracle_version = 2
 
     def compute_expected(
         self,
