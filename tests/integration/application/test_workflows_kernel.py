@@ -308,6 +308,46 @@ def test_admit_request_projects_freezes_routes_and_admits(
     assert request.state is RequestState.ADMITTED
 
 
+def test_admit_request_is_idempotent_on_retry(
+    store: SqliteStateStore,
+) -> None:
+    _seed_health(store)
+    workflows = _workflows(store)
+    factory = _route_request_factory(
+        client_request_id="client-request-01",
+        configuration_revision=11,
+    )
+
+    first = workflows.admit_request(
+        _envelope(),
+        route_request_factory=factory,
+        **_admission_kwargs(),
+    )
+
+    # A retry of the identical envelope must not crash: canonical_route_
+    # decision_digest embeds a freshly-minted decision_id every call, so
+    # it can never match dispatch's already-recorded digest on replay --
+    # the workflow must recognize this as an idempotent replay, not a
+    # binding inconsistency.
+    second = workflows.admit_request(
+        _envelope(),
+        route_request_factory=factory,
+        **_admission_kwargs(),
+    )
+
+    assert second.admission_snapshot is None
+    assert second.route is None
+    assert second.dispatch_admission is not None
+    assert (
+        second.dispatch_admission[0].command_id
+        == first.dispatch_admission[0].command_id
+    )
+    assert (
+        second.dispatch_admission[0].route_decision_digest
+        == first.dispatch_admission[0].route_decision_digest
+    )
+
+
 def test_admit_request_returns_route_exhausted_without_admitting(
     store: SqliteStateStore,
 ) -> None:
@@ -381,6 +421,7 @@ def test_prepare_for_dispatch_rejects_and_replans_on_drift(
 
     drifted_workflows = _workflows(
         store,
+        start=1_000,
         configuration_revision=12,
         health_ids=health_ids,
         routing_ids=routing_ids,
@@ -486,6 +527,7 @@ def test_authorize_retry_refuses_on_drift(
 
     drifted_workflows = _workflows(
         store,
+        start=1_000,
         configuration_revision=12,
         health_ids=health_ids,
         routing_ids=routing_ids,

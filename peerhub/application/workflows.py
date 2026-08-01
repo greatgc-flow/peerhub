@@ -66,11 +66,20 @@ class RouteRequestFactory(Protocol):
 
 @dataclass(frozen=True)
 class AdmissionWorkflowResult:
-    """Result of projection, health freeze, routing, and admission."""
+    """Result of projection, health freeze, routing, and admission.
+
+    ``admission_snapshot`` and ``route`` are ``None`` whenever
+    ``dispatch_admission`` is an idempotent replay of a prior attempt
+    (peeked before this call ran, or discovered after a concurrent
+    admission race) -- the original ``RouteDecision`` used at first
+    admission is not retrievable from ``dispatch_admission`` alone,
+    since ``RequestSnapshot`` durably records only its digest, never
+    its ``decision_id``.
+    """
 
     projected_terminal_events: int
-    admission_snapshot: AdmissionSnapshot
-    route: RoutePlanResult
+    admission_snapshot: AdmissionSnapshot | None
+    route: RoutePlanResult | None
     dispatch_admission: DispatchAdmission | None
 
 
@@ -224,35 +233,6 @@ class ApplicationWorkflows:
 
         return request, decision, selected
 
-    @staticmethod
-    def _require_admission_binding(
-        dispatch_admission: DispatchAdmission,
-        decision: RouteDecision,
-        selected: RouteCandidateDecision,
-        *,
-        route_digest: str,
-    ) -> None:
-        request = dispatch_admission[0]
-        expected_binding = (
-            decision.client_request_id,
-            decision.configuration.revision,
-            selected.instance_id,
-            selected.representative_profile_id,
-            route_digest,
-        )
-        actual_binding = (
-            request.client_request_id,
-            request.configuration_revision,
-            request.selected_peer_instance_id,
-            request.selected_profile_id,
-            request.route_decision_digest,
-        )
-        if actual_binding != expected_binding:
-            raise InvalidMutationError(
-                "idempotent dispatch admission is bound to a "
-                "different route decision"
-            )
-
     def admit_request(
         self,
         envelope: CommandEnvelope,
@@ -270,7 +250,34 @@ class ApplicationWorkflows:
         owner_peer_id: str = "",
         telemetry_limit: int = 100,
     ) -> AdmissionWorkflowResult:
-        """Project, freeze health, route, and admit one request."""
+        """Project, freeze health, route, and admit one request.
+
+        Checks for an existing idempotent admission first, before doing
+        any telemetry/health/routing work: ``canonical_route_decision_
+        digest`` embeds each ``RouteDecision``'s freshly-minted
+        ``decision_id``, so a second call can never reproduce the exact
+        digest dispatch already recorded on a first, successful call --
+        comparing them would incorrectly reject a legitimate retry of
+        the identical envelope. A concurrent race (two identical
+        envelopes admitted around the same time, both missing the
+        up-front peek) is handled the same way after the fact: if
+        dispatch's returned digest doesn't match what this call just
+        computed, that is by construction an idempotent replay, not a
+        corruption -- never a caller error to raise on.
+        """
+
+        existing = self._dispatch.peek_idempotent_admission(
+            envelope,
+            authenticated_principal=authenticated_principal,
+            completion_contract=completion_contract,
+        )
+        if existing is not None:
+            return AdmissionWorkflowResult(
+                projected_terminal_events=0,
+                admission_snapshot=None,
+                route=None,
+                dispatch_admission=existing,
+            )
 
         (
             projected,
@@ -321,12 +328,13 @@ class ApplicationWorkflows:
             heartbeat_timeout_ms=heartbeat_timeout_ms,
             owner_peer_id=owner_peer_id,
         )
-        self._require_admission_binding(
-            dispatch_admission,
-            route.decision,
-            selected,
-            route_digest=route_digest,
-        )
+        if dispatch_admission[0].route_decision_digest != route_digest:
+            return AdmissionWorkflowResult(
+                projected_terminal_events=projected,
+                admission_snapshot=None,
+                route=None,
+                dispatch_admission=dispatch_admission,
+            )
 
         return AdmissionWorkflowResult(
             projected_terminal_events=projected,

@@ -730,3 +730,56 @@ repo root has always exercised all four slices together).
 the ratified TDD implementation order are shipped: compatibility tests,
 contracts, HR reducers, RT reducers, migrations + repositories,
 telemetry/health/routing/application services, and fault injection.
+
+## Addendum (2026-08-01): post-completion cross-review found+fixed a real
+## `admit_request` idempotency defect
+
+ag.deepthink had been unavailable (account-level 3P-pool `QUOTA_CRITICAL`)
+for the entire Step 6B/6C/6/7 stretch, so it had never reviewed any of
+it. Once it was confirmed that CRIT was scoped to `ag.opus`/`ag.gptoss`'s
+3P-pool only -- `ag.deepthink` draws from the separate, healthy G-pool
+and was usable the whole time -- cc dispatched a full independent
+cross-review of Slice 4 to it. Four findings came back; cc independently
+verified each before trusting any of them (per this slice's standing
+discipline):
+
+- Two were already-correct defensive behavior, not gaps: `resolve_
+  admission_state` already wraps its lookup in try/except and raises a
+  clear `ValueError` rather than an unhandled `KeyError`; `validate_
+  route_for_dispatch` raising on an exhausted decision's `None`
+  `selected_candidate_id` is intentional fail-fast, since no code path
+  in this repo can ever hand an exhausted decision to that reducer.
+- One was already-ratified scope, misread as a gap: `evaluate_route_
+  candidates` not deriving eligibility from `usage_evidence`/
+  `in_flight_reservations` is exactly kickoff decision 8 ("cost/latency/
+  terminal-tier weighting is deferred to a future versioned
+  RoutingPolicy") -- the caller decides `eligible`, this reducer only
+  audits/weights what's already decided.
+- **One was real and serious**: `ApplicationWorkflows.admit_request`
+  broke on every retry of an identical envelope, not just under a
+  network-fault scenario. `canonical_route_decision_digest` embeds each
+  `RouteDecision`'s freshly-minted `decision_id`, so two calls can never
+  produce the same digest even for byte-identical routing inputs; the
+  workflow's binding check compared the JUST-recomputed digest against
+  whatever `dispatch.admit_request` actually returned (the frozen
+  original admission, per `ARCHITECTURE.md`'s "admission freezes" rule)
+  and always raised `InvalidMutationError` on the second call. cc
+  reproduced this directly with a standalone script before trusting the
+  citation: two identical `admit_request` calls, second one crashes.
+
+ag.deepthink also designed the fix (a second dispatch round, still using
+its available G-pool quota): add `DispatchService.peek_idempotent_
+admission` (thin wrapper around the same internal lookup `admit_request`
+already uses) so the workflow checks for an existing admission *before*
+doing any telemetry/health/routing work, and replace the strict
+post-admission raise with a graceful "digest doesn't match what we just
+computed -> treat as an idempotent replay" fallback for the residual
+race (two identical envelopes admitted concurrently, both missing the
+up-front peek). A real consequence, flagged by ag.deepthink and accepted
+as an explicit, documented trade-off rather than solved with a schema
+change: `RequestSnapshot` durably records only `route_decision_digest`,
+never `decision_id`, so the original `RouteDecision` is not retrievable
+on a replay -- `AdmissionWorkflowResult.admission_snapshot`/`.route` are
+now `Optional` and `None` on any replay path. A new regression test
+(`test_admit_request_is_idempotent_on_retry`) locks this in. Full suite:
+157/157 passing.

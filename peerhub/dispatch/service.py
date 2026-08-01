@@ -689,6 +689,39 @@ class DispatchService:
             self._raise_attempt_cas(unit, current_attempt)
         self._faults.hit(FaultPoint.AFTER_ATTEMPT_CAS)
 
+    def peek_idempotent_admission(
+        self,
+        envelope: CommandEnvelope,
+        *,
+        authenticated_principal: str,
+        completion_contract: CompletionContract,
+    ) -> tuple[
+        RequestSnapshot,
+        AdmissionReceipt,
+        LeaseSnapshot,
+    ] | None:
+        """Return an existing idempotent admission, if one exists.
+
+        Callers that must derive routing/health inputs before admitting
+        (e.g. ``application.workflows``) can check this first to avoid
+        wasted work and to avoid ever comparing freshly-derived routing
+        state against a request frozen by a prior attempt.
+        """
+
+        submission = validate_submission(
+            envelope,
+            authenticated_principal=authenticated_principal,
+            completion_contract=completion_contract,
+            state_changing=True,
+        )
+        with self._store.unit_of_work() as unit:
+            existing, _, _ = self._find_idempotent_admission(
+                unit,
+                submission,
+                created_at=self._clock.now(),
+            )
+            return existing
+
     def admit_request(
         self,
         envelope: CommandEnvelope,
