@@ -530,3 +530,68 @@ Remaining for this slice: `routing/service.py` (Step 6C) and
 `application/workflows.py` (terminal event -> projection -> health
 snapshot -> route -> Slice 3 admission -> pre-dispatch recheck/replan),
 then Step 7 fault injection across the full stack.
+
+## Addendum (2026-08-01): Step 6C `routing/service.py` shipped -- a
+## second reducer-set scoping gap found+closed the same way
+
+Before writing `routing/service.py`, cc found the same defect class as
+Step 3's originally-missed 3 HR reducers: this doc's own "Reducer set"
+section (line 102) names 5 routing reducers --
+`evaluate_route_candidates`, `select_route`, `select_equal_weight_
+candidate`, `validate_route_for_dispatch`, `replan_route` -- but
+`routing/model.py` had only 3. `select_route` and `replan_route` were
+never implemented; `ErrorCode.ROUTE_EXHAUSTED` existed in
+`core/protocol.py` and was already accepted by `dispatch/model.py`'s
+`reject_request_policy`, but nothing in routing produced it.
+
+cx.deepthink (sole voice again -- ag still `QUOTA_CRITICAL`, logged not
+silently skipped) independently confirmed the gap by its own repo-wide
+symbol search before proposing anything, then proposed:
+
+- A typed `RoutePlanResult(decision, error_code)` result instead of a
+  raised exception for exhaustion -- exhaustion is a valid routing
+  outcome, not malformed input, and `RouteDecision`/the SQLite schema
+  already deliberately support an all-`None` selection triple for this
+  exact case (`0005_health_routing.sql` line 211's `CHECK` constraint).
+- `select_route` seeds `select_equal_weight_candidate` with
+  `request.admission_snapshot.digest` (the semantic freeze digest, not
+  `snapshot_id`/`revision`) -- matches this doc's own line 398 rationale
+  for why the RT-05 seed must not change on an unchanged semantic
+  freeze.
+- `replan_route` is mechanical re-invocation only: verifies the stale
+  decision is genuinely configuration-stale, requires a new
+  `decision_id` and the same `client_request_id`, then calls
+  `select_route` again -- never patches the old row, matching this doc's
+  own line 121-122 ("replanning inserts a new decision, never overwrites
+  a stale one").
+- A new `RouteRequest` invariant: `admission_snapshot.configuration_
+  revision` must equal `configuration.revision`, preventing one durable
+  decision from recording internally inconsistent frozen inputs (no
+  existing test constructed `RouteRequest` yet, so this was a safe
+  addition, not a breaking one).
+- Confirmed no lookup-by-`client_request_id` is needed -- intentional
+  per the replan-inserts-a-new-row design, not a gap.
+
+cc independently verified every claim (reducer/contract signatures,
+the FK schema, the exact cited doc lines) against the live repo before
+applying. Shipped: `routing/model.py`'s `select_route`/`replan_route`
+plus a guard in `validate_route_for_dispatch` rejecting an unselected
+decision; `routing/contract.py`'s `RoutePlanResult`/
+`RoutePreDispatchResult` plus the new `RouteRequest` invariant;
+`routing/service.py` (`RoutingService`, same `dispatch/service.py`-
+derived transactional idiom as `health/service.py`, no sibling-feature
+imports -- it reads health's frozen `AdmissionSnapshot` as a pre-supplied
+immutable input, never calling into `health/service.py` itself). No
+schema/migration changes were needed -- the exhausted-audit shape was
+already there, unused. 9 new integration tests
+(`test_routing_service_kernel.py`) cover: successful selection,
+persisted exhaustion, missing/mismatched admission snapshot, no-drift
+pass-through, configuration-drift replanning (new decision ID, old row
+provably untouched), refusing to validate an exhausted decision, missing
+decision, and a rollback fault-injection case. Full suite: 129/129
+passing.
+
+Remaining for this slice: `application/workflows.py` (terminal event ->
+projection -> health snapshot -> route -> Slice 3 admission ->
+pre-dispatch recheck/replan), then Step 7 fault injection across the
+full stack.

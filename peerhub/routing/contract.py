@@ -198,6 +198,14 @@ class RouteRequest:
             raise ValueError(
                 "admission_snapshot must be AdmissionSnapshot"
             )
+        if (
+            self.admission_snapshot.configuration_revision
+            != self.configuration.revision
+        ):
+            raise ValueError(
+                "admission_snapshot configuration revision "
+                "must match configuration revision"
+            )
 
         object.__setattr__(
             self,
@@ -495,6 +503,44 @@ class RouteDecision:
 
 
 @dataclass(frozen=True)
+class RoutePlanResult:
+    """Typed result of producing one durable route decision."""
+
+    decision: RouteDecision
+    error_code: ErrorCode | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.decision, RouteDecision):
+            raise ValueError(
+                "decision must be RouteDecision"
+            )
+
+        if self.error_code is None:
+            if self.decision.selected_candidate_id is None:
+                raise ValueError(
+                    "successful route plan requires "
+                    "a selected candidate"
+                )
+            return
+
+        if self.error_code is not ErrorCode.ROUTE_EXHAUSTED:
+            raise ValueError(
+                "route plan may return only ROUTE_EXHAUSTED"
+            )
+        if self.decision.selected_candidate_id is not None:
+            raise ValueError(
+                "exhausted route plan cannot select a candidate"
+            )
+        if any(
+            candidate.eligibility is RouteEligibility.ELIGIBLE
+            for candidate in self.decision.candidates
+        ):
+            raise ValueError(
+                "ROUTE_EXHAUSTED requires zero eligible candidates"
+            )
+
+
+@dataclass(frozen=True)
 class RouteDispatchValidation:
     """Configuration-only RT-06 pre-dispatch result."""
 
@@ -553,3 +599,37 @@ class RouteDispatchValidation:
                 raise ValueError(
                     "stale decision requires replanning revision"
                 )
+
+
+@dataclass(frozen=True)
+class RoutePreDispatchResult:
+    """Pre-dispatch validation and optional replacement plan."""
+
+    validation: RouteDispatchValidation
+    replanned_route: RoutePlanResult | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(
+            self.validation,
+            RouteDispatchValidation,
+        ):
+            raise ValueError(
+                "validation must be RouteDispatchValidation"
+            )
+
+        if self.validation.dispatch_permitted:
+            if self.replanned_route is not None:
+                raise ValueError(
+                    "permitted dispatch cannot carry a replan"
+                )
+        elif self.replanned_route is None:
+            raise ValueError(
+                "stale dispatch validation requires a replan"
+            )
+        elif not isinstance(
+            self.replanned_route,
+            RoutePlanResult,
+        ):
+            raise ValueError(
+                "replanned_route must be RoutePlanResult"
+            )

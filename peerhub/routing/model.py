@@ -22,6 +22,8 @@ from peerhub.routing.contract import (
     RouteDecision,
     RouteDispatchValidation,
     RouteEligibility,
+    RoutePlanResult,
+    RouteRequest,
     RouteSelection,
 )
 
@@ -159,12 +161,91 @@ def select_equal_weight_candidate(
     )
 
 
+def select_route(
+    request: RouteRequest,
+    *,
+    decision_id: str,
+    created_at: int,
+) -> RoutePlanResult:
+    """Evaluate, select, and construct one immutable route audit."""
+
+    candidates = evaluate_route_candidates(
+        request.candidates
+    )
+    eligible_candidate_ids = tuple(
+        candidate.candidate_id
+        for candidate in candidates
+        if candidate.eligibility is RouteEligibility.ELIGIBLE
+    )
+
+    selection = (
+        select_equal_weight_candidate(
+            client_request_id=request.client_request_id,
+            snapshot_digest=request.admission_snapshot.digest,
+            candidate_ids=eligible_candidate_ids,
+        )
+        if eligible_candidate_ids
+        else None
+    )
+
+    decision = RouteDecision(
+        decision_id=decision_id,
+        client_request_id=request.client_request_id,
+        configuration=request.configuration,
+        admission_snapshot_id=(
+            request.admission_snapshot.snapshot_id
+        ),
+        admission_snapshot_revision=(
+            request.admission_snapshot.revision
+        ),
+        admission_snapshot_digest=(
+            request.admission_snapshot.digest
+        ),
+        routing_policy_id=request.routing_policy_id,
+        routing_policy_revision=(
+            request.routing_policy_revision
+        ),
+        candidates=candidates,
+        audit_seed=(
+            None
+            if selection is None
+            else selection.audit_seed
+        ),
+        selection_index=(
+            None
+            if selection is None
+            else selection.selection_index
+        ),
+        selected_candidate_id=(
+            None
+            if selection is None
+            else selection.selected_candidate
+        ),
+        created_at=created_at,
+    )
+
+    return RoutePlanResult(
+        decision=decision,
+        error_code=(
+            ErrorCode.ROUTE_EXHAUSTED
+            if selection is None
+            else None
+        ),
+    )
+
+
 def validate_route_for_dispatch(
     decision: RouteDecision,
     *,
     current_configuration: ConfigurationSnapshot,
 ) -> RouteDispatchValidation:
     """Apply RT-06's configuration-revision-only drift check."""
+
+    if decision.selected_candidate_id is None:
+        raise ValueError(
+            "route decision must select a candidate "
+            "before dispatch validation"
+        )
 
     if (
         decision.configuration.revision
@@ -184,4 +265,47 @@ def validate_route_for_dispatch(
         error_code=None,
         dispatch_count=1,
         replanning_input_revision=None,
+    )
+
+
+def replan_route(
+    stale_decision: RouteDecision,
+    request: RouteRequest,
+    *,
+    decision_id: str,
+    created_at: int,
+) -> RoutePlanResult:
+    """Select anew after drift without modifying the stale decision."""
+
+    normalized_decision_id = require_text(
+        decision_id,
+        "decision_id",
+    )
+    if normalized_decision_id == stale_decision.decision_id:
+        raise ValueError(
+            "replanning requires a new decision_id"
+        )
+    if (
+        request.client_request_id
+        != stale_decision.client_request_id
+    ):
+        raise ValueError(
+            "replanning request must preserve "
+            "client_request_id"
+        )
+
+    validation = validate_route_for_dispatch(
+        stale_decision,
+        current_configuration=request.configuration,
+    )
+    if validation.dispatch_permitted:
+        raise ValueError(
+            "replan_route requires a configuration-stale "
+            "decision"
+        )
+
+    return select_route(
+        request,
+        decision_id=normalized_decision_id,
+        created_at=created_at,
     )
