@@ -663,3 +663,70 @@ regression suite, per the kickoff doc's own Step 7 completion criteria
 (atomic rollback cleanliness, deterministic golden route decisions, no
 external I/O inside transactions, zero real adapter/provider/process
 behavior).
+
+## Addendum (2026-08-01): Step 7 complete -- Slice 4 (Health/Admission +
+## Routing) shipped in full
+
+Solo cc this round (no ambiguity requiring peer ratification -- purely
+mechanical fault-injection/concurrency test authoring against the
+already-ratified, already-shipped Step 6 services). Checked against the
+4 Step 7 completion criteria:
+
+1. **Atomic rollback cleanliness.** Two new dedicated fault-boundary
+   test files parametrize every named `FaultPoint` on both new Step 6
+   services and assert complete rollback (every touched table reverts,
+   a clean follow-up call succeeds from scratch) plus one
+   `AFTER_COMMIT` case per service proving already-committed state
+   survives a post-commit fault:
+   - `test_health_service_fault_boundaries.py` (15 tests): all 11 of
+     `HealthService`'s `FaultPoint`s across readiness persistence,
+     circuit-open, recovery authorize/claim/apply-result, and
+     admission-snapshot freezing.
+   - `test_routing_service_fault_boundaries.py` (4 tests): all 3 of
+     `RoutingService`'s `FaultPoint`s across `select_route` and
+     `replan_route`, including proving a faulted replan leaves the
+     stale decision row completely untouched.
+   - Slice 3's own dispatch fault-boundary suite
+     (`test_request_attempt_fault_boundaries.py`,
+     `test_session_lease_fault_boundaries.py`,
+     `test_sqlite_fault_boundaries.py`) continues passing unchanged.
+2. **Concurrent CAS safety.** A new `ThreadPoolExecutor`-based test
+   (`test_concurrent_circuit_open_for_same_incident_merges_safely` in
+   `test_health_service_kernel.py`) races two threads opening a health
+   circuit for the identical incident. Empirically verified before
+   committing (not assumed): exactly one circuit row results, its
+   revision correctly advances to 2, and `backoff_count` is preserved
+   (same-incident semantics) rather than reset -- `HealthService`
+   methods are safe under concurrency by construction, because every
+   public method's read-decide-write sequence happens inside one
+   `unit_of_work()` that SQLite's own transaction locking fully
+   serializes; there is no external TOCTOU window at the service
+   boundary to exploit. Recovery-probe-grant single-flight concurrency
+   was already covered by `test_recovery_probe_single_flight.py`
+   (Step 6B); telemetry checkpoint CAS by the pre-existing Step 6A
+   suite.
+3. **Deterministic golden route decisions.** Already pinned at Step 4
+   (`test_phase0_rt_compatibility.py`'s
+   `test_rt05_equal_weight_selection_is_golden`, a hardcoded
+   `audit_seed` hash). Step 6C's `select_route`/`replan_route` are thin
+   wrappers around the same already-golden-tested
+   `select_equal_weight_candidate` reducer and do not alter its hashing
+   -- no new golden test needed.
+4. **No external I/O inside transactions; zero real adapter/provider/
+   process behavior.** True by construction and confirmed by direct
+   reading of every Slice 4 service file this session
+   (`health/service.py`, `routing/service.py`,
+   `application/workflows.py`, `telemetry/projections.py`): none import
+   `peerhub.adapters`, `peerhub.core.execution`'s process-spawning
+   surface, or perform any I/O other than SQLite calls already scoped
+   inside `store.unit_of_work()`.
+
+Full suite: **156/156 passing** (136 Step 6 + 20 new Step 7 tests; this
+number already includes the complete Slice 1/2/3 regression suite,
+since this repo's tests are not slice-siloed -- every `pytest` run from
+repo root has always exercised all four slices together).
+
+**Slice 4 (Health/Admission + Routing) is now complete.** All 7 steps of
+the ratified TDD implementation order are shipped: compatibility tests,
+contracts, HR reducers, RT reducers, migrations + repositories,
+telemetry/health/routing/application services, and fault injection.

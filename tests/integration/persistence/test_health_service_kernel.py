@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -603,3 +604,44 @@ def test_evaluate_and_persist_readiness_rolls_back_on_fault_before_commit(
         )
     assert projection is None
     assert FaultPoint.BEFORE_COMMIT in injector.hits
+
+
+def test_concurrent_circuit_open_for_same_incident_merges_safely(
+    store: SqliteStateStore,
+) -> None:
+    _seed_policy(store)
+    service = _service(store)
+    service.evaluate_and_persist_readiness(
+        _readiness(observation_id="readiness-01"),
+        sealed_runtime_revision="runtime-r17",
+        adapter_declares_probe_safe=True,
+    )
+
+    def open_circuit(_: int):
+        return _service(store).classify_and_open_circuit(
+            _failing_trace(),
+            evidence_subject=EvidenceSubject(
+                scope=PolicyScope.PROFILE,
+                subject="ag.default",
+            ),
+            receipt=_receipt(),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        actions = list(executor.map(open_circuit, (1, 2)))
+
+    assert all(action is not None for action in actions)
+
+    with store.unit_of_work() as unit:
+        circuit = unit.get_health_circuit(
+            PolicyScope.PROFILE, "ag.default"
+        )
+
+    # SQLite's per-transaction exclusive write lock fully serializes
+    # HealthService's read-decide-write sequence: exactly one circuit
+    # row exists, and the second writer's report of the *same* incident
+    # correctly merges onto it (revision 2) rather than racing a
+    # duplicate insert or corrupting state.
+    assert circuit is not None
+    assert circuit.revision == 2
+    assert circuit.backoff_count == 0
