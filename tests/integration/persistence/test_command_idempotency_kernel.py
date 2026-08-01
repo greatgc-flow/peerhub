@@ -377,6 +377,73 @@ def test_partial_identity_replay_binds_each_missing_alias(
             ),
         )
 
+
+def test_peek_idempotent_admission_rejects_unauthorized_replay(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    first_request, first_receipt, first_lease = _admit(
+        service,
+        _envelope(),
+    )
+
+    with pytest.raises(ActorUnauthorizedError):
+        service.peek_idempotent_admission(
+            _envelope(),
+            authenticated_principal="principal-01",
+            actor_authorized=False,
+            completion_contract=_contract(),
+        )
+
+    # A subsequently authorized peek still finds the same admission.
+    existing = service.peek_idempotent_admission(
+        _envelope(),
+        authenticated_principal="principal-01",
+        actor_authorized=True,
+        completion_contract=_contract(),
+    )
+    assert existing == (first_request, first_receipt, first_lease)
+
+
+def test_peek_idempotent_admission_persists_missing_alias(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    first_request, first_receipt, _ = _admit(
+        service,
+        _envelope(),
+    )
+
+    # Peek with a new idempotency-key alias for the same client_request_id.
+    peeked = service.peek_idempotent_admission(
+        _envelope(idempotency_key="idempotency-alias"),
+        authenticated_principal="principal-01",
+        actor_authorized=True,
+        completion_contract=_contract(),
+    )
+    assert peeked == (first_request, first_receipt, peeked[2])
+
+    with store.unit_of_work() as unit:
+        key_alias = unit.get_command_idempotency_binding(
+            "client-01",
+            "peer.ask",
+            "idempotency-alias",
+        )
+    assert key_alias is not None
+    assert key_alias.command_id == first_request.command_id
+
+    # A later submission reusing only the new alias (different
+    # client_request_id) must converge on the same command -- proving
+    # peek actually persisted it rather than discarding it.
+    converged = _admit(
+        service,
+        _envelope(
+            client_request_id="client-request-converged",
+            idempotency_key="idempotency-alias",
+        ),
+    )
+    assert converged[0].command_id == first_request.command_id
+
     with pytest.raises(IdempotencyPayloadMismatchError):
         _admit(
             service,

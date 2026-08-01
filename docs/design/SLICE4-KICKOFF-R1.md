@@ -783,3 +783,98 @@ on a replay -- `AdmissionWorkflowResult.admission_snapshot`/`.route` are
 now `Optional` and `None` on any replay path. A new regression test
 (`test_admit_request_is_idempotent_on_retry`) locks this in. Full suite:
 157/157 passing.
+
+## Addendum (2026-08-01): second independent cross-review, two peers in
+## parallel -- 2 real regressions in the idempotency fix itself found
+## and fixed, 1 real ratified-but-unenforced gap found (open), 1 real
+## production-integration gap found (open), 1 coverage overclaim fixed
+
+With both peers confirmed usable (ag.deepthink's G-pool, cx.deepthink),
+cc dispatched the identical review brief to both as independent voices
+against HEAD `650bbac`. ag.deepthink re-checked its own earlier fix and
+reported nothing further. cx.deepthink, reviewing fully independently,
+found 5 concrete items; cc verified every one directly against the repo
+before trusting any of them (2 peers genuinely disagreeing on "is there
+anything left" is exactly why both were asked, not just one):
+
+1. **FIXED -- HIGH: `peek_idempotent_admission` bypassed authorization.**
+   It had no `actor_authorized` parameter at all, so a request retried
+   after the caller lost authorization would silently return the old
+   admission instead of raising `ActorUnauthorizedError`. Fixed by
+   giving `peek_idempotent_admission` the identical auth check (via a
+   new shared `_require_actor_authorized` helper) as `admit_request`.
+2. **FIXED -- HIGH: `peek_idempotent_admission` discarded idempotency
+   aliases.** `admit_request`'s existing-admission branch persists any
+   missing client-request/idempotency-key alias bindings before
+   returning; the peek discarded both (`existing, _, _ = ...`). Left
+   uncaught, submitting the same content under a new alias, then a
+   *different* client_request_id reusing that alias, would incorrectly
+   mint a second command instead of converging on the first. Fixed by
+   giving `peek_idempotent_admission` the identical alias-persistence
+   logic.
+   - Applying fix 1+2 by having `admit_request` call
+     `peek_idempotent_admission` internally (the obvious refactor to
+     avoid the two implementations drifting apart) turned out to be
+     its own new regression: it split one atomic check-and-write
+     transaction into two, reopening the exact concurrent-duplicate-
+     admission race `test_concurrent_identical_submissions_converge_
+     on_one_command` exists to prevent (caught by that pre-existing
+     Slice 3 test immediately, not by inspection). Reverted:
+     `admit_request` keeps its own fully self-contained, single-
+     transaction check-and-write, unchanged from Slice 3.
+     `peek_idempotent_admission` is a separate, independently
+     correct, independently transacted method -- documented plainly
+     as a best-effort fast path for callers (like
+     `application.workflows`) who must decide whether to admit before
+     doing unrelated slow work, never a substitute for
+     `admit_request`'s own atomicity. Two new regression tests
+     (`test_peek_idempotent_admission_rejects_unauthorized_replay`,
+     `test_peek_idempotent_admission_persists_missing_alias`) lock in
+     1 and 2.
+3. **OPEN -- HIGH: configuration-digest binding is ratified but never
+   enforced.** The Step 6B pre-service addendum requires
+   `HealthScopeMembershipSnapshot` "bound to the same
+   `configuration_revision`/`configuration_digest` as
+   `ConfigurationSnapshot`" -- but `AdmissionSnapshot` persists only
+   `configuration_revision` (no digest field exists at all), and
+   `RouteRequest`'s invariant (added this session) checks revision
+   equality only. Two configuration snapshots sharing a revision number
+   but differing in actual content would pass silently. Fixing this
+   properly needs a schema change (`configuration_digest` on
+   `AdmissionSnapshot` plus a new migration) and is out of scope for
+   this pass -- not fixed here, left open for a dedicated follow-up.
+4. **OPEN -- MEDIUM: Slice 4 was never wired into `peerhub/runtime.py`.**
+   The frozen file list requires extending `runtime.py`; at HEAD,
+   `create_runtime` still constructs only the state store, governance
+   broker, and dispatch service -- no `TelemetryProjector`,
+   `HealthService`, `RoutingService`, or `ApplicationWorkflows`.
+   Every Slice 4 service is fully built, fully tested, but reachable
+   only by directly constructing it (as every test in this slice does)
+   -- there is currently no supported production path from
+   `create_runtime(context)` to any Slice 4 service. Not fixed here --
+   this is a real scope question (does "Slice 4 complete" include
+   production wiring, or is that its own follow-up item?) rather than
+   a mechanical fix, left open pending direction.
+5. **FIXED -- LOW: overclaimed concurrency coverage.** This doc's own
+   Step 7 addendum said recovery-probe single-flight concurrency was
+   covered by `test_recovery_probe_single_flight.py`; that test was
+   entirely sequential (insert, blocked insert, consume, replace), no
+   threads. The partial-unique-index design itself was never in
+   question, but the claim was wrong. Added a real
+   `ThreadPoolExecutor`-based test
+   (`test_two_threads_racing_to_grant_the_same_circuit_have_one_
+   winner`) alongside the existing sequential one, run 5x to rule out
+   flakiness before trusting it.
+
+ag.deepthink separately re-confirmed (independently, not just repeating
+its own earlier claim): the idempotent-payload-mismatch check is not
+swallowed (`DuplicateClientRequestError` still raises correctly), every
+named `FaultPoint` on both Step 6 services has at least one raising
+test, reducer-raised exceptions roll back identically to injected
+faults (SQLite's `BEGIN IMMEDIATE` + unconditional rollback-on-exception
+in `__exit__` makes the two paths indistinguishable), and no third
+reducer-set scoping gap exists.
+
+Full suite: 160/160 passing. Items 3 and 4 remain open by deliberate
+choice, not oversight -- both are real scope-expansion questions for
+the user to weigh in on, not mechanical fixes to apply silently.

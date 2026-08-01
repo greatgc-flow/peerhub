@@ -621,6 +621,18 @@ class DispatchService:
         return request
 
     @staticmethod
+    def _require_actor_authorized(
+        actor_authorized: bool,
+        authenticated_principal: str,
+    ) -> None:
+        if type(actor_authorized) is not bool:
+            raise ValueError("actor_authorized must be a boolean")
+        if not actor_authorized:
+            raise ActorUnauthorizedError(
+                authenticated_principal
+            )
+
+    @staticmethod
     def _require_attempt(
         unit: DispatchUnitOfWork,
         attempt_id: str,
@@ -694,6 +706,7 @@ class DispatchService:
         envelope: CommandEnvelope,
         *,
         authenticated_principal: str,
+        actor_authorized: bool,
         completion_contract: CompletionContract,
     ) -> tuple[
         RequestSnapshot,
@@ -705,21 +718,70 @@ class DispatchService:
         Callers that must derive routing/health inputs before admitting
         (e.g. ``application.workflows``) can check this first to avoid
         wasted work and to avoid ever comparing freshly-derived routing
-        state against a request frozen by a prior attempt.
+        state against a request frozen by a prior attempt. Fully
+        replicates ``admit_request``'s existing-admission branch --
+        the same authorization check and the same alias-binding
+        persistence -- so an idempotent hit found here is byte-for-byte
+        equivalent to one found by calling ``admit_request`` itself,
+        never a narrower, less-safe check.
+
+        This is a *separate*, independently-transacted, best-effort
+        fast path -- never a substitute for ``admit_request``'s own
+        atomicity. Two callers racing to admit the identical envelope
+        must still go through ``admit_request`` itself to converge on
+        exactly one durable admission; a positive result from this
+        method only ever short-circuits the common case where an
+        admission already durably exists.
         """
 
+        self._require_actor_authorized(
+            actor_authorized,
+            authenticated_principal,
+        )
         submission = validate_submission(
             envelope,
             authenticated_principal=authenticated_principal,
             completion_contract=completion_contract,
             state_changing=True,
         )
+
         with self._store.unit_of_work() as unit:
-            existing, _, _ = self._find_idempotent_admission(
+            (
+                existing,
+                missing_client_binding,
+                missing_key_binding,
+            ) = self._find_idempotent_admission(
                 unit,
                 submission,
                 created_at=self._clock.now(),
             )
+            if existing is None:
+                return None
+
+            aliases_added = False
+            if missing_client_binding is not None:
+                unit.add_client_request_binding(
+                    missing_client_binding
+                )
+                self._faults.hit(
+                    FaultPoint
+                    .AFTER_CLIENT_REQUEST_BINDING_WRITE
+                )
+                aliases_added = True
+            if missing_key_binding is not None:
+                unit.add_command_idempotency_binding(
+                    missing_key_binding
+                )
+                self._faults.hit(
+                    FaultPoint
+                    .AFTER_IDEMPOTENCY_BINDING_WRITE
+                )
+                aliases_added = True
+
+            if aliases_added:
+                self._faults.hit(FaultPoint.BEFORE_COMMIT)
+                unit.commit()
+                self._faults.hit(FaultPoint.AFTER_COMMIT)
             return existing
 
     def admit_request(
@@ -745,20 +807,31 @@ class DispatchService:
         AdmissionReceipt,
         LeaseSnapshot,
     ]:
-        """Atomically admit, reserve, bind identities, and emit outbox."""
+        """Atomically admit, reserve, bind identities, and emit outbox.
 
+        The idempotent-existing-admission check and every write below
+        share one transaction deliberately: two concurrent calls with
+        the same envelope must resolve to exactly one durable admission
+        (see ``test_concurrent_identical_submissions_converge_on_one_
+        command``), which requires the check and the write to be
+        atomic together. ``peek_idempotent_admission`` is a *separate*,
+        independently-transacted method for callers that must decide
+        whether to admit before doing unrelated, possibly slow work
+        (e.g. ``application.workflows`` deriving routing/health inputs)
+        -- it is a best-effort fast path, never a substitute for this
+        method's own atomicity.
+        """
+
+        self._require_actor_authorized(
+            actor_authorized,
+            authenticated_principal,
+        )
         submission = validate_submission(
             envelope,
             authenticated_principal=authenticated_principal,
             completion_contract=completion_contract,
             state_changing=True,
         )
-        if type(actor_authorized) is not bool:
-            raise ValueError("actor_authorized must be a boolean")
-        if not actor_authorized:
-            raise ActorUnauthorizedError(
-                authenticated_principal
-            )
 
         admitted_at = self._clock.now()
         with self._store.unit_of_work() as unit:

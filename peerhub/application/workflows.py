@@ -269,6 +269,7 @@ class ApplicationWorkflows:
         existing = self._dispatch.peek_idempotent_admission(
             envelope,
             authenticated_principal=authenticated_principal,
+            actor_authorized=actor_authorized,
             completion_contract=completion_contract,
         )
         if existing is not None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -147,3 +148,46 @@ def test_only_one_live_recovery_grant_exists_per_circuit(
     assert stored_replacement is not None
     assert stored_replacement.remaining_probes == 1
     assert stored_replacement.consumed_at is None
+
+
+def test_two_threads_racing_to_grant_the_same_circuit_have_one_winner(
+    store: SqliteStateStore,
+) -> None:
+    with store.unit_of_work() as unit:
+        unit.add_health_circuit(_circuit())
+        unit.commit()
+
+    contenders = (
+        _grant("grant-recovery-probe-race-a", authorized_at=100),
+        _grant("grant-recovery-probe-race-b", authorized_at=100),
+    )
+
+    def attempt(index: int):
+        try:
+            with store.unit_of_work() as unit:
+                unit.add_recovery_probe_grant(contenders[index])
+                unit.commit()
+            return ("committed", contenders[index].grant_id)
+        except RecoveryProbeGrantConflictError as error:
+            return ("conflict", error)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(attempt, (0, 1)))
+
+    committed = [
+        value for status, value in results if status == "committed"
+    ]
+    conflicts = [
+        value for status, value in results if status == "conflict"
+    ]
+    assert len(committed) == 1
+    assert len(conflicts) == 1
+    assert conflicts[0].circuit_id == "circuit-recovery-probe"
+    assert conflicts[0].current_grant_id == committed[0]
+
+    with store.unit_of_work() as unit:
+        live_grant = unit.get_live_recovery_probe_grant(
+            "circuit-recovery-probe"
+        )
+    assert live_grant is not None
+    assert live_grant.grant_id == committed[0]
