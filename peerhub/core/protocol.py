@@ -12,6 +12,8 @@ from types import MappingProxyType
 from typing import NewType, TypeAlias
 from uuid import RFC_4122, UUID
 
+from .execution import ExecutionCertainty
+
 
 PROTOCOL_MAJOR = 1
 PROTOCOL_MINOR = 0
@@ -26,6 +28,18 @@ JsonValue: TypeAlias = (
     | Mapping[str, "JsonValue"]
 )
 RevisionValue: TypeAlias = str | int
+
+
+class OperationalFailureCategory(str, Enum):
+    """Measured operational categories frozen by HR-03."""
+
+    EXECUTABLE_UNAVAILABLE = "EXECUTABLE_UNAVAILABLE"
+    ENVIRONMENT_UNAVAILABLE = "ENVIRONMENT_UNAVAILABLE"
+    AUTH_UNAVAILABLE = "AUTH_UNAVAILABLE"
+    NETWORK_UNAVAILABLE = "NETWORK_UNAVAILABLE"
+    PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+    QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
+    RATE_LIMITED = "RATE_LIMITED"
 
 
 class ErrorCode(str, Enum):
@@ -447,6 +461,109 @@ class CommandEnvelope:
         """Return the negotiated protocol version as ``major.minor``."""
 
         return f"{self.protocol_major}.{self.protocol_minor}"
+
+
+@dataclass(frozen=True)
+class AttemptTerminalObserved:
+    """Operational-only terminal observation consumed by telemetry.
+
+    CompletionAssessment is structurally absent: semantic task
+    completion must not feed health automatically.
+    """
+
+    instance_id: str
+    profile_id: str
+    transport: str
+    operational_failure_category: (
+        OperationalFailureCategory | None
+    )
+    execution_certainty: ExecutionCertainty
+    process_integrity: bool
+    started_at: int | None
+    terminal_at: int
+    latency: int | None
+    evidence_refs: tuple[str, ...] = field(
+        default_factory=tuple
+    )
+
+    def __post_init__(self) -> None:
+        for name in (
+            "instance_id",
+            "profile_id",
+            "transport",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                require_text(getattr(self, name), name),
+            )
+
+        if (
+            self.operational_failure_category is not None
+            and not isinstance(
+                self.operational_failure_category,
+                OperationalFailureCategory,
+            )
+        ):
+            raise ValueError(
+                "operational_failure_category must be "
+                "OperationalFailureCategory or null"
+            )
+
+        if not isinstance(
+            self.execution_certainty,
+            ExecutionCertainty,
+        ):
+            raise ValueError(
+                "execution_certainty must be ExecutionCertainty"
+            )
+        if type(self.process_integrity) is not bool:
+            raise ValueError(
+                "process_integrity must be a boolean"
+            )
+
+        if self.started_at is not None and (
+            type(self.started_at) is not int
+            or self.started_at < 0
+        ):
+            raise ValueError(
+                "started_at must be a nonnegative integer or null"
+            )
+        if (
+            type(self.terminal_at) is not int
+            or self.terminal_at < 0
+        ):
+            raise ValueError(
+                "terminal_at must be a nonnegative integer"
+            )
+        if (
+            self.started_at is not None
+            and self.terminal_at < self.started_at
+        ):
+            raise ValueError(
+                "terminal_at cannot precede started_at"
+            )
+
+        if self.latency is not None and (
+            type(self.latency) is not int
+            or self.latency < 0
+        ):
+            raise ValueError(
+                "latency must be a nonnegative integer or null"
+            )
+        if self.started_at is None and self.latency is not None:
+            raise ValueError(
+                "latency requires a started_at observation"
+            )
+
+        object.__setattr__(
+            self,
+            "evidence_refs",
+            tuple(
+                require_text(reference, "evidence_ref")
+                for reference in self.evidence_refs
+            ),
+        )
 
 
 @dataclass(frozen=True)
