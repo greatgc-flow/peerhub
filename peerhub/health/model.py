@@ -5,7 +5,11 @@ from __future__ import annotations
 import hashlib
 from dataclasses import replace
 
-from peerhub.core.protocol import canonical_json_bytes
+from peerhub.core.evidence import EvidenceRef
+from peerhub.core.protocol import (
+    canonical_json_bytes,
+    require_text,
+)
 from peerhub.health.contract import (
     AdmissionDecision,
     AdmissionSnapshot,
@@ -193,6 +197,80 @@ def resolve_admission_state(
         (baseline, *normalized_circuit_states),
         key=_ADMISSION_STATE_PRECEDENCE.__getitem__,
     )
+
+
+def resolve_projection_cooldown_until(
+    admission_state: AdmissionState,
+    *,
+    circuit_evaluations: tuple[CooldownEvaluation, ...] = (),
+) -> int | None:
+    """Resolve the ratified multi-circuit cooldown boundary.
+
+    A projection advertises a cooldown boundary only while its aggregate
+    admission state is COOLDOWN. The maximum contributing retry boundary
+    wins so no applicable circuit is advertised as ready prematurely.
+    """
+
+    if not isinstance(admission_state, AdmissionState):
+        raise ValueError(
+            "admission_state must be AdmissionState"
+        )
+    evaluations = tuple(circuit_evaluations)
+    if any(
+        not isinstance(evaluation, CooldownEvaluation)
+        for evaluation in evaluations
+    ):
+        raise ValueError(
+            "circuit_evaluations must contain only "
+            "CooldownEvaluation values"
+        )
+    if admission_state is not AdmissionState.COOLDOWN:
+        return None
+
+    boundaries = tuple(
+        evaluation.retry_after
+        for evaluation in evaluations
+        if (
+            evaluation.admission_state is AdmissionState.COOLDOWN
+            and evaluation.retry_after is not None
+        )
+    )
+    if not boundaries:
+        raise ValueError(
+            "COOLDOWN admission requires a retry boundary"
+        )
+    return max(boundaries)
+
+
+def compose_health_projection_evidence_refs(
+    readiness_ref: EvidenceRef,
+    *,
+    operational_refs: tuple[EvidenceRef, ...] = (),
+) -> tuple[EvidenceRef, ...]:
+    """Compose deterministic health-projection evidence provenance.
+
+    Readiness evidence is first. Operational evidence retains its source
+    order. Exact-string duplicates are removed with first occurrence
+    winning. Admission snapshot construction must preserve the resulting
+    tuple verbatim.
+    """
+
+    ordered = (
+        readiness_ref,
+        *tuple(operational_refs),
+    )
+    result: list[EvidenceRef] = []
+    seen: set[str] = set()
+    for reference in ordered:
+        normalized = require_text(
+            str(reference),
+            "evidence_ref",
+        )
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(EvidenceRef(normalized))
+    return tuple(result)
 
 
 def classify_health_failure(

@@ -336,6 +336,31 @@ class ExclusiveClaimConflictError(PeerHubError):
         )
 
 
+class RecoveryProbeGrantConflictError(PeerHubError):
+    """A circuit already has a live recovery-probe grant."""
+
+    error_code = ErrorCode.UNIQUE_CONSTRAINT_VIOLATED
+
+    def __init__(
+        self,
+        circuit_id: str,
+        current_grant_id: str,
+    ) -> None:
+        self.circuit_id = circuit_id
+        self.current_grant_id = current_grant_id
+        super().__init__(
+            (
+                f"health circuit {circuit_id!r} already has "
+                f"live recovery-probe grant "
+                f"{current_grant_id!r}"
+            ),
+            details={
+                "circuit_id": circuit_id,
+                "current_grant_id": current_grant_id,
+            },
+        )
+
+
 class WorkspaceIdentityMismatchError(PeerHubError):
     """A database belongs to a different workspace identity."""
 

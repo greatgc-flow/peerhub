@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from peerhub.core.errors import RecoveryProbeGrantConflictError
 from peerhub.health.contract import (
     CircuitState,
     HealthCircuitSnapshot,
@@ -99,15 +99,13 @@ def test_only_one_live_recovery_grant_exists_per_circuit(
         unit.commit()
 
     with pytest.raises(
-        sqlite3.IntegrityError,
-        match=(
-            "UNIQUE constraint failed: "
-            "recovery_probe_grants.circuit_id"
-        ),
-    ):
+        RecoveryProbeGrantConflictError,
+    ) as excinfo:
         with store.unit_of_work() as unit:
             unit.add_recovery_probe_grant(blocked)
             unit.commit()
+    assert excinfo.value.circuit_id == "circuit-recovery-probe"
+    assert excinfo.value.current_grant_id == "grant-recovery-probe-01"
 
     with store.unit_of_work() as unit:
         persisted_first = unit.get_recovery_probe_grant(

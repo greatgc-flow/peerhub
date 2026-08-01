@@ -573,6 +573,9 @@ class HealthProjectionSnapshot:
     revision: int
     created_at: int
     updated_at: int
+    readiness_evaluation: ReadinessEvaluation | None = None
+    sealed_runtime_revision: str | None = None
+    adapter_declares_probe_safe: bool | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -634,6 +637,42 @@ class HealthProjectionSnapshot:
             "evidence_refs",
             _normalize_refs(self.evidence_refs),
         )
+
+        readiness_context = (
+            self.readiness_evaluation,
+            self.sealed_runtime_revision,
+            self.adapter_declares_probe_safe,
+        )
+        if any(value is None for value in readiness_context):
+            if not all(
+                value is None for value in readiness_context
+            ):
+                raise ValueError(
+                    "readiness evaluation context must be wholly "
+                    "present or wholly absent"
+                )
+        else:
+            if not isinstance(
+                self.readiness_evaluation,
+                ReadinessEvaluation,
+            ):
+                raise ValueError(
+                    "readiness_evaluation must be "
+                    "ReadinessEvaluation or null"
+                )
+            object.__setattr__(
+                self,
+                "sealed_runtime_revision",
+                require_text(
+                    self.sealed_runtime_revision,
+                    "sealed_runtime_revision",
+                ),
+            )
+            if type(self.adapter_declares_probe_safe) is not bool:
+                raise ValueError(
+                    "adapter_declares_probe_safe must be "
+                    "a boolean or null"
+                )
 
         _require_positive(self.revision, "revision")
         _require_nonnegative(self.created_at, "created_at")
@@ -934,6 +973,7 @@ class HealthScopeMembershipSnapshot:
 
     configuration_revision: int
     configuration_digest: str
+    configured_members: tuple[tuple[str, str], ...]
     bindings: tuple[HealthScopeBinding, ...]
 
     def __post_init__(self) -> None:
@@ -948,6 +988,31 @@ class HealthScopeMembershipSnapshot:
                 self.configuration_digest,
                 "configuration_digest",
             ),
+        )
+
+        configured_members = tuple(
+            (
+                require_text(
+                    instance_id,
+                    "configured_member.instance_id",
+                ),
+                require_text(
+                    profile_id,
+                    "configured_member.profile_id",
+                ),
+            )
+            for instance_id, profile_id in self.configured_members
+        )
+        if len(configured_members) != len(
+            set(configured_members)
+        ):
+            raise ValueError(
+                "configured_members cannot contain duplicates"
+            )
+        object.__setattr__(
+            self,
+            "configured_members",
+            tuple(sorted(configured_members)),
         )
 
         bindings = tuple(self.bindings)
@@ -969,6 +1034,22 @@ class HealthScopeMembershipSnapshot:
                 "health scope membership snapshot contains "
                 "duplicate scope/subject bindings"
             )
+
+        configured_member_set = set(configured_members)
+        for binding in bindings:
+            if binding.scope is PolicyScope.PROFILE:
+                raise ValueError(
+                    "PROFILE membership is derived from "
+                    "configured_members, not an explicit binding"
+                )
+            if any(
+                member not in configured_member_set
+                for member in binding.members
+            ):
+                raise ValueError(
+                    "health scope binding contains a member "
+                    "outside configured_members"
+                )
 
         object.__setattr__(
             self,

@@ -726,9 +726,14 @@ class TestPhase0HrCompatibility(unittest.TestCase):
                 ),
             )
 
+        configured_members = (
+            ("ag", "ag.default"),
+            ("cx", "cx.deepthink"),
+        )
         snapshot = HealthScopeMembershipSnapshot(
             configuration_revision=11,
             configuration_digest="e" * 64,
+            configured_members=configured_members,
             bindings=(
                 HealthScopeBinding(
                     scope=PolicyScope.ROOT,
@@ -736,6 +741,13 @@ class TestPhase0HrCompatibility(unittest.TestCase):
                     members=(("ag", "ag.default"),),
                 ),
                 binding,
+            ),
+        )
+        self.assertEqual(
+            snapshot.configured_members,
+            (
+                ("ag", "ag.default"),
+                ("cx", "cx.deepthink"),
             ),
         )
         self.assertEqual(
@@ -753,7 +765,54 @@ class TestPhase0HrCompatibility(unittest.TestCase):
             HealthScopeMembershipSnapshot(
                 configuration_revision=11,
                 configuration_digest="e" * 64,
+                configured_members=configured_members,
                 bindings=(binding, binding),
+            )
+
+        with self.assertRaises(ValueError):
+            # Duplicate configured_members entries are rejected.
+            HealthScopeMembershipSnapshot(
+                configuration_revision=11,
+                configuration_digest="e" * 64,
+                configured_members=(
+                    ("ag", "ag.default"),
+                    ("ag", "ag.default"),
+                ),
+                bindings=(),
+            )
+
+        with self.assertRaises(ValueError):
+            # PROFILE-scoped bindings are rejected: PROFILE membership
+            # is derived from configured_members, never an explicit
+            # binding.
+            HealthScopeMembershipSnapshot(
+                configuration_revision=11,
+                configuration_digest="e" * 64,
+                configured_members=configured_members,
+                bindings=(
+                    HealthScopeBinding(
+                        scope=PolicyScope.PROFILE,
+                        subject="ag.default",
+                        members=(("ag", "ag.default"),),
+                    ),
+                ),
+            )
+
+        with self.assertRaises(ValueError):
+            # A binding member outside configured_members is rejected.
+            HealthScopeMembershipSnapshot(
+                configuration_revision=11,
+                configuration_digest="e" * 64,
+                configured_members=configured_members,
+                bindings=(
+                    HealthScopeBinding(
+                        scope=PolicyScope.ROOT,
+                        subject="root-01",
+                        members=(
+                            ("unconfigured", "unconfigured.default"),
+                        ),
+                    ),
+                ),
             )
 
     def test_resolve_admission_state_uses_ratified_aggregate_precedence(

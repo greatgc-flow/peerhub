@@ -439,3 +439,94 @@ rather than pinned to a hand-computed literal). A new integration test
 (`test_recovery_probe_single_flight.py`) verifies the single-flight
 constraint end-to-end against the real bundled SQLite runtime. Full
 suite: 107/107 passing. `health/service.py` itself is next.
+
+## Addendum (2026-08-01): `health/service.py` shipped -- 6 gaps found,
+## ratified, and closed; ag skipped this round (quota-critical)
+
+cx.deepthink was dispatched to design and deliver `health/service.py`
+against the 4 pieces above. It correctly stopped instead of guessing:
+implementing the service as briefed would have silently invented new
+persisted-schema/policy behavior in 6 places. cc independently verified
+every one of the 6 claims by reading the exact cited files/lines directly
+(not by trusting the report) before treating any of them as real:
+
+1. `HealthProjectionSnapshot` persisted only `readiness_observation_id`
+   (a pointer), never the full `ReadinessEvaluation` or the
+   `sealed_runtime_revision`/`adapter_declares_probe_safe` comparison
+   inputs `evaluate_readiness_evidence` needs -- so a later circuit-
+   triggered recompute could not re-derive a projection's baseline.
+2. `recovery_probe_grants` supported only insert and grant-ID lookup --
+   no way to discover a circuit's live grant during aggregate recompute.
+3. `HealthProjectionSnapshot.cooldown_until` is a single field, but
+   multiple circuits can affect one pair with different `retry_after`
+   values -- undefined how to combine them.
+4. No typed conflict error existed for the migration-`0006` single-flight
+   unique-index violation; it would have leaked a raw
+   `sqlite3.IntegrityError`.
+5. `ConfigurationSnapshot` is `{revision, digest}` only and
+   `HealthScopeMembershipSnapshot` enumerated only non-PROFILE scope
+   groupings -- no source listed the complete configured
+   instance/profile population needed to freeze a full admission
+   snapshot.
+6. No rule existed for composing one projection's `evidence_refs` from
+   readiness evidence plus operational evidence.
+
+ag (this slice's usual second reviewing voice) was `QUOTA_CRITICAL`
+(account-level 3P-pool at 100% used, confirmed via `diag`) for this
+entire round and was skipped per the fallback protocol -- logged here,
+not silently dropped. cx.deepthink proposed one resolution per gap in a
+follow-up round; cc independently verified every proposal against the
+live repository (types, reducer signatures, repository method
+signatures, dataclass fields) before applying anything, matching the
+`feedback_verify_peer_citations` discipline. All 6 held up:
+
+1. Persist the complete `ReadinessEvaluation` plus
+   `sealed_runtime_revision`/`adapter_declares_probe_safe` directly on
+   `HealthProjectionSnapshot` (new nullable columns via migration
+   `0007`; wholly-present-or-wholly-absent validation). A projection
+   missing this context fails closed (`InvalidMutationError`) rather
+   than silently re-deriving policy.
+2. Added `get_live_recovery_probe_grant(circuit_id)` (`consumed_at IS
+   NULL`), matching migration `0006`'s own predicate exactly.
+3. When aggregate admission is `COOLDOWN`, `cooldown_until` is the
+   maximum contributing `retry_after` across every circuit affecting
+   that pair (new pure reducer `resolve_projection_cooldown_until`);
+   every other aggregate state stores `None`.
+4. Added `RecoveryProbeGrantConflictError` (`UNIQUE_CONSTRAINT_VIOLATED`),
+   matching the existing `ActiveAttemptExistsError`/
+   `ExclusiveClaimConflictError` shape exactly. `add_recovery_probe_grant`
+   now checks proactively and also translates the SQLite constraint at
+   the boundary.
+5. Extended `HealthScopeMembershipSnapshot` with `configured_members`
+   (the complete configuration-bound population). PROFILE membership is
+   derived from it directly (`subject == profile_id`); an explicit
+   `HealthScopeBinding` for `PolicyScope.PROFILE` is now rejected as
+   redundant, and every non-PROFILE binding's members must be a subset
+   of `configured_members`. Does not reopen kickoff decision 9 -- still
+   an injected immutable fact, no CRUD.
+6. New pure reducer `compose_health_projection_evidence_refs`: readiness
+   evidence first, then operational evidence in its existing order,
+   first-occurrence deduplication. Admission-snapshot freezing preserves
+   the result verbatim, matching the already-shipped digest helper's
+   contract.
+
+Shipped: `health/service.py` (`HealthService`, transactional, one
+`store.unit_of_work()` per public method, following `dispatch/service.py`'s
+existing idiom -- pure reducers stay pure, no sibling-feature imports);
+migration `0007_health_projection_readiness_context.sql`; the contract/
+model/error additions above. 13 new integration tests
+(`test_health_service_kernel.py`) cover: readiness persistence and
+re-evaluation, unconfigured-pair rejection, circuit open -> COOLDOWN ->
+RECOVERY_REQUIRED, the full authorize/claim/apply-result recovery cycle
+closing a circuit, grant single-flight conflict at the service boundary,
+receipt-fenced automatic clearance (both matching and mismatched
+receipts), a non-PROFILE (`QUOTA_FAMILY`) circuit correctly propagating
+to its bound PROFILE pair's projection with no PROFILE circuit ever
+opened directly, full admission-snapshot freezing with independently
+recomputed digest verification, and one transaction-rollback fault-
+injection case. Full suite: 120/120 passing.
+
+Remaining for this slice: `routing/service.py` (Step 6C) and
+`application/workflows.py` (terminal event -> projection -> health
+snapshot -> route -> Slice 3 admission -> pre-dispatch recheck/replan),
+then Step 7 fault injection across the full stack.

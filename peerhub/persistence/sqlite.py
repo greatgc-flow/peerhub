@@ -17,6 +17,7 @@ from typing import Any
 
 from peerhub.core.errors import (
     InvalidMutationError,
+    RecoveryProbeGrantConflictError,
     WorkspaceIdentityMismatchError,
 )
 from peerhub.core.evidence import (
@@ -72,6 +73,7 @@ from peerhub.governance.contract import (
     TransitionStatus,
 )
 from peerhub.health.contract import (
+    AdmissionDecision,
     AdmissionSnapshot,
     AdmissionSnapshotEntry,
     AdmissionState,
@@ -84,8 +86,12 @@ from peerhub.health.contract import (
     PolicyScope,
     ProbeResult,
     QuarantineAuthorityClass,
+    ReadinessEvaluation,
+    ReadinessGateState,
+    ReadinessState,
     RecoveryProbeGrant,
     RecoveryProbeReceipt,
+    RevalidationAction,
 )
 from peerhub.routing.contract import (
     ConfigurationSnapshot,
@@ -123,6 +129,62 @@ def _optional_json_object(
     if raw is None:
         return None
     return _json_object(raw)
+
+
+def _readiness_evaluation_data(
+    evaluation: ReadinessEvaluation,
+) -> dict[str, Any]:
+    return {
+        "readiness_state": evaluation.readiness_state.value,
+        "availability_state": evaluation.availability_state.value,
+        "gate_state": evaluation.gate_state.value,
+        "admission_decision": (
+            evaluation.admission_decision.value
+        ),
+        "provider_effect_permitted": (
+            evaluation.provider_effect_permitted
+        ),
+        "reason_code": evaluation.reason_code,
+        "revalidation_action": (
+            evaluation.revalidation_action.value
+            if evaluation.revalidation_action is not None
+            else None
+        ),
+        "zero_dispatch_calls": evaluation.zero_dispatch_calls,
+    }
+
+
+def _readiness_evaluation_from_raw(
+    raw: str | None,
+) -> ReadinessEvaluation | None:
+    if raw is None:
+        return None
+    data = _json_object(raw)
+    raw_revalidation = data.get("revalidation_action")
+    return ReadinessEvaluation(
+        readiness_state=ReadinessState(
+            data["readiness_state"]
+        ),
+        availability_state=AvailabilityState(
+            data["availability_state"]
+        ),
+        gate_state=ReadinessGateState(
+            data["gate_state"]
+        ),
+        admission_decision=AdmissionDecision(
+            data["admission_decision"]
+        ),
+        provider_effect_permitted=data[
+            "provider_effect_permitted"
+        ],
+        reason_code=data.get("reason_code"),
+        revalidation_action=(
+            RevalidationAction(raw_revalidation)
+            if raw_revalidation is not None
+            else None
+        ),
+        zero_dispatch_calls=data["zero_dispatch_calls"],
+    )
 
 
 def _string_tuple(raw: str) -> tuple[str, ...]:
@@ -402,6 +464,14 @@ class SqliteStateStore:
                 connection.executescript(
                     self._migration_text(
                         "0006_recovery_probe_single_flight.sql"
+                    )
+                )
+
+            versions = self._migration_versions(connection)
+            if 7 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0007_health_projection_readiness_context.sql"
                     )
                 )
 
@@ -2843,6 +2913,19 @@ class SqliteUnitOfWork:
             revision=row["revision"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            readiness_evaluation=(
+                _readiness_evaluation_from_raw(
+                    row["readiness_evaluation_json"]
+                )
+            ),
+            sealed_runtime_revision=(
+                row["sealed_runtime_revision"]
+            ),
+            adapter_declares_probe_safe=(
+                None
+                if row["adapter_declares_probe_safe"] is None
+                else bool(row["adapter_declares_probe_safe"])
+            ),
         )
 
     def add_health_projection(
@@ -2867,8 +2950,14 @@ class SqliteUnitOfWork:
                 evidence_refs_json,
                 revision,
                 created_at,
-                updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                updated_at,
+                readiness_evaluation_json,
+                sealed_runtime_revision,
+                adapter_declares_probe_safe
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?
+            )
             """,
             (
                 projection.projection_id,
@@ -2886,6 +2975,22 @@ class SqliteUnitOfWork:
                 projection.revision,
                 projection.created_at,
                 projection.updated_at,
+                (
+                    _json_text(
+                        _readiness_evaluation_data(
+                            projection.readiness_evaluation
+                        )
+                    )
+                    if projection.readiness_evaluation is not None
+                    else None
+                ),
+                projection.sealed_runtime_revision,
+                (
+                    int(projection.adapter_declares_probe_safe)
+                    if projection.adapter_declares_probe_safe
+                    is not None
+                    else None
+                ),
             ),
         )
 
@@ -2926,6 +3031,9 @@ class SqliteUnitOfWork:
                 policy_revision = ?,
                 cooldown_until = ?,
                 evidence_refs_json = ?,
+                readiness_evaluation_json = ?,
+                sealed_runtime_revision = ?,
+                adapter_declares_probe_safe = ?,
                 revision = ?,
                 updated_at = ?
             WHERE
@@ -2942,6 +3050,22 @@ class SqliteUnitOfWork:
                 updated.policy_revision,
                 updated.cooldown_until,
                 _json_text(list(str(r) for r in updated.evidence_refs)),
+                (
+                    _json_text(
+                        _readiness_evaluation_data(
+                            updated.readiness_evaluation
+                        )
+                    )
+                    if updated.readiness_evaluation is not None
+                    else None
+                ),
+                updated.sealed_runtime_revision,
+                (
+                    int(updated.adapter_declares_probe_safe)
+                    if updated.adapter_declares_probe_safe
+                    is not None
+                    else None
+                ),
                 updated.revision,
                 updated.updated_at,
                 current.projection_id,
@@ -3113,39 +3237,59 @@ class SqliteUnitOfWork:
         grant: RecoveryProbeGrant,
     ) -> None:
         """Insert an unconsumed recovery probe grant."""
-        rcpt = grant.receipt
-        self._db().execute(
-            """
-            INSERT INTO recovery_probe_grants (
-                grant_id,
-                circuit_id,
-                receipt_incident,
-                receipt_gate_generation,
-                receipt_timestamp,
-                receipt_fingerprint,
-                authorized_by,
-                authorized_at,
-                remaining_probes,
-                consumed_at,
-                consumed_by_attempt_id,
-                revision
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                grant.grant_id,
-                grant.circuit_id,
-                rcpt.incident,
-                rcpt.gate_generation,
-                rcpt.timestamp,
-                rcpt.fingerprint,
-                grant.authorized_by,
-                grant.authorized_at,
-                grant.remaining_probes,
-                grant.consumed_at,
-                grant.consumed_by_attempt_id,
-                grant.revision,
-            ),
+        existing = self.get_live_recovery_probe_grant(
+            grant.circuit_id
         )
+        if existing is not None:
+            raise RecoveryProbeGrantConflictError(
+                grant.circuit_id,
+                existing.grant_id,
+            )
+
+        rcpt = grant.receipt
+        try:
+            self._db().execute(
+                """
+                INSERT INTO recovery_probe_grants (
+                    grant_id,
+                    circuit_id,
+                    receipt_incident,
+                    receipt_gate_generation,
+                    receipt_timestamp,
+                    receipt_fingerprint,
+                    authorized_by,
+                    authorized_at,
+                    remaining_probes,
+                    consumed_at,
+                    consumed_by_attempt_id,
+                    revision
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    grant.grant_id,
+                    grant.circuit_id,
+                    rcpt.incident,
+                    rcpt.gate_generation,
+                    rcpt.timestamp,
+                    rcpt.fingerprint,
+                    grant.authorized_by,
+                    grant.authorized_at,
+                    grant.remaining_probes,
+                    grant.consumed_at,
+                    grant.consumed_by_attempt_id,
+                    grant.revision,
+                ),
+            )
+        except sqlite3.IntegrityError as error:
+            existing = self.get_live_recovery_probe_grant(
+                grant.circuit_id
+            )
+            if existing is not None:
+                raise RecoveryProbeGrantConflictError(
+                    grant.circuit_id,
+                    existing.grant_id,
+                ) from error
+            raise
 
     def get_recovery_probe_grant(
         self,
@@ -3161,6 +3305,26 @@ class SqliteUnitOfWork:
             (grant_id,),
         ).fetchone()
         return None if row is None else self._recovery_probe_grant_from_row(row)
+
+    def get_live_recovery_probe_grant(
+        self,
+        circuit_id: str,
+    ) -> RecoveryProbeGrant | None:
+        """Return the sole unconsumed grant for a circuit."""
+        row = self._db().execute(
+            """
+            SELECT *
+            FROM recovery_probe_grants
+            WHERE circuit_id = ?
+              AND consumed_at IS NULL
+            """,
+            (circuit_id,),
+        ).fetchone()
+        return (
+            None
+            if row is None
+            else self._recovery_probe_grant_from_row(row)
+        )
 
     def cas_claim_recovery_probe_grant(
         self,
