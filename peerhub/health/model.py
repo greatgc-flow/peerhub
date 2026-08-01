@@ -6,10 +6,13 @@ from dataclasses import replace
 
 from peerhub.health.contract import (
     AdmissionDecision,
+    AdmissionSnapshot,
+    AdmissionSnapshotEntry,
     AdmissionState,
     AutomaticClearanceResult,
     AvailabilityState,
     CircuitState,
+    CooldownEvaluation,
     EvidenceSubject,
     HealthCircuitSnapshot,
     HealthFailureClassification,
@@ -187,20 +190,121 @@ def derive_policy_action(
     )
 
 
+def apply_policy_action(
+    action: PolicyAction,
+    circuit: HealthCircuitSnapshot | None,
+    *,
+    circuit_id: str | None = None,
+    created_at: int,
+    updated_at: int,
+) -> HealthCircuitSnapshot:
+    """Apply one policy action to its scoped health circuit.
+
+    Pure reducers do not mint identifiers. ``circuit_id`` is therefore
+    required when creating a circuit and optional when updating an
+    existing one.
+
+    A repeated action for the same incident preserves accumulated
+    backoff and its existing cooldown boundary. A genuinely new incident
+    resets both. Exact backoff jitter derivation remains deferred by
+    Slice 4 decision 6 and is not performed here.
+    """
+
+    if circuit is None:
+        if circuit_id is None:
+            raise ValueError(
+                "circuit_id is required for a new circuit"
+            )
+        return HealthCircuitSnapshot(
+            circuit_id=circuit_id,
+            scope=action.scope,
+            subject=action.subject,
+            state=action.circuit_state,
+            quarantine_authority_class=(
+                action.quarantine_authority_class
+            ),
+            receipt=action.receipt,
+            backoff_count=0,
+            cooldown_until=None,
+            revision=1,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+
+    if (
+        circuit.scope is not action.scope
+        or circuit.subject != action.subject
+    ):
+        raise ValueError(
+            "policy action and circuit subjects differ"
+        )
+    if (
+        circuit_id is not None
+        and circuit_id != circuit.circuit_id
+    ):
+        raise ValueError(
+            "circuit_id does not match the existing circuit"
+        )
+
+    # The incident field identifies whether this action continues the
+    # existing recovery lifecycle. The complete receipt remains the
+    # identity fence used by clearance and recovery-probe reducers.
+    same_incident = (
+        circuit.receipt is not None
+        and circuit.receipt.incident
+        == action.receipt.incident
+    )
+
+    return replace(
+        circuit,
+        state=action.circuit_state,
+        quarantine_authority_class=(
+            action.quarantine_authority_class
+        ),
+        receipt=action.receipt,
+        backoff_count=(
+            circuit.backoff_count
+            if same_incident
+            else 0
+        ),
+        cooldown_until=(
+            circuit.cooldown_until
+            if same_incident
+            else None
+        ),
+        revision=circuit.revision + 1,
+        updated_at=updated_at,
+    )
+
+
 def apply_automatic_clearance(
     circuit: HealthCircuitSnapshot,
     *,
     clearance_receipt: PolicyReceipt | None,
     updated_at: int,
 ) -> AutomaticClearanceResult:
-    """Apply automatic clearance to an open health circuit if authority permits."""
-    del clearance_receipt  # No test/spec vector grounds a receipt-identity check here; only authority class gates clearance in Slice 4.
+    """Apply receipt-fenced automatic clearance to a health circuit."""
 
-    if circuit.quarantine_authority_class is not QuarantineAuthorityClass.AUTOMATIC:
+    if (
+        circuit.quarantine_authority_class
+        is not QuarantineAuthorityClass.AUTOMATIC
+    ):
         return AutomaticClearanceResult(
             circuit=circuit,
             clearance_applied=False,
             reason="QUARANTINE_AUTHORITY_INSUFFICIENT",
+        )
+
+    # PolicyReceipt dataclass equality compares the complete established
+    # identity fence: incident, gate generation, timestamp, fingerprint.
+    if (
+        circuit.receipt is None
+        or clearance_receipt != circuit.receipt
+    ):
+        return AutomaticClearanceResult(
+            circuit=circuit,
+            clearance_applied=False,
+            reason="CLEARANCE_RECEIPT_MISMATCH",
         )
 
     cleared_circuit = replace(
@@ -231,7 +335,9 @@ def authorize_recovery_probe(
     del policy  # Policy limit checked during administrative authorization call.
 
     if circuit.receipt is None:
-        raise ValueError("circuit must have a receipt to authorize probe")
+        raise ValueError(
+            "circuit must have a receipt to authorize probe"
+        )
 
     updated_projection = replace(
         projection,
@@ -330,4 +436,100 @@ def apply_recovery_probe_result(
         circuit=updated_circuit,
         reported_matches_current=True,
         transition=ProbeTransition.SUCCESS_CIRCUIT_CLOSED,
+    )
+
+
+def evaluate_cooldown(
+    circuit: HealthCircuitSnapshot,
+    *,
+    policy: HealthPolicy,
+    now: int,
+) -> CooldownEvaluation:
+    """Evaluate the admission state at a circuit cooldown boundary.
+
+    Deterministic jitter remains deferred by Slice 4 decision 6. When no
+    explicit ``cooldown_until`` has been persisted, this reducer uses the
+    unjittered backoff-ladder duration at ``backoff_count``, capped at the
+    final ladder entry. ``retry_after`` is the absolute retry boundary.
+
+    A persisted ``cooldown_until`` is treated as authoritative so a
+    future ratified jitter implementation can supply its calculated
+    boundary without changing this reducer's result contract.
+    """
+
+    if type(now) is not int or now < 0:
+        raise ValueError(
+            "now must be a nonnegative integer"
+        )
+
+    if circuit.state is CircuitState.CIRCUIT_CLOSED:
+        return CooldownEvaluation(
+            admission_state=AdmissionState.OPEN,
+            retry_after=None,
+            cooldown_ended=True,
+        )
+
+    if (
+        circuit.quarantine_authority_class
+        is not QuarantineAuthorityClass.AUTOMATIC
+    ):
+        return CooldownEvaluation(
+            admission_state=AdmissionState.QUARANTINED,
+            retry_after=None,
+            cooldown_ended=False,
+        )
+
+    ladder_index = min(
+        circuit.backoff_count,
+        len(policy.recovery_backoff_seconds) - 1,
+    )
+    retry_at = circuit.cooldown_until
+    if retry_at is None:
+        retry_at = (
+            circuit.updated_at
+            + policy.recovery_backoff_seconds[
+                ladder_index
+            ]
+        )
+
+    if now < retry_at:
+        return CooldownEvaluation(
+            admission_state=AdmissionState.COOLDOWN,
+            retry_after=retry_at,
+            cooldown_ended=False,
+        )
+
+    return CooldownEvaluation(
+        admission_state=AdmissionState.RECOVERY_REQUIRED,
+        retry_after=None,
+        cooldown_ended=True,
+    )
+
+
+def freeze_admission_snapshot(
+    entries: tuple[AdmissionSnapshotEntry, ...],
+    *,
+    snapshot_id: str,
+    digest: str,
+    configuration_revision: int,
+    policy_id: str,
+    policy_revision: int,
+    revision: int,
+    created_at: int,
+) -> AdmissionSnapshot:
+    """Freeze already-derived admission entries and caller-supplied digest.
+
+    Digest-byte canonicalization is deliberately outside this reducer
+    until the separate service-layer digest contract is ratified.
+    """
+
+    return AdmissionSnapshot(
+        snapshot_id=snapshot_id,
+        revision=revision,
+        digest=digest,
+        configuration_revision=configuration_revision,
+        policy_id=policy_id,
+        policy_revision=policy_revision,
+        entries=tuple(entries),
+        created_at=created_at,
     )

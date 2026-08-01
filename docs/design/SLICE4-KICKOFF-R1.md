@@ -280,3 +280,45 @@ increment/reset across a retry, and observation+projection+checkpoint
 atomicity) — cc additionally ran a standalone manual end-to-end script
 (admit → run to completion → project → verify) before trusting the
 pytest suite alone.
+
+## Addendum (2026-08-01): Step 3 completion + a real shipped-code defect fixed
+
+Before starting Step 6B (health/service.py), cx.deepthink stopped and
+found two real problems in already-committed Step 3 work, both
+independently verified by cc before this fix:
+
+1. **`apply_automatic_clearance` violated HR-04.** `HR-04-06-V1-FIXTURE-
+   SPEC-R1.md` line 5: "auto health circuit may be cleared only by a
+   matching current receipt." The shipped reducer did `del
+   clearance_receipt` with a comment (written by cc) claiming no spec
+   grounded a receipt check. That comment was wrong -- cc had grepped
+   for one specific reason-string an earlier peer draft used
+   (`CLEARANCE_RECEIPT_MISMATCH`), found no literal match, and wrongly
+   concluded the entire behavioral rule was ungrounded rather than
+   reading HR-04's actual text. Fixed: clearance now requires
+   `clearance_receipt == circuit.receipt` (full identity-fence equality,
+   matching `apply_recovery_probe_result`'s established pattern) in
+   addition to `AUTOMATIC` authority; mismatch returns
+   `CLEARANCE_RECEIPT_MISMATCH` and leaves the circuit unchanged. See
+   `feedback_literal_string_grep_insufficient_citation_check` in the
+   collaboration memory for the generalized lesson.
+2. **3 reducers the kickoff's own "Reducer set" section requires
+   (`apply_policy_action`, `evaluate_cooldown`, `freeze_admission_
+   snapshot`) were never implemented** -- Step 3's dispatch was scoped
+   against the compatibility test file's coverage, not cross-checked
+   against this document's full canonical reducer list, and missed
+   them. Now implemented: `apply_policy_action` (creates or updates a
+   `HealthCircuitSnapshot` from a `PolicyAction`; same-incident actions
+   preserve backoff/cooldown, a new incident resets both, determined by
+   `receipt.incident` equality); `evaluate_cooldown` (uses the
+   unjittered backoff-ladder value at the circuit's `backoff_count`,
+   capped at the ladder's last entry, as the cooldown boundary --
+   deterministic jitter stays deferred per decision 6, explicitly not
+   guessed here); `freeze_admission_snapshot` (pure construction from
+   caller-supplied entries + digest -- digest byte canonicalization is
+   deliberately left to the service layer, a separate open question for
+   Step 6B/C, not resolved here).
+
+103/103 tests passing (4 new: `apply_policy_action` create/repeat/reopen,
+clearance accept/reject-on-mismatch, cooldown state transitions across
+all 4 branches, admission-snapshot construction).

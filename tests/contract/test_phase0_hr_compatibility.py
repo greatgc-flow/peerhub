@@ -17,6 +17,7 @@ from peerhub.core.protocol import (
 )
 from peerhub.health.contract import (
     AdmissionDecision,
+    AdmissionSnapshotEntry,
     AdmissionState,
     AvailabilityState,
     CircuitState,
@@ -28,6 +29,7 @@ from peerhub.health.contract import (
     HealthStage,
     HealthStageObservation,
     HealthStageStatus,
+    PolicyAction,
     PolicyReceipt,
     PolicyScope,
     ProbeDisposition,
@@ -454,6 +456,81 @@ class TestPhase0HrCompatibility(unittest.TestCase):
                 "operational_error:timeout"
             )
 
+    def test_apply_policy_action_creates_and_reopens_circuit(
+        self,
+    ) -> None:
+        from peerhub.health.model import apply_policy_action
+
+        action = PolicyAction(
+            scope=PolicyScope.PROFILE,
+            subject="ag.default",
+            circuit_state=CircuitState.CIRCUIT_OPEN,
+            quarantine_authority_class=(
+                QuarantineAuthorityClass.AUTOMATIC
+            ),
+            receipt=_receipt(),
+        )
+        created = apply_policy_action(
+            action,
+            None,
+            circuit_id="circuit-created",
+            created_at=700,
+            updated_at=700,
+        )
+
+        self.assertEqual(
+            created.circuit_id,
+            "circuit-created",
+        )
+        self.assertEqual(created.scope, action.scope)
+        self.assertEqual(created.subject, action.subject)
+        self.assertEqual(
+            created.state,
+            CircuitState.CIRCUIT_OPEN,
+        )
+        self.assertEqual(created.backoff_count, 0)
+        self.assertIsNone(created.cooldown_until)
+        self.assertEqual(created.revision, 1)
+
+        ongoing = replace(
+            created,
+            backoff_count=3,
+            cooldown_until=800,
+            revision=4,
+            updated_at=720,
+        )
+        repeated = apply_policy_action(
+            action,
+            ongoing,
+            created_at=700,
+            updated_at=721,
+        )
+        self.assertEqual(repeated.backoff_count, 3)
+        self.assertEqual(repeated.cooldown_until, 800)
+        self.assertEqual(repeated.revision, 5)
+
+        new_incident_action = replace(
+            action,
+            receipt=PolicyReceipt(
+                incident="incident-next",
+                gate_generation=8,
+                timestamp=722,
+                fingerprint="fingerprint-next",
+            ),
+        )
+        reopened = apply_policy_action(
+            new_incident_action,
+            repeated,
+            created_at=700,
+            updated_at=722,
+        )
+        self.assertEqual(reopened.backoff_count, 0)
+        self.assertIsNone(reopened.cooldown_until)
+        self.assertEqual(
+            reopened.receipt,
+            new_incident_action.receipt,
+        )
+
     def test_hr04_security_quarantine_is_not_auto_cleared(
         self,
     ) -> None:
@@ -479,6 +556,143 @@ class TestPhase0HrCompatibility(unittest.TestCase):
             result.reason,
             "QUARANTINE_AUTHORITY_INSUFFICIENT",
         )
+
+    def test_hr04_automatic_clearance_requires_matching_receipt(
+        self,
+    ) -> None:
+        from peerhub.health.model import (
+            apply_automatic_clearance,
+        )
+
+        current = _circuit()
+        mismatched = replace(
+            current.receipt,
+            fingerprint="fingerprint-stale",
+        )
+        refused = apply_automatic_clearance(
+            current,
+            clearance_receipt=mismatched,
+            updated_at=721,
+        )
+
+        self.assertFalse(refused.clearance_applied)
+        self.assertEqual(refused.circuit, current)
+        self.assertEqual(
+            refused.reason,
+            "CLEARANCE_RECEIPT_MISMATCH",
+        )
+
+        accepted = apply_automatic_clearance(
+            current,
+            clearance_receipt=current.receipt,
+            updated_at=722,
+        )
+        self.assertTrue(accepted.clearance_applied)
+        self.assertEqual(
+            accepted.circuit.state,
+            CircuitState.CIRCUIT_CLOSED,
+        )
+        self.assertEqual(accepted.circuit.backoff_count, 0)
+        self.assertIsNone(accepted.circuit.cooldown_until)
+        self.assertEqual(accepted.circuit.revision, 13)
+        self.assertEqual(
+            accepted.reason,
+            "AUTOMATIC_CLEARANCE_APPLIED",
+        )
+
+    def test_evaluate_cooldown_uses_capped_unjittered_ladder(
+        self,
+    ) -> None:
+        from peerhub.health.model import evaluate_cooldown
+
+        current = _circuit(backoff_count=2)
+
+        cooling = evaluate_cooldown(
+            current,
+            policy=_policy(),
+            now=839,
+        )
+        self.assertEqual(
+            cooling.admission_state,
+            AdmissionState.COOLDOWN,
+        )
+        self.assertEqual(cooling.retry_after, 840)
+        self.assertFalse(cooling.cooldown_ended)
+
+        ended = evaluate_cooldown(
+            current,
+            policy=_policy(),
+            now=840,
+        )
+        self.assertEqual(
+            ended.admission_state,
+            AdmissionState.RECOVERY_REQUIRED,
+        )
+        self.assertIsNone(ended.retry_after)
+        self.assertTrue(ended.cooldown_ended)
+
+        closed = evaluate_cooldown(
+            replace(
+                current,
+                state=CircuitState.CIRCUIT_CLOSED,
+            ),
+            policy=_policy(),
+            now=720,
+        )
+        self.assertEqual(
+            closed.admission_state,
+            AdmissionState.OPEN,
+        )
+        self.assertTrue(closed.cooldown_ended)
+
+        protected = evaluate_cooldown(
+            _circuit(
+                authority=QuarantineAuthorityClass.SECURITY,
+            ),
+            policy=_policy(),
+            now=10_000,
+        )
+        self.assertEqual(
+            protected.admission_state,
+            AdmissionState.QUARANTINED,
+        )
+        self.assertFalse(protected.cooldown_ended)
+
+    def test_freeze_admission_snapshot_preserves_entries_and_digest(
+        self,
+    ) -> None:
+        from peerhub.health.model import (
+            freeze_admission_snapshot,
+        )
+
+        projection = _projection()
+        entry = AdmissionSnapshotEntry(
+            instance_id=projection.instance_id,
+            profile_id=projection.profile_id,
+            health_projection_id=projection.projection_id,
+            health_projection_revision=projection.revision,
+            availability_state=(
+                projection.availability_state
+            ),
+            admission_state=projection.admission_state,
+            evidence_refs=projection.evidence_refs,
+        )
+        snapshot = freeze_admission_snapshot(
+            (entry,),
+            snapshot_id="admission-snapshot-01",
+            digest="d" * 64,
+            configuration_revision=11,
+            policy_id="v1-health-default-r1",
+            policy_revision=1,
+            revision=3,
+            created_at=730,
+        )
+
+        self.assertEqual(snapshot.entries, (entry,))
+        self.assertEqual(snapshot.digest, "d" * 64)
+        self.assertEqual(snapshot.configuration_revision, 11)
+        self.assertEqual(snapshot.policy_revision, 1)
+        self.assertEqual(snapshot.revision, 3)
 
     def test_hr05_probe_grant_is_single_use_and_does_not_heal(
         self,
