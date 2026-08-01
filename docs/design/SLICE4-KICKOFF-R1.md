@@ -595,3 +595,71 @@ Remaining for this slice: `application/workflows.py` (terminal event ->
 projection -> health snapshot -> route -> Slice 3 admission ->
 pre-dispatch recheck/replan), then Step 7 fault injection across the
 full stack.
+
+## Addendum (2026-08-01): `application/workflows.py` shipped -- Step 6
+## complete, all 4 feature services now composed
+
+cx.deepthink (sole voice again -- ag still `QUOTA_CRITICAL` throughout,
+logged not silently skipped) resolved 2 ambiguities cc raised plus
+surfaced 4 more unprompted, all independently verified by cc against
+the live repo (every cited file/line checked out) before applying:
+
+1. **`route_decision_digest` needs a new canonical digest, not
+   `RouteSelection.audit_seed` reused.** `audit_seed` hashes only
+   `{client_request_id, admission_snapshot.digest}` -- it does not bind
+   configuration, candidates, exclusions, routing policy, or the
+   decision ID, so two structurally different decisions sharing a
+   request/snapshot pair would collide. Added
+   `canonical_route_decision_digest` to `routing/contract.py` (not
+   `routing/model.py` -- `ARCHITECTURE.md` line 185: "a feature may
+   import a sibling's `contract.py`, never its `model.py`").
+2. **RT-06 recheck sits between `admit_request` and `prepare_request`,
+   and again before every `authorize_retry`.** `admission freezes
+   peer/profile, route decision, policy revision` (`ARCHITECTURE.md`
+   line 433) -- there is no reducer that repairs a stale decision
+   in-place, so a drifted decision is rejected
+   (`ErrorCode.CONFIGURATION_STALE` via `reject_policy`, legal only from
+   `ADMITTED`) and replanned as a brand-new `RouteDecision`/`decision_id`
+   (never overwriting the stale row, matching kickoff line 121-122); a
+   fresh envelope re-enters admission from scratch. `authorize_retry`
+   reuses the existing request's frozen routing fields unchanged, so it
+   must be RT-06-rechecked separately before every retry, not just once
+   at initial admission.
+3. **Known open gap, documented not silently ignored:**
+   `freeze_admission_snapshot()` only freezes currently-persisted health
+   projections; it does not itself re-run readiness evaluation from
+   fresh telemetry. Calling `telemetry.project_pending()` right before
+   freezing updates the telemetry projection table but does not yet
+   guarantee the frozen health snapshot reflects it -- a health-refresh
+   command or explicit readiness-input factory is still needed before
+   this pipeline is fully closed-loop. Not blocking Step 6 (routing
+   already correctly reads whatever health snapshot exists), but real
+   follow-up work, not yet scheduled.
+4. `RouteRequest` gained an invariant rejecting a request whose
+   `admission_snapshot.configuration_revision` disagrees with its own
+   `configuration.revision` (prevents one durable decision recording
+   internally inconsistent frozen inputs; no existing caller broke).
+
+Shipped: `peerhub/application/__init__.py` + `workflows.py`
+(`ApplicationWorkflows` -- the one place cross-feature `service.py`
+composition is architecturally sanctioned, per `ARCHITECTURE.md` line
+185's own carve-out; it never reaches into a sibling service's
+store/unit-of-work directly, only calls its public methods).
+`admit_request` projects telemetry, freezes a health snapshot, routes,
+and admits -- correctly short-circuiting on `ROUTE_EXHAUSTED` without
+calling `dispatch.admit_request`. `prepare_for_dispatch` and
+`authorize_retry` both apply the RT-06 recheck/replan/reject sequence
+above. 7 new integration tests (`test_workflows_kernel.py`) cover: full
+successful admission, `ROUTE_EXHAUSTED` short-circuit, no-drift
+preparation, drift-triggered rejection+replan with the new decision ID
+and old row provably untouched, a full fail-pre-dispatch -> retry cycle
+both with and without drift, and cross-decision binding-mismatch
+rejection. Full suite: 136/136 passing.
+
+**Step 6 is now complete in full** (telemetry projector, health service,
+routing service, application workflows). Remaining for this slice: Step
+7 -- fault-injection across the full stack plus the complete Slice 1/2/3
+regression suite, per the kickoff doc's own Step 7 completion criteria
+(atomic rollback cleanliness, deterministic golden route decisions, no
+external I/O inside transactions, zero real adapter/provider/process
+behavior).

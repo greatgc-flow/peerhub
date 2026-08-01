@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
@@ -10,6 +11,7 @@ from peerhub.core.evidence import EvidenceRef
 from peerhub.core.protocol import (
     ErrorCode,
     JsonValue,
+    canonical_json_bytes,
     freeze_json_mapping,
     require_text,
 )
@@ -500,6 +502,67 @@ class RouteDecision:
                 )
 
         _require_nonnegative(self.created_at, "created_at")
+
+
+def canonical_route_decision_digest(
+    decision: RouteDecision,
+) -> str:
+    """Hash the complete immutable route-decision audit."""
+
+    if not isinstance(decision, RouteDecision):
+        raise ValueError("decision must be RouteDecision")
+
+    ordered_candidates = tuple(
+        sorted(
+            decision.candidates,
+            key=lambda candidate: candidate.candidate_id,
+        )
+    )
+    projection = {
+        "decision_id": decision.decision_id,
+        "client_request_id": decision.client_request_id,
+        "configuration": {
+            "revision": decision.configuration.revision,
+            "digest": decision.configuration.digest,
+        },
+        "admission_snapshot": {
+            "snapshot_id": decision.admission_snapshot_id,
+            "revision": decision.admission_snapshot_revision,
+            "digest": decision.admission_snapshot_digest,
+        },
+        "routing_policy": {
+            "policy_id": decision.routing_policy_id,
+            "revision": decision.routing_policy_revision,
+        },
+        "candidates": [
+            {
+                "candidate_id": candidate.candidate_id,
+                "instance_id": candidate.instance_id,
+                "representative_profile_id": (
+                    candidate.representative_profile_id
+                ),
+                "eligibility": candidate.eligibility.value,
+                "effective_weight": candidate.effective_weight,
+                "exclusion_reason": candidate.exclusion_reason,
+                "evidence_refs": [
+                    str(reference)
+                    for reference in candidate.evidence_refs
+                ],
+            }
+            for candidate in ordered_candidates
+        ],
+        "selection": {
+            "audit_seed": decision.audit_seed,
+            "selection_index": decision.selection_index,
+            "selected_candidate_id": (
+                decision.selected_candidate_id
+            ),
+        },
+        "created_at": decision.created_at,
+    }
+    return hashlib.sha256(
+        canonical_json_bytes(projection)
+    ).hexdigest()
 
 
 @dataclass(frozen=True)
