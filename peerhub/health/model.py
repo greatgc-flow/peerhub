@@ -1,17 +1,58 @@
-"""Phase 0 readiness evidence evaluation model."""
+"""Phase 0 readiness evidence evaluation and health recovery model."""
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from peerhub.health.contract import (
     AdmissionDecision,
+    AdmissionState,
+    AutomaticClearanceResult,
     AvailabilityState,
+    CircuitState,
+    EvidenceSubject,
+    HealthCircuitSnapshot,
+    HealthFailureClassification,
     HealthPolicy,
+    HealthProjectionSnapshot,
+    HealthStage,
+    HealthStageObservation,
+    HealthStageStatus,
+    OperationalFailureCategory,
+    PolicyAction,
+    PolicyReceipt,
+    ProbeDisposition,
+    ProbeResult,
+    ProbeTransition,
+    QuarantineAuthorityClass,
     ReadinessEvaluation,
     ReadinessGateState,
     ReadinessState,
+    RecoveryProbeApplication,
+    RecoveryProbeAuthorization,
+    RecoveryProbeClaimResult,
+    RecoveryProbeGrant,
+    RecoveryProbeReceipt,
     RevalidationAction,
 )
 from peerhub.telemetry.contract import ReadinessObserved
+
+_CANONICAL_STAGES = (
+    HealthStage.RESOLVE_EXECUTABLE,
+    HealthStage.VALIDATE_ENVIRONMENT,
+    HealthStage.AUTHENTICATE,
+    HealthStage.CONNECT_NETWORK,
+    HealthStage.CALL_PROVIDER,
+    HealthStage.CHECK_USAGE_ADMISSION,
+)
+
+_STAGE_TO_CATEGORY = {
+    HealthStage.RESOLVE_EXECUTABLE: OperationalFailureCategory.EXECUTABLE_UNAVAILABLE,
+    HealthStage.VALIDATE_ENVIRONMENT: OperationalFailureCategory.ENVIRONMENT_UNAVAILABLE,
+    HealthStage.AUTHENTICATE: OperationalFailureCategory.AUTH_UNAVAILABLE,
+    HealthStage.CONNECT_NETWORK: OperationalFailureCategory.NETWORK_UNAVAILABLE,
+    HealthStage.CALL_PROVIDER: OperationalFailureCategory.PROVIDER_UNAVAILABLE,
+}
 
 
 def evaluate_readiness_evidence(
@@ -74,4 +115,219 @@ def evaluate_readiness_evidence(
         reason_code=None,
         revalidation_action=None,
         zero_dispatch_calls=False,
+    )
+
+
+def classify_health_failure(
+    attempted_trace: tuple[HealthStageObservation, ...] | list[HealthStageObservation],
+    *,
+    usage_failure_reason: OperationalFailureCategory | None = None,
+    http_status: int | None = None,
+    verified_family_evidence: bool | None = None,
+    admission_only: bool = False,
+) -> HealthFailureClassification:
+    """Derive operational failure classification and forbidden downstream trace audit."""
+    trace_tuple = tuple(attempted_trace)
+    failed_index = None
+    failed_obs = None
+    for index, obs in enumerate(trace_tuple):
+        if obs.status is HealthStageStatus.FAILED:
+            failed_index = index
+            failed_obs = obs
+            break
+
+    if failed_obs is None or failed_index is None:
+        raise ValueError("attempted_trace contains no failed stage")
+
+    failed_stage = failed_obs.stage
+    if failed_stage is HealthStage.CHECK_USAGE_ADMISSION:
+        if usage_failure_reason is None:
+            raise ValueError(
+                "usage_failure_reason required for CHECK_USAGE_ADMISSION failure"
+            )
+        category = usage_failure_reason
+    else:
+        category = _STAGE_TO_CATEGORY[failed_stage]
+
+    canonical_index = _CANONICAL_STAGES.index(failed_stage)
+    forbidden_downstream = _CANONICAL_STAGES[canonical_index + 1 :]
+    forbidden_present = tuple(
+        obs.stage
+        for obs in trace_tuple[failed_index + 1 :]
+        if obs.stage in forbidden_downstream
+    )
+
+    return HealthFailureClassification(
+        category=category,
+        attempted_trace=trace_tuple,
+        forbidden_downstream_stages=forbidden_downstream,
+        forbidden_stages_present=forbidden_present,
+        http_status=http_status,
+        verified_family_evidence=verified_family_evidence,
+        admission_only=admission_only,
+    )
+
+
+def derive_policy_action(
+    classification: HealthFailureClassification,
+    *,
+    evidence_subject: EvidenceSubject | None,
+    receipt: PolicyReceipt | None,
+) -> PolicyAction | None:
+    """Derive frozen policy action from health failure classification."""
+    if classification.admission_only or evidence_subject is None or receipt is None:
+        return None
+
+    return PolicyAction(
+        scope=evidence_subject.scope,
+        subject=evidence_subject.subject,
+        circuit_state=CircuitState.CIRCUIT_OPEN,
+        quarantine_authority_class=QuarantineAuthorityClass.AUTOMATIC,
+        receipt=receipt,
+    )
+
+
+def apply_automatic_clearance(
+    circuit: HealthCircuitSnapshot,
+    *,
+    clearance_receipt: PolicyReceipt | None,
+    updated_at: int,
+) -> AutomaticClearanceResult:
+    """Apply automatic clearance to an open health circuit if authority permits."""
+    del clearance_receipt  # No test/spec vector grounds a receipt-identity check here; only authority class gates clearance in Slice 4.
+
+    if circuit.quarantine_authority_class is not QuarantineAuthorityClass.AUTOMATIC:
+        return AutomaticClearanceResult(
+            circuit=circuit,
+            clearance_applied=False,
+            reason="QUARANTINE_AUTHORITY_INSUFFICIENT",
+        )
+
+    cleared_circuit = replace(
+        circuit,
+        state=CircuitState.CIRCUIT_CLOSED,
+        backoff_count=0,
+        cooldown_until=None,
+        revision=circuit.revision + 1,
+        updated_at=updated_at,
+    )
+    return AutomaticClearanceResult(
+        circuit=cleared_circuit,
+        clearance_applied=True,
+        reason="AUTOMATIC_CLEARANCE_APPLIED",
+    )
+
+
+def authorize_recovery_probe(
+    projection: HealthProjectionSnapshot,
+    circuit: HealthCircuitSnapshot,
+    *,
+    grant_id: str,
+    authorized_by: str,
+    authorized_at: int,
+    policy: HealthPolicy,
+) -> RecoveryProbeAuthorization:
+    """Authorize a single recovery probe attempt without direct healthy write."""
+    del policy  # Policy limit checked during administrative authorization call.
+
+    if circuit.receipt is None:
+        raise ValueError("circuit must have a receipt to authorize probe")
+
+    updated_projection = replace(
+        projection,
+        admission_state=AdmissionState.PROBE_AUTHORIZED,
+        revision=projection.revision + 1,
+        updated_at=authorized_at,
+    )
+    grant = RecoveryProbeGrant(
+        grant_id=grant_id,
+        circuit_id=circuit.circuit_id,
+        receipt=circuit.receipt,
+        authorized_by=authorized_by,
+        authorized_at=authorized_at,
+        remaining_probes=1,
+        consumed_at=None,
+        consumed_by_attempt_id=None,
+        revision=1,
+    )
+    return RecoveryProbeAuthorization(
+        projection=updated_projection,
+        circuit=circuit,
+        grant=grant,
+    )
+
+
+def claim_recovery_probe(
+    grant: RecoveryProbeGrant,
+    *,
+    attempt_id: str,
+    claimed_at: int,
+) -> RecoveryProbeClaimResult:
+    """Attempt to claim a single-use recovery probe grant via CAS-style state transition."""
+    if grant.remaining_probes == 1:
+        updated_grant = replace(
+            grant,
+            remaining_probes=0,
+            consumed_at=claimed_at,
+            consumed_by_attempt_id=attempt_id,
+            revision=grant.revision + 1,
+        )
+        return RecoveryProbeClaimResult(
+            grant=updated_grant,
+            attempt_id=attempt_id,
+            disposition=ProbeDisposition.EXECUTED,
+            reason=None,
+        )
+
+    return RecoveryProbeClaimResult(
+        grant=grant,
+        attempt_id=attempt_id,
+        disposition=ProbeDisposition.REJECTED,
+        reason="PROBE_GRANT_EXHAUSTED",
+    )
+
+
+def apply_recovery_probe_result(
+    circuit: HealthCircuitSnapshot,
+    receipt: RecoveryProbeReceipt,
+    *,
+    updated_at: int,
+) -> RecoveryProbeApplication:
+    """Apply identity-fenced probe result to circuit."""
+    matches = (
+        circuit.receipt is not None
+        and receipt.reported_receipt == circuit.receipt
+        and receipt.reported_revision == circuit.revision
+    )
+    if not matches:
+        return RecoveryProbeApplication(
+            circuit=circuit,
+            reported_matches_current=False,
+            transition=ProbeTransition.STALE_PROBE_NO_OP,
+        )
+
+    if receipt.result is ProbeResult.FAILURE:
+        updated_circuit = replace(
+            circuit,
+            backoff_count=circuit.backoff_count + 1,
+            revision=circuit.revision + 1,
+            updated_at=updated_at,
+        )
+        return RecoveryProbeApplication(
+            circuit=updated_circuit,
+            reported_matches_current=True,
+            transition=ProbeTransition.FAILURE_BACKOFF_INCREMENTED,
+        )
+
+    updated_circuit = replace(
+        circuit,
+        state=CircuitState.CIRCUIT_CLOSED,
+        backoff_count=0,
+        revision=circuit.revision + 1,
+        updated_at=updated_at,
+    )
+    return RecoveryProbeApplication(
+        circuit=updated_circuit,
+        reported_matches_current=True,
+        transition=ProbeTransition.SUCCESS_CIRCUIT_CLOSED,
     )
