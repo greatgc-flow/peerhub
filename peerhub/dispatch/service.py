@@ -8,6 +8,7 @@ dispatch intents. Those behaviors remain outside this Phase 1 slice.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from peerhub.core.context import Clock, IdSource
@@ -87,6 +88,21 @@ from .model import (
     validate_lease_fence,
     validate_submission,
 )
+from .process import InterruptedAttemptRecoveryOutcome
+
+
+def recover_interrupted_attempt(
+    *,
+    journal_entries: Sequence[str],
+    journal_digest: str,
+) -> InterruptedAttemptRecoveryOutcome:
+    """Recover one interrupted attempt from its durable journal.
+
+    Reduction and persistence orchestration are implemented in later Slice 5
+    steps. This Step 2 declaration exists only to freeze the service boundary.
+    """
+
+    raise NotImplementedError("implemented in Slice 5 Step 5")
 
 
 class DispatchUnitOfWork(UnitOfWork, Protocol):

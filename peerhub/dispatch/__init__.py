@@ -5,5 +5,6 @@ from __future__ import annotations
 __all__ = [
     "contract",
     "model",
+    "process",
     "service",
 ]

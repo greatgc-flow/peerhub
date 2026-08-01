@@ -198,3 +198,67 @@ required for two distinct additions:
    `winpty` binding) remains an open implementation spike -- the fake
    Python executable itself need not implement ConPTY, but
    `dispatch.pty` must attach it to a real PTY.
+
+## Step 2 progress (2026-08-01): process contracts shipped, adapter
+## contracts genuinely blocked -- not guessed
+
+cx.deepthink drafted Step 2 and correctly stopped short of the adapter
+boundary rather than invent a shape for it (same "stop and ask rather
+than guess" discipline used throughout Slice 4). cc verified the
+grounding citations and applied only the unblocked portion:
+
+**Shipped**: `peerhub/dispatch/process.py`
+(`TerminalClassification`, `ProcessCleanupEvidence`,
+`ProcessSupervisionOutcome`, `InterruptedAttemptRecoveryOutcome`,
+`CancellationLadder`, `ProcessSupervisor` -- all method bodies raise
+`NotImplementedError("implemented in Slice 5 Step 5")`, matching this
+project's discipline of not skipping ahead of the current TDD step);
+`recover_interrupted_attempt` stub in `dispatch/service.py`. Running
+Step 1's compatibility suite now shows 6 of 7 tests correctly
+progressing from `ImportError` to `NotImplementedError` (the expected
+Step 2 state), full suite 160 passed / 7 failed as intended.
+
+**Blocked, left open, not guessed** -- `peerhub/adapters/contract.py`
+and `peerhub/builtins/fake_adapter.py` (the 7th test,
+`test_dt02_incremental_framing_split_boundaries`, still correctly fails
+with `ImportError` for this reason):
+
+1. The full `TerminalClassification` vocabulary is explicitly listed as
+   an open decision in
+   `docs/design/phase0/DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` (line
+   ~112); that same document classifies both zero and nonzero exits as
+   one `EXITED` value (line ~48), conflicting with this slice's test
+   requiring a distinct `EXIT_NON_ZERO`. Only the 4 test-required
+   members are defined for now; clean exit temporarily has no
+   classification value until `EXITED` vs. `EXIT_ZERO` is ratified.
+2. Step 1's tests model process identity as PID-only, but the
+   authoritative production identity is PID **plus** process-creation
+   time (`dispatch/contract.py` `ProcessBirthIdentity`, line ~761). The
+   Step 2 stub accepts the test's PID-only signature (with an optional
+   `process_creation_time` param), but Step 5 must not treat a bare PID
+   as publication/fencing evidence.
+3. `canonical_lines` (used by Step 1's DT-02 test) is not part of the
+   real, already-shipped `ProtocolAssessment` (`dispatch/contract.py`
+   line ~269, frozen to 5 specific facts per `ARCHITECTURE.md` line
+   ~500). It's transcript/decoder output and belongs in a separate
+   decoder-result type, not a silent expansion of `ProtocolAssessment`.
+4. The `PeerAdapter` interface `ARCHITECTURE.md` line ~345 documents
+   references `PromptPolicy`, `AdapterRequest`, `SessionHint`,
+   `TransportLimits`, `InvocationPlan`, and `OutputDecoder` -- none of
+   which are formally defined anywhere in the repository yet
+   (`TransportLimits` isn't even in `core/execution.py`). Inventing
+   their fields, or weakening them to `Any`, would not be a
+   ratification-ready interface.
+5. `ARCHITECTURE.md` line ~372 forbids `adapters` from importing
+   `dispatch`-owned types -- so `FakePeerAdapter` cannot simply import
+   today's `dispatch.contract.ProtocolAssessment` as a shortcut; the
+   adapter-owned output shape needs its own ratified definition.
+
+These 5 items need an explicit ratification round (a genuine
+architectural decision, not a mechanical fill-in) before
+`peerhub/adapters/contract.py` and `peerhub/builtins/fake_adapter.py`
+can be written. Also note: `docs/design/SLICE5-KICKOFF-R1.md`'s own
+status line still reads "proposed... not yet ratified" even though the
+*scope* (Phase 2) is unanimously ratified -- the doc's remaining
+"proposed" status refers to these unresolved *content* details, not the
+scope choice.
