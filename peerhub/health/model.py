@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 
+from peerhub.core.protocol import canonical_json_bytes
 from peerhub.health.contract import (
     AdmissionDecision,
     AdmissionSnapshot,
@@ -55,6 +57,14 @@ _STAGE_TO_CATEGORY = {
     HealthStage.AUTHENTICATE: OperationalFailureCategory.AUTH_UNAVAILABLE,
     HealthStage.CONNECT_NETWORK: OperationalFailureCategory.NETWORK_UNAVAILABLE,
     HealthStage.CALL_PROVIDER: OperationalFailureCategory.PROVIDER_UNAVAILABLE,
+}
+
+_ADMISSION_STATE_PRECEDENCE = {
+    AdmissionState.OPEN: 0,
+    AdmissionState.PROBE_AUTHORIZED: 1,
+    AdmissionState.RECOVERY_REQUIRED: 2,
+    AdmissionState.COOLDOWN: 3,
+    AdmissionState.QUARANTINED: 4,
 }
 
 
@@ -118,6 +128,70 @@ def evaluate_readiness_evidence(
         reason_code=None,
         revalidation_action=None,
         zero_dispatch_calls=False,
+    )
+
+
+def resolve_admission_state(
+    readiness: ReadinessEvaluation,
+    *,
+    circuit_states: tuple[AdmissionState, ...] = (),
+) -> AdmissionState:
+    """Resolve the ratified Step 6B aggregate admission state.
+
+    Readiness contributes only a baseline. Circuit-derived states are
+    then folded using the precedence frozen by the 2026-08-01 Step 6B
+    pre-service addendum:
+
+    QUARANTINED > COOLDOWN > RECOVERY_REQUIRED
+        > PROBE_AUTHORIZED > OPEN.
+
+    Because PROBE_AUTHORIZED ranks below every other closed state, it
+    can win only when it is the sole contributing non-OPEN state.
+    """
+
+    if not isinstance(readiness, ReadinessEvaluation):
+        raise ValueError(
+            "readiness must be ReadinessEvaluation"
+        )
+
+    baseline_by_readiness = {
+        (
+            ReadinessState.READY,
+            ReadinessGateState.OPEN,
+        ): AdmissionState.OPEN,
+        (
+            ReadinessState.PROBE_INCONCLUSIVE,
+            ReadinessGateState.CLOSED,
+        ): AdmissionState.RECOVERY_REQUIRED,
+        (
+            ReadinessState.READINESS_STALE,
+            ReadinessGateState.CLOSED,
+        ): AdmissionState.RECOVERY_REQUIRED,
+    }
+    try:
+        baseline = baseline_by_readiness[
+            (
+                readiness.readiness_state,
+                readiness.gate_state,
+            )
+        ]
+    except KeyError:
+        raise ValueError(
+            "readiness state and gate state are inconsistent"
+        ) from None
+
+    normalized_circuit_states = tuple(circuit_states)
+    if any(
+        not isinstance(state, AdmissionState)
+        for state in normalized_circuit_states
+    ):
+        raise ValueError(
+            "circuit_states must contain only AdmissionState values"
+        )
+
+    return max(
+        (baseline, *normalized_circuit_states),
+        key=_ADMISSION_STATE_PRECEDENCE.__getitem__,
     )
 
 
@@ -504,6 +578,37 @@ def evaluate_cooldown(
         retry_after=None,
         cooldown_ended=True,
     )
+
+
+def canonical_admission_snapshot_digest(
+    entries: tuple[AdmissionSnapshotEntry, ...],
+    *,
+    configuration_revision: int,
+    policy_id: str,
+    policy_revision: int,
+) -> str:
+    """Hash the ratified semantic admission-snapshot projection."""
+    ordered_entries = tuple(
+        sorted(tuple(entries), key=lambda entry: (entry.instance_id, entry.profile_id))
+    )
+    projection = {
+        "configuration_revision": configuration_revision,
+        "policy_id": policy_id,
+        "policy_revision": policy_revision,
+        "entries": [
+            {
+                "instance_id": entry.instance_id,
+                "profile_id": entry.profile_id,
+                "health_projection_id": entry.health_projection_id,
+                "health_projection_revision": entry.health_projection_revision,
+                "availability_state": entry.availability_state.value,
+                "admission_state": entry.admission_state.value,
+                "evidence_refs": [str(ref) for ref in entry.evidence_refs],
+            }
+            for entry in ordered_entries
+        ],
+    }
+    return hashlib.sha256(canonical_json_bytes(projection)).hexdigest()
 
 
 def freeze_admission_snapshot(

@@ -420,3 +420,22 @@ additional confirming citation of its own. All 4 below are unanimous
 Not yet implemented: `HealthScopeMembershipSnapshot` contract + the
 aggregate admission reducer, the digest helper, migration `0006`, and
 `health/service.py` itself, in that dependency order.
+
+**Implemented (2026-08-01):** all 4 pre-service pieces are now shipped --
+`HealthScopeBinding`/`HealthScopeMembershipSnapshot` in
+`health/contract.py`; `resolve_admission_state` (item 1's aggregate
+reducer, with `_ADMISSION_STATE_PRECEDENCE`) and
+`canonical_admission_snapshot_digest` (item 3) in `health/model.py`;
+`persistence/migrations/0006_recovery_probe_single_flight.sql` (item 4),
+registered in `SqliteStateStore.initialize()` alongside the existing
+version-5 check. Compatibility tests added for scope-membership
+normalization/duplicate-rejection, admission-state precedence (including
+the `PROBE_AUTHORIZED`-never-masks-a-worse-circuit case), and digest
+determinism/order-invariance/change-sensitivity (cx's hand-quoted golden
+hash was not trusted as-is -- it was 65 hex characters, one too many for
+a SHA-256 hex digest -- so the digest is independently verified via
+direct execution and via order-invariance/change-sensitivity assertions
+rather than pinned to a hand-computed literal). A new integration test
+(`test_recovery_probe_single_flight.py`) verifies the single-flight
+constraint end-to-end against the real bundled SQLite runtime. Full
+suite: 107/107 passing. `health/service.py` itself is next.

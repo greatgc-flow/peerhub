@@ -26,6 +26,8 @@ from peerhub.health.contract import (
     HealthFailureClassification,
     HealthPolicy,
     HealthProjectionSnapshot,
+    HealthScopeBinding,
+    HealthScopeMembershipSnapshot,
     HealthStage,
     HealthStageObservation,
     HealthStageStatus,
@@ -36,6 +38,7 @@ from peerhub.health.contract import (
     ProbeResult,
     ProbeTransition,
     QuarantineAuthorityClass,
+    ReadinessEvaluation,
     ReadinessGateState,
     ReadinessState,
     RevalidationAction,
@@ -693,6 +696,205 @@ class TestPhase0HrCompatibility(unittest.TestCase):
         self.assertEqual(snapshot.configuration_revision, 11)
         self.assertEqual(snapshot.policy_revision, 1)
         self.assertEqual(snapshot.revision, 3)
+
+    def test_health_scope_membership_snapshot_normalizes_and_validates(
+        self,
+    ) -> None:
+        binding = HealthScopeBinding(
+            scope=PolicyScope.QUOTA_FAMILY,
+            subject="family-x",
+            members=(
+                ("cx", "cx.deepthink"),
+                ("ag", "ag.default"),
+            ),
+        )
+        self.assertEqual(
+            binding.members,
+            (
+                ("ag", "ag.default"),
+                ("cx", "cx.deepthink"),
+            ),
+        )
+
+        with self.assertRaises(ValueError):
+            HealthScopeBinding(
+                scope=PolicyScope.QUOTA_FAMILY,
+                subject="family-x",
+                members=(
+                    ("ag", "ag.default"),
+                    ("ag", "ag.default"),
+                ),
+            )
+
+        snapshot = HealthScopeMembershipSnapshot(
+            configuration_revision=11,
+            configuration_digest="e" * 64,
+            bindings=(
+                HealthScopeBinding(
+                    scope=PolicyScope.ROOT,
+                    subject="root-01",
+                    members=(("ag", "ag.default"),),
+                ),
+                binding,
+            ),
+        )
+        self.assertEqual(
+            tuple(
+                (item.scope, item.subject)
+                for item in snapshot.bindings
+            ),
+            (
+                (PolicyScope.QUOTA_FAMILY, "family-x"),
+                (PolicyScope.ROOT, "root-01"),
+            ),
+        )
+
+        with self.assertRaises(ValueError):
+            HealthScopeMembershipSnapshot(
+                configuration_revision=11,
+                configuration_digest="e" * 64,
+                bindings=(binding, binding),
+            )
+
+    def test_resolve_admission_state_uses_ratified_aggregate_precedence(
+        self,
+    ) -> None:
+        from peerhub.health.model import (
+            resolve_admission_state,
+        )
+
+        ready = ReadinessEvaluation(
+            readiness_state=ReadinessState.READY,
+            availability_state=AvailabilityState.HEALTHY,
+            gate_state=ReadinessGateState.OPEN,
+            admission_decision=AdmissionDecision.ADMITTED,
+            provider_effect_permitted=True,
+            reason_code=None,
+            revalidation_action=None,
+            zero_dispatch_calls=False,
+        )
+        closed = ReadinessEvaluation(
+            readiness_state=ReadinessState.PROBE_INCONCLUSIVE,
+            availability_state=AvailabilityState.UNKNOWN,
+            gate_state=ReadinessGateState.CLOSED,
+            admission_decision=AdmissionDecision.REJECTED,
+            provider_effect_permitted=False,
+            reason_code=None,
+            revalidation_action=None,
+            zero_dispatch_calls=False,
+        )
+
+        # A fresh READY observation alone resolves to OPEN.
+        self.assertEqual(
+            resolve_admission_state(ready),
+            AdmissionState.OPEN,
+        )
+
+        # A fresh READY observation must not clear a worse
+        # circuit-derived state (availability/admission are orthogonal).
+        self.assertEqual(
+            resolve_admission_state(
+                ready,
+                circuit_states=(AdmissionState.QUARANTINED,),
+            ),
+            AdmissionState.QUARANTINED,
+        )
+
+        # PROBE_AUTHORIZED must never mask a worse circuit: when both
+        # a probe grant and a cooldown are live, cooldown wins.
+        self.assertEqual(
+            resolve_admission_state(
+                ready,
+                circuit_states=(
+                    AdmissionState.PROBE_AUTHORIZED,
+                    AdmissionState.COOLDOWN,
+                ),
+            ),
+            AdmissionState.COOLDOWN,
+        )
+
+        # PROBE_AUTHORIZED wins only when it is the sole
+        # non-OPEN contributing state.
+        self.assertEqual(
+            resolve_admission_state(
+                ready,
+                circuit_states=(AdmissionState.PROBE_AUTHORIZED,),
+            ),
+            AdmissionState.PROBE_AUTHORIZED,
+        )
+
+        # A closed readiness baseline still yields RECOVERY_REQUIRED
+        # with no circuit-derived states contributed.
+        self.assertEqual(
+            resolve_admission_state(closed),
+            AdmissionState.RECOVERY_REQUIRED,
+        )
+
+        with self.assertRaises(ValueError):
+            resolve_admission_state(
+                ready,
+                circuit_states=(AdmissionState.OPEN, "not-a-state"),  # type: ignore[arg-type]
+            )
+
+    def test_canonical_admission_snapshot_digest_is_deterministic(
+        self,
+    ) -> None:
+        from peerhub.health.model import (
+            canonical_admission_snapshot_digest,
+        )
+
+        projection = _projection()
+        entry_a = AdmissionSnapshotEntry(
+            instance_id="ag",
+            profile_id="ag.default",
+            health_projection_id=projection.projection_id,
+            health_projection_revision=projection.revision,
+            availability_state=projection.availability_state,
+            admission_state=projection.admission_state,
+            evidence_refs=projection.evidence_refs,
+        )
+        entry_b = AdmissionSnapshotEntry(
+            instance_id="cx",
+            profile_id="cx.deepthink",
+            health_projection_id="health-projection-02",
+            health_projection_revision=1,
+            availability_state=AvailabilityState.HEALTHY,
+            admission_state=AdmissionState.OPEN,
+            evidence_refs=(EvidenceRef("sha256:health-projection-02"),),
+        )
+
+        kwargs = dict(
+            configuration_revision=11,
+            policy_id="v1-health-default-r1",
+            policy_revision=1,
+        )
+
+        digest_forward = canonical_admission_snapshot_digest(
+            (entry_a, entry_b),
+            **kwargs,
+        )
+        digest_reversed = canonical_admission_snapshot_digest(
+            (entry_b, entry_a),
+            **kwargs,
+        )
+
+        # Entry order must not affect the digest: entries are sorted
+        # by (instance_id, profile_id) before hashing.
+        self.assertEqual(digest_forward, digest_reversed)
+        self.assertEqual(len(digest_forward), 64)
+
+        # Changing a projection revision must change the digest.
+        entry_a_revised = replace(
+            entry_a,
+            health_projection_revision=(
+                entry_a.health_projection_revision + 1
+            ),
+        )
+        digest_changed = canonical_admission_snapshot_digest(
+            (entry_a_revised, entry_b),
+            **kwargs,
+        )
+        self.assertNotEqual(digest_forward, digest_changed)
 
     def test_hr05_probe_grant_is_single_use_and_does_not_heal(
         self,

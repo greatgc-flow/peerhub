@@ -885,6 +885,107 @@ class CooldownEvaluation:
 
 
 @dataclass(frozen=True)
+class HealthScopeBinding:
+    """One explicit circuit-scope membership binding."""
+
+    scope: PolicyScope
+    subject: str
+    members: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.scope, PolicyScope):
+            raise ValueError("scope must be PolicyScope")
+        object.__setattr__(
+            self,
+            "subject",
+            require_text(self.subject, "subject"),
+        )
+
+        normalized_members = tuple(
+            (
+                require_text(
+                    instance_id,
+                    "member.instance_id",
+                ),
+                require_text(
+                    profile_id,
+                    "member.profile_id",
+                ),
+            )
+            for instance_id, profile_id in self.members
+        )
+        if len(normalized_members) != len(
+            set(normalized_members)
+        ):
+            raise ValueError(
+                "health scope binding cannot contain "
+                "duplicate members"
+            )
+        object.__setattr__(
+            self,
+            "members",
+            tuple(sorted(normalized_members)),
+        )
+
+
+@dataclass(frozen=True)
+class HealthScopeMembershipSnapshot:
+    """Injected immutable circuit-scope membership facts."""
+
+    configuration_revision: int
+    configuration_digest: str
+    bindings: tuple[HealthScopeBinding, ...]
+
+    def __post_init__(self) -> None:
+        _require_nonnegative(
+            self.configuration_revision,
+            "configuration_revision",
+        )
+        object.__setattr__(
+            self,
+            "configuration_digest",
+            _require_sha256_hex(
+                self.configuration_digest,
+                "configuration_digest",
+            ),
+        )
+
+        bindings = tuple(self.bindings)
+        if any(
+            not isinstance(binding, HealthScopeBinding)
+            for binding in bindings
+        ):
+            raise ValueError(
+                "bindings must contain only "
+                "HealthScopeBinding values"
+            )
+
+        binding_keys = tuple(
+            (binding.scope, binding.subject)
+            for binding in bindings
+        )
+        if len(binding_keys) != len(set(binding_keys)):
+            raise ValueError(
+                "health scope membership snapshot contains "
+                "duplicate scope/subject bindings"
+            )
+
+        object.__setattr__(
+            self,
+            "bindings",
+            tuple(
+                sorted(
+                    bindings,
+                    key=lambda binding: (
+                        binding.scope.value,
+                        binding.subject,
+                    ),
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class AdmissionSnapshotEntry:
     """Immutable freeze of one live health projection."""
 

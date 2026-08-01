@@ -397,6 +397,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 6 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0006_recovery_probe_single_flight.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()
