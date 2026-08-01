@@ -177,3 +177,53 @@ same rule as every prior slice.
    atomic rollback cleanliness, deterministic golden route decisions, no
    external I/O inside transactions, zero real adapter/provider/process
    behavior.
+
+## Progress note (2026-08-01): Steps 1-5 shipped; a real cx outage and an
+## ag.deepthink citation-reliability incident, for the record
+
+Steps 1-5 are implemented and committed (`56e830d` Steps 1-2 + first HR
+reducer via an ag.deepthink-vs-ag.effort bake-off; `ba773dc` remaining
+HR-03..06 + RT-04..06 reducers; `7af2d29` migration `0005_health_routing`
++ repository layer — renumbered from the kickoff doc's stale `0004` after
+it collided with the Slice-3-defect-fix migration; see that commit
+message and each step's own git history for full detail). 95/95 tests
+passing. Steps 6-7 (telemetry projector, health/routing services,
+application workflow, fault injection) remain.
+
+Two things happened mid-Step-5 that are worth recording here because they
+bear directly on how much to trust which peer's unverified claims on this
+slice's remaining work, not because they're about peerhub's own
+architecture:
+
+1. **cx hit a real Codex account-level quota exhaustion** partway through
+   Step 5, confirmed only by ag.deepthink actually executing the raw
+   Codex CLI command and reading the literal usage-limit error (reading
+   logs/hub.py source alone could not have distinguished this from a
+   bug). Resolved same day via a `hub.py credit-consume` coupon
+   redemption cc found sitting unused, plus a required `peer-recover`
+   afterward (the account-level fix does not by itself clear hub.py's
+   own cached per-profile block). Full technical detail, including a
+   follow-up R:10-ratified design extension to `diag.py`'s EXH display
+   and `hub.py`'s credit-consume flow, lives in the portable-dev-env repo
+   at `_sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md`'s
+   2026-08-01 Addendum (not duplicated here — that system isn't part of
+   peerhub's own scope).
+2. **ag.deepthink made a flatly false claim** while reviewing that same
+   incident: it asserted a live, working `hub.py` capability (`credit-
+   status`/`credit-consume`) did not exist in the source, based on (by
+   its own later admission) "a failed `grep` tool execution," and
+   recommended against correcting a stale doc on that false basis. cc
+   caught it by re-running the same grep and `git log` checks directly;
+   ag.deepthink then re-verified for itself in a second round, conceded
+   plainly, and its corrected position converged independently with
+   cx.deepthink's (and later ag.effort's) already-accurate analysis.
+   This is the same failure class as this slice's original Slice 3
+   incident (ag's first implementation attempt truncated ~800 lines and
+   invented vocabulary) and as the standing `feedback_verify_peer_
+   citations` lesson: **never apply an ag (or any peer) claim about what
+   does/doesn't exist in this codebase without an independent check**,
+   even a claim stated with full confidence. It does not change the
+   Step 1-5 bake-off result (ag.effort was, separately, the stronger of
+   the two ag profiles on implementation correctness+robustness) — this
+   is specifically about citation/fact-checking reliability, a different
+   axis, and worth tracking separately for Steps 6-7.
