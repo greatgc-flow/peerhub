@@ -322,3 +322,101 @@ independently verified by cc before this fix:
 103/103 tests passing (4 new: `apply_policy_action` create/repeat/reopen,
 clearance accept/reject-on-mismatch, cooldown state transitions across
 all 4 branches, admission-snapshot construction).
+
+## Addendum (2026-08-01): Step 6B pre-service design -- ratified R:10
+
+Before `health/service.py` could be written, cx.deepthink identified 4
+remaining ambiguities and correctly stopped rather than guess. Full R:10
+round: ag.deepthink and cx.deepthink proposed independently from the same
+brief; on item 2 they genuinely disagreed in Round 1, cc gave ag cx's
+counter-citation, ag re-verified directly and conceded with an
+additional confirming citation of its own. All 4 below are unanimous
+(cc + ag.deepthink + cx.deepthink).
+
+1. **Readiness gate -> persisted `admission_state`: an aggregate, not an
+   overwrite.** `evaluate_readiness_evidence`'s `gate_state`
+   (`OPEN`/`CLOSED`) maps to a *baseline* admission input:
+   `READY`+`OPEN` -> `OPEN`; `PROBE_INCONCLUSIVE`+`CLOSED` and
+   `READINESS_STALE`+`CLOSED` both -> `RECOVERY_REQUIRED` baseline
+   (distinguishable via `readiness_state`/reason_code, not via a
+   different admission value -- neither implies `QUARANTINED`, no
+   quarantine authority/receipt is supplied by readiness evaluation;
+   neither implies `COOLDOWN`, no retry boundary is supplied). This
+   baseline is one input to a new aggregate admission reducer (item 2)
+   -- a fresh `READY` observation must never itself clear an effective
+   circuit-derived `QUARANTINED`/`COOLDOWN`/`RECOVERY_REQUIRED` state;
+   only the circuit-side reducers (`apply_policy_action`,
+   `apply_automatic_clearance`, `evaluate_cooldown`,
+   `apply_recovery_probe_result`) may relax admission. This is an
+   explicit state-machine extension beyond `ARCHITECTURE.md`'s base
+   graph (which has no direct evidence-loss transition into
+   `RECOVERY_REQUIRED`), ratified here rather than silently added.
+
+2. **Circuit-scope -> affected-projection resolution: a new injected
+   `HealthScopeMembershipSnapshot`, required now, not deferrable.**
+   Initially proposed as an out-of-scope narrowing (defer non-PROFILE
+   circuit propagation), this was rejected on cross-check:
+   `docs/design/phase0/RUNTIME-HEALTH-RECOVERY-ADDENDUM-R3-2026-07-28.md`
+   establishes quota-family/root/environment-scoped health gates as a
+   real, already-designed Phase 0 concept (not hypothetical), and its
+   own "Additional mandatory tests" section requires "a verified 429
+   family condition gates all and only profiles mapped to that family"
+   -- silently dropping non-PROFILE circuit effects would leave
+   admission_state stale for every profile that should be blocked,
+   breaking the actual gate, not just deferring a cosmetic feature (a
+   materially different situation than HR-02's genuinely-deferred
+   automatic-revalidation branch). Resolution: `health/service.py`
+   accepts an injected, immutable `HealthScopeMembershipSnapshot`
+   (bound to the same `configuration_revision`/`configuration_digest`
+   as `ConfigurationSnapshot`; `scope`+`subject` -> member
+   `(instance_id, profile_id)` bindings; sorted, no duplicates; produced
+   by the configuration-authority/composition root, never by
+   `health.service` itself). This does NOT reopen kickoff decision 9
+   ("no configuration CRUD") -- it's an injected immutable fact exactly
+   like `ConfigurationSnapshot` itself, not stored/mutable configuration.
+   On any circuit-affecting transition, `health.service` resolves
+   affected `(instance_id, profile_id)` pairs via this snapshot and
+   recomputes each affected projection in the same unit of work, via a
+   new pure aggregate reducer with fixed precedence (most to least
+   severe): `QUARANTINED > COOLDOWN > RECOVERY_REQUIRED >
+   PROBE_AUTHORIZED > OPEN`. `PROBE_AUTHORIZED` only applies when the
+   live grant is the sole remaining blocker for that pair -- it can
+   never mask a different circuit's quarantine/cooldown on the same
+   pair.
+
+3. **Admission-snapshot digest: SHA-256 over `canonical_json_bytes`,
+   reusing the Slice 3 digest convention** (`dispatch/model.py`'s
+   `canonical_payload_digest`, `routing/model.py`'s audit-seed digest).
+   Canonical projection: `{configuration_revision, policy_id,
+   policy_revision, entries: [{instance_id, profile_id,
+   health_projection_id, health_projection_revision,
+   availability_state, admission_state, evidence_refs}, ...]}`, entries
+   sorted by `(instance_id, profile_id)`, `evidence_refs` preserved
+   verbatim (never reordered/deduplicated). Excludes `snapshot_id`,
+   `revision`, and `created_at` -- minted/audit metadata, not the
+   health/configuration content being frozen (an unchanged semantic
+   freeze must not change the RT-05 routing seed merely because it got
+   a new ID or timestamp). Implemented once as a pure
+   `canonical_admission_snapshot_digest(...)` helper shared by the
+   service and its golden tests.
+
+4. **Recovery-grant single-flight: new migration
+   `0006_recovery_probe_single_flight.sql`**, not an edit to the
+   already-committed `0005` (`SqliteStateStore.initialize()` skips
+   already-recorded versions permanently -- editing 0005 would leave
+   any version-5 database unprotected forever; matches the established
+   Slice 3 precedent of correcting a shipped migration with a new one,
+   `0004` after `0003`, never rewriting the original). Exact fix:
+   `CREATE UNIQUE INDEX recovery_probe_grants_one_live_per_circuit ON
+   recovery_probe_grants(circuit_id) WHERE consumed_at IS NULL` --
+   mirrors the existing partial-unique-index idiom already used for
+   one-active-dispatch-attempt in `0003`. cx independently verified this
+   exact predicate against the real bundled SQLite runtime (rejects a
+   second live grant, accepts one after the first is consumed) before
+   proposing it. Migration must fail closed (not silently pick a
+   winner) if a pre-existing database already has duplicate live
+   grants for one circuit.
+
+Not yet implemented: `HealthScopeMembershipSnapshot` contract + the
+aggregate admission reducer, the digest helper, migration `0006`, and
+`health/service.py` itself, in that dependency order.
