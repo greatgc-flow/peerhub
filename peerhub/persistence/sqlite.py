@@ -934,25 +934,33 @@ class SqliteUnitOfWork:
         *,
         limit: int,
         governance_only: bool = False,
+        after_position: int = 0,
     ) -> tuple[OutboxEvent, ...]:
         """Return matching events in workspace outbox order."""
 
         if not states:
             return ()
+        if type(after_position) is not int or after_position < 0:
+            raise ValueError(
+                "after_position must be a nonnegative integer"
+            )
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
         placeholders = ", ".join("?" for _ in states)
         governance_clause = (
             "AND transition_receipt_id IS NOT NULL"
             if governance_only
             else ""
         )
-        parameters = tuple(state.value for state in states) + (
-            limit,
-        )
+        parameters = tuple(
+            state.value for state in states
+        ) + (after_position, limit)
         rows = self._db().execute(
             f"""
             SELECT *
             FROM outbox_events
             WHERE state IN ({placeholders})
+            AND outbox_position > ?
             {governance_clause}
             ORDER BY outbox_position
             LIMIT ?

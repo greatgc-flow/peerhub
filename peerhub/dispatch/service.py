@@ -20,12 +20,15 @@ from peerhub.core.errors import (
     StaleRevisionError,
 )
 from peerhub.core.protocol import (
+    ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND,
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
     SCHEMA_VERSION,
+    AttemptTerminalObserved,
     CommandEnvelope,
     CommandID,
     ErrorCode,
+    OperationalFailureCategory,
     RevisionValue,
 )
 from peerhub.governance.contract import OutboxEvent, OutboxState
@@ -367,6 +370,83 @@ class DispatchService:
             },
             state=OutboxState.PENDING,
             created_at=occurred_at,
+        )
+
+    @staticmethod
+    def _attempt_terminal_event(
+        request: RequestSnapshot,
+        attempt: AttemptSnapshot,
+        *,
+        event_id: str,
+        terminal_at: int,
+        transport: str,
+        operational_failure_category: (
+            OperationalFailureCategory | None
+        ),
+        process_integrity: bool,
+        started_at: int | None,
+        evidence_refs: tuple[str, ...],
+    ) -> OutboxEvent:
+        if request.command_id != attempt.command_id:
+            raise InvalidMutationError(
+                "terminal observation request/attempt mismatch"
+            )
+
+        latency = (
+            None
+            if started_at is None
+            else terminal_at - started_at
+        )
+        terminal = AttemptTerminalObserved(
+            instance_id=request.selected_peer_instance_id,
+            profile_id=request.selected_profile_id,
+            transport=transport,
+            operational_failure_category=(
+                operational_failure_category
+            ),
+            execution_certainty=(
+                attempt.execution_certainty
+            ),
+            process_integrity=process_integrity,
+            started_at=started_at,
+            terminal_at=terminal_at,
+            latency=latency,
+            evidence_refs=evidence_refs,
+        )
+        return OutboxEvent(
+            event_id=event_id,
+            protocol_major=PROTOCOL_MAJOR,
+            protocol_minor=PROTOCOL_MINOR,
+            schema_version=SCHEMA_VERSION,
+            correlation_id=request.correlation_id,
+            occurred_at=terminal_at,
+            event_kind=(
+                ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND
+            ),
+            payload={
+                "instance_id": terminal.instance_id,
+                "profile_id": terminal.profile_id,
+                "transport": terminal.transport,
+                "operational_failure_category": (
+                    terminal.operational_failure_category.value
+                    if terminal.operational_failure_category
+                    is not None
+                    else None
+                ),
+                "execution_certainty": (
+                    terminal.execution_certainty.value
+                ),
+                "process_integrity": (
+                    terminal.process_integrity
+                ),
+                "started_at": terminal.started_at,
+                "terminal_at": terminal.terminal_at,
+                "latency": terminal.latency,
+                "evidence_refs": list(terminal.evidence_refs),
+            },
+            evidence_refs=terminal.evidence_refs,
+            state=OutboxState.PENDING,
+            created_at=terminal_at,
         )
 
     @staticmethod
@@ -878,6 +958,11 @@ class DispatchService:
         attempt_id: str,
         *,
         error_code: ErrorCode,
+        transport: str,
+        operational_failure_category: (
+            OperationalFailureCategory | None
+        ) = None,
+        evidence_refs: tuple[str, ...] = (),
     ) -> tuple[RequestSnapshot, AttemptSnapshot]:
         """Commit a proven pre-dispatch failure and terminal outbox."""
 
@@ -905,6 +990,24 @@ class DispatchService:
                     updated_request,
                     event_id=self._ids.new_id("outbox-event"),
                     occurred_at=timestamp,
+                )
+            )
+            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
+            unit.add_outbox_event(
+                self._attempt_terminal_event(
+                    updated_request,
+                    updated_attempt,
+                    event_id=self._ids.new_id(
+                        "outbox-event"
+                    ),
+                    terminal_at=timestamp,
+                    transport=transport,
+                    operational_failure_category=(
+                        operational_failure_category
+                    ),
+                    process_integrity=True,
+                    started_at=None,
+                    evidence_refs=evidence_refs,
                 )
             )
             self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
@@ -1117,6 +1220,13 @@ class DispatchService:
         attempt_id: str,
         *,
         result: AskResult,
+        transport: str,
+        started_at: int,
+        process_integrity: bool,
+        operational_failure_category: (
+            OperationalFailureCategory | None
+        ) = None,
+        evidence_refs: tuple[str, ...] = (),
     ) -> tuple[RequestSnapshot, AttemptSnapshot]:
         """Commit the derived terminal state and canonical outbox event."""
 
@@ -1144,6 +1254,24 @@ class DispatchService:
                     updated_request,
                     event_id=self._ids.new_id("outbox-event"),
                     occurred_at=timestamp,
+                )
+            )
+            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
+            unit.add_outbox_event(
+                self._attempt_terminal_event(
+                    updated_request,
+                    updated_attempt,
+                    event_id=self._ids.new_id(
+                        "outbox-event"
+                    ),
+                    terminal_at=timestamp,
+                    transport=transport,
+                    operational_failure_category=(
+                        operational_failure_category
+                    ),
+                    process_integrity=process_integrity,
+                    started_at=started_at,
+                    evidence_refs=evidence_refs,
                 )
             )
             self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)

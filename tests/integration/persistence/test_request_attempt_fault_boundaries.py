@@ -264,6 +264,7 @@ def test_terminal_outbox_fault_rolls_back_terminal_state(
             admitted.command_id,
             attempt.attempt_id,
             error_code=ErrorCode.SPAWN_FAILED,
+            transport="pipe",
         )
 
     with store.unit_of_work() as unit:

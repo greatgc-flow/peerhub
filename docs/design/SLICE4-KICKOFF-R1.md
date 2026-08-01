@@ -227,3 +227,56 @@ architecture:
    the two ag profiles on implementation correctness+robustness) — this
    is specifically about citation/fact-checking reliability, a different
    axis, and worth tracking separately for Steps 6-7.
+
+## Addendum (2026-08-01): Step 6A terminal-observation mapping — ratified
+
+Step 6 requires emitting the narrow `AttemptTerminalObserved` event from
+`dispatch/service.py` and consuming it in a telemetry projector, but
+mapping Slice 1-3's existing execution facts onto Slice 4's frozen event
+shape was not fully mechanical. cx.deepthink correctly stopped rather
+than guess and proposed the following, each citation independently
+verified by cc against live source before ratifying:
+
+1. `transport` is not derivable from any Slice 1-3 contract (`ARCHITECTURE.md`
+   confirms it belongs to the not-yet-built `InvocationPlan`, "transport
+   kind" among its immutable fields). Resolved: `fail_pre_dispatch`/
+   `complete_attempt` accept `transport: str` as an explicit required
+   caller-supplied argument for Phase 1; dispatch must never infer it
+   from peer/instance configuration.
+2. No frozen mapping exists from Slice 3's process-level `ErrorCode`
+   (`SPAWN_FAILED`, `PROCESS_TIMEOUT`, etc.) to Slice 4's
+   `OperationalFailureCategory` — confirmed against `HR-01-03-HEALTH-
+   RECOVERY-CLASSIFICATION-SPEC-R1.md`, whose oracle "independently
+   derives, never accepts as injected" a category, only from HR-03's
+   canonical health-probe stage evidence, a different semantic layer
+   than a dispatched attempt's process-level failure. Resolved:
+   `operational_failure_category` is an optional (default `None`)
+   caller-supplied argument; dispatch must never translate its own
+   `ErrorCode` into this vocabulary.
+3. `started_at` uses the `updated_at` returned by the successful
+   `RUNNING` transition (`record_running`'s own snapshot) — the only
+   precise start-of-execution timestamp Slice 1-3 tracks; `AttemptSnapshot.
+   created_at` is admission-adjacent, not execution-start. `latency =
+   terminal_at - started_at`; both are `None` for a proven pre-dispatch
+   failure (never started).
+4. `process_integrity` has no existing source either; resolved as an
+   explicit caller-supplied fact (`fail_pre_dispatch` always passes
+   `True` — a proven `NOT_STARTED` transition itself required
+   integrity-verified evidence; `complete_attempt` requires it as a
+   caller-supplied required argument).
+
+Implemented: `dispatch/service.py` (`_attempt_terminal_event` helper,
+both terminal methods now emit it alongside the existing dispatch-state
+event in the same transaction), `persistence/sqlite.py` + `governance/
+broker.py` (`list_outbox_events` gained `after_position` for
+starvation-free incremental consumption — cx's own fresh finding, cc
+verified the projector would otherwise never advance past its first
+`limit` batch), and `telemetry/projections.py` (`TelemetryProjector`:
+replayable, checkpoint-CAS'd, ARCHITECTURE.md-compliant — consumes only
+the canonical outbox by position, never imports `dispatch` or reads
+request tables). 99/99 tests passing (4 new, covering full-pipeline
+projection, checkpoint advancement over unrelated events, failure-streak
+increment/reset across a retry, and observation+projection+checkpoint
+atomicity) — cc additionally ran a standalone manual end-to-end script
+(admit → run to completion → project → verify) before trusting the
+pytest suite alone.

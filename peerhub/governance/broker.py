@@ -125,6 +125,7 @@ class GovernanceUnitOfWork(UnitOfWork, Protocol):
         *,
         limit: int,
         governance_only: bool = False,
+        after_position: int = 0,
     ) -> tuple[OutboxEvent, ...]:
         """Return canonical outbox events in workspace order."""
 

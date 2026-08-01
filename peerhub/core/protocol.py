@@ -18,6 +18,9 @@ from .execution import ExecutionCertainty
 PROTOCOL_MAJOR = 1
 PROTOCOL_MINOR = 0
 SCHEMA_VERSION = "1.0.0"
+ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND = (
+    "AttemptTerminalObserved"
+)
 
 CommandID = NewType("CommandID", str)
 

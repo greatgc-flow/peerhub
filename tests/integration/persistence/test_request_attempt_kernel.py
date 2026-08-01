@@ -202,6 +202,9 @@ def test_full_request_attempt_lifecycle_round_trips(
             admitted.command_id,
             attempt.attempt_id,
             result=_verified_result(),
+            transport="pipe",
+            started_at=running_attempt.updated_at,
+            process_integrity=True,
         )
     )
     assert terminal_request.state is (
@@ -231,10 +234,11 @@ def test_full_request_attempt_lifecycle_round_trips(
     assert [event.event_kind for event in events] == [
         "ADMITTED",
         "SUCCEEDED_VERIFIED",
+        "AttemptTerminalObserved",
     ]
     assert [
         event.outbox_position for event in events
-    ] == [1, 2]
+    ] == [1, 2, 3]
 
 
 def test_request_attempt_and_lease_cas_reject_stale_snapshots(
@@ -342,6 +346,7 @@ def test_active_attempt_uniqueness_and_monotonic_numbering(
             admitted.command_id,
             first_attempt.attempt_id,
             error_code=ErrorCode.SPAWN_FAILED,
+            transport="pipe",
         )
     )
 
@@ -511,6 +516,7 @@ def test_outbox_checkpoint_uses_revision_guarded_cas(
         admitted.command_id,
         attempt.attempt_id,
         error_code=ErrorCode.SPAWN_FAILED,
+        transport="pipe",
     )
 
     with store.unit_of_work() as unit:
@@ -519,7 +525,7 @@ def test_outbox_checkpoint_uses_revision_guarded_cas(
             limit=100,
         )
 
-    assert len(events) == 2
+    assert len(events) == 3
     first_position = events[0].outbox_position
     second_position = events[1].outbox_position
     assert first_position is not None
