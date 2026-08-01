@@ -262,3 +262,100 @@ status line still reads "proposed... not yet ratified" even though the
 *scope* (Phase 2) is unanimously ratified -- the doc's remaining
 "proposed" status refers to these unresolved *content* details, not the
 scope choice.
+
+## Adapter-boundary ratification proposals (2026-08-01) -- NOT YET
+## APPLIED, code work deferred to next session
+
+ag.deepthink and cx.deepthink were both dispatched the same 5-item
+brief independently. cx's proposal is adopted as the working resolution
+below (more precisely cited throughout, and its answer to item 5 avoids
+a risky breaking change ag's version would have caused); ag's dissent
+on item 1 is recorded since it's a genuine disagreement, not yet
+tie-broken by a third read.
+
+1. **`TerminalClassification` stays as shipped (cx; ag dissents).** cx:
+   keep the 4 already-shipped members (`START_UNCERTAIN`/
+   `SILENCE_TIMEOUT`/`PROCESS_TIMEOUT`/`EXIT_NON_ZERO`) unchanged --
+   `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` line ~49 tags the older
+   `EXITED` rule only `OBS` (observational), not `MUST`, and full
+   enumeration is explicitly deferred (line ~112) regardless. A clean
+   exit leaves `terminal_classification=None` (already legal). ag
+   instead proposed renaming `EXIT_NON_ZERO` to `EXITED` to match the
+   older rule -- not adopted here since it would rename an
+   already-shipped, tested member for a rule the spec itself marks
+   non-mandatory, but flagged for a tie-break read before Step 3.
+2. **Process identity: structural enforcement via `ProcessBirthIdentity`
+   (cx), not just a required field (ag).** For Step 5,
+   `ProcessSupervisor.on_spawned` takes `identity: ProcessBirthIdentity`
+   (the existing dispatch/contract.py type, already requiring PID +
+   creation time) rather than a bare `pid: int` with a required
+   `process_creation_time`. A separate fake-script identity-token API
+   (if needed for the deterministic test executables) must be named
+   distinctly and must never be treated as lease-fencing evidence.
+   Both peers agree PID-only can never be real production spawn
+   evidence.
+3. **New `DecodedOutput`/`DecoderEvent` types own `canonical_lines`,
+   distinct from `ProtocolAssessment`.** `ProtocolAssessment` stays
+   frozen to its existing 5 protocol facts (dispatch/contract.py line
+   ~269). New types per `ARCHITECTURE.md` line ~380's `OutputDecoder`
+   evidence categories: `DecoderEventKind` (enum:
+   `PROGRESS`/`ASSISTANT_TEXT`/`SESSION_IDENTITY`/`USAGE_HINT`/
+   `VENDOR_ERROR`/`COMPLETION_MARKER`), `DecoderEvent` (kind + payload
+   mapping), `DecodedOutput` (canonical_text, canonical_lines,
+   events tuple). Step 1's DT-02 test must be updated to call a
+   `finalize_decoded_output()` method returning `DecodedOutput`, not
+   `finalize_protocol_assessment()` -- keeping the old method name while
+   returning decoder data would repeat the original category error.
+4. **Minimal real shapes for all 6 `PeerAdapter`-referenced types**
+   (cx's proposal is adopted in full -- more complete than ag's
+   partial-defer answer): `PromptPolicy` (policy_id,
+   max_inline_utf8_bytes, artifact_reference_supported);
+   `SessionAction` enum (`NONE`/`CREATE`/`RESUME`) +
+   `CompletionContractView` (a structural `Protocol` carrying just
+   `contract_id`, letting `adapters.contract` type `AdapterRequest`
+   without importing `dispatch`) + `AdapterRequest` (request_id, exactly
+   one of prompt_content/prompt_reference, workspace_scope, profile_id,
+   requested_session_action, completion_contract); `SessionHint`
+   (external_session_id, adapter_fingerprint, session_generation --
+   the fake adapter rejects non-`None` hints, since session support is
+   optional per `ARCHITECTURE.md` line ~382); `TransportKind` enum
+   (`PIPE`/`PTY`) + `TransportLimits` (process_timeout_ms,
+   silence_timeout_ms, max_output_bytes -- relative budgets, the runner
+   converts to absolute deadlines using its injected clock);
+   `InvocationPlan` (argv, cwd_reference, environment_delta, transport,
+   stdin_payload, limits, redacted_display, an `artifacts` tuple of a
+   new `ArtifactSpec` type, session_action) + `ArtifactSpec`
+   (artifact_id, placeholder, exactly one of content_bytes/
+   content_reference, sha256_hex, expected_length, access_mode,
+   lifecycle); `OutputChannel` enum (`STDOUT`/`STDERR`/`PTY`) +
+   `OutputDecoder` (`Protocol` with `feed(chunk, *, channel) ->
+   tuple[DecoderEvent, ...]` and `finalize() -> DecodedOutput`).
+   Vendor-specific graceful-cancel recipes remain deferred -- the fake
+   descriptor does not declare `GRACEFUL_CANCEL`.
+5. **Adapter-owned types live in a new `peerhub/adapters/contract.py`;
+   `dispatch.contract` re-exports `ProtocolAssessment` unchanged rather
+   than duplicating it.** `adapters.contract` owns `PeerAdapter`,
+   `PeerDescriptor`/`ProfileDescriptor` (exact fields already documented
+   at `ARCHITECTURE.md` line ~280), the item-4 types above, the item-3
+   decoder types, and the existing 5-field `ProtocolAssessment` (moved
+   there, not redefined). `peerhub/dispatch/contract.py` then does
+   `from peerhub.adapters.contract import ProtocolAssessment` -- a
+   re-export, so every existing `from peerhub.dispatch.contract import
+   ProtocolAssessment` import across the already-shipped Slice 1-4
+   codebase keeps working unchanged (same class object, not a
+   parallel/drifting copy). The dependency direction is `core -> 
+   adapters.contract -> dispatch.contract/service`: `ARCHITECTURE.md`
+   line ~372 forbids `adapters` importing `dispatch`, but `dispatch`
+   importing `adapters.contract` is intentional and expected (the
+   architecture already states `dispatch.service` consumes
+   `PeerAdapter`) -- only the reverse direction is prohibited, so this
+   is not a cycle.
+
+**Not yet applied.** This is a synthesis of both peers' proposals, not
+yet written to code -- cc's own context was too depleted this session
+to safely apply ~14 new types plus the `ProtocolAssessment` re-export
+migration without risking a sloppy or incomplete edit. Next session:
+apply this ratified shape (tie-breaking item 1 first, e.g. via a third
+independent read or user call), update Step 1's DT-02 test for the
+renamed decoder method, then resume Step 2 for
+`peerhub/adapters/contract.py` and `peerhub/builtins/fake_adapter.py`.
