@@ -541,3 +541,30 @@ before applying anything:
   were just never written for a world where these 3 functions emit
   events) or reconsider whether all 3 functions should emit at this exact
   point.
+
+## DP-06 outbox writes shipped (2026-08-02, third pass)
+
+Dispatched to cx.deepthink to root-cause the exact breakage. Finding:
+**no double-counting, no projector bug** -- `TelemetryProjector`
+intentionally checkpoints every canonical outbox event, not just
+terminal ones, so the normal lifecycle legitimately grows from 3 events
+(`ADMITTED`, `SUCCEEDED_VERIFIED`, `AttemptTerminalObserved`) to 5
+(adding `DISPATCH_INTENT`, `RUNNING`). The 3 tests' exact-count
+assertions were simply written before this durable-journal requirement
+existed and needed updating, not evidence the outbox-write approach was
+wrong. Same service.py diff as the reverted attempt (re-applied,
+identical), plus: `test_full_request_attempt_lifecycle_round_trips`
+updated to expect 5 events including the 2 new kinds; a new
+`START_UNCERTAIN`-journal assertion added to
+`test_request_attempt_and_lease_cas_reject_stale_snapshots` (that path
+wasn't covered by the first test); both `test_telemetry_feedback_kernel.py`
+projector tests' `3` -> `5`. cx verified its own diff against an in-memory
+SQLite harness (its sandbox couldn't run real pytest) before returning
+it; cc re-verified against the real suite after applying: **182 passed,
+6 known Step-5 failures, no new breakage** -- matches cx's own predicted
+outcome exactly.
+
+This closes the DP-06 durable-journal item. Still blocked, unchanged:
+`dispatch/artifacts.py`, `dispatch/completion.py` (no test oracle for
+either), and the `workspace_scope` typing answer from the second pass
+(plausible, not independently re-verified line-by-line).

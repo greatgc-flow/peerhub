@@ -1157,6 +1157,7 @@ class DispatchService:
                 unit,
                 request.lease_id,
             )
+            timestamp = self._clock.now()
             (
                 updated_request,
                 updated_attempt,
@@ -1165,7 +1166,7 @@ class DispatchService:
                 request,
                 attempt,
                 lease,
-                updated_at=self._clock.now(),
+                updated_at=timestamp,
             )
             if not unit.cas_update_dispatch_bundle(
                 request,
@@ -1181,6 +1182,17 @@ class DispatchService:
             self._faults.hit(
                 FaultPoint.AFTER_DISPATCH_BUNDLE_CAS
             )
+            # DP-06: durable isolated-journal boundary -- INTENT_PERSISTED
+            # must be durably appended here (SLICE5-KICKOFF-R1.md
+            # "Ratified decisions" item 4).
+            unit.add_outbox_event(
+                self._dispatch_event(
+                    updated_request,
+                    event_id=self._ids.new_id("outbox-event"),
+                    occurred_at=timestamp,
+                )
+            )
+            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 
@@ -1201,11 +1213,12 @@ class DispatchService:
         with self._store.unit_of_work() as unit:
             request = self._require_request(unit, command_id)
             attempt = self._require_attempt(unit, attempt_id)
+            timestamp = self._clock.now()
             updated_request, updated_attempt = (
                 reduce_start_uncertain(
                     request,
                     attempt,
-                    updated_at=self._clock.now(),
+                    updated_at=timestamp,
                 )
             )
             self._cas_request_attempt(
@@ -1215,6 +1228,14 @@ class DispatchService:
                 attempt,
                 updated_attempt,
             )
+            unit.add_outbox_event(
+                self._dispatch_event(
+                    updated_request,
+                    event_id=self._ids.new_id("outbox-event"),
+                    occurred_at=timestamp,
+                )
+            )
+            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 
@@ -1241,6 +1262,7 @@ class DispatchService:
                 unit,
                 request.lease_id,
             )
+            timestamp = self._clock.now()
             (
                 updated_request,
                 updated_attempt,
@@ -1250,7 +1272,7 @@ class DispatchService:
                 attempt,
                 lease,
                 process_identity=process_identity,
-                updated_at=self._clock.now(),
+                updated_at=timestamp,
             )
             if not unit.cas_update_dispatch_bundle(
                 request,
@@ -1266,6 +1288,14 @@ class DispatchService:
             self._faults.hit(
                 FaultPoint.AFTER_DISPATCH_BUNDLE_CAS
             )
+            unit.add_outbox_event(
+                self._dispatch_event(
+                    updated_request,
+                    event_id=self._ids.new_id("outbox-event"),
+                    occurred_at=timestamp,
+                )
+            )
+            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 

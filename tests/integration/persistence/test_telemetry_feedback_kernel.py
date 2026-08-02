@@ -178,7 +178,7 @@ def test_projector_builds_projection_from_terminal_event(
         freshness_ttl=3600,
     )
     projected = projector.project_pending()
-    assert projected == 3
+    assert projected == 5
 
     projection = projector.get("ag", "ag.deepthink")
     assert projection.failure_category.value is None
@@ -191,7 +191,7 @@ def test_projector_builds_projection_from_terminal_event(
             "telemetry.operational.v1"
         )
     assert checkpoint is not None
-    assert checkpoint.revision == 3
+    assert checkpoint.revision == 5
 
 
 def test_projector_advances_checkpoint_over_unrelated_events(
@@ -206,7 +206,7 @@ def test_projector_advances_checkpoint_over_unrelated_events(
         freshness_ttl=3600,
     )
     first_pass = projector.project_pending()
-    assert first_pass == 3
+    assert first_pass == 5
 
     second_pass = projector.project_pending()
     assert second_pass == 0

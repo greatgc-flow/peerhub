@@ -233,12 +233,14 @@ def test_full_request_attempt_lifecycle_round_trips(
     assert persisted_lease == active_lease
     assert [event.event_kind for event in events] == [
         "ADMITTED",
+        "DISPATCH_INTENT",
+        "RUNNING",
         "SUCCEEDED_VERIFIED",
         "AttemptTerminalObserved",
     ]
     assert [
         event.outbox_position for event in events
-    ] == [1, 2, 3]
+    ] == [1, 2, 3, 4, 5]
 
 
 def test_request_attempt_and_lease_cas_reject_stale_snapshots(
@@ -408,6 +410,17 @@ def test_reconciled_start_uncertain_retry_rotates_lease(
             first_attempt.attempt_id,
         )
     )
+
+    with store.unit_of_work() as unit:
+        events = unit.list_outbox_events(
+            (OutboxState.PENDING,),
+            limit=100,
+        )
+    assert [event.event_kind for event in events] == [
+        "ADMITTED",
+        "DISPATCH_INTENT",
+        "START_UNCERTAIN",
+    ]
 
     (
         retried_request,
