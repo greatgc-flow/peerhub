@@ -683,3 +683,172 @@ This closes the DP-06 durable-journal item. Still blocked, unchanged:
 `dispatch/artifacts.py`, `dispatch/completion.py` (no test oracle for
 either), and the `workspace_scope` typing answer from the second pass
 (plausible, not independently re-verified line-by-line).
+
+## Step 4 persistence contract RATIFIED (2026-08-03, ag+cx unanimous)
+
+Unblocks the next slice: migration `0008` + `sqlite.py` artifact
+repositories. `dispatch/artifacts.py` and `dispatch/completion.py`
+landed earlier the same night (see the "contract RATIFIED" section
+above); this closes the persistence gap cx's own overnight planning
+pass flagged as genuinely design-round-worthy, not implementable by
+inference. Reached via 2 rounds: independent parallel proposals, then
+one targeted reconciliation on the single material disagreement found
+(both peers explicitly agreed this did NOT need a full multi-round
+dialectic -- correctly, per [[feedback_naive_reconciliation_causes_anchoring_flip]]'s
+"don't manufacture ceremony where it isn't warranted" spirit; a single
+targeted round was sufficient because the two proposals converged on
+everything except one genuinely material point).
+
+**Convergence, round 1 (no reconciliation needed):** both independently
+proposed the same journal architecture -- `outbox_events` remains the
+single, sole append-only DP-06 event journal (no second/parallel
+journal table); a NEW artifact-metadata table (or table pair) holds
+CAS-able current state; the outbox payload at `DISPATCH_INTENT` gains
+artifact-recovery fields (manifest/artifact digest, `completion_contract_kind`
+since that's now mandatory per the completion.py ratification above).
+
+**Table shape -- adopt cx's two-table split** (manifest-level +
+item-level), not ag's single flat table -- strictly more expressive,
+no identified downside:
+- `dispatch_artifact_manifests`: one row per attempt, PK `attempt_id`,
+  FK to `dispatch_attempts`. Fields: `workspace_scope_id`,
+  `staging_root_ref` (relative, trusted-config-derived -- never an
+  absolute path), `manifest_digest` (SHA-256 over canonical JSON of
+  the immutable manifest facts), `item_count`, `intent_event_id`
+  (nullable, set only once `DISPATCH_INTENT` commits), `created_at`,
+  `consumed_at`, `revision`.
+- `dispatch_artifacts`: one row per artifact item, PK
+  `(attempt_id, artifact_id)`, FK to the manifest row. Fields:
+  `placeholder`, `staging_ref` (relative hashed target -- never an
+  absolute `Path`, per the artifacts.py ratification's hashed-filename
+  mechanism), `access_mode`, `declared_lifecycle`, `expected_sha256_hex`,
+  `expected_length`, `verified_sha256_hex`/`verified_length` (nullable
+  until verification), `verified_object_identity_json` (materializer-owned
+  immutable descriptor, supports same-object checking -- not a
+  substitute for the runner's live verified handle), `state`,
+  `failure_code`, `declared_at`/`staged_at`/`verified_at`/`consumed_at`/
+  `cleaned_at` (nullable timestamps), `revision`.
+- Constraints: `UNIQUE (attempt_id, placeholder)`,
+  `UNIQUE (workspace_scope_id, staging_ref)`, index `(attempt_id, state)`.
+- The persisted staging reference is relative only -- absolute
+  workspace paths, source paths, raw `content_bytes`, and live handles
+  are never persisted (matches artifacts.py's pure-manifest boundary:
+  this table stores facts *about* materialization, not materialization
+  I/O itself).
+- Migration file: `peerhub/persistence/migrations/0008_dispatch_artifact_metadata.sql`
+  -- confirmed against HEAD by both peers independently as the correct
+  next number (`SqliteStateStore.initialize()` currently stops at `0007`).
+  **Re-confirm this number against HEAD immediately before implementing**
+  if any other migration has landed in the meantime.
+
+**Lifecycle states -- merged, 3-state commitment chain, unanimous after
+reconciliation:** `VERIFIED -> RESERVED -> CONSUMED` (plus the
+already-existing pre-verification states `DECLARED`/`STAGED`, and
+`ORPHANED`/`CLEANED` for the crash/cleanup tail -- adopt cx's fuller
+6+-state enum from its first-round proposal, with `RESERVED` inserted
+between `VERIFIED` and `CONSUMED`).
+
+This 3-state chain is the one point where round 1 produced a real,
+material disagreement (not a naming difference): ag's first-round
+proposal transitioned `VERIFIED -> CONSUMED` directly at **attempt
+completion** (post-execution); cx's first-round proposal transitioned
+`VERIFIED -> CONSUMED` directly at **`DISPATCH_INTENT`** (pre-spawn,
+before the process even runs). The reconciliation round converged both
+peers onto a third option neither had originally proposed -- genuine
+synthesis, not deference:
+
+- **`VERIFIED -> RESERVED`**: CAS transition atomically paired with
+  inserting the `DISPATCH_INTENT` outbox event, *before* the provider
+  process is spawned. Closes ag's identified gap in cx's original
+  design (a duplicate dispatcher could otherwise claim the same
+  artifacts) and closes cx's identified gap in ag's original design
+  (artifacts sitting in `VERIFIED` for the entire attempt duration is
+  ambiguous between "unclaimed" and "claimed by an in-flight or
+  crashed process").
+- **`RESERVED -> CONSUMED`**: CAS transition atomically paired with the
+  attempt reaching a durable terminal outcome (completion or a
+  determined-failed/determined-not-started state), alongside the
+  terminal outbox event.
+- **Physical deletion** (`CLEANED`) happens async, only ever for
+  `CONSUMED` artifacts -- never for `VERIFIED` or `RESERVED`, closing
+  ag's identified cleanup-hazard (an async GC sweep must never delete
+  files a still-running or still-unresolved process might read).
+- **Recovery rule (cx's addition, not in either original proposal):**
+  **do not** automatically revert a crashed `RESERVED` back to
+  `VERIFIED` -- spawn may already have happened. Reconcile the durable
+  attempt/worker outcome first (via the existing DP-06 recovery
+  machinery); only a *proven*-not-started attempt may release the
+  reservation back to `VERIFIED`.
+
+**Repository surface for `peerhub/persistence/sqlite.py`** (cx's
+proposal adopted, `mark_artifact_consumed`/similar renamed to match the
+3-state chain):
+```python
+def add_artifact_manifest(
+    self,
+    manifest: ArtifactManifestRecord,
+    artifacts: tuple[ArtifactMetadata, ...],
+) -> None: ...
+
+def get_artifact_manifest(self, attempt_id: str) -> ArtifactManifestRecord | None: ...
+
+def get_artifact_metadata(self, attempt_id: str, artifact_id: str) -> ArtifactMetadata | None: ...
+
+def list_artifact_metadata(self, attempt_id: str) -> tuple[ArtifactMetadata, ...]: ...
+
+def cas_update_artifact_metadata(
+    self, current: ArtifactMetadata, updated: ArtifactMetadata,
+) -> bool: ...
+
+def reserve_verified_artifacts_for_dispatch(
+    self, *, attempt_id: str, expected_manifest_digest: str,
+    intent_event_id: str, reserved_at: int,
+) -> bool:
+    """VERIFIED -> RESERVED, all-or-nothing for the whole manifest --
+    belongs in one SQL transaction, not a caller loop over
+    cas_update_artifact_metadata()."""
+    ...
+
+def consume_reserved_artifacts(
+    self, *, attempt_id: str, terminal_outcome_event_id: str, consumed_at: int,
+) -> bool:
+    """RESERVED -> CONSUMED, atomically with the attempt's terminal
+    outbox event."""
+    ...
+
+def get_artifact_recovery_digest(self, attempt_id: str) -> ArtifactRecoveryDigest | None:
+    """Recovery read model -- joins attempt/request, manifest, and
+    ordered metadata rows; verifies a committed intent's
+    intent_event_id resolves to the corresponding outbox event with
+    matching digest/kind. Not another durable journal."""
+    ...
+
+def mark_artifacts_orphaned(
+    self, *, attempt_id: str, expected_manifest_revision: int,
+    orphaned_at: int, failure_code: str,
+) -> bool: ...
+
+def mark_artifact_cleaned(
+    self, current: ArtifactMetadata, *, cleaned_at: int,
+) -> bool: ...
+```
+
+**Process note:** both peers independently assessed this as needing a
+design round but explicitly *not* a prolonged multi-round dialectic
+("two independent proposals, one concise reconciliation only on a
+material difference, then implementation" -- cx's own words), and that
+assessment held: round 1 found near-total convergence plus exactly one
+real disagreement, round 2 resolved it with a synthesis neither peer
+had originally proposed. Contrast with the completion.py VERIFIED
+question, which genuinely needed 3 rounds because the first
+reconciliation attempt was methodologically broken (see
+[[feedback_naive_reconciliation_causes_anchoring_flip]]) -- the lesson
+there was about *how* to reconcile, not that every disagreement needs
+maximal process. Match the round count to the actual complexity found,
+not to a fixed ritual.
+
+**Still open, not addressed by this round:** `ArtifactRecoveryDigest`'s
+exact field-to-outbox-payload mapping is proposed but not yet
+independently re-verified against the real `service.py`
+`add_outbox_event` call sites; do that as part of implementation, not
+by inference beforehand.
