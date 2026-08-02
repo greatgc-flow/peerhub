@@ -516,7 +516,15 @@ before applying anything:
   existing-but-previously-untested `reserve_lease`/`LeaseReservationRequest`
   pre-spawn constructor, not the legacy `create_lease` which always sets a
   process identity) -- new test passes, full suite unaffected (181 passed,
-  same 6 Step-5-only failures).
+  same 6 Step-5-only failures). cx.effort's scoped review of this diff then
+  caught one more real test gap (a caller passing
+  `process_identity_matches=True` alongside a null identity must still hit
+  the new branch, not silently fall through to `FENCE_AND_CLOSE`) --
+  `test_recovery_never_spawned_takes_precedence_over_stale_identity_match_flag`
+  added to lock that in. Final committed state: **182 passed**, same 6
+  Step-5-only failures (commit `14398b3`; corrected here 2026-08-02 after
+  cx.deepthink's final cross-repo sanity pass caught this section still
+  saying 181/one test post-commit).
 - **DP-06 durable-journal outbox writes** (`record_dispatch_intent`/
   `record_start_uncertain`/`record_running` appending an outbox event at
   the isolated-journal boundary): ag's diff used real, already-established
