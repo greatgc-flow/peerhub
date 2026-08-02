@@ -465,6 +465,121 @@ ratified before Step 2 could safely write code), resolving the
 `workspace_scope`/`WorkspaceScope` citation question as part of that
 round, before writing pure-reducer code against an assumed shape.
 
+## artifacts.py/completion.py contract RATIFIED (2026-08-03, ag+cx unanimous)
+
+Unblocks tasks #17/#18. Reached via a structured multi-round dialectic
+(design proposal -> flag disagreement -> reconcile -> synthesize),
+dispatched to ag.effort and cx.effort as independent voices throughout.
+Full transcript excerpts kept in this session's memory
+(`project_t91_resolved_2026_08_02.md`'s sibling notes); this section is
+the durable, implementation-facing summary.
+
+**`workspace_scope` typing citation -- resolved, unanimous, round 1:**
+`ARCHITECTURE.md` line 256's `WorkspaceScope | GlobalScope` citation is
+the coordinator-level `CommandEnvelope.scope` routing discriminator
+(global vs. workspace-targeted IPC commands), a different concept from
+`AdapterRequest.workspace_scope` (an already-routed, per-request scope
+identifier) and `workspace_scope_id` (a persistence-layer string key).
+**`AdapterRequest.workspace_scope` stays `str`.** Do not introduce the
+coordinator `WorkspaceScope` type into adapters or artifact path
+resolution.
+
+**`assess_completion()` DELIVERY_ONLY/VERIFIED semantics -- resolved,
+unanimous, round 3 (of 3):** A first round produced a straight 1-1 split
+(can `DELIVERY_ONLY` reach `VERIFIED`, or does it always cap at
+`UNVERIFIED`?). A naive "show peer B's argument to peer A" reconciliation
+round produced a worthless result: **both reviewers flipped to the
+opposite of their own round-1 position**, converging on nothing --
+evidence this shows anchoring/deference to whichever argument is framed
+as "the other reviewer said," not genuine reasoning from merits. Round 3
+fixed the method: both arguments were shown to both peers simultaneously
+and unattributed, with an explicit instruction to steelman-then-rebut the
+losing side. That produced real, stable, reasoned convergence:
+
+- **`DELIVERY_ONLY` CAN return `VERIFIED`** when the response is present
+  and not truncated -- `VERIFIED` means "the declared contract's
+  requirements were satisfied," and a zero-requirement contract that
+  delivered is fully satisfied, not unproven.
+- This is safe **only** if enforced structurally, not by convention:
+  - `contract_kind` is a **required, non-nullable field** on
+    `CompletionAssessment` (including at every serialization/IPC
+    boundary -- round-trip tests must prove it's never dropped).
+  - **No bare `state == VERIFIED` checks** anywhere outside the
+    assessment module -- expose contract-aware predicates instead (e.g.
+    an exhaustive `is_promotion_eligible(assessment)`), not a generic
+    `is_verified`.
+  - **Exhaustiveness tests** must fail when a new `contract_kind` is
+    added without updating every promotion-logic and telemetry call
+    site.
+  - **Telemetry/aggregation must segment by `contract_kind`** --
+    verification-rate dashboards must never aggregate `VERIFIED` counts
+    across heterogeneous contract kinds (a `DELIVERY_ONLY` success and an
+    `ARTIFACT_REQUIRED` success are not the same claim).
+  - Without these guarantees, treat this as **not yet safe to ship** --
+    the type signal reverts to erasable-by-convention, at which point the
+    always-`UNVERIFIED` fallback is the safer default.
+
+**`resolve_workspace_paths` / `generate_materialization_manifest`
+signatures -- resolved, unanimous, final merge round:**
+
+```python
+@dataclass(frozen=True)
+class WorkspacePaths:
+    workspace_root: Path
+    staging_dir: Path
+    scope_id: str
+
+def resolve_workspace_paths(
+    request: AdapterRequest,
+    plan: InvocationPlan,
+    *,
+    workspace_roots: Mapping[str, Path],
+    artifact_staging_relative_root: Path = Path(".artifacts/staging"),
+) -> WorkspacePaths: ...
+
+def generate_materialization_manifest(
+    plan: InvocationPlan,
+    workspace: WorkspacePaths,
+    *,
+    attempt_id: str,
+    artifacts: Sequence[ArtifactSpec] = (),
+) -> MaterializationManifest: ...
+```
+
+Two safety mechanisms adopted, both non-stylistic per unanimous
+agreement (a caller-resolved-root design was considered and rejected as
+strictly weaker unless the caller's resolver is itself an equally
+trusted, validated boundary -- simpler to make the containment
+structural instead):
+
+1. **`workspace_roots: Mapping[str, Path]` opaque lookup**, resolved only
+   inside `resolve_workspace_paths`, unknown scopes rejected. A
+   caller-controlled scope string is never used directly as/in a
+   filesystem path -- it's purely a lookup key into host-trusted config.
+2. **SHA-256-hashed physical staging filenames** (digest of stable
+   identity, e.g. `attempt_id`/`artifact_id`), never a raw externally
+   controlled ID or filename as a physical path segment -- eliminates the
+   injection surface for *staging targets* rather than attempting to
+   validate it. Artifact *source* paths still need real validation
+   (reject absolute paths, traversal, disallowed separators, and require
+   final resolution to stay beneath the intended root) since those
+   aren't hash-generated.
+
+`completion.py`'s `assess_completion` composes with the existing
+`CompletionContract`/`ExecutionOutcome`/`ProtocolAssessment` DTOs (see
+dispatch/contract.py); no new requirement grammar -- an
+artifact/schema/field/custom-verifier/vendor-receipt validator produces
+one `RequirementEvaluation` per frozen requirement, and the pure reducer
+verifies complete, non-duplicated index coverage and aggregates the
+result per the state table above.
+
+**Process lesson for future ambiguous multi-peer design rounds:**
+a reconciliation round that shows peer A only "peer B disagreed with
+you" is worthless -- it measures anchoring, not correctness. Show both
+arguments simultaneously, unattributed, with an explicit
+steelman-then-rebut instruction, before trusting any "reconciled"
+answer as real consensus.
+
 ## Item 1 tie-break resolution (2026-08-02, user call)
 
 Presented to the user directly rather than dispatching a third peer
