@@ -35,6 +35,10 @@ from peerhub.core.protocol import (
 )
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
+    ArtifactManifestRecord,
+    ArtifactMetadata,
+    ArtifactRecoveryDigest,
+    ArtifactState,
     AskResult,
     AttemptSnapshot,
     ClientRequestBinding,
@@ -478,6 +482,14 @@ class SqliteStateStore:
                 connection.executescript(
                     self._migration_text(
                         "0007_health_projection_readiness_context.sql"
+                    )
+                )
+
+            versions = self._migration_versions(connection)
+            if 8 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0008_dispatch_artifact_metadata.sql"
                     )
                 )
 
@@ -3695,3 +3707,477 @@ class SqliteUnitOfWork:
             selected_candidate_id=row["selected_candidate_id"],
             created_at=row["created_at"],
         )
+
+    # ── Slice 5 Step 4: dispatch artifact metadata ──
+
+    @staticmethod
+    def _artifact_manifest_from_row(
+        row: sqlite3.Row,
+    ) -> ArtifactManifestRecord:
+        return ArtifactManifestRecord(
+            attempt_id=row["attempt_id"],
+            workspace_scope_id=row["workspace_scope_id"],
+            staging_root_ref=row["staging_root_ref"],
+            manifest_digest=row["manifest_digest"],
+            item_count=row["item_count"],
+            intent_event_id=row["intent_event_id"],
+            created_at=row["created_at"],
+            consumed_at=row["consumed_at"],
+            revision=row["revision"],
+        )
+
+    @staticmethod
+    def _artifact_metadata_from_row(
+        row: sqlite3.Row,
+    ) -> ArtifactMetadata:
+        return ArtifactMetadata(
+            attempt_id=row["attempt_id"],
+            artifact_id=row["artifact_id"],
+            placeholder=row["placeholder"],
+            workspace_scope_id=row["workspace_scope_id"],
+            staging_ref=row["staging_ref"],
+            access_mode=row["access_mode"],
+            declared_lifecycle=row["declared_lifecycle"],
+            expected_sha256_hex=row["expected_sha256_hex"],
+            expected_length=row["expected_length"],
+            verified_sha256_hex=row["verified_sha256_hex"],
+            verified_length=row["verified_length"],
+            verified_object_identity_json=row["verified_object_identity_json"],
+            state=ArtifactState(row["state"]),
+            failure_code=row["failure_code"],
+            declared_at=row["declared_at"],
+            staged_at=row["staged_at"],
+            verified_at=row["verified_at"],
+            reserved_at=row["reserved_at"],
+            consumed_at=row["consumed_at"],
+            cleaned_at=row["cleaned_at"],
+            orphaned_at=row["orphaned_at"],
+            revision=row["revision"],
+        )
+
+    def add_artifact_manifest(
+        self,
+        manifest: ArtifactManifestRecord,
+        artifacts: tuple[ArtifactMetadata, ...],
+    ) -> None:
+        """Insert durable artifact manifest and artifact metadata rows."""
+        self._db().execute(
+            """
+            INSERT INTO dispatch_artifact_manifests (
+                attempt_id,
+                workspace_scope_id,
+                staging_root_ref,
+                manifest_digest,
+                item_count,
+                intent_event_id,
+                created_at,
+                consumed_at,
+                revision
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                manifest.attempt_id,
+                manifest.workspace_scope_id,
+                manifest.staging_root_ref,
+                manifest.manifest_digest,
+                manifest.item_count,
+                manifest.intent_event_id,
+                manifest.created_at,
+                manifest.consumed_at,
+                manifest.revision,
+            ),
+        )
+        for art in artifacts:
+            self._db().execute(
+                """
+                INSERT INTO dispatch_artifacts (
+                    attempt_id,
+                    artifact_id,
+                    placeholder,
+                    workspace_scope_id,
+                    staging_ref,
+                    access_mode,
+                    declared_lifecycle,
+                    expected_sha256_hex,
+                    expected_length,
+                    verified_sha256_hex,
+                    verified_length,
+                    verified_object_identity_json,
+                    state,
+                    failure_code,
+                    declared_at,
+                    staged_at,
+                    verified_at,
+                    reserved_at,
+                    consumed_at,
+                    cleaned_at,
+                    orphaned_at,
+                    revision
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    art.attempt_id,
+                    art.artifact_id,
+                    art.placeholder,
+                    art.workspace_scope_id,
+                    art.staging_ref,
+                    art.access_mode,
+                    art.declared_lifecycle,
+                    art.expected_sha256_hex,
+                    art.expected_length,
+                    art.verified_sha256_hex,
+                    art.verified_length,
+                    art.verified_object_identity_json,
+                    art.state.value,
+                    art.failure_code,
+                    art.declared_at,
+                    art.staged_at,
+                    art.verified_at,
+                    art.reserved_at,
+                    art.consumed_at,
+                    art.cleaned_at,
+                    art.orphaned_at,
+                    art.revision,
+                ),
+            )
+
+    def get_artifact_manifest(
+        self, attempt_id: str
+    ) -> ArtifactManifestRecord | None:
+        """Return artifact manifest by attempt ID."""
+        row = self._db().execute(
+            """
+            SELECT * FROM dispatch_artifact_manifests WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+        return None if row is None else self._artifact_manifest_from_row(row)
+
+    def get_artifact_metadata(
+        self, attempt_id: str, artifact_id: str
+    ) -> ArtifactMetadata | None:
+        """Return artifact metadata by attempt ID and artifact ID."""
+        row = self._db().execute(
+            """
+            SELECT * FROM dispatch_artifacts
+            WHERE attempt_id = ? AND artifact_id = ?
+            """,
+            (attempt_id, artifact_id),
+        ).fetchone()
+        return None if row is None else self._artifact_metadata_from_row(row)
+
+    def list_artifact_metadata(
+        self, attempt_id: str
+    ) -> tuple[ArtifactMetadata, ...]:
+        """List all artifact metadata rows for an attempt."""
+        rows = self._db().execute(
+            """
+            SELECT * FROM dispatch_artifacts
+            WHERE attempt_id = ?
+            ORDER BY artifact_id
+            """,
+            (attempt_id,),
+        ).fetchall()
+        return tuple(self._artifact_metadata_from_row(row) for row in rows)
+
+    def cas_update_artifact_metadata(
+        self, current: ArtifactMetadata, updated: ArtifactMetadata
+    ) -> bool:
+        """CAS update artifact metadata row by revision."""
+        if (
+            current.attempt_id != updated.attempt_id
+            or current.artifact_id != updated.artifact_id
+        ):
+            raise ValueError(
+                "attempt_id and artifact_id must match for CAS update"
+            )
+        cursor = self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET
+                placeholder = ?,
+                workspace_scope_id = ?,
+                staging_ref = ?,
+                access_mode = ?,
+                declared_lifecycle = ?,
+                expected_sha256_hex = ?,
+                expected_length = ?,
+                verified_sha256_hex = ?,
+                verified_length = ?,
+                verified_object_identity_json = ?,
+                state = ?,
+                failure_code = ?,
+                declared_at = ?,
+                staged_at = ?,
+                verified_at = ?,
+                reserved_at = ?,
+                consumed_at = ?,
+                cleaned_at = ?,
+                orphaned_at = ?,
+                revision = ?
+            WHERE attempt_id = ? AND artifact_id = ? AND revision = ?
+            """,
+            (
+                updated.placeholder,
+                updated.workspace_scope_id,
+                updated.staging_ref,
+                updated.access_mode,
+                updated.declared_lifecycle,
+                updated.expected_sha256_hex,
+                updated.expected_length,
+                updated.verified_sha256_hex,
+                updated.verified_length,
+                updated.verified_object_identity_json,
+                updated.state.value,
+                updated.failure_code,
+                updated.declared_at,
+                updated.staged_at,
+                updated.verified_at,
+                updated.reserved_at,
+                updated.consumed_at,
+                updated.cleaned_at,
+                updated.orphaned_at,
+                updated.revision,
+                current.attempt_id,
+                current.artifact_id,
+                current.revision,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def reserve_verified_artifacts_for_dispatch(
+        self,
+        *,
+        attempt_id: str,
+        expected_manifest_digest: str,
+        intent_event_id: str,
+        reserved_at: int,
+    ) -> bool:
+        """Transition artifacts from VERIFIED to RESERVED for an attempt, all-or-nothing.
+
+        If any item in the manifest is not VERIFIED, zero items change state.
+        Links intent_event_id on the manifest.
+        """
+        manifest_row = self._db().execute(
+            """
+            SELECT manifest_digest, item_count
+            FROM dispatch_artifact_manifests
+            WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+
+        if manifest_row is None:
+            return False
+        if manifest_row["manifest_digest"] != expected_manifest_digest:
+            return False
+
+        item_count = manifest_row["item_count"]
+        art_rows = self._db().execute(
+            """
+            SELECT state FROM dispatch_artifacts WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchall()
+
+        if len(art_rows) != item_count or any(
+            row["state"] != ArtifactState.VERIFIED.value for row in art_rows
+        ):
+            return False
+
+        # All items are VERIFIED and match count -- perform reservation
+        cursor = self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET state = ?, reserved_at = ?, revision = revision + 1
+            WHERE attempt_id = ? AND state = ?
+            """,
+            (
+                ArtifactState.RESERVED.value,
+                reserved_at,
+                attempt_id,
+                ArtifactState.VERIFIED.value,
+            ),
+        )
+        if cursor.rowcount != item_count:
+            return False
+
+        self._db().execute(
+            """
+            UPDATE dispatch_artifact_manifests
+            SET intent_event_id = ?, revision = revision + 1
+            WHERE attempt_id = ?
+            """,
+            (intent_event_id, attempt_id),
+        )
+        return True
+
+    def consume_reserved_artifacts(
+        self,
+        *,
+        attempt_id: str,
+        terminal_outcome_event_id: str,
+        consumed_at: int,
+    ) -> bool:
+        """Transition artifacts from RESERVED to CONSUMED for an attempt.
+
+        Atomic with setting consumed_at on manifest.
+        """
+        manifest_row = self._db().execute(
+            """
+            SELECT item_count FROM dispatch_artifact_manifests WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+
+        if manifest_row is None:
+            return False
+
+        art_rows = self._db().execute(
+            """
+            SELECT state FROM dispatch_artifacts WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchall()
+
+        if not art_rows or any(
+            row["state"] != ArtifactState.RESERVED.value for row in art_rows
+        ):
+            return False
+
+        cursor = self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET state = ?, consumed_at = ?, revision = revision + 1
+            WHERE attempt_id = ? AND state = ?
+            """,
+            (
+                ArtifactState.CONSUMED.value,
+                consumed_at,
+                attempt_id,
+                ArtifactState.RESERVED.value,
+            ),
+        )
+        if cursor.rowcount != len(art_rows):
+            return False
+
+        self._db().execute(
+            """
+            UPDATE dispatch_artifact_manifests
+            SET consumed_at = ?, revision = revision + 1
+            WHERE attempt_id = ?
+            """,
+            (consumed_at, attempt_id),
+        )
+        return True
+
+    def get_artifact_recovery_digest(
+        self, attempt_id: str
+    ) -> ArtifactRecoveryDigest | None:
+        """Return recovery digest for an attempt."""
+        manifest = self.get_artifact_manifest(attempt_id)
+        if manifest is None:
+            return None
+
+        artifacts = self.list_artifact_metadata(attempt_id)
+        intent_event_verified = False
+
+        if manifest.intent_event_id is not None:
+            outbox_row = self._db().execute(
+                """
+                SELECT event_kind, payload_json FROM outbox_events WHERE event_id = ?
+                """,
+                (manifest.intent_event_id,),
+            ).fetchone()
+            if outbox_row is not None:
+                kind = outbox_row["event_kind"]
+                payload = _json_object(outbox_row["payload_json"])
+                manifest_digest_in_payload = payload.get("manifest_digest")
+                if kind == "DISPATCH_INTENT" and (
+                    manifest_digest_in_payload is None
+                    or manifest_digest_in_payload == manifest.manifest_digest
+                ):
+                    intent_event_verified = True
+
+        return ArtifactRecoveryDigest(
+            attempt_id=attempt_id,
+            workspace_scope_id=manifest.workspace_scope_id,
+            manifest_digest=manifest.manifest_digest,
+            item_count=manifest.item_count,
+            intent_event_id=manifest.intent_event_id,
+            intent_event_verified=intent_event_verified,
+            artifacts=artifacts,
+        )
+
+    def mark_artifacts_orphaned(
+        self,
+        *,
+        attempt_id: str,
+        expected_manifest_revision: int,
+        orphaned_at: int,
+        failure_code: str,
+    ) -> bool:
+        """Mark non-terminal artifacts as ORPHANED."""
+        manifest_row = self._db().execute(
+            """
+            SELECT revision FROM dispatch_artifact_manifests WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+
+        if (
+            manifest_row is None
+            or manifest_row["revision"] != expected_manifest_revision
+        ):
+            return False
+
+        self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET state = ?, orphaned_at = ?, failure_code = ?, revision = revision + 1
+            WHERE attempt_id = ? AND state NOT IN (?, ?)
+            """,
+            (
+                ArtifactState.ORPHANED.value,
+                orphaned_at,
+                failure_code,
+                attempt_id,
+                ArtifactState.CONSUMED.value,
+                ArtifactState.CLEANED.value,
+            ),
+        )
+
+        self._db().execute(
+            """
+            UPDATE dispatch_artifact_manifests
+            SET revision = revision + 1
+            WHERE attempt_id = ? AND revision = ?
+            """,
+            (attempt_id, expected_manifest_revision),
+        )
+        return True
+
+    def mark_artifact_cleaned(
+        self, current: ArtifactMetadata, *, cleaned_at: int
+    ) -> bool:
+        """Mark a CONSUMED artifact as CLEANED. Rejects non-CONSUMED artifacts."""
+        if current.state != ArtifactState.CONSUMED:
+            return False
+
+        cursor = self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET state = ?, cleaned_at = ?, revision = revision + 1
+            WHERE attempt_id = ? AND artifact_id = ? AND revision = ? AND state = ?
+            """,
+            (
+                ArtifactState.CLEANED.value,
+                cleaned_at,
+                current.attempt_id,
+                current.artifact_id,
+                current.revision,
+                ArtifactState.CONSUMED.value,
+            ),
+        )
+        return cursor.rowcount == 1
+

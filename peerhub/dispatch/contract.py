@@ -1054,3 +1054,225 @@ class OutboxCheckpoint:
             "outbox_position",
         )
         _require_positive_int(self.revision, "revision")
+
+
+class ArtifactState(str, Enum):
+    """Authoritative lifecycle states for dispatch artifact items."""
+
+    DECLARED = "DECLARED"
+    STAGED = "STAGED"
+    VERIFIED = "VERIFIED"
+    RESERVED = "RESERVED"
+    CONSUMED = "CONSUMED"
+    ORPHANED = "ORPHANED"
+    CLEANED = "CLEANED"
+
+
+ArtifactLifecycleState = ArtifactState
+
+
+@dataclass(frozen=True)
+class ArtifactManifestRecord:
+    """Durable record of an artifact materialization manifest for an attempt."""
+
+    attempt_id: str
+    workspace_scope_id: str
+    staging_root_ref: str
+    manifest_digest: str
+    item_count: int
+    created_at: int
+    revision: int
+    intent_event_id: str | None = None
+    consumed_at: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "attempt_id",
+            require_text(self.attempt_id, "attempt_id"),
+        )
+        object.__setattr__(
+            self,
+            "workspace_scope_id",
+            require_text(self.workspace_scope_id, "workspace_scope_id"),
+        )
+        object.__setattr__(
+            self,
+            "staging_root_ref",
+            require_text(self.staging_root_ref, "staging_root_ref"),
+        )
+        object.__setattr__(
+            self,
+            "manifest_digest",
+            require_text(self.manifest_digest, "manifest_digest"),
+        )
+        _require_nonnegative_int(self.item_count, "item_count")
+        _require_nonnegative_int(self.created_at, "created_at")
+        _require_positive_int(self.revision, "revision")
+        if self.intent_event_id is not None:
+            object.__setattr__(
+                self,
+                "intent_event_id",
+                require_text(self.intent_event_id, "intent_event_id"),
+            )
+        if self.consumed_at is not None:
+            _require_nonnegative_int(self.consumed_at, "consumed_at")
+
+
+@dataclass(frozen=True)
+class ArtifactMetadata:
+    """Durable lifecycle/identity/digest metadata for a single artifact item."""
+
+    attempt_id: str
+    artifact_id: str
+    placeholder: str
+    workspace_scope_id: str
+    staging_ref: str
+    access_mode: str
+    declared_lifecycle: str
+    state: ArtifactState
+    declared_at: int
+    revision: int
+    expected_sha256_hex: str | None = None
+    expected_length: int | None = None
+    verified_sha256_hex: str | None = None
+    verified_length: int | None = None
+    verified_object_identity_json: str | None = None
+    failure_code: str | None = None
+    staged_at: int | None = None
+    verified_at: int | None = None
+    reserved_at: int | None = None
+    consumed_at: int | None = None
+    cleaned_at: int | None = None
+    orphaned_at: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "attempt_id",
+            require_text(self.attempt_id, "attempt_id"),
+        )
+        object.__setattr__(
+            self,
+            "artifact_id",
+            require_text(self.artifact_id, "artifact_id"),
+        )
+        object.__setattr__(
+            self,
+            "placeholder",
+            require_text(self.placeholder, "placeholder"),
+        )
+        object.__setattr__(
+            self,
+            "workspace_scope_id",
+            require_text(self.workspace_scope_id, "workspace_scope_id"),
+        )
+        object.__setattr__(
+            self,
+            "staging_ref",
+            require_text(self.staging_ref, "staging_ref"),
+        )
+        object.__setattr__(
+            self,
+            "access_mode",
+            require_text(self.access_mode, "access_mode"),
+        )
+        object.__setattr__(
+            self,
+            "declared_lifecycle",
+            require_text(self.declared_lifecycle, "declared_lifecycle"),
+        )
+        if not isinstance(self.state, ArtifactState):
+            object.__setattr__(self, "state", ArtifactState(self.state))
+        _require_nonnegative_int(self.declared_at, "declared_at")
+        _require_positive_int(self.revision, "revision")
+
+        if self.expected_sha256_hex is not None:
+            object.__setattr__(
+                self,
+                "expected_sha256_hex",
+                require_text(self.expected_sha256_hex, "expected_sha256_hex"),
+            )
+        if self.expected_length is not None:
+            _require_nonnegative_int(self.expected_length, "expected_length")
+        if self.verified_sha256_hex is not None:
+            object.__setattr__(
+                self,
+                "verified_sha256_hex",
+                require_text(self.verified_sha256_hex, "verified_sha256_hex"),
+            )
+        if self.verified_length is not None:
+            _require_nonnegative_int(self.verified_length, "verified_length")
+        if self.verified_object_identity_json is not None:
+            object.__setattr__(
+                self,
+                "verified_object_identity_json",
+                require_text(
+                    self.verified_object_identity_json,
+                    "verified_object_identity_json",
+                ),
+            )
+        if self.failure_code is not None:
+            object.__setattr__(
+                self,
+                "failure_code",
+                require_text(self.failure_code, "failure_code"),
+            )
+        for ts_field in (
+            "staged_at",
+            "verified_at",
+            "reserved_at",
+            "consumed_at",
+            "cleaned_at",
+            "orphaned_at",
+        ):
+            val = getattr(self, ts_field)
+            if val is not None:
+                _require_nonnegative_int(val, ts_field)
+
+
+@dataclass(frozen=True)
+class ArtifactRecoveryDigest:
+    """Recovery read model detailing attempt manifest, artifacts, and intent validation."""
+
+    attempt_id: str
+    workspace_scope_id: str
+    manifest_digest: str
+    item_count: int
+    intent_event_id: str | None
+    intent_event_verified: bool
+    artifacts: tuple[ArtifactMetadata, ...]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "attempt_id",
+            require_text(self.attempt_id, "attempt_id"),
+        )
+        object.__setattr__(
+            self,
+            "workspace_scope_id",
+            require_text(self.workspace_scope_id, "workspace_scope_id"),
+        )
+        object.__setattr__(
+            self,
+            "manifest_digest",
+            require_text(self.manifest_digest, "manifest_digest"),
+        )
+        _require_nonnegative_int(self.item_count, "item_count")
+        if self.intent_event_id is not None:
+            object.__setattr__(
+                self,
+                "intent_event_id",
+                require_text(self.intent_event_id, "intent_event_id"),
+            )
+        if type(self.intent_event_verified) is not bool:
+            raise ValueError("intent_event_verified must be a boolean")
+        arts = tuple(self.artifacts)
+        for a in arts:
+            if not isinstance(a, ArtifactMetadata):
+                raise ValueError(
+                    "every artifact must be an ArtifactMetadata instance"
+                )
+        object.__setattr__(self, "artifacts", arts)
+
