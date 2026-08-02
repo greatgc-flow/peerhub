@@ -277,9 +277,18 @@ class ExecutionOutcome:
 
 @dataclass(frozen=True)
 class CompletionAssessment:
-    """Central semantic assessment against a frozen contract."""
+    """Central semantic assessment against a frozen contract.
+
+    ``contract_kind`` is a required, non-nullable field recording which
+    ``CompletionContractKind`` was evaluated.  This is the ratified
+    structural enforcement mechanism (SLICE5-KICKOFF-R1.md
+    "artifacts.py/completion.py contract RATIFIED"): downstream code
+    must never compare ``state == VERIFIED`` without knowing the
+    contract kind that produced it.
+    """
 
     state: CompletionAssessmentState
+    contract_kind: CompletionContractKind
     failed_requirements: tuple[str, ...] = field(
         default_factory=tuple
     )
@@ -294,6 +303,13 @@ class CompletionAssessment:
         ):
             raise ValueError(
                 "state must be CompletionAssessmentState"
+            )
+        if not isinstance(
+            self.contract_kind,
+            CompletionContractKind,
+        ):
+            raise ValueError(
+                "contract_kind must be a CompletionContractKind"
             )
         object.__setattr__(
             self,

@@ -354,6 +354,9 @@ class TestPhase0DpCjCompatibility(unittest.TestCase):
             ),
             completion=CompletionAssessment(
                 state=CompletionAssessmentState.VERIFIED,
+                contract_kind=(
+                    CompletionContractKind.FIELD_REQUIRED
+                ),
             ),
             policy_revision=7,
         )
@@ -384,6 +387,9 @@ class TestPhase0DpCjCompatibility(unittest.TestCase):
             ),
             completion=CompletionAssessment(
                 state=CompletionAssessmentState.UNVERIFIED,
+                contract_kind=(
+                    CompletionContractKind.FIELD_REQUIRED
+                ),
             ),
             policy_revision=7,
         )

@@ -271,6 +271,9 @@ def _ask_result_data(result: AskResult) -> Mapping[str, object]:
         },
         "completion": {
             "state": result.completion.state.value,
+            "contract_kind": (
+                result.completion.contract_kind.value
+            ),
             "failed_requirements": (
                 result.completion.failed_requirements
             ),
@@ -344,6 +347,9 @@ def _ask_result_from_raw(raw: str) -> AskResult:
         completion=CompletionAssessment(
             state=CompletionAssessmentState(
                 str(completion["state"])
+            ),
+            contract_kind=CompletionContractKind(
+                str(completion["contract_kind"])
             ),
             failed_requirements=tuple(
                 str(item) for item in failed_requirements

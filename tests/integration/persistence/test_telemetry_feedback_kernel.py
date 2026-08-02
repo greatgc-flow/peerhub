@@ -127,6 +127,9 @@ def _verified_result() -> AskResult:
         ),
         completion=CompletionAssessment(
             state=CompletionAssessmentState.VERIFIED,
+            contract_kind=(
+                CompletionContractKind.DELIVERY_ONLY
+            ),
             evidence_refs=(),
         ),
         policy_revision=7,

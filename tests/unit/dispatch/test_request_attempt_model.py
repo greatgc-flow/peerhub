@@ -248,6 +248,9 @@ class TestRequestAttemptModel(unittest.TestCase):
             ),
             completion=CompletionAssessment(
                 state=CompletionAssessmentState.VERIFIED,
+                contract_kind=(
+                    CompletionContractKind.FIELD_REQUIRED
+                ),
                 evidence_refs=("evidence-01",),
             ),
             policy_revision=3,
