@@ -4181,3 +4181,123 @@ class SqliteUnitOfWork:
         )
         return cursor.rowcount == 1
 
+    def mark_artifact_staged(
+        self,
+        *,
+        attempt_id: str,
+        artifact_id: str,
+        staging_path_relative: str,
+        expected_revision: int,
+        staged_at: int,
+    ) -> bool:
+        """DECLARED → STAGED. Rejects if current state ≠ DECLARED or revision mismatch.
+
+        Narrow typed repository method per the ratified ArtifactMaterializer
+        contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
+        generic ``cas_update_artifact_metadata`` for this transition.
+        """
+        cursor = self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET state = ?,
+                staging_ref = ?,
+                staged_at = ?,
+                revision = revision + 1
+            WHERE attempt_id = ?
+              AND artifact_id = ?
+              AND revision = ?
+              AND state = ?
+            """,
+            (
+                ArtifactState.STAGED.value,
+                staging_path_relative,
+                staged_at,
+                attempt_id,
+                artifact_id,
+                expected_revision,
+                ArtifactState.DECLARED.value,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def mark_artifact_verified(
+        self,
+        *,
+        attempt_id: str,
+        artifact_id: str,
+        verified_digest: str,
+        verified_length: int,
+        target_path_relative: str,
+        expected_revision: int,
+        verified_at: int,
+    ) -> bool:
+        """STAGED → VERIFIED. Rejects if current state ≠ STAGED or revision mismatch.
+
+        Narrow typed repository method per the ratified ArtifactMaterializer
+        contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
+        generic ``cas_update_artifact_metadata`` for this transition.
+        """
+        cursor = self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET state = ?,
+                verified_sha256_hex = ?,
+                verified_length = ?,
+                staging_ref = ?,
+                verified_at = ?,
+                revision = revision + 1
+            WHERE attempt_id = ?
+              AND artifact_id = ?
+              AND revision = ?
+              AND state = ?
+            """,
+            (
+                ArtifactState.VERIFIED.value,
+                verified_digest,
+                verified_length,
+                target_path_relative,
+                verified_at,
+                attempt_id,
+                artifact_id,
+                expected_revision,
+                ArtifactState.STAGED.value,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    def reclaim_orphaned_artifact(
+        self,
+        current: ArtifactMetadata,
+        *,
+        cleaned_at: int,
+    ) -> bool:
+        """ORPHANED → CLEANED. The gap-closing method for the async GC pass.
+
+        Mirrors ``mark_artifact_cleaned``'s CONSUMED-only guard pattern but
+        for the ORPHANED→CLEANED transition. Rejects if current state ≠
+        ORPHANED.
+
+        Per docs/design/SLICE5-KICKOFF-R1.md §1.10: deliberately separate from
+        ``mark_artifact_cleaned`` (CONSUMED→CLEANED) to keep the happy-path
+        cleanup guard exactly as strict as Step 4 ratified it.
+        """
+        if current.state != ArtifactState.ORPHANED:
+            return False
+
+        cursor = self._db().execute(
+            """
+            UPDATE dispatch_artifacts
+            SET state = ?, cleaned_at = ?, revision = revision + 1
+            WHERE attempt_id = ? AND artifact_id = ? AND revision = ? AND state = ?
+            """,
+            (
+                ArtifactState.CLEANED.value,
+                cleaned_at,
+                current.attempt_id,
+                current.artifact_id,
+                current.revision,
+                ArtifactState.ORPHANED.value,
+            ),
+        )
+        return cursor.rowcount == 1
+
