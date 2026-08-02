@@ -55,25 +55,53 @@ def test_dp06_post_intent_crash_recovery_is_uncertain():
 def test_dt01_ordered_stream_and_clean_exit():
     """
     DT-01: PTY emits ordered timestamped chunks, clean exit (0), terminal receipt.
-    (V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md)
+    (V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md / captures/DT-01-NARROW-V1)
     """
+    import base64
+    import json
+    from pathlib import Path
+
     try:
+        from peerhub.dispatch.contract import ProcessBirthIdentity
         from peerhub.dispatch.process import ProcessSupervisor
     except ImportError as e:
         pytest.fail(f"TDD failure: missing Slice 5 module: {e}")
 
+    vector_path = (
+        Path(__file__).parents[2]
+        / "tools"
+        / "phase0_fixture_runner"
+        / "captures"
+        / "DT-01-NARROW-V1"
+        / "event-script.json"
+    )
+    with open(vector_path, "r", encoding="utf-8") as f:
+        script = json.load(f)
+
     supervisor = ProcessSupervisor()
 
-    # Simulate chronological process events
-    supervisor.on_spawned(pid=1001)
-    supervisor.on_chunk(b"hello ", timestamp_ms=100)
-    supervisor.on_chunk(b"world\n", timestamp_ms=110)
-    supervisor.on_exit(exit_code=0)
+    for event in script["events"]:
+        event_type = event["type"]
+        if event_type == "SPAWNED":
+            identity_info = event["identity"]
+            pid = identity_info["pid"]
+            supervisor.on_spawned(
+                identity=ProcessBirthIdentity(
+                    pid=pid,
+                    process_creation_time=0,
+                )
+            )
+        elif event_type == "CHUNK":
+            raw_bytes = base64.b64decode(event["bytes"])
+            timestamp_ms = event["t"]
+            supervisor.on_chunk(raw_bytes, timestamp_ms=timestamp_ms)
+        elif event_type == "EXIT":
+            supervisor.on_exit(exit_code=event["code"])
 
-    # ProcessSupervisionOutcome is a new type to be defined in Step 2
     outcome = supervisor.finalize_execution_outcome()
 
-    assert outcome.exit_code == 0
+    expect = script["expect"]
+    assert outcome.exit_code == expect["exit_code"]
     assert outcome.stream_events_ordered
     assert b"hello world\n" in outcome.canonical_stream
 
@@ -201,27 +229,60 @@ def test_dt06_cleanup_failure_preserves_primary_result():
     """
     DT-06: Partial output, primary failure, CLEANUP_ERROR. Primary terminal state
     remains authoritative/unchanged; cleanup error is attached.
-    (V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md)
+    (V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md / captures/DT-06-NARROW-V1)
     """
+    import base64
+    import json
+    from pathlib import Path
+
     try:
+        from peerhub.dispatch.contract import ProcessBirthIdentity
         from peerhub.dispatch.process import ProcessSupervisor, TerminalClassification
     except ImportError as e:
         pytest.fail(f"TDD failure: missing Slice 5 module: {e}")
 
+    vector_path = (
+        Path(__file__).parents[2]
+        / "tools"
+        / "phase0_fixture_runner"
+        / "captures"
+        / "DT-06-NARROW-V1"
+        / "event-script.json"
+    )
+    with open(vector_path, "r", encoding="utf-8") as f:
+        script = json.load(f)
+
     supervisor = ProcessSupervisor()
-    supervisor.on_spawned(pid=1007)
 
-    # Primary failure
-    supervisor.on_exit(exit_code=1)
-
-    # Subsequent cleanup failure
-    supervisor.on_cleanup_error(unresolved_identities=[1007])
+    for event in script["events"]:
+        event_type = event["type"]
+        if event_type == "SPAWNED":
+            identity_info = event["identity"]
+            pid = identity_info["pid"]
+            supervisor.on_spawned(
+                identity=ProcessBirthIdentity(
+                    pid=pid,
+                    process_creation_time=0,
+                )
+            )
+        elif event_type == "CHUNK":
+            raw_bytes = base64.b64decode(event["bytes"])
+            timestamp_ms = event["t"]
+            supervisor.on_chunk(raw_bytes, timestamp_ms=timestamp_ms)
+        elif event_type == "EXIT":
+            supervisor.on_exit(exit_code=event["code"])
+        elif event_type == "CLEANUP_ERROR":
+            unresolved = (
+                [supervisor.identity.pid]
+                if supervisor.identity is not None
+                else [1006]
+            )
+            supervisor.on_cleanup_error(unresolved_identities=unresolved)
 
     outcome = supervisor.finalize_execution_outcome()
 
-    # Primary result remains authoritative
-    assert outcome.exit_code == 1
+    expect = script["expect"]
+    assert outcome.exit_code == expect["exit_code"]
     assert outcome.terminal_classification == TerminalClassification.EXIT_NON_ZERO
-    # Cleanup evidence is attached
     assert outcome.cleanup_failed
     assert outcome.cleanup_evidence is not None

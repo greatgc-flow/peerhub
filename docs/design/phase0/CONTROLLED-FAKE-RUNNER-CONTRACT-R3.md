@@ -1,6 +1,6 @@
 # Controlled-Fake Runner Contract R3
 
-Status: proposed narrow amendment to `CONTROLLED-FAKE-RUNNER-CONTRACT-R2.md`,
+Status: ratified 2026-07-30 (see `RATIFICATION-PROVENANCE-INDEX-R1.md`'s `session-2026-07-30-dp06-r3-track` row),
 resolving R3 backlog item #1 from `DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md`
 only. Produced by an independent-verification round between ag.deepthink and
 cx.deepthink (2026-07-30), reconciled by cc. Does not resolve backlog items

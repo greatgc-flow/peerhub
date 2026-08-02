@@ -14,7 +14,7 @@ from enum import Enum
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import ErrorCode, require_text
 
-from .contract import ExecutionOutcome
+from .contract import ExecutionOutcome, ProcessBirthIdentity
 
 
 class TerminalClassification(str, Enum):
@@ -208,7 +208,7 @@ class CancellationLadder:
 
 
 class ProcessSupervisor:
-    """Importable process-supervisor shape; implementation is Step 5."""
+    """Process supervisor for DT-01 and DT-06 event reduction."""
 
     def __init__(
         self,
@@ -226,14 +226,38 @@ class ProcessSupervisor:
                 "cancellation_ladder must be CancellationLadder or null"
             )
         self._cancellation_ladder = cancellation_ladder
+        self._identity: ProcessBirthIdentity | None = None
+        self._chunks: list[tuple[bytes, int]] = []
+        self._last_timestamp_ms: int | None = None
+        self._stream_events_ordered: bool = True
+        self._exit_code: int | None = None
+        self._cleanup_evidence: ProcessCleanupEvidence | None = None
+
+    @property
+    def identity(self) -> ProcessBirthIdentity | None:
+        return self._identity
 
     def on_spawned(
         self,
         *,
-        pid: int,
+        pid: int | None = None,
         process_creation_time: int | None = None,
+        identity: ProcessBirthIdentity | None = None,
     ) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        if identity is not None:
+            if not isinstance(identity, ProcessBirthIdentity):
+                raise ValueError("identity must be a ProcessBirthIdentity")
+            self._identity = identity
+        elif pid is not None:
+            creation_time = (
+                process_creation_time if process_creation_time is not None else 0
+            )
+            self._identity = ProcessBirthIdentity(
+                pid=pid,
+                process_creation_time=creation_time,
+            )
+        else:
+            raise ValueError("on_spawned requires either pid or identity")
 
     def on_chunk(
         self,
@@ -241,10 +265,22 @@ class ProcessSupervisor:
         *,
         timestamp_ms: int,
     ) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        if type(chunk) is not bytes:
+            raise ValueError("chunk must be bytes")
+        if type(timestamp_ms) is not int:
+            raise ValueError("timestamp_ms must be int")
+        if (
+            self._last_timestamp_ms is not None
+            and timestamp_ms < self._last_timestamp_ms
+        ):
+            self._stream_events_ordered = False
+        self._last_timestamp_ms = timestamp_ms
+        self._chunks.append((chunk, timestamp_ms))
 
     def on_exit(self, *, exit_code: int) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        if type(exit_code) is not int:
+            raise ValueError("exit_code must be int")
+        self._exit_code = exit_code
 
     def on_tree_state(
         self,
@@ -258,7 +294,9 @@ class ProcessSupervisor:
         *,
         unresolved_identities: Sequence[int],
     ) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        self._cleanup_evidence = ProcessCleanupEvidence(
+            unresolved_identities=unresolved_identities
+        )
 
     def begin_cancellation(self) -> None:
         raise NotImplementedError("implemented in Slice 5 Step 5")
@@ -272,4 +310,29 @@ class ProcessSupervisor:
     def finalize_execution_outcome(
         self,
     ) -> ProcessSupervisionOutcome:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        started = self._identity is not None
+        certainty = (
+            ExecutionCertainty.STARTED
+            if started
+            else ExecutionCertainty.NOT_STARTED
+        )
+        exec_outcome = ExecutionOutcome(
+            started=started,
+            exit_code=self._exit_code,
+            timed_out=False,
+            cancelled=False,
+            execution_certainty=certainty,
+        )
+        canonical_stream = b"".join(c[0] for c in self._chunks)
+        term_class: TerminalClassification | None = None
+        if self._exit_code is not None and self._exit_code != 0:
+            term_class = TerminalClassification.EXIT_NON_ZERO
+
+        return ProcessSupervisionOutcome(
+            execution_outcome=exec_outcome,
+            stream_events_ordered=self._stream_events_ordered,
+            canonical_stream=canonical_stream,
+            terminal_classification=term_class,
+            cleanup_evidence=self._cleanup_evidence,
+        )
+
