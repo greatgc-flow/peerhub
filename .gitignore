@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local hub instance runtime state (mailbox, leases, sessions, IPC scratch)
+# -- operational data, not source; recurs as untracked clutter every
+# session without this (cleaned up 2026-08-02).
+.ai/
+
