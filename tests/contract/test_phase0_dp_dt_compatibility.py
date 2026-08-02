@@ -100,10 +100,17 @@ def test_dt02_incremental_framing_split_boundaries():
     adapter.interpret_chunk(chunk2)
     adapter.interpret_chunk(chunk3)
 
-    assessment = adapter.finalize_protocol_assessment()
+    # canonical_lines belongs to DecodedOutput, not ProtocolAssessment
+    # (SLICE5-KICKOFF-R1.md item 3, applied 2026-08-02): ProtocolAssessment
+    # stays frozen to its existing 5 protocol facts.
+    decoded = adapter.finalize_decoded_output()
 
-    # Framing must correctly reassemble the lines
-    assert assessment.canonical_lines == ["line 1", "line 2: ✓"]
+    # Framing must correctly reassemble the lines. canonical_lines is a
+    # tuple (DecodedOutput freezes it), not a list -- tuple != list in
+    # Python even with equal elements (cross-review finding, cx,
+    # 2026-08-02: the original edit compared against a list literal, which
+    # would have silently failed once Step 3 actually implements this).
+    assert decoded.canonical_lines == ("line 1", "line 2: ✓")
 
 
 def test_dt03_timeout_selection_independence():

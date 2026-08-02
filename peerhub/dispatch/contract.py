@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 
+from peerhub.adapters.contract import ProtocolAssessment
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import (
     CommandEnvelope,
@@ -266,40 +267,12 @@ class ExecutionOutcome:
             )
 
 
-@dataclass(frozen=True)
-class ProtocolAssessment:
-    """Adapter-produced protocol/framing observations only."""
-
-    parsed: bool
-    response_present: bool
-    vendor_completion_marker: bool | None
-    suspected_truncation: bool
-    protocol_failure: ErrorCode | None
-
-    def __post_init__(self) -> None:
-        _require_bool(self.parsed, "parsed")
-        _require_bool(
-            self.response_present,
-            "response_present",
-        )
-        if (
-            self.vendor_completion_marker is not None
-            and type(self.vendor_completion_marker) is not bool
-        ):
-            raise ValueError(
-                "vendor_completion_marker must be boolean or null"
-            )
-        _require_bool(
-            self.suspected_truncation,
-            "suspected_truncation",
-        )
-        if (
-            self.protocol_failure is not None
-            and not isinstance(self.protocol_failure, ErrorCode)
-        ):
-            raise ValueError(
-                "protocol_failure must be ErrorCode or null"
-            )
+# ProtocolAssessment previously lived here (5-field dataclass).
+# SLICE5-KICKOFF-R1.md item 5: moved verbatim to peerhub.adapters.contract
+# and re-exported above (import at top of this file) so every existing
+# `from peerhub.dispatch.contract import ProtocolAssessment` keeps
+# resolving to the same class object -- not a parallel/drifting
+# redefinition.
 
 
 @dataclass(frozen=True)

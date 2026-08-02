@@ -351,11 +351,81 @@ tie-broken by a third read.
    `PeerAdapter`) -- only the reverse direction is prohibited, so this
    is not a cycle.
 
-**Not yet applied.** This is a synthesis of both peers' proposals, not
-yet written to code -- cc's own context was too depleted this session
-to safely apply ~14 new types plus the `ProtocolAssessment` re-export
-migration without risking a sloppy or incomplete edit. Next session:
-apply this ratified shape (tie-breaking item 1 first, e.g. via a third
-independent read or user call), update Step 1's DT-02 test for the
-renamed decoder method, then resume Step 2 for
-`peerhub/adapters/contract.py` and `peerhub/builtins/fake_adapter.py`.
+**Not yet applied (as of 2026-08-01 21:43).** This is a synthesis of
+both peers' proposals, not yet written to code -- cc's own context was
+too depleted this session to safely apply ~14 new types plus the
+`ProtocolAssessment` re-export migration without risking a sloppy or
+incomplete edit. Next session: apply this ratified shape (tie-breaking
+item 1 first, e.g. via a third independent read or user call), update
+Step 1's DT-02 test for the renamed decoder method, then resume Step 2
+for `peerhub/adapters/contract.py` and `peerhub/builtins/fake_adapter.py`.
+
+## Applied (2026-08-02)
+
+Written to code: `peerhub/adapters/contract.py` (new, ~14 ratified
+types + moved `ProtocolAssessment`), `peerhub/builtins/fake_adapter.py`
+(new, Step 2 stub matching `dispatch/process.py`'s precedent),
+`peerhub/core/execution.py` (added `TransportLimits` *and*
+`TransportKind` -- see correction below), `peerhub/dispatch/contract.py`
+(`ProtocolAssessment` re-export), and the DT-02 test update. Verified:
+`pytest tests/` gives 160 passed / 7 failed, all 7 the intentional Step
+2 placeholder `NotImplementedError`s (6 Step 5, 1 now correctly in
+`fake_adapter.py` for Step 3) -- 7 of 7 compatibility tests now progress
+past `ImportError` as designed.
+
+Cross-reviewed by ag.effort and cx.effort independently before this was
+considered done (this project's standard discipline). ag returned a
+clean pass. cx returned **REQUEST CHANGES** with 4 real findings, all
+independently verified by cc against the cited lines and fixed before
+commit:
+
+1. **High.** `FakePeerAdapter`'s descriptor declared `Capability.SESSION`
+   while `SessionHint`'s own docstring says this fake rejects every
+   non-null session hint -- and ARCHITECTURE.md states a descriptor
+   declaring an unimplemented capability is a load-time error. Fixed:
+   removed `SESSION`, descriptor now declares only `STREAM`.
+2. **Medium.** The updated DT-02 test compared `DecodedOutput.canonical_lines`
+   (a tuple) against a list literal -- passes only because Step 3 doesn't
+   exist yet to actually populate it; would have silently failed the
+   moment Step 3 landed. Fixed: expected value is now a tuple.
+3. **Medium.** `TransportKind` was placed in `adapters/contract.py`, but
+   ARCHITECTURE.md's own module inventory (line ~85) explicitly lists it
+   alongside `TransportLimits` as a `core.execution` shared type --
+   exactly the reasoning already applied to `TransportLimits` itself, just
+   missed for its sibling enum. Fixed: moved to `core/execution.py`.
+4. **Low.** Several fields (`TransportLimits`' three fields,
+   `PromptPolicy.max_inline_utf8_bytes`, `ArtifactSpec.expected_length`)
+   rejected `0` via an unratified positivity constraint -- neither doc
+   requires this, and this file's own sibling `Deadline.budget_ms` already
+   permits `0` for the same "budget in milliseconds" concept. Fixed: all
+   five loosened to nonnegative.
+
+No third review round was dispatched after these fixes (all four were
+citation-grounded, mechanical corrections, not new design decisions) --
+consistent with this project's practice of not re-litigating settled
+ground after a round finds and cc fixes concrete, verifiable defects.
+
+**Next**: Step 3 (pure reducers) -- `assess_completion`, artifact path
+resolvers, and `FakePeerAdapter`'s actual `interpret_chunk`/
+`finalize_decoded_output` logic (currently `NotImplementedError` stubs).
+
+## Item 1 tie-break resolution (2026-08-02, user call)
+
+Presented to the user directly rather than dispatching a third peer
+read (both options were legitimate per-precedent choices, and this is
+a naming call over an already-shipped, tested member -- exactly the
+kind of low-ambiguity-value, high-cost-of-another-round decision this
+project's docs elsewhere flag as appropriate for a direct user call
+rather than burning another ag/cx round). **Decision: cx's proposal
+adopted -- `TerminalClassification` keeps its 4 shipped members
+unchanged (`EXIT_NON_ZERO` stays, not renamed to `EXITED`).** Rationale
+per cx, independently verified by cc against
+`DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md`: the `EXITED` rule at line
+~49 is tagged `OBS` (observational, established by one fixture's
+`expect` block), not `MUST`; line ~112's open item 11 explicitly states
+"no authoritative closed list exists" for `terminal_classification`
+today, so neither name is spec-mandated, and renaming an
+already-shipped, already-tested member for a non-binding rule is pure
+churn risk with no correctness upside. ag's dissent (rename for
+consistency with the spec's own fixture-observed term) remains a
+reasonable minority view but is not adopted.
