@@ -1194,7 +1194,21 @@ def expire_and_recover_lease(
     mismatches: list[str] = []
     effect_certainty: ExecutionCertainty | None
 
-    if not process_identity_matches:
+    if current.fence.owner_process_birth_identity is None:
+        # DP-06: a lease reserved but never reaching a process-identity-
+        # bearing state (record_start_uncertain() leaves it RESERVED with
+        # no identity) has no birth identity to mismatch against -- this is
+        # the ABANDONED_PRE_SPAWN case, distinct from IDENTITY_MISMATCH
+        # (which requires an identity that was recorded and then disagreed
+        # with). No automatic replay is authorized; MAY_HAVE_STARTED per
+        # DP-06's classification.
+        post_state = LeaseState.ABANDONED_PRE_SPAWN
+        decision = RecoveryDecision.MARK_INTERRUPTED
+        certainty_after = (
+            LeaseAuthorityCertainty.FENCED_FOR_FUTURE_WRITES
+        )
+        effect_certainty = ExecutionCertainty.MAY_HAVE_STARTED
+    elif not process_identity_matches:
         mismatches.append("owner_process_birth_identity")
         post_state = LeaseState.IDENTITY_MISMATCH
         decision = RecoveryDecision.REJECT_AND_QUARANTINE

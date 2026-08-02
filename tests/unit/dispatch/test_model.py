@@ -12,6 +12,7 @@ from peerhub.dispatch.contract import (
     LeaseCreateRequest,
     LeaseFenceTuple,
     LeaseRenewRequest,
+    LeaseReservationRequest,
     LeaseState,
     ProcessBirthIdentity,
     RecoveryDecision,
@@ -26,6 +27,7 @@ from peerhub.dispatch.model import (
     create_session_binding,
     expire_and_recover_lease,
     renew_lease,
+    reserve_lease,
     resume_session_binding,
     validate_lease_fence,
 )
@@ -318,6 +320,99 @@ class TestDispatchModelReducers(unittest.TestCase):
             RecoveryDecision.REJECT_AND_QUARANTINE,
         )
         self.assertIsNone(receipt.external_effect_certainty)
+
+    def test_recovery_never_spawned_is_abandoned_pre_spawn(self) -> None:
+        """DP-06: a lease reserved but never reaching a process-identity-
+        bearing state (record_start_uncertain() leaves it RESERVED with no
+        process identity) recovers as ABANDONED_PRE_SPAWN, not
+        IDENTITY_MISMATCH -- there is no recorded identity to mismatch
+        against. No automatic replay; MAY_HAVE_STARTED per DP-06."""
+        reservation_req = LeaseReservationRequest(
+            session_id="session-01",
+            owner_principal_id="principal-ag",
+            owner_instance_id="instance-ag-01",
+            heartbeat_timeout_ms=5000,
+            command_id=self.command_id,
+            authority_epoch=1,
+            owner_peer_id="ag",
+        )
+        lease = reserve_lease(
+            reservation_req,
+            lease_id="lease-01",
+            fencing_token=1,
+            created_at=1000,
+        )
+        self.assertEqual(lease.state, LeaseState.RESERVED)
+        self.assertIsNone(lease.fence.owner_process_birth_identity)
+        updated, receipt = expire_and_recover_lease(
+            lease,
+            recovery_receipt_id="rec-03",
+            recovery_actor_principal_id="recovery-agent",
+            trigger=RecoveryTrigger.EXPLICIT_RECOVERY_REQUEST,
+            evidence_digest="sha256:test",
+            policy_id="pol-01",
+            policy_revision=1,
+            detected_at=6000,
+            is_process_alive=False,
+            process_identity_matches=False,
+        )
+        self.assertEqual(
+            updated.state,
+            LeaseState.ABANDONED_PRE_SPAWN,
+        )
+        self.assertEqual(
+            receipt.decision,
+            RecoveryDecision.MARK_INTERRUPTED,
+        )
+        self.assertEqual(
+            receipt.external_effect_certainty,
+            ExecutionCertainty.MAY_HAVE_STARTED,
+        )
+
+    def test_recovery_never_spawned_takes_precedence_over_stale_identity_match_flag(
+        self,
+    ) -> None:
+        """A caller passing process_identity_matches=True alongside a null
+        owner_process_birth_identity is a meaningless combination (there is
+        no stored identity for anything to have matched) -- the
+        ABANDONED_PRE_SPAWN branch must still win, not silently fall through
+        to a FENCE_AND_CLOSE/dead-process outcome (cx.effort review finding,
+        2026-08-02: locks in the elif's precedence explicitly)."""
+        reservation_req = LeaseReservationRequest(
+            session_id="session-01",
+            owner_principal_id="principal-ag",
+            owner_instance_id="instance-ag-01",
+            heartbeat_timeout_ms=5000,
+            command_id=self.command_id,
+            authority_epoch=1,
+            owner_peer_id="ag",
+        )
+        lease = reserve_lease(
+            reservation_req,
+            lease_id="lease-01",
+            fencing_token=1,
+            created_at=1000,
+        )
+        updated, receipt = expire_and_recover_lease(
+            lease,
+            recovery_receipt_id="rec-04",
+            recovery_actor_principal_id="recovery-agent",
+            trigger=RecoveryTrigger.EXPLICIT_RECOVERY_REQUEST,
+            evidence_digest="sha256:test",
+            policy_id="pol-01",
+            policy_revision=1,
+            detected_at=6000,
+            is_process_alive=True,
+            process_identity_matches=True,
+        )
+        self.assertEqual(
+            updated.state,
+            LeaseState.ABANDONED_PRE_SPAWN,
+        )
+        self.assertEqual(
+            receipt.decision,
+            RecoveryDecision.MARK_INTERRUPTED,
+        )
 
     def test_session_resume_exact_match(self) -> None:
         binding = create_session_binding(

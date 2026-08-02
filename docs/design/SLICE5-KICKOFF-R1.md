@@ -485,3 +485,51 @@ already-shipped, already-tested member for a non-binding rule is pure
 churn risk with no correctness upside. ag's dissent (rename for
 consistency with the spec's own fixture-observed term) remains a
 reasonable minority view but is not adopted.
+
+## Step 3 continued (2026-08-02, second pass): ABANDONED_PRE_SPAWN shipped, durable-journal outbox writes attempted and reverted
+
+Dispatched to ag.deepthink with a generous budget: design+draft the 3
+remaining blocked items. Result, cc-verified against the real codebase
+before applying anything:
+
+- **`workspace_scope` typing**: ag's answer -- `AdapterRequest.workspace_scope: str`
+  (Step 2) is correct as shipped, no follow-up needed. ARCHITECTURE.md's
+  "Round 4-5 fix: scope is `WorkspaceScope | GlobalScope`" (~line 256) is
+  about coordinator command-routing scope (`CommandEnvelope.scope`), a
+  different concept from an already-workspace-routed adapter request. Not
+  independently re-verified line-by-line by cc this round (time budget);
+  flag for a second look before treating as fully closed.
+- **`dispatch/artifacts.py` / `dispatch/completion.py`**: still BLOCKED,
+  same conclusion as the first pass -- `ArtifactMaterializer` has no
+  concrete type anywhere, and no test/vector fixture exists for either
+  module's exact shape. ag correctly declined to guess.
+- **`dispatch/model.py`'s `ABANDONED_PRE_SPAWN`**: SHIPPED. Added a new
+  branch to `expire_and_recover_lease()`: a lease whose
+  `fence.owner_process_birth_identity is None` (never reached a
+  process-identity-bearing state) now recovers as `ABANDONED_PRE_SPAWN` /
+  `RecoveryDecision.MARK_INTERRUPTED` / `ExecutionCertainty.MAY_HAVE_STARTED`,
+  distinct from `IDENTITY_MISMATCH` (which requires a *recorded* identity
+  that then disagreed). cc verified `owner_process_birth_identity`'s
+  "may be null before RUNNING" contract directly against
+  `LeaseFenceTuple`'s docstring before applying, and added
+  `test_recovery_never_spawned_is_abandoned_pre_spawn` (using the
+  existing-but-previously-untested `reserve_lease`/`LeaseReservationRequest`
+  pre-spawn constructor, not the legacy `create_lease` which always sets a
+  process identity) -- new test passes, full suite unaffected (181 passed,
+  same 6 Step-5-only failures).
+- **DP-06 durable-journal outbox writes** (`record_dispatch_intent`/
+  `record_start_uncertain`/`record_running` appending an outbox event at
+  the isolated-journal boundary): ag's diff used real, already-established
+  symbols (`_dispatch_event`, `unit.add_outbox_event`,
+  `FaultPoint.AFTER_OUTBOX_WRITE` -- all pre-existing, verified via grep
+  before applying) and looked structurally sound, but **applying it broke
+  3 previously-passing tests** (`test_full_request_attempt_lifecycle_round_trips`,
+  and two `test_telemetry_feedback_kernel.py` projector tests asserting
+  exact event counts) -- the new outbox events shift counts these tests
+  didn't expect. Reverted rather than force through a fix without properly
+  understanding the projector/telemetry side's expectations first. Still
+  blocked; whoever picks this up next needs to either update those 3
+  tests' expected counts (if the new events are correct and those tests
+  were just never written for a world where these 3 functions emit
+  events) or reconsider whether all 3 functions should emit at this exact
+  point.
