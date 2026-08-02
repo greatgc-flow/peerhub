@@ -852,3 +852,136 @@ exact field-to-outbox-payload mapping is proposed but not yet
 independently re-verified against the real `service.py`
 `add_outbox_event` call sites; do that as part of implementation, not
 by inference beforehand.
+
+## ArtifactMaterializer contract RATIFIED (2026-08-03, ag+cx unanimous)
+
+Unblocks the stateful I/O layer that actually performs file
+materialization -- `dispatch/artifacts.py`'s pure manifest functions and
+Step 4's persistence repositories (both landed earlier the same night)
+compute paths and store facts, but neither one writes an actual file to
+disk. Reached via round 1 (independent proposals) + one targeted
+reconciliation, same pattern as the persistence round above. This round
+also **found and closed a real gap in already-shipped Step 4 code**
+(commit `d1f341b`) -- not just a forward-looking design decision.
+
+**Scope boundary, unanimous:** the `ArtifactMaterializer` API is
+decoupled from the Windows native PTY backend choice (`pipe.py`/`pty.py`
+runner selection is a separate, still-open decision) -- the materializer
+runs entirely pre-spawn and returns evidence + substituted argv; which
+runner later consumes that is irrelevant to how files get staged and
+verified.
+
+**The gap cx found, ag independently verified against the real shipped
+code before agreeing:** `mark_artifact_cleaned` (shipped in `d1f341b`)
+enforces `WHERE state = 'CONSUMED'` -- confirmed directly against
+`sqlite.py` and `test_mark_artifact_cleaned_rejects_non_consumed_artifact`.
+This means an artifact that reaches `ORPHANED` (a pre-spawn
+materialization failure, or a crash-recovery classification) has **no
+persistence path back to `CLEANED`** -- an orphaned physical staging
+file has nothing to reclaim it. Neither the original artifacts.py
+ratification nor the Step 4 persistence ratification caught this because
+neither one had reasoned through what happens to a *failed*
+materialization's on-disk leftovers, only the happy path.
+
+**Fix, unanimous:** add a new, narrow repository method rather than
+weakening `mark_artifact_cleaned`'s existing safety guard:
+```python
+def reclaim_orphaned_artifact(
+    self, current: ArtifactMetadata, *, cleaned_at: int,
+) -> bool:
+    """ORPHANED -> CLEANED, after a background GC pass has physically
+    removed any leftover staging file. Deliberately separate from
+    mark_artifact_cleaned (CONSUMED -> CLEANED) -- keeps the
+    happy-path cleanup guard exactly as strict as Step 4 ratified it."""
+    ...
+```
+Combined with an in-process rule: the materializer's own error handling
+(a handled failure during staging/verification, not a crash) must roll
+back and delete only the `.tmp.<uuid>` file *it just created itself* --
+never a pre-existing or unproven file -- before ever calling
+`mark_artifacts_orphaned`. This narrows how often a physical leftover
+can even exist; `reclaim_orphaned_artifact` is the backstop for the
+cases it can't prevent (a hard crash mid-write, before rollback can run).
+
+**Materializer API (adopts cx's more complete proposal over ag's
+simpler first draft -- ag agreed after review):**
+```python
+class ArtifactMaterializer:
+    def __init__(
+        self, *, store: StateStore, clock: Clock,
+        file_identity: FileIdentityProvider,
+    ) -> None: ...
+
+    def materialize(
+        self, manifest: MaterializationManifest,
+    ) -> MaterializationResult: ...
+```
+- `MaterializationResult`: `attempt_id`, `manifest_digest`,
+  `substituted_argv`, ordered per-item verified evidence (`artifact_id`,
+  staging `Path`, SHA-256, byte length, canonical serialized object
+  identity).
+- `manifest_digest` is *derived* inside `materialize()` from only
+  durable immutable facts (scope, relative staging root/ref, artifact
+  id/placeholder, access/lifecycle text, expected digest/length) --
+  never accepted from a caller. Absolute paths, source paths, and raw
+  bytes are never persisted (same boundary as the artifacts.py
+  ratification).
+- State transitions use **narrow typed repository methods**, not the
+  generic `cas_update_artifact_metadata`: `mark_artifact_staged`
+  (`DECLARED -> STAGED`), `mark_artifact_verified` (`STAGED -> VERIFIED`,
+  carries `verified_sha256_hex`/`verified_length`/
+  `verified_object_identity_json`/`verified_at`), plus
+  `reclaim_orphaned_artifact` above. Rationale (ag, after review):
+  the generic CAS method "is overly permissive and exposes internal
+  schema field mutations to domain callers" -- explicit methods keep the
+  state machine encapsulated and can validate digest/size invariants
+  inline.
+- **Concurrent materialization** (two callers racing the same
+  `attempt_id`): on a CAS loss, re-read. If the winner is `VERIFIED`
+  with matching immutable facts and the on-disk file still verifies,
+  return *its* successful result (idempotent, no double-write). Otherwise
+  return a typed retryable conflict outcome. Do not silently retry via a
+  fresh `attempt_id` (ag's original proposal) -- that discards the
+  winner's already-verified work.
+- **Crash-recovery rule for a target file present while metadata is
+  still `DECLARED`** (left by a process that crashed mid-write, before
+  ever updating metadata): reopen and verify against the manifest's
+  expected digest/length. If it verifies, transition straight to
+  `VERIFIED` (skip re-staging). If it doesn't, unlink the corrupt file
+  and re-stage fresh. Never blindly overwrite a file that already exists
+  at the target path.
+- **Ownership boundary, unanimous:** the materializer owns
+  `DECLARED -> STAGED -> VERIFIED` only. `VERIFIED -> RESERVED` and
+  `RESERVED -> CONSUMED` belong to the dispatch service (already shipped
+  in Step 4). Physical deletion (`CLEANED`) is owned exclusively by a
+  separate async GC pass, never the materializer directly -- matches the
+  Step 4 ratification's "physical deletion only ever for CONSUMED
+  artifacts" rule, now extended to cover the `ORPHANED` case via
+  `reclaim_orphaned_artifact` above.
+
+**Failure-mode table (unanimous):**
+| Failure | Outcome |
+|---|---|
+| `ENOSPC`/quota, transient I/O, sharing lock | Retryable; artifact stays `DECLARED`/`STAGED`, never dispatched. Retry exhaustion -> dispatch service terminalizes and orphans the attempt. |
+| Permission denied / invalid staging root | Hard configuration failure, no retry. |
+| Source missing or unreadable | Hard immutable-input failure. |
+| Digest or length mismatch | Hard contract/integrity failure. Never reserve or launch. |
+| Existing unexpected target / identity mismatch | Hard tamper/collision failure -- never delete a file whose ownership isn't proved. |
+| Process crash after durable `RESERVED` | NOT a materializer concern -- existing DP-06 recovery rules apply (a crashed `RESERVED` never auto-reverts to `VERIFIED`, per the Step 4 ratification above). |
+
+For a zero-artifact manifest, `materialize()` is a no-op success -- no
+manifest row is created (the Step 4 `consume_reserved_artifacts` path
+already rejects an empty artifact set, so this must stay consistent
+with that, not create a phantom empty manifest).
+
+**Process note:** ag's first-round solo assessment was "single-peer
+sufficient, no remaining design ambiguities" -- cx's independent
+proposal proved that wrong by finding a real gap in already-shipped
+code plus four other unaddressed refinements (typed transition methods,
+concurrency handling, DECLARED-with-existing-file recovery, strict
+rollback scope). ag fully conceded after directly verifying the gap
+against the real committed `sqlite.py`/test file, not just cx's
+say-so. Lesson: a peer's own "this doesn't need reconciliation"
+self-assessment is not a substitute for actually getting the second
+opinion -- dispatch it anyway when in doubt, per
+[[feedback_ratify_ambiguity_before_proceeding]].
