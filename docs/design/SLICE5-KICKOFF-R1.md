@@ -409,6 +409,62 @@ ground after a round finds and cc fixes concrete, verifiable defects.
 resolvers, and `FakePeerAdapter`'s actual `interpret_chunk`/
 `finalize_decoded_output` logic (currently `NotImplementedError` stubs).
 
+## Step 3 progress (2026-08-02): FakePeerAdapter decode shipped, artifacts/completion genuinely blocked -- not guessed
+
+Same discipline as Step 2's own stop on the adapter boundary. Shipped:
+`FakePeerAdapter.interpret_chunk`/`finalize_decoded_output` (commit
+`b33ad45`) -- the only Step 3 item with a concrete, testable oracle
+(DT-02). Cross-reviewed by ag.effort + cx.effort (both explicitly
+profile-pinned via `--to peer.profile`, not `--agent` -- see this
+session's hub.py routing-bug finding); both independently found the
+same `str.splitlines()`-too-broad issue, plus cx additionally caught a
+discarded-events bug. Both fixed; 180 passed / 6 failed (unchanged Step
+5 placeholders) after.
+
+**Blocked, left open, not guessed** -- `peerhub/dispatch/artifacts.py`
+(`resolve_workspace_paths`, `generate_materialization_manifest`) and
+`peerhub/dispatch/completion.py` (`assess_completion`):
+
+1. Unlike DT-02, no test currently exercises either module and no vector/
+   fixture gives a concrete oracle for their exact input/output shape --
+   Step 1 only ported DP-06/DT-01..06 (process-lifecycle), never added
+   artifact- or completion-layer compatibility tests.
+2. `AdapterRequest.workspace_scope` was typed `str` in Step 2 (the
+   ratified item-4 synthesis text just says "workspace_scope" with no
+   type). A citation found while scoping this step --
+   `ARCHITECTURE.md` line ~256, "Round 4-5 fix: `scope` is
+   `WorkspaceScope | GlobalScope`, not a bare `workspace_scope`" -- may
+   mean `resolve_workspace_paths` needs a real `WorkspaceScope` type as
+   input, not a plain string, and/or that Step 2's `AdapterRequest` field
+   itself needs revisiting. Not yet resolved: unclear whether that
+   citation is about the same `workspace_scope` concept adapters use or
+   a different (coordinator-command-routing) one -- needs a grounded
+   read, not an assumption either way.
+3. `ArtifactMaterializer` (`ARCHITECTURE.md` line ~378: "replaces
+   placeholders, creates files with create-new semantics, verifies
+   digest/length round trips, records ownership, deletes only after the
+   supervised process tree is terminal") is named but never given a
+   concrete type/method signature anywhere -- `resolve_workspace_paths`/
+   `generate_materialization_manifest` are pure functions that presumably
+   feed it, but the boundary between "pure manifest generation" (this
+   step) and "the stateful materializer that acts on it" (unclear which
+   step) isn't specified.
+4. `dispatch/model.py`'s `ABANDONED_PRE_SPAWN` transition (enum value
+   exists, `LeaseState`, no implemented transition) and the
+   `START_UNCERTAIN` recovery-path correction are still untouched --
+   `dispatch/model.py`/`service.py` are large (1334/1748 lines),
+   already-shipped, already-tested core state machines the doc itself
+   says "this slice must extend directly... not redesign." Needs careful
+   study of the existing state machine and its tests before any edit, not
+   a same-session bolt-on.
+
+Same pattern as before: next session (or this one, budget permitting)
+should ratify artifacts.py/completion.py's exact contract shape via an
+ag+cx design round (mirroring how the adapter boundary itself got
+ratified before Step 2 could safely write code), resolving the
+`workspace_scope`/`WorkspaceScope` citation question as part of that
+round, before writing pure-reducer code against an assumed shape.
+
 ## Item 1 tie-break resolution (2026-08-02, user call)
 
 Presented to the user directly rather than dispatching a third peer
