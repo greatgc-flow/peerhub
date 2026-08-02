@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CR-02-NEG-01","inputs":{"case_kind":"DIRECT_READ","facts":{"initial_status":"UNREAD","mark_read_requests":1,"message_id":4,"recipient":"cx","sender":"ag","thread_id":"t-c950"}},"oracle_id":"coordination_room.cr02.direct_read","oracle_version":1,"schema_version":1}

@@ -1,0 +1,1 @@
+{"fixture_id":"HR-01","oracle_id":"health_recovery.hr01.fresh_readiness_projection","oracle_version":1,"output":{"admission":{"decision":"ADMITTED","provider_effect_permitted":true},"gate_state":"OPEN","readiness_state":"READY"},"schema_version":1}

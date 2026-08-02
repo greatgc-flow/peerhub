@@ -1,0 +1,13 @@
+{
+  "capture": "DP-02-03 controlled fake-process baseline",
+  "executed_at": "2026-07-28",
+  "command": "python -m pytest _sys/tests/unit/test_process_lease_supervision_c7.py -q -p no:cacheprovider -k pipe_transient_soft_skip_exits_7_by_execution_certainty",
+  "provider_calls": false,
+  "stdout": "[OOM-GUARD] Active (Threshold: 512MB, Interval: 1.0s)\n..                                                                       [100%]\n2 passed, 15 deselected in 0.17s",
+  "exit_code": 0,
+  "covered_cases": {
+    "spawned_false": "SandboxSpawnDeniedError before provider process; expected category=not_started and soft-skip exit 7",
+    "spawned_true": "mock process pid=41001 returns nonzero with stderr; expected category=execution_uncertain and soft-skip exit 7"
+  },
+  "redaction": "synthetic query and fake pid only; no credentials or provider response"
+}

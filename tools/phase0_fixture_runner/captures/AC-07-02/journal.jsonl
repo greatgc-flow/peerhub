@@ -1,0 +1,2 @@
+{"event":{"client_id":"authority-recovery","command_type":"recovery-authority","idempotency_key":"AC-07-02","payload":{"proof_id":"AC-07-02"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-07-02-01","observed_monotonic":1810,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"authority-recovery","command_type":"recovery-authority","idempotency_key":"AC-07-02","payload":{"proof_id":"AC-07-02"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-07-02-02","observed_monotonic":1811,"record_type":"INPUT_EVENT","sequence":1}

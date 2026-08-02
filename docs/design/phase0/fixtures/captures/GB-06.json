@@ -1,0 +1,14 @@
+{
+  "fixture_id": "GB-06",
+  "domain": "governance-broker-cas",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "lock": "phase0-gb06-lock", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["file-lock --name phase0-gb06-lock --peer ag --force-tier0", "file-lock --name phase0-gb06-lock --peer cx --force-tier0", "file-unlock --name phase0-gb06-lock --peer ag --force-tier0"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic fixture payload or status only", "absolute paths omitted"]},
+  "observed_outcome": {"exit_codes": [0, 1, 0], "contending_owner": "cx", "rejected_because": "locked by ag", "terminal_lock_present": false},
+  "artifacts": {"transcript": "GB-06.transcript.json", "transcript_sha256": "f1f4f352251112c4bf6cd29106d030f7518d000819b14968cc604ecd792602da"},
+  "blocker": null,
+  "record_sha256": "cb8228961d0a12534972ba615db655842d30fd47151b708a09e895382d0c5339",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

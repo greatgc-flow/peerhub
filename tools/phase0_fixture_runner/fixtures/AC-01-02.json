@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "clock": [1110, 1111],
+  "ids": ["run-AC-01-02-r2", "event-AC-01-02-01", "event-AC-01-02-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-02",
+      "payload": {"proof_id": "AC-01-02"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-02",
+      "payload": {"proof_id": "AC-01-02"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-01-02",
+    "oracle_id": "authority_filesystem.ac0102.exfat_rejection",
+    "oracle_version": 1,
+    "inputs": {
+      "resolution_graph": {
+        "entries": [
+          {
+            "presented_path": "E:/portable/peerhub",
+            "entry_node_id": "physical-02"
+          }
+        ],
+        "nodes": [
+          {
+            "node_id": "physical-02",
+            "node_kind": "PHYSICAL",
+            "reported_filesystem": "EXFAT",
+            "resolved_filesystem": "EXFAT",
+            "storage_scope": "LOCAL",
+            "redirected": false,
+            "virtualized": false,
+            "volume_guid": "volume-guid-exfat-02",
+            "file_id": "file-id-home-02"
+          }
+        ]
+      },
+      "capability_observations": {
+        "stable_identity_available": true,
+        "wal_mode_available": true,
+        "shared_memory_available": true,
+        "exclusive_lock_available": true,
+        "atomic_rename_available": true,
+        "namespace_custody_available": true
+      },
+      "lock_attempts": []
+    }
+  }
+}

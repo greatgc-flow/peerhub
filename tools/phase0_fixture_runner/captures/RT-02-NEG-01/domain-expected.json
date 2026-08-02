@@ -1,0 +1,1 @@
+{"fixture_id":"RT-02-NEG-01","oracle_id":"routing_discovery.rt02.reasoned_exclusion","oracle_version":1,"output":{"decision":"CANDIDATE_EXCLUDED","details":{"candidate_id":"ag","capability_match":false,"exclusion_reason":"CAPABILITY_UNSUPPORTED"},"rule_tier":"CANDIDATE"},"schema_version":1}

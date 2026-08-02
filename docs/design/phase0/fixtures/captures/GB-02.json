@@ -1,0 +1,39 @@
+{
+  "fixture_id": "GB-02",
+  "domain": "governance-broker",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {
+    "engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb",
+    "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"
+  },
+  "preconditions": {
+    "ai_root": "isolated fixture only",
+    "target": "nodes.json normalized before both submissions",
+    "live_state_mutated": false
+  },
+  "execution_input": {
+    "command_sequence": ["status (normalize isolated state)", "broker-submit nodes.json payload=gb02-commit", "broker-submit nodes.json payload=gb02-stale", "broker-drain"],
+    "stdin_payload": null
+  },
+  "redaction": {
+    "applied": true,
+    "rules": ["fixture root path omitted", "request IDs retained as non-secret evidence"]
+  },
+  "observed_outcome": {
+    "exit_code": 0,
+    "first_request": "committed",
+    "second_request": "rejected with RuntimeError and archived to broker/error",
+    "drain_summary": "processed=2 committed=1 failed=1"
+  },
+  "artifacts": {
+    "transcript": "GB-02.transcript.json",
+    "transcript_sha256": "2870bef6ce1a1dd74728b6a370531d7b3c407097db1ec03e30dfadcf1b2a9abe"
+  },
+  "blocker": {
+    "id": "LEGACY-BROKER-NORMALIZATION-CAS-01",
+    "status": "observed",
+    "detail": "An earlier unnormalized attempt made both queued requests stale because broker-drain performs runtime normalization before CAS; the controlled capture normalizes before submission to isolate same-revision contention."
+  },
+  "record_sha256": "0bbb85c035cda9fc044f26417c7960035b2ce721735e0abd6db9760be8f84a22",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

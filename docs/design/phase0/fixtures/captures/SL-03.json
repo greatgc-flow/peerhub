@@ -1,0 +1,14 @@
+{
+  "fixture_id": "SL-03",
+  "domain": "session-lease",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"live_state_mutated": false},
+  "execution_input": {"command_line": "python _sys/core/hub.py --help", "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["help output reduced to relevant public flags"]},
+  "observed_outcome": {"exit_code": 0, "profile_flag_present": false, "fingerprint_flag_present": false, "resume_contract_flag_present": false},
+  "artifacts": {"transcript": "SL-03.transcript.json", "transcript_sha256": "a089fead3a3126b36bc57f6c55be94123e073858426bd9b6f39233374cbf09e0"},
+  "blocker": {"id": "LEGACY-SL03-MISMATCH-SURFACE-01", "status": "observed", "detail": "Legacy session API exposes no profile/fingerprint/resume-contract binding and therefore cannot reject a configuration mismatch; PeerHub v1 must freeze and compare the binding."},
+  "record_sha256": "96ab209146aafa89fc233a5fa8e7f188ef116950f0a69ad7f58521b24cb3cb5b",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

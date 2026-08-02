@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "clock": [500, 501],
+  "ids": [
+    "run-DT-05-r2",
+    "event-DT-05-01",
+    "event-DT-05-02"
+  ],
+  "events": [
+    {
+      "type": "PROCESS_DEADLINE",
+      "t": 500
+    },
+    {
+      "type": "CLEANUP_ERROR",
+      "error": {
+        "code": "CANCELLATION_CLEANUP_FAILED",
+        "unresolved_tokens": [
+          "pty-DT-05-child"
+        ]
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "PROCESS_TIMEOUT",
+    "ordered_event_types": [
+      "PROCESS_DEADLINE",
+      "CLEANUP_ERROR"
+    ],
+    "cleanup_error_count": 1,
+    "effect_certainty": "MAY_HAVE_STARTED",
+    "execution_outcome": "FAILED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-05",
+    "oracle_id": "transport.dt05.tree_closure",
+    "oracle_version": 1,
+    "inputs": {
+      "initial_identities": [
+        "pty-DT-05-root",
+        "pty-DT-05-child"
+      ],
+      "post_cancellation_observations": [
+        {
+          "token": "pty-DT-05-root",
+          "state": "TERMINATED"
+        },
+        {
+          "token": "pty-DT-05-child",
+          "state": "IDENTITY_UNCERTAIN"
+        }
+      ]
+    }
+  }
+}

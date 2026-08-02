@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "clock": [921],
+  "ids": ["run-GB-04-NEG-01-r2", "event-GB-04-NEG-01-01"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker",
+      "command_type": "reconcile-pending-outbox",
+      "idempotency_key": "GB-04-negative-pending",
+      "payload": {
+        "outbox_row": "outbox-GB-04-negative",
+        "pending_journal": "journal-GB-04-negative",
+        "state_transition": "committed"
+      }
+    }
+  ],
+  "interrupt_after_append": 0,
+  "expect": {
+    "terminal_classification": "START_UNCERTAIN",
+    "effect_certainty": "MAY_HAVE_STARTED",
+    "execution_outcome": "UNKNOWN",
+    "ordered_event_types": ["INTENT_PERSISTED"],
+    "reducer_replay_idempotent": true
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "GB-04-NEG-01",
+    "oracle_id": "broker.gb04.recovery_without_replay",
+    "oracle_version": 1,
+    "inputs": {
+      "transition_id": "transition-GB-04-negative",
+      "outbox_id": "outbox-GB-04-negative",
+      "outbox_state": "PENDING_UNCOMMITTED"
+    }
+  }
+}

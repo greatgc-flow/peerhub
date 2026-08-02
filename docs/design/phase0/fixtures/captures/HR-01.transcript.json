@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py health-precheck --peer ag","exit_code":0,"stdout_summary":"PRE-CHECK OK: scope=ag","redaction":"runtime warning omitted"}

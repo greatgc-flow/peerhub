@@ -1,0 +1,1 @@
+{"adapter_id":"process_lifecycle.dt06.reference","adapter_version":1,"fixture_id":"DT-06","output":{"cleanup_error_count":1,"effect_certainty":"STARTED","execution_outcome":"FAILED","terminal_classification":"EXITED"},"schema_version":1}

@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "clock": [100],
+  "ids": ["run-DP-06-r1", "event-DP-06-01"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED"
+    }
+  ],
+  "interrupt_after_append": 0,
+  "expect": {
+    "terminal_classification": "START_UNCERTAIN",
+    "effect_certainty": "MAY_HAVE_STARTED",
+    "execution_outcome": "UNKNOWN",
+    "ordered_event_types": ["INTENT_PERSISTED"],
+    "reducer_replay_idempotent": true
+  }
+}

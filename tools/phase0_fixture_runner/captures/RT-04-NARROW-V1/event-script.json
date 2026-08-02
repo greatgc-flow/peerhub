@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "clock": [800, 801, 802],
+  "ids": ["run-RT-04-r1", "event-RT-04-01", "event-RT-04-02", "event-RT-04-03"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "router",
+      "command_type": "automatic-route",
+      "idempotency_key": "RT-04-exclusions",
+      "payload": {
+        "eligible_candidate": "candidate-eligible",
+        "exclusions": {
+          "candidate-excluded": "excluded",
+          "candidate-terminal": "terminal"
+        },
+        "excluded_weight": 0,
+        "terminal_weight": 0
+      }
+    },
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "candidate-eligible",
+        "pid": 1204,
+        "birth": "birth-RT-04"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": ["INTENT_PERSISTED", "SPAWNED", "EXIT"],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "SUCCEEDED",
+    "process_tokens": ["candidate-eligible"]
+  }
+}

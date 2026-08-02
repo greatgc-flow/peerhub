@@ -1,0 +1,1 @@
+{"command_sequence":["consensus-sweep --timeout 0 --force-tier0"],"stdout":"[HUB] SWEEP r-3b02 ESCALATED | timeout after 90m | conflicting vote fixture","exit_code":0,"state_projection":{"round_id":"r-3b02","status":"escalated","outcome":"timeout","prior_vote":"ag=agree","pending_voters":["cc","cx"]}}

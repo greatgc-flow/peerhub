@@ -1,0 +1,1 @@
+{"fixture_id":"AC-04-02","oracle_id":"authority_fence.ac0402.stale_lease_epoch_fenced","oracle_version":1,"output":{"committed_epoch":7,"contenders":[],"decision":"REJECTED","disposition":"FENCED_STALE_EPOCH","error_code":null,"final_recheck_performed":true,"legacy_write_mutations":0,"marker_count":0,"retry_count":0},"schema_version":1}

@@ -1,0 +1,1 @@
+{"adapter_id":"transport.dt-04.fault-injected","adapter_version":1,"fixture_id":"DT-04-NEG-01","output":{"cleanup_reconciled":false,"effect_certainty":"STARTED","steps":["PROCESS_DEADLINE","SOFT_CANCEL","TERMINATE_TREE","KILL_TREE"],"terminal":"PROCESS_TIMEOUT"},"schema_version":1}

@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CJ-01","inputs":{"envelope":{"actor_identity":"actor-CJ-01","query_selector":"peer-status","workspace_scope":"workspace-CJ-01"},"injected_result_payload":{"count":1,"peers":[{"peer_id":"ag","status":"GREEN"}]}},"oracle_id":"cli_envelope.cj01.read_only_typed_result","oracle_version":1,"schema_version":1}

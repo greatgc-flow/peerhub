@@ -1,0 +1,2 @@
+{"event":{"client_id":"governance-broker","command_type":"governance-broker-proof","idempotency_key":"GB-02","payload":{"proof_id":"GB-02"},"type":"INTENT_PERSISTED"},"event_id":"event-GB-02-01","observed_monotonic":2400,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"governance-broker","command_type":"governance-broker-proof","idempotency_key":"GB-02","payload":{"proof_id":"GB-02"},"type":"INTENT_PERSISTED"},"event_id":"event-GB-02-02","observed_monotonic":2401,"record_type":"INPUT_EVENT","sequence":1}

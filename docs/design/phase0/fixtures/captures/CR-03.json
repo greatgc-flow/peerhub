@@ -1,0 +1,14 @@
+{
+  "fixture_id": "CR-03",
+  "domain": "coordination-room-mailbox-handoff",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "room": "fixture-r1", "members": ["ag", "cx", "cc"], "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["broadcast --from ag --msg phase0-cr03-broadcast-order --force-tier0"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic fixture payload or status only", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 0, "thread_id": "b-3605", "recipient_order": ["cx", "cc"], "message_ids": [5, 6]},
+  "artifacts": {"transcript": "CR-03.transcript.json", "transcript_sha256": "cb0847519ce4c040f5954e75f7f557c478b20203d0b252a53b83b3b50b705169"},
+  "blocker": null,
+  "record_sha256": "454a4b33805620eb19233ce205e2fe4b5c1b9c8b18518fcab43035f1e202780d",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

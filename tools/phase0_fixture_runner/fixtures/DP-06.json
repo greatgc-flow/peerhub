@@ -1,0 +1,29 @@
+{
+  "schema_version": 2,
+  "clock": [100],
+  "ids": ["run-DP-06-r1", "event-DP-06-01"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED"
+    }
+  ],
+  "interrupt_after_append": 0,
+  "expect": {
+    "terminal_classification": "START_UNCERTAIN",
+    "effect_certainty": "MAY_HAVE_STARTED",
+    "execution_outcome": "UNKNOWN",
+    "ordered_event_types": ["INTENT_PERSISTED"],
+    "reducer_replay_idempotent": true
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DP-06",
+    "oracle_id": "dispatch_pipe_recovery.dp06.dispatch_intent_boundary",
+    "oracle_version": 1,
+    "inputs": {
+      "injected_command_id": "dispatch-intent-dp06",
+      "append_completed": true,
+      "later_terminal_evidence_present": false
+    }
+  }
+}

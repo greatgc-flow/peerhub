@@ -1,0 +1,33 @@
+{
+  "schema_version": 2,
+  "clock": [410],
+  "ids": [
+    "run-DT-04-neg-01",
+    "event-DT-04-neg-01"
+  ],
+  "events": [
+    {
+      "type": "PROCESS_DEADLINE",
+      "t": 410
+    }
+  ],
+  "expect": {
+    "terminal_classification": "PROCESS_TIMEOUT",
+    "ordered_event_types": [
+      "PROCESS_DEADLINE"
+    ]
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-04-NEG-01",
+    "oracle_id": "transport.dt04.cancellation_ladder",
+    "oracle_version": 1,
+    "inputs": {
+      "spawn_observed": false,
+      "soft_cancel_acknowledged": false,
+      "terminate_acknowledged": false,
+      "kill_acknowledged": false,
+      "tree_closed": false
+    }
+  }
+}

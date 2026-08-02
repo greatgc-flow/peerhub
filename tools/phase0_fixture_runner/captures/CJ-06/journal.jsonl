@@ -1,0 +1,2 @@
+{"event":{"client_id":"cli-envelope","command_type":"cli-envelope-proof","idempotency_key":"CJ-06","payload":{"proof_id":"CJ-06"},"type":"INTENT_PERSISTED"},"event_id":"event-CJ-06-01","observed_monotonic":2530,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"cli-envelope","command_type":"cli-envelope-proof","idempotency_key":"CJ-06","payload":{"proof_id":"CJ-06"},"type":"INTENT_PERSISTED"},"event_id":"event-CJ-06-02","observed_monotonic":2531,"record_type":"INPUT_EVENT","sequence":1}

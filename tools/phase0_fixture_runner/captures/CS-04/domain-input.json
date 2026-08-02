@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CS-04","inputs":{"case_kind":"TIMEOUT_SWEEP","facts":{"electorate":["ag","cc","cx"],"recorded_votes":[{"reason":"retained-before-timeout","vote_value":"AGREE","voter_id":"ag"}],"round_id":"r-bcf8","sweep_timeout_seconds":0}},"oracle_id":"consensus.cs04.timeout_escalation","oracle_version":1,"schema_version":1}

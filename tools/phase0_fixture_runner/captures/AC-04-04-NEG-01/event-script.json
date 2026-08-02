@@ -1,0 +1,41 @@
+{
+  "schema_version": 2,
+  "clock": [1414, 1415],
+  "ids": ["run-AC-04-04-NEG-01-r2", "event-AC-04-04-NEG-01-01", "event-AC-04-04-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-fence",
+      "command_type": "authority-marker-cas",
+      "idempotency_key": "AC-04-04-NEG-01",
+      "payload": {"contenders": ["contender-A", "contender-B"]}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-fence",
+      "command_type": "authority-marker-cas",
+      "idempotency_key": "AC-04-04-NEG-01",
+      "payload": {"contenders": ["contender-A", "contender-B"]}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-04-04-NEG-01",
+    "oracle_id": "authority_fence.ac0404.same_epoch_marker_cas_contention",
+    "oracle_version": 1,
+    "inputs": {
+      "admission_epoch": 7,
+      "phase": "CUTOVER_DRAINING",
+      "contenders": [
+        {"contender_id": "contender-A"},
+        {"contender_id": "contender-B"}
+      ]
+    }
+  }
+}

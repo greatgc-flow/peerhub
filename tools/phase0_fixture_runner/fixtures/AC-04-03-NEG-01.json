@@ -1,0 +1,40 @@
+{
+  "schema_version": 2,
+  "clock": [1410, 1411],
+  "ids": ["run-AC-04-03-NEG-01-r2", "event-AC-04-03-NEG-01-01", "event-AC-04-03-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-fence",
+      "command_type": "legacy-write-final-epoch-check",
+      "idempotency_key": "AC-04-03-NEG-01",
+      "payload": {"write_id": "legacy-write-final-recheck-negative"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-fence",
+      "command_type": "legacy-write-final-epoch-check",
+      "idempotency_key": "AC-04-03-NEG-01",
+      "payload": {"write_id": "legacy-write-final-recheck-negative"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-04-03-NEG-01",
+    "oracle_id": "authority_fence.ac0403.mandatory_final_epoch_recheck",
+    "oracle_version": 1,
+    "inputs": {
+      "lease_epoch": 7,
+      "committed_epoch": 7,
+      "final_epoch": 8,
+      "lease_valid": true,
+      "write_id": "legacy-write-final-recheck-negative"
+    }
+  }
+}

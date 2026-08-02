@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "clock": [1220, 1221],
+  "ids": ["run-AC-02-03-NEG-01-r2", "event-AC-02-03-NEG-01-01", "event-AC-02-03-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-03-NEG-01",
+      "payload": {"proof_id": "AC-02-03-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-03-NEG-01",
+      "payload": {"proof_id": "AC-02-03-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-02-03-NEG-01",
+    "oracle_id": "authority_identity.ac0203.copied_home_rejection",
+    "oracle_version": 1,
+    "inputs": {
+      "operation": "OPEN",
+      "open_context": "COPIED_DIRECTORY",
+      "known_bindings": [
+        {
+          "workspace_home_id": "workspace-home-03",
+          "database_identity": "database-identity-03",
+          "resolved_identity": {
+            "volume_guid": "volume-guid-source-03",
+            "file_id": "file-id-source-03"
+          },
+          "home_content_digest": "identical-content-digest-03",
+          "recorded_presented_path": "D:/portable/peerhub"
+        }
+      ],
+      "observed_home": {
+        "workspace_home_id": "workspace-home-03",
+        "database_identity": "database-identity-03",
+        "resolved_identity": {
+          "volume_guid": "volume-guid-copy-03",
+          "file_id": "file-id-copy-03"
+        },
+        "home_content_digest": "identical-content-digest-03",
+        "presented_path": "E:/copied/peerhub"
+      },
+      "relocation_receipt": null
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "clock": [1800, 1801],
+  "ids": ["run-AC-07-01-NEG-01-r2", "event-AC-07-01-NEG-01-01", "event-AC-07-01-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-01-NEG-01",
+      "payload": {"proof_id": "AC-07-01-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-recovery",
+      "command_type": "recovery-authority",
+      "idempotency_key": "AC-07-01-NEG-01",
+      "payload": {"proof_id": "AC-07-01-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-07-01-NEG-01",
+    "oracle_id": "authority_recovery.ac0701.pre_marker_failure",
+    "oracle_version": 1,
+    "inputs": {
+      "recovery_kind": "FORWARD_RECOVERY",
+      "failure_position": "PRE_MARKER",
+      "attempt_id": "transition-attempt-07-01",
+      "attempt_record_present": true,
+      "marker_committed": false,
+      "authority_before_recovery": "ENGRAM",
+      "transition_receipt": null,
+      "restore_artifact": null,
+      "retired_ratified": false,
+      "rollback_preconditions": {
+        "drain_complete": false,
+        "hashes_verified": false,
+        "identity_verified": false,
+        "backup_requirement_satisfied": false,
+        "receipt_requirement_satisfied": false
+      },
+      "rollback_fence": null,
+      "peerhub_mutations": []
+    }
+  }
+}

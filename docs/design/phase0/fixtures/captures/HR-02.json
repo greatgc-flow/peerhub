@@ -1,0 +1,14 @@
+{
+  "fixture_id": "HR-02",
+  "domain": "health-recovery",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"live_state_mutated": false, "peer": "ag", "observed_health": "STALE"},
+  "execution_input": {"command_sequence": ["health-precheck --peer ag"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic fixture payload or status only", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 1, "admission": "rejected", "reason": "stale readiness evidence"},
+  "artifacts": {"transcript": "HR-02.transcript.json", "transcript_sha256": "f1db274a434761dc6bac871797544dab3e5a2aaca1883db7cc97f87ee144ee7e"},
+  "blocker": null,
+  "record_sha256": "b4be2498ba0ab7df4639fc3c1d7d568b366cf8e872559094e1126af24c250974",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

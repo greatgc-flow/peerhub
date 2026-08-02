@@ -1,0 +1,1 @@
+{"adapter_id":"routing_discovery.rt02.reference","adapter_version":1,"fixture_id":"RT-02","output":{"decision":"CANDIDATE_EXCLUDED","details":{"candidate_id":"ag","capability_match":false,"exclusion_reason":"CAPABILITY_UNSUPPORTED"},"rule_tier":"CANDIDATE"},"schema_version":1}

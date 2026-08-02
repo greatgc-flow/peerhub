@@ -1,0 +1,1 @@
+{"adapter_id":"health_recovery.hr02.fault_injected","adapter_version":1,"fixture_id":"HR-02-NEG-01","output":{"admission":{"decision":"ADMITTED","provider_effect_permitted":true},"gate_state":"OPEN","readiness_state":"READY"},"schema_version":1}

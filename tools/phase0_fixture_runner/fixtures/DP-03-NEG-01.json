@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "clock": [2020, 2021],
+  "ids": ["run-DP-03-NEG-01-r2", "event-DP-03-NEG-01-01", "event-DP-03-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-03-NEG-01",
+      "payload": {"proof_id": "DP-03-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-03-NEG-01",
+      "payload": {"proof_id": "DP-03-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DP-03-NEG-01",
+    "oracle_id": "dispatch_pipe.dp03.nonzero_exit_uncertain",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "NONZERO_EXIT",
+      "validation_accepted": true,
+      "spawn_observed": true,
+      "process_identity_token": "process-DP-03",
+      "chunk_records": [],
+      "exit_observed": true,
+      "exit_code": 1,
+      "output_limit_bytes": null,
+      "deadline_reached": false,
+      "tree_kill_observed": false
+    }
+  }
+}

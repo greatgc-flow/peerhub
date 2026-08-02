@@ -1,0 +1,3 @@
+{"event":{"client_id":"router","command_type":"automatic-route","idempotency_key":"RT-04-terminal-weight-negative","payload":{"eligible_candidate":"candidate-eligible","excluded_weight":0,"exclusions":{"candidate-excluded":"excluded","candidate-terminal":"terminal"},"terminal_weight":0},"type":"INTENT_PERSISTED"},"event_id":"event-RT-04-NEG-01-01","observed_monotonic":803,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"identity":{"birth":"birth-RT-04-NEG-01","pid":2204,"token":"candidate-eligible"},"type":"SPAWNED"},"event_id":"event-RT-04-NEG-01-02","observed_monotonic":804,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"code":0,"type":"EXIT"},"event_id":"event-RT-04-NEG-01-03","observed_monotonic":805,"record_type":"INPUT_EVENT","sequence":2}

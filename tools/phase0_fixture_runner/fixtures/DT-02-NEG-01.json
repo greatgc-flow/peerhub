@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "clock": [210, 211, 212, 213],
+  "ids": [
+    "run-DT-02-neg-01",
+    "event-DT-02-neg-01",
+    "event-DT-02-neg-02",
+    "event-DT-02-neg-03",
+    "event-DT-02-neg-04"
+  ],
+  "events": [
+    {
+      "type": "CHUNK",
+      "bytes": "4g==",
+      "t": 210
+    },
+    {
+      "type": "CHUNK",
+      "bytes": "gqwN",
+      "t": 211
+    },
+    {
+      "type": "CHUNK",
+      "bytes": "Cg==",
+      "t": 212
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": [
+      "CHUNK",
+      "CHUNK",
+      "CHUNK",
+      "EXIT"
+    ]
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-02-NEG-01",
+    "oracle_id": "transport.dt02.incremental_framing",
+    "oracle_version": 1,
+    "inputs": {
+      "chunks_base64": [
+        "4g==",
+        "gqwN",
+        "Cg=="
+      ]
+    }
+  }
+}

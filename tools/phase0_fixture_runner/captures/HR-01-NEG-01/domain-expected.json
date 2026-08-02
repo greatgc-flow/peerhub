@@ -1,0 +1,1 @@
+{"fixture_id":"HR-01-NEG-01","oracle_id":"health_recovery.hr01.fresh_readiness_projection","oracle_version":1,"output":{"admission":{"decision":"REJECTED"},"gate_state":"CLOSED","readiness_state":"PROBE_INCONCLUSIVE"},"schema_version":1}

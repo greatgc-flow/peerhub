@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"AC-04-06-NEG-01","inputs":{"admission_epoch":7,"admission_record":"admission-record-06-negative","committed_epoch":7,"lock_renewed":false},"oracle_id":"authority_fence.ac0406.migration_lock_loss_before_marker","oracle_version":1,"schema_version":1}

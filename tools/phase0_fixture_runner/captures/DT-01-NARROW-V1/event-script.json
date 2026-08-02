@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "clock": [100, 101, 102, 103],
+  "ids": ["run-DT-01-r1", "event-DT-01-01", "event-DT-01-02", "event-DT-01-03", "event-DT-01-04"],
+  "events": [
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "pty-DT-01",
+        "pid": 1001,
+        "birth": "birth-DT-01"
+      }
+    },
+    {
+      "type": "CHUNK",
+      "bytes": "aGVsbG8g",
+      "t": 101
+    },
+    {
+      "type": "CHUNK",
+      "bytes": "d29ybGQK",
+      "t": 102
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": ["SPAWNED", "CHUNK", "CHUNK", "EXIT"],
+    "effect_certainty": "STARTED",
+    "execution_outcome": "SUCCEEDED",
+    "process_tokens": ["pty-DT-01"]
+  }
+}

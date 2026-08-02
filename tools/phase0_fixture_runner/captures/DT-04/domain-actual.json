@@ -1,0 +1,1 @@
+{"adapter_id":"transport.dt-04.reference","adapter_version":1,"fixture_id":"DT-04","output":{"cleanup_reconciled":false,"effect_certainty":"MAY_HAVE_STARTED","steps":["PROCESS_DEADLINE","SOFT_CANCEL","TERMINATE_TREE","KILL_TREE","RECONCILE_TREE"],"terminal":"PROCESS_TIMEOUT"},"schema_version":1}

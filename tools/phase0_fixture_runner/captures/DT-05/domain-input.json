@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"DT-05","inputs":{"initial_identities":["pty-DT-05-root","pty-DT-05-child"],"post_cancellation_observations":[{"state":"TERMINATED","token":"pty-DT-05-root"},{"state":"IDENTITY_UNCERTAIN","token":"pty-DT-05-child"}]},"oracle_id":"transport.dt05.tree_closure","oracle_version":1,"schema_version":1}

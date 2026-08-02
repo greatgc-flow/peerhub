@@ -1,0 +1,2 @@
+{"event":{"t":500,"type":"PROCESS_DEADLINE"},"event_id":"event-DT-05-01","observed_monotonic":500,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"error":{"code":"CANCELLATION_CLEANUP_FAILED","unresolved_tokens":["pty-DT-05-child"]},"type":"CLEANUP_ERROR"},"event_id":"event-DT-05-02","observed_monotonic":501,"record_type":"INPUT_EVENT","sequence":1}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 2,
+  "clock": [2710, 2711],
+  "ids": ["run-HR-02-r2", "event-HR-02-01", "event-HR-02-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "health-recovery",
+      "command_type": "health-recovery-proof",
+      "idempotency_key": "HR-02",
+      "payload": {"proof_id": "HR-02"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "health-recovery",
+      "command_type": "health-recovery-proof",
+      "idempotency_key": "HR-02",
+      "payload": {"proof_id": "HR-02"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "HR-02",
+    "oracle_id": "health_recovery.hr02.expired_revalidation_required",
+    "oracle_version": 1,
+    "inputs": {
+      "peer_id": "ag",
+      "sealed_runtime_revision": "runtime-r17",
+      "readiness_evidence": {
+        "receipt_id": "readiness-HR-02-expired",
+        "runtime_revision": "runtime-r17",
+        "issued_at": 1000,
+        "observed_at": 1200,
+        "valid_until": 1100,
+        "integrity_verified": true
+      },
+      "adapter_declares_probe_safe": false
+    }
+  }
+}

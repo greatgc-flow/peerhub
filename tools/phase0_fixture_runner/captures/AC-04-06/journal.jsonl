@@ -1,0 +1,2 @@
+{"event":{"client_id":"authority-fence","command_type":"authority-marker-cas","idempotency_key":"AC-04-06","payload":{"admission_record":"admission-record-06"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-04-06-01","observed_monotonic":1420,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"authority-fence","command_type":"authority-marker-cas","idempotency_key":"AC-04-06","payload":{"admission_record":"admission-record-06"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-04-06-02","observed_monotonic":1421,"record_type":"INPUT_EVENT","sequence":1}

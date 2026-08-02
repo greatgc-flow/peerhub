@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "clock": [1920, 1921],
+  "ids": ["run-AC-09-03-NEG-01-r2", "event-AC-09-03-NEG-01-01", "event-AC-09-03-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-quota",
+      "command_type": "quota-authority",
+      "idempotency_key": "AC-09-03-NEG-01",
+      "payload": {"proof_id": "AC-09-03-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-quota",
+      "command_type": "quota-authority",
+      "idempotency_key": "AC-09-03-NEG-01",
+      "payload": {"proof_id": "AC-09-03-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-09-03-NEG-01",
+    "oracle_id": "authority_quota.ac0903.independent_workspace_evaluation",
+    "oracle_version": 1,
+    "inputs": {
+      "evaluation_kind": "QUOTA_EVALUATION",
+      "current_evidence_epoch": 100,
+      "maximum_evidence_age_epochs": 5,
+      "workspace_requests": [
+        {
+          "workspace_id": "workspace-alpha",
+          "provider_account_id": "provider-account-shared",
+          "requested_units": 5,
+          "quota_evidence": {
+            "evidence_id": "quota-evidence-alpha",
+            "provider_account_id": "provider-account-shared",
+            "evidence_source": "ADAPTER_EXTERNAL",
+            "observed_epoch": 100,
+            "available_units": 7
+          }
+        },
+        {
+          "workspace_id": "workspace-beta",
+          "provider_account_id": "provider-account-shared",
+          "requested_units": 3,
+          "quota_evidence": {
+            "evidence_id": "quota-evidence-beta",
+            "provider_account_id": "provider-account-shared",
+            "evidence_source": "ADAPTER_EXTERNAL",
+            "observed_epoch": 99,
+            "available_units": 4
+          }
+        }
+      ],
+      "routing_recommendation": null,
+      "manual_dispatch_authorization": null
+    }
+  }
+}

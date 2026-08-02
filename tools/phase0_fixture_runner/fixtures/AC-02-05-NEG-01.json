@@ -1,0 +1,70 @@
+{
+  "schema_version": 2,
+  "clock": [1240, 1241],
+  "ids": ["run-AC-02-05-NEG-01-r2", "event-AC-02-05-NEG-01-01", "event-AC-02-05-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-05-NEG-01",
+      "payload": {"proof_id": "AC-02-05-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "workspace-identity-check",
+      "idempotency_key": "AC-02-05-NEG-01",
+      "payload": {"proof_id": "AC-02-05-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-02-05-NEG-01",
+    "oracle_id": "authority_identity.ac0205.home_id_collision",
+    "oracle_version": 1,
+    "inputs": {
+      "operation": "OPEN",
+      "open_context": "NORMAL",
+      "known_bindings": [
+        {
+          "workspace_home_id": "workspace-home-collision-05",
+          "database_identity": "database-identity-05-A",
+          "resolved_identity": {
+            "volume_guid": "volume-guid-home-05-A",
+            "file_id": "file-id-home-05-A"
+          },
+          "home_content_digest": "content-digest-home-05-A",
+          "recorded_presented_path": "D:/home-A/peerhub"
+        },
+        {
+          "workspace_home_id": "workspace-home-collision-05",
+          "database_identity": "database-identity-05-B",
+          "resolved_identity": {
+            "volume_guid": "volume-guid-home-05-B",
+            "file_id": "file-id-home-05-B"
+          },
+          "home_content_digest": "content-digest-home-05-B",
+          "recorded_presented_path": "E:/home-B/peerhub"
+        }
+      ],
+      "observed_home": {
+        "workspace_home_id": "workspace-home-collision-05",
+        "database_identity": "database-identity-05-B",
+        "resolved_identity": {
+          "volume_guid": "volume-guid-home-05-B",
+          "file_id": "file-id-home-05-B"
+        },
+        "home_content_digest": "content-digest-home-05-B",
+        "presented_path": "E:/home-B/peerhub"
+      },
+      "relocation_receipt": null
+    }
+  }
+}

@@ -1,0 +1,1 @@
+{"adapter_id":"broker.gb05.reference","adapter_version":1,"fixture_id":"GB-05","output":{"second_disposition":"COMPETING_RECEIPT_REJECTED","stored_receipt":{"attempt_id":"attempt-GB-05","outbox_id":"outbox-GB-05","owner_id":"owner-first","request_id":"request-GB-05","terminal_result":"EFFECT_SUCCEEDED"}},"schema_version":1}

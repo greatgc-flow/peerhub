@@ -1,0 +1,3 @@
+{"event":{"client_id":"administrator","command_type":"authorize-recovery-probe","idempotency_key":"HR-05-single-probe","payload":{"direct_gate_open":false,"direct_healthy_write":false,"recovery_probe_limit":1},"type":"INTENT_PERSISTED"},"event_id":"event-HR-05-01","observed_monotonic":710,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"identity":{"birth":"birth-HR-05","pid":1105,"token":"health-probe-HR-05"},"type":"SPAWNED"},"event_id":"event-HR-05-02","observed_monotonic":711,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"code":1,"type":"EXIT"},"event_id":"event-HR-05-03","observed_monotonic":712,"record_type":"INPUT_EVENT","sequence":2}

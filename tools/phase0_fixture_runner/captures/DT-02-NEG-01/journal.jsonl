@@ -1,0 +1,4 @@
+{"event":{"bytes":"4g==","t":210,"type":"CHUNK"},"event_id":"event-DT-02-neg-01","observed_monotonic":210,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"bytes":"gqwN","t":211,"type":"CHUNK"},"event_id":"event-DT-02-neg-02","observed_monotonic":211,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"bytes":"Cg==","t":212,"type":"CHUNK"},"event_id":"event-DT-02-neg-03","observed_monotonic":212,"record_type":"INPUT_EVENT","sequence":2}
+{"event":{"code":0,"type":"EXIT"},"event_id":"event-DT-02-neg-04","observed_monotonic":213,"record_type":"INPUT_EVENT","sequence":3}

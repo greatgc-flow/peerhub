@@ -1,0 +1,1 @@
+{"adapter_id":"routing.rt05.fault_injected","adapter_version":1,"fixture_id":"RT-05-NEG-01","output":{"audit_seed":"786f77a42116fda27d29a3f12bc8e854e405845f66818cd0f74104e381e500b7","ordered_candidates":["candidate-b","candidate-a"],"selected_candidate":"candidate-b","selection_index":0},"schema_version":1}

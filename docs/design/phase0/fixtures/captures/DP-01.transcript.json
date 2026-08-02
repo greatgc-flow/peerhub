@@ -1,0 +1,10 @@
+{
+  "capture": "DP-01 controlled local pipe baseline",
+  "executed_at": "2026-07-28",
+  "command": "python -m pytest _sys/tests/unit/test_process_lease_supervision_c7.py -q -p no:cacheprovider -k small_flushed_chunks_keep_pipe_alive_until_clean_exit",
+  "provider_calls": false,
+  "stdout": "[OOM-GUARD] Active (Threshold: 512MB, Interval: 1.0s)\n.                                                                        [100%]\n1 passed, 16 deselected in 1.07s",
+  "exit_code": 0,
+  "observed_local_process": {"writes": 8, "chunk": "x", "flush_interval_seconds": 0.12, "supervisor_timeout_seconds": 3, "observed_stdout": "xxxxxxxx", "observed_stderr": "", "return_code": 0},
+  "redaction": "local synthetic child only; no credentials or provider response"
+}

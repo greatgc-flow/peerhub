@@ -1,0 +1,1 @@
+{"fixture_id":"CJ-01-NEG-01","oracle_id":"cli_envelope.cj01.read_only_typed_result","oracle_version":1,"output":{"actor_identity":"actor-CJ-01","result":{"count":1,"peers":[{"peer_id":"ag","status":"GREEN"}]},"status":"OK","workspace_scope":"workspace-CJ-01","zero_receipt_writes":true,"zero_state_mutations":true},"schema_version":1}

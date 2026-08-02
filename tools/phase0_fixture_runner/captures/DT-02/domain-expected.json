@@ -1,0 +1,1 @@
+{"fixture_id":"DT-02","oracle_id":"transport.dt02.incremental_framing","oracle_version":1,"output":{"canonical_text":"€\n","lines":["€"],"status":"OK","stream_raw_sha256":"ab79debc6de25f2b059eac8c5f3a5fe0783a62bab27e1f21af0d0aca996fcd31"},"schema_version":1}

@@ -1,0 +1,2 @@
+{"event":{"client_id":"session-lease","command_type":"session-lease-proof","idempotency_key":"SL-03","payload":{"proof_id":"SL-03"},"type":"INTENT_PERSISTED"},"event_id":"event-SL-03-01","observed_monotonic":2620,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"session-lease","command_type":"session-lease-proof","idempotency_key":"SL-03","payload":{"proof_id":"SL-03"},"type":"INTENT_PERSISTED"},"event_id":"event-SL-03-02","observed_monotonic":2621,"record_type":"INPUT_EVENT","sequence":1}

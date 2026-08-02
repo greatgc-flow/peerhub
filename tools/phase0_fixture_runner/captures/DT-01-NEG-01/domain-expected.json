@@ -1,0 +1,1 @@
+{"fixture_id":"DT-01-NEG-01","oracle_id":"process_lifecycle.dt01.exit_success","oracle_version":1,"output":{"cleanup_error_count":0,"effect_certainty":"STARTED","execution_outcome":"SUCCEEDED","terminal_classification":"EXITED"},"schema_version":1}

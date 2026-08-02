@@ -1,0 +1,39 @@
+{
+  "fixture_id": "CR-02",
+  "domain": "coordination-room-mailbox-handoff",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {
+    "engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb",
+    "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"
+  },
+  "preconditions": {
+    "ai_root": "isolated fixture only",
+    "room": "fixture-r1",
+    "members": ["ag", "cx", "cc"],
+    "live_state_mutated": false
+  },
+  "execution_input": {
+    "command_sequence": ["send --from ag --to cx --msg phase0-cr02-read-transition --force-tier0", "mark-read --target cx --id 4 --force-tier0"],
+    "stdin_payload": null
+  },
+  "redaction": {
+    "applied": true,
+    "rules": ["fixture body is synthetic", "absolute fixture path omitted"]
+  },
+  "observed_outcome": {
+    "exit_code": 0,
+    "message_identity": 4,
+    "thread_id": "t-c950",
+    "sender": "ag",
+    "recipient": "cx",
+    "terminal_status": "read",
+    "read_transition_count": 1
+  },
+  "artifacts": {
+    "transcript": "CR-02.transcript.json",
+    "transcript_sha256": "23b0862134d4019169a14a0f7cf1d0f4d71ba29aeed164b6b8674ce36ac2e31b"
+  },
+  "blocker": null,
+  "record_sha256": "1b7def55a2786e2c3522a5d2e568ffff71346a52fcce7070b4304cf0152bd3b6",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

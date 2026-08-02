@@ -1,0 +1,1 @@
+{"fixture_id":"RT-05-NEG-01","oracle_id":"routing.rt05.deterministic_tie_selection","oracle_version":1,"output":{"audit_seed":"786f77a42116fda27d29a3f12bc8e854e405845f66818cd0f74104e381e500b7","ordered_candidates":["candidate-a","candidate-b"],"selected_candidate":"candidate-a","selection_index":0},"schema_version":1}

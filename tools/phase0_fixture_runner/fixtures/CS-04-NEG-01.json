@@ -1,0 +1,48 @@
+{
+  "schema_version": 2,
+  "clock": [2330, 2331],
+  "ids": ["run-CS-04-NEG-01-r2", "event-CS-04-NEG-01-01", "event-CS-04-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-04-NEG-01",
+      "payload": {"proof_id": "CS-04-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-04-NEG-01",
+      "payload": {"proof_id": "CS-04-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CS-04-NEG-01",
+    "oracle_id": "consensus.cs04.timeout_escalation",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "TIMEOUT_SWEEP",
+      "facts": {
+        "round_id": "r-bcf8",
+        "electorate": ["ag", "cc", "cx"],
+        "recorded_votes": [
+          {
+            "voter_id": "ag",
+            "vote_value": "AGREE",
+            "reason": "retained-before-timeout"
+          }
+        ],
+        "sweep_timeout_seconds": 0
+      }
+    }
+  }
+}

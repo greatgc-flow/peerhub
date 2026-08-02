@@ -1,0 +1,13 @@
+{
+  "fixture_id": "SL-01",
+  "domain": "session-lease",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "preconditions": {"isolated_ai_root": "NTFS temporary root; no live .ai mutation"},
+  "execution_input": {"command_line": "python _sys/core/hub.py --ai-root <isolated-root> init-session --agent ag --room fixture-r1"},
+  "observed_outcome": {"exit_code": 0, "state_after_sha256": "e921543299dca650b34b1aafb4acf5892bbe4d9368a0d4d5eff6d23d476a332e"},
+  "artifacts": {"transcript": "SL-01.transcript.json", "transcript_sha256": "cd403c972867fdc3922a7ad52429a96fc17c73507ba5526865a8ee53c05105be"},
+  "blocker": null,
+  "record_sha256": "fd1e82fac7e7b664eca8c3fcdd885e7e30e4089e34e4fb3d4957d980fa589621",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

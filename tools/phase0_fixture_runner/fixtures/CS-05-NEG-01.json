@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "clock": [2340, 2341],
+  "ids": ["run-CS-05-NEG-01-r2", "event-CS-05-NEG-01-01", "event-CS-05-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-05-NEG-01",
+      "payload": {"proof_id": "CS-05-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-05-NEG-01",
+      "payload": {"proof_id": "CS-05-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CS-05-NEG-01",
+    "oracle_id": "consensus.cs05.single_unanimous_decision",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "UNANIMOUS_FINALIZATION",
+      "facts": {
+        "round_id": "r-bcf8",
+        "required_voters": ["cc", "ag"],
+        "recorded_votes": [
+          {
+            "voter_id": "ag",
+            "vote_value": "AGREE",
+            "reason": "phase0-unanimous"
+          },
+          {
+            "voter_id": "cc",
+            "vote_value": "AGREE",
+            "reason": "phase0-unanimous"
+          }
+        ]
+      }
+    }
+  }
+}

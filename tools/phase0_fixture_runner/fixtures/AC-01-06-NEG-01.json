@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "clock": [1152, 1153],
+  "ids": ["run-AC-01-06-NEG-01-r2", "event-AC-01-06-NEG-01-01", "event-AC-01-06-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-06-NEG-01",
+      "payload": {"proof_id": "AC-01-06"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-06-NEG-01",
+      "payload": {"proof_id": "AC-01-06"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-01-06-NEG-01",
+    "oracle_id": "authority_filesystem.ac0106.custody_rejection",
+    "oracle_version": 1,
+    "inputs": {
+      "resolution_graph": {
+        "entries": [
+          {
+            "presented_path": "D:/custody-failure/peerhub",
+            "entry_node_id": "physical-06"
+          }
+        ],
+        "nodes": [
+          {
+            "node_id": "physical-06",
+            "node_kind": "PHYSICAL",
+            "reported_filesystem": "NTFS",
+            "resolved_filesystem": "NTFS",
+            "storage_scope": "LOCAL",
+            "redirected": false,
+            "virtualized": false,
+            "volume_guid": "volume-guid-ntfs-06",
+            "file_id": "file-id-home-06"
+          }
+        ]
+      },
+      "capability_observations": {
+        "stable_identity_available": true,
+        "wal_mode_available": true,
+        "shared_memory_available": true,
+        "exclusive_lock_available": false,
+        "atomic_rename_available": false,
+        "namespace_custody_available": false
+      },
+      "lock_attempts": []
+    }
+  }
+}

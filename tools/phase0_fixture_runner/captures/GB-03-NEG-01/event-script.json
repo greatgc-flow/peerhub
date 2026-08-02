@@ -1,0 +1,74 @@
+{
+  "schema_version": 2,
+  "clock": [913, 914, 915],
+  "ids": ["run-GB-03-NEG-01-r2", "event-GB-03-NEG-01-01", "event-GB-03-NEG-01-02", "event-GB-03-NEG-01-03"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker-client",
+      "command_type": "mutate",
+      "idempotency_key": "GB-03-negative-key",
+      "payload": {
+        "value": 1
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker-client",
+      "command_type": "mutate",
+      "idempotency_key": "GB-03-negative-key",
+      "payload": {
+        "value": 1
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "broker-client",
+      "command_type": "mutate",
+      "idempotency_key": "GB-03-negative-key",
+      "payload": {
+        "value": 2
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "GB-03-NEG-01",
+    "oracle_id": "broker.gb03.idempotency_sequence",
+    "oracle_version": 1,
+    "inputs": {
+      "submissions": [
+        {
+          "client_id": "broker-client",
+          "command_type": "mutate",
+          "idempotency_key": "GB-03-negative-key",
+          "payload": {
+            "value": 1
+          }
+        },
+        {
+          "client_id": "broker-client",
+          "command_type": "mutate",
+          "idempotency_key": "GB-03-negative-key",
+          "payload": {
+            "value": 1
+          }
+        },
+        {
+          "client_id": "broker-client",
+          "command_type": "mutate",
+          "idempotency_key": "GB-03-negative-key",
+          "payload": {
+            "value": 2
+          }
+        }
+      ]
+    }
+  }
+}

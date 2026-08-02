@@ -1,0 +1,28 @@
+{
+  "schema_version": 2,
+  "clock": [2200, 2201],
+  "ids": ["run-RT-01-r2", "event-RT-01-01", "event-RT-01-02"],
+  "events": [
+    {"type": "INTENT_PERSISTED", "client_id": "routing-discovery", "command_type": "routing-discovery-proof", "idempotency_key": "RT-01", "payload": {"proof_id": "RT-01"}},
+    {"type": "INTENT_PERSISTED", "client_id": "routing-discovery", "command_type": "routing-discovery-proof", "idempotency_key": "RT-01", "payload": {"proof_id": "RT-01"}}
+  ],
+  "expect": {"terminal_classification": "IDEMPOTENCY_HIT", "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"], "effect_certainty": "NOT_STARTED", "execution_outcome": "SUCCEEDED"},
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "RT-01",
+    "oracle_id": "routing_discovery.rt01.structured_audit",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "ELIGIBLE_SELECTION",
+      "facts": {
+        "candidate": {
+          "candidate_id": "cx",
+          "score": 12,
+          "status": "GREEN",
+          "tier": "mid",
+          "capability_match": true
+        }
+      }
+    }
+  }
+}

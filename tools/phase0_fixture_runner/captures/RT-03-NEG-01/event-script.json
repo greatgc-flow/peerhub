@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "clock": [2200, 2201],
+  "ids": ["run-RT-03-NEG-01-r2", "event-RT-03-NEG-01-01", "event-RT-03-NEG-01-02"],
+  "events": [
+    {"type": "INTENT_PERSISTED", "client_id": "routing-discovery", "command_type": "routing-discovery-proof", "idempotency_key": "RT-03-NEG-01", "payload": {"proof_id": "RT-03-NEG-01"}},
+    {"type": "INTENT_PERSISTED", "client_id": "routing-discovery", "command_type": "routing-discovery-proof", "idempotency_key": "RT-03-NEG-01", "payload": {"proof_id": "RT-03-NEG-01"}}
+  ],
+  "expect": {"terminal_classification": "IDEMPOTENCY_HIT", "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"], "effect_certainty": "NOT_STARTED", "execution_outcome": "SUCCEEDED"},
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "RT-03-NEG-01",
+    "oracle_id": "routing_discovery.rt03.unavailable_usage_evidence",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "USAGE_UNDECLARED",
+      "facts": {
+        "peer_id": "ag",
+        "usage_evidence_state": "UNDECLARED"
+      }
+    }
+  }
+}

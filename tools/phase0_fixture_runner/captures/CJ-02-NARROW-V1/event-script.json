@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "clock": [1000, 1001],
+  "ids": ["run-CJ-02-r1", "event-CJ-02-01", "event-CJ-02-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "client-CJ-02",
+      "command_type": "mutating-method",
+      "idempotency_key": "idempotency-CJ-02",
+      "payload": {
+        "actor_identity": "actor-authorized",
+        "client_request_key": "request-CJ-02",
+        "expected_configuration_revision": 17,
+        "expected_policy_revision": 9,
+        "workspace_scope": "workspace-CJ-02"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "client-CJ-02",
+      "command_type": "mutating-method",
+      "idempotency_key": "idempotency-CJ-02",
+      "payload": {
+        "actor_identity": "actor-authorized",
+        "client_request_key": "request-CJ-02",
+        "expected_configuration_revision": 17,
+        "expected_policy_revision": 9,
+        "workspace_scope": "workspace-CJ-02"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  }
+}

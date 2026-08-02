@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"HR-05-NEG-01","inputs":{"current_gate_state":"GATE_CLOSED","current_health_value":"RED","grant_remaining_probes":1,"probe_attempts":[{"attempt_id":"probe-attempt-1"},{"attempt_id":"probe-attempt-2"}],"verified_probe_receipt_applied":false},"oracle_id":"health.hr05.one_probe_grant","oracle_version":1,"schema_version":1}

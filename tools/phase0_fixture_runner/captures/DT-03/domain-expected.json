@@ -1,0 +1,1 @@
+{"fixture_id":"DT-03","oracle_id":"transport.dt03.independent_timeouts","oracle_version":1,"output":{"classifications":[{"terminal":"PROCESS_TIMEOUT","timeline_id":"process"},{"terminal":"SILENCE_TIMEOUT","timeline_id":"silence"}]},"schema_version":1}

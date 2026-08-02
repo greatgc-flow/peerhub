@@ -1,0 +1,13 @@
+{
+  "fixture_id": "CR-01",
+  "domain": "coordination-room-mailbox-handoff",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "preconditions": {"isolated_ai_root": "NTFS temporary root; session created by SL-01"},
+  "execution_input": {"command_line": "python _sys/core/hub.py --ai-root <isolated-root> end-session --agent ag"},
+  "observed_outcome": {"exit_code": 0, "state_after_sha256": "5e7f5081f27908304f3fa82900c67c05b8752a0a1855233127a3dbcc3f604b23"},
+  "artifacts": {"transcript": "CR-01.transcript.json", "transcript_sha256": "743a9a7f7388584afb1ea31c07c0dbfcfc2db2e6524c4de0059ffadd95f17c20"},
+  "blocker": null,
+  "record_sha256": "49e4535b7a3408c3e5cc984e252a8eef416f4c0672939e9a5be14418794622dc",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

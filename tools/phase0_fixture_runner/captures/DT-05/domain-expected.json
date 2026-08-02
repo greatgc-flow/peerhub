@@ -1,0 +1,1 @@
+{"fixture_id":"DT-05","oracle_id":"transport.dt05.tree_closure","oracle_version":1,"output":{"all_initial_identities_accounted_for":true,"cleanup_classification":"CANCELLATION_CLEANUP_FAILED","cleanup_complete":false,"terminated_tokens":["pty-DT-05-root"],"unresolved_tokens":["pty-DT-05-child"]},"schema_version":1}

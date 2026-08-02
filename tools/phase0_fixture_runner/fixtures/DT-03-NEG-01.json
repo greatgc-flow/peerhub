@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "clock": [310],
+  "ids": [
+    "run-DT-03-neg-01",
+    "event-DT-03-neg-01"
+  ],
+  "events": [
+    {
+      "type": "SILENCE",
+      "t": 310
+    }
+  ],
+  "expect": {
+    "terminal_classification": "SILENCE_TIMEOUT",
+    "ordered_event_types": [
+      "SILENCE"
+    ]
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-03-NEG-01",
+    "oracle_id": "transport.dt03.independent_timeouts",
+    "oracle_version": 1,
+    "inputs": {
+      "timelines": [
+        {
+          "timeline_id": "silence",
+          "events": [
+            {
+              "type": "OUTPUT_OBSERVED",
+              "t": 1
+            },
+            {
+              "type": "SILENCE",
+              "t": 10
+            }
+          ]
+        },
+        {
+          "timeline_id": "process",
+          "events": [
+            {
+              "type": "OUTPUT_OBSERVED",
+              "t": 1
+            },
+            {
+              "type": "PROCESS_DEADLINE",
+              "t": 20
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

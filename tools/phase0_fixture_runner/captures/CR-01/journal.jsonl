@@ -1,0 +1,2 @@
+{"event":{"client_id":"coordination-room","command_type":"coordination-room-proof","idempotency_key":"CR-01","payload":{"proof_id":"CR-01"},"type":"INTENT_PERSISTED"},"event_id":"event-CR-01-01","observed_monotonic":2100,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"coordination-room","command_type":"coordination-room-proof","idempotency_key":"CR-01","payload":{"proof_id":"CR-01"},"type":"INTENT_PERSISTED"},"event_id":"event-CR-01-02","observed_monotonic":2101,"record_type":"INPUT_EVENT","sequence":1}

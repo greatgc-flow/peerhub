@@ -1,0 +1,27 @@
+{
+  "schema_version": 2,
+  "clock": [2100, 2101],
+  "ids": ["run-CR-02-r2", "event-CR-02-01", "event-CR-02-02"],
+  "events": [
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-02", "payload": {"proof_id": "CR-02"}},
+    {"type": "INTENT_PERSISTED", "client_id": "coordination-room", "command_type": "coordination-room-proof", "idempotency_key": "CR-02", "payload": {"proof_id": "CR-02"}}
+  ],
+  "expect": {"terminal_classification": "IDEMPOTENCY_HIT", "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"], "effect_certainty": "NOT_STARTED", "execution_outcome": "SUCCEEDED"},
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CR-02",
+    "oracle_id": "coordination_room.cr02.direct_read",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "DIRECT_READ",
+      "facts": {
+        "message_id": 4,
+        "thread_id": "t-c950",
+        "sender": "ag",
+        "recipient": "cx",
+        "initial_status": "UNREAD",
+        "mark_read_requests": 1
+      }
+    }
+  }
+}

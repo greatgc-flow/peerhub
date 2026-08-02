@@ -1,0 +1,2 @@
+{"event":{"client_id":"authority-shadow","command_type":"shadow-validation","idempotency_key":"AC-03-03-NEG-01","payload":{"proof_id":"AC-03-03-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-03-03-NEG-01-01","observed_monotonic":1700,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"authority-shadow","command_type":"shadow-validation","idempotency_key":"AC-03-03-NEG-01","payload":{"proof_id":"AC-03-03-NEG-01"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-03-03-NEG-01-02","observed_monotonic":1701,"record_type":"INPUT_EVENT","sequence":1}

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "clock": [600, 601, 602, 603],
+  "ids": ["run-DT-06-r1", "event-DT-06-01", "event-DT-06-02", "event-DT-06-03", "event-DT-06-04"],
+  "events": [
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "pty-DT-06",
+        "pid": 1006,
+        "birth": "birth-DT-06"
+      }
+    },
+    {
+      "type": "CHUNK",
+      "bytes": "cGFydGlhbA==",
+      "t": 601
+    },
+    {
+      "type": "EXIT",
+      "code": 1
+    },
+    {
+      "type": "CLEANUP_ERROR",
+      "error": {
+        "code": "TREE_CLEANUP_FAILED"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 1,
+    "ordered_event_types": ["SPAWNED", "CHUNK", "EXIT", "CLEANUP_ERROR"],
+    "cleanup_error_count": 1,
+    "effect_certainty": "STARTED",
+    "execution_outcome": "FAILED"
+  }
+}

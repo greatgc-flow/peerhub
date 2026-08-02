@@ -1,0 +1,1 @@
+{"fixture_id":"CJ-06","oracle_id":"cli_envelope.cj06.redacted_error_mapping","oracle_version":1,"output":{"error_code":"CONFIGURATION_STALE","exit_code":4,"message":"request rejected: CONFIGURATION_STALE","status":"REJECTED","zero_dispatch_calls":true,"zero_outbox_writes":true,"zero_receipt_writes":true,"zero_state_mutations":true},"schema_version":1}

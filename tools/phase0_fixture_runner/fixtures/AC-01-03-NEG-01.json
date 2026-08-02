@@ -1,0 +1,65 @@
+{
+  "schema_version": 2,
+  "clock": [1122, 1123],
+  "ids": ["run-AC-01-03-NEG-01-r2", "event-AC-01-03-NEG-01-01", "event-AC-01-03-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-03-NEG-01",
+      "payload": {"proof_id": "AC-01-03"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "phase0-authority-model",
+      "command_type": "filesystem-capability-probe",
+      "idempotency_key": "AC-01-03-NEG-01",
+      "payload": {"proof_id": "AC-01-03"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-01-03-NEG-01",
+    "oracle_id": "authority_filesystem.ac0103.fat_rejection",
+    "oracle_version": 1,
+    "inputs": {
+      "resolution_graph": {
+        "entries": [
+          {
+            "presented_path": "F:/portable/peerhub",
+            "entry_node_id": "physical-03"
+          }
+        ],
+        "nodes": [
+          {
+            "node_id": "physical-03",
+            "node_kind": "PHYSICAL",
+            "reported_filesystem": "FAT",
+            "resolved_filesystem": "FAT",
+            "storage_scope": "LOCAL",
+            "redirected": false,
+            "virtualized": false,
+            "volume_guid": "volume-guid-fat-03",
+            "file_id": "file-id-home-03"
+          }
+        ]
+      },
+      "capability_observations": {
+        "stable_identity_available": true,
+        "wal_mode_available": true,
+        "shared_memory_available": true,
+        "exclusive_lock_available": true,
+        "atomic_rename_available": true,
+        "namespace_custody_available": true
+      },
+      "lock_attempts": []
+    }
+  }
+}

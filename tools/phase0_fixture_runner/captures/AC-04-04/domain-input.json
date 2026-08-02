@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"AC-04-04","inputs":{"admission_epoch":7,"contenders":[{"contender_id":"contender-A"},{"contender_id":"contender-B"}],"phase":"CUTOVER_DRAINING"},"oracle_id":"authority_fence.ac0404.same_epoch_marker_cas_contention","oracle_version":1,"schema_version":1}

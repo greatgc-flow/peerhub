@@ -1,0 +1,54 @@
+{
+  "schema_version": 2,
+  "clock": [2600, 2601],
+  "ids": ["run-SL-01-r2", "event-SL-01-01", "event-SL-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-01",
+      "payload": {"proof_id": "SL-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-01",
+      "payload": {"proof_id": "SL-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "SL-01",
+    "oracle_id": "session_lease.sl01.fresh_create",
+    "oracle_version": 1,
+    "inputs": {
+      "binding": {
+        "workspace_scope_id": "workspace-SL",
+        "room_id": "fixture-r1",
+        "room_configuration_revision": 7,
+        "peer_id": "ag",
+        "protocol_major": 1,
+        "resume_contract_revision": 1,
+        "profile_id": "default-profile",
+        "profile_revision": 4,
+        "effective_tier": "tier0",
+        "binding_schema_version": 1
+      },
+      "session_id": "session-SL-01",
+      "lease_id": "lease-SL-01",
+      "lease_kind": "SESSION_MEMBERSHIP",
+      "owner_principal_id": "principal-ag",
+      "owner_instance_id": "instance-ag-01",
+      "owner_process_birth_identity": "birth-ag-100",
+      "fault_point": "AFTER_SESSION_INSERT_BEFORE_LEASE_INSERT"
+    }
+  }
+}

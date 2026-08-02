@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py --ai-root <isolated-root> init-session --agent ag --room fixture-r1","exit_code":0,"stdout_summary":"session created; session identifier redacted","state_after_sha256":"e921543299dca650b34b1aafb4acf5892bbe4d9368a0d4d5eff6d23d476a332e"}

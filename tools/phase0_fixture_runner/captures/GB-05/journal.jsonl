@@ -1,0 +1,4 @@
+{"event":{"client_id":"broker","command_type":"claim-effect","idempotency_key":"GB-05-claim","payload":{"attempt_id":"attempt-GB-05","outbox_id":"outbox-GB-05","request_id":"request-GB-05"},"type":"INTENT_PERSISTED"},"event_id":"event-GB-05-01","observed_monotonic":930,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"identity":{"birth":"birth-GB-05","pid":1305,"token":"effect-worker-GB-05"},"type":"SPAWNED"},"event_id":"event-GB-05-02","observed_monotonic":931,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"code":0,"type":"EXIT"},"event_id":"event-GB-05-03","observed_monotonic":932,"record_type":"INPUT_EVENT","sequence":2}
+{"event":{"error":{"code":"COMPETING_RECEIPT_REJECTED"},"type":"CLEANUP_ERROR"},"event_id":"event-GB-05-04","observed_monotonic":933,"record_type":"INPUT_EVENT","sequence":3}

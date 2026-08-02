@@ -1,0 +1,14 @@
+domain,positive_fixture_ids,invalid_fixture_id,authorization_fixture_id
+dispatch,DP-01;DT-01,CJ-03,CJ-05
+coordination,CR-01,CJ-03,CJ-05
+audit,GB-01,CJ-03,CJ-05
+artifact,GB-01,CJ-03,CJ-05
+diagnostic,CJ-01,CJ-03,CJ-05
+health,HR-01,CJ-03,CJ-05
+consensus,CS-01,CJ-03,CJ-05
+configuration,RT-01,CJ-03,CJ-05
+telemetry,HR-01,CJ-03,CJ-05
+governance,GB-01,CJ-03,CJ-05
+routing,RT-01,CJ-03,CJ-05
+host-policy,CJ-01,CJ-03,CJ-05
+external-action,CJ-02,CJ-03,CJ-05

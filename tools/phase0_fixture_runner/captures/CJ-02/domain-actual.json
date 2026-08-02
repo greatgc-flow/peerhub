@@ -1,0 +1,1 @@
+{"adapter_id":"command_authz.cj02.reference","adapter_version":1,"fixture_id":"CJ-02","output":{"actor_identity":"actor-authorized","client_request_key":"request-CJ-02","command_id":"command-CJ-02-001","status":"ADMITTED","workspace_scope":"workspace-CJ-02","zero_dispatch_calls":true,"zero_provider_calls":true},"schema_version":1}

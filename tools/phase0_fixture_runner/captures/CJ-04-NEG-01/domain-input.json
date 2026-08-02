@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CJ-04-NEG-01","inputs":{"protocol_major":2,"schema_name":"peerhub.request.v1","supported_protocol_majors":[1],"supported_schema_names":["peerhub.request.v1"]},"oracle_id":"cli_envelope.cj04.unsupported_version_evidence","oracle_version":1,"schema_version":1}

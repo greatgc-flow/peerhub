@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"AC-04-01-NEG-01","inputs":{"committed_epoch":7,"final_epoch":7,"lease_epoch":7,"lease_valid":true,"write_id":"legacy-write-01-negative"},"oracle_id":"authority_fence.ac0401.pre_marker_write_unchanged_epoch","oracle_version":1,"schema_version":1}

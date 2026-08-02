@@ -1,0 +1,4 @@
+{"event":{"identity":{"birth":"birth-DT-06","pid":1006,"token":"pty-DT-06"},"type":"SPAWNED"},"event_id":"event-DT-06-01","observed_monotonic":600,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"bytes":"cGFydGlhbA==","t":601,"type":"CHUNK"},"event_id":"event-DT-06-02","observed_monotonic":601,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"code":1,"type":"EXIT"},"event_id":"event-DT-06-03","observed_monotonic":602,"record_type":"INPUT_EVENT","sequence":2}
+{"event":{"error":{"code":"TREE_CLEANUP_FAILED"},"type":"CLEANUP_ERROR"},"event_id":"event-DT-06-04","observed_monotonic":603,"record_type":"INPUT_EVENT","sequence":3}

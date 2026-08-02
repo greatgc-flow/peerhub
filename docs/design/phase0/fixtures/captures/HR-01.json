@@ -1,0 +1,13 @@
+{
+  "fixture_id": "HR-01",
+  "domain": "health-recovery",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb"},
+  "characterization_scope": "legacy healthy-peer admission precheck",
+  "execution_input": {"command_line": "python _sys/core/hub.py health-precheck --peer ag"},
+  "observed_outcome": {"exit_code": 0, "stdout_summary": "PRE-CHECK OK: scope=ag"},
+  "artifacts": {"transcript": "HR-01.transcript.json", "transcript_sha256": "8f74fa7cd05018245fa256b9e6d84327bb3bb679a696242c7dd02b777f226d91"},
+  "blocker": null,
+  "record_sha256": "6b7e5194b7ef16619f1107071fcd30e9cf7fabde7ed2897fcf1693c4fadd8378",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

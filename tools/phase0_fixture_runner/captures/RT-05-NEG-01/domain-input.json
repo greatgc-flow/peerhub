@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"RT-05-NEG-01","inputs":{"candidate_set":["candidate-b","candidate-a"],"request_id":"request-RT-05","snapshot_digest":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"},"oracle_id":"routing.rt05.deterministic_tie_selection","oracle_version":1,"schema_version":1}

@@ -1,0 +1,1 @@
+{"fixture_id":"HR-06","oracle_id":"health.hr06.cas_probe_transition","oracle_version":1,"output":{"backoff_count_after":3,"backoff_count_before":2,"circuit_state_after":"CIRCUIT_OPEN","circuit_state_before":"CIRCUIT_OPEN","reported_matches_current":true,"transition":"FAILURE_BACKOFF_INCREMENTED"},"schema_version":1}

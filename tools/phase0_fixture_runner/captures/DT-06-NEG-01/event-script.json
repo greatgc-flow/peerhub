@@ -1,0 +1,39 @@
+{
+  "schema_version": 2,
+  "clock": [600, 601],
+  "ids": ["run-DT-06-NEG-01-r2", "event-DT-06-NEG-01-01", "event-DT-06-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "process-lifecycle",
+      "command_type": "process-lifecycle-authority",
+      "idempotency_key": "DT-06-NEG-01",
+      "payload": {"proof_id": "DT-06-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "process-lifecycle",
+      "command_type": "process-lifecycle-authority",
+      "idempotency_key": "DT-06-NEG-01",
+      "payload": {"proof_id": "DT-06-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DT-06-NEG-01",
+    "oracle_id": "process_lifecycle.dt06.exit_failure_with_cleanup_error",
+    "oracle_version": 1,
+    "inputs": {
+      "spawned": true,
+      "chunk_count": 1,
+      "exit_code": 1,
+      "cleanup_error_count": 1
+    }
+  }
+}

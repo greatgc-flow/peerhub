@@ -1,0 +1,15 @@
+{
+  "$schema": "peerhub.phase0.fixture-record.v1",
+  "fixture_id": "DP-03",
+  "domain": "dispatch-pipe",
+  "capture_class": "CONTROLLED_FAKE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"provider_calls": false, "adapter": "deterministic fake", "case": "spawned_true"},
+  "execution_input": {"command_sequence": ["pytest test_pipe_transient_soft_skip_exits_7_by_execution_certainty[spawned_true]"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic query", "fake pid", "no credentials"]},
+  "observed_outcome": {"provider_process_created": true, "process_exit": "nonzero", "failure_category": "execution_uncertain", "verified_task_success": false, "required_v1_result": "preserve exit evidence and never claim verified task success"},
+  "artifacts": {"transcript": "DP-02-03.transcript.json", "transcript_sha256": "d77be372e8ea6ff2206fe663c7152ff585f0a6a5b2f982a78e74140576f1d7cd"},
+  "blocker": null,
+  "record_sha256": "0660e870b7f6de92b65fbc395120e363325a516482ee2812790e30d1cc7a8029",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

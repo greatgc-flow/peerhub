@@ -1,0 +1,3 @@
+{"event":{"client_id":"broker-client","command_type":"mutate","idempotency_key":"GB-03-key","payload":{"value":1},"type":"INTENT_PERSISTED"},"event_id":"event-GB-03-01","observed_monotonic":910,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"broker-client","command_type":"mutate","idempotency_key":"GB-03-key","payload":{"value":1},"type":"INTENT_PERSISTED"},"event_id":"event-GB-03-02","observed_monotonic":911,"record_type":"INPUT_EVENT","sequence":1}
+{"event":{"client_id":"broker-client","command_type":"mutate","idempotency_key":"GB-03-key","payload":{"value":2},"type":"INTENT_PERSISTED"},"event_id":"event-GB-03-03","observed_monotonic":912,"record_type":"INPUT_EVENT","sequence":2}

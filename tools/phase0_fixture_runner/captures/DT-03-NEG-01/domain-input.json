@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"DT-03-NEG-01","inputs":{"timelines":[{"events":[{"t":1,"type":"OUTPUT_OBSERVED"},{"t":10,"type":"SILENCE"}],"timeline_id":"silence"},{"events":[{"t":1,"type":"OUTPUT_OBSERVED"},{"t":20,"type":"PROCESS_DEADLINE"}],"timeline_id":"process"}]},"oracle_id":"transport.dt03.independent_timeouts","oracle_version":1,"schema_version":1}

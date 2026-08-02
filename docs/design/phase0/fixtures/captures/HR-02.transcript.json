@@ -1,0 +1,1 @@
+{"command_sequence":["health-precheck --peer ag"],"stderr":"[HUB:WARN] Pre-check stale for ag: status=STALE, gate_open=True\n[HUB:ERROR] Governance Health Pre-Check FAILED. Scope=ag","exit_code":1}

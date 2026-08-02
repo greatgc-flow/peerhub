@@ -1,0 +1,15 @@
+{
+  "$schema": "peerhub.phase0.fixture-record.v1",
+  "fixture_id": "DP-05",
+  "domain": "dispatch-pipe",
+  "capture_class": "CONTROLLED_FAKE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"provider_calls": false, "child": "local deterministic sleep process"},
+  "execution_input": {"command_sequence": ["_stream_process_output timeout_sec=0.2"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic local child"]},
+  "observed_outcome": {"hard_deadline": "raised TimeoutExpired", "cleanup": "process tree kill then exit 15", "required_v1_result": "hard deadline yields specified timeout/cleanup outcome"},
+  "artifacts": {"transcript": "DP-05.transcript.json", "transcript_sha256": "8bef3f9798945498a28d84018b67eaa8a44d306ec7904d562fcb4282d0d436e8"},
+  "blocker": null,
+  "record_sha256": "6289930b6b86b03c238e019876d84ac0c3c8cd56958408a7bd553f1ab471991e",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

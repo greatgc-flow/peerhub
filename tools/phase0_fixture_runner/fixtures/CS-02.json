@@ -1,0 +1,49 @@
+{
+  "schema_version": 2,
+  "clock": [2310, 2311],
+  "ids": ["run-CS-02-r2", "event-CS-02-01", "event-CS-02-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-02",
+      "payload": {"proof_id": "CS-02"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-02",
+      "payload": {"proof_id": "CS-02"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CS-02",
+    "oracle_id": "consensus.cs02.idempotent_repeat_vote",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "IDENTICAL_REPEAT_VOTE",
+      "facts": {
+        "round_id": "r-bcf8",
+        "existing_vote": {
+          "voter_id": "ag",
+          "vote_value": "AGREE",
+          "reason": "phase0-idempotent"
+        },
+        "attempted_vote": {
+          "voter_id": "ag",
+          "vote_value": "AGREE",
+          "reason": "phase0-idempotent"
+        }
+      }
+    }
+  }
+}

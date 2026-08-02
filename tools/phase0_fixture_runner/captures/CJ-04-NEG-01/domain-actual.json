@@ -1,0 +1,1 @@
+{"adapter_id":"cli_envelope.cj04.fault_injected","adapter_version":1,"fixture_id":"CJ-04-NEG-01","output":{"effect_certainty":"NOT_STARTED","error_code":"PROTOCOL_VERSION_MISMATCH","exit_code":2,"status":"REJECTED","supported_protocol_majors":[],"supported_schema_names":[],"zero_dispatch_calls":true,"zero_state_mutations":true},"schema_version":1}

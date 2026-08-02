@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "clock": [820, 821],
+  "ids": ["run-RT-06-r1", "event-RT-06-01", "event-RT-06-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "router",
+      "command_type": "automatic-route",
+      "idempotency_key": "RT-06-stale-admission",
+      "payload": {
+        "admission_snapshot": "snapshot-revision-10",
+        "current_configuration_revision": 11,
+        "dispatch": false,
+        "required_result": "CONFIGURATION_STALE"
+      }
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "router",
+      "command_type": "automatic-route",
+      "idempotency_key": "RT-06-stale-admission",
+      "payload": {
+        "admission_snapshot": "snapshot-revision-10",
+        "current_configuration_revision": 11,
+        "dispatch": false,
+        "required_result": "CONFIGURATION_STALE"
+      }
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  }
+}

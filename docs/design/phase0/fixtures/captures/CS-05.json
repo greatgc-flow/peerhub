@@ -1,0 +1,14 @@
+{
+  "fixture_id": "CS-05",
+  "domain": "consensus",
+  "capture_class": "ISOLATED_STATE",
+  "baseline_revisions": {"engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb", "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"},
+  "preconditions": {"ai_root": "isolated fixture only", "round_id": "r-bcf8", "live_state_mutated": false},
+  "execution_input": {"command_sequence": ["consensus-vote --round-id r-bcf8 --voter cc --vote agree --reason phase0-finalize --force-tier0"], "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["synthetic subject", "absolute paths omitted"]},
+  "observed_outcome": {"exit_code": 0, "status": "finalized", "outcome": "unanimous", "decision_events": 1, "required_voters": ["cc", "ag"]},
+  "artifacts": {"transcript": "CS-01.transcript.json", "transcript_sha256": "d60b76b6fc3c3024bf4ac2040d165d5762c66303edcab8590294674f320b4ef8"},
+  "blocker": null,
+  "record_sha256": "cfa4a594ee89904ea947bd67c29ba00079b6ee0db27727919292185e20080c0f",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "clock": [2350, 2351],
+  "ids": ["run-CS-06-NEG-01-r2", "event-CS-06-NEG-01-01", "event-CS-06-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-06-NEG-01",
+      "payload": {"proof_id": "CS-06-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "consensus",
+      "command_type": "consensus-evaluation",
+      "idempotency_key": "CS-06-NEG-01",
+      "payload": {"proof_id": "CS-06-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "CS-06-NEG-01",
+    "oracle_id": "consensus.cs06.arbiter_separated_derivation",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "ARBITER_DERIVATION",
+      "facts": {
+        "round_id": "r-cs06",
+        "derivation_cases": [
+          {
+            "case_id": "no-dissent",
+            "votes": [
+              {
+                "voter_id": "ag",
+                "vote_value": "AGREE",
+                "reason": "candidate-no-dissent"
+              },
+              {
+                "voter_id": "cc",
+                "vote_value": "AGREE",
+                "reason": "candidate-no-dissent"
+              }
+            ],
+            "arbiter_opinion": null
+          },
+          {
+            "case_id": "dissent-no-opinion",
+            "votes": [
+              {
+                "voter_id": "ag",
+                "vote_value": "DISAGREE",
+                "reason": "legacy-observed-dissent"
+              },
+              {
+                "voter_id": "cc",
+                "vote_value": "AGREE",
+                "reason": "legacy-observed-dissent"
+              }
+            ],
+            "arbiter_opinion": null
+          },
+          {
+            "case_id": "dissent-with-opinion",
+            "votes": [
+              {
+                "voter_id": "ag",
+                "vote_value": "DISAGREE",
+                "reason": "candidate-arbiter-override"
+              },
+              {
+                "voter_id": "cc",
+                "vote_value": "AGREE",
+                "reason": "candidate-arbiter-override"
+              }
+            ],
+            "arbiter_opinion": {
+              "opinion_id": "arbiter-opinion-cs06",
+              "opinion_value": "APPROVE"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

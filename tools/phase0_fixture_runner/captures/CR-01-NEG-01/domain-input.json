@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CR-01-NEG-01","inputs":{"case_kind":"SESSION_CLOSE","facts":{"close_exit_code":0,"members":["ag","cx","cc"],"session_id":"room-session-01","state_after_digest":"state-after-cr01","state_before_digest":"state-before-cr01"}},"oracle_id":"coordination_room.cr01.session_close","oracle_version":1,"schema_version":1}

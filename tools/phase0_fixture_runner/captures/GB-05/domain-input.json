@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"GB-05","inputs":{"attempt_id":"attempt-GB-05","first_owner_id":"owner-first","first_terminal_kind":"EFFECT_SUCCEEDED","outbox_id":"outbox-GB-05","request_id":"request-GB-05","second_owner_id":"owner-second","second_terminal_kind":"EFFECT_FAILED"},"oracle_id":"broker.gb05.immutable_terminal_receipt","oracle_version":1,"schema_version":1}

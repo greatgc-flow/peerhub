@@ -1,0 +1,1 @@
+{"adapter_id":"cli_envelope.cj06.fault_injected","adapter_version":1,"fixture_id":"CJ-06-NEG-01","output":{"error_code":"CONFIGURATION_STALE","exit_code":4,"message":"request rejected: CONFIGURATION_STALE: workspace-secret-CJ-06","status":"REJECTED","zero_dispatch_calls":true,"zero_outbox_writes":true,"zero_receipt_writes":true,"zero_state_mutations":true},"schema_version":1}

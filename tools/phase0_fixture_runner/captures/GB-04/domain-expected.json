@@ -1,0 +1,1 @@
+{"fixture_id":"GB-04","oracle_id":"broker.gb04.recovery_without_replay","oracle_version":1,"output":{"blind_replays":0,"outbox_disposition":"PENDING_CONFIRMATION_REQUIRED","transition_applies":1},"schema_version":1}

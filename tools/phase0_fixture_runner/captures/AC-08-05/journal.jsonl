@@ -1,0 +1,2 @@
+{"event":{"client_id":"authority-drain","command_type":"drain-evidence-evaluation","idempotency_key":"AC-08-05","payload":{"proof_id":"AC-08-05"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-08-05-01","observed_monotonic":1640,"record_type":"INPUT_EVENT","sequence":0}
+{"event":{"client_id":"authority-drain","command_type":"drain-evidence-evaluation","idempotency_key":"AC-08-05","payload":{"proof_id":"AC-08-05"},"type":"INTENT_PERSISTED"},"event_id":"event-AC-08-05-02","observed_monotonic":1641,"record_type":"INPUT_EVENT","sequence":1}

@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "clock": [
+    100,
+    101
+  ],
+  "ids": [
+    "example-run-001",
+    "example-event-001",
+    "example-event-002"
+  ],
+  "events": [
+    {
+      "type": "SPAWNED",
+      "identity": {
+        "token": "example-process-001",
+        "pid": 4242,
+        "birth": "example-birth-001"
+      }
+    },
+    {
+      "type": "EXIT",
+      "code": 0
+    }
+  ],
+  "expect": {
+    "terminal_classification": "EXITED",
+    "exit_code": 0,
+    "ordered_event_types": [
+      "SPAWNED",
+      "EXIT"
+    ],
+    "cleanup_error_count": 0,
+    "effect_certainty": "STARTED",
+    "execution_outcome": "SUCCEEDED",
+    "process_tokens": [
+      "example-process-001"
+    ]
+  }
+}

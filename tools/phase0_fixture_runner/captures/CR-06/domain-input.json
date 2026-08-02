@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"CR-06","inputs":{"case_kind":"SERIALIZED_RETIRE_SET","facts":{"contender_active_ids":["handoff-active-a","handoff-active-b"],"contender_fencing_tokens":{"handoff-active-a":12,"handoff-active-b":11},"retired_history_ids":["handoff-retired-01"]}},"oracle_id":"coordination_room.cr06.serialized_retirement","oracle_version":1,"schema_version":1}

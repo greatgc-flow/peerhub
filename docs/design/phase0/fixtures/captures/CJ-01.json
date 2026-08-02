@@ -1,0 +1,17 @@
+{
+  "fixture_id": "CJ-01",
+  "domain": "cli-jsonl",
+  "capture_class": "READ_ONLY_BASELINE",
+  "baseline_revisions": {
+    "engram_commit": "84fcb53e4cd74b8f8b6d69f9537d968992ef4cbb",
+    "action_vector_sha256": "2065c0b6de16cc39224bd3d364199383c2f625c1a6564e642fc853b76d76196d"
+  },
+  "preconditions": {"live_state_mutated": false},
+  "execution_input": {"command_line": "python _sys/core/hub.py context-hash", "stdin_payload": null},
+  "redaction": {"applied": true, "rules": ["no room/handoff payload captured"]},
+  "observed_outcome": {"exit_code": 0, "stdout_sha256": "0033fabdba73981b534a99d8292ac021760b9f7b40f4b24c21ee6aeb31f83632"},
+  "artifacts": {"transcript": "CJ-01.transcript.json", "transcript_sha256": "0033fabdba73981b534a99d8292ac021760b9f7b40f4b24c21ee6aeb31f83632"},
+  "blocker": null,
+  "record_sha256": "bf11564b0d445b0f784fa46228dc7e1e236e6bbf1cce67031b5f5ad2f29a35e4",
+  "record_sha256_scope": "canonical JSON object excluding record_sha256 and record_sha256_scope"
+}

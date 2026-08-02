@@ -1,0 +1,10 @@
+{
+  "capture": "DP-05 controlled local pipe hard deadline",
+  "executed_at": "2026-07-28",
+  "command": "local Python child sleeps 5 seconds; hub._stream_process_output timeout_sec=0.2",
+  "provider_calls": false,
+  "stdout": "DP05_TIMEOUT_EXIT=15\nDP05_TIMEOUT_CAUGHT=True",
+  "exit_code": 0,
+  "observed_outcome": {"timeout_exception": "subprocess.TimeoutExpired", "child_exit": 15, "cleanup_confirmed": true},
+  "redaction": "synthetic local child only"
+}

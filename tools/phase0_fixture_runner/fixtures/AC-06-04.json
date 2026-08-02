@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "clock": [1780, 1781],
+  "ids": ["run-AC-06-04-r2", "event-AC-06-04-01", "event-AC-06-04-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-external-effect",
+      "command_type": "external-effect-authority",
+      "idempotency_key": "AC-06-04",
+      "payload": {"proof_id": "AC-06-04"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-external-effect",
+      "command_type": "external-effect-authority",
+      "idempotency_key": "AC-06-04",
+      "payload": {"proof_id": "AC-06-04"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-06-04",
+    "oracle_id": "authority_external_effect.ac0604.no_blind_replay_incomplete_safe",
+    "oracle_version": 1,
+    "inputs": {
+      "request_kind": "IDENTICAL_RETRY",
+      "command_id": "command-incomplete-safe-04",
+      "idempotency_key": "external-effect-key-04",
+      "external_effect_capable": true,
+      "attempt_existed": true,
+      "effect_may_have_started": true,
+      "stored_disposition": "INCOMPLETE_SAFE",
+      "stored_terminal_receipt": null,
+      "provider_observations": []
+    }
+  }
+}

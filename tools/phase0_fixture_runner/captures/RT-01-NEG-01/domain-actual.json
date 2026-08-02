@@ -1,0 +1,1 @@
+{"adapter_id":"routing_discovery.rt01.fault","adapter_version":1,"fixture_id":"RT-01-NEG-01","output":{"decision":"CANDIDATE_SELECTED","details":{"audit_record":null,"candidate_id":"cx"},"rule_tier":"CANDIDATE"},"schema_version":1}

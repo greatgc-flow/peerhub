@@ -1,0 +1,1 @@
+{"command":"python _sys/core/hub.py --help","stdout_projection":{"init_session_inputs":["--agent","--room"],"profile_flag_present":false,"fingerprint_flag_present":false,"resume_contract_flag_present":false},"exit_code":0,"notes":"Legacy public CLI has no configuration/fingerprint binding surface for session resume mismatch detection."}

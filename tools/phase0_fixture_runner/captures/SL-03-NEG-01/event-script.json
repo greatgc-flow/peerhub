@@ -1,0 +1,60 @@
+{
+  "schema_version": 2,
+  "clock": [2620, 2621],
+  "ids": ["run-SL-03-NEG-01-r2", "event-SL-03-NEG-01-01", "event-SL-03-NEG-01-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-03-NEG-01",
+      "payload": {"proof_id": "SL-03-NEG-01"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "session-lease",
+      "command_type": "session-lease-proof",
+      "idempotency_key": "SL-03-NEG-01",
+      "payload": {"proof_id": "SL-03-NEG-01"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "SL-03-NEG-01",
+    "oracle_id": "session_lease.sl03.mismatch_rejection",
+    "oracle_version": 1,
+    "inputs": {
+      "stored_binding": {
+        "workspace_scope_id": "workspace-SL",
+        "room_id": "fixture-r1",
+        "room_configuration_revision": 7,
+        "peer_id": "ag",
+        "protocol_major": 1,
+        "resume_contract_revision": 1,
+        "profile_id": "default-profile",
+        "profile_revision": 4,
+        "effective_tier": "tier0",
+        "binding_schema_version": 1
+      },
+      "resolved_binding": {
+        "workspace_scope_id": "workspace-SL",
+        "room_id": "fixture-r1",
+        "room_configuration_revision": 7,
+        "peer_id": "ag",
+        "protocol_major": 1,
+        "resume_contract_revision": 1,
+        "profile_id": "default-profile",
+        "profile_revision": 5,
+        "effective_tier": "tier0",
+        "binding_schema_version": 1
+      },
+      "stored_session_id": "session-SL-03-existing"
+    }
+  }
+}

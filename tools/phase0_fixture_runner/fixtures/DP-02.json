@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "clock": [2010, 2011],
+  "ids": ["run-DP-02-r2", "event-DP-02-01", "event-DP-02-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-02",
+      "payload": {"proof_id": "DP-02"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "dispatch-pipe",
+      "command_type": "dispatch-pipe-evaluation",
+      "idempotency_key": "DP-02",
+      "payload": {"proof_id": "DP-02"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "DP-02",
+    "oracle_id": "dispatch_pipe.dp02.pre_spawn_rejection",
+    "oracle_version": 1,
+    "inputs": {
+      "case_kind": "PRE_SPAWN_REJECTION",
+      "validation_accepted": false,
+      "spawn_observed": false,
+      "process_identity_token": null,
+      "chunk_records": [],
+      "exit_observed": false,
+      "exit_code": null,
+      "output_limit_bytes": null,
+      "deadline_reached": false,
+      "tree_kill_observed": false
+    }
+  }
+}

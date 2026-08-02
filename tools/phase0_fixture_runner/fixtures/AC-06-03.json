@@ -1,0 +1,55 @@
+{
+  "schema_version": 2,
+  "clock": [1770, 1771],
+  "ids": ["run-AC-06-03-r2", "event-AC-06-03-01", "event-AC-06-03-02"],
+  "events": [
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-external-effect",
+      "command_type": "external-effect-authority",
+      "idempotency_key": "AC-06-03",
+      "payload": {"proof_id": "AC-06-03"}
+    },
+    {
+      "type": "INTENT_PERSISTED",
+      "client_id": "authority-external-effect",
+      "command_type": "external-effect-authority",
+      "idempotency_key": "AC-06-03",
+      "payload": {"proof_id": "AC-06-03"}
+    }
+  ],
+  "expect": {
+    "terminal_classification": "IDEMPOTENCY_HIT",
+    "ordered_event_types": ["INTENT_PERSISTED", "INTENT_PERSISTED"],
+    "effect_certainty": "NOT_STARTED",
+    "execution_outcome": "SUCCEEDED"
+  },
+  "domain_case": {
+    "contract_version": 1,
+    "fixture_id": "AC-06-03",
+    "oracle_id": "authority_external_effect.ac0603.ambiguous_provider_observation",
+    "oracle_version": 1,
+    "inputs": {
+      "request_kind": "IDENTICAL_RETRY",
+      "command_id": "command-ambiguous-03",
+      "idempotency_key": "external-effect-key-03",
+      "external_effect_capable": true,
+      "attempt_existed": true,
+      "effect_may_have_started": true,
+      "stored_disposition": "NONE",
+      "stored_terminal_receipt": null,
+      "provider_observations": [
+        {
+          "observation_id": "provider-candidate-03-a",
+          "provider_effect_id": "provider-effect-3101",
+          "binding_kind": "CANDIDATE_MATCH"
+        },
+        {
+          "observation_id": "provider-candidate-03-b",
+          "provider_effect_id": "provider-effect-3102",
+          "binding_kind": "CANDIDATE_MATCH"
+        }
+      ]
+    }
+  }
+}

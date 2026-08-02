@@ -1,0 +1,1 @@
+{"contract_version":1,"fixture_id":"RT-04","inputs":{"candidates":[{"candidate_id":"candidate-terminal","role":"TERMINAL"},{"candidate_id":"candidate-eligible","role":"ELIGIBLE"},{"candidate_id":"candidate-excluded","role":"EXCLUDED"}]},"oracle_id":"routing.rt04.exclusion","oracle_version":1,"schema_version":1}
