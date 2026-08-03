@@ -1105,3 +1105,56 @@ This closes the last open item from the "Process runner backend + lease
 heartbeat RATIFIED" section above. `workflows.py` integration (wiring
 `pipe.py` + `heartbeat.py` into the actual dispatch orchestrator loop)
 is the next step and has not been scoped yet.
+
+## 3 integration bugs found + fixed during the workflows.py design round (2026-08-03)
+
+The first workflows.py orchestration design round exposed a real
+process gap, not just a design question: `artifacts.py`, `materializer.py`,
+`process.py`, `completion.py`, and `pipe.py` each shipped tonight with
+their own fully-green isolated test suite, but were **never tested
+together** -- and three of them turned out to be incompatible in ways
+no single module's own tests could catch:
+
+1. `pipe.py`'s `run_process()` hid the live `Popen` handle until the
+   process had already exited, making it structurally impossible to
+   start the lease heartbeat at spawn time (the entire point of the
+   Option B heartbeat design ratified earlier tonight).
+2. `artifacts.py` and `materializer.py` each independently defined an
+   unrelated class sharing the name `MaterializationManifest` -- one an
+   aggregate, one per-item -- so no caller could compose them.
+3. `process.py`'s `finalize_execution_outcome()` never produced
+   `ExecutionCertainty.TERMINAL`, so `completion.py`'s
+   `_execution_not_applicable()` gate made every real completion
+   assessment silently resolve to `NOT_APPLICABLE` -- the 3-round-ratified
+   `DELIVERY_ONLY`/`VERIFIED` decision table was unreachable from real
+   execution, with nothing in either module's own tests exposing it.
+
+Found by cx during independent proposal-drafting (not a dedicated
+review pass -- cx hit these while trying to actually write out the
+concrete call sequence and had to trace real signatures to do it
+honestly, rather than accept a plausible-looking sketch). ag's parallel
+proposal for the same round did not catch any of the three -- it
+produced fluent, detailed pseudocode referencing plausible-sounding
+APIs (`fail_pre_dispatch`, `MaterializationSource`, `AskResult`, etc.)
+that were never verified against the real files. cc independently
+re-verified all 3 of cx's claims directly against the committed source
+before trusting them, then dispatched the fix (commit `4328d14`,
+regression test `test_terminal_unlocks_completion_assessment` for
+Bug 3 specifically proves an end-to-end clean execution now reaches
+`assess_completion() -> VERIFIED`, not `NOT_APPLICABLE`).
+
+**Process lesson, not a one-off:** a module's own unit tests passing
+proves nothing about whether it composes with a sibling module shipped
+the same night. Every module tonight was individually well-tested and
+still shipped 3 real defects that only surfaced when an actual
+consumer (the workflows.py design round) tried to use more than one at
+once. A peer's fluent, well-structured proposal that references
+specific function/type names is not evidence those names are real --
+see [[feedback_verify_peer_citations]] and
+[[feedback_literal_string_grep_insufficient_citation_check]]; this is
+the same failure mode at the design-proposal stage instead of the
+final-answer stage. Before ratifying or implementing any orchestration
+that spans multiple modules shipped in the same session, either
+grep-verify every referenced signature independently, or explicitly
+require the proposing peer to cite file:line for each one it uses (cx
+did this unprompted; that's what caught the 3 bugs).
