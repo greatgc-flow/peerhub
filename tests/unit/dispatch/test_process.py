@@ -84,19 +84,98 @@ def test_process_supervisor_dt06_reduction():
     assert outcome.cleanup_evidence.unresolved_identities == [2002]
 
 
-def test_process_supervisor_unimplemented_slice5_methods():
+def test_process_supervisor_dt03_first_wins_silence_timeout():
     supervisor = ProcessSupervisor()
-    with pytest.raises(NotImplementedError):
-        supervisor.begin_cancellation()
+    supervisor.on_spawned(pid=100)
+    supervisor.trigger_silence_timeout()
 
-    with pytest.raises(NotImplementedError):
-        supervisor.trigger_silence_timeout()
+    outcome = supervisor.finalize_execution_outcome()
+    assert outcome.terminal_classification == TerminalClassification.SILENCE_TIMEOUT
+    assert outcome.execution_outcome.timed_out is True
+    assert outcome.execution_outcome.cancelled is False
 
-    with pytest.raises(NotImplementedError):
-        supervisor.trigger_process_deadline()
+    # Second trigger doesn't overwrite first (first-wins)
+    supervisor.trigger_process_deadline()
+    outcome2 = supervisor.finalize_execution_outcome()
+    assert outcome2.terminal_classification == TerminalClassification.SILENCE_TIMEOUT
 
-    with pytest.raises(NotImplementedError):
-        supervisor.on_tree_state(initial_identities=[1, 2])
+
+def test_process_supervisor_dt03_first_wins_process_deadline():
+    supervisor = ProcessSupervisor()
+    supervisor.on_spawned(pid=200)
+    supervisor.trigger_process_deadline()
+
+    outcome = supervisor.finalize_execution_outcome()
+    assert outcome.terminal_classification == TerminalClassification.PROCESS_TIMEOUT
+    assert outcome.execution_outcome.timed_out is True
+    assert outcome.execution_outcome.cancelled is False
+
+    # Second trigger doesn't overwrite first
+    supervisor.trigger_silence_timeout()
+    outcome2 = supervisor.finalize_execution_outcome()
+    assert outcome2.terminal_classification == TerminalClassification.PROCESS_TIMEOUT
+
+
+def test_process_supervisor_dt04_begin_cancellation_idempotent():
+    supervisor = ProcessSupervisor()
+    supervisor.on_spawned(pid=300)
+    decision1 = supervisor.begin_cancellation(now_ms=1000)
+
+    assert decision1.stage.value == "SOFT_CANCEL"
+    assert decision1.action.value == "SOFT_CANCEL"
+    assert decision1.next_deadline_ms == 6000  # 1000 + 5000 soft grace
+
+    # Second call is idempotent
+    decision2 = supervisor.begin_cancellation(now_ms=2000)
+    assert decision2.stage.value == "SOFT_CANCEL"
+    assert decision2.next_deadline_ms == 6000
+
+
+def test_process_supervisor_dt05_on_tree_state_observations():
+    from peerhub.dispatch.process import (
+        ObservationState,
+        TreeProcessObservation,
+    )
+
+    supervisor = ProcessSupervisor()
+    supervisor.on_spawned(pid=400)
+
+    obs = [
+        TreeProcessObservation(
+            identity=ProcessBirthIdentity(pid=400, process_creation_time=10),
+            state=ObservationState.RUNNING,
+        ),
+        TreeProcessObservation(
+            identity=ProcessBirthIdentity(pid=401, process_creation_time=20),
+            state=ObservationState.IDENTITY_UNCERTAIN,
+        ),
+    ]
+
+    decision = supervisor.on_tree_state(observations=obs, now_ms=1000)
+    assert decision.unresolved_identities == (400, 401)
+    assert decision.all_terminated is False
+
+    # Advance time past soft grace to escalate to TERMINATE_TREE
+    decision2 = supervisor.on_tree_state(observations=obs, now_ms=7000)
+    assert decision2.stage.value == "TERMINATE_TREE"
+    assert decision2.action.value == "TERMINATE_TREE"
+
+    # All terminated observations allow COMPLETED
+    all_term_obs = [
+        TreeProcessObservation(
+            identity=ProcessBirthIdentity(pid=400, process_creation_time=10),
+            state=ObservationState.TERMINATED,
+        ),
+        TreeProcessObservation(
+            identity=ProcessBirthIdentity(pid=401, process_creation_time=20),
+            state=ObservationState.TERMINATED,
+        ),
+    ]
+    decision3 = supervisor.on_tree_state(observations=all_term_obs, now_ms=8000)
+    assert decision3.stage.value == "COMPLETED"
+    assert decision3.all_terminated is True
+    assert decision3.unresolved_identities == ()
+
 
 
 class TestProcessSupervisorTerminalCertainty:

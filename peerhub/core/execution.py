@@ -45,6 +45,25 @@ class ProcessTerminalEvidence:
 
 
 @dataclass(frozen=True)
+class CancellationGrace:
+    """Stage budgets in milliseconds for the 5-step cancellation ladder."""
+
+    soft_cancel_grace_ms: int = 5000
+    terminate_tree_grace_ms: int = 2000
+
+    def __post_init__(self) -> None:
+        if type(self.soft_cancel_grace_ms) is not int or self.soft_cancel_grace_ms < 0:
+            raise ValueError("soft_cancel_grace_ms must be a nonnegative integer")
+        if (
+            type(self.terminate_tree_grace_ms) is not int
+            or self.terminate_tree_grace_ms < 0
+        ):
+            raise ValueError(
+                "terminate_tree_grace_ms must be a nonnegative integer"
+            )
+
+
+@dataclass(frozen=True)
 class TransportLimits:
     """Relative execution budgets for one dispatch invocation.
 
@@ -60,6 +79,7 @@ class TransportLimits:
     process_timeout_ms: int
     silence_timeout_ms: int
     max_output_bytes: int
+    cancellation_grace: CancellationGrace = CancellationGrace()
 
     def __post_init__(self) -> None:
         # Nonnegative, not positive: neither ARCHITECTURE.md nor the
@@ -78,6 +98,9 @@ class TransportLimits:
                 raise ValueError(
                     f"{name} must be a nonnegative integer"
                 )
+        if not isinstance(self.cancellation_grace, CancellationGrace):
+            raise ValueError("cancellation_grace must be CancellationGrace")
+
 
 
 @dataclass(frozen=True)

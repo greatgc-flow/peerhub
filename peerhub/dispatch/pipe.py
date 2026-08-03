@@ -19,13 +19,56 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, IO
+from typing import Callable, IO, Protocol
 
 from peerhub.dispatch.contract import ProcessBirthIdentity
 from peerhub.dispatch.process import (
     ProcessSupervisor,
     ProcessSupervisionOutcome,
+    TreeProcessObservation,
 )
+
+
+class TreeHandle(Protocol):
+    """Opaque handle representing an observed or managed process tree."""
+
+    @property
+    def root_identity(self) -> ProcessBirthIdentity: ...
+
+
+@dataclass(frozen=True)
+class TreeDispatchReceipt:
+    """Receipt returned after dispatching a tree cancellation signal."""
+
+    dispatched: bool
+    signal_name: str
+    target_identities: tuple[ProcessBirthIdentity, ...] = ()
+
+
+class TreeController(Protocol):
+    """Protocol for runner-level platform process signaling and observation.
+
+    Implementations (step 2) MUST verify ProcessBirthIdentity atomically with
+    each signal method to eliminate TOCTOU race conditions.
+    """
+
+    def bind_spawn(
+        self,
+        *,
+        process: subprocess.Popen[bytes],
+        root: ProcessBirthIdentity,
+    ) -> TreeHandle: ...
+
+    def soft_cancel(self, tree: TreeHandle) -> TreeDispatchReceipt: ...
+
+    def terminate_tree(self, tree: TreeHandle) -> TreeDispatchReceipt: ...
+
+    def kill_tree(self, tree: TreeHandle) -> TreeDispatchReceipt: ...
+
+    def observe_tree(
+        self,
+        tree: TreeHandle,
+    ) -> tuple[TreeProcessObservation, ...]: ...
 
 
 def _time_ms() -> int:

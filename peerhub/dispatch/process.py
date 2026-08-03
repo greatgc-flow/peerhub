@@ -1,8 +1,7 @@
 """Process-supervision contracts for Slice 5.
 
-This module contains importable Step 2 contract shapes only. Process-event
-reduction, timeout selection, cancellation escalation, and OS supervision
-are implemented in later Slice 5 steps.
+This module contains pure reducers and types for DT-01 through DT-06 event reduction,
+timeout selection, process tree observation, and cancellation escalation ladders.
 """
 
 from __future__ import annotations
@@ -11,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 
-from peerhub.core.execution import ExecutionCertainty
+from peerhub.core.execution import CancellationGrace, ExecutionCertainty
 from peerhub.core.protocol import ErrorCode, require_text
 
 from .contract import ExecutionOutcome, ProcessBirthIdentity
@@ -29,6 +28,298 @@ class TerminalClassification(str, Enum):
     SILENCE_TIMEOUT = "SILENCE_TIMEOUT"
     PROCESS_TIMEOUT = "PROCESS_TIMEOUT"
     EXIT_NON_ZERO = "EXIT_NON_ZERO"
+
+
+class ObservationState(str, Enum):
+    """Observed state of a process identity within a supervised process tree."""
+
+    TERMINATED = "TERMINATED"
+    RUNNING = "RUNNING"
+    IDENTITY_UNCERTAIN = "IDENTITY_UNCERTAIN"
+
+
+TreeState = ObservationState
+
+
+@dataclass(frozen=True)
+class TreeProcessObservation:
+    """Per-identity observation of a process in a process tree."""
+
+    identity: ProcessBirthIdentity
+    state: ObservationState
+    observed_creation_time: int | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, ProcessBirthIdentity):
+            if type(self.identity) is int and self.identity > 0:
+                creation_time = (
+                    self.observed_creation_time
+                    if self.observed_creation_time is not None
+                    else 0
+                )
+                object.__setattr__(
+                    self,
+                    "identity",
+                    ProcessBirthIdentity(
+                        pid=self.identity,
+                        process_creation_time=creation_time,
+                    ),
+                )
+            else:
+                raise ValueError(
+                    "identity must be ProcessBirthIdentity or positive int PID"
+                )
+        if not isinstance(self.state, ObservationState):
+            raise ValueError("state must be ObservationState")
+
+    @property
+    def pid(self) -> int:
+        return self.identity.pid
+
+
+class CancellationStage(str, Enum):
+    """5-step cancellation ladder stages."""
+
+    IDLE = "IDLE"
+    SOFT_CANCEL = "SOFT_CANCEL"
+    TERMINATE_TREE = "TERMINATE_TREE"
+    KILL_TREE = "KILL_TREE"
+    RECONCILE_TREE = "RECONCILE_TREE"
+    COMPLETED = "COMPLETED"
+
+
+class CancellationAction(str, Enum):
+    """Action requested by the pure cancellation ladder reducer."""
+
+    NONE = "NONE"
+    SOFT_CANCEL = "SOFT_CANCEL"
+    TERMINATE_TREE = "TERMINATE_TREE"
+    KILL_TREE = "KILL_TREE"
+    RECONCILE_TREE = "RECONCILE_TREE"
+
+
+@dataclass(frozen=True)
+class CancellationDecision:
+    """Outcome of a cancellation ladder reduction step."""
+
+    stage: CancellationStage
+    action: CancellationAction
+    next_deadline_ms: int | None
+    unresolved_identities: tuple[int, ...] = ()
+    all_terminated: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.stage, CancellationStage):
+            raise ValueError("stage must be CancellationStage")
+        if not isinstance(self.action, CancellationAction):
+            raise ValueError("action must be CancellationAction")
+        if self.next_deadline_ms is not None and (
+            type(self.next_deadline_ms) is not int
+            or self.next_deadline_ms < 0
+        ):
+            raise ValueError(
+                "next_deadline_ms must be a nonnegative int or None"
+            )
+        object.__setattr__(
+            self,
+            "unresolved_identities",
+            tuple(self.unresolved_identities),
+        )
+        if type(self.all_terminated) is not bool:
+            raise ValueError("all_terminated must be a boolean")
+
+
+@dataclass(frozen=True)
+class CancellationState:
+    """Immutable state container for the cancellation ladder reducer."""
+
+    stage: CancellationStage = CancellationStage.IDLE
+    deadline_ms: int | None = None
+    grace: CancellationGrace = field(default_factory=CancellationGrace)
+
+
+class CancellationLadder:
+    """Pure reducer for the 5-step process tree cancellation ladder.
+
+    Signature: (state, observations, now_ms) -> (new_state, decision)
+    States follow the 5-step sequence:
+    PROCESS_DEADLINE/SILENCE_TIMEOUT -> SOFT_CANCEL -> TERMINATE_TREE -> KILL_TREE -> RECONCILE_TREE
+    """
+
+    def __init__(self, grace: CancellationGrace | None = None) -> None:
+        self._grace = grace if grace is not None else CancellationGrace()
+
+    @property
+    def grace(self) -> CancellationGrace:
+        return self._grace
+
+    def start(
+        self, now_ms: int = 0
+    ) -> tuple[CancellationState, CancellationDecision]:
+        """Initiate cancellation ladder from IDLE -> SOFT_CANCEL."""
+        deadline = now_ms + self._grace.soft_cancel_grace_ms
+        new_state = CancellationState(
+            stage=CancellationStage.SOFT_CANCEL,
+            deadline_ms=deadline,
+            grace=self._grace,
+        )
+        decision = CancellationDecision(
+            stage=CancellationStage.SOFT_CANCEL,
+            action=CancellationAction.SOFT_CANCEL,
+            next_deadline_ms=deadline,
+            unresolved_identities=(),
+            all_terminated=False,
+        )
+        return new_state, decision
+
+    def step(
+        self,
+        current_state: CancellationState,
+        observations: Sequence[TreeProcessObservation] = (),
+        now_ms: int = 0,
+    ) -> tuple[CancellationState, CancellationDecision]:
+        """Pure reduction step: (state, observations, now) -> (new_state, decision)."""
+        if current_state.stage is CancellationStage.IDLE:
+            return self.start(now_ms)
+
+        if current_state.stage is CancellationStage.COMPLETED:
+            decision = CancellationDecision(
+                stage=CancellationStage.COMPLETED,
+                action=CancellationAction.NONE,
+                next_deadline_ms=None,
+                unresolved_identities=(),
+                all_terminated=True,
+            )
+            return current_state, decision
+
+        unresolved = [
+            obs.identity.pid
+            for obs in observations
+            if obs.state
+            in (ObservationState.RUNNING, ObservationState.IDENTITY_UNCERTAIN)
+        ]
+        all_terminated = len(observations) > 0 and len(unresolved) == 0
+
+        if all_terminated:
+            new_state = CancellationState(
+                stage=CancellationStage.COMPLETED,
+                deadline_ms=None,
+                grace=self._grace,
+            )
+            decision = CancellationDecision(
+                stage=CancellationStage.COMPLETED,
+                action=CancellationAction.NONE,
+                next_deadline_ms=None,
+                unresolved_identities=(),
+                all_terminated=True,
+            )
+            return new_state, decision
+
+        deadline_expired = (
+            current_state.deadline_ms is not None
+            and now_ms >= current_state.deadline_ms
+        )
+
+        stage = current_state.stage
+        if stage is CancellationStage.SOFT_CANCEL:
+            if deadline_expired:
+                next_deadline = now_ms + self._grace.terminate_tree_grace_ms
+                new_state = CancellationState(
+                    stage=CancellationStage.TERMINATE_TREE,
+                    deadline_ms=next_deadline,
+                    grace=self._grace,
+                )
+                decision = CancellationDecision(
+                    stage=CancellationStage.TERMINATE_TREE,
+                    action=CancellationAction.TERMINATE_TREE,
+                    next_deadline_ms=next_deadline,
+                    unresolved_identities=tuple(unresolved),
+                    all_terminated=False,
+                )
+                return new_state, decision
+            else:
+                decision = CancellationDecision(
+                    stage=CancellationStage.SOFT_CANCEL,
+                    action=CancellationAction.SOFT_CANCEL,
+                    next_deadline_ms=current_state.deadline_ms,
+                    unresolved_identities=tuple(unresolved),
+                    all_terminated=False,
+                )
+                return current_state, decision
+
+        elif stage is CancellationStage.TERMINATE_TREE:
+            if deadline_expired:
+                next_deadline = now_ms + 1000
+                new_state = CancellationState(
+                    stage=CancellationStage.KILL_TREE,
+                    deadline_ms=next_deadline,
+                    grace=self._grace,
+                )
+                decision = CancellationDecision(
+                    stage=CancellationStage.KILL_TREE,
+                    action=CancellationAction.KILL_TREE,
+                    next_deadline_ms=next_deadline,
+                    unresolved_identities=tuple(unresolved),
+                    all_terminated=False,
+                )
+                return new_state, decision
+            else:
+                decision = CancellationDecision(
+                    stage=CancellationStage.TERMINATE_TREE,
+                    action=CancellationAction.TERMINATE_TREE,
+                    next_deadline_ms=current_state.deadline_ms,
+                    unresolved_identities=tuple(unresolved),
+                    all_terminated=False,
+                )
+                return current_state, decision
+
+        elif stage is CancellationStage.KILL_TREE:
+            if deadline_expired or bool(observations):
+                new_state = CancellationState(
+                    stage=CancellationStage.RECONCILE_TREE,
+                    deadline_ms=None,
+                    grace=self._grace,
+                )
+                decision = CancellationDecision(
+                    stage=CancellationStage.RECONCILE_TREE,
+                    action=CancellationAction.RECONCILE_TREE,
+                    next_deadline_ms=None,
+                    unresolved_identities=tuple(unresolved),
+                    all_terminated=False,
+                )
+                return new_state, decision
+            else:
+                decision = CancellationDecision(
+                    stage=CancellationStage.KILL_TREE,
+                    action=CancellationAction.KILL_TREE,
+                    next_deadline_ms=current_state.deadline_ms,
+                    unresolved_identities=tuple(unresolved),
+                    all_terminated=False,
+                )
+                return current_state, decision
+
+        elif stage is CancellationStage.RECONCILE_TREE:
+            new_state = CancellationState(
+                stage=CancellationStage.COMPLETED,
+                deadline_ms=None,
+                grace=self._grace,
+            )
+            decision = CancellationDecision(
+                stage=CancellationStage.COMPLETED,
+                action=CancellationAction.NONE,
+                next_deadline_ms=None,
+                unresolved_identities=tuple(unresolved),
+                all_terminated=len(unresolved) == 0,
+            )
+            return new_state, decision
+
+        return current_state, CancellationDecision(
+            stage=current_state.stage,
+            action=CancellationAction.NONE,
+            next_deadline_ms=current_state.deadline_ms,
+            unresolved_identities=tuple(unresolved),
+            all_terminated=False,
+        )
 
 
 @dataclass(frozen=True, init=False)
@@ -201,14 +492,8 @@ class InterruptedAttemptRecoveryOutcome:
         return self.execution_outcome.execution_certainty
 
 
-class CancellationLadder:
-    """Importable Step 2 marker for the later pure ladder reducer."""
-
-    __slots__ = ()
-
-
 class ProcessSupervisor:
-    """Process supervisor for DT-01 and DT-06 event reduction."""
+    """Process supervisor for DT-01 through DT-06 event reduction."""
 
     def __init__(
         self,
@@ -225,7 +510,11 @@ class ProcessSupervisor:
             raise ValueError(
                 "cancellation_ladder must be CancellationLadder or null"
             )
-        self._cancellation_ladder = cancellation_ladder
+        self._cancellation_ladder = cancellation_ladder or CancellationLadder()
+        self._cancellation_state = CancellationState(
+            grace=self._cancellation_ladder.grace
+        )
+        self._cancellation_decision: CancellationDecision | None = None
         self._identity: ProcessBirthIdentity | None = None
         self._chunks: list[tuple[bytes, int]] = []
         self._last_timestamp_ms: int | None = None
@@ -233,11 +522,16 @@ class ProcessSupervisor:
         self._exit_code: int | None = None
         self._timed_out: bool = False
         self._cancelled: bool = False
+        self._terminal_classification: TerminalClassification | None = None
         self._cleanup_evidence: ProcessCleanupEvidence | None = None
 
     @property
     def identity(self) -> ProcessBirthIdentity | None:
         return self._identity
+
+    @property
+    def cancellation_decision(self) -> CancellationDecision | None:
+        return self._cancellation_decision
 
     def on_spawned(
         self,
@@ -287,9 +581,52 @@ class ProcessSupervisor:
     def on_tree_state(
         self,
         *,
-        initial_identities: Sequence[int],
-    ) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        observations: Sequence[TreeProcessObservation | int] | None = None,
+        initial_identities: Sequence[int] | None = None,
+        now_ms: int = 0,
+    ) -> CancellationDecision:
+        raw_obs = observations if observations is not None else initial_identities
+        if raw_obs is None:
+            raw_obs = ()
+
+        norm_observations: list[TreeProcessObservation] = []
+        for item in raw_obs:
+            if isinstance(item, TreeProcessObservation):
+                norm_observations.append(item)
+            elif isinstance(item, int):
+                norm_observations.append(
+                    TreeProcessObservation(
+                        identity=ProcessBirthIdentity(
+                            pid=item, process_creation_time=0
+                        ),
+                        state=ObservationState.RUNNING,
+                    )
+                )
+            else:
+                raise ValueError(f"Invalid observation item: {item}")
+
+        if self._cancellation_state.stage is CancellationStage.IDLE:
+            self.begin_cancellation(now_ms=now_ms)
+
+        self._cancellation_state, self._cancellation_decision = (
+            self._cancellation_ladder.step(
+                self._cancellation_state,
+                observations=norm_observations,
+                now_ms=now_ms,
+            )
+        )
+
+        unresolved = self._cancellation_decision.unresolved_identities
+        if unresolved and (
+            self._cancellation_decision.stage
+            in (CancellationStage.RECONCILE_TREE, CancellationStage.COMPLETED)
+            or self._cancellation_decision.action is CancellationAction.RECONCILE_TREE
+        ):
+            self.on_cleanup_error(unresolved_identities=unresolved)
+        elif self._cancellation_decision.all_terminated:
+            self._cleanup_evidence = None
+
+        return self._cancellation_decision
 
     def on_cleanup_error(
         self,
@@ -300,14 +637,38 @@ class ProcessSupervisor:
             unresolved_identities=unresolved_identities
         )
 
-    def begin_cancellation(self) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+    def begin_cancellation(self, *, now_ms: int = 0) -> CancellationDecision:
+        if self._terminal_classification is None and not self._timed_out:
+            self._cancelled = True
 
-    def trigger_silence_timeout(self) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        if self._cancellation_state.stage is CancellationStage.IDLE:
+            self._cancellation_state, self._cancellation_decision = (
+                self._cancellation_ladder.start(now_ms=now_ms)
+            )
+        elif self._cancellation_decision is None:
+            self._cancellation_state, self._cancellation_decision = (
+                self._cancellation_ladder.step(
+                    self._cancellation_state, now_ms=now_ms
+                )
+            )
 
-    def trigger_process_deadline(self) -> None:
-        raise NotImplementedError("implemented in Slice 5 Step 5")
+        return self._cancellation_decision
+
+    def trigger_silence_timeout(self, *, now_ms: int = 0) -> None:
+        if self._terminal_classification is None:
+            self._terminal_classification = (
+                TerminalClassification.SILENCE_TIMEOUT
+            )
+        self._timed_out = True
+        self.begin_cancellation(now_ms=now_ms)
+
+    def trigger_process_deadline(self, *, now_ms: int = 0) -> None:
+        if self._terminal_classification is None:
+            self._terminal_classification = (
+                TerminalClassification.PROCESS_TIMEOUT
+            )
+        self._timed_out = True
+        self.begin_cancellation(now_ms=now_ms)
 
     def finalize_execution_outcome(
         self,
@@ -320,14 +681,12 @@ class ProcessSupervisor:
             and not self._timed_out
             and not self._cancelled
         ):
-            # Spawned AND cleanly exited with a real exit code,
-            # not cancelled, not timed out → determinate observed
-            # completion per ExecutionCertainty contract.
             certainty = ExecutionCertainty.TERMINAL
+        elif self._timed_out or self._cancelled:
+            certainty = ExecutionCertainty.MAY_HAVE_STARTED
         else:
-            # Spawned but outcome still ambiguous/not yet resolved
-            # (e.g. mid-execution, timed out, cancelled).
             certainty = ExecutionCertainty.STARTED
+
         exec_outcome = ExecutionOutcome(
             started=started,
             exit_code=self._exit_code,
@@ -336,8 +695,12 @@ class ProcessSupervisor:
             execution_certainty=certainty,
         )
         canonical_stream = b"".join(c[0] for c in self._chunks)
-        term_class: TerminalClassification | None = None
-        if self._exit_code is not None and self._exit_code != 0:
+        term_class = self._terminal_classification
+        if (
+            term_class is None
+            and self._exit_code is not None
+            and self._exit_code != 0
+        ):
             term_class = TerminalClassification.EXIT_NON_ZERO
 
         return ProcessSupervisionOutcome(
@@ -347,4 +710,5 @@ class ProcessSupervisor:
             terminal_classification=term_class,
             cleanup_evidence=self._cleanup_evidence,
         )
+
 
