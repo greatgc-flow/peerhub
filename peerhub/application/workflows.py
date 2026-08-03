@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
+import subprocess
 from typing import Protocol, TypeAlias
 
+from peerhub.adapters.contract import (
+    AdapterRequest,
+    InvocationPlan,
+    ProtocolAssessment,
+)
 from peerhub.core.errors import (
     InvalidMutationError,
     RecordNotFoundError,
@@ -15,14 +23,40 @@ from peerhub.core.protocol import (
     ErrorCode,
     RevisionValue,
 )
+from peerhub.dispatch.artifacts import (
+    WorkspacePaths,
+    generate_materialization_manifest,
+    resolve_workspace_paths,
+)
+from peerhub.dispatch.completion import assess_completion
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
+    ArtifactManifestRecord,
+    ArtifactMetadata,
+    ArtifactState,
+    AskResult,
     AttemptSnapshot,
+    CompletionAssessment,
     CompletionContract,
     LeaseSnapshot,
+    ProcessBirthIdentity,
     RequestSnapshot,
     RequestState,
     SessionBindingKey,
+)
+from peerhub.dispatch.heartbeat import HeartbeatWorker
+from peerhub.dispatch.materializer import (
+    ArtifactMaterializer,
+    MaterializationItemRequest,
+    MaterializationResult,
+    MaterializationSource,
+    MaterializationStatus,
+    compute_manifest_digest,
+)
+from peerhub.dispatch.pipe import PipeRunnerConfig, run_process
+from peerhub.dispatch.process import (
+    ProcessSupervisionOutcome,
+    ProcessSupervisor,
 )
 from peerhub.dispatch.service import DispatchService
 from peerhub.health.contract import AdmissionSnapshot
@@ -37,6 +71,18 @@ from peerhub.routing.contract import (
 )
 from peerhub.routing.service import RoutingService
 from peerhub.telemetry.projections import TelemetryProjector
+
+
+@dataclass(frozen=True)
+class ExecutionWorkflowResult:
+    """Result of dispatch and execution orchestration."""
+
+    request: RequestSnapshot
+    attempt: AttemptSnapshot
+    lease: LeaseSnapshot | None = None
+    materialization_results: tuple[MaterializationResult, ...] | None = None
+    process_outcome: ProcessSupervisionOutcome | None = None
+    completion_assessment: CompletionAssessment | None = None
 
 
 DispatchAdmission: TypeAlias = tuple[
@@ -449,4 +495,322 @@ class ApplicationWorkflows:
             route_recheck=recheck,
             request=retry_admission[0],
             retry_admission=retry_admission,
+        )
+
+    def dispatch_and_execute(
+        self,
+        command_id: CommandID | str,
+        *,
+        materializer: ArtifactMaterializer,
+        adapter_request: AdapterRequest,
+        invocation_plan: InvocationPlan,
+        workspace_roots: Mapping[str, Path],
+        content_providers: Mapping[str, Callable[[], bytes]],
+        completion_contract: CompletionContract,
+        protocol_assessment: ProtocolAssessment,
+        heartbeat_timeout_ms: int,
+        transport: str = "pipe",
+        service: DispatchService | None = None,
+    ) -> ExecutionWorkflowResult:
+        """Dispatch and execute an admitted/prepared command through process supervision."""
+
+        dispatch_service = service if service is not None else self._dispatch
+
+        # Step 1: Create attempt under PREPARED request
+        attempt = dispatch_service.create_attempt(command_id)
+
+        # Step 2: Resolve workspace paths and generate manifest
+        workspace = resolve_workspace_paths(
+            adapter_request,
+            invocation_plan,
+            workspace_roots=workspace_roots,
+        )
+        manifest = generate_materialization_manifest(
+            invocation_plan,
+            workspace,
+            attempt_id=attempt.attempt_id,
+        )
+
+        if manifest.items:
+            now = dispatch_service._clock.now()
+            staging_root_rel = str(
+                workspace.staging_dir.relative_to(workspace.workspace_root)
+            )
+            # Compute manifest digest matching MaterializationItemRequest
+            first_item = manifest.items[0]
+            item_req = MaterializationItemRequest(
+                artifact_id=first_item.artifact_id,
+                source=MaterializationSource.BYTES_INLINE,
+                target_path=Path(first_item.staging_path.relative_to(workspace.workspace_root)),
+                expected_digest=(
+                    f"sha256:{first_item.sha256_hex}"
+                    if not first_item.sha256_hex.startswith("sha256:")
+                    else first_item.sha256_hex
+                ),
+                expected_length=first_item.expected_length,
+                attempt_id=attempt.attempt_id,
+                placeholder=first_item.placeholder,
+                workspace_scope_id=workspace.scope_id,
+                staging_ref=str(first_item.staging_path),
+                access_mode=first_item.access_mode,
+                declared_lifecycle=first_item.lifecycle,
+            )
+            manifest_digest = compute_manifest_digest(item_req)
+
+            manifest_record = ArtifactManifestRecord(
+                attempt_id=attempt.attempt_id,
+                workspace_scope_id=workspace.scope_id,
+                staging_root_ref=staging_root_rel,
+                manifest_digest=manifest_digest,
+                item_count=len(manifest.items),
+                created_at=now,
+                revision=1,
+            )
+            item_records: list[ArtifactMetadata] = []
+            for item in manifest.items:
+                staging_ref = str(
+                    item.staging_path.relative_to(workspace.workspace_root)
+                )
+                item_records.append(
+                    ArtifactMetadata(
+                        attempt_id=attempt.attempt_id,
+                        artifact_id=item.artifact_id,
+                        placeholder=item.placeholder,
+                        workspace_scope_id=workspace.scope_id,
+                        staging_ref=staging_ref,
+                        access_mode=item.access_mode,
+                        declared_lifecycle=item.lifecycle,
+                        state=ArtifactState.DECLARED,
+                        declared_at=now,
+                        revision=1,
+                        expected_sha256_hex=item.sha256_hex,
+                        expected_length=item.expected_length,
+                    )
+                )
+            with dispatch_service._store.unit_of_work() as unit:
+                unit.add_artifact_manifest(
+                    manifest_record,
+                    tuple(item_records),
+                )
+                unit.commit()
+        else:
+            manifest_digest = ""
+
+        # Step 3: Materialize artifacts
+        mat_results = materializer.materialize_manifest(manifest, content_providers)
+        has_mat_failure = any(
+            res.status in (MaterializationStatus.HARD_FAILURE, MaterializationStatus.RETRYABLE_FAILURE)
+            or res.error is not None
+            for res in mat_results
+        )
+
+        if has_mat_failure:
+            with dispatch_service._store.unit_of_work() as unit:
+                manifest_row = unit.get_artifact_manifest(attempt.attempt_id)
+                if manifest_row is not None:
+                    unit.mark_artifacts_orphaned(
+                        attempt_id=attempt.attempt_id,
+                        expected_manifest_revision=manifest_row.revision,
+                        orphaned_at=dispatch_service._clock.now(),
+                        failure_code="PRE_DISPATCH_FAILED",
+                    )
+                    unit.commit()
+            updated_req, updated_att = dispatch_service.fail_pre_dispatch(
+                command_id,
+                attempt.attempt_id,
+                error_code=ErrorCode.ARTIFACT_IDENTITY_UNPROVABLE,
+                transport=transport,
+            )
+            return ExecutionWorkflowResult(
+                request=updated_req,
+                attempt=updated_att,
+                lease=None,
+                materialization_results=mat_results,
+                process_outcome=None,
+                completion_assessment=None,
+            )
+
+        # Step 4: Record dispatch intent and reserve artifacts atomically if artifacts exist
+        try:
+            if manifest.items:
+                req, att, lease = (
+                    dispatch_service.record_dispatch_intent_and_reserve_artifacts(
+                        command_id,
+                        attempt.attempt_id,
+                        expected_manifest_digest=manifest_digest,
+                    )
+                )
+            else:
+                req, att, lease = dispatch_service.record_dispatch_intent(
+                    command_id,
+                    attempt.attempt_id,
+                )
+        except Exception:
+            with dispatch_service._store.unit_of_work() as unit:
+                manifest_row = unit.get_artifact_manifest(attempt.attempt_id)
+                if manifest_row is not None:
+                    unit.mark_artifacts_orphaned(
+                        attempt_id=attempt.attempt_id,
+                        expected_manifest_revision=manifest_row.revision,
+                        orphaned_at=dispatch_service._clock.now(),
+                        failure_code="RESERVATION_FAILED",
+                    )
+                    unit.commit()
+            updated_req, updated_att = dispatch_service.fail_pre_dispatch(
+                command_id,
+                attempt.attempt_id,
+                error_code=ErrorCode.ARTIFACT_IDENTITY_UNPROVABLE,
+                transport=transport,
+            )
+            return ExecutionWorkflowResult(
+                request=updated_req,
+                attempt=updated_att,
+                lease=None,
+                materialization_results=mat_results,
+                process_outcome=None,
+                completion_assessment=None,
+            )
+
+        # Step 5: Spawn process and drive supervisor + heartbeat
+        supervisor = ProcessSupervisor()
+        heartbeat_worker: HeartbeatWorker | None = None
+        running_lease: LeaseSnapshot = lease
+        on_spawned_called = False
+        record_running_error: BaseException | None = None
+
+        def _on_spawned(
+            proc: subprocess.Popen,
+            identity: ProcessBirthIdentity,
+        ) -> None:
+            nonlocal heartbeat_worker, running_lease, on_spawned_called, record_running_error
+            on_spawned_called = True
+            try:
+                _, _, running_lease = dispatch_service.record_running(
+                    command_id,
+                    attempt.attempt_id,
+                    process_identity=identity,
+                )
+                heartbeat_worker = HeartbeatWorker(
+                    process=proc,
+                    identity=identity,
+                    initial_lease=running_lease,
+                    renewer=dispatch_service,
+                    heartbeat_timeout_ms=heartbeat_timeout_ms,
+                )
+                heartbeat_worker.start()
+            except Exception as exc:
+                record_running_error = exc
+
+        config = PipeRunnerConfig(
+            argv=manifest.substituted_argv,
+            cwd=workspace.workspace_root,
+            env=dict(invocation_plan.environment_delta)
+            if invocation_plan.environment_delta
+            else None,
+            stdin_data=invocation_plan.stdin_payload,
+        )
+
+        spawn_error: BaseException | None = None
+        process_outcome: ProcessSupervisionOutcome | None = None
+
+        try:
+            process_outcome = run_process(
+                config,
+                supervisor,
+                on_spawned=_on_spawned,
+            )
+        except Exception as exc:
+            spawn_error = exc
+
+        # Step 6: Stop heartbeat and capture latest fence / ownership
+        if heartbeat_worker is not None:
+            heartbeat_worker.stop(timeout=10.0)
+            latest_fence = heartbeat_worker.latest_fence
+            lease_owned = heartbeat_worker.lease_owned
+        else:
+            latest_fence = running_lease.fence
+            lease_owned = False
+
+        if not on_spawned_called and spawn_error is not None:
+            updated_req, updated_att = dispatch_service.fail_pre_dispatch(
+                command_id,
+                attempt.attempt_id,
+                error_code=ErrorCode.SPAWN_FAILED,
+                transport=transport,
+            )
+            return ExecutionWorkflowResult(
+                request=updated_req,
+                attempt=updated_att,
+                lease=running_lease,
+                materialization_results=mat_results,
+                process_outcome=None,
+                completion_assessment=None,
+            )
+
+        if record_running_error is not None or (spawn_error is not None and on_spawned_called):
+            updated_req, updated_att = dispatch_service.record_start_uncertain(
+                command_id,
+                attempt.attempt_id,
+            )
+            return ExecutionWorkflowResult(
+                request=updated_req,
+                attempt=updated_att,
+                lease=running_lease,
+                materialization_results=mat_results,
+                process_outcome=process_outcome,
+                completion_assessment=None,
+            )
+
+        assert process_outcome is not None
+
+        # Step 7: Assess completion and begin assessment
+        assessment = assess_completion(
+            completion_contract,
+            process_outcome.execution_outcome,
+            protocol_assessment,
+        )
+        dispatch_service.begin_assessment(command_id, attempt.attempt_id)
+
+        # Step 8: Terminalize attempt (complete + consume + close lease) if lease owned
+        if lease_owned:
+            started_at = dispatch_service._clock.now()
+            updated_req, updated_att = (
+                dispatch_service.complete_attempt_with_artifacts_and_lease(
+                    command_id,
+                    attempt.attempt_id,
+                    result=AskResult(
+                        execution=process_outcome.execution_outcome,
+                        protocol=protocol_assessment,
+                        completion=assessment,
+                        policy_revision=req.policy_revision,
+                    ),
+                    transport=transport,
+                    started_at=started_at,
+                    final_fence=latest_fence,
+                    process_integrity=process_outcome.stream_events_ordered,
+                )
+            )
+            with dispatch_service._store.unit_of_work() as unit:
+                closed_lease = unit.get_lease(req.lease_id)
+            return ExecutionWorkflowResult(
+                request=updated_req,
+                attempt=updated_att,
+                lease=closed_lease,
+                materialization_results=mat_results,
+                process_outcome=process_outcome,
+                completion_assessment=assessment,
+            )
+
+        # Lease ownership was lost during execution: leave attempt for conservative recovery
+        with dispatch_service._store.unit_of_work() as unit:
+            latest_req = dispatch_service._require_request(unit, command_id)
+            latest_att = dispatch_service._require_attempt(unit, attempt.attempt_id)
+
+        return ExecutionWorkflowResult(
+            request=latest_req,
+            attempt=latest_att,
+            lease=running_lease,
+            materialization_results=mat_results,
+            process_outcome=process_outcome,
+            completion_assessment=assessment,
         )
