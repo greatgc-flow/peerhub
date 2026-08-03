@@ -1073,3 +1073,35 @@ both probe-independent -- neither needs to know the answer to "which
 peers need PTY" to be implemented correctly. `pty.py` and the
 per-profile transport-default config remain blocked on the empirical
 probe above.
+
+## PTY probe run, empirical resolution: no peer needs ConPTY (2026-08-03)
+
+The empirical probe specified above was run against all 3 active peer
+CLIs (`cc`/claude, `ag`/agy, `cx`/codex) under real `subprocess.Popen`
+pipes -- full results in
+`docs/design/phase0/PTY-BUFFERING-PROBE-2026-08-03.md`.
+
+**Finding: none of the 3 peers requires Windows ConPTY.** Plain pipes
+are fully sufficient for all three, with one required mitigation:
+`pipe.py` must default `stdin` to `subprocess.DEVNULL` (or close it
+immediately when no stdin payload is provided) -- `ag` and `cx` both
+hang indefinitely waiting for stdin EOF under an open, empty
+`subprocess.PIPE`; `cc` has its own built-in 3-second no-stdin
+fallback and doesn't hang either way. No ANSI-stripping or buffering
+behavior was found that would require a real TTY for any of the three.
+
+**Resolution: `pty.py` and `pywinpty` are NOT needed as a dependency.**
+The "blocked pending empirical probe" status is now closed for all 3
+current peers -- `pipe.py` (implemented tonight, commit `334ef5f`) is
+the sole runner backend needed, and it already defaults `stdin` to
+`subprocess.DEVNULL` per this exact finding (verified directly against
+the shipped code, no fix required). `InvocationPlan.transport` stays in
+the contract for forward-compatibility (a future peer type might
+genuinely need a TTY), but no current profile needs anything other than
+the `pipe.py` default -- there is no per-profile transport config to
+ratify today because there's nothing to vary.
+
+This closes the last open item from the "Process runner backend + lease
+heartbeat RATIFIED" section above. `workflows.py` integration (wiring
+`pipe.py` + `heartbeat.py` into the actual dispatch orchestrator loop)
+is the next step and has not been scoped yet.
