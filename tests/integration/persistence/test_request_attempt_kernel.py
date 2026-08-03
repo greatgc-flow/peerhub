@@ -12,19 +12,25 @@ import pytest
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import (
+    ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND,
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
     SCHEMA_VERSION,
+    AttemptTerminalObserved,
     CommandEnvelope,
     ErrorCode,
 )
 from peerhub.dispatch.contract import (
+    ArtifactManifestRecord,
+    ArtifactMetadata,
+    ArtifactState,
     AskResult,
     CompletionAssessment,
     CompletionAssessmentState,
     CompletionContract,
     CompletionContractKind,
     ExecutionOutcome,
+    LeaseState,
     OutboxCheckpoint,
     ProcessBirthIdentity,
     ProtocolAssessment,
@@ -582,3 +588,262 @@ def test_outbox_checkpoint_uses_revision_guarded_cas(
             unit.get_outbox_checkpoint("consumer-01")
             == updated
         )
+
+
+def _make_manifest_and_artifacts(
+    attempt_id: str,
+    item_count: int = 2,
+    manifest_digest: str = "digest-composite-01",
+    states: tuple[ArtifactState, ...] = (ArtifactState.VERIFIED, ArtifactState.VERIFIED),
+) -> tuple[ArtifactManifestRecord, tuple[ArtifactMetadata, ...]]:
+    manifest = ArtifactManifestRecord(
+        attempt_id=attempt_id,
+        workspace_scope_id="ws-01",
+        staging_root_ref=".artifacts/staging",
+        manifest_digest=manifest_digest,
+        item_count=item_count,
+        created_at=100,
+        revision=1,
+    )
+    artifacts = tuple(
+        ArtifactMetadata(
+            attempt_id=attempt_id,
+            artifact_id=f"art-0{i+1}",
+            placeholder=f"__ART_0{i+1}__",
+            workspace_scope_id="ws-01",
+            staging_ref=f"rel/staging/art-0{i+1}.dat",
+            access_mode="READ_WRITE",
+            declared_lifecycle="EPHEMERAL",
+            state=states[i],
+            declared_at=100,
+            revision=1,
+            expected_sha256_hex="abc123",
+            expected_length=1024,
+            verified_sha256_hex="abc123" if states[i] in (ArtifactState.VERIFIED, ArtifactState.RESERVED, ArtifactState.CONSUMED) else None,
+            verified_length=1024 if states[i] in (ArtifactState.VERIFIED, ArtifactState.RESERVED, ArtifactState.CONSUMED) else None,
+            verified_object_identity_json='{"inode": 12345}',
+            staged_at=105,
+            verified_at=110 if states[i] in (ArtifactState.VERIFIED, ArtifactState.RESERVED, ArtifactState.CONSUMED) else None,
+        )
+        for i in range(item_count)
+    )
+    return manifest, artifacts
+
+
+def test_record_dispatch_intent_and_reserve_artifacts_happy_path(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    admitted, _, lease = _admit(service)
+    service.prepare_request(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id)
+
+    manifest, artifacts = _make_manifest_and_artifacts(attempt.attempt_id)
+    with store.unit_of_work() as unit:
+        unit.add_artifact_manifest(manifest, artifacts)
+        unit.commit()
+
+    req_snap, att_snap, lease_snap = service.record_dispatch_intent_and_reserve_artifacts(
+        admitted.command_id,
+        attempt.attempt_id,
+        expected_manifest_digest=manifest.manifest_digest,
+    )
+
+    assert req_snap.state == RequestState.DISPATCH_INTENT
+    assert att_snap.attempt_id == attempt.attempt_id
+    assert lease_snap.fence.attempt_id == attempt.attempt_id
+
+    with store.unit_of_work() as unit:
+        fetched_manifest = unit.get_artifact_manifest(attempt.attempt_id)
+        assert fetched_manifest is not None
+        assert fetched_manifest.intent_event_id is not None
+
+        art1 = unit.get_artifact_metadata(attempt.attempt_id, "art-01")
+        art2 = unit.get_artifact_metadata(attempt.attempt_id, "art-02")
+        assert art1 is not None and art1.state == ArtifactState.RESERVED
+        assert art2 is not None and art2.state == ArtifactState.RESERVED
+
+        events = unit.list_outbox_events((OutboxState.PENDING,), limit=100)
+        assert any(e.event_kind == "DISPATCH_INTENT" or e.event_id == fetched_manifest.intent_event_id for e in events)
+
+
+def test_record_dispatch_intent_and_reserve_artifacts_failure_rolls_back(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    admitted, _, lease = _admit(service)
+    service.prepare_request(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id)
+
+    # art2 is STAGED, not VERIFIED -- reservation must fail
+    manifest, artifacts = _make_manifest_and_artifacts(
+        attempt.attempt_id,
+        states=(ArtifactState.VERIFIED, ArtifactState.STAGED),
+    )
+    with store.unit_of_work() as unit:
+        unit.add_artifact_manifest(manifest, artifacts)
+        unit.commit()
+
+    with pytest.raises(InvalidMutationError, match="Artifact reservation failed"):
+        service.record_dispatch_intent_and_reserve_artifacts(
+            admitted.command_id,
+            attempt.attempt_id,
+            expected_manifest_digest=manifest.manifest_digest,
+        )
+
+    # Prove complete rollback: request is NOT in DISPATCH_INTENT, artifacts unchanged
+    with store.unit_of_work() as unit:
+        req_in_store = unit.get_request(admitted.command_id)
+        assert req_in_store is not None
+        assert req_in_store.state == RequestState.PREPARED
+
+        fetched_manifest = unit.get_artifact_manifest(attempt.attempt_id)
+        assert fetched_manifest is not None
+        assert fetched_manifest.intent_event_id is None
+
+        art1 = unit.get_artifact_metadata(attempt.attempt_id, "art-01")
+        art2 = unit.get_artifact_metadata(attempt.attempt_id, "art-02")
+        assert art1 is not None and art1.state == ArtifactState.VERIFIED
+        assert art2 is not None and art2.state == ArtifactState.STAGED
+
+
+def test_complete_attempt_with_artifacts_and_lease_happy_path(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    admitted, _, lease = _admit(service)
+    service.prepare_request(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id)
+
+    manifest, artifacts = _make_manifest_and_artifacts(attempt.attempt_id)
+    with store.unit_of_work() as unit:
+        unit.add_artifact_manifest(manifest, artifacts)
+        unit.commit()
+
+    req_snap, att_snap, lease_snap = service.record_dispatch_intent_and_reserve_artifacts(
+        admitted.command_id,
+        attempt.attempt_id,
+        expected_manifest_digest=manifest.manifest_digest,
+    )
+
+    process_identity = ProcessBirthIdentity(pid=1234, process_creation_time=50)
+    req_snap, att_snap, lease_snap = service.record_running(
+        admitted.command_id,
+        attempt.attempt_id,
+        process_identity=process_identity,
+    )
+    service.begin_assessment(admitted.command_id, attempt.attempt_id)
+
+    ask_result = AskResult(
+        execution=ExecutionOutcome(
+            started=True,
+            exit_code=0,
+            timed_out=False,
+            cancelled=False,
+            execution_certainty=ExecutionCertainty.TERMINAL,
+        ),
+        protocol=ProtocolAssessment(
+            parsed=True,
+            response_present=True,
+            vendor_completion_marker=True,
+            suspected_truncation=False,
+            protocol_failure=None,
+        ),
+        completion=CompletionAssessment(
+            state=CompletionAssessmentState.VERIFIED,
+            contract_kind=CompletionContractKind.DELIVERY_ONLY,
+        ),
+        policy_revision=7,
+    )
+
+    updated_req, updated_att = service.complete_attempt_with_artifacts_and_lease(
+        admitted.command_id,
+        attempt.attempt_id,
+        result=ask_result,
+        transport="pipe",
+        started_at=100,
+        final_fence=lease_snap.fence,
+    )
+
+    assert updated_req.state == RequestState.SUCCEEDED_VERIFIED
+    assert updated_att.attempt_id == attempt.attempt_id
+
+    with store.unit_of_work() as unit:
+        # Verify artifact consumption
+        fetched_manifest = unit.get_artifact_manifest(attempt.attempt_id)
+        assert fetched_manifest is not None
+        assert fetched_manifest.consumed_at is not None
+
+        art1 = unit.get_artifact_metadata(attempt.attempt_id, "art-01")
+        art2 = unit.get_artifact_metadata(attempt.attempt_id, "art-02")
+        assert art1 is not None and art1.state == ArtifactState.CONSUMED
+        assert art2 is not None and art2.state == ArtifactState.CONSUMED
+
+        # Verify lease is actually closed
+        closed_lease = unit.get_lease(lease.lease_id)
+        assert closed_lease is not None
+        assert closed_lease.state == LeaseState.RELEASED
+
+        # Verify terminal outcome event matches minted outbox event
+        events = unit.list_outbox_events((OutboxState.PENDING,), limit=100)
+        terminal_events = [e for e in events if e.event_kind == ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND]
+        assert len(terminal_events) == 1
+        terminal_evt = terminal_events[0]
+        assert terminal_evt.event_id is not None
+
+
+def test_complete_attempt_with_artifacts_and_lease_without_artifacts(
+    store: SqliteStateStore,
+) -> None:
+    service = _service(store)
+    admitted, _, lease = _admit(service)
+    service.prepare_request(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id)
+    req_snap, att_snap, lease_snap = service.record_dispatch_intent(
+        admitted.command_id,
+        attempt.attempt_id,
+    )
+    process_identity = ProcessBirthIdentity(pid=1234, process_creation_time=50)
+    req_snap, att_snap, lease_snap = service.record_running(
+        admitted.command_id,
+        attempt.attempt_id,
+        process_identity=process_identity,
+    )
+    service.begin_assessment(admitted.command_id, attempt.attempt_id)
+
+    ask_result = AskResult(
+        execution=ExecutionOutcome(
+            started=True,
+            exit_code=0,
+            timed_out=False,
+            cancelled=False,
+            execution_certainty=ExecutionCertainty.TERMINAL,
+        ),
+        protocol=ProtocolAssessment(
+            parsed=True,
+            response_present=True,
+            vendor_completion_marker=True,
+            suspected_truncation=False,
+            protocol_failure=None,
+        ),
+        completion=CompletionAssessment(
+            state=CompletionAssessmentState.VERIFIED,
+            contract_kind=CompletionContractKind.DELIVERY_ONLY,
+        ),
+        policy_revision=7,
+    )
+
+    updated_req, updated_att = service.complete_attempt_with_artifacts_and_lease(
+        admitted.command_id,
+        attempt.attempt_id,
+        result=ask_result,
+        transport="pipe",
+        started_at=100,
+        final_fence=lease_snap.fence,
+    )
+
+    assert updated_req.state == RequestState.SUCCEEDED_VERIFIED
+    with store.unit_of_work() as unit:
+        closed_lease = unit.get_lease(lease.lease_id)
+        assert closed_lease is not None
+        assert closed_lease.state == LeaseState.RELEASED

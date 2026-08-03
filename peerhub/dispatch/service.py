@@ -45,6 +45,7 @@ from .contract import (
     LeaseCloseRequest,
     LeaseCreateRequest,
     LeaseFenceCheckRequest,
+    LeaseFenceTuple,
     LeaseRenewRequest,
     LeaseReservationRequest,
     LeaseSnapshot,
@@ -1139,6 +1140,62 @@ class DispatchService:
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return (updated_request, updated_attempt)
 
+    def _record_dispatch_intent_in_unit(
+        self,
+        unit: UnitOfWork,
+        command_id: CommandID | str,
+        attempt_id: str,
+        timestamp: int,
+    ) -> tuple[RequestSnapshot, AttemptSnapshot, LeaseSnapshot, str]:
+        request = self._require_request(unit, command_id)
+        attempt = self._require_attempt(unit, attempt_id)
+        lease = self._require_lease(
+            unit,
+            request.lease_id,
+        )
+        (
+            updated_request,
+            updated_attempt,
+            updated_lease,
+        ) = reduce_dispatch_intent(
+            request,
+            attempt,
+            lease,
+            updated_at=timestamp,
+        )
+        if not unit.cas_update_dispatch_bundle(
+            request,
+            updated_request,
+            attempt,
+            updated_attempt,
+            lease,
+            updated_lease,
+        ):
+            raise InvalidMutationError(
+                "dispatch-intent bundle CAS failed"
+            )
+        self._faults.hit(
+            FaultPoint.AFTER_DISPATCH_BUNDLE_CAS
+        )
+        # DP-06: durable isolated-journal boundary -- INTENT_PERSISTED
+        # must be durably appended here (SLICE5-KICKOFF-R1.md
+        # "Ratified decisions" item 4).
+        event_id = self._ids.new_id("outbox-event")
+        unit.add_outbox_event(
+            self._dispatch_event(
+                updated_request,
+                event_id=event_id,
+                occurred_at=timestamp,
+            )
+        )
+        self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
+        return (
+            updated_request,
+            updated_attempt,
+            updated_lease,
+            event_id,
+        )
+
     def record_dispatch_intent(
         self,
         command_id: CommandID | str,
@@ -1151,48 +1208,64 @@ class DispatchService:
         """Commit replay boundary and bind the lease attempt ID."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            attempt = self._require_attempt(unit, attempt_id)
-            lease = self._require_lease(
-                unit,
-                request.lease_id,
-            )
             timestamp = self._clock.now()
             (
                 updated_request,
                 updated_attempt,
                 updated_lease,
-            ) = reduce_dispatch_intent(
-                request,
-                attempt,
-                lease,
-                updated_at=timestamp,
+                _,
+            ) = self._record_dispatch_intent_in_unit(
+                unit,
+                command_id,
+                attempt_id,
+                timestamp,
             )
-            if not unit.cas_update_dispatch_bundle(
-                request,
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return (
+            updated_request,
+            updated_attempt,
+            updated_lease,
+        )
+
+    def record_dispatch_intent_and_reserve_artifacts(
+        self,
+        command_id: CommandID | str,
+        attempt_id: str,
+        *,
+        expected_manifest_digest: str,
+    ) -> tuple[
+        RequestSnapshot,
+        AttemptSnapshot,
+        LeaseSnapshot,
+    ]:
+        """Commit replay boundary, bind lease attempt ID, and reserve verified artifacts atomically in ONE transaction."""
+
+        with self._store.unit_of_work() as unit:
+            timestamp = self._clock.now()
+            (
                 updated_request,
-                attempt,
                 updated_attempt,
-                lease,
                 updated_lease,
-            ):
+                intent_event_id,
+            ) = self._record_dispatch_intent_in_unit(
+                unit,
+                command_id,
+                attempt_id,
+                timestamp,
+            )
+            reserved_ok = unit.reserve_verified_artifacts_for_dispatch(
+                attempt_id=attempt_id,
+                expected_manifest_digest=expected_manifest_digest,
+                intent_event_id=intent_event_id,
+                reserved_at=timestamp,
+            )
+            if not reserved_ok:
                 raise InvalidMutationError(
-                    "dispatch-intent bundle CAS failed"
+                    f"Artifact reservation failed for attempt {attempt_id}"
                 )
-            self._faults.hit(
-                FaultPoint.AFTER_DISPATCH_BUNDLE_CAS
-            )
-            # DP-06: durable isolated-journal boundary -- INTENT_PERSISTED
-            # must be durably appended here (SLICE5-KICKOFF-R1.md
-            # "Ratified decisions" item 4).
-            unit.add_outbox_event(
-                self._dispatch_event(
-                    updated_request,
-                    event_id=self._ids.new_id("outbox-event"),
-                    occurred_at=timestamp,
-                )
-            )
-            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 
@@ -1366,6 +1439,66 @@ class DispatchService:
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return (updated_request, updated_attempt)
 
+    def _complete_attempt_in_unit(
+        self,
+        unit: UnitOfWork,
+        command_id: CommandID | str,
+        attempt_id: str,
+        *,
+        result: AskResult,
+        transport: str,
+        started_at: int,
+        timestamp: int,
+        process_integrity: bool = True,
+        operational_failure_category: (
+            OperationalFailureCategory | None
+        ) = None,
+        evidence_refs: tuple[str, ...] = (),
+    ) -> tuple[RequestSnapshot, AttemptSnapshot, str]:
+        request = self._require_request(unit, command_id)
+        attempt = self._require_attempt(unit, attempt_id)
+        updated_request, updated_attempt = (
+            reduce_complete_attempt(
+                request,
+                attempt,
+                result=result,
+                updated_at=timestamp,
+            )
+        )
+        self._cas_request_attempt(
+            unit,
+            request,
+            updated_request,
+            attempt,
+            updated_attempt,
+        )
+        unit.add_outbox_event(
+            self._dispatch_event(
+                updated_request,
+                event_id=self._ids.new_id("outbox-event"),
+                occurred_at=timestamp,
+            )
+        )
+        self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
+        terminal_event_id = self._ids.new_id("outbox-event")
+        unit.add_outbox_event(
+            self._attempt_terminal_event(
+                updated_request,
+                updated_attempt,
+                event_id=terminal_event_id,
+                terminal_at=timestamp,
+                transport=transport,
+                operational_failure_category=(
+                    operational_failure_category
+                ),
+                process_integrity=process_integrity,
+                started_at=started_at,
+                evidence_refs=evidence_refs,
+            )
+        )
+        self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
+        return (updated_request, updated_attempt, terminal_event_id)
+
     def complete_attempt(
         self,
         command_id: CommandID | str,
@@ -1383,50 +1516,23 @@ class DispatchService:
         """Commit the derived terminal state and canonical outbox event."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            attempt = self._require_attempt(unit, attempt_id)
             timestamp = self._clock.now()
-            updated_request, updated_attempt = (
-                reduce_complete_attempt(
-                    request,
-                    attempt,
-                    result=result,
-                    updated_at=timestamp,
-                )
-            )
-            self._cas_request_attempt(
-                unit,
-                request,
+            (
                 updated_request,
-                attempt,
                 updated_attempt,
+                _,
+            ) = self._complete_attempt_in_unit(
+                unit,
+                command_id,
+                attempt_id,
+                result=result,
+                transport=transport,
+                started_at=started_at,
+                timestamp=timestamp,
+                process_integrity=process_integrity,
+                operational_failure_category=operational_failure_category,
+                evidence_refs=evidence_refs,
             )
-            unit.add_outbox_event(
-                self._dispatch_event(
-                    updated_request,
-                    event_id=self._ids.new_id("outbox-event"),
-                    occurred_at=timestamp,
-                )
-            )
-            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
-            unit.add_outbox_event(
-                self._attempt_terminal_event(
-                    updated_request,
-                    updated_attempt,
-                    event_id=self._ids.new_id(
-                        "outbox-event"
-                    ),
-                    terminal_at=timestamp,
-                    transport=transport,
-                    operational_failure_category=(
-                        operational_failure_category
-                    ),
-                    process_integrity=process_integrity,
-                    started_at=started_at,
-                    evidence_refs=evidence_refs,
-                )
-            )
-            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 
@@ -1669,6 +1775,33 @@ class DispatchService:
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return updated
 
+    def _close_lease_in_unit(
+        self,
+        unit: UnitOfWork,
+        request: LeaseCloseRequest,
+        timestamp: int,
+    ) -> LeaseSnapshot:
+        current = unit.get_lease(request.lease_id)
+        if current is None:
+            raise RecordNotFoundError(
+                "lease",
+                request.lease_id,
+            )
+
+        updated = close_lease(
+            current,
+            request,
+            updated_at=timestamp,
+        )
+
+        if not unit.cas_update_lease(current, updated):
+            raise InvalidMutationError(
+                f"CAS failure closing lease "
+                f"{request.lease_id}"
+            )
+        self._faults.hit(FaultPoint.AFTER_LEASE_CAS)
+        return updated
+
     def close_lease(
         self,
         request: LeaseCloseRequest,
@@ -1677,31 +1810,77 @@ class DispatchService:
 
         timestamp = self._clock.now()
         with self._store.unit_of_work() as unit:
-            current = unit.get_lease(request.lease_id)
-            if current is None:
-                raise RecordNotFoundError(
-                    "lease",
-                    request.lease_id,
-                )
-
-            updated = close_lease(
-                current,
+            updated = self._close_lease_in_unit(
+                unit,
                 request,
-                updated_at=timestamp,
+                timestamp,
             )
-
-            if not unit.cas_update_lease(current, updated):
-                raise InvalidMutationError(
-                    f"CAS failure closing lease "
-                    f"{request.lease_id}"
-                )
-            self._faults.hit(FaultPoint.AFTER_LEASE_CAS)
-
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return updated
+
+    def complete_attempt_with_artifacts_and_lease(
+        self,
+        command_id: CommandID | str,
+        attempt_id: str,
+        *,
+        result: AskResult,
+        transport: str,
+        started_at: int,
+        final_fence: LeaseFenceTuple,
+        process_integrity: bool = True,
+        operational_failure_category: (
+            OperationalFailureCategory | None
+        ) = None,
+        evidence_refs: tuple[str, ...] = (),
+    ) -> tuple[RequestSnapshot, AttemptSnapshot]:
+        """Commit attempt completion, consume reserved artifacts, and close session lease atomically in ONE transaction."""
+
+        with self._store.unit_of_work() as unit:
+            timestamp = self._clock.now()
+            (
+                updated_request,
+                updated_attempt,
+                terminal_event_id,
+            ) = self._complete_attempt_in_unit(
+                unit,
+                command_id,
+                attempt_id,
+                result=result,
+                transport=transport,
+                started_at=started_at,
+                timestamp=timestamp,
+                process_integrity=process_integrity,
+                operational_failure_category=operational_failure_category,
+                evidence_refs=evidence_refs,
+            )
+            if unit.get_artifact_manifest(attempt_id) is not None:
+                consumed_ok = unit.consume_reserved_artifacts(
+                    attempt_id=attempt_id,
+                    terminal_outcome_event_id=terminal_event_id,
+                    consumed_at=timestamp,
+                )
+                if not consumed_ok:
+                    raise InvalidMutationError(
+                        f"Artifact consumption failed for attempt {attempt_id}"
+                    )
+            close_req = LeaseCloseRequest(
+                lease_id=updated_request.lease_id,
+                fence=final_fence,
+            )
+            self._close_lease_in_unit(
+                unit,
+                close_req,
+                timestamp,
+            )
+
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return (updated_request, updated_attempt)
 
     def check_lease_fence(
         self,
