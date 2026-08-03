@@ -985,3 +985,91 @@ say-so. Lesson: a peer's own "this doesn't need reconciliation"
 self-assessment is not a substitute for actually getting the second
 opinion -- dispatch it anyway when in doubt, per
 [[feedback_ratify_ambiguity_before_proceeding]].
+
+## Process runner backend + lease heartbeat RATIFIED (2026-08-03, ag+cx unanimous, no reconciliation needed)
+
+Unblocks `peerhub/application/workflows.py` integration (neither
+`pipe.py` nor `pty.py` exist yet). Both peers independently proposed
+the same design with matching reasoning -- genuine convergence, zero
+reconciliation round required.
+
+**Runner backend: dual-backend, explicit per-invocation config, not
+inferred from peer name.** `pipe.py` (`subprocess.Popen` pipes) is the
+default for non-interactive/structured-output invocations. `pty.py`
+(Windows ConPTY) is for invocations that need real TTY behavior
+(interactive prompts, ANSI/terminal emulation, or CLI tools that change
+buffering/output behavior when they detect a non-TTY stdout). Backend
+selection lives on `InvocationPlan.transport` (the contract already
+carries this field) -- the adapter/planner chooses it, not the runner.
+
+**Explicitly NOT ratified yet, both peers independently flagged the
+same gap:** which real peer CLIs (`claude`, `agy`, `codex`) actually
+need PTY vs. tolerate plain pipes is **unmeasured** -- there is no
+`empirical_probe` evidence in this repo for their TTY-detection/
+buffering behavior. Both peers explicitly refused to guess this mapping
+per DIR-004 (measured-only). **Required before any hardcoded
+per-peer transport default:** an empirical probe measuring, per peer
+CLI, under both `Popen(stdout=PIPE)` and a real PTY: chunk
+timestamp deltas (block- vs line-buffering), whether
+`PYTHONUNBUFFERED=1`/`FORCE_COLOR=1`/CLI flags change pipe behavior
+without needing ConPTY at all, ANSI-stripping behavior, and whether any
+invocation needs interactive stdin mid-execution. Until that probe
+exists, transport stays an explicit per-profile config value, never an
+inferred default.
+
+**Lease heartbeat: dedicated background heartbeat task/worker (Option
+B), never piggybacked on `ProcessSupervisor` chunk events (Option A).**
+Both peers independently rejected Option A for the same reason: a
+healthy process that's merely quiet for a while (long compute phase, a
+network call, a sleep) fires zero `on_chunk` events, so Option A would
+expire and fence/quarantine a perfectly healthy lease. This is not a
+hypothetical edge case -- it's the common case for any non-trivial
+peer invocation.
+
+**Entanglement, unanimous: heavily entangled, which is exactly why
+Option B was chosen.** Choosing `pipe.py` introduces OS-level block
+buffering (typically 4-8KB chunks), which directly starves `on_chunk`
+firing frequency -- so Option A's soundness would depend on which
+runner backend got picked, a transport-dependent bug waiting to happen.
+Option B explicitly decouples lease liveness from I/O buffering
+mechanics; it's the only proposal that doesn't leak the pipe/PTY
+decision into heartbeat correctness.
+
+**Heartbeat design rules (merged from both proposals, they matched
+closely):**
+- Start the heartbeat only once the lease is process-bound/`ACTIVE`;
+  stop and join it before final lease close.
+- Renew on a fixed schedule strictly inside `heartbeat_timeout_ms`
+  (proposed interval: `heartbeat_timeout_ms / 3`) -- derive the actual
+  safe interval/jitter budget from a measured scheduler/storage probe,
+  not a guessed constant (same measured-only discipline as the PTY
+  question).
+- **Ghost-renewal prevention:** each heartbeat tick verifies the child
+  process is actually still alive (`process.poll() is None` +
+  `ProcessBirthIdentity` match, not a bare PID) before renewing --
+  never renew a lease for a process that's already dead.
+- Renewal is a persisted CAS transition (advances `heartbeat_expires_at`
+  and the fence revision/token) -- serialize renewal and terminal close
+  through one lease-owner controller, always using the latest returned
+  fence, since each renewal changes its revision.
+- Keep every heartbeat storage transaction short; never hold one across
+  blocking process execution (matches the Slice 5 fault-injection
+  requirement elsewhere in this doc).
+- `on_chunk` events MAY record activity and trigger an opportunistic
+  coalesced renewal as an optimization, but must never be the *sole*
+  renewal mechanism (this is what makes it "Option B enhanced," not
+  Option A with an escape hatch).
+- **Heartbeat-task failure is a first-class supervision failure, not
+  silent data loss:** if the heartbeat task itself dies/hangs (misses
+  its renewal deadline), a controller/watchdog must detect this, stop
+  treating the lease as owned, and initiate the existing cancellation
+  ladder using the recorded process identity -- terminalizing
+  conservatively if cleanup can't be proven. A process being healthy
+  does not entitle it to keep running once lease authority is lost.
+
+**Safely implementable now, without the PTY probe:** `pipe.py` (the
+default, non-interactive backend) and the heartbeat worker itself are
+both probe-independent -- neither needs to know the answer to "which
+peers need PTY" to be implemented correctly. `pty.py` and the
+per-profile transport-default config remain blocked on the empirical
+probe above.
