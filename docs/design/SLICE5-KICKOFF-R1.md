@@ -1215,3 +1215,140 @@ not the normal path after a clean `Popen`+`record_running` success.
 **Still not implemented -- this section is design-only.** The 2 new
 composite service methods, the `ExecutionWorkflowResult` dataclass, and
 `dispatch_and_execute` itself all remain to be written.
+
+## DT-03/DT-04/DT-05 contract RATIFIED (2026-08-04, ag+cx unanimous after 3 rounds + 1 user call)
+
+Unblocks `peerhub/dispatch/process.py`'s 4 remaining `NotImplementedError`
+stubs (`trigger_silence_timeout`, `trigger_process_deadline`,
+`begin_cancellation`, `on_tree_state`) and closes the cancellation-ladder
+TODO in `heartbeat.py`'s `on_failure` hook that's been open all night.
+This was the deepest round of the night -- round 1 (independent
+proposals) found ag's draft referenced a `CancellationLadder.escalate()`
+method that doesn't exist and assumed `ProcessSupervisor` could signal a
+live OS process, which it structurally cannot (confirmed: it holds only
+a `ProcessBirthIdentity`, never a `Popen` handle). cx's independent
+proposal caught this and grounded the real ladder sequence and
+tree-observation vocabulary in existing fixtures instead of guessing.
+Round 2 (targeted reconciliation) got ag to fully concede the structural
+gap. Round 3 surfaced one remaining disagreement (where `TreeController`
+lives) that needed a second reconciliation pass; that converged
+unanimously. Two items were explicit judgment calls neither peer could
+derive from fixtures -- the user decided both directly rather than
+risk a third design-only round manufacturing false precision.
+
+**DT-03 (timeout selection independence) -- unanimous:** silence timeout
+and process deadline are independent, co-existing knobs (`TransportLimits`
+already carries both as separate budgets, `peerhub/core/execution.py:48-80`).
+`trigger_silence_timeout()`/`trigger_process_deadline()` each atomically
+latch a primary `TerminalClassification` (`SILENCE_TIMEOUT`/
+`PROCESS_TIMEOUT` -- both already-shipped enum members, confirmed) only
+if none is already latched (first-wins, matching the existing "once
+primary is set, never revised" rule), set `self._timed_out = True`
+(currently write-once-never-set -- confirmed by direct code read: these
+two stubs are meant to be the ONLY writers), and initiate the
+cancellation ladder. A deadline-triggered cancellation leaves
+`cancelled=False` (it's timeout remediation, not user cancellation --
+preserves `INTERRUPTED` not `CANCELLED` in `AskResult.effective_status`).
+Zero budget means immediate expiry, not disabled (no disable sentinel
+exists in the current contract).
+
+**DT-04 (cancellation ladder) -- unanimous, 5-step, fixture-grounded
+(not guessed):** `PROCESS_DEADLINE`/`SILENCE_TIMEOUT` -> `SOFT_CANCEL` ->
+`TERMINATE_TREE` (if unacknowledged) -> `KILL_TREE` (if still
+unacknowledged) -> `RECONCILE_TREE`, per
+`tools/phase0_fixture_runner/domain/transport.py:851-884`'s `_dt04`.
+Acknowledgement alone never claims cleanup success -- only reconciliation
+(`RECONCILE_TREE`'s tree re-observation) can.
+
+**DT-05 (process tree closure) -- unanimous:** every identity present at
+cancellation-start must end up either verified `TERMINATED` or land in
+an unresolved set producing `CANCELLATION_CLEANUP_FAILED` evidence
+before `ExecutionCertainty.TERMINAL` can be claimed. `on_tree_state()`'s
+signature changes from a flat `Sequence[int]` of PIDs to structured
+per-identity observations (see architecture below) -- the flat form
+cannot represent `IDENTITY_UNCERTAIN`, which the fixture schema requires
+(`tools/phase0_fixture_runner/domain/transport.py:357-438`).
+
+**Architecture, unanimous after the TreeController-placement
+reconciliation:** `ProcessSupervisor` and `CancellationLadder` BOTH stay
+pure reducers -- `(state, event/observation, now) -> (new_state,
+next_action, next_deadline)`, no live OS handle, fully testable without
+OS mocks. The actual `TreeController` (the thing that sends real
+signals) lives at the RUNNER level (`peerhub/dispatch/pipe.py`, which
+already owns the live `Popen` handle and already drives
+`ProcessSupervisor`'s callbacks with real data) -- NOT injected into
+`ProcessSupervisor` itself. This was ag's original proposal (inject
+into ProcessSupervisor) losing to cx's counter-proposal, matching the
+same pure-reducer/runner-owns-I/O boundary this project used all night
+for `pipe.py` (owns spawn/read) and `HeartbeatWorker` (owns its own
+renewal thread).
+
+```python
+class TreeController(Protocol):
+    def bind_spawn(
+        self, *, process: Popen[bytes], root: ProcessBirthIdentity,
+    ) -> TreeHandle: ...
+    def soft_cancel(self, tree: TreeHandle) -> TreeDispatchReceipt: ...
+    def terminate_tree(self, tree: TreeHandle) -> TreeDispatchReceipt: ...
+    def kill_tree(self, tree: TreeHandle) -> TreeDispatchReceipt: ...
+    def observe_tree(
+        self, tree: TreeHandle,
+    ) -> tuple[TreeProcessObservation, ...]: ...
+```
+`TreeProcessObservation` carries the expected `ProcessBirthIdentity`,
+optional observed creation time, and exactly one of
+`TERMINATED | RUNNING | IDENTITY_UNCERTAIN`. **Identity verification
+must happen atomically inside each signal method, not as a separate
+`verify()`-then-signal step** -- a TOCTOU gap otherwise (cx's finding:
+heartbeat.py's own current liveness check, `poll()` + bare PID equality,
+is exactly this kind of insufficient check and needs strengthening the
+same way before it's safe to drive any cancellation signal from it).
+The runner performs the ladder's chosen action through `TreeController`
+and feeds the resulting observations back via
+`ProcessSupervisor.on_tree_state(*, observations: Sequence[TreeProcessObservation]) -> CancellationDecision`.
+
+**OS primitive mapping (cx's research, Microsoft-doc-cited, not
+fixture-derived -- this is real platform engineering judgment):**
+
+| Stage | Windows | POSIX |
+|---|---|---|
+| `SOFT_CANCEL` | Adapter-declared graceful capability only: `CTRL_BREAK_EVENT` to a process group created with `CREATE_NEW_PROCESS_GROUP`; otherwise record unavailable and escalate. | Adapter-declared graceful recipe, else `SIGINT` to an isolated process group. |
+| `TERMINATE_TREE` | No safe generic graceful-tree primitive -- do NOT use PID-only `taskkill /T` (not identity-fenced). If no adapter-specific op exists, record unavailable and advance immediately. | `SIGTERM` to the isolated process group. |
+| `KILL_TREE` | `TerminateJobObject` on a Job Object established for this invocation; fallback only to individually identity-verified `TerminateProcess` calls plus reconciliation. | `SIGKILL` to the isolated process group. |
+
+Windows Job Objects are the authoritative containment mechanism (child
+processes inherit job membership; `TerminateJobObject` terminates the
+whole job) -- `taskkill /T` terminates a PID's children too but isn't
+identity-fenced, so it's excluded as unsuitable for the correctness
+path.
+
+**Stage-budget defaults -- explicit policy call, adopted as proposed
+(2026-08-04, user decision):** `soft_cancel_grace_ms = 5000`,
+`terminate_tree_grace_ms = 2000`. Both peers were explicit these are
+NOT derivable from any fixture -- a real judgment call. Store as a
+`CancellationGrace` value within the existing per-invocation
+`TransportLimits`/`InvocationPlan.limits` (which already owns process/
+silence timeout budgets); a named profile may supply defaults at plan
+construction time, but the runner consumes only the frozen invocation
+value.
+
+**Known, accepted limitation -- documented, not fixed tonight (2026-08-04,
+user decision):** binding a Windows Job Object only inside the
+post-`Popen` `on_spawned` callback leaves a race window where a child
+process could be spawned and escape job containment before the job
+binding completes. Properly closing this requires the runner to
+participate in spawn setup itself (before/during `Popen`), a larger
+change than tonight's scope. **Do not claim full tree closure is
+guaranteed on Windows until this is addressed** -- `TERMINATE_TREE`/
+`KILL_TREE` on Windows should be understood as best-effort-with-
+verification (the `RECONCILE_TREE` step's re-observation is what
+catches an escaped child, producing `IDENTITY_UNCERTAIN`/unresolved
+evidence rather than silently claiming success), not as an airtight
+sandbox guarantee.
+
+**Not yet implemented -- this section is design-only,** same as the
+workflows.py section above. `TreeController`'s real Windows/POSIX
+implementation, the `CancellationLadder` reducer itself, `process.py`'s
+4 stub methods, `on_tree_state`'s new signature, `pipe.py`'s runner-side
+wiring, and `heartbeat.py`'s `on_failure` -> cancellation-ladder
+connection all remain to be written.
