@@ -231,6 +231,8 @@ class ProcessSupervisor:
         self._last_timestamp_ms: int | None = None
         self._stream_events_ordered: bool = True
         self._exit_code: int | None = None
+        self._timed_out: bool = False
+        self._cancelled: bool = False
         self._cleanup_evidence: ProcessCleanupEvidence | None = None
 
     @property
@@ -311,16 +313,26 @@ class ProcessSupervisor:
         self,
     ) -> ProcessSupervisionOutcome:
         started = self._identity is not None
-        certainty = (
-            ExecutionCertainty.STARTED
-            if started
-            else ExecutionCertainty.NOT_STARTED
-        )
+        if not started:
+            certainty = ExecutionCertainty.NOT_STARTED
+        elif (
+            self._exit_code is not None
+            and not self._timed_out
+            and not self._cancelled
+        ):
+            # Spawned AND cleanly exited with a real exit code,
+            # not cancelled, not timed out → determinate observed
+            # completion per ExecutionCertainty contract.
+            certainty = ExecutionCertainty.TERMINAL
+        else:
+            # Spawned but outcome still ambiguous/not yet resolved
+            # (e.g. mid-execution, timed out, cancelled).
+            certainty = ExecutionCertainty.STARTED
         exec_outcome = ExecutionOutcome(
             started=started,
             exit_code=self._exit_code,
-            timed_out=False,
-            cancelled=False,
+            timed_out=self._timed_out,
+            cancelled=self._cancelled,
             execution_certainty=certainty,
         )
         canonical_stream = b"".join(c[0] for c in self._chunks)

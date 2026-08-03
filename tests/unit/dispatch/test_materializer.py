@@ -23,6 +23,7 @@ from peerhub.dispatch.contract import (
 )
 from peerhub.dispatch.materializer import (
     ArtifactMaterializer,
+    MaterializationItemRequest,
     MaterializationManifest,
     MaterializationResult,
     MaterializationSource,
@@ -508,3 +509,54 @@ class TestStagingFileCleanup:
         # Scan workspace for any .tmp files
         for p in workspace.rglob("*.tmp.*"):
             pytest.fail(f"Staging tmp file not cleaned up: {p}")
+
+
+class TestMaterializationItemRequestRename:
+    """Bug 2 regression: materializer.py's per-artifact type is now
+    MaterializationItemRequest, distinct from artifacts.py's aggregate
+    MaterializationManifest."""
+
+    def test_item_request_is_distinct_from_artifacts_manifest(self) -> None:
+        """The two types must be distinguishable at the type level."""
+        from peerhub.dispatch.artifacts import (
+            MaterializationManifest as ArtifactsManifest,
+        )
+
+        # MaterializationItemRequest is the per-artifact type
+        assert MaterializationItemRequest is not ArtifactsManifest
+        # Back-compat alias still resolves
+        assert MaterializationManifest is MaterializationItemRequest
+
+    def test_back_compat_alias_works(self) -> None:
+        """The old name MaterializationManifest still works via alias."""
+        m = MaterializationManifest(
+            artifact_id="art-test",
+            source=MaterializationSource.BYTES_INLINE,
+            target_path=pathlib.PurePosixPath("out/test.dat"),
+            expected_digest="sha256:abc",
+            expected_length=10,
+        )
+        assert isinstance(m, MaterializationItemRequest)
+
+    def test_materialize_accepts_item_request(self, workspace: Path) -> None:
+        """materialize() accepts MaterializationItemRequest (the new name)."""
+        fake = FakeUnitOfWork()
+        fake.seed(_make_artifact_metadata())
+        m = _make_materializer(workspace, fake)
+
+        item_req = MaterializationItemRequest(
+            artifact_id="art-01",
+            source=MaterializationSource.BYTES_INLINE,
+            target_path=pathlib.PurePosixPath("staging/out/test.dat"),
+            expected_digest=_CONTENT_DIGEST,
+            expected_length=_CONTENT_LENGTH,
+            attempt_id="attempt-01",
+            placeholder="__ART_01__",
+            workspace_scope_id="ws-01",
+            staging_ref="rel/staging/art-01.dat",
+            access_mode="READ_WRITE",
+            declared_lifecycle="EPHEMERAL",
+        )
+
+        result = m.materialize(item_req, lambda: _CONTENT)
+        assert result.status == MaterializationStatus.SUCCESS

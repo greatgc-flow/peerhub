@@ -19,7 +19,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO
+from typing import Callable, IO
 
 from peerhub.dispatch.contract import ProcessBirthIdentity
 from peerhub.dispatch.process import (
@@ -127,6 +127,7 @@ def run_process(
     supervisor: ProcessSupervisor,
     *,
     clock_ms: type[int] | None = None,
+    on_spawned: "Callable[[subprocess.Popen[bytes], ProcessBirthIdentity], None] | None" = None,
 ) -> ProcessSupervisionOutcome:
     """Spawn a process and drive ``supervisor`` with real subprocess data.
 
@@ -145,6 +146,14 @@ def run_process(
     clock_ms:
         Optional injectable clock for testing (returns int ms).
         Defaults to wall-clock ``_time_ms``.
+    on_spawned:
+        Optional callback invoked immediately after the process is
+        spawned and ``supervisor.on_spawned()`` has been called, but
+        **before** the blocking stdin-write / output-read / wait loop.
+        Receives the live ``subprocess.Popen`` handle and the
+        ``ProcessBirthIdentity``.  Intended for callers (e.g.
+        workflows.py) that need to record RUNNING durably and start
+        a ``HeartbeatWorker`` while the process is still executing.
 
     Returns
     -------
@@ -171,6 +180,13 @@ def run_process(
         process_creation_time=creation_time,
     )
     supervisor.on_spawned(identity=identity)
+
+    # Notify the caller with the live process handle + identity before
+    # entering the blocking I/O loop.  This preserves the callback
+    # ordering: on_spawned (supervisor) → on_spawned (caller) → on_chunk
+    # → on_exit → on_cleanup_error → finalize.
+    if on_spawned is not None:
+        on_spawned(proc, identity)
 
     # Write stdin data if provided, then close.
     if config.stdin_data is not None and proc.stdin is not None:

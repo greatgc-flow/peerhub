@@ -29,6 +29,7 @@ import pathlib
 import time
 import uuid
 from dataclasses import dataclass
+from collections.abc import Mapping
 from typing import Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -64,11 +65,15 @@ class MaterializationStatus(enum.Enum):
 
 
 @dataclass(frozen=True)
-class MaterializationManifest:
+class MaterializationItemRequest:
     """Immutable description of *what* to materialize and *where*.
 
     ``target_path`` is workspace-relative (``PurePosixPath``).
     The materializer resolves it against ``workspace_root`` internally.
+
+    Renamed from ``MaterializationManifest`` to avoid collision with the
+    aggregate ``MaterializationManifest`` in ``artifacts.py`` — this is a
+    per-artifact request shape, not the full-invocation aggregate.
     """
 
     artifact_id: str  # opaque, caller-assigned; "" for zero-artifact
@@ -84,6 +89,10 @@ class MaterializationManifest:
     staging_ref: str = ""
     access_mode: str = "READ_WRITE"
     declared_lifecycle: str = "EPHEMERAL"
+
+
+# Back-compat alias — existing code importing the old name continues to work.
+MaterializationManifest = MaterializationItemRequest
 
 
 @dataclass(frozen=True)
@@ -105,7 +114,7 @@ class MaterializationResult:
 # ---------------------------------------------------------------------------
 
 
-def compute_manifest_digest(manifest: MaterializationManifest) -> str:
+def compute_manifest_digest(manifest: MaterializationItemRequest) -> str:
     """Derive a deterministic SHA-256 digest from manifest immutable facts.
 
     Canonical JSON serialisation of the identity fields, then SHA-256.
@@ -179,10 +188,10 @@ class ArtifactMaterializer:
 
     def materialize(
         self,
-        manifest: MaterializationManifest,
+        manifest: MaterializationItemRequest,
         content_provider: Callable[[], bytes],
     ) -> MaterializationResult:
-        """Materialize an artifact to disk following the ratified protocol.
+        """Materialize a single artifact to disk following the ratified protocol.
 
         For a zero-artifact manifest (``artifact_id == ""``), returns a no-op
         success immediately with no repository interaction.
@@ -471,7 +480,7 @@ class ArtifactMaterializer:
     def _attempt_crash_recovery(
         self,
         *,
-        manifest: MaterializationManifest,
+        manifest: MaterializationItemRequest,
         abs_target: pathlib.Path,
         attempt_id: str,
         manifest_digest: str,
@@ -579,7 +588,7 @@ class ArtifactMaterializer:
     def _handle_cas_loss(
         self,
         *,
-        manifest: MaterializationManifest,
+        manifest: MaterializationItemRequest,
         abs_target: pathlib.Path,
         staging_path: pathlib.Path,
         attempt_id: str,
@@ -618,7 +627,7 @@ class ArtifactMaterializer:
     def _return_winner_if_valid(
         self,
         *,
-        manifest: MaterializationManifest,
+        manifest: MaterializationItemRequest,
         abs_target: pathlib.Path,
         attempt_id: str,
         manifest_digest: str,
@@ -710,3 +719,69 @@ class ArtifactMaterializer:
             pass
         except OSError:
             logger.warning("Failed to unlink staging file: %s", path, exc_info=True)
+
+    def materialize_manifest(
+        self,
+        manifest: "_ArtifactsManifest",
+        content_providers: Mapping[str, Callable[[], bytes]],
+    ) -> tuple[MaterializationResult, ...]:
+        """Materialize all items from an aggregate ``MaterializationManifest``.
+
+        Parameters
+        ----------
+        manifest:
+            The aggregate manifest from ``artifacts.py`` containing all
+            ``MaterializationItem`` entries for a single attempt.
+        content_providers:
+            Mapping from ``artifact_id`` to a ``Callable[[], bytes]``
+            that returns the artifact content.  Each key must match
+            an item's ``artifact_id`` in ``manifest.items``.
+
+        Returns
+        -------
+        tuple[MaterializationResult, ...]
+            One result per ``manifest.items`` entry, in the same order.
+        """
+        results: list[MaterializationResult] = []
+        for item in manifest.items:
+            item_request = MaterializationItemRequest(
+                artifact_id=item.artifact_id,
+                source=MaterializationSource.BYTES_INLINE,
+                target_path=pathlib.PurePosixPath(
+                    item.staging_path.relative_to(self._workspace_root)
+                ),
+                expected_digest=(
+                    f"sha256:{item.sha256_hex}"
+                    if not item.sha256_hex.startswith("sha256:")
+                    else item.sha256_hex
+                ),
+                expected_length=item.expected_length,
+                attempt_id=manifest.attempt_id,
+                placeholder=item.placeholder,
+                workspace_scope_id=manifest.workspace.scope_id,
+                staging_ref=str(item.staging_path),
+                access_mode=item.access_mode,
+                declared_lifecycle=item.lifecycle,
+            )
+            provider = content_providers.get(item.artifact_id)
+            if provider is None:
+                results.append(
+                    MaterializationResult(
+                        artifact_id=item.artifact_id,
+                        target_path=item_request.target_path,
+                        status=MaterializationStatus.HARD_FAILURE,
+                        manifest_digest="",
+                        verified_digest=None,
+                        verified_length=None,
+                        attempt_id=manifest.attempt_id,
+                        error=f"no content provider for artifact_id={item.artifact_id!r}",
+                    )
+                )
+                continue
+            results.append(self.materialize(item_request, provider))
+        return tuple(results)
+
+
+# Late import to avoid circular dependency — only used by
+# materialize_manifest's type annotation (string-quoted above).
+from peerhub.dispatch.artifacts import MaterializationManifest as _ArtifactsManifest  # noqa: E402

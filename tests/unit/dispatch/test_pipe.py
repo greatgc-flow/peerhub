@@ -125,7 +125,7 @@ class TestPipeRunnerExitCode:
         assert outcome.execution_outcome.started is True
         assert (
             outcome.execution_outcome.execution_certainty
-            == ExecutionCertainty.STARTED
+            == ExecutionCertainty.TERMINAL
         )
         # Clean exit => no terminal classification per existing reducer.
         assert outcome.terminal_classification is None
@@ -168,7 +168,7 @@ class TestPipeRunnerOutcome:
         assert outcome.execution_outcome.cancelled is False
         assert (
             outcome.execution_outcome.execution_certainty
-            == ExecutionCertainty.STARTED
+            == ExecutionCertainty.TERMINAL
         )
         assert outcome.stream_events_ordered is True
         assert b"lifecycle test" in outcome.canonical_stream
@@ -207,3 +207,73 @@ class TestPipeRunnerStdin:
         outcome = run_process(config, supervisor)
 
         assert b"got:test_input" in outcome.canonical_stream
+
+
+class TestPipeRunnerOnSpawnedCallback:
+    """Bug 1 regression: on_spawned callback fires with live process handle."""
+
+    def test_on_spawned_callback_receives_live_process(self):
+        """The on_spawned callback must fire while the process is still alive,
+        providing both the live Popen handle and ProcessBirthIdentity.
+
+        This test would have caught the original bug: without the callback,
+        there was no way to get the process handle before run_process blocked
+        until exit.
+        """
+        import subprocess
+
+        captured: list[tuple[subprocess.Popen, ProcessBirthIdentity]] = []
+        poll_results: list[int | None] = []
+
+        def on_spawn(proc: subprocess.Popen, identity: ProcessBirthIdentity) -> None:
+            # Capture the live process handle and identity.
+            captured.append((proc, identity))
+            # Record whether the process is still running at callback time.
+            # poll() returns None if the process hasn't exited yet.
+            poll_results.append(proc.poll())
+
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[
+                sys.executable,
+                "-c",
+                # A short sleep to ensure the process is still alive
+                # when the on_spawned callback fires.
+                "import time; time.sleep(0.5); print('done')",
+            ],
+        )
+
+        outcome = run_process(config, supervisor, on_spawned=on_spawn)
+
+        # Callback was invoked exactly once.
+        assert len(captured) == 1
+        proc, identity = captured[0]
+
+        # The identity is valid.
+        assert isinstance(identity, ProcessBirthIdentity)
+        assert identity.pid > 0
+
+        # The process handle is a real Popen object.
+        assert isinstance(proc, subprocess.Popen)
+
+        # At callback time, the process was still running (poll returned None).
+        assert poll_results[0] is None, (
+            "on_spawned callback fired after the process already exited — "
+            "this defeats the purpose of exposing the live handle"
+        )
+
+        # After run_process returns, the process has exited cleanly.
+        assert outcome.exit_code == 0
+        assert b"done" in outcome.canonical_stream
+
+    def test_on_spawned_callback_not_required(self):
+        """run_process still works when on_spawned is not provided."""
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[sys.executable, "-c", "pass"],
+        )
+
+        outcome = run_process(config, supervisor)
+
+        assert outcome.exit_code == 0
+        assert supervisor.identity is not None
