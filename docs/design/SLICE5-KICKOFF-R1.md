@@ -1158,3 +1158,60 @@ that spans multiple modules shipped in the same session, either
 grep-verify every referenced signature independently, or explicitly
 require the proposing peer to cite file:line for each one it uses (cx
 did this unprompted; that's what caught the 3 bugs).
+
+## workflows.py orchestration RATIFIED (2026-08-03, citation-verified)
+
+After the 3 fixes (commit `4328d14`), cx's original design was
+re-verified line-by-line against the now-fixed real code (every
+signature below cited file:line by the verifying pass, not asserted) --
+confirmed to hold with no structural changes needed.
+
+**New method: `ApplicationWorkflows.dispatch_and_execute(command_id, *,
+service, materializer, adapter_request, invocation_plan, workspace_roots,
+content_providers, completion_contract, protocol_assessment,
+heartbeat_timeout_ms, transport="pipe") -> ExecutionWorkflowResult`**
+-- synchronous/blocking (matches `pipe.run_process`'s existing blocking
+model; an async handle would need durable worker ownership/recovery
+semantics that don't exist yet -- out of scope).
+
+**Sequence:**
+1. `service.create_attempt(command_id)` -> `attempt`.
+2. `artifacts.resolve_workspace_paths(adapter_request, invocation_plan, workspace_roots=...)` -> `workspace`, then `artifacts.generate_materialization_manifest(invocation_plan, workspace, attempt_id=...)` -> the aggregate `manifest`.
+3. `materializer.materialize_manifest(manifest, content_providers)` -> `results` (the new method added in the bugfix round). Any hard/retryable failure -> abort here, cheap (see failure policy below).
+4. **Composite operation 1 (NEW, must be added):** `service.record_dispatch_intent_and_reserve_artifacts(command_id, attempt.attempt_id, expected_manifest_digest=manifest.manifest_digest)` -- inside ONE unit-of-work: transitions to `DISPATCH_INTENT`, mints+appends the outbox event, and calls `reserve_verified_artifacts_for_dispatch` using that same event's ID. **This must be atomic, not two separate calls** -- see "why both composite operations are mandatory" below.
+5. Spawn via `pipe.run_process(config, supervisor, on_spawned=callback)` (the new callback param from the bugfix round). Inside `on_spawned`: `service.record_running(...)` first, then construct+`start()` a `HeartbeatWorker` using the lease `record_running` returned -- in that order, since the heartbeat needs an already-durable `ACTIVE` lease to renew.
+6. On process exit: `heartbeat_worker.stop(timeout=10.0)`, capture `latest_fence` and `lease_owned` before anything else touches the lease.
+7. `completion.assess_completion(...)` -> `assessment`, then `service.begin_assessment(...)`.
+8. **Composite operation 2 (NEW, must be added):** a terminal method (name TBD at implementation time, e.g. `complete_attempt_with_artifacts_and_lease`) that atomically, in ONE unit-of-work: reduces attempt completion, appends the terminal outbox event, calls `consume_reserved_artifacts` using that event's ID, and closes the lease using the heartbeat's `latest_fence`.
+
+**Why both composite operations are mandatory, not just convenient
+(verified against real transaction boundaries, not asserted):**
+existing `record_dispatch_intent` and `reserve_verified_artifacts_for_dispatch`
+already run in separate unit-of-work transactions -- a crash between them
+leaves the request durably in `DISPATCH_INTENT` with an outbox event,
+while artifacts are still sitting in `VERIFIED` with no `intent_event_id`,
+which breaks `get_artifact_recovery_digest`'s recovery-matching
+invariant (it expects a committed intent to always have a matching
+reserved manifest). Symmetrically, `complete_attempt` +
+`consume_reserved_artifacts` + closing the lease are 3 separate calls
+today -- a crash after the first leaves a terminal request with
+artifacts stuck in `RESERVED` forever and a lease that never closes.
+Protocol v1's single-UoW-per-durable-transition requirement (referenced
+elsewhere in this doc) means both gaps need a real composite method,
+not a workflows.py-level "just call both and hope."
+
+**Failure policy per step (verified, not the first draft's guesses):**
+- Materialization failure (any item hard/retryable-failed): `service.fail_pre_dispatch(...)` + orphan the artifacts. No process ever spawns -- cheap abort. **Note for implementation:** the exact `ErrorCode` member to pass doesn't exist yet under an obvious name (there is no `PRE_DISPATCH_FAILED` in `peerhub/core/protocol.py`'s `ErrorCode` enum, confirmed by grep) -- the implementer must pick an existing appropriate member or justify adding one, not invent a plausible-sounding name.
+- Reservation failure (composite op 1 fails, e.g. CAS conflict): do not spawn, `fail_pre_dispatch` + orphan verified artifacts, same as above.
+- Spawn failure before `on_spawned` fires (no `ProcessBirthIdentity` was ever obtained): `NOT_STARTED` path, `fail_pre_dispatch`.
+- Spawn/record_running failure after intent was already committed: `service.record_start_uncertain(...)`, artifacts stay `RESERVED` (never auto-revert to `VERIFIED`, per the Step 4 ratification), routed to conservative DP-06 recovery.
+- Heartbeat failure mid-execution (`lease_owned` goes `False`): cannot yet trigger the real cancellation ladder -- DT-03/DT-04/DT-05 don't exist. The failure is recorded and prevents final ownership assertion; the attempt is left for conservative recovery, not force-terminalized by workflows.py itself. This is a known, explicitly-accepted gap until those DT items land.
+
+**Confirmed, not reopened by this round:** `record_start_uncertain` only
+belongs after the durable intent boundary when start status is
+genuinely unknown -- never called speculatively before reservation, and
+not the normal path after a clean `Popen`+`record_running` success.
+
+**Still not implemented -- this section is design-only.** The 2 new
+composite service methods, the `ExecutionWorkflowResult` dataclass, and
+`dispatch_and_execute` itself all remain to be written.
