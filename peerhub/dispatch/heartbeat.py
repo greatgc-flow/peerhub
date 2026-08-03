@@ -208,9 +208,8 @@ class HeartbeatWorker:
         )
 
         # Invoke the failure callback (cancellation ladder hook).
-        # TODO(DT-04): The actual cancellation trigger is a no-op
-        # pending DT-04's implementation.  The detection and
-        # stop-treating-as-owned part is fully implemented above.
+        # Calls the provided on_failure callback, which can drive
+        # ProcessSupervisor.begin_cancellation() and TreeController.
         if self._on_failure is not None:
             try:
                 self._on_failure(failure)

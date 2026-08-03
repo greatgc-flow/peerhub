@@ -171,6 +171,7 @@ def run_process(
     *,
     clock_ms: type[int] | None = None,
     on_spawned: "Callable[[subprocess.Popen[bytes], ProcessBirthIdentity], None] | None" = None,
+    tree_controller: TreeController | None = None,
 ) -> ProcessSupervisionOutcome:
     """Spawn a process and drive ``supervisor`` with real subprocess data.
 
@@ -197,6 +198,9 @@ def run_process(
         ``ProcessBirthIdentity``.  Intended for callers (e.g.
         workflows.py) that need to record RUNNING durably and start
         a ``HeartbeatWorker`` while the process is still executing.
+    tree_controller:
+        Optional ``TreeController`` for process tree binding and cancellation support.
+        If provided or if constructed, ``bind_spawn`` is called after spawn.
 
     Returns
     -------
@@ -223,6 +227,21 @@ def run_process(
         process_creation_time=creation_time,
     )
     supervisor.on_spawned(identity=identity)
+
+    # Bind spawn with tree controller if provided or available
+    if tree_controller is None:
+        try:
+            from peerhub.dispatch.tree_controller import RealTreeController
+
+            tree_controller = RealTreeController()
+        except Exception:
+            pass
+
+    tree_handle: TreeHandle | None = None
+    if tree_controller is not None:
+        tree_handle = tree_controller.bind_spawn(process=proc, root=identity)
+        setattr(proc, "_tree_handle", tree_handle)
+        setattr(proc, "_tree_controller", tree_controller)
 
     # Notify the caller with the live process handle + identity before
     # entering the blocking I/O loop.  This preserves the callback
