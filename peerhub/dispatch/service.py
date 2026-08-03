@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from typing import Protocol
 
 from peerhub.core.context import Clock, IdSource
+from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.errors import (
     ActorUnauthorizedError,
     DuplicateClientRequestError,
@@ -42,6 +43,7 @@ from .contract import (
     ClientRequestBinding,
     CommandIdempotencyBinding,
     CompletionContract,
+    ExecutionOutcome,
     LeaseCloseRequest,
     LeaseCreateRequest,
     LeaseFenceCheckRequest,
@@ -89,7 +91,10 @@ from .model import (
     validate_lease_fence,
     validate_submission,
 )
-from .process import InterruptedAttemptRecoveryOutcome
+from .process import (
+    InterruptedAttemptRecoveryOutcome,
+    TerminalClassification,
+)
 
 
 def recover_interrupted_attempt(
@@ -99,11 +104,51 @@ def recover_interrupted_attempt(
 ) -> InterruptedAttemptRecoveryOutcome:
     """Recover one interrupted attempt from its durable journal.
 
-    Reduction and persistence orchestration are implemented in later Slice 5
-    steps. This Step 2 declaration exists only to freeze the service boundary.
+    Currently ratifies ONLY the post-intent crash recovery shape: journal_entries
+    containing INTENT_PERSISTED with no later execution or terminal evidence.
+    All other shapes fail closed by raising InvalidMutationError.
     """
 
-    raise NotImplementedError("implemented in Slice 5 Step 5")
+    if not journal_entries:
+        raise InvalidMutationError("journal_entries cannot be empty")
+
+    for entry in journal_entries:
+        if not isinstance(entry, str):
+            raise InvalidMutationError("journal_entries must contain string entries")
+
+    if "INTENT_PERSISTED" not in journal_entries:
+        raise InvalidMutationError(
+            "unsupported journal entries shape: missing INTENT_PERSISTED"
+        )
+
+    entries_list = list(journal_entries)
+    intent_index = entries_list.index("INTENT_PERSISTED")
+    later_entries = entries_list[intent_index + 1 :]
+
+    if later_entries:
+        raise InvalidMutationError(
+            "unsupported journal entries shape: post-intent evidence present"
+        )
+
+    earlier_entries = entries_list[:intent_index]
+    for entry in earlier_entries:
+        if entry in ("SPAWNED", "EXIT"):
+            raise InvalidMutationError(
+                "unsupported journal entries shape: malformed pre-intent entries"
+            )
+
+    return InterruptedAttemptRecoveryOutcome(
+        terminal_classification=TerminalClassification.START_UNCERTAIN,
+        execution_outcome=ExecutionOutcome(
+            started=False,
+            exit_code=None,
+            timed_out=False,
+            cancelled=False,
+            execution_certainty=ExecutionCertainty.MAY_HAVE_STARTED,
+        ),
+        automatic_replay_authorized=False,
+        journal_digest=journal_digest,
+    )
 
 
 class DispatchUnitOfWork(UnitOfWork, Protocol):
