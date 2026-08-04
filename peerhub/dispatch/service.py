@@ -38,6 +38,8 @@ from peerhub.state.contract import StateStore, UnitOfWork
 
 from .contract import (
     AdmissionReceipt,
+    ArtifactManifestRecord,
+    ArtifactMetadata,
     AskResult,
     AttemptSnapshot,
     ClientRequestBinding,
@@ -403,6 +405,60 @@ class DispatchService:
         self._clock = clock
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
+
+    def now(self) -> int:
+        """Return the current timestamp from the configured clock."""
+        return self._clock.now()
+
+    def record_artifact_manifest(
+        self,
+        manifest_record: ArtifactManifestRecord,
+        item_records: Sequence[ArtifactMetadata],
+    ) -> None:
+        """Persist an artifact manifest and item metadata records."""
+        with self._store.unit_of_work() as unit:
+            unit.add_artifact_manifest(
+                manifest_record,
+                tuple(item_records),
+            )
+            unit.commit()
+
+    def mark_artifacts_orphaned_if_manifest_exists(
+        self,
+        attempt_id: str,
+        *,
+        failure_code: str,
+    ) -> bool:
+        """Mark artifacts orphaned for an attempt if an artifact manifest exists."""
+        timestamp = self._clock.now()
+        with self._store.unit_of_work() as unit:
+            manifest_row = unit.get_artifact_manifest(attempt_id)
+            if manifest_row is None:
+                return False
+            unit.mark_artifacts_orphaned(
+                attempt_id=attempt_id,
+                expected_manifest_revision=manifest_row.revision,
+                orphaned_at=timestamp,
+                failure_code=failure_code,
+            )
+            unit.commit()
+            return True
+
+    def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
+        """Retrieve a lease snapshot by ID, if found."""
+        with self._store.unit_of_work() as unit:
+            return unit.get_lease(lease_id)
+
+    def get_request_and_attempt(
+        self,
+        command_id: CommandID | str,
+        attempt_id: str,
+    ) -> tuple[RequestSnapshot, AttemptSnapshot]:
+        """Retrieve current request and attempt snapshots."""
+        with self._store.unit_of_work() as unit:
+            req = self._require_request(unit, command_id)
+            att = self._require_attempt(unit, attempt_id)
+            return req, att
 
     @staticmethod
     def _dispatch_event(

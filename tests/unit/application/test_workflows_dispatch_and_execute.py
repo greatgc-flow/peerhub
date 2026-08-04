@@ -24,6 +24,7 @@ from peerhub.core.protocol import (
     PROTOCOL_MINOR,
     SCHEMA_VERSION,
     CommandEnvelope,
+    ErrorCode,
 )
 from peerhub.dispatch.contract import (
     CompletionAssessmentState,
@@ -583,6 +584,7 @@ def test_dispatch_and_execute_reservation_failure(tmp_path: Path, store: SqliteS
     )
 
     assert res.attempt.state is RequestState.FAILED_PRE_DISPATCH
+    assert res.request.terminal_error_code is ErrorCode.ARTIFACT_RESERVATION_FAILED
     assert res.process_outcome is None
 
 

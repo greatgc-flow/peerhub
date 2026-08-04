@@ -532,7 +532,7 @@ class ApplicationWorkflows:
         )
 
         if manifest.items:
-            now = dispatch_service._clock.now()
+            now = dispatch_service.now()
             staging_root_rel = str(
                 workspace.staging_dir.relative_to(workspace.workspace_root)
             )
@@ -587,12 +587,10 @@ class ApplicationWorkflows:
                         expected_length=item.expected_length,
                     )
                 )
-            with dispatch_service._store.unit_of_work() as unit:
-                unit.add_artifact_manifest(
-                    manifest_record,
-                    tuple(item_records),
-                )
-                unit.commit()
+            dispatch_service.record_artifact_manifest(
+                manifest_record,
+                item_records,
+            )
         else:
             manifest_digest = ""
 
@@ -605,16 +603,10 @@ class ApplicationWorkflows:
         )
 
         if has_mat_failure:
-            with dispatch_service._store.unit_of_work() as unit:
-                manifest_row = unit.get_artifact_manifest(attempt.attempt_id)
-                if manifest_row is not None:
-                    unit.mark_artifacts_orphaned(
-                        attempt_id=attempt.attempt_id,
-                        expected_manifest_revision=manifest_row.revision,
-                        orphaned_at=dispatch_service._clock.now(),
-                        failure_code="PRE_DISPATCH_FAILED",
-                    )
-                    unit.commit()
+            dispatch_service.mark_artifacts_orphaned_if_manifest_exists(
+                attempt.attempt_id,
+                failure_code="PRE_DISPATCH_FAILED",
+            )
             updated_req, updated_att = dispatch_service.fail_pre_dispatch(
                 command_id,
                 attempt.attempt_id,
@@ -646,20 +638,14 @@ class ApplicationWorkflows:
                     attempt.attempt_id,
                 )
         except Exception:
-            with dispatch_service._store.unit_of_work() as unit:
-                manifest_row = unit.get_artifact_manifest(attempt.attempt_id)
-                if manifest_row is not None:
-                    unit.mark_artifacts_orphaned(
-                        attempt_id=attempt.attempt_id,
-                        expected_manifest_revision=manifest_row.revision,
-                        orphaned_at=dispatch_service._clock.now(),
-                        failure_code="RESERVATION_FAILED",
-                    )
-                    unit.commit()
+            dispatch_service.mark_artifacts_orphaned_if_manifest_exists(
+                attempt.attempt_id,
+                failure_code="RESERVATION_FAILED",
+            )
             updated_req, updated_att = dispatch_service.fail_pre_dispatch(
                 command_id,
                 attempt.attempt_id,
-                error_code=ErrorCode.ARTIFACT_IDENTITY_UNPROVABLE,
+                error_code=ErrorCode.ARTIFACT_RESERVATION_FAILED,
                 transport=transport,
             )
             return ExecutionWorkflowResult(
@@ -773,7 +759,7 @@ class ApplicationWorkflows:
 
         # Step 8: Terminalize attempt (complete + consume + close lease) if lease owned
         if lease_owned:
-            started_at = dispatch_service._clock.now()
+            started_at = dispatch_service.now()
             updated_req, updated_att = (
                 dispatch_service.complete_attempt_with_artifacts_and_lease(
                     command_id,
@@ -790,8 +776,7 @@ class ApplicationWorkflows:
                     process_integrity=process_outcome.stream_events_ordered,
                 )
             )
-            with dispatch_service._store.unit_of_work() as unit:
-                closed_lease = unit.get_lease(req.lease_id)
+            closed_lease = dispatch_service.get_lease(req.lease_id)
             return ExecutionWorkflowResult(
                 request=updated_req,
                 attempt=updated_att,
@@ -802,9 +787,9 @@ class ApplicationWorkflows:
             )
 
         # Lease ownership was lost during execution: leave attempt for conservative recovery
-        with dispatch_service._store.unit_of_work() as unit:
-            latest_req = dispatch_service._require_request(unit, command_id)
-            latest_att = dispatch_service._require_attempt(unit, attempt.attempt_id)
+        latest_req, latest_att = dispatch_service.get_request_and_attempt(
+            command_id, attempt.attempt_id
+        )
 
         return ExecutionWorkflowResult(
             request=latest_req,
