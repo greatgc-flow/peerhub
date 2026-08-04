@@ -277,3 +277,228 @@ class TestPipeRunnerOnSpawnedCallback:
 
         assert outcome.exit_code == 0
         assert supervisor.identity is not None
+
+
+class TestPipeRunnerCancellationLadder:
+    """Decision A regression: run_process drives the cancellation ladder
+    from the main thread during its polling loop when cancellation is active."""
+
+    def test_cancellation_triggered_externally_drives_ladder(self):
+        """When begin_cancellation is triggered externally (simulating a
+        heartbeat failure callback), run_process's main thread drives the
+        cancellation ladder via the tree controller.
+
+        Uses a long-running subprocess and triggers cancellation from
+        a background thread to simulate the heartbeat worker.
+        """
+        import threading
+
+        from peerhub.dispatch.process import CancellationStage
+
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[
+                sys.executable,
+                "-c",
+                # Long-running process that will be killed by the ladder.
+                "import time; time.sleep(30)",
+            ],
+        )
+
+        cancel_called = threading.Event()
+
+        def on_spawn(proc, identity):
+            # Trigger cancellation from a background thread after a brief
+            # delay (simulating heartbeat failure detection).
+            def trigger():
+                cancel_called.wait(timeout=0.2)
+                supervisor.begin_cancellation(now_ms=0)
+                cancel_called.set()
+
+            t = threading.Thread(target=trigger, daemon=True)
+            t.start()
+            cancel_called.set()
+
+        outcome = run_process(config, supervisor, on_spawned=on_spawn)
+
+        # The process should have been cancelled.
+        assert supervisor.cancellation_active is True
+        assert outcome.execution_outcome.cancelled is True
+
+    def test_normal_process_no_cancellation(self):
+        """A quick-exiting process without cancellation still works normally
+        with the new polling loop."""
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[sys.executable, "-c", "print('no cancel')"],
+        )
+
+        outcome = run_process(config, supervisor)
+
+        assert outcome.exit_code == 0
+        assert supervisor.cancellation_active is False
+        assert b"no cancel" in outcome.canonical_stream
+
+
+class TestDispatchCancellationAction:
+    """Tests for _dispatch_cancellation_action helper."""
+
+    def test_soft_cancel_dispatches(self):
+        from peerhub.dispatch.pipe import (
+            TreeDispatchReceipt,
+            _dispatch_cancellation_action,
+        )
+        from peerhub.dispatch.process import CancellationAction
+
+        calls: list[str] = []
+
+        class FakeController:
+            def soft_cancel(self, tree):
+                calls.append("soft_cancel")
+                return TreeDispatchReceipt(dispatched=True, signal_name="SOFT")
+
+            def terminate_tree(self, tree):
+                calls.append("terminate_tree")
+                return TreeDispatchReceipt(dispatched=True, signal_name="TERM")
+
+            def kill_tree(self, tree):
+                calls.append("kill_tree")
+                return TreeDispatchReceipt(dispatched=True, signal_name="KILL")
+
+        controller = FakeController()
+        handle = object()
+
+        result = _dispatch_cancellation_action(
+            CancellationAction.SOFT_CANCEL, controller, handle
+        )
+        assert calls == ["soft_cancel"]
+        assert result is not None and result.dispatched
+
+    def test_terminate_tree_dispatches(self):
+        from peerhub.dispatch.pipe import (
+            TreeDispatchReceipt,
+            _dispatch_cancellation_action,
+        )
+        from peerhub.dispatch.process import CancellationAction
+
+        calls: list[str] = []
+
+        class FakeController:
+            def soft_cancel(self, tree):
+                calls.append("soft_cancel")
+                return TreeDispatchReceipt(dispatched=True, signal_name="SOFT")
+
+            def terminate_tree(self, tree):
+                calls.append("terminate_tree")
+                return TreeDispatchReceipt(dispatched=True, signal_name="TERM")
+
+            def kill_tree(self, tree):
+                calls.append("kill_tree")
+                return TreeDispatchReceipt(dispatched=True, signal_name="KILL")
+
+        controller = FakeController()
+        result = _dispatch_cancellation_action(
+            CancellationAction.TERMINATE_TREE, controller, object()
+        )
+        assert calls == ["terminate_tree"]
+        assert result is not None and result.dispatched
+
+    def test_kill_tree_dispatches(self):
+        from peerhub.dispatch.pipe import (
+            TreeDispatchReceipt,
+            _dispatch_cancellation_action,
+        )
+        from peerhub.dispatch.process import CancellationAction
+
+        calls: list[str] = []
+
+        class FakeController:
+            def soft_cancel(self, tree):
+                return TreeDispatchReceipt(dispatched=True, signal_name="SOFT")
+
+            def terminate_tree(self, tree):
+                return TreeDispatchReceipt(dispatched=True, signal_name="TERM")
+
+            def kill_tree(self, tree):
+                calls.append("kill_tree")
+                return TreeDispatchReceipt(dispatched=True, signal_name="KILL")
+
+        controller = FakeController()
+        result = _dispatch_cancellation_action(
+            CancellationAction.KILL_TREE, controller, object()
+        )
+        assert calls == ["kill_tree"]
+
+    def test_none_action_returns_none(self):
+        from peerhub.dispatch.pipe import _dispatch_cancellation_action
+        from peerhub.dispatch.process import CancellationAction
+
+        result = _dispatch_cancellation_action(
+            CancellationAction.NONE, object(), object()
+        )
+        assert result is None
+
+
+class TestDriveCancellationLadder:
+    """Tests for _drive_cancellation_ladder helper."""
+
+    def test_drives_ladder_step(self):
+        """_drive_cancellation_ladder dispatches the action and feeds back
+        tree observations to the supervisor."""
+        from peerhub.dispatch.pipe import (
+            TreeDispatchReceipt,
+            _drive_cancellation_ladder,
+        )
+        from peerhub.dispatch.process import (
+            CancellationStage,
+            ObservationState,
+            TreeProcessObservation,
+        )
+
+        supervisor = ProcessSupervisor()
+        supervisor.on_spawned(pid=7000)
+        supervisor.begin_cancellation(now_ms=0)
+
+        dispatched_actions: list[str] = []
+        observed: list[bool] = []
+
+        root_identity = ProcessBirthIdentity(pid=7000, process_creation_time=0)
+
+        class FakeController:
+            def soft_cancel(self, tree):
+                dispatched_actions.append("soft_cancel")
+                return TreeDispatchReceipt(dispatched=True, signal_name="SOFT")
+
+            def terminate_tree(self, tree):
+                dispatched_actions.append("terminate_tree")
+                return TreeDispatchReceipt(dispatched=True, signal_name="TERM")
+
+            def kill_tree(self, tree):
+                dispatched_actions.append("kill_tree")
+                return TreeDispatchReceipt(dispatched=True, signal_name="KILL")
+
+            def observe_tree(self, tree):
+                observed.append(True)
+                return (
+                    TreeProcessObservation(
+                        identity=root_identity,
+                        state=ObservationState.TERMINATED,
+                    ),
+                )
+
+        class FakeHandle:
+            root_identity = ProcessBirthIdentity(pid=7000, process_creation_time=0)
+
+        _drive_cancellation_ladder(
+            supervisor, FakeController(), FakeHandle(), lambda: 1000
+        )
+
+        # Should have dispatched soft_cancel (the action from begin_cancellation).
+        assert "soft_cancel" in dispatched_actions
+        # Should have observed the tree.
+        assert len(observed) == 1
+        # Since all processes are TERMINATED, the ladder should complete.
+        decision = supervisor.cancellation_decision
+        assert decision is not None
+        assert decision.stage is CancellationStage.COMPLETED
+

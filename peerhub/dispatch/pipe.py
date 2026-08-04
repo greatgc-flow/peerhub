@@ -23,6 +23,8 @@ from typing import Callable, IO, Protocol
 
 from peerhub.dispatch.contract import ProcessBirthIdentity
 from peerhub.dispatch.process import (
+    CancellationAction,
+    CancellationStage,
     ProcessSupervisor,
     ProcessSupervisionOutcome,
     TreeProcessObservation,
@@ -74,6 +76,10 @@ class TreeController(Protocol):
 def _time_ms() -> int:
     """Current wall-clock time in integer milliseconds."""
     return int(time.time() * 1000)
+
+
+# Polling interval in seconds for the cancellation-aware wait loop.
+_CANCELLATION_POLL_INTERVAL_S = 0.1
 
 
 @dataclass(frozen=True)
@@ -165,6 +171,57 @@ def _get_process_creation_time(pid: int) -> int:
         return 0
 
 
+def _dispatch_cancellation_action(
+    action: CancellationAction,
+    tree_controller: TreeController,
+    tree_handle: TreeHandle,
+) -> TreeDispatchReceipt | None:
+    """Dispatch a single cancellation action to the tree controller.
+
+    Returns the receipt, or ``None`` if the action requires no dispatch.
+    """
+    if action is CancellationAction.SOFT_CANCEL:
+        return tree_controller.soft_cancel(tree_handle)
+    elif action is CancellationAction.TERMINATE_TREE:
+        return tree_controller.terminate_tree(tree_handle)
+    elif action is CancellationAction.KILL_TREE:
+        return tree_controller.kill_tree(tree_handle)
+    return None
+
+
+def _drive_cancellation_ladder(
+    supervisor: ProcessSupervisor,
+    tree_controller: TreeController,
+    tree_handle: TreeHandle,
+    get_time: Callable[[], int],
+) -> None:
+    """Step the cancellation ladder once: dispatch action + observe + feed back.
+
+    Called from the main thread's polling loop when ``supervisor.cancellation_active``
+    is ``True``.  Per Decision A the main thread drives the ladder synchronously
+    during ``proc.wait()``, not a separate poller thread.
+    """
+    decision = supervisor.cancellation_decision
+    if decision is None:
+        return
+
+    # If already completed, nothing to do.
+    if decision.stage is CancellationStage.COMPLETED:
+        return
+
+    # Dispatch the action requested by the current decision.
+    _dispatch_cancellation_action(
+        decision.action, tree_controller, tree_handle,
+    )
+
+    # Observe the tree and feed observations back to the supervisor.
+    observations = tree_controller.observe_tree(tree_handle)
+    supervisor.on_tree_state(
+        observations=list(observations),
+        now_ms=get_time(),
+    )
+
+
 def run_process(
     config: PipeRunnerConfig,
     supervisor: ProcessSupervisor,
@@ -178,6 +235,13 @@ def run_process(
     This function blocks until the process exits and all output has been
     read.  It performs no state-storage transactions -- it's pure OS
     execution driving the pure ``ProcessSupervisor`` reducer.
+
+    When a cancellation has been triggered (via ``supervisor.begin_cancellation()``,
+    called either from a timeout trigger or from the heartbeat-failure path),
+    the main thread drives the cancellation ladder synchronously: it dispatches
+    the tree controller action (``soft_cancel``/``terminate_tree``/``kill_tree``),
+    observes the tree, and feeds observations back via ``supervisor.on_tree_state()``
+    until the ladder reaches ``COMPLETED`` or the process exits.
 
     Parameters
     ----------
@@ -268,15 +332,50 @@ def run_process(
     stdout_reader.start()
     stderr_reader.start()
 
-    # Wait for the process to exit.
-    proc.wait()
+    # Wait for the process to exit, driving the cancellation ladder from the
+    # main thread when a cancellation is active (Decision A: synchronous
+    # polling, no separate poller thread).
+    while proc.poll() is None:
+        if (
+            supervisor.cancellation_active
+            and tree_controller is not None
+            and tree_handle is not None
+        ):
+            _drive_cancellation_ladder(
+                supervisor, tree_controller, tree_handle, get_time,
+            )
+            # Check if ladder completed; if so, give the process a brief
+            # moment to exit from the signal before the next poll.
+            decision = supervisor.cancellation_decision
+            if (
+                decision is not None
+                and decision.stage is CancellationStage.COMPLETED
+            ):
+                # Ladder finished — wait a short time for the process to
+                # exit, then break to avoid infinite polling.
+                try:
+                    proc.wait(timeout=_CANCELLATION_POLL_INTERVAL_S)
+                except subprocess.TimeoutExpired:
+                    pass
+                break
+        # Sleep briefly to avoid busy-waiting.
+        try:
+            proc.wait(timeout=_CANCELLATION_POLL_INTERVAL_S)
+        except subprocess.TimeoutExpired:
+            pass
 
     # Wait for readers to drain remaining buffered output.
     stdout_reader.join(timeout=10.0)
     stderr_reader.join(timeout=10.0)
 
     # Record exit.
-    supervisor.on_exit(exit_code=proc.returncode)
+    if proc.returncode is not None:
+        supervisor.on_exit(exit_code=proc.returncode)
+    else:
+        # Process may still be running if ladder completed but process
+        # hasn't exited yet.  Force-wait and record.
+        proc.wait()
+        supervisor.on_exit(exit_code=proc.returncode)
 
     # Check for reader errors as cleanup evidence.
     reader_errors: list[int] = []

@@ -287,3 +287,109 @@ class TestProcessSupervisorTerminalCertainty:
             "execution — Bug 3 is still present"
         )
         assert assessment.state == CompletionAssessmentState.VERIFIED
+
+
+class TestProcessSupervisorThreadSafety:
+    """Decision B regression: ProcessSupervisor must be safe across threads.
+
+    These tests verify the threading.Lock protects shared state when
+    on_chunk (stream-reader thread), begin_cancellation (heartbeat thread),
+    and finalize_execution_outcome (main thread) are called concurrently.
+    """
+
+    def test_concurrent_on_chunk_from_multiple_threads(self):
+        """Concurrent on_chunk calls from multiple stream-reader threads
+        must not lose chunks or corrupt state."""
+        import threading
+
+        supervisor = ProcessSupervisor()
+        supervisor.on_spawned(pid=9000)
+
+        barrier = threading.Barrier(4)
+        errors: list[Exception] = []
+
+        def writer(data: bytes, base_ts: int, count: int) -> None:
+            try:
+                barrier.wait(timeout=5)
+                for i in range(count):
+                    supervisor.on_chunk(data, timestamp_ms=base_ts + i)
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=writer, args=(b"A", 0, 50)),
+            threading.Thread(target=writer, args=(b"B", 100, 50)),
+            threading.Thread(target=writer, args=(b"C", 200, 50)),
+            threading.Thread(target=writer, args=(b"D", 300, 50)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert not errors
+        supervisor.on_exit(exit_code=0)
+        outcome = supervisor.finalize_execution_outcome()
+        # All 200 chunks must be present (4 threads × 50 chunks).
+        assert len(outcome.canonical_stream) == 200
+
+    def test_begin_cancellation_from_background_thread(self):
+        """begin_cancellation called from a background thread (simulating
+        the heartbeat thread) must not race with on_chunk."""
+        import threading
+
+        supervisor = ProcessSupervisor()
+        supervisor.on_spawned(pid=9001)
+
+        cancel_result: list = []
+
+        def cancel_worker() -> None:
+            decision = supervisor.begin_cancellation(now_ms=1000)
+            cancel_result.append(decision)
+
+        t = threading.Thread(target=cancel_worker)
+        t.start()
+        # Concurrently feed chunks while cancellation starts.
+        for i in range(20):
+            supervisor.on_chunk(b"x", timestamp_ms=500 + i)
+        t.join(timeout=5)
+
+        assert len(cancel_result) == 1
+        assert cancel_result[0].stage.value == "SOFT_CANCEL"
+        # Supervisor should report cancellation active.
+        assert supervisor.cancellation_active is True
+
+    def test_has_lock_attribute(self):
+        """ProcessSupervisor must have a threading.Lock as per Decision B."""
+        import threading
+
+        supervisor = ProcessSupervisor()
+        assert hasattr(supervisor, "_lock")
+        assert isinstance(supervisor._lock, type(threading.Lock()))
+
+
+class TestProcessSupervisorCancellationActive:
+    """Tests for the cancellation_active property."""
+
+    def test_cancellation_active_false_initially(self):
+        supervisor = ProcessSupervisor()
+        assert supervisor.cancellation_active is False
+
+    def test_cancellation_active_true_after_begin(self):
+        supervisor = ProcessSupervisor()
+        supervisor.on_spawned(pid=5000)
+        supervisor.begin_cancellation(now_ms=0)
+        assert supervisor.cancellation_active is True
+
+    def test_cancellation_active_true_after_silence_timeout(self):
+        supervisor = ProcessSupervisor()
+        supervisor.on_spawned(pid=5001)
+        supervisor.trigger_silence_timeout(now_ms=0)
+        assert supervisor.cancellation_active is True
+
+    def test_cancellation_active_true_after_process_deadline(self):
+        supervisor = ProcessSupervisor()
+        supervisor.on_spawned(pid=5002)
+        supervisor.trigger_process_deadline(now_ms=0)
+        assert supervisor.cancellation_active is True
+

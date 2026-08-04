@@ -6,6 +6,8 @@ timeout selection, process tree observation, and cancellation escalation ladders
 
 from __future__ import annotations
 
+import threading
+
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
@@ -493,7 +495,13 @@ class InterruptedAttemptRecoveryOutcome:
 
 
 class ProcessSupervisor:
-    """Process supervisor for DT-01 through DT-06 event reduction."""
+    """Process supervisor for DT-01 through DT-06 event reduction.
+
+    Thread-safety: a ``threading.Lock`` protects all mutable state fields
+    that are accessed across thread boundaries (stream-reader threads via
+    ``on_chunk``, main thread via ``on_exit``/``finalize``, heartbeat
+    thread via ``begin_cancellation``).
+    """
 
     def __init__(
         self,
@@ -510,6 +518,7 @@ class ProcessSupervisor:
             raise ValueError(
                 "cancellation_ladder must be CancellationLadder or null"
             )
+        self._lock = threading.Lock()
         self._cancellation_ladder = cancellation_ladder or CancellationLadder()
         self._cancellation_state = CancellationState(
             grace=self._cancellation_ladder.grace
@@ -527,11 +536,19 @@ class ProcessSupervisor:
 
     @property
     def identity(self) -> ProcessBirthIdentity | None:
-        return self._identity
+        with self._lock:
+            return self._identity
 
     @property
     def cancellation_decision(self) -> CancellationDecision | None:
-        return self._cancellation_decision
+        with self._lock:
+            return self._cancellation_decision
+
+    @property
+    def cancellation_active(self) -> bool:
+        """Whether a cancellation has been triggered (thread-safe query)."""
+        with self._lock:
+            return self._cancellation_state.stage is not CancellationStage.IDLE
 
     def on_spawned(
         self,
@@ -543,15 +560,17 @@ class ProcessSupervisor:
         if identity is not None:
             if not isinstance(identity, ProcessBirthIdentity):
                 raise ValueError("identity must be a ProcessBirthIdentity")
-            self._identity = identity
+            with self._lock:
+                self._identity = identity
         elif pid is not None:
             creation_time = (
                 process_creation_time if process_creation_time is not None else 0
             )
-            self._identity = ProcessBirthIdentity(
-                pid=pid,
-                process_creation_time=creation_time,
-            )
+            with self._lock:
+                self._identity = ProcessBirthIdentity(
+                    pid=pid,
+                    process_creation_time=creation_time,
+                )
         else:
             raise ValueError("on_spawned requires either pid or identity")
 
@@ -565,18 +584,20 @@ class ProcessSupervisor:
             raise ValueError("chunk must be bytes")
         if type(timestamp_ms) is not int:
             raise ValueError("timestamp_ms must be int")
-        if (
-            self._last_timestamp_ms is not None
-            and timestamp_ms < self._last_timestamp_ms
-        ):
-            self._stream_events_ordered = False
-        self._last_timestamp_ms = timestamp_ms
-        self._chunks.append((chunk, timestamp_ms))
+        with self._lock:
+            if (
+                self._last_timestamp_ms is not None
+                and timestamp_ms < self._last_timestamp_ms
+            ):
+                self._stream_events_ordered = False
+            self._last_timestamp_ms = timestamp_ms
+            self._chunks.append((chunk, timestamp_ms))
 
     def on_exit(self, *, exit_code: int) -> None:
         if type(exit_code) is not int:
             raise ValueError("exit_code must be int")
-        self._exit_code = exit_code
+        with self._lock:
+            self._exit_code = exit_code
 
     def on_tree_state(
         self,
@@ -605,39 +626,44 @@ class ProcessSupervisor:
             else:
                 raise ValueError(f"Invalid observation item: {item}")
 
-        if self._cancellation_state.stage is CancellationStage.IDLE:
-            self.begin_cancellation(now_ms=now_ms)
+        with self._lock:
+            if self._cancellation_state.stage is CancellationStage.IDLE:
+                self._begin_cancellation_locked(now_ms=now_ms)
 
-        self._cancellation_state, self._cancellation_decision = (
-            self._cancellation_ladder.step(
-                self._cancellation_state,
-                observations=norm_observations,
-                now_ms=now_ms,
+            self._cancellation_state, self._cancellation_decision = (
+                self._cancellation_ladder.step(
+                    self._cancellation_state,
+                    observations=norm_observations,
+                    now_ms=now_ms,
+                )
             )
-        )
 
-        unresolved = self._cancellation_decision.unresolved_identities
-        if unresolved and (
-            self._cancellation_decision.stage
-            in (CancellationStage.RECONCILE_TREE, CancellationStage.COMPLETED)
-            or self._cancellation_decision.action is CancellationAction.RECONCILE_TREE
-        ):
-            self.on_cleanup_error(unresolved_identities=unresolved)
-        elif self._cancellation_decision.all_terminated:
-            self._cleanup_evidence = None
+            unresolved = self._cancellation_decision.unresolved_identities
+            if unresolved and (
+                self._cancellation_decision.stage
+                in (CancellationStage.RECONCILE_TREE, CancellationStage.COMPLETED)
+                or self._cancellation_decision.action is CancellationAction.RECONCILE_TREE
+            ):
+                self._cleanup_evidence = ProcessCleanupEvidence(
+                    unresolved_identities=unresolved
+                )
+            elif self._cancellation_decision.all_terminated:
+                self._cleanup_evidence = None
 
-        return self._cancellation_decision
+            return self._cancellation_decision
 
     def on_cleanup_error(
         self,
         *,
         unresolved_identities: Sequence[int],
     ) -> None:
-        self._cleanup_evidence = ProcessCleanupEvidence(
-            unresolved_identities=unresolved_identities
-        )
+        with self._lock:
+            self._cleanup_evidence = ProcessCleanupEvidence(
+                unresolved_identities=unresolved_identities
+            )
 
-    def begin_cancellation(self, *, now_ms: int = 0) -> CancellationDecision:
+    def _begin_cancellation_locked(self, *, now_ms: int = 0) -> CancellationDecision:
+        """Internal begin_cancellation that assumes the lock is already held."""
         if self._terminal_classification is None and not self._timed_out:
             self._cancelled = True
 
@@ -654,61 +680,68 @@ class ProcessSupervisor:
 
         return self._cancellation_decision
 
+    def begin_cancellation(self, *, now_ms: int = 0) -> CancellationDecision:
+        with self._lock:
+            return self._begin_cancellation_locked(now_ms=now_ms)
+
     def trigger_silence_timeout(self, *, now_ms: int = 0) -> None:
-        if self._terminal_classification is None:
-            self._terminal_classification = (
-                TerminalClassification.SILENCE_TIMEOUT
-            )
-        self._timed_out = True
-        self.begin_cancellation(now_ms=now_ms)
+        with self._lock:
+            if self._terminal_classification is None:
+                self._terminal_classification = (
+                    TerminalClassification.SILENCE_TIMEOUT
+                )
+            self._timed_out = True
+            self._begin_cancellation_locked(now_ms=now_ms)
 
     def trigger_process_deadline(self, *, now_ms: int = 0) -> None:
-        if self._terminal_classification is None:
-            self._terminal_classification = (
-                TerminalClassification.PROCESS_TIMEOUT
-            )
-        self._timed_out = True
-        self.begin_cancellation(now_ms=now_ms)
+        with self._lock:
+            if self._terminal_classification is None:
+                self._terminal_classification = (
+                    TerminalClassification.PROCESS_TIMEOUT
+                )
+            self._timed_out = True
+            self._begin_cancellation_locked(now_ms=now_ms)
 
     def finalize_execution_outcome(
         self,
     ) -> ProcessSupervisionOutcome:
-        started = self._identity is not None
-        if not started:
-            certainty = ExecutionCertainty.NOT_STARTED
-        elif (
-            self._exit_code is not None
-            and not self._timed_out
-            and not self._cancelled
-        ):
-            certainty = ExecutionCertainty.TERMINAL
-        elif self._timed_out or self._cancelled:
-            certainty = ExecutionCertainty.MAY_HAVE_STARTED
-        else:
-            certainty = ExecutionCertainty.STARTED
+        with self._lock:
+            started = self._identity is not None
+            if not started:
+                certainty = ExecutionCertainty.NOT_STARTED
+            elif (
+                self._exit_code is not None
+                and not self._timed_out
+                and not self._cancelled
+            ):
+                certainty = ExecutionCertainty.TERMINAL
+            elif self._timed_out or self._cancelled:
+                certainty = ExecutionCertainty.MAY_HAVE_STARTED
+            else:
+                certainty = ExecutionCertainty.STARTED
 
-        exec_outcome = ExecutionOutcome(
-            started=started,
-            exit_code=self._exit_code,
-            timed_out=self._timed_out,
-            cancelled=self._cancelled,
-            execution_certainty=certainty,
-        )
-        canonical_stream = b"".join(c[0] for c in self._chunks)
-        term_class = self._terminal_classification
-        if (
-            term_class is None
-            and self._exit_code is not None
-            and self._exit_code != 0
-        ):
-            term_class = TerminalClassification.EXIT_NON_ZERO
+            exec_outcome = ExecutionOutcome(
+                started=started,
+                exit_code=self._exit_code,
+                timed_out=self._timed_out,
+                cancelled=self._cancelled,
+                execution_certainty=certainty,
+            )
+            canonical_stream = b"".join(c[0] for c in self._chunks)
+            term_class = self._terminal_classification
+            if (
+                term_class is None
+                and self._exit_code is not None
+                and self._exit_code != 0
+            ):
+                term_class = TerminalClassification.EXIT_NON_ZERO
 
-        return ProcessSupervisionOutcome(
-            execution_outcome=exec_outcome,
-            stream_events_ordered=self._stream_events_ordered,
-            canonical_stream=canonical_stream,
-            terminal_classification=term_class,
-            cleanup_evidence=self._cleanup_evidence,
-        )
+            return ProcessSupervisionOutcome(
+                execution_outcome=exec_outcome,
+                stream_events_ordered=self._stream_events_ordered,
+                canonical_stream=canonical_stream,
+                terminal_classification=term_class,
+                cleanup_evidence=self._cleanup_evidence,
+            )
 
 

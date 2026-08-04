@@ -676,12 +676,25 @@ class ApplicationWorkflows:
                     attempt.attempt_id,
                     process_identity=identity,
                 )
+
+                def _on_heartbeat_failure(failure: "HeartbeatFailure") -> None:
+                    """Trigger the cancellation ladder on heartbeat failure.
+
+                    This callback runs on the heartbeat background thread.
+                    ``supervisor.begin_cancellation()`` is thread-safe (protected
+                    by the supervisor's internal lock).  The actual ladder steps
+                    are driven synchronously on ``run_process``'s main thread
+                    (Decision A).
+                    """
+                    supervisor.begin_cancellation()
+
                 heartbeat_worker = HeartbeatWorker(
                     process=proc,
                     identity=identity,
                     initial_lease=running_lease,
                     renewer=dispatch_service,
                     heartbeat_timeout_ms=heartbeat_timeout_ms,
+                    on_failure=_on_heartbeat_failure,
                 )
                 heartbeat_worker.start()
             except Exception as exc:
