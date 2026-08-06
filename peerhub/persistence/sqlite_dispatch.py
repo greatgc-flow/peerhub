@@ -47,6 +47,9 @@ from peerhub.dispatch.contract import (
     SessionBindingKey,
     SessionBindingSnapshot,
     SessionBindingState,
+    SessionRotationState,
+    SessionRotationKey,
+    SessionRotationGenerationSnapshot,
 )
 
 def _completion_contract_data(
@@ -1879,3 +1882,189 @@ class SqliteDispatchRepository:
         )
         return cursor.rowcount == 1
 
+    def get_max_rotation_generation(
+        self,
+        workspace_scope_id: str,
+        instance_id: str,
+        profile_id: str,
+    ) -> SessionRotationGenerationSnapshot | None:
+        """Return the current max generation for a session rotation key."""
+        row = self._db().execute(
+            """
+            SELECT * FROM session_binding_generations
+            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ?
+            ORDER BY generation_id DESC LIMIT 1
+            """,
+            (workspace_scope_id, instance_id, profile_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._session_rotation_from_row(row)
+
+    @staticmethod
+    def _session_rotation_from_row(row: sqlite3.Row) -> SessionRotationGenerationSnapshot:
+        return SessionRotationGenerationSnapshot(
+            key=SessionRotationKey(
+                workspace_scope_id=row["workspace_scope_id"],
+                instance_id=row["instance_id"],
+                profile_id=row["profile_id"],
+                generation_id=row["generation_id"],
+            ),
+            conversation_id=row["conversation_id"],
+            state=SessionRotationState(row["state"]),
+            claim_token=row["claim_token"],
+            claim_expiry=row["claim_expiry"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def insert_rotation_generation(
+        self,
+        snapshot: SessionRotationGenerationSnapshot,
+    ) -> None:
+        """Insert a new session rotation generation."""
+        self._db().execute(
+            """
+            INSERT INTO session_binding_generations (
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                generation_id,
+                conversation_id,
+                state,
+                claim_token,
+                claim_expiry,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                snapshot.key.workspace_scope_id,
+                snapshot.key.instance_id,
+                snapshot.key.profile_id,
+                snapshot.key.generation_id,
+                snapshot.conversation_id,
+                snapshot.state.value,
+                snapshot.claim_token,
+                snapshot.claim_expiry,
+                snapshot.created_at,
+                snapshot.updated_at,
+            ),
+        )
+
+    def claim_rotation(
+        self,
+        *,
+        workspace_scope_id: str,
+        instance_id: str,
+        profile_id: str,
+        expected_generation_id: int,
+        claim_token: str,
+        claim_expiry: int,
+        updated_at: int,
+    ) -> bool:
+        """CAS the current ACTIVE generation to DRAINING with a claim_token+claim_expiry."""
+        cursor = self._db().execute(
+            """
+            UPDATE session_binding_generations
+            SET state = ?, claim_token = ?, claim_expiry = ?, updated_at = ?
+            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ? 
+              AND generation_id = ? AND state = ?
+            """,
+            (
+                SessionRotationState.DRAINING.value,
+                claim_token,
+                claim_expiry,
+                updated_at,
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                expected_generation_id,
+                SessionRotationState.ACTIVE.value,
+            )
+        )
+        return cursor.rowcount == 1
+
+    def commit_rotation(
+        self,
+        *,
+        workspace_scope_id: str,
+        instance_id: str,
+        profile_id: str,
+        expected_generation_id: int,
+        claim_token: str,
+        new_conversation_id: str,
+        updated_at: int,
+    ) -> bool:
+        """Commit rotation: insert generation+1 as ACTIVE and update DRAINING to RETIRED."""
+        cursor = self._db().execute(
+            """
+            UPDATE session_binding_generations
+            SET state = ?, updated_at = ?
+            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ? 
+              AND generation_id = ? AND state = ? AND claim_token = ?
+            """,
+            (
+                SessionRotationState.RETIRED.value,
+                updated_at,
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                expected_generation_id,
+                SessionRotationState.DRAINING.value,
+                claim_token,
+            )
+        )
+        if cursor.rowcount != 1:
+            return False
+            
+        self._db().execute(
+            """
+            INSERT INTO session_binding_generations (
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                generation_id,
+                conversation_id,
+                state,
+                claim_token,
+                claim_expiry,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                expected_generation_id + 1,
+                new_conversation_id,
+                SessionRotationState.ACTIVE.value,
+                None,
+                None,
+                updated_at,
+                updated_at,
+            ),
+        )
+        return True
+
+    def sweep_expired_rotation_claims(
+        self,
+        *,
+        current_time: int,
+    ) -> int:
+        """Revert DRAINING rows with expired claim_expiry to ACTIVE."""
+        cursor = self._db().execute(
+            """
+            UPDATE session_binding_generations
+            SET state = ?, claim_token = NULL, claim_expiry = NULL, updated_at = ?
+            WHERE state = ? AND claim_expiry <= ?
+            """,
+            (
+                SessionRotationState.ACTIVE.value,
+                current_time,
+                SessionRotationState.DRAINING.value,
+                current_time,
+            )
+        )
+        return cursor.rowcount

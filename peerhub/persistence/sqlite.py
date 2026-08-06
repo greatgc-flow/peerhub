@@ -254,6 +254,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 9 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0009_session_binding_generations.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

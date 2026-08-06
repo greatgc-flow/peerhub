@@ -115,6 +115,16 @@ class SessionBindingState(str, Enum):
     VERIFYING = "VERIFYING"
 
 
+class SessionRotationState(str, Enum):
+    """Authoritative lifecycle states for session rotation generations."""
+
+    ACTIVE = "ACTIVE"
+    ROTATION_PENDING = "ROTATION_PENDING"
+    DRAINING = "DRAINING"
+    RETIRED = "RETIRED"
+    SUSPECT = "SUSPECT"
+
+
 class LeaseAuthorityCertainty(str, Enum):
     """Authority certainty level regarding lease fencing boundaries."""
 
@@ -781,6 +791,65 @@ class SessionBindingKey:
                 self,
                 name,
                 require_text(getattr(self, name), name),
+            )
+
+
+@dataclass(frozen=True)
+class SessionRotationKey:
+    """Canonical four-part binding key for a session rotation generation."""
+
+    workspace_scope_id: str
+    instance_id: str
+    profile_id: str
+    generation_id: int
+
+    def __post_init__(self) -> None:
+        for name in (
+            "workspace_scope_id",
+            "instance_id",
+            "profile_id",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                require_text(getattr(self, name), name),
+            )
+        _require_nonnegative_int(self.generation_id, "generation_id")
+
+
+@dataclass(frozen=True)
+class SessionRotationGenerationSnapshot:
+    """Authoritative revisioned state of a session rotation generation."""
+
+    key: SessionRotationKey
+    conversation_id: str
+    state: SessionRotationState
+    claim_token: str | None
+    claim_expiry: int | None
+    created_at: int
+    updated_at: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "conversation_id",
+            require_text(self.conversation_id, "conversation_id"),
+        )
+        if not isinstance(self.state, SessionRotationState):
+            raise ValueError("state must be SessionRotationState")
+        if self.claim_token is not None:
+            object.__setattr__(
+                self,
+                "claim_token",
+                require_text(self.claim_token, "claim_token"),
+            )
+        if self.claim_expiry is not None:
+            _require_nonnegative_int(self.claim_expiry, "claim_expiry")
+        _require_nonnegative_int(self.created_at, "created_at")
+        _require_nonnegative_int(self.updated_at, "updated_at")
+        if self.updated_at < self.created_at:
+            raise ValueError(
+                "updated_at cannot precede created_at"
             )
 
 
