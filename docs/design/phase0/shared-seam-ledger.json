@@ -1,0 +1,3593 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generator": "tools/shared_seam_ledger/generate_ledger.py",
+    "note": "Maps shared internal helpers (seams) to the actions that depend on them."
+  },
+  "total_shared_seams": 216,
+  "shared_seams": {
+    "_read_json": {
+      "direct_callers_count": 49,
+      "transitive_callers_count": 71,
+      "direct_callers": [
+        "alert-raise",
+        "append-handoff",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "check",
+        "check-gate",
+        "checkpoint",
+        "clear-room",
+        "consensus-check",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "context-fill",
+        "end-session",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "health-precheck",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-status",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-propose",
+        "lock-status",
+        "mark-read",
+        "new-topic",
+        "peer-status",
+        "profile-validate",
+        "register-node",
+        "release-role",
+        "role-status",
+        "send",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "task-status",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-promote",
+        "update-status"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "append-handoff",
+        "approval-request",
+        "arbiter-review",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "check",
+        "check-gate",
+        "checkpoint",
+        "clear-room",
+        "consensus-check",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "context-fill",
+        "context-hash",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-status",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lesson-inject",
+        "lessons-activate",
+        "lessons-list",
+        "lessons-propose",
+        "list-nodes",
+        "lock-status",
+        "mark-read",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "profile-validate",
+        "proposal-add",
+        "proposal-vote",
+        "register-node",
+        "release-role",
+        "report-error",
+        "role-status",
+        "send",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "task-status",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-append",
+        "thread-new",
+        "thread-promote",
+        "thread-react",
+        "update-status"
+      ]
+    },
+    "_get_lock": {
+      "direct_callers_count": 34,
+      "transitive_callers_count": 60,
+      "direct_callers": [
+        "alert-raise",
+        "append-handoff",
+        "append-log",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "assign-role",
+        "broker-drain",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "end-session",
+        "feedback-add",
+        "feedback-resolve",
+        "file-lock",
+        "file-unlock",
+        "health-update",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "mark-read",
+        "new-topic",
+        "register-node",
+        "release-role",
+        "send",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-close",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-promote",
+        "update-status"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "append-handoff",
+        "append-log",
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "checkpoint",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "feedback-add",
+        "feedback-resolve",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "health-update",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "mark-read",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "register-node",
+        "release-role",
+        "report-error",
+        "send",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-new",
+        "thread-promote",
+        "thread-react",
+        "update-status"
+      ]
+    },
+    "_now": {
+      "direct_callers_count": 45,
+      "transitive_callers_count": 59,
+      "direct_callers": [
+        "alert-raise",
+        "append-log",
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "ask",
+        "assign-role",
+        "broadcast",
+        "broker-submit",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "directive-clear",
+        "end-session",
+        "feedback-add",
+        "feedback-resolve",
+        "file-lock",
+        "freshness-sweep",
+        "health-check",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-status",
+        "lease-sweep",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "report-error",
+        "send",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-close",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-append",
+        "thread-new",
+        "thread-promote",
+        "thread-react",
+        "update-status"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "append-log",
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "ask",
+        "ask-all",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "broker-submit",
+        "checkpoint",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "directive-clear",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "feedback-add",
+        "feedback-resolve",
+        "file-lock",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-status",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "report-error",
+        "send",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-append",
+        "thread-new",
+        "thread-promote",
+        "thread-react",
+        "update-status"
+      ]
+    },
+    "_write_json_atomic": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 54,
+      "direct_callers": [
+        "thread-promote"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "checkpoint",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "mark-read",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "register-node",
+        "release-role",
+        "report-error",
+        "send",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-new",
+        "thread-promote",
+        "thread-react",
+        "update-status"
+      ]
+    },
+    "_is_sandbox_rename_denied": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 53,
+      "direct_callers": [],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "checkpoint",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "elect-leader",
+        "end-session",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "mark-read",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "register-node",
+        "release-role",
+        "report-error",
+        "send",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-new",
+        "thread-promote",
+        "thread-react",
+        "update-status"
+      ]
+    },
+    "_permission_winerror": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 48,
+      "direct_callers": [],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "checkpoint",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "elect-leader",
+        "end-session",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-propose",
+        "mark-read",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "proposal-add",
+        "proposal-vote",
+        "register-node",
+        "release-role",
+        "report-error",
+        "send",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-new",
+        "thread-promote",
+        "thread-react",
+        "update-status"
+      ]
+    },
+    "_load_protocol_cfg": {
+      "direct_callers_count": 10,
+      "transitive_callers_count": 39,
+      "direct_callers": [
+        "artifact-claim",
+        "consensus-propose",
+        "consensus-sweep",
+        "context-fill",
+        "discover",
+        "health-update",
+        "leader-claim",
+        "proposal-add",
+        "proposal-list",
+        "thread-react"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-all",
+        "ask-coordinator",
+        "assign-role",
+        "broker-drain",
+        "consensus-propose",
+        "consensus-sweep",
+        "context-fill",
+        "context-hash",
+        "discover",
+        "elect-leader",
+        "feedback-add",
+        "feedback-list",
+        "feedback-resolve",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "health-update",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "model-status",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-list",
+        "proposal-vote",
+        "report-error",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "thread-react"
+      ]
+    },
+    "_write_handoff": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 37,
+      "direct_callers": [
+        "clear-room",
+        "end-session",
+        "new-topic"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broker-drain",
+        "checkpoint",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "report-error",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "thread-new",
+        "thread-react"
+      ]
+    },
+    "_parse_handoff": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 36,
+      "direct_callers": [
+        "context-fill",
+        "new-topic"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broker-drain",
+        "checkpoint",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "context-fill",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "report-error",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "thread-new",
+        "thread-react"
+      ]
+    },
+    "_render_handoff": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 36,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broker-drain",
+        "checkpoint",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "report-error",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "thread-new",
+        "thread-react"
+      ]
+    },
+    "_load_orchestration": {
+      "direct_callers_count": 10,
+      "transitive_callers_count": 35,
+      "direct_callers": [
+        "ask-all",
+        "ask-coordinator",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "health-update",
+        "lease-sweep",
+        "model-status",
+        "peer-status"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "ask",
+        "ask-all",
+        "ask-coordinator",
+        "assign-role",
+        "broadcast",
+        "broker-drain",
+        "clear-room",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "health-update",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "list-nodes",
+        "model-status",
+        "new-topic",
+        "peer-status",
+        "profile-validate",
+        "proposal-add",
+        "proposal-list",
+        "proposal-vote",
+        "register-node",
+        "send",
+        "status",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_read_handoff": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 35,
+      "direct_callers": [
+        "end-session"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broker-drain",
+        "checkpoint",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "discover",
+        "elect-leader",
+        "end-session",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "model-status",
+        "peer-quarantine",
+        "peer-recover",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "report-error",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "thread-new",
+        "thread-react"
+      ]
+    },
+    "_append_handoff_item": {
+      "direct_callers_count": 17,
+      "transitive_callers_count": 31,
+      "direct_callers": [
+        "approval-request",
+        "assign-role",
+        "checkpoint",
+        "freshness-sweep",
+        "health-sweep",
+        "leader-claim",
+        "leader-yield",
+        "peer-quarantine",
+        "peer-recover",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-handoff",
+        "thread-new",
+        "thread-react"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "checkpoint",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "freshness-sweep",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "model-status",
+        "peer-quarantine",
+        "peer-recover",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "release-role",
+        "report-error",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "thread-new",
+        "thread-react"
+      ]
+    },
+    "_peer_sys_dir": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 27,
+      "direct_callers": [
+        "health-precheck",
+        "health-update"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "clear-room",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "health-update",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "report-error",
+        "status",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_log_p2p": {
+      "direct_callers_count": 17,
+      "transitive_callers_count": 26,
+      "direct_callers": [
+        "alert-raise",
+        "ask",
+        "broadcast",
+        "checkpoint",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "end-session",
+        "health-update",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "send",
+        "terminal-handoff",
+        "thread-promote",
+        "update-status"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "broadcast",
+        "broker-drain",
+        "checkpoint",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "elect-leader",
+        "end-session",
+        "health-update",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "send",
+        "status",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "thread-promote",
+        "update-status"
+      ]
+    },
+    "_write_json": {
+      "direct_callers_count": 16,
+      "transitive_callers_count": 26,
+      "direct_callers": [
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "broadcast",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "end-session",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "lease-sweep",
+        "mark-read",
+        "register-node",
+        "send"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-coordinator",
+        "broadcast",
+        "broker-drain",
+        "clear-room",
+        "consensus-propose",
+        "consensus-sweep",
+        "consensus-vote",
+        "end-session",
+        "file-lock",
+        "file-unlock",
+        "freshness-sweep",
+        "init-session",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "mark-read",
+        "register-node",
+        "send",
+        "status"
+      ]
+    },
+    "find_ai_root": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 26,
+      "direct_callers": [
+        "peer-status"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "clear-room",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "report-error",
+        "status",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_is_phantom": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 24,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "clear-room",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "model-status",
+        "new-topic",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "report-error",
+        "status",
+        "task-failover"
+      ]
+    },
+    "_load_peers": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 24,
+      "direct_callers": [
+        "check-gate",
+        "health-check",
+        "peer-recover",
+        "peer-status"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "broker-drain",
+        "check-gate",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "model-status",
+        "peer-recover",
+        "peer-status",
+        "proposal-add",
+        "proposal-vote",
+        "status",
+        "task-failover",
+        "terminal-duty-sweep",
+        "terminal-handoff"
+      ]
+    },
+    "_read_peer_health": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 24,
+      "direct_callers": [
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "model-status",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "report-error",
+        "status",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_write_peer_health": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 24,
+      "direct_callers": [
+        "health-sweep",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "model-status",
+        "peer-quarantine",
+        "peer-recover",
+        "peer-status",
+        "preflight",
+        "proposal-add",
+        "proposal-vote",
+        "report-error",
+        "status",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "is_routable": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 20,
+      "direct_callers": [
+        "ask-all",
+        "ask-coordinator",
+        "broadcast"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "ask",
+        "ask-all",
+        "ask-coordinator",
+        "broadcast",
+        "clear-room",
+        "init-session",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "list-nodes",
+        "new-topic",
+        "profile-validate",
+        "proposal-add",
+        "proposal-list",
+        "register-node",
+        "send",
+        "status"
+      ]
+    },
+    "_parse_compact_ts": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 17,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "leader-claim",
+        "model-status",
+        "peer-status",
+        "proposal-add",
+        "proposal-vote",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_validate_state": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 17,
+      "direct_callers": [],
+      "transitive_callers": [
+        "alert-raise",
+        "assign-role",
+        "broker-drain",
+        "broker-submit",
+        "clear-room",
+        "elect-leader",
+        "end-session",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "new-topic",
+        "release-role",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "update-status"
+      ]
+    },
+    "_peer_effective_health": {
+      "direct_callers_count": 10,
+      "transitive_callers_count": 16,
+      "direct_callers": [
+        "assign-role",
+        "consensus-propose",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "leader-claim",
+        "model-status",
+        "proposal-add",
+        "proposal-vote",
+        "task-failover"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "leader-claim",
+        "model-status",
+        "proposal-add",
+        "proposal-vote",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "action_peer_recover": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 16,
+      "direct_callers": [
+        "peer-recover"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "leader-claim",
+        "model-status",
+        "proposal-add",
+        "proposal-vote",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "gate_effectively_open": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 16,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "discover",
+        "elect-leader",
+        "health-check",
+        "health-precheck",
+        "health-sweep",
+        "leader-claim",
+        "model-status",
+        "proposal-add",
+        "proposal-vote",
+        "task-failover",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_write_state": {
+      "direct_callers_count": 13,
+      "transitive_callers_count": 15,
+      "direct_callers": [
+        "alert-raise",
+        "assign-role",
+        "clear-room",
+        "end-session",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "new-topic",
+        "release-role",
+        "terminal-close",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "update-status"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "assign-role",
+        "clear-room",
+        "elect-leader",
+        "end-session",
+        "init-session",
+        "leader-claim",
+        "leader-yield",
+        "new-topic",
+        "release-role",
+        "terminal-close",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat",
+        "update-status"
+      ]
+    },
+    "_load_lifecycle_policy": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 14,
+      "direct_callers": [
+        "broadcast",
+        "clear-room",
+        "new-topic",
+        "send"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "broadcast",
+        "clear-room",
+        "init-session",
+        "lease-sweep",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "new-topic",
+        "send",
+        "status"
+      ]
+    },
+    "_short_id": {
+      "direct_callers_count": 8,
+      "transitive_callers_count": 14,
+      "direct_callers": [
+        "alert-raise",
+        "ask",
+        "broadcast",
+        "clear-room",
+        "consensus-propose",
+        "init-session",
+        "new-topic",
+        "send"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "broadcast",
+        "broker-drain",
+        "clear-room",
+        "consensus-propose",
+        "init-session",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "new-topic",
+        "send"
+      ]
+    },
+    "_runtime_directives_path": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 11,
+      "direct_callers": [
+        "directive-add",
+        "directive-clear",
+        "directive-list",
+        "lesson-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "directive-add",
+        "directive-clear",
+        "directive-list",
+        "elect-leader",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "lesson-sweep",
+        "status"
+      ]
+    },
+    "_knowledge_root": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 10,
+      "direct_callers": [
+        "lesson-sweep",
+        "lessons-activate",
+        "lessons-propose",
+        "lessons-retire"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "context-fill",
+        "lesson-broadcast",
+        "lesson-inject",
+        "lesson-sweep",
+        "lessons-activate",
+        "lessons-list",
+        "lessons-propose",
+        "lessons-retire"
+      ]
+    },
+    "_maildir_path": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 9,
+      "direct_callers": [],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast",
+        "check",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "mark-read",
+        "send"
+      ]
+    },
+    "_operational_guard_cfg": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 9,
+      "direct_callers": [
+        "report-error"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain",
+        "context-hash",
+        "init-session",
+        "lease-sweep",
+        "preflight",
+        "report-error",
+        "status"
+      ]
+    },
+    "_save_runtime_directive": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 9,
+      "direct_callers": [
+        "directive-add",
+        "lesson-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "directive-add",
+        "elect-leader",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "lesson-sweep",
+        "status"
+      ]
+    },
+    "_canonical_admission_identity": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 8,
+      "direct_callers": [
+        "init-session",
+        "send"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast",
+        "init-session",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "send"
+      ]
+    },
+    "_default_nodes": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 8,
+      "direct_callers": [
+        "profile-validate",
+        "register-node"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "list-nodes",
+        "profile-validate",
+        "register-node",
+        "status"
+      ]
+    },
+    "_gc_unreferenced_payloads": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 8,
+      "direct_callers": [
+        "clear-room",
+        "send"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast",
+        "clear-room",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "send"
+      ]
+    },
+    "_get_active_runtime_directives": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 8,
+      "direct_callers": [
+        "directive-list"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "directive-list",
+        "elect-leader",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_payload_ids_from_messages": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 8,
+      "direct_callers": [],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast",
+        "clear-room",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "send"
+      ]
+    },
+    "_portable_state_path": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 8,
+      "direct_callers": [],
+      "transitive_callers": [
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status",
+        "ask",
+        "ask-coordinator",
+        "feedback-add",
+        "feedback-list",
+        "feedback-resolve"
+      ]
+    },
+    "_append_jsonl": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 7,
+      "direct_callers": [
+        "thread-promote"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-all",
+        "ask-coordinator",
+        "broker-drain",
+        "elect-leader",
+        "thread-promote"
+      ]
+    },
+    "_bump_directive_trigger": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 7,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "elect-leader",
+        "init-session",
+        "leader-claim",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_is_active": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 7,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "context-fill",
+        "lesson-broadcast",
+        "lesson-inject",
+        "lessons-activate",
+        "lessons-list"
+      ]
+    },
+    "_knowledge_config": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 7,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "context-fill",
+        "lesson-broadcast",
+        "lesson-inject",
+        "lessons-activate",
+        "lessons-list"
+      ]
+    },
+    "_load_active_lessons": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 7,
+      "direct_callers": [
+        "context-fill",
+        "lesson-broadcast",
+        "lesson-inject",
+        "lessons-list"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "context-fill",
+        "lesson-broadcast",
+        "lesson-inject",
+        "lessons-activate",
+        "lessons-list"
+      ]
+    },
+    "_maildir_write": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 7,
+      "direct_callers": [
+        "send"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "send"
+      ]
+    },
+    "_operational_error_path": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 7,
+      "direct_callers": [
+        "report-error"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "preflight",
+        "report-error",
+        "status"
+      ]
+    },
+    "_prune_mailbox_messages": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 7,
+      "direct_callers": [
+        "send"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose",
+        "send"
+      ]
+    },
+    "action_peer_quarantine": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 7,
+      "direct_callers": [
+        "report-error"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "preflight",
+        "report-error",
+        "status"
+      ]
+    },
+    "_append_consensus_history": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "consensus-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain",
+        "consensus-sweep",
+        "consensus-vote",
+        "init-session"
+      ]
+    },
+    "_ensure_aware": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat"
+      ]
+    },
+    "_get_logger": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 6,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "credit-consume",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_human_interface_cfg": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 6,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat"
+      ]
+    },
+    "_human_interface_freshness_minutes": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "terminal-handoff",
+        "terminal-heartbeat"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep",
+        "terminal-handoff",
+        "terminal-heartbeat"
+      ]
+    },
+    "_leases_path": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "lease-status",
+        "lease-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-status",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_load_model_profiles": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "profile-validate"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "profile-validate",
+        "status"
+      ]
+    },
+    "_parse_lease_timestamp": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "lease-status",
+        "lease-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-status",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_pid_alive": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "health-check"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "health-check",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_record_routing_metric": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "approval-request",
+        "ask-coordinator",
+        "elect-leader"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-all",
+        "ask-coordinator",
+        "broker-drain",
+        "elect-leader"
+      ]
+    },
+    "_resolve_profile_id": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "profile-validate"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "profile-validate",
+        "status"
+      ]
+    },
+    "_routing_metrics_path": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 6,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-all",
+        "ask-coordinator",
+        "broker-drain",
+        "elect-leader"
+      ]
+    },
+    "action_report_error": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "preflight"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "preflight",
+        "status"
+      ]
+    },
+    "action_send": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 6,
+      "direct_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast"
+      ],
+      "transitive_callers": [
+        "alert-raise",
+        "approval-request",
+        "broadcast",
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose"
+      ]
+    },
+    "_append_ask_history": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 5,
+      "direct_callers": [
+        "ask",
+        "lease-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_auto_promote_runtime_directive": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 5,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_kill_process_tree": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 5,
+      "direct_callers": [
+        "lease-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_kill_tree_no_psutil": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 5,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_record_ask_failure": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 5,
+      "direct_callers": [
+        "lease-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_task_registry_path": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 5,
+      "direct_callers": [
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "task-status"
+      ],
+      "transitive_callers": [
+        "leader-yield",
+        "status",
+        "task-checkpoint",
+        "task-failover",
+        "task-status"
+      ]
+    },
+    "_validate_task_registry": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 5,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "broker-submit",
+        "leader-yield",
+        "task-checkpoint",
+        "task-failover"
+      ]
+    },
+    "_validated_live_lease_pid": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 5,
+      "direct_callers": [
+        "lease-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "lease-sweep",
+        "status"
+      ]
+    },
+    "_broker_dirs": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "broker-status",
+        "broker-submit"
+      ],
+      "transitive_callers": [
+        "broker-drain",
+        "broker-status",
+        "broker-submit",
+        "consensus-vote"
+      ]
+    },
+    "_compile_lessons_block": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "context-fill",
+        "lesson-inject"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "context-fill",
+        "lesson-inject"
+      ]
+    },
+    "_direct_write_capability_status": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_file_locks_path": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "file-lock",
+        "file-unlock",
+        "lock-status",
+        "status"
+      ],
+      "transitive_callers": [
+        "file-lock",
+        "file-unlock",
+        "lock-status",
+        "status"
+      ]
+    },
+    "_filter_lessons_for_peer": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "lesson-inject",
+        "lessons-list"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "lesson-inject",
+        "lessons-list"
+      ]
+    },
+    "_healthy_peer": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "task-failover"
+      ],
+      "transitive_callers": [
+        "ask-coordinator",
+        "assign-role",
+        "consensus-propose",
+        "task-failover"
+      ]
+    },
+    "_human_interface_assignment_fresh": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_human_interface_peer_eligibility": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_human_interface_peer_node": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_human_interface_profile_for_peer": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_human_interface_required_profile": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_lease_sweep": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "init-session",
+        "status"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session",
+        "status"
+      ]
+    },
+    "_load_balancer_config": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_mutate_session_state": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "clear-room",
+        "new-topic"
+      ]
+    },
+    "_profile_tier_rank": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_routable_root_peer_ids": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "clear-room",
+        "new-topic"
+      ],
+      "transitive_callers": [
+        "clear-room",
+        "new-topic",
+        "proposal-add",
+        "proposal-list"
+      ]
+    },
+    "_select_human_interface_peer": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "approval-request",
+        "terminal-duty-sweep"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_session_state_path": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 4,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "clear-room",
+        "new-topic"
+      ]
+    },
+    "_threads_dir": {
+      "direct_callers_count": 4,
+      "transitive_callers_count": 4,
+      "direct_callers": [
+        "thread-append",
+        "thread-new",
+        "thread-promote",
+        "thread-react"
+      ],
+      "transitive_callers": [
+        "thread-append",
+        "thread-new",
+        "thread-promote",
+        "thread-react"
+      ]
+    },
+    "_action_group": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_arbiter_budget_count": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_arbiter_record_invocation": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_artifact_path": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status"
+      ],
+      "transitive_callers": [
+        "artifact-claim",
+        "artifact-finalize",
+        "artifact-status"
+      ]
+    },
+    "_current_coordinator_health": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_current_phase": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_feedback_path": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "feedback-add",
+        "feedback-list",
+        "feedback-resolve"
+      ],
+      "transitive_callers": [
+        "feedback-add",
+        "feedback-list",
+        "feedback-resolve"
+      ]
+    },
+    "_final_arbiter_config": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "arbiter-review"
+      ],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_guard_action": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_guard_action_dry_run": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_guard_decision": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_guard_shadow_bucket_facts": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_guard_shadow_case_key": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_guard_shadow_phase_key": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_has_finalized_consensus": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_human_interface_ts_fresh": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "ask",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_is_ephemeral_query_file": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-all",
+        "ask-coordinator"
+      ]
+    },
+    "_is_mutating_action": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_load_nodes": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "list-nodes"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "list-nodes"
+      ]
+    },
+    "_matching_peers": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "discover",
+        "elect-leader",
+        "health-precheck"
+      ],
+      "transitive_callers": [
+        "discover",
+        "elect-leader",
+        "health-precheck"
+      ]
+    },
+    "_notify_staged_query_file_reuse": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-all",
+        "ask-coordinator"
+      ]
+    },
+    "_proposals_dir": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "proposal-add",
+        "proposal-list",
+        "proposal-vote"
+      ],
+      "transitive_callers": [
+        "proposal-add",
+        "proposal-list",
+        "proposal-vote"
+      ]
+    },
+    "_real_arbiter_invoker": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "arbiter-review"
+      ],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_record_guard_shadow": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "broker-drain"
+      ]
+    },
+    "_resolve_invoke_cli": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "peer-status"
+      ]
+    },
+    "_runtime_node_policy": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "list-nodes"
+      ]
+    },
+    "_s": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_short_msg_id": {
+      "direct_callers_count": 3,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "thread-append",
+        "thread-new",
+        "thread-promote"
+      ],
+      "transitive_callers": [
+        "thread-append",
+        "thread-new",
+        "thread-promote"
+      ]
+    },
+    "_staged_query_file_age_hours": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-all",
+        "ask-coordinator"
+      ]
+    },
+    "_staged_query_file_prior_failures": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-all",
+        "ask-coordinator"
+      ]
+    },
+    "_write_task_registry": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "task-checkpoint",
+        "task-failover"
+      ],
+      "transitive_callers": [
+        "leader-yield",
+        "task-checkpoint",
+        "task-failover"
+      ]
+    },
+    "action_broadcast": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "lesson-broadcast",
+        "lessons-propose"
+      ],
+      "transitive_callers": [
+        "lesson-broadcast",
+        "lessons-activate",
+        "lessons-propose"
+      ]
+    },
+    "action_consensus_sweep": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "init-session"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "init-session"
+      ]
+    },
+    "arbiter_decide": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "arbiter-review"
+      ],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "condense_arbiter_input": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 3,
+      "direct_callers": [],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "detect_dissent": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "arbiter-review"
+      ],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "invoke_arbiter": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "arbiter-review"
+      ],
+      "transitive_callers": [
+        "arbiter-review",
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "resolve_terminal_identity": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 3,
+      "direct_callers": [
+        "terminal-duty-sweep"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_action_ask_inner": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "ask"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_add": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_append_directives_and_lessons": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_append_handoff": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_append_room_context": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_apply_arbiter_override_to_round": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_archive_text": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "clear-room",
+        "new-topic"
+      ],
+      "transitive_callers": [
+        "clear-room",
+        "new-topic"
+      ]
+    },
+    "_ask_health_precheck": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_ask_with_pty": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_broker_rel_target": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "broker-submit"
+      ]
+    },
+    "_build_ask_query_with_context": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_build_terminal_relay_frame": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_cached_reality_status_for_dispatch": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_chunk_byte_count": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_classify_ask_failure": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_classify_resume_failure": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_clear_peer_sessions": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "clear-room",
+        "new-topic"
+      ],
+      "transitive_callers": [
+        "clear-room",
+        "new-topic"
+      ]
+    },
+    "_compose_dispatch_target": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_compute_scope_key": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_configured_consensus_voters": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "proposal-add",
+        "proposal-list"
+      ],
+      "transitive_callers": [
+        "proposal-add",
+        "proposal-list"
+      ]
+    },
+    "_create_ask_guard_record": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "ask"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_decide_consensus": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "consensus-vote"
+      ],
+      "transitive_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_decode_output": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_default_profile_for_peer": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "terminal-handoff"
+      ],
+      "transitive_callers": [
+        "terminal-duty-sweep",
+        "terminal-handoff"
+      ]
+    },
+    "_effective_zombie_timeout_sec": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_emit_decision_capsule": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_emit_peer_silent_startup_warning": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_extract_policy_availability": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_finalize_round_side_effects": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "consensus-vote"
+      ],
+      "transitive_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_get_active_session": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_governed_files": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_guard_oversized_ask": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_inject_oversized_progress_instruction": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_is_sandbox_spawn_denied": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_is_workspace_local": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "artifact-finalize",
+        "artifact-status"
+      ],
+      "transitive_callers": [
+        "artifact-finalize",
+        "artifact-status"
+      ]
+    },
+    "_lease_cfg": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_lease_close": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_lease_open": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_lease_renew": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_load_routing_config": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_load_session_state": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_maybe_run_arbiter_on_finalize": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ],
+      "transitive_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_new_member_sids": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "clear-room",
+        "new-topic"
+      ],
+      "transitive_callers": [
+        "clear-room",
+        "new-topic"
+      ]
+    },
+    "_nonnegative_int": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_oversized_ask_limits": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_oversized_ask_stats": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_oversized_ask_task_count": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_parse_arbiter_verdict": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ]
+    },
+    "_parse_human_interface_ts": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "approval-request",
+        "terminal-duty-sweep"
+      ]
+    },
+    "_parse_reset_time": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_parsed_final_requests_escalation": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_pct": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_phantom_scan": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "ask"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_plan_context_aware_failover": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_prepare_ipc_stateless_home": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_pty_chunk_telemetry_cfg": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_read_pipe_chunk": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_read_query_arg": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "ask-all",
+        "ask-coordinator"
+      ],
+      "transitive_callers": [
+        "ask-all",
+        "ask-coordinator"
+      ]
+    },
+    "_record_ap20_runtime_directive": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "leader-claim"
+      ],
+      "transitive_callers": [
+        "elect-leader",
+        "leader-claim"
+      ]
+    },
+    "_record_pty_chunk_arrival_metric": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_resolve_usage_session_id": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_retire_session": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_role_guard": {
+      "direct_callers_count": 2,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "approval-request",
+        "task-checkpoint"
+      ],
+      "transitive_callers": [
+        "approval-request",
+        "task-checkpoint"
+      ]
+    },
+    "_root": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_runtime_cfg": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_runtime_escalation_target": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_select_ask_profile": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_session_reuse_enabled": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_set_active_session": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_shadow_log_load_balance": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_silent_startup_warning_sec": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_snapshot_governed_hashes": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "ask"
+      ],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_spawn_process": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_store_session_from_result": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_stream_process_output": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_strip_ansi": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_surface_post_spawn_failure": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_surface_pre_dispatch_failure": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_sweep_stale_ask_temp_dirs": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_terminal_context_references": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_terminal_spend_guard": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_update_pty_thread": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "ask",
+        "ask-coordinator"
+      ]
+    },
+    "_validate_broker_payload": {
+      "direct_callers_count": 1,
+      "transitive_callers_count": 2,
+      "direct_callers": [
+        "broker-submit"
+      ],
+      "transitive_callers": [
+        "broker-drain",
+        "broker-submit"
+      ]
+    },
+    "_validate_consensus_payload": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "broker-submit"
+      ]
+    },
+    "_validate_handoff_payload": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "broker-submit"
+      ]
+    },
+    "_validate_mailbox_payload": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "broker-submit"
+      ]
+    },
+    "run_arbiter_on_round": {
+      "direct_callers_count": 0,
+      "transitive_callers_count": 2,
+      "direct_callers": [],
+      "transitive_callers": [
+        "broker-drain",
+        "consensus-vote"
+      ]
+    }
+  }
+}
