@@ -517,6 +517,13 @@ class SqliteUnitOfWork:
         """Return matching events in workspace outbox order."""
         return self.governance.list_outbox_events(states, limit=limit, governance_only=governance_only, after_position=after_position)
 
+    def list_outbox_events_by_command(
+        self,
+        command_id: str,
+    ) -> tuple[OutboxEvent, ...]:
+        """Return all outbox events for a given command_id, ordered by position."""
+        return self.governance.list_outbox_events_by_command(command_id)
+
     def claim_outbox_event(
         self,
         event_id: str,

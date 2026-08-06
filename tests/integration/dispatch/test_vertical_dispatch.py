@@ -47,6 +47,7 @@ from peerhub.dispatch.materializer import ArtifactMaterializer
 from peerhub.dispatch.service import (
     DispatchService,
     recover_interrupted_attempt,
+    translate_outbox_to_journal,
 )
 from peerhub.health.contract import (
     AdmissionSnapshot,
@@ -456,15 +457,16 @@ def test_e2e_clean_vertical_dispatch_with_materialized_artifact(
 # -----------------------------------------------------------------------------
 
 
-def test_dp06_post_intent_recovery_reducer_contract(
+def test_dp06_post_intent_recovery_translation_and_reducer(
     store: SqliteStateStore,
 ) -> None:
-    """Reducer-contract test for post-DISPATCH_INTENT fault recovery.
+    """E2E translation and reducer-contract test for post-DISPATCH_INTENT fault recovery.
 
-    Exercises recover_interrupted_attempt() reducer logic directly with
-    a synthetic journal payload. Note: This verifies the recovery reducer
-    contract only, not full end-to-end outbox-to-journal recovery (outbox-to-journal
-    translation remains unimplemented).
+    Exercises the full real outbox-to-journal translation and the
+    recover_interrupted_attempt() reducer logic. This closes the previous gap
+    where the translation was faked with a synthetic payload. Note: this
+    verifies translation and reducer logic, but true E2E recovery (e.g.
+    the system automatically invoking this on startup) is not covered here.
 
     Verify recover_interrupted_attempt() recovers as MAY_HAVE_STARTED,
     automatic replay is unauthorized (automatic_replay_authorized=False),
@@ -483,21 +485,10 @@ def test_dp06_post_intent_recovery_reducer_contract(
     )
     assert att_snap.state is RequestState.DISPATCH_INTENT
 
-    # Step 3: Construct the durable journal for recovery.
-    #
-    # recover_interrupted_attempt() is a pure reducer over an abstract
-    # journal-token vocabulary (e.g. "INTENT_PERSISTED"); no production
-    # code yet translates real OutboxEvent records into that vocabulary,
-    # and the real list_outbox_events() has no command/request-scoped
-    # query (it filters by OutboxState + outbox position only, not by
-    # command_id -- an earlier version of this test called it with a
-    # command_id kwarg that does not exist on any implementation and
-    # would raise TypeError). This test therefore exercises the
-    # reducer's own contract given a correctly-shaped journal, not an
-    # end-to-end outbox-event-to-journal-token translation -- that
-    # translation is a real, currently-unimplemented gap and should not
-    # be faked here.
-    journal_entries = ["INTENT_PERSISTED"]
+    # Step 3: Query real outbox events and translate to journal
+    with store.unit_of_work() as unit:
+        outbox_events = unit.list_outbox_events_by_command(str(cmd_id))
+    journal_entries = translate_outbox_to_journal(outbox_events)
 
     raw_journal_bytes = ",".join(journal_entries).encode("utf-8")
     journal_digest = f"sha256:{hashlib.sha256(raw_journal_bytes).hexdigest()}"

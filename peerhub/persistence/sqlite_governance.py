@@ -435,6 +435,22 @@ class SqliteGovernanceRepository:
             ).fetchall()
             return tuple(self._outbox_from_row(row) for row in rows)
 
+    def list_outbox_events_by_command(
+            self,
+            command_id: str,
+        ) -> tuple[OutboxEvent, ...]:
+            """Return all outbox events for a given command_id, ordered by position."""
+            rows = self._db().execute(
+                """
+                SELECT *
+                FROM outbox_events
+                WHERE json_extract(payload_json, '$.command_id') = ?
+                ORDER BY outbox_position ASC
+                """,
+                (command_id,),
+            ).fetchall()
+            return tuple(self._outbox_from_row(row) for row in rows)
+
     def claim_outbox_event(
             self,
             event_id: str,

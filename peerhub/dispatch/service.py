@@ -153,6 +153,21 @@ def recover_interrupted_attempt(
     )
 
 
+def translate_outbox_to_journal(
+    events: Sequence[OutboxEvent],
+) -> list[str]:
+    """Translate canonical outbox events to the abstract journal vocabulary."""
+    journal = []
+    for event in events:
+        if event.event_kind == "DISPATCH_INTENT":
+            journal.append("INTENT_PERSISTED")
+        elif event.event_kind == "RUNNING":
+            journal.append("SPAWNED")
+        elif event.event_kind == "ATTEMPT_TERMINAL_OBSERVED":
+            journal.append("EXIT")
+    return journal
+
+
 from .admission import AdmissionCoordinator
 from .artifact_coordination import ArtifactCoordinator
 from .attempt_lifecycle import AttemptLifecycleCoordinator
