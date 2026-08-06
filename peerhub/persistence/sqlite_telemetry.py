@@ -13,8 +13,9 @@ from peerhub.telemetry.contract import (
     OperationalProjectionSnapshot,
     ReadinessMeasurement,
     ReadinessObserved,
-    UsageMeasurement,
+    SessionContextProjectionSnapshot,
 )
+from peerhub.dispatch.contract import SessionBindingKey
 from .sqlite_helpers import (
     _json_object,
     _json_text,
@@ -434,6 +435,178 @@ class SqliteTelemetryRepository:
                 updated.failure_streak,
                 updated.last_terminal_at,
                 _json_text(list(str(r) for r in updated.evidence_refs)),
+                updated.revision,
+                updated.updated_at,
+                current.projection_id,
+                current.revision,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    # ── Slice 5: session context observations ──
+
+    def _session_context_observation_from_row(
+        self,
+        row: sqlite3.Row,
+    ) -> SessionContextObserved:
+        return SessionContextObserved(
+            observation_id=row["observation_id"],
+            binding_key=SessionBindingKey(
+                workspace_scope_id=row["workspace_scope_id"],
+                instance_id=row["instance_id"],
+                profile_id=row["profile_id"],
+                conversation_scope=row["conversation_scope"] if "conversation_scope" in row.keys() else "global",
+            ),
+            generation_id=row["generation_id"],
+            observed_tokens=row["observed_tokens"],
+            window_tokens=row["window_tokens"],
+            source=row["source"],
+            observed_at=row["observed_at"],
+        )
+
+    def add_session_context_observation(
+        self,
+        observation: SessionContextObserved,
+    ) -> None:
+        """Insert an immutable session context observation."""
+        self._db().execute(
+            """
+            INSERT INTO session_context_observations (
+                observation_id,
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                conversation_scope,
+                generation_id,
+                observed_tokens,
+                window_tokens,
+                source,
+                observed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                observation.observation_id,
+                observation.binding_key.workspace_scope_id,
+                observation.binding_key.instance_id,
+                observation.binding_key.profile_id,
+                observation.binding_key.conversation_scope,
+                observation.generation_id,
+                observation.observed_tokens,
+                observation.window_tokens,
+                observation.source,
+                observation.observed_at,
+            ),
+        )
+
+    # ── Slice 5: session context projections ──
+
+    def _session_context_projection_from_row(
+        self,
+        row: sqlite3.Row,
+    ) -> SessionContextProjectionSnapshot:
+        return SessionContextProjectionSnapshot(
+            projection_id=row["projection_id"],
+            binding_key=SessionBindingKey(
+                workspace_scope_id=row["workspace_scope_id"],
+                instance_id=row["instance_id"],
+                profile_id=row["profile_id"],
+                conversation_scope=row["conversation_scope"] if "conversation_scope" in row.keys() else "global",
+            ),
+            generation_id=row["generation_id"],
+            observed_tokens=row["observed_tokens"],
+            window_tokens=row["window_tokens"],
+            source=row["source"],
+            observed_at=row["observed_at"],
+            revision=row["revision"],
+            updated_at=row["updated_at"],
+        )
+
+    def add_session_context_projection(
+        self,
+        projection: SessionContextProjectionSnapshot,
+    ) -> None:
+        """Insert a revision-one session context projection."""
+        self._db().execute(
+            """
+            INSERT INTO session_context_projections (
+                projection_id,
+                workspace_scope_id,
+                instance_id,
+                profile_id,
+                conversation_scope,
+                generation_id,
+                observed_tokens,
+                window_tokens,
+                source,
+                observed_at,
+                revision,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                projection.projection_id,
+                projection.binding_key.workspace_scope_id,
+                projection.binding_key.instance_id,
+                projection.binding_key.profile_id,
+                projection.binding_key.conversation_scope,
+                projection.generation_id,
+                projection.observed_tokens,
+                projection.window_tokens,
+                projection.source,
+                projection.observed_at,
+                projection.revision,
+                projection.updated_at,
+            ),
+        )
+
+    def get_session_context_projection(
+        self,
+        workspace_scope_id: str,
+        instance_id: str,
+        profile_id: str,
+        generation_id: int,
+    ) -> SessionContextProjectionSnapshot | None:
+        """Return the current context occupancy by binding+generation."""
+        row = self._db().execute(
+            """
+            SELECT *
+            FROM session_context_projections
+            WHERE workspace_scope_id = ? 
+              AND instance_id = ? 
+              AND profile_id = ? 
+              AND generation_id = ?
+            """,
+            (workspace_scope_id, instance_id, profile_id, generation_id),
+        ).fetchone()
+        return None if row is None else self._session_context_projection_from_row(row)
+
+    def cas_update_session_context_projection(
+        self,
+        current: SessionContextProjectionSnapshot,
+        updated: SessionContextProjectionSnapshot,
+    ) -> bool:
+        """CAS-update a session context projection snapshot."""
+        if current.projection_id != updated.projection_id:
+            raise ValueError("projection IDs do not match")
+        cursor = self._db().execute(
+            """
+            UPDATE session_context_projections
+            SET
+                observed_tokens = ?,
+                window_tokens = ?,
+                source = ?,
+                observed_at = ?,
+                revision = ?,
+                updated_at = ?
+            WHERE
+                projection_id = ?
+                AND revision = ?
+            """,
+            (
+                updated.observed_tokens,
+                updated.window_tokens,
+                updated.source,
+                updated.observed_at,
                 updated.revision,
                 updated.updated_at,
                 current.projection_id,

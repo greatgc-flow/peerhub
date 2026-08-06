@@ -31,6 +31,9 @@ from peerhub.state.contract import StateStore, UnitOfWork
 from peerhub.telemetry.contract import (
     OperationalObservation,
     OperationalProjectionSnapshot,
+    SessionContextObserved,
+    SessionContextProjectionSnapshot,
+    SessionBindingKey,
 )
 
 
@@ -127,6 +130,34 @@ class TelemetryUnitOfWork(UnitOfWork, Protocol):
         self,
         current: OperationalProjectionSnapshot,
         updated: OperationalProjectionSnapshot,
+    ) -> bool:
+        ...
+
+    def add_session_context_observation(
+        self,
+        observation: SessionContextObserved,
+    ) -> None:
+        ...
+
+    def get_session_context_projection(
+        self,
+        workspace_scope_id: str,
+        instance_id: str,
+        profile_id: str,
+        generation_id: int,
+    ) -> SessionContextProjectionSnapshot | None:
+        ...
+
+    def add_session_context_projection(
+        self,
+        projection: SessionContextProjectionSnapshot,
+    ) -> None:
+        ...
+
+    def cas_update_session_context_projection(
+        self,
+        current: SessionContextProjectionSnapshot,
+        updated: SessionContextProjectionSnapshot,
     ) -> bool:
         ...
 
@@ -615,8 +646,40 @@ class TelemetryProjector:
         return True
 
 
+def project_session_context_observation(
+    current: SessionContextProjectionSnapshot | None,
+    observation: SessionContextObserved,
+    *,
+    projection_id: str,
+) -> SessionContextProjectionSnapshot:
+    """Purely reduce one immutable session context observation into a projection."""
+    if current is not None:
+        if current.binding_key != observation.binding_key:
+            raise ValueError("projection and observation binding_keys differ")
+        if current.generation_id != observation.generation_id:
+            raise ValueError("projection and observation generation_ids differ")
+
+        if observation.observed_at <= current.observed_at:
+            return current
+
+    return SessionContextProjectionSnapshot(
+        projection_id=(
+            current.projection_id if current is not None else projection_id
+        ),
+        binding_key=observation.binding_key,
+        generation_id=observation.generation_id,
+        observed_tokens=observation.observed_tokens,
+        window_tokens=observation.window_tokens,
+        source=observation.source,
+        observed_at=observation.observed_at,
+        revision=1 if current is None else current.revision + 1,
+        updated_at=observation.observed_at,
+    )
+
+
 __all__ = [
     "TelemetryProjector",
     "decode_attempt_terminal_event",
     "project_operational_observation",
+    "project_session_context_observation",
 ]

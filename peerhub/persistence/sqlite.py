@@ -121,6 +121,9 @@ from peerhub.telemetry.contract import (
     ReadinessMeasurement,
     ReadinessObserved,
     UsageMeasurement,
+    SessionBindingKey,
+    SessionContextObserved,
+    SessionContextProjectionSnapshot,
 )
 
 
@@ -259,6 +262,14 @@ class SqliteStateStore:
                 connection.executescript(
                     self._migration_text(
                         "0009_session_binding_generations.sql"
+                    )
+                )
+
+            versions = self._migration_versions(connection)
+            if 10 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0010_session_context_telemetry.sql"
                     )
                 )
 
@@ -811,6 +822,38 @@ class SqliteUnitOfWork:
     ) -> bool:
         """CAS-update an operational projection snapshot."""
         return self.telemetry.cas_update_operational_projection(current, updated)
+
+    def add_session_context_observation(
+        self,
+        observation: SessionContextObserved,
+    ) -> None:
+        """Insert an immutable session context observation."""
+        return self.telemetry.add_session_context_observation(observation)
+
+    def get_session_context_projection(
+        self,
+        workspace_scope_id: str,
+        instance_id: str,
+        profile_id: str,
+        generation_id: int,
+    ) -> SessionContextProjectionSnapshot | None:
+        """Return the current context occupancy by binding+generation."""
+        return self.telemetry.get_session_context_projection(workspace_scope_id, instance_id, profile_id, generation_id)
+
+    def add_session_context_projection(
+        self,
+        projection: SessionContextProjectionSnapshot,
+    ) -> None:
+        """Insert a revision-one session context projection."""
+        return self.telemetry.add_session_context_projection(projection)
+
+    def cas_update_session_context_projection(
+        self,
+        current: SessionContextProjectionSnapshot,
+        updated: SessionContextProjectionSnapshot,
+    ) -> bool:
+        """CAS-update a session context projection snapshot."""
+        return self.telemetry.cas_update_session_context_projection(current, updated)
 
     def add_health_projection(
         self,

@@ -16,6 +16,7 @@ from peerhub.core.protocol import (
     OperationalFailureCategory,
     require_text,
 )
+from peerhub.dispatch.contract import SessionBindingKey
 
 
 def _require_nonnegative(
@@ -294,3 +295,79 @@ class TelemetryProjectionReader(Protocol):
     ) -> OperationalProjectionSnapshot:
         """Return the current projection for an instance/profile."""
         ...
+
+    def get_session_context(
+        self,
+        workspace_scope_id: str,
+        instance_id: str,
+        profile_id: str,
+        generation_id: int,
+    ) -> "SessionContextProjectionSnapshot | None":
+        """Return context occupancy or None if no exact-attribution evidence exists."""
+        ...
+
+
+@dataclass(frozen=True)
+class SessionContextObserved:
+    """Distinct, exact-attribution event for session context occupancy."""
+
+    observation_id: str
+    binding_key: SessionBindingKey
+    generation_id: int
+    observed_tokens: int
+    window_tokens: int
+    source: str
+    observed_at: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "observation_id",
+            require_text(self.observation_id, "observation_id"),
+        )
+        if not isinstance(self.binding_key, SessionBindingKey):
+            raise ValueError("binding_key must be SessionBindingKey")
+        _require_positive(self.generation_id, "generation_id")
+        _require_nonnegative(self.observed_tokens, "observed_tokens")
+        _require_positive(self.window_tokens, "window_tokens")
+        object.__setattr__(
+            self,
+            "source",
+            require_text(self.source, "source"),
+        )
+        _require_nonnegative(self.observed_at, "observed_at")
+
+
+@dataclass(frozen=True)
+class SessionContextProjectionSnapshot:
+    """Idempotent projection of session context occupancy."""
+
+    projection_id: str
+    binding_key: SessionBindingKey
+    generation_id: int
+    observed_tokens: int
+    window_tokens: int
+    source: str
+    observed_at: int
+    revision: int
+    updated_at: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "projection_id",
+            require_text(self.projection_id, "projection_id"),
+        )
+        if not isinstance(self.binding_key, SessionBindingKey):
+            raise ValueError("binding_key must be SessionBindingKey")
+        _require_positive(self.generation_id, "generation_id")
+        _require_nonnegative(self.observed_tokens, "observed_tokens")
+        _require_positive(self.window_tokens, "window_tokens")
+        object.__setattr__(
+            self,
+            "source",
+            require_text(self.source, "source"),
+        )
+        _require_nonnegative(self.observed_at, "observed_at")
+        _require_positive(self.revision, "revision")
+        _require_nonnegative(self.updated_at, "updated_at")
