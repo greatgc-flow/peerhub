@@ -707,6 +707,9 @@ class ApplicationWorkflows:
             if invocation_plan.environment_delta
             else None,
             stdin_data=invocation_plan.stdin_payload,
+            process_timeout_ms=invocation_plan.limits.process_timeout_ms,
+            silence_timeout_ms=invocation_plan.limits.silence_timeout_ms,
+            max_output_bytes=invocation_plan.limits.max_output_bytes,
         )
 
         spawn_error: BaseException | None = None

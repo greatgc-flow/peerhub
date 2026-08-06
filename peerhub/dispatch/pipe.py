@@ -353,10 +353,8 @@ def run_process(
         if not supervisor.cancellation_active:
             if config.process_timeout_ms is not None and (now - start_time >= config.process_timeout_ms):
                 supervisor.trigger_process_deadline(now_ms=now)
-            elif config.silence_timeout_ms is not None:
-                last_activity = supervisor.last_activity_ms if supervisor.last_activity_ms is not None else start_time
-                if now - last_activity >= config.silence_timeout_ms:
-                    supervisor.trigger_silence_timeout(now_ms=now)
+            elif config.silence_timeout_ms is not None and (now - (supervisor.last_activity_ms if supervisor.last_activity_ms is not None else start_time) >= config.silence_timeout_ms):
+                supervisor.trigger_silence_timeout(now_ms=now)
             elif config.max_output_bytes is not None and supervisor.total_output_bytes > config.max_output_bytes:
                 supervisor.trigger_output_limit_exceeded(now_ms=now)
 

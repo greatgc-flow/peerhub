@@ -626,3 +626,168 @@ def test_process_cancellation_on_heartbeat_failure(
 
     assert res.process_outcome is not None
     assert res.process_outcome.execution_outcome.cancelled is True
+
+
+# -----------------------------------------------------------------------------
+# Scenario 4: DP-04 Process Deadline E2E
+# -----------------------------------------------------------------------------
+
+
+def test_dp04_process_deadline_e2e(
+    tmp_path: Path,
+    store: SqliteStateStore,
+    fake_peer_script: Path,
+) -> None:
+    """DP-04: Process deadline E2E test. Fake peer runs longer than process_timeout_ms."""
+    workflows, dispatch = _workflows(store)
+    cmd_id = _admit_and_prepare(workflows, _envelope())
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-dp04",
+        prompt_content="hello deadline",
+        prompt_reference=None,
+        workspace_scope="ws-dp04",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+
+    inv_plan = InvocationPlan(
+        argv=(
+            sys.executable,
+            str(fake_peer_script),
+            "--delay",
+            "5.0",
+        ),
+        cwd_reference=".",
+        environment_delta={},
+        transport=TransportKind.PIPE,
+        stdin_payload=None,
+        limits=TransportLimits(
+            process_timeout_ms=500,
+            silence_timeout_ms=10000,
+            max_output_bytes=65536,
+        ),
+        redacted_display="python fake_peer/pipe_executable.py --delay 5.0",
+        artifacts=(),
+        session_action=SessionAction.NONE,
+    )
+    protocol_assessment = ProtocolAssessment(
+        parsed=True,
+        response_present=True,
+        vendor_completion_marker=True,
+        suspected_truncation=False,
+        protocol_failure=None,
+    )
+
+    start_time = time.monotonic()
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        invocation_plan=inv_plan,
+        workspace_roots={"ws-dp04": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        protocol_assessment=protocol_assessment,
+        heartbeat_timeout_ms=10000,
+    )
+    elapsed = time.monotonic() - start_time
+
+    assert elapsed < 5.0
+
+    assert res.process_outcome is not None
+    assert res.process_outcome.execution_outcome.timed_out is True
+    assert res.process_outcome.terminal_classification is TerminalClassification.PROCESS_TIMEOUT
+
+
+# -----------------------------------------------------------------------------
+# Scenario 5: DP-05 Output Cap E2E
+# -----------------------------------------------------------------------------
+
+
+def test_dp05_output_cap_e2e(
+    tmp_path: Path,
+    store: SqliteStateStore,
+    fake_peer_script: Path,
+) -> None:
+    """DP-05: Output cap E2E test. Fake peer emits more than max_output_bytes."""
+    workflows, dispatch = _workflows(store)
+    cmd_id = _admit_and_prepare(workflows, _envelope())
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-dp05",
+        prompt_content="hello output cap",
+        prompt_reference=None,
+        workspace_scope="ws-dp05",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+
+    # 5000 bytes output string to exceed 4096 buffer
+    excessive_output = "A" * 5000
+
+    inv_plan = InvocationPlan(
+        argv=(
+            sys.executable,
+            str(fake_peer_script),
+            "--stdout",
+            excessive_output,
+            "--delay",
+            "5.0",
+        ),
+        cwd_reference=".",
+        environment_delta={},
+        transport=TransportKind.PIPE,
+        stdin_payload=None,
+        limits=TransportLimits(
+            process_timeout_ms=5000,
+            silence_timeout_ms=5000,
+            max_output_bytes=100,
+        ),
+        redacted_display="python fake_peer/pipe_executable.py --stdout ...",
+        artifacts=(),
+        session_action=SessionAction.NONE,
+    )
+    protocol_assessment = ProtocolAssessment(
+        parsed=True,
+        response_present=True,
+        vendor_completion_marker=True,
+        suspected_truncation=False,
+        protocol_failure=None,
+    )
+
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        invocation_plan=inv_plan,
+        workspace_roots={"ws-dp05": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        protocol_assessment=protocol_assessment,
+        heartbeat_timeout_ms=10000,
+    )
+
+    assert res.process_outcome is not None
+    assert res.process_outcome.execution_outcome.cancelled is True
+    assert res.process_outcome.terminal_classification is TerminalClassification.OUTPUT_LIMIT_EXCEEDED
