@@ -3,16 +3,13 @@ A lightweight, installable coordination layer for orchestrating multiple AI CLI 
 
 ## Status
 
-Pre-implementation. The target architecture has been designed and converged
-through a 9-round adversarial review (`ag`/`cx`/`cc`) — 3 rounds of core
-architecture debate, a 2-round meta-review (5-Whys/MECE/purpose-fit/
-efficiency/feedback-loop), a 2-round coupling/anti-spaghetti cross-check
-that found and fixed a real module dependency cycle, and a 2-round SSOT
-cross-check (triggered by a real same-session config-drift incident) that
-found and fixed the analogous gap in this design — and is documented in
-[`docs/design/ARCHITECTURE.md`](docs/design/ARCHITECTURE.md). No code exists
-yet — implementation starts at Phase 0 of that document's TDD plan, in a
-future, separately-authorized round. The full debate record, including
-rejected alternatives and evidence citations, is in
-[`docs/design/peerhub-architecture-debate.md`](docs/design/peerhub-architecture-debate.md).
+Implementation in progress (coordination kernel functional).
+
+- **Implemented**: Working coordination kernel covering dispatch, process supervision, heartbeat/liveness, routing, health, telemetry, and SQLite persistence. Verified by 353 passing tests (including 12/12 heartbeat unit tests and 4/4 vertical-dispatch integration tests).
+- **Unimplemented Gaps**:
+  - Real vendor/CLI adapter integration (only `FakeAdapter` test double is currently implemented).
+  - Outbox-to-journal recovery translation.
+
+The target architecture was designed and converged through a 9-round adversarial review (`ag`/`cx`/`cc`) documented in [`docs/design/ARCHITECTURE.md`](docs/design/ARCHITECTURE.md). The full debate record, including rejected alternatives and evidence citations, is in [`docs/design/peerhub-architecture-debate.md`](docs/design/peerhub-architecture-debate.md).
+
 
