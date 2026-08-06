@@ -502,3 +502,73 @@ class TestDriveCancellationLadder:
         assert decision is not None
         assert decision.stage is CancellationStage.COMPLETED
 
+
+class TestPipeRunnerLimits:
+    """Test process/silence timeouts and max output bytes."""
+
+    def test_process_timeout_fires(self):
+        """process_timeout_ms terminates a genuinely slow process."""
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[sys.executable, "-c", "import time; time.sleep(10)"],
+            process_timeout_ms=500,
+        )
+
+        outcome = run_process(config, supervisor)
+
+        assert outcome.execution_outcome.timed_out is True
+        assert outcome.terminal_classification == TerminalClassification.PROCESS_TIMEOUT
+
+    def test_silence_timeout_fires(self):
+        """silence_timeout_ms terminates a process that goes silent."""
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[
+                sys.executable,
+                "-c",
+                "import time, sys; print('hi'); sys.stdout.flush(); time.sleep(10)",
+            ],
+            silence_timeout_ms=500,
+        )
+
+        outcome = run_process(config, supervisor)
+
+        assert outcome.execution_outcome.timed_out is True
+        assert outcome.terminal_classification == TerminalClassification.SILENCE_TIMEOUT
+        assert b"hi" in outcome.canonical_stream
+
+    def test_max_output_bytes_caps(self):
+        """max_output_bytes caps correctly and terminates the process."""
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[
+                sys.executable,
+                "-c",
+                "import sys\nwhile True: sys.stdout.write('x' * 1000); sys.stdout.flush()",
+            ],
+            max_output_bytes=2000,
+        )
+
+        outcome = run_process(config, supervisor)
+
+        assert outcome.execution_outcome.cancelled is True
+        assert outcome.terminal_classification == TerminalClassification.OUTPUT_LIMIT_EXCEEDED
+        assert len(outcome.canonical_stream) >= 2000
+
+    def test_limits_no_false_positive(self):
+        """None of the limits false-positive on a normal fast-completing process."""
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[sys.executable, "-c", "print('fast')"],
+            process_timeout_ms=5000,
+            silence_timeout_ms=5000,
+            max_output_bytes=10000,
+        )
+
+        outcome = run_process(config, supervisor)
+
+        assert outcome.exit_code == 0
+        assert outcome.execution_outcome.timed_out is False
+        assert outcome.execution_outcome.cancelled is False
+        assert outcome.terminal_classification is None
+        assert b"fast" in outcome.canonical_stream

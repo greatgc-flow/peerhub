@@ -98,6 +98,9 @@ class PipeRunnerConfig:
     cwd: Path | str | None = None
     env: dict[str, str] | None = None
     stdin_data: bytes | None = None
+    process_timeout_ms: int | None = None
+    silence_timeout_ms: int | None = None
+    max_output_bytes: int | None = None
 
 
 class _StreamReader:
@@ -339,10 +342,24 @@ def run_process(
     stdout_reader.start()
     stderr_reader.start()
 
+    start_time = get_time()
+
     # Wait for the process to exit, driving the cancellation ladder from the
     # main thread when a cancellation is active (Decision A: synchronous
     # polling, no separate poller thread).
     while proc.poll() is None:
+        now = get_time()
+        
+        if not supervisor.cancellation_active:
+            if config.process_timeout_ms is not None and (now - start_time >= config.process_timeout_ms):
+                supervisor.trigger_process_deadline(now_ms=now)
+            elif config.silence_timeout_ms is not None:
+                last_activity = supervisor.last_activity_ms if supervisor.last_activity_ms is not None else start_time
+                if now - last_activity >= config.silence_timeout_ms:
+                    supervisor.trigger_silence_timeout(now_ms=now)
+            elif config.max_output_bytes is not None and supervisor.total_output_bytes > config.max_output_bytes:
+                supervisor.trigger_output_limit_exceeded(now_ms=now)
+
         if (
             supervisor.cancellation_active
             and tree_controller is not None

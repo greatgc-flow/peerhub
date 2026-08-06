@@ -30,6 +30,7 @@ class TerminalClassification(str, Enum):
     SILENCE_TIMEOUT = "SILENCE_TIMEOUT"
     PROCESS_TIMEOUT = "PROCESS_TIMEOUT"
     EXIT_NON_ZERO = "EXIT_NON_ZERO"
+    OUTPUT_LIMIT_EXCEEDED = "OUTPUT_LIMIT_EXCEEDED"
 
 
 class ObservationState(str, Enum):
@@ -527,6 +528,7 @@ class ProcessSupervisor:
         self._identity: ProcessBirthIdentity | None = None
         self._chunks: list[tuple[bytes, int]] = []
         self._last_timestamp_ms: int | None = None
+        self._total_bytes: int = 0
         self._stream_events_ordered: bool = True
         self._exit_code: int | None = None
         self._timed_out: bool = False
@@ -538,6 +540,16 @@ class ProcessSupervisor:
     def identity(self) -> ProcessBirthIdentity | None:
         with self._lock:
             return self._identity
+
+    @property
+    def total_output_bytes(self) -> int:
+        with self._lock:
+            return self._total_bytes
+
+    @property
+    def last_activity_ms(self) -> int | None:
+        with self._lock:
+            return self._last_timestamp_ms
 
     @property
     def cancellation_decision(self) -> CancellationDecision | None:
@@ -592,6 +604,7 @@ class ProcessSupervisor:
                 self._stream_events_ordered = False
             self._last_timestamp_ms = timestamp_ms
             self._chunks.append((chunk, timestamp_ms))
+            self._total_bytes += len(chunk)
 
     def on_exit(self, *, exit_code: int) -> None:
         if type(exit_code) is not int:
@@ -700,6 +713,15 @@ class ProcessSupervisor:
                     TerminalClassification.PROCESS_TIMEOUT
                 )
             self._timed_out = True
+            self._begin_cancellation_locked(now_ms=now_ms)
+
+    def trigger_output_limit_exceeded(self, *, now_ms: int = 0) -> None:
+        with self._lock:
+            if self._terminal_classification is None:
+                self._terminal_classification = (
+                    TerminalClassification.OUTPUT_LIMIT_EXCEEDED
+                )
+            self._cancelled = True
             self._begin_cancellation_locked(now_ms=now_ms)
 
     def finalize_execution_outcome(
