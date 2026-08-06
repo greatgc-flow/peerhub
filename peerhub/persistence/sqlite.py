@@ -19,6 +19,7 @@ from .sqlite_governance import SqliteGovernanceRepository
 from .sqlite_dispatch import SqliteDispatchRepository
 from .sqlite_health import SqliteHealthRepository
 from .sqlite_telemetry import SqliteTelemetryRepository
+from .sqlite_routing import SqliteRoutingRepository
 from .sqlite_helpers import (
     _json_text,
     _json_value,
@@ -112,10 +113,7 @@ from peerhub.health.contract import (
     RevalidationAction,
 )
 from peerhub.routing.contract import (
-    ConfigurationSnapshot,
-    RouteCandidateDecision,
     RouteDecision,
-    RouteEligibility,
 )
 from peerhub.telemetry.contract import (
     OperationalObservation,
@@ -369,6 +367,7 @@ class SqliteUnitOfWork:
         self.dispatch = SqliteDispatchRepository(self._db)
         self.health = SqliteHealthRepository(self._db)
         self.telemetry = SqliteTelemetryRepository(self._db)
+        self.routing = SqliteRoutingRepository(self._db)
 
     def __enter__(self) -> SqliteUnitOfWork:
         """Open a connection and begin an immediate transaction."""
@@ -736,38 +735,7 @@ class SqliteUnitOfWork:
 
 
 
-    @staticmethod
-    def _outbox_from_row(row: sqlite3.Row) -> OutboxEvent:
-        return OutboxEvent(
-            event_id=row["event_id"],
-            protocol_major=row["protocol_major"],
-            protocol_minor=row["protocol_minor"],
-            schema_version=row["schema_version"],
-            correlation_id=row["correlation_id"],
-            occurred_at=row["occurred_at"],
-            event_kind=row["event_kind"],
-            payload=_json_object(row["payload_json"]),
-            state=OutboxState(row["state"]),
-            created_at=row["created_at"],
-            request_id=row["request_id"],
-            transition_receipt_id=(
-                row["transition_receipt_id"]
-            ),
-            topic=row["topic"],
-            outbox_position=row["outbox_position"],
-            round_id=row["round_id"],
-            evidence_refs=_string_tuple(
-                row["evidence_refs_json"]
-            ),
-            predecessor_digest=row["predecessor_digest"],
-            recovery_context=_optional_json_object(
-                row["recovery_context_json"]
-            ),
-            claimed_by=row["claimed_by"],
-            claim_attempt_id=row["claim_attempt_id"],
-            claimed_at=row["claimed_at"],
-            consumed_at=row["consumed_at"],
-        )
+
 
     def add_health_policy_revision(
         self,
@@ -953,129 +921,14 @@ class SqliteUnitOfWork:
         decision: RouteDecision,
     ) -> None:
         """Insert an immutable route decision audit and all candidate decisions."""
-        db = self._db()
-        db.execute(
-            """
-            INSERT INTO route_decisions (
-                decision_id,
-                client_request_id,
-                configuration_revision,
-                configuration_digest,
-                admission_snapshot_id,
-                admission_snapshot_revision,
-                admission_snapshot_digest,
-                routing_policy_id,
-                routing_policy_revision,
-                audit_seed,
-                selection_index,
-                selected_candidate_id,
-                created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                decision.decision_id,
-                decision.client_request_id,
-                decision.configuration.revision,
-                decision.configuration.digest,
-                decision.admission_snapshot_id,
-                decision.admission_snapshot_revision,
-                decision.admission_snapshot_digest,
-                decision.routing_policy_id,
-                decision.routing_policy_revision,
-                decision.audit_seed,
-                decision.selection_index,
-                decision.selected_candidate_id,
-                decision.created_at,
-            ),
-        )
-        for candidate in decision.candidates:
-            db.execute(
-                """
-                INSERT INTO route_candidate_decisions (
-                    decision_id,
-                    candidate_id,
-                    instance_id,
-                    representative_profile_id,
-                    eligibility,
-                    effective_weight,
-                    exclusion_reason,
-                    evidence_refs_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    decision.decision_id,
-                    candidate.candidate_id,
-                    candidate.instance_id,
-                    candidate.representative_profile_id,
-                    candidate.eligibility.value,
-                    candidate.effective_weight,
-                    candidate.exclusion_reason,
-                    _json_text(list(str(r) for r in candidate.evidence_refs)),
-                ),
-            )
+        return self.routing.add_route_decision(decision)
 
     def get_route_decision(
         self,
         decision_id: str,
     ) -> RouteDecision | None:
         """Return a full route decision audit including all candidate decisions."""
-        db = self._db()
-        row = db.execute(
-            """
-            SELECT *
-            FROM route_decisions
-            WHERE decision_id = ?
-            """,
-            (decision_id,),
-        ).fetchone()
-        if row is None:
-            return None
-
-        candidate_rows = db.execute(
-            """
-            SELECT *
-            FROM route_candidate_decisions
-            WHERE decision_id = ?
-            ORDER BY candidate_id
-            """,
-            (decision_id,),
-        ).fetchall()
-
-        candidates = tuple(
-            RouteCandidateDecision(
-                candidate_id=crow["candidate_id"],
-                instance_id=crow["instance_id"],
-                representative_profile_id=crow["representative_profile_id"],
-                eligibility=RouteEligibility(crow["eligibility"]),
-                effective_weight=crow["effective_weight"],
-                exclusion_reason=crow["exclusion_reason"],
-                evidence_refs=tuple(
-                    EvidenceRef(r) for r in _string_tuple(crow["evidence_refs_json"])
-                ),
-            )
-            for crow in candidate_rows
-        )
-
-        config = ConfigurationSnapshot(
-            revision=row["configuration_revision"],
-            digest=row["configuration_digest"],
-        )
-
-        return RouteDecision(
-            decision_id=row["decision_id"],
-            client_request_id=row["client_request_id"],
-            configuration=config,
-            admission_snapshot_id=row["admission_snapshot_id"],
-            admission_snapshot_revision=row["admission_snapshot_revision"],
-            admission_snapshot_digest=row["admission_snapshot_digest"],
-            routing_policy_id=row["routing_policy_id"],
-            routing_policy_revision=row["routing_policy_revision"],
-            candidates=candidates,
-            audit_seed=row["audit_seed"],
-            selection_index=row["selection_index"],
-            selected_candidate_id=row["selected_candidate_id"],
-            created_at=row["created_at"],
-        )
+        return self.routing.get_route_decision(decision_id)
 
     # ── Slice 5 Step 4: dispatch artifact metadata ──
 
