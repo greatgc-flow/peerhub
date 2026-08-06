@@ -10,12 +10,11 @@ It starts once the lease is process-bound/ACTIVE and stops cleanly
 before final lease close.
 
 Ghost-renewal prevention: before each renewal tick, verifies the child
-process is still alive (``process.poll() is None``) AND the recorded
-``ProcessBirthIdentity`` still matches.  Never renews a lease for a
-dead process.
+process is still alive (``process.poll() is None``) and its PID matches
+the recorded ``ProcessBirthIdentity``. Never renews a lease for an exited process.
 
-Heartbeat-task failure (missed deadline, worker crash) is treated as
-a first-class supervision failure -- the lease is no longer treated
+Heartbeat-task failure (CAS renewal failure or worker crash) is treated
+as a first-class supervision failure -- the lease is no longer treated
 as owned.
 """
 
@@ -77,9 +76,12 @@ class HeartbeatWorker:
 
     The worker tracks the latest fence from each successful renewal
     (CAS-based -- each renewal advances the fence revision/token).
-    If the worker detects any failure condition (process death, missed
-    deadline, renewal CAS failure), it records a ``HeartbeatFailure``
-    and stops.
+    If the worker detects any failure condition (lease-renewal CAS
+    failure, a process-identity mismatch, or an unexpected crash of the
+    heartbeat thread itself), it records a ``HeartbeatFailure`` and
+    stops. A *normal* process exit is NOT a failure condition -- the
+    worker simply stops renewing so the workflow can terminalize and
+    release the lease.
 
     Parameters
     ----------
@@ -102,10 +104,10 @@ class HeartbeatWorker:
         (``time.monotonic``-style).  Defaults to ``time.monotonic``.
     on_failure:
         Optional callback invoked when the heartbeat detects a failure.
-        This is the hook point for the cancellation ladder -- currently
-        a TODO pending DT-04's implementation (the actual cancellation
-        trigger is a no-op/TODO; the detection/stop-treating-as-owned
-        part is fully implemented).
+        This is the hook point for the cancellation ladder: callers
+        (e.g. ``ApplicationWorkflows.dispatch_and_execute``) wire it to
+        ``ProcessSupervisor.begin_cancellation()`` to start terminating
+        the process tree.
     """
 
     def __init__(
@@ -198,9 +200,11 @@ class HeartbeatWorker:
     def _record_failure(self, reason: str, detail: str) -> None:
         """Record a failure and stop treating the lease as owned."""
         failure = HeartbeatFailure(reason=reason, detail=detail)
+        notify_failure: HeartbeatFailure | None = None
         with self._lock:
             if self._failure is None:
                 self._failure = failure
+                notify_failure = failure
             self._lease_owned = False
 
         logger.warning(
@@ -210,31 +214,13 @@ class HeartbeatWorker:
         # Invoke the failure callback (cancellation ladder hook).
         # Calls the provided on_failure callback, which can drive
         # ProcessSupervisor.begin_cancellation() and TreeController.
-        if self._on_failure is not None:
+        if notify_failure is not None and self._on_failure is not None:
             try:
-                self._on_failure(failure)
+                self._on_failure(notify_failure)
             except Exception:
                 logger.exception(
                     "on_failure callback raised"
                 )
-
-    def _verify_process_alive(self) -> bool:
-        """Ghost-renewal prevention: verify process is still alive.
-
-        Checks both ``process.poll() is None`` (process hasn't exited)
-        AND that the PID still matches the recorded
-        ``ProcessBirthIdentity``.  A bare PID is never sufficient
-        fencing evidence per the ratified design.
-        """
-        # Check if the process has exited.
-        if self._process.poll() is not None:
-            return False
-
-        # Verify PID still matches the recorded identity.
-        if self._process.pid != self._identity.pid:
-            return False
-
-        return True
 
     def _do_renewal(self) -> bool:
         """Perform one CAS lease renewal.
@@ -278,12 +264,17 @@ class HeartbeatWorker:
                 if self._stop_event.wait(timeout=interval_s):
                     break
 
-                # Ghost-renewal prevention.
-                if not self._verify_process_alive():
+                # A normally exited child no longer needs renewal; preserve
+                # ownership so the workflow can terminalize and release it.
+                if self._process.poll() is not None:
+                    break
+
+                # A live process with a different PID is an identity breach,
+                # not a normal exit, and must stop the cancellation-safe flow.
+                if self._process.pid != self._identity.pid:
                     self._record_failure(
-                        "PROCESS_DEAD",
-                        "process exited before renewal tick; "
-                        "not renewing for a dead process",
+                        "PROCESS_IDENTITY_MISMATCH",
+                        "process PID no longer matches its recorded birth identity",
                     )
                     break
 

@@ -14,6 +14,7 @@ blocked on the empirical PTY probe per DIR-004.
 from __future__ import annotations
 
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Sequence
@@ -273,6 +274,11 @@ def run_process(
     """
     get_time = clock_ms if clock_ms is not None else _time_ms
 
+    extra_kwargs = (
+        {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        if sys.platform == "win32"
+        else {"start_new_session": True}
+    )
     argv = list(config.argv)
     proc = subprocess.Popen(
         argv,
@@ -281,6 +287,7 @@ def run_process(
         stdin=subprocess.PIPE if config.stdin_data is not None else subprocess.DEVNULL,
         cwd=config.cwd,
         env=config.env,
+        **extra_kwargs,
     )
 
     # Record process birth identity immediately after spawn.

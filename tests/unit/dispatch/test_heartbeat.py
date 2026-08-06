@@ -216,8 +216,8 @@ class TestHeartbeatRenewsOnSchedule:
 class TestHeartbeatGhostPrevention:
     """Test ghost-renewal prevention (process exits before tick)."""
 
-    def test_does_not_renew_after_process_exits(self):
-        """Once the process exits, no further renewals are made."""
+    def test_clean_process_exit_stops_renewal_without_losing_lease(self):
+        """A normal exit leaves the owned lease available for terminalization."""
         process = FakeProcess(pid=9999)
         identity = _make_identity(pid=9999)
         lease = _make_lease(pid=9999)
@@ -248,13 +248,12 @@ class TestHeartbeatGhostPrevention:
 
         worker.stop(timeout=2.0)
 
-        # No renewals should happen after process exit was detected.
-        # The worker should have recorded a PROCESS_DEAD failure.
-        assert worker.lease_owned is False
-        assert worker.failure is not None
-        assert worker.failure.reason == "PROCESS_DEAD"
-        assert len(failure_captured) == 1
-        assert failure_captured[0].reason == "PROCESS_DEAD"
+        # No renewals should happen after process exit was detected, and the
+        # normal exit must not poison workflow lease terminalization.
+        assert len(renewer.calls) == count_before_exit
+        assert worker.lease_owned is True
+        assert worker.failure is None
+        assert failure_captured == []
 
     def test_pid_mismatch_prevents_renewal(self):
         """If the PID no longer matches identity, renewal is blocked."""
@@ -279,7 +278,7 @@ class TestHeartbeatGhostPrevention:
         # Should detect the mismatch and stop.
         assert worker.lease_owned is False
         assert worker.failure is not None
-        assert worker.failure.reason == "PROCESS_DEAD"
+        assert worker.failure.reason == "PROCESS_IDENTITY_MISMATCH"
         # No renewals should have been attempted.
         assert len(renewer.calls) == 0
 
@@ -381,6 +380,26 @@ class TestHeartbeatFailureDetection:
         assert worker.failure is not None
         assert worker.failure.reason == "RENEWAL_FAILED"
         assert len(failure_captured) == 1
+
+    def test_failure_callback_is_emitted_only_for_first_failure(self):
+        process = FakeProcess(pid=9999)
+        failures: list[HeartbeatFailure] = []
+        worker = HeartbeatWorker(
+            process=process,  # type: ignore[arg-type]
+            identity=_make_identity(pid=9999),
+            initial_lease=_make_lease(pid=9999),
+            renewer=FakeRenewer(),
+            heartbeat_timeout_ms=3000,
+            on_failure=failures.append,
+        )
+
+        worker._record_failure("RENEWAL_FAILED", "first")
+        worker._record_failure("HEARTBEAT_TASK_CRASH", "second")
+
+        assert worker.lease_owned is False
+        assert worker.failure is not None
+        assert worker.failure.reason == "RENEWAL_FAILED"
+        assert [failure.reason for failure in failures] == ["RENEWAL_FAILED"]
 
     def test_renewer_exception_is_detected(self):
         """An exception from the renewer is caught and recorded."""

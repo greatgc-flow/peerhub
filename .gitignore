@@ -221,4 +221,7 @@ __marimo__/
 # -- operational data, not source; recurs as untracked clutter every
 # session without this (cleaned up 2026-08-02).
 .ai/
+# Same reasoning, different root: hub operational logging written here
+# during dispatch (e.g. operational_errors.jsonl) -- not repo source.
+_sys/
 
