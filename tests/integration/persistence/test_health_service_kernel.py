@@ -578,6 +578,7 @@ def test_freeze_admission_snapshot_covers_every_configured_pair(
     expected_digest = canonical_admission_snapshot_digest(
         snapshot.entries,
         configuration_revision=11,
+        configuration_digest=snapshot.configuration_digest,
         policy_id="v1-health-default-r1",
         policy_revision=1,
     )

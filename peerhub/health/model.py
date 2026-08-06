@@ -662,6 +662,7 @@ def canonical_admission_snapshot_digest(
     entries: tuple[AdmissionSnapshotEntry, ...],
     *,
     configuration_revision: int,
+    configuration_digest: str,
     policy_id: str,
     policy_revision: int,
 ) -> str:
@@ -671,6 +672,7 @@ def canonical_admission_snapshot_digest(
     )
     projection = {
         "configuration_revision": configuration_revision,
+        "configuration_digest": configuration_digest,
         "policy_id": policy_id,
         "policy_revision": policy_revision,
         "entries": [
@@ -695,6 +697,7 @@ def freeze_admission_snapshot(
     snapshot_id: str,
     digest: str,
     configuration_revision: int,
+    configuration_digest: str,
     policy_id: str,
     policy_revision: int,
     revision: int,
@@ -711,6 +714,7 @@ def freeze_admission_snapshot(
         revision=revision,
         digest=digest,
         configuration_revision=configuration_revision,
+        configuration_digest=configuration_digest,
         policy_id=policy_id,
         policy_revision=policy_revision,
         entries=tuple(entries),

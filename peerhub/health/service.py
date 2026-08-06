@@ -1290,6 +1290,10 @@ class HealthService:
                         self._membership
                         .configuration_revision
                     ),
+                    configuration_digest=(
+                        self._membership
+                        .configuration_digest
+                    ),
                     policy_id=policy.policy_id,
                     policy_revision=policy.revision,
                 )
@@ -1302,6 +1306,9 @@ class HealthService:
                 digest=digest,
                 configuration_revision=(
                     self._membership.configuration_revision
+                ),
+                configuration_digest=(
+                    self._membership.configuration_digest
                 ),
                 policy_id=policy.policy_id,
                 policy_revision=policy.revision,

@@ -1122,6 +1122,7 @@ class AdmissionSnapshot:
     revision: int
     digest: str
     configuration_revision: int
+    configuration_digest: str
     policy_id: str
     policy_revision: int
     entries: tuple[AdmissionSnapshotEntry, ...]
@@ -1143,6 +1144,11 @@ class AdmissionSnapshot:
         _require_nonnegative(
             self.configuration_revision,
             "configuration_revision",
+        )
+        object.__setattr__(
+            self,
+            "configuration_digest",
+            _require_sha256_hex(self.configuration_digest, "configuration_digest"),
         )
         _require_positive(
             self.policy_revision,

@@ -273,6 +273,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 11 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0011_admission_snapshot_configuration_digest.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

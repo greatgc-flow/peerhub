@@ -89,6 +89,7 @@ def _admission_snapshot(
         revision=revision,
         digest="d" * 64,
         configuration_revision=configuration_revision,
+        configuration_digest="c" * 64,
         policy_id="v1-health-default-r1",
         policy_revision=1,
         entries=(

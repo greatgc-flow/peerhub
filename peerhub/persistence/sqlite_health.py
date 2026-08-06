@@ -732,16 +732,18 @@ class SqliteHealthRepository:
                 revision,
                 digest,
                 configuration_revision,
+                configuration_digest,
                 policy_id,
                 policy_revision,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 snapshot.snapshot_id,
                 snapshot.revision,
                 snapshot.digest,
                 snapshot.configuration_revision,
+                snapshot.configuration_digest,
                 snapshot.policy_id,
                 snapshot.policy_revision,
                 snapshot.created_at,
@@ -820,6 +822,7 @@ class SqliteHealthRepository:
             revision=row["revision"],
             digest=row["digest"],
             configuration_revision=row["configuration_revision"],
+            configuration_digest=row["configuration_digest"],
             policy_id=row["policy_id"],
             policy_revision=row["policy_revision"],
             entries=entries,

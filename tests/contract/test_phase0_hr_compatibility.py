@@ -685,6 +685,7 @@ class TestPhase0HrCompatibility(unittest.TestCase):
             snapshot_id="admission-snapshot-01",
             digest="d" * 64,
             configuration_revision=11,
+            configuration_digest="c" * 64,
             policy_id="v1-health-default-r1",
             policy_revision=1,
             revision=3,
@@ -694,6 +695,7 @@ class TestPhase0HrCompatibility(unittest.TestCase):
         self.assertEqual(snapshot.entries, (entry,))
         self.assertEqual(snapshot.digest, "d" * 64)
         self.assertEqual(snapshot.configuration_revision, 11)
+        self.assertEqual(snapshot.configuration_digest, "c" * 64)
         self.assertEqual(snapshot.policy_revision, 1)
         self.assertEqual(snapshot.revision, 3)
 
@@ -924,6 +926,7 @@ class TestPhase0HrCompatibility(unittest.TestCase):
 
         kwargs = dict(
             configuration_revision=11,
+            configuration_digest="c" * 64,
             policy_id="v1-health-default-r1",
             policy_revision=1,
         )

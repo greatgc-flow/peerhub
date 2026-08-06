@@ -147,8 +147,8 @@ def _route_request_factory(
         return RouteRequest(
             client_request_id=client_request_id,
             configuration=ConfigurationSnapshot(
-                revision=configuration_revision,
-                digest="c" * 64,
+                revision=admission_snapshot.configuration_revision,
+                digest=admission_snapshot.configuration_digest,
             ),
             admission_snapshot=admission_snapshot,
             requested_capabilities=(),

@@ -208,6 +208,14 @@ class RouteRequest:
                 "admission_snapshot configuration revision "
                 "must match configuration revision"
             )
+        if (
+            self.admission_snapshot.configuration_digest
+            != self.configuration.digest
+        ):
+            raise ValueError(
+                "admission_snapshot configuration digest "
+                "must match configuration digest"
+            )
 
         object.__setattr__(
             self,

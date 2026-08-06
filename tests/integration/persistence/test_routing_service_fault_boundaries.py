@@ -88,6 +88,7 @@ def _admission_snapshot() -> AdmissionSnapshot:
         revision=1,
         digest="d" * 64,
         configuration_revision=11,
+        configuration_digest="c" * 64,
         policy_id="v1-health-default-r1",
         policy_revision=1,
         entries=(
@@ -242,6 +243,7 @@ def test_replan_write_boundary_rolls_back_new_decision_only(
         revision=1,
         digest="d" * 64,
         configuration_revision=12,
+        configuration_digest="c" * 64,
         policy_id="v1-health-default-r1",
         policy_revision=1,
         entries=_admission_snapshot().entries,

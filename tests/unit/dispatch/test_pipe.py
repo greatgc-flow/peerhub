@@ -47,6 +47,18 @@ class TestPipeRunnerSpawnAndIdentity:
         assert supervisor.identity is not None
         assert supervisor.identity.pid > 0
 
+    def test_identity_has_real_creation_time_with_psutil(self):
+        """The recorded creation time is a real timestamp (> 0) since psutil is available."""
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[sys.executable, "-c", "pass"],
+        )
+
+        run_process(config, supervisor)
+
+        assert supervisor.identity is not None
+        assert supervisor.identity.process_creation_time > 0
+
 
 class TestPipeRunnerChunks:
     """Test that pipe.py streams chunks via on_chunk correctly."""
