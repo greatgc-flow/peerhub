@@ -2,7 +2,7 @@
   "meta": {
     "schema_version": "1.0",
     "generator_name": "tools/surface_manifest/generate_manifest.py",
-    "generated_at": "2026-08-06T12:12:40.771462+00:00",
+    "generated_at": "2026-08-06T06:43:47.685970+00:00",
     "target_system": "legacy_hub_surface"
   },
   "measurement_methodology": {
@@ -22,16 +22,16 @@
   },
   "git_receipts": {
     "peerhub_repo": {
-      "commit": "48f909ae0e5c141a295aa3b7bdce0c03863a95fa",
+      "commit": "461f94d28f4b768f7530b74158e80584936eab0c",
       "is_dirty": true,
       "uncommitted_files": [
-        "docs/design/phase0/drift-report.md",
-        "docs/design/phase0/legacy-hub-surface-old.json",
-        "tools/drift_report/"
+        "analysis_result.json",
+        "analyze.py",
+        "tools/surface_manifest/"
       ]
     },
     "legacy_hub_repo": {
-      "commit": "66a61c1f3a95bdcf7778a59104138d53e22ab954",
+      "commit": "54bedd723e0d685762aa4c3710f3bbd487738425",
       "is_dirty": true,
       "uncommitted_files": [
         "peerhub/"
