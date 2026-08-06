@@ -1,0 +1,7014 @@
+{
+  "meta": {
+    "schema_version": "1.0",
+    "generator_name": "tools/surface_manifest/generate_manifest.py",
+    "generated_at": "2026-08-06T06:43:47.685970+00:00",
+    "target_system": "legacy_hub_surface"
+  },
+  "measurement_methodology": {
+    "directly_measured": [
+      "Git commit hashes & dirty receipts for peerhub & legacy hub repositories",
+      "Raw SHA-256 hashes, file sizes, and line counts of hub.py, hub_peer.py, and core configs",
+      "Action vector (90 actions), canonical order, and SHA-256 digest",
+      "Argparse arguments, flags, types, defaults, choices, and help strings",
+      "Action-to-handler dispatch mapping extracted from hub.py main() AST",
+      "Direct AST function calls per handler function",
+      "Normalized hub --help stdout receipt and SHA-256 digest"
+    ],
+    "heuristic_best_effort": [
+      "Transitive helper dependencies (ast reachability tree without dynamic branch evaluation)",
+      "Declared state reads, state writes, and external effects (ast pattern matching on file ops, json ops, subprocess, os.environ)"
+    ]
+  },
+  "git_receipts": {
+    "peerhub_repo": {
+      "commit": "461f94d28f4b768f7530b74158e80584936eab0c",
+      "is_dirty": true,
+      "uncommitted_files": [
+        "analysis_result.json",
+        "analyze.py",
+        "tools/surface_manifest/"
+      ]
+    },
+    "legacy_hub_repo": {
+      "commit": "54bedd723e0d685762aa4c3710f3bbd487738425",
+      "is_dirty": true,
+      "uncommitted_files": [
+        "peerhub/"
+      ]
+    }
+  },
+  "source_files": {
+    "hub_py": {
+      "path": "P:\\_sys\\core\\hub.py",
+      "sha256": "bd13cf559a67b7fd90fffb3088dd76ca5921f5c1b1f2332604bcaf1d664c43e6",
+      "size_bytes": 561606,
+      "line_count": 12351
+    },
+    "hub_peer_py": {
+      "path": "P:\\_sys\\core\\hub_peer.py",
+      "sha256": "9639bbd549643674fade3cb94798ec5b503eb74d6e0bfa8d69b55b57df527cba",
+      "size_bytes": 50978,
+      "line_count": 1298
+    },
+    "config_files": {
+      "core/hub_config.json": {
+        "sha256": "10226591e88d9018845ca62aa88bf2467fcc83c2cfacd084f22e0f5a01cf3ae7",
+        "size_bytes": 270,
+        "line_count": 12
+      },
+      "core/config.py": {
+        "sha256": "8d0a93e79fb97d7a1272d4c15f5510c27fdc74c818ddb55e8a0614ef210a6703",
+        "size_bytes": 6198,
+        "line_count": 172
+      },
+      "ai/config/environment.json": {
+        "sha256": "eca2462e27ccec1bf395a102760c0515bef22bb2c152ece346d602595c550d33",
+        "size_bytes": 256,
+        "line_count": 13
+      }
+    }
+  },
+  "action_vector": {
+    "action_count": 90,
+    "actions": [
+      "init-session",
+      "end-session",
+      "send",
+      "broadcast",
+      "mark-read",
+      "append-log",
+      "archive-file",
+      "update-status",
+      "check",
+      "status",
+      "check-gate",
+      "ask",
+      "ask-all",
+      "ask-coordinator",
+      "consensus-propose",
+      "consensus-vote",
+      "consensus-check",
+      "consensus-sweep",
+      "register-node",
+      "list-nodes",
+      "health-update",
+      "health-check",
+      "peer-status",
+      "context-fill",
+      "checkpoint",
+      "peer-quarantine",
+      "peer-recover",
+      "new-topic",
+      "clear-room",
+      "preflight",
+      "context-hash",
+      "report-error",
+      "feedback-add",
+      "feedback-list",
+      "feedback-resolve",
+      "artifact-claim",
+      "artifact-status",
+      "artifact-finalize",
+      "leader-yield",
+      "leader-claim",
+      "elect-leader",
+      "discover",
+      "assign-role",
+      "release-role",
+      "role-status",
+      "health-precheck",
+      "health-sweep",
+      "freshness-sweep",
+      "terminal-handoff",
+      "terminal-duty-sweep",
+      "terminal-heartbeat",
+      "terminal-close",
+      "append-handoff",
+      "task-checkpoint",
+      "task-status",
+      "task-failover",
+      "approval-request",
+      "file-lock",
+      "file-unlock",
+      "lock-status",
+      "profile-validate",
+      "lease-status",
+      "lease-sweep",
+      "model-status",
+      "transient-scan",
+      "directive-add",
+      "directive-list",
+      "directive-clear",
+      "lessons-list",
+      "lessons-propose",
+      "lessons-activate",
+      "lessons-retire",
+      "lesson-broadcast",
+      "lesson-sweep",
+      "lesson-inject",
+      "thread-new",
+      "thread-append",
+      "thread-react",
+      "thread-promote",
+      "alert-raise",
+      "proposal-add",
+      "proposal-vote",
+      "proposal-list",
+      "broker-submit",
+      "broker-drain",
+      "broker-status",
+      "update-signatures",
+      "arbiter-review",
+      "credit-status",
+      "credit-consume"
+    ],
+    "action_vector_digest": "cd992a04af8cfdcd727e792f5efad93ff8f1f5a69bbf846d871561533ba2c176"
+  },
+  "argparse_surface": {
+    "prog": "hub",
+    "description": "AI collaboration hub - Protocol v4.2",
+    "argument_count": 94,
+    "arguments": [
+      {
+        "name_or_flags": [
+          "action"
+        ],
+        "dest": "action",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": [
+          "init-session",
+          "end-session",
+          "send",
+          "broadcast",
+          "mark-read",
+          "append-log",
+          "archive-file",
+          "update-status",
+          "check",
+          "status",
+          "check-gate",
+          "ask",
+          "ask-all",
+          "ask-coordinator",
+          "consensus-propose",
+          "consensus-vote",
+          "consensus-check",
+          "consensus-sweep",
+          "register-node",
+          "list-nodes",
+          "health-update",
+          "health-check",
+          "peer-status",
+          "context-fill",
+          "checkpoint",
+          "peer-quarantine",
+          "peer-recover",
+          "new-topic",
+          "clear-room",
+          "preflight",
+          "context-hash",
+          "report-error",
+          "feedback-add",
+          "feedback-list",
+          "feedback-resolve",
+          "artifact-claim",
+          "artifact-status",
+          "artifact-finalize",
+          "leader-yield",
+          "leader-claim",
+          "elect-leader",
+          "discover",
+          "assign-role",
+          "release-role",
+          "role-status",
+          "health-precheck",
+          "health-sweep",
+          "freshness-sweep",
+          "terminal-handoff",
+          "terminal-duty-sweep",
+          "terminal-heartbeat",
+          "terminal-close",
+          "append-handoff",
+          "task-checkpoint",
+          "task-status",
+          "task-failover",
+          "approval-request",
+          "file-lock",
+          "file-unlock",
+          "lock-status",
+          "profile-validate",
+          "lease-status",
+          "lease-sweep",
+          "model-status",
+          "transient-scan",
+          "directive-add",
+          "directive-list",
+          "directive-clear",
+          "lessons-list",
+          "lessons-propose",
+          "lessons-activate",
+          "lessons-retire",
+          "lesson-broadcast",
+          "lesson-sweep",
+          "lesson-inject",
+          "thread-new",
+          "thread-append",
+          "thread-react",
+          "thread-promote",
+          "alert-raise",
+          "proposal-add",
+          "proposal-vote",
+          "proposal-list",
+          "broker-submit",
+          "broker-drain",
+          "broker-status",
+          "update-signatures",
+          "arbiter-review",
+          "credit-status",
+          "credit-consume"
+        ],
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--ai-root"
+        ],
+        "dest": "ai_root",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "Explicit .ai root; pins HUB_AI_ROOT for this process (deterministic; avoids the cwd-phantom bug)",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--force"
+        ],
+        "dest": "force",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "freshness-sweep: bypass the min-interval gate and run now",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--needs"
+        ],
+        "dest": "needs",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--effort"
+        ],
+        "dest": "effort",
+        "action": "store",
+        "type": null,
+        "default": "mid",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--agent"
+        ],
+        "dest": "agent",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--room"
+        ],
+        "dest": "room",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--from"
+        ],
+        "dest": "from_",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--to"
+        ],
+        "dest": "to_",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--msg"
+        ],
+        "dest": "msg",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--thread-id"
+        ],
+        "dest": "thread_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--msg-id"
+        ],
+        "dest": "msg_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--type"
+        ],
+        "dest": "type",
+        "action": "store",
+        "type": null,
+        "default": "MSG",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--priority"
+        ],
+        "dest": "priority",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--cc"
+        ],
+        "dest": "cc",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--ref"
+        ],
+        "dest": "ref",
+        "action": "store",
+        "type": "int",
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--query"
+        ],
+        "dest": "query",
+        "action": "store",
+        "type": null,
+        "default": "",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--query-file"
+        ],
+        "dest": "query_file",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--payload-file"
+        ],
+        "dest": "payload_file",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--target"
+        ],
+        "dest": "target",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--recover"
+        ],
+        "dest": "recover",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "Recover state for health-check",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--all"
+        ],
+        "dest": "all",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--id"
+        ],
+        "dest": "id",
+        "action": "store",
+        "type": "int",
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--axis"
+        ],
+        "dest": "axis",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--script"
+        ],
+        "dest": "script",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--status"
+        ],
+        "dest": "status_val",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--detail"
+        ],
+        "dest": "detail",
+        "action": "store",
+        "type": null,
+        "default": "",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--name"
+        ],
+        "dest": "name",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--file"
+        ],
+        "dest": "file_path",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--mission"
+        ],
+        "dest": "mission",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--blocked"
+        ],
+        "dest": "blocked",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--phase"
+        ],
+        "dest": "phase",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--round-id"
+        ],
+        "dest": "round_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--subject"
+        ],
+        "dest": "subject",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--voters"
+        ],
+        "dest": "voters",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--voter"
+        ],
+        "dest": "voter",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--vote"
+        ],
+        "dest": "vote_val",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--reason"
+        ],
+        "dest": "reason",
+        "action": "store",
+        "type": null,
+        "default": "",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--timeout"
+        ],
+        "dest": "timeout",
+        "action": "store",
+        "type": "int",
+        "default": 0,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--tier"
+        ],
+        "dest": "tier",
+        "action": "store",
+        "type": "int",
+        "default": 4,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--node-type"
+        ],
+        "dest": "node_type",
+        "action": "store",
+        "type": null,
+        "default": "agent",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--invoke"
+        ],
+        "dest": "invoke",
+        "action": "store",
+        "type": null,
+        "default": "",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--invoke-args"
+        ],
+        "dest": "invoke_args_str",
+        "action": "store",
+        "type": null,
+        "default": "-p,{query}",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--memory"
+        ],
+        "dest": "memory",
+        "action": "store",
+        "type": null,
+        "default": "short-term",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--peer"
+        ],
+        "dest": "peer",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--lease-id"
+        ],
+        "dest": "lease_id",
+        "action": "store",
+        "type": null,
+        "default": "",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--pid"
+        ],
+        "dest": "pid",
+        "action": "store",
+        "type": "int",
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--cmd"
+        ],
+        "dest": "cmd",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--shell"
+        ],
+        "dest": "shell",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--pattern"
+        ],
+        "dest": "pattern",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--severity"
+        ],
+        "dest": "severity",
+        "action": "store",
+        "type": null,
+        "default": "warn",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--force-tier0"
+        ],
+        "dest": "force_tier0",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--jsonl-mb"
+        ],
+        "dest": "jsonl_mb",
+        "action": "store",
+        "type": "float",
+        "default": 0.0,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--failures"
+        ],
+        "dest": "failures",
+        "action": "store",
+        "type": "int",
+        "default": 0,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--sections"
+        ],
+        "dest": "sections",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--frame"
+        ],
+        "dest": "frame",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--quiet"
+        ],
+        "dest": "quiet",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--output-file"
+        ],
+        "dest": "output_file",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--category"
+        ],
+        "dest": "category",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--draft-path"
+        ],
+        "dest": "draft_path",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--feedback-id"
+        ],
+        "dest": "feedback_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--role"
+        ],
+        "dest": "role",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--section"
+        ],
+        "dest": "section",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--text"
+        ],
+        "dest": "text",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--task-id"
+        ],
+        "dest": "task_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--auth-needed"
+        ],
+        "dest": "auth_needed",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--scope"
+        ],
+        "dest": "scope",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--fallback"
+        ],
+        "dest": "fallback",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--session-policy"
+        ],
+        "dest": "session_policy",
+        "action": "store",
+        "type": null,
+        "default": "auto",
+        "choices": [
+          "auto",
+          "reuse",
+          "fresh",
+          "none"
+        ],
+        "help": "Session reuse policy: auto=use node config, reuse=always reuse, fresh=always new, none=disable",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--allow-governed-mutation"
+        ],
+        "dest": "allow_governed_mutation",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "Authorize a peer to mutate governed files during this ask (broker/consensus execution); skips the LL-20260703-005 out-of-band mutation guard. REQUIRES --governed-mutation-reason.",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--governed-mutation-reason"
+        ],
+        "dest": "governed_mutation_reason",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "Required alongside --allow-governed-mutation: a short justification, recorded in the audit log.",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--allow-terminal-spend"
+        ],
+        "dest": "allow_terminal_spend",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "Acknowledge an explicit ask that spends tokens on the human-interface terminal peer",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--rule"
+        ],
+        "dest": "rule",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--enforcement-artifact"
+        ],
+        "dest": "enforcement_artifact",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "G-bridge artifact path (relative to .ai or knowledge root) whose pass marker gates lesson activation",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--expires-at"
+        ],
+        "dest": "expires_at",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": "Advisory expiry (ISO date) for lessons without an enforcement artifact",
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--ttl-hours"
+        ],
+        "dest": "ttl_hours",
+        "action": "store",
+        "type": "int",
+        "default": 6,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--clear-condition"
+        ],
+        "dest": "clear_condition",
+        "action": "store",
+        "type": null,
+        "default": "manual",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--lesson-id"
+        ],
+        "dest": "lesson_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--title"
+        ],
+        "dest": "title",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--peers"
+        ],
+        "dest": "peers",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--directive-id"
+        ],
+        "dest": "directive_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--topic"
+        ],
+        "dest": "topic",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--emoji"
+        ],
+        "dest": "emoji",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--proposal-id"
+        ],
+        "dest": "proposal_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--impact"
+        ],
+        "dest": "impact",
+        "action": "store",
+        "type": null,
+        "default": "med",
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--rationale"
+        ],
+        "dest": "rationale",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--trim"
+        ],
+        "dest": "trim",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--days"
+        ],
+        "dest": "days",
+        "action": "store",
+        "type": "int",
+        "default": 14,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--min-triggers"
+        ],
+        "dest": "min_triggers",
+        "action": "store",
+        "type": "int",
+        "default": 3,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--limit"
+        ],
+        "dest": "limit",
+        "action": "store",
+        "type": "int",
+        "default": 50,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--credit-id"
+        ],
+        "dest": "credit_id",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--confirm"
+        ],
+        "dest": "confirm",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--idempotency-key"
+        ],
+        "dest": "idempotency_key",
+        "action": "store",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      },
+      {
+        "name_or_flags": [
+          "--json"
+        ],
+        "dest": "as_json",
+        "action": "store_true",
+        "type": null,
+        "default": null,
+        "choices": null,
+        "help": null,
+        "required": false
+      }
+    ]
+  },
+  "dispatch_table": {
+    "ask": "action_ask",
+    "ask-all": "action_ask_all",
+    "ask-coordinator": "action_ask_coordinator",
+    "init-session": "action_init_session",
+    "end-session": "action_end_session",
+    "send": "action_send",
+    "broadcast": "action_broadcast",
+    "mark-read": "action_mark_read",
+    "append-log": "action_append_log",
+    "archive-file": "action_archive_file",
+    "update-status": "action_update_status",
+    "check": "action_check",
+    "status": "action_status",
+    "check-gate": "action_check_gate",
+    "consensus-propose": "action_consensus_propose",
+    "consensus-vote": "action_consensus_vote",
+    "consensus-check": "action_consensus_check",
+    "consensus-sweep": "action_consensus_sweep",
+    "list-nodes": "action_list_nodes",
+    "register-node": "action_register_node",
+    "health-update": "action_health_update",
+    "health-check": "action_health_check",
+    "peer-status": "action_peer_status",
+    "context-fill": "action_context_fill",
+    "checkpoint": "action_checkpoint",
+    "alert-raise": "action_alert_raise",
+    "thread-promote": "action_thread_promote",
+    "peer-quarantine": "action_peer_quarantine",
+    "peer-recover": "action_peer_recover",
+    "new-topic": "action_new_topic",
+    "clear-room": "action_clear_room",
+    "preflight": "action_preflight",
+    "context-hash": "action_context_hash",
+    "report-error": "action_report_error",
+    "feedback-add": "action_feedback_add",
+    "feedback-list": "action_feedback_list",
+    "feedback-resolve": "action_feedback_resolve",
+    "artifact-claim": "action_artifact_claim",
+    "artifact-status": "action_artifact_status",
+    "artifact-finalize": "action_artifact_finalize",
+    "leader-yield": "action_leader_yield",
+    "leader-claim": "action_leader_claim",
+    "elect-leader": "action_elect_leader",
+    "discover": "action_discover",
+    "assign-role": "action_assign_role",
+    "release-role": "action_role_release",
+    "role-status": "action_role_status",
+    "health-precheck": "action_health_precheck",
+    "health-sweep": "action_health_sweep",
+    "freshness-sweep": "action_freshness_sweep",
+    "terminal-duty-sweep": "action_terminal_duty_sweep",
+    "terminal-handoff": "action_terminal_handoff",
+    "terminal-heartbeat": "action_terminal_heartbeat",
+    "terminal-close": "action_terminal_close",
+    "append-handoff": "action_append_handoff",
+    "task-checkpoint": "action_task_checkpoint",
+    "task-status": "action_task_status",
+    "task-failover": "action_task_failover",
+    "approval-request": "action_approval_request",
+    "file-lock": "action_file_lock",
+    "file-unlock": "action_file_unlock",
+    "lock-status": "action_lock_status",
+    "profile-validate": "action_validate_profiles",
+    "lease-status": "action_lease_status",
+    "lease-sweep": "_lease_sweep",
+    "model-status": "action_model_status",
+    "transient-scan": "action_transient_scan",
+    "directive-add": "action_directive_add",
+    "directive-list": "action_directive_list",
+    "directive-clear": "action_directive_clear",
+    "lessons-list": "action_lessons_list",
+    "lessons-propose": "action_lessons_propose",
+    "lessons-activate": "action_lessons_activate",
+    "lessons-retire": "action_lessons_retire",
+    "lesson-broadcast": "action_lesson_broadcast",
+    "lesson-sweep": "action_lesson_sweep",
+    "lesson-inject": "action_lesson_inject",
+    "thread-new": "action_thread_new",
+    "thread-append": "action_thread_append",
+    "thread-react": "action_thread_react",
+    "proposal-add": "action_proposal_add",
+    "proposal-vote": "action_proposal_vote",
+    "proposal-list": "action_proposal_list",
+    "broker-submit": "action_broker_submit",
+    "broker-drain": "action_broker_drain",
+    "broker-status": "action_broker_status",
+    "update-signatures": "action_update_signatures",
+    "arbiter-review": "run_arbiter_on_round",
+    "credit-status": "action_credit_status",
+    "credit-consume": "action_credit_consume"
+  },
+  "action_details": {
+    "init-session": {
+      "action": "init-session",
+      "handler": "action_init_session",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_canonical_admission_identity",
+          "_get_lock",
+          "_lease_sweep",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_id",
+          "_write_state",
+          "action_consensus_sweep",
+          "print",
+          "session_dir.mkdir",
+          "state.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_canonical_admission_identity",
+          "_get_lock",
+          "_lease_sweep",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_id",
+          "_write_state",
+          "action_consensus_sweep"
+        ],
+        "transitive_internal_helpers": [
+          "_append_ask_history",
+          "_append_consensus_history",
+          "_append_handoff_item",
+          "_auto_promote_runtime_directive",
+          "_bump_directive_trigger",
+          "_canonical_admission_identity",
+          "_default_nodes",
+          "_get_active_runtime_directives",
+          "_get_lock",
+          "_get_logger",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_kill_process_tree",
+          "_kill_tree_no_psutil",
+          "_lease_sweep",
+          "_leases_path",
+          "_load_lifecycle_policy",
+          "_load_model_profiles",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "_parse_handoff",
+          "_parse_lease_timestamp",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_pid_alive",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_record_ask_failure",
+          "_render_handoff",
+          "_resolve_profile_id",
+          "_runtime_directives_path",
+          "_save_runtime_directive",
+          "_short_id",
+          "_validate_state",
+          "_validated_live_lease_pid",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "_write_state",
+          "action_consensus_sweep",
+          "action_peer_quarantine",
+          "action_report_error",
+          "find_ai_root",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ]
+    },
+    "end-session": {
+      "action": "end-session",
+      "handler": "action_end_session",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_handoff",
+          "_read_json",
+          "_write_handoff",
+          "_write_json",
+          "_write_state",
+          "handoff.setdefault",
+          "m.get",
+          "mb.get",
+          "print",
+          "session_dir.mkdir",
+          "state.get",
+          "sum"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_handoff",
+          "_read_json",
+          "_write_handoff",
+          "_write_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_log_p2p",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_state"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "send": {
+      "action": "send",
+      "handler": "action_send",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_load_lifecycle_policy",
+          "_log_p2p",
+          "_maildir_write",
+          "_now",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "dict.fromkeys",
+          "len",
+          "list",
+          "m.get",
+          "mb.get",
+          "msgs.append",
+          "payload_dir.mkdir",
+          "print",
+          "send_policy.get",
+          "set",
+          "sum",
+          "sys.exit",
+          "uuid.uuid4"
+        ],
+        "internal_helpers": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_load_lifecycle_policy",
+          "_log_p2p",
+          "_maildir_write",
+          "_now",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_short_id",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_log_p2p",
+          "_maildir_path",
+          "_maildir_write",
+          "_now",
+          "_payload_ids_from_messages",
+          "_permission_winerror",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "_write_json_atomic",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "broadcast": {
+      "action": "broadcast",
+      "handler": "action_broadcast",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_load_lifecycle_policy",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "action_send",
+          "dict.fromkeys",
+          "is_routable",
+          "len",
+          "payload_dir.mkdir",
+          "policy.get",
+          "print",
+          "state.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_load_lifecycle_policy",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "action_send",
+          "is_routable"
+        ],
+        "transitive_internal_helpers": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_log_p2p",
+          "_maildir_path",
+          "_maildir_write",
+          "_now",
+          "_payload_ids_from_messages",
+          "_permission_winerror",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "_write_json_atomic",
+          "action_send",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "mark-read": {
+      "action": "mark-read",
+      "handler": "action_mark_read",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_maildir_mark_read",
+          "_read_json",
+          "_write_json",
+          "m.get",
+          "mb.get",
+          "print",
+          "sum"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_maildir_mark_read",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_maildir_mark_read",
+          "_maildir_path",
+          "_permission_winerror",
+          "_read_json",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "append-log": {
+      "action": "append-log",
+      "handler": "action_append_log",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_now",
+          "f.write",
+          "json.dumps",
+          "open",
+          "print"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_now"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_now"
+        ]
+      },
+      "declared_state_reads": [],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "archive-file": {
+      "action": "archive-file",
+      "handler": "action_archive_file",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "archive_dir.mkdir",
+          "datetime.now",
+          "print",
+          "shutil.copy2",
+          "src.exists",
+          "sys.exit"
+        ],
+        "internal_helpers": [],
+        "transitive_internal_helpers": []
+      },
+      "declared_state_reads": [],
+      "declared_state_writes": [
+        "call:mkdir"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "update-status": {
+      "action": "update-status",
+      "handler": "action_update_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_state",
+          "print"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_log_p2p",
+          "_now",
+          "_permission_winerror",
+          "_read_json",
+          "_validate_state",
+          "_write_json_atomic",
+          "_write_state"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "check": {
+      "action": "check",
+      "handler": "action_check",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_maildir_read_all",
+          "_read_json",
+          "content.replace",
+          "content.startswith",
+          "len",
+          "m.get",
+          "mb.get",
+          "payload_path.exists",
+          "pdata.get",
+          "print"
+        ],
+        "internal_helpers": [
+          "_maildir_read_all",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_maildir_path",
+          "_maildir_read_all",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "status": {
+      "action": "status",
+      "handler": "action_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_file_locks_path",
+          "_lease_sweep",
+          "_read_json",
+          "_task_registry_path",
+          "active.append",
+          "consensus_dir.exists",
+          "consensus_dir.glob",
+          "handoff_path.exists",
+          "handoff_path.read_text",
+          "isinstance",
+          "leadership.get",
+          "len",
+          "lock_path.exists",
+          "mb.get",
+          "print",
+          "r.get",
+          "role_text.append",
+          "roles.items",
+          "sorted",
+          "state.get",
+          "sum",
+          "task_path.exists",
+          "tasks.items",
+          "v.get",
+          "value.get"
+        ],
+        "internal_helpers": [
+          "_file_locks_path",
+          "_lease_sweep",
+          "_read_json",
+          "_task_registry_path"
+        ],
+        "transitive_internal_helpers": [
+          "_append_ask_history",
+          "_append_handoff_item",
+          "_auto_promote_runtime_directive",
+          "_bump_directive_trigger",
+          "_default_nodes",
+          "_file_locks_path",
+          "_get_active_runtime_directives",
+          "_get_lock",
+          "_get_logger",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_kill_process_tree",
+          "_kill_tree_no_psutil",
+          "_lease_sweep",
+          "_leases_path",
+          "_load_lifecycle_policy",
+          "_load_model_profiles",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "_parse_lease_timestamp",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_pid_alive",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_record_ask_failure",
+          "_resolve_profile_id",
+          "_runtime_directives_path",
+          "_save_runtime_directive",
+          "_task_registry_path",
+          "_validated_live_lease_pid",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_quarantine",
+          "action_report_error",
+          "find_ai_root",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:run"
+      ]
+    },
+    "check-gate": {
+      "action": "check-gate",
+      "handler": "action_check_gate",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_load_peers",
+          "_read_json",
+          "data.get",
+          "peer_cfg.get",
+          "peers.items",
+          "print",
+          "status_path.exists",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_load_peers",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_load_peers",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "ask": {
+      "action": "ask",
+      "handler": "action_ask",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_action_ask_inner",
+          "_append_ask_history",
+          "_create_ask_guard_record",
+          "_governed_post_check",
+          "_log_p2p",
+          "_now",
+          "_phantom_scan",
+          "_short_id",
+          "_snapshot_governed_hashes",
+          "f.write",
+          "int",
+          "json.dumps",
+          "path.open",
+          "pending_success.publish",
+          "pending_success.suppress",
+          "print",
+          "sorted",
+          "sys.exit",
+          "time.monotonic"
+        ],
+        "internal_helpers": [
+          "_action_ask_inner",
+          "_append_ask_history",
+          "_create_ask_guard_record",
+          "_log_p2p",
+          "_now",
+          "_phantom_scan",
+          "_short_id",
+          "_snapshot_governed_hashes"
+        ],
+        "transitive_internal_helpers": [
+          "_action_ask_inner",
+          "_action_group",
+          "_add",
+          "_append_ask_history",
+          "_append_consensus_history",
+          "_append_directives_and_lessons",
+          "_append_handoff",
+          "_append_handoff_item",
+          "_append_jsonl",
+          "_append_room_context",
+          "_ask_health_precheck",
+          "_ask_with_pty",
+          "_auto_promote_runtime_directive",
+          "_build_ask_query_with_context",
+          "_build_terminal_relay_frame",
+          "_bump_directive_trigger",
+          "_cached_reality_status_for_dispatch",
+          "_chunk_byte_count",
+          "_classify_ask_failure",
+          "_classify_resume_failure",
+          "_compile_lessons_block",
+          "_compose_dispatch_target",
+          "_compute_scope_key",
+          "_create_ask_guard_record",
+          "_current_coordinator_health",
+          "_current_phase",
+          "_decode_output",
+          "_default_nodes",
+          "_direct_write_capability_status",
+          "_effective_zombie_timeout_sec",
+          "_emit_peer_silent_startup_warning",
+          "_ensure_aware",
+          "_extract_policy_availability",
+          "_filter_lessons_for_peer",
+          "_get_active_runtime_directives",
+          "_get_active_session",
+          "_get_lock",
+          "_get_logger",
+          "_governed_files",
+          "_guard_action",
+          "_guard_action_dry_run",
+          "_guard_decision",
+          "_guard_oversized_ask",
+          "_guard_shadow_bucket_facts",
+          "_guard_shadow_case_key",
+          "_guard_shadow_phase_key",
+          "_has_finalized_consensus",
+          "_human_interface_assignment_fresh",
+          "_human_interface_cfg",
+          "_human_interface_freshness_minutes",
+          "_human_interface_peer_eligibility",
+          "_human_interface_peer_node",
+          "_human_interface_profile_for_peer",
+          "_human_interface_required_profile",
+          "_human_interface_ts_fresh",
+          "_inject_oversized_progress_instruction",
+          "_is_active",
+          "_is_ephemeral_query_file",
+          "_is_mutating_action",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_is_sandbox_spawn_denied",
+          "_kill_process_tree",
+          "_kill_tree_no_psutil",
+          "_knowledge_config",
+          "_knowledge_root",
+          "_lease_cfg",
+          "_lease_close",
+          "_lease_open",
+          "_lease_renew",
+          "_lease_sweep",
+          "_leases_path",
+          "_load_active_lessons",
+          "_load_balancer_config",
+          "_load_lifecycle_policy",
+          "_load_model_profiles",
+          "_load_nodes",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_load_routing_config",
+          "_load_session_state",
+          "_log_p2p",
+          "_mutate_session_state",
+          "_nonnegative_int",
+          "_notify_staged_query_file_reuse",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "_oversized_ask_limits",
+          "_oversized_ask_stats",
+          "_oversized_ask_task_count",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_parse_lease_timestamp",
+          "_parse_reset_time",
+          "_parsed_final_requests_escalation",
+          "_pct",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_phantom_scan",
+          "_pid_alive",
+          "_plan_context_aware_failover",
+          "_portable_state_path",
+          "_prepare_ipc_stateless_home",
+          "_profile_tier_rank",
+          "_pty_chunk_telemetry_cfg",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_read_pipe_chunk",
+          "_record_ask_failure",
+          "_record_guard_shadow",
+          "_record_pty_chunk_arrival_metric",
+          "_record_routing_metric",
+          "_render_handoff",
+          "_resolve_invoke_cli",
+          "_resolve_profile_id",
+          "_resolve_usage_session_id",
+          "_retire_session",
+          "_root",
+          "_routing_metrics_path",
+          "_runtime_cfg",
+          "_runtime_directives_path",
+          "_runtime_escalation_target",
+          "_runtime_node_policy",
+          "_save_runtime_directive",
+          "_select_ask_profile",
+          "_select_human_interface_peer",
+          "_session_reuse_enabled",
+          "_session_state_path",
+          "_set_active_session",
+          "_shadow_log_load_balance",
+          "_short_id",
+          "_silent_startup_warning_sec",
+          "_snapshot_governed_hashes",
+          "_spawn_process",
+          "_staged_query_file_age_hours",
+          "_staged_query_file_prior_failures",
+          "_store_session_from_result",
+          "_stream_process_output",
+          "_strip_ansi",
+          "_surface_post_spawn_failure",
+          "_surface_pre_dispatch_failure",
+          "_sweep_stale_ask_temp_dirs",
+          "_terminal_context_references",
+          "_terminal_spend_guard",
+          "_update_pty_thread",
+          "_validated_live_lease_pid",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_consensus_sweep",
+          "action_peer_quarantine",
+          "action_peer_recover",
+          "action_report_error",
+          "find_ai_root",
+          "gate_effectively_open",
+          "is_routable",
+          "resolve_terminal_identity"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_bytes",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_append_jsonl",
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:rmtree",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:Popen",
+        "process:_ask_with_pty",
+        "process:exit",
+        "process:run"
+      ]
+    },
+    "ask-all": {
+      "action": "ask-all",
+      "handler": "action_ask_all",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_load_orchestration",
+          "_read_query_arg",
+          "any",
+          "int",
+          "is_routable",
+          "n.get",
+          "orch.get",
+          "peer_id.upper",
+          "print",
+          "results.get",
+          "set",
+          "str",
+          "subprocess.run",
+          "sys.exit",
+          "t.join",
+          "t.start",
+          "threading.Lock",
+          "threading.Thread",
+          "tmp.unlink",
+          "tmp.write_text",
+          "uuid.uuid4"
+        ],
+        "internal_helpers": [
+          "_load_orchestration",
+          "_read_query_arg",
+          "is_routable"
+        ],
+        "transitive_internal_helpers": [
+          "_append_jsonl",
+          "_is_ephemeral_query_file",
+          "_load_orchestration",
+          "_load_protocol_cfg",
+          "_notify_staged_query_file_reuse",
+          "_now",
+          "_read_query_arg",
+          "_record_routing_metric",
+          "_routing_metrics_path",
+          "_staged_query_file_age_hours",
+          "_staged_query_file_prior_failures",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:read_text",
+        "config:orchestration.json"
+      ],
+      "declared_state_writes": [
+        "call:_append_jsonl",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ]
+    },
+    "ask-coordinator": {
+      "action": "ask-coordinator",
+      "handler": "action_ask_coordinator",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_healthy_peer",
+          "_load_orchestration",
+          "_read_json",
+          "_read_query_arg",
+          "_record_routing_metric",
+          "_thin_forward_envelope",
+          "action_ask",
+          "is_routable",
+          "len",
+          "next",
+          "orch.get",
+          "print",
+          "query_text.lower",
+          "state.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_healthy_peer",
+          "_load_orchestration",
+          "_read_json",
+          "_read_query_arg",
+          "_record_routing_metric",
+          "_thin_forward_envelope",
+          "action_ask",
+          "is_routable"
+        ],
+        "transitive_internal_helpers": [
+          "_action_ask_inner",
+          "_action_group",
+          "_add",
+          "_append_ask_history",
+          "_append_consensus_history",
+          "_append_directives_and_lessons",
+          "_append_handoff",
+          "_append_handoff_item",
+          "_append_jsonl",
+          "_append_room_context",
+          "_ask_health_precheck",
+          "_ask_with_pty",
+          "_auto_promote_runtime_directive",
+          "_build_ask_query_with_context",
+          "_build_terminal_relay_frame",
+          "_bump_directive_trigger",
+          "_cached_reality_status_for_dispatch",
+          "_chunk_byte_count",
+          "_classify_ask_failure",
+          "_classify_resume_failure",
+          "_compile_lessons_block",
+          "_compose_dispatch_target",
+          "_compute_scope_key",
+          "_create_ask_guard_record",
+          "_current_coordinator_health",
+          "_current_phase",
+          "_decode_output",
+          "_default_nodes",
+          "_direct_write_capability_status",
+          "_effective_zombie_timeout_sec",
+          "_emit_peer_silent_startup_warning",
+          "_ensure_aware",
+          "_extract_policy_availability",
+          "_filter_lessons_for_peer",
+          "_get_active_runtime_directives",
+          "_get_active_session",
+          "_get_lock",
+          "_get_logger",
+          "_governed_files",
+          "_guard_action",
+          "_guard_action_dry_run",
+          "_guard_decision",
+          "_guard_oversized_ask",
+          "_guard_shadow_bucket_facts",
+          "_guard_shadow_case_key",
+          "_guard_shadow_phase_key",
+          "_has_finalized_consensus",
+          "_healthy_peer",
+          "_human_interface_assignment_fresh",
+          "_human_interface_cfg",
+          "_human_interface_freshness_minutes",
+          "_human_interface_peer_eligibility",
+          "_human_interface_peer_node",
+          "_human_interface_profile_for_peer",
+          "_human_interface_required_profile",
+          "_inject_oversized_progress_instruction",
+          "_is_active",
+          "_is_ephemeral_query_file",
+          "_is_mutating_action",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_is_sandbox_spawn_denied",
+          "_kill_process_tree",
+          "_kill_tree_no_psutil",
+          "_knowledge_config",
+          "_knowledge_root",
+          "_lease_cfg",
+          "_lease_close",
+          "_lease_open",
+          "_lease_renew",
+          "_lease_sweep",
+          "_leases_path",
+          "_load_active_lessons",
+          "_load_balancer_config",
+          "_load_lifecycle_policy",
+          "_load_model_profiles",
+          "_load_nodes",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_load_routing_config",
+          "_load_session_state",
+          "_log_p2p",
+          "_mutate_session_state",
+          "_nonnegative_int",
+          "_notify_staged_query_file_reuse",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "_oversized_ask_limits",
+          "_oversized_ask_stats",
+          "_oversized_ask_task_count",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_parse_lease_timestamp",
+          "_parse_reset_time",
+          "_parsed_final_requests_escalation",
+          "_pct",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_phantom_scan",
+          "_pid_alive",
+          "_plan_context_aware_failover",
+          "_portable_state_path",
+          "_prepare_ipc_stateless_home",
+          "_profile_tier_rank",
+          "_pty_chunk_telemetry_cfg",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_read_pipe_chunk",
+          "_read_query_arg",
+          "_record_ask_failure",
+          "_record_guard_shadow",
+          "_record_pty_chunk_arrival_metric",
+          "_record_routing_metric",
+          "_render_handoff",
+          "_resolve_invoke_cli",
+          "_resolve_profile_id",
+          "_resolve_usage_session_id",
+          "_retire_session",
+          "_root",
+          "_routing_metrics_path",
+          "_runtime_cfg",
+          "_runtime_directives_path",
+          "_runtime_escalation_target",
+          "_runtime_node_policy",
+          "_save_runtime_directive",
+          "_select_ask_profile",
+          "_select_human_interface_peer",
+          "_session_reuse_enabled",
+          "_session_state_path",
+          "_set_active_session",
+          "_shadow_log_load_balance",
+          "_short_id",
+          "_silent_startup_warning_sec",
+          "_snapshot_governed_hashes",
+          "_spawn_process",
+          "_staged_query_file_age_hours",
+          "_staged_query_file_prior_failures",
+          "_store_session_from_result",
+          "_stream_process_output",
+          "_strip_ansi",
+          "_surface_post_spawn_failure",
+          "_surface_pre_dispatch_failure",
+          "_sweep_stale_ask_temp_dirs",
+          "_terminal_context_references",
+          "_terminal_spend_guard",
+          "_thin_forward_envelope",
+          "_update_pty_thread",
+          "_validated_live_lease_pid",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_ask",
+          "action_consensus_sweep",
+          "action_peer_quarantine",
+          "action_peer_recover",
+          "action_report_error",
+          "find_ai_root",
+          "gate_effectively_open",
+          "is_routable",
+          "resolve_terminal_identity"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_bytes",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_append_jsonl",
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:rmtree",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:Popen",
+        "process:_ask_with_pty",
+        "process:exit"
+      ]
+    },
+    "consensus-propose": {
+      "action": "consensus-propose",
+      "handler": "action_consensus_propose",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_healthy_peer",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "consensus_dir.glob",
+          "consensus_dir.mkdir",
+          "d.get",
+          "int",
+          "list",
+          "print",
+          "required_voters.append",
+          "st.lower",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_healthy_peer",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_short_id",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_healthy_peer",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_short_id",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "consensus-vote": {
+      "action": "consensus-vote",
+      "handler": "action_consensus_vote",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path.cwd",
+          "_decide_consensus",
+          "_finalize_round_side_effects",
+          "_get_lock",
+          "_log_p2p",
+          "_maybe_run_arbiter_on_finalize",
+          "_now",
+          "_queue_vote_merge",
+          "_read_json",
+          "_write_json",
+          "data.get",
+          "existing.get",
+          "isinstance",
+          "len",
+          "print",
+          "rpath.exists",
+          "sorted",
+          "sum",
+          "sys.exit",
+          "votes.get",
+          "votes.values"
+        ],
+        "internal_helpers": [
+          "_decide_consensus",
+          "_finalize_round_side_effects",
+          "_get_lock",
+          "_log_p2p",
+          "_maybe_run_arbiter_on_finalize",
+          "_now",
+          "_queue_vote_merge",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_append_consensus_history",
+          "_apply_arbiter_override_to_round",
+          "_arbiter_budget_count",
+          "_arbiter_record_invocation",
+          "_broker_dirs",
+          "_decide_consensus",
+          "_emit_decision_capsule",
+          "_final_arbiter_config",
+          "_finalize_round_side_effects",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_log_p2p",
+          "_maybe_run_arbiter_on_finalize",
+          "_now",
+          "_parse_arbiter_verdict",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_queue_vote_merge",
+          "_read_handoff",
+          "_read_json",
+          "_real_arbiter_invoker",
+          "_render_handoff",
+          "_s",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "arbiter_decide",
+          "condense_arbiter_input",
+          "detect_dissent",
+          "invoke_arbiter",
+          "run_arbiter_on_round"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ]
+    },
+    "consensus-check": {
+      "action": "consensus-check",
+      "handler": "action_consensus_check",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_read_json",
+          "consensus_dir.exists",
+          "consensus_dir.glob",
+          "d.get",
+          "f.exists",
+          "isinstance",
+          "print",
+          "r.get",
+          "sorted",
+          "str",
+          "votes.items"
+        ],
+        "internal_helpers": [
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "consensus-sweep": {
+      "action": "consensus-sweep",
+      "handler": "action_consensus_sweep",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_consensus_history",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_json",
+          "consensus_dir.exists",
+          "consensus_dir.glob",
+          "datetime.fromisoformat",
+          "datetime.now",
+          "print",
+          "r.get",
+          "sorted"
+        ],
+        "internal_helpers": [
+          "_append_consensus_history",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_append_consensus_history",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "register-node": {
+      "action": "register-node",
+      "handler": "action_register_node",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_default_nodes",
+          "_get_lock",
+          "_read_json",
+          "_write_json",
+          "a.strip",
+          "data.setdefault",
+          "invoke_args_str.split",
+          "print"
+        ],
+        "internal_helpers": [
+          "_default_nodes",
+          "_get_lock",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_default_nodes",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_permission_winerror",
+          "_read_json",
+          "_write_json",
+          "_write_json_atomic",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "list-nodes": {
+      "action": "list-nodes",
+      "handler": "action_list_nodes",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_load_nodes",
+          "cfg.get",
+          "len",
+          "nodes.items",
+          "print"
+        ],
+        "internal_helpers": [
+          "_load_nodes"
+        ],
+        "transitive_internal_helpers": [
+          "_default_nodes",
+          "_load_nodes",
+          "_load_orchestration",
+          "_read_json",
+          "_runtime_node_policy",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "health-update": {
+      "action": "health-update",
+      "handler": "action_health_update",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_load_orchestration",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_peer_sys_dir",
+          "avail.setdefault",
+          "avail.update",
+          "cfg.get",
+          "ctx.update",
+          "data.setdefault",
+          "datetime.now",
+          "health_path.exists",
+          "health_path.read_text",
+          "health_path.write_text",
+          "hub_peer.resolve_peer_sys_dir",
+          "json.dumps",
+          "json.loads",
+          "n.get",
+          "orchestration.get",
+          "print",
+          "sh.get",
+          "str",
+          "thresholds.get"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_load_orchestration",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_peer_sys_dir"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_load_orchestration",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_peer_sys_dir"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "health-check": {
+      "action": "health-check",
+      "handler": "action_health_check",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_load_orchestration",
+          "_load_peers",
+          "_now",
+          "_peer_effective_health",
+          "_pid_alive",
+          "ctx.get",
+          "h.get",
+          "h.setdefault",
+          "health_path.exists",
+          "health_path.read_text",
+          "health_path.write_text",
+          "hub_peer.resolve_peer_sys_dir",
+          "json.dumps",
+          "json.loads",
+          "list",
+          "n.get",
+          "orchestration.get",
+          "peers_data.get",
+          "print",
+          "results.append",
+          "sorted"
+        ],
+        "internal_helpers": [
+          "_load_orchestration",
+          "_load_peers",
+          "_now",
+          "_peer_effective_health",
+          "_pid_alive"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_pid_alive",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "peer-status": {
+      "action": "peer-status",
+      "handler": "action_peer_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_load_orchestration",
+          "_load_peers",
+          "_now",
+          "_read_json",
+          "_read_peer_health",
+          "_refresh_peer_health_live",
+          "_run_status_check",
+          "_write_peer_health",
+          "availability.get",
+          "check.get",
+          "checks.get",
+          "checks_path.exists",
+          "context.get",
+          "data.get",
+          "find_ai_root",
+          "float",
+          "health_path.exists",
+          "health_path.read_text",
+          "hub_peer.normalize_orchestration",
+          "hub_peer.resolve_node_id",
+          "hub_peer.resolve_peer_sys_dir",
+          "installation.get",
+          "installations.get",
+          "int",
+          "json.loads",
+          "n.get",
+          "next",
+          "node.get",
+          "normalized.get",
+          "orch.get",
+          "output.splitlines",
+          "parts.append",
+          "peer_checks.get",
+          "print",
+          "selected.get",
+          "session.get",
+          "str",
+          "vavail.pop",
+          "vdata.setdefault"
+        ],
+        "internal_helpers": [
+          "_load_orchestration",
+          "_load_peers",
+          "_now",
+          "_read_json",
+          "_read_peer_health",
+          "_refresh_peer_health_live",
+          "_run_status_check",
+          "_write_peer_health",
+          "find_ai_root"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_is_phantom",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_peer_sys_dir",
+          "_read_json",
+          "_read_peer_health",
+          "_refresh_peer_health_live",
+          "_resolve_invoke_cli",
+          "_run_status_check",
+          "_write_peer_health",
+          "find_ai_root"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:run"
+      ]
+    },
+    "context-fill": {
+      "action": "context-fill",
+      "handler": "action_context_fill",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_compile_lessons_block",
+          "_load_active_lessons",
+          "_load_protocol_cfg",
+          "_parse_handoff",
+          "_read_json",
+          "cfg.get",
+          "handoff_path.exists",
+          "handoff_path.read_text",
+          "isinstance",
+          "parsed.items",
+          "print",
+          "set",
+          "state.get",
+          "str",
+          "wanted.discard"
+        ],
+        "internal_helpers": [
+          "_compile_lessons_block",
+          "_load_active_lessons",
+          "_load_protocol_cfg",
+          "_parse_handoff",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_compile_lessons_block",
+          "_is_active",
+          "_knowledge_config",
+          "_knowledge_root",
+          "_load_active_lessons",
+          "_load_protocol_cfg",
+          "_parse_handoff",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "checkpoint": {
+      "action": "checkpoint",
+      "handler": "action_checkpoint",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_log_p2p",
+          "_read_json",
+          "datetime.now",
+          "print",
+          "state.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_log_p2p",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_log_p2p",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "peer-quarantine": {
+      "action": "peer-quarantine",
+      "handler": "action_peer_quarantine",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_now",
+          "_read_peer_health",
+          "_write_peer_health",
+          "data.setdefault",
+          "datetime.now",
+          "print"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_now",
+          "_read_peer_health",
+          "_write_peer_health"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_now",
+          "_parse_handoff",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "find_ai_root"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "peer-recover": {
+      "action": "peer-recover",
+      "handler": "action_peer_recover",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_load_peers",
+          "_now",
+          "_read_peer_health",
+          "_write_peer_health",
+          "action_peer_recover",
+          "availability.get",
+          "availability.pop",
+          "data.setdefault",
+          "datetime.now",
+          "list",
+          "p_data.pop",
+          "peer_id.lower",
+          "peers.get",
+          "print"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_load_peers",
+          "_now",
+          "_read_peer_health",
+          "_write_peer_health",
+          "action_peer_recover"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_peers",
+          "_now",
+          "_parse_handoff",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "find_ai_root"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "new-topic": {
+      "action": "new-topic",
+      "handler": "action_new_topic",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_archive_text",
+          "_clear_peer_sessions",
+          "_get_lock",
+          "_load_lifecycle_policy",
+          "_new_member_sids",
+          "_now",
+          "_parse_handoff",
+          "_read_json",
+          "_routable_root_peer_ids",
+          "_short_id",
+          "_write_handoff",
+          "_write_state",
+          "new_dir.mkdir",
+          "old_handoff_path.exists",
+          "old_handoff_path.read_text",
+          "old_sections.get",
+          "policy.get",
+          "print",
+          "state.get"
+        ],
+        "internal_helpers": [
+          "_archive_text",
+          "_clear_peer_sessions",
+          "_get_lock",
+          "_load_lifecycle_policy",
+          "_new_member_sids",
+          "_now",
+          "_parse_handoff",
+          "_read_json",
+          "_routable_root_peer_ids",
+          "_short_id",
+          "_write_handoff",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_archive_text",
+          "_clear_peer_sessions",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_mutate_session_state",
+          "_new_member_sids",
+          "_now",
+          "_parse_handoff",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_json",
+          "_render_handoff",
+          "_routable_root_peer_ids",
+          "_session_state_path",
+          "_short_id",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_state",
+          "find_ai_root",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "clear-room": {
+      "action": "clear-room",
+      "handler": "action_clear_room",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_archive_text",
+          "_clear_peer_sessions",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_load_lifecycle_policy",
+          "_new_member_sids",
+          "_now",
+          "_read_json",
+          "_routable_root_peer_ids",
+          "_short_id",
+          "_write_handoff",
+          "_write_json",
+          "_write_state",
+          "mailbox_path.exists",
+          "mailbox_path.read_text",
+          "new_dir.mkdir",
+          "policy.get",
+          "print",
+          "state.get"
+        ],
+        "internal_helpers": [
+          "_archive_text",
+          "_clear_peer_sessions",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_load_lifecycle_policy",
+          "_new_member_sids",
+          "_now",
+          "_read_json",
+          "_routable_root_peer_ids",
+          "_short_id",
+          "_write_handoff",
+          "_write_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_archive_text",
+          "_clear_peer_sessions",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_mutate_session_state",
+          "_new_member_sids",
+          "_now",
+          "_payload_ids_from_messages",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_json",
+          "_render_handoff",
+          "_routable_root_peer_ids",
+          "_session_state_path",
+          "_short_id",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_state",
+          "find_ai_root",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "preflight": {
+      "action": "preflight",
+      "handler": "action_preflight",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_classify_command",
+          "action_report_error",
+          "json.dumps",
+          "print",
+          "result.get"
+        ],
+        "internal_helpers": [
+          "_classify_command",
+          "action_report_error"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_classify_command",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_protocol_cfg",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "_parse_handoff",
+          "_peer_sys_dir",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_regex_match",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_quarantine",
+          "action_report_error",
+          "find_ai_root"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "context-hash": {
+      "action": "context-hash",
+      "handler": "action_context_hash",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_compute_context_hash",
+          "print"
+        ],
+        "internal_helpers": [
+          "_compute_context_hash"
+        ],
+        "transitive_internal_helpers": [
+          "_compute_context_hash",
+          "_hash_read",
+          "_load_protocol_cfg",
+          "_operational_guard_cfg",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:state.json"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "report-error": {
+      "action": "report-error",
+      "handler": "action_report_error",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_HubError.report_from_legacy",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "action_peer_quarantine",
+          "f.write",
+          "int",
+          "item.get",
+          "json.dumps",
+          "json.loads",
+          "path.open",
+          "path.read_text",
+          "print"
+        ],
+        "internal_helpers": [
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "action_peer_quarantine"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_protocol_cfg",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "_parse_handoff",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_quarantine",
+          "find_ai_root"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "feedback-add": {
+      "action": "feedback-add",
+      "handler": "action_feedback_add",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_feedback_path",
+          "_get_lock",
+          "_now",
+          "datetime.now",
+          "f.write",
+          "fb_path.exists",
+          "fb_path.open",
+          "fb_path.read_text",
+          "fid.startswith",
+          "int",
+          "item.get",
+          "json.dumps",
+          "json.loads",
+          "len",
+          "line.strip",
+          "max",
+          "print"
+        ],
+        "internal_helpers": [
+          "_feedback_path",
+          "_get_lock",
+          "_now"
+        ],
+        "transitive_internal_helpers": [
+          "_feedback_path",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_now",
+          "_portable_state_path"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:mkdir"
+      ],
+      "declared_external_effects": []
+    },
+    "feedback-list": {
+      "action": "feedback-list",
+      "handler": "action_feedback_list",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_feedback_path",
+          "fb_path.exists",
+          "fb_path.read_text",
+          "item.get",
+          "json.loads",
+          "line.strip",
+          "print"
+        ],
+        "internal_helpers": [
+          "_feedback_path"
+        ],
+        "transitive_internal_helpers": [
+          "_feedback_path",
+          "_load_protocol_cfg",
+          "_portable_state_path"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "feedback-resolve": {
+      "action": "feedback-resolve",
+      "handler": "action_feedback_resolve",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_feedback_path",
+          "_get_lock",
+          "_now",
+          "fb_path.exists",
+          "fb_path.read_text",
+          "fb_path.write_text",
+          "item.get",
+          "json.dumps",
+          "json.loads",
+          "line.strip",
+          "output.append",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_feedback_path",
+          "_get_lock",
+          "_now"
+        ],
+        "transitive_internal_helpers": [
+          "_feedback_path",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_now",
+          "_portable_state_path"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "artifact-claim": {
+      "action": "artifact-claim",
+      "handler": "action_artifact_claim",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_artifact_path",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_now",
+          "_read_json",
+          "_write_json",
+          "art_path.exists",
+          "data.get",
+          "existing.get",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_artifact_path",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_now",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_artifact_path",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_protocol_cfg",
+          "_now",
+          "_permission_winerror",
+          "_portable_state_path",
+          "_read_json",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "artifact-status": {
+      "action": "artifact-status",
+      "handler": "action_artifact_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_artifact_path",
+          "_get_lock",
+          "_is_workspace_local",
+          "_read_json",
+          "_write_json",
+          "art_path.exists",
+          "data.get",
+          "data.items",
+          "item.get",
+          "json.dumps",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_artifact_path",
+          "_get_lock",
+          "_is_workspace_local",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_artifact_path",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_is_workspace_local",
+          "_load_protocol_cfg",
+          "_permission_winerror",
+          "_portable_state_path",
+          "_read_json",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "artifact-finalize": {
+      "action": "artifact-finalize",
+      "handler": "action_artifact_finalize",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_artifact_path",
+          "_get_lock",
+          "_is_workspace_local",
+          "_now",
+          "_read_json",
+          "_write_json",
+          "actual_file.exists",
+          "actual_file.read_bytes",
+          "actual_file.resolve",
+          "art_path.exists",
+          "hashlib.sha256",
+          "print",
+          "str",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_artifact_path",
+          "_get_lock",
+          "_is_workspace_local",
+          "_now",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_artifact_path",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_is_workspace_local",
+          "_load_protocol_cfg",
+          "_now",
+          "_permission_winerror",
+          "_portable_state_path",
+          "_read_json",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_bytes",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "leader-yield": {
+      "action": "leader-yield",
+      "handler": "action_leader_yield",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_checkpoint_active_tasks",
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_state",
+          "any",
+          "print",
+          "state.get"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_checkpoint_active_tasks",
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_checkpoint_active_tasks",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_log_p2p",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_task_registry_path",
+          "_validate_state",
+          "_validate_task_registry",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_state",
+          "_write_task_registry"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "leader-claim": {
+      "action": "leader-claim",
+      "handler": "action_leader_claim",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_record_ap20_runtime_directive",
+          "_write_state",
+          "all",
+          "datetime.now",
+          "datetime.strptime",
+          "h.get",
+          "history.append",
+          "int",
+          "leadership.get",
+          "len",
+          "max",
+          "print",
+          "proto_cfg.get",
+          "state.get",
+          "str",
+          "sys.exit",
+          "timedelta"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_record_ap20_runtime_directive",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_bump_directive_trigger",
+          "_get_active_runtime_directives",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_record_ap20_runtime_directive",
+          "_render_handoff",
+          "_runtime_directives_path",
+          "_save_runtime_directive",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "_write_state",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "elect-leader": {
+      "action": "elect-leader",
+      "handler": "action_elect_leader",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_load_orchestration",
+          "_matching_peers",
+          "_record_routing_metric",
+          "action_leader_claim",
+          "m.get"
+        ],
+        "internal_helpers": [
+          "_load_orchestration",
+          "_matching_peers",
+          "_record_routing_metric",
+          "action_leader_claim"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_append_jsonl",
+          "_bump_directive_trigger",
+          "_get_active_runtime_directives",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_matching_peers",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_record_ap20_runtime_directive",
+          "_record_routing_metric",
+          "_render_handoff",
+          "_routing_metrics_path",
+          "_runtime_directives_path",
+          "_save_runtime_directive",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "_write_state",
+          "action_leader_claim",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_append_jsonl",
+        "call:_log_p2p",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "discover": {
+      "action": "discover",
+      "handler": "action_discover",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_load_protocol_cfg",
+          "_matching_peers",
+          "len",
+          "m.get",
+          "print",
+          "proto_cfg.get"
+        ],
+        "internal_helpers": [
+          "_load_protocol_cfg",
+          "_matching_peers"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_matching_peers",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "assign-role": {
+      "action": "assign-role",
+      "handler": "action_assign_role",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_healthy_peer",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_write_state",
+          "assignments.items",
+          "isinstance",
+          "print",
+          "state.setdefault",
+          "sys.exit",
+          "v.get"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_healthy_peer",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_healthy_peer",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "_write_state",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "release-role": {
+      "action": "release-role",
+      "handler": "action_role_release",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_write_state",
+          "assignments.get",
+          "assignments.items",
+          "assignments.pop",
+          "current.get",
+          "isinstance",
+          "print",
+          "state.get",
+          "sys.exit",
+          "v.get"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_state"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "role-status": {
+      "action": "role-status",
+      "handler": "action_role_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_read_json",
+          "assignments.items",
+          "info.get",
+          "isinstance",
+          "print",
+          "state.get"
+        ],
+        "internal_helpers": [
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:state.json"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "health-precheck": {
+      "action": "health-precheck",
+      "handler": "action_health_precheck",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_load_orchestration",
+          "_matching_peers",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_read_json",
+          "h_data.get",
+          "h_file.exists",
+          "node.get",
+          "orch.get",
+          "p.strip",
+          "peers.split",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_load_orchestration",
+          "_matching_peers",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_matching_peers",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "health-sweep": {
+      "action": "health-sweep",
+      "handler": "action_health_sweep",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_load_orchestration",
+          "_now",
+          "_peer_effective_health",
+          "_write_peer_health",
+          "data.get",
+          "data.setdefault",
+          "node.get",
+          "print"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_load_orchestration",
+          "_now",
+          "_peer_effective_health",
+          "_write_peer_health"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "freshness-sweep": {
+      "action": "freshness-sweep",
+      "handler": "action_freshness_sweep",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_append_handoff_item",
+          "_freshness_sweep_state_path",
+          "_now",
+          "_read_json",
+          "_write_json",
+          "check_cli_reality.auto_refresh_observed",
+          "check_cli_reality.run",
+          "check_policy_ledger.check_policy_ledger",
+          "check_tool_updates.run",
+          "checks_run.append",
+          "drift.get",
+          "findings.append",
+          "isinstance",
+          "len",
+          "print",
+          "refresh_results.items",
+          "report.get",
+          "result.get",
+          "sorted",
+          "state.get",
+          "str",
+          "time.time",
+          "type",
+          "u.get"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_freshness_sweep_state_path",
+          "_now",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_freshness_sweep_state_path",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:run"
+      ]
+    },
+    "terminal-handoff": {
+      "action": "terminal-handoff",
+      "handler": "action_terminal_handoff",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_default_profile_for_peer",
+          "_ensure_aware",
+          "_get_lock",
+          "_human_interface_freshness_minutes",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_state",
+          "expires_dt.isoformat",
+          "history.append",
+          "os.getpid",
+          "print",
+          "state.get",
+          "timedelta",
+          "uuid.uuid4"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_default_profile_for_peer",
+          "_ensure_aware",
+          "_get_lock",
+          "_human_interface_freshness_minutes",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_default_profile_for_peer",
+          "_ensure_aware",
+          "_get_lock",
+          "_human_interface_cfg",
+          "_human_interface_freshness_minutes",
+          "_is_sandbox_rename_denied",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_state"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "terminal-duty-sweep": {
+      "action": "terminal-duty-sweep",
+      "handler": "action_terminal_duty_sweep",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_ensure_aware",
+          "_read_json",
+          "_select_human_interface_peer",
+          "action_terminal_handoff",
+          "print",
+          "resolve_terminal_identity",
+          "result.get",
+          "state.get",
+          "term_info.get"
+        ],
+        "internal_helpers": [
+          "_ensure_aware",
+          "_read_json",
+          "_select_human_interface_peer",
+          "action_terminal_handoff",
+          "resolve_terminal_identity"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_default_profile_for_peer",
+          "_direct_write_capability_status",
+          "_ensure_aware",
+          "_get_lock",
+          "_human_interface_assignment_fresh",
+          "_human_interface_cfg",
+          "_human_interface_freshness_minutes",
+          "_human_interface_peer_eligibility",
+          "_human_interface_peer_node",
+          "_human_interface_profile_for_peer",
+          "_human_interface_required_profile",
+          "_human_interface_ts_fresh",
+          "_is_sandbox_rename_denied",
+          "_load_balancer_config",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_parse_human_interface_ts",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_profile_tier_rank",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_select_human_interface_peer",
+          "_validate_state",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "_write_state",
+          "action_peer_recover",
+          "action_terminal_handoff",
+          "find_ai_root",
+          "gate_effectively_open",
+          "resolve_terminal_identity"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ"
+      ]
+    },
+    "terminal-heartbeat": {
+      "action": "terminal-heartbeat",
+      "handler": "action_terminal_heartbeat",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_ensure_aware",
+          "_get_lock",
+          "_human_interface_freshness_minutes",
+          "_now",
+          "_read_json",
+          "_write_state",
+          "assignment.get",
+          "expires_dt.isoformat",
+          "isinstance",
+          "print",
+          "state.get",
+          "timedelta"
+        ],
+        "internal_helpers": [
+          "_ensure_aware",
+          "_get_lock",
+          "_human_interface_freshness_minutes",
+          "_now",
+          "_read_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_ensure_aware",
+          "_get_lock",
+          "_human_interface_cfg",
+          "_human_interface_freshness_minutes",
+          "_is_sandbox_rename_denied",
+          "_load_protocol_cfg",
+          "_now",
+          "_permission_winerror",
+          "_read_json",
+          "_validate_state",
+          "_write_json_atomic",
+          "_write_state"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "terminal-close": {
+      "action": "terminal-close",
+      "handler": "action_terminal_close",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_write_state",
+          "assignment.get",
+          "isinstance",
+          "print",
+          "state.get"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_write_state"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_now",
+          "_permission_winerror",
+          "_read_json",
+          "_validate_state",
+          "_write_json_atomic",
+          "_write_state"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "append-handoff": {
+      "action": "append-handoff",
+      "handler": "action_append_handoff",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_read_json",
+          "handoff_path.exists",
+          "handoff_path.read_text",
+          "handoff_path.write_text",
+          "line.strip",
+          "out.append",
+          "print",
+          "section.upper",
+          "state.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_get_lock",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "task-checkpoint": {
+      "action": "task-checkpoint",
+      "handler": "action_task_checkpoint",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_role_guard",
+          "_task_registry_path",
+          "_write_task_registry",
+          "data.setdefault",
+          "path.exists",
+          "print",
+          "sys.exit",
+          "task.setdefault"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_role_guard",
+          "_task_registry_path",
+          "_write_task_registry"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_role_guard",
+          "_task_registry_path",
+          "_validate_task_registry",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_task_registry"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "task-status": {
+      "action": "task-status",
+      "handler": "action_task_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_read_json",
+          "_task_registry_path",
+          "data.get",
+          "data.items",
+          "item.get",
+          "json.dumps",
+          "len",
+          "path.exists",
+          "print"
+        ],
+        "internal_helpers": [
+          "_read_json",
+          "_task_registry_path"
+        ],
+        "transitive_internal_helpers": [
+          "_read_json",
+          "_task_registry_path"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "task-failover": {
+      "action": "task-failover",
+      "handler": "action_task_failover",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_healthy_peer",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_task_registry_path",
+          "_write_task_registry",
+          "data.get",
+          "path.exists",
+          "print",
+          "sys.exit",
+          "task.get",
+          "task.setdefault"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_healthy_peer",
+          "_now",
+          "_peer_effective_health",
+          "_read_json",
+          "_task_registry_path",
+          "_write_task_registry"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_healthy_peer",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_task_registry_path",
+          "_validate_task_registry",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "_write_task_registry",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "approval-request": {
+      "action": "approval-request",
+      "handler": "action_approval_request",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_now",
+          "_record_routing_metric",
+          "_role_guard",
+          "_select_human_interface_peer",
+          "action_send",
+          "print",
+          "selection.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_now",
+          "_record_routing_metric",
+          "_role_guard",
+          "_select_human_interface_peer",
+          "action_send"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_append_jsonl",
+          "_canonical_admission_identity",
+          "_direct_write_capability_status",
+          "_ensure_aware",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_human_interface_assignment_fresh",
+          "_human_interface_cfg",
+          "_human_interface_freshness_minutes",
+          "_human_interface_peer_eligibility",
+          "_human_interface_peer_node",
+          "_human_interface_profile_for_peer",
+          "_human_interface_required_profile",
+          "_human_interface_ts_fresh",
+          "_is_sandbox_rename_denied",
+          "_load_balancer_config",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_maildir_path",
+          "_maildir_write",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_parse_human_interface_ts",
+          "_payload_ids_from_messages",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_profile_tier_rank",
+          "_prune_mailbox_messages",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_record_routing_metric",
+          "_render_handoff",
+          "_role_guard",
+          "_routing_metrics_path",
+          "_select_human_interface_peer",
+          "_short_id",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "action_send",
+          "find_ai_root",
+          "gate_effectively_open",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_append_jsonl",
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "file-lock": {
+      "action": "file-lock",
+      "handler": "action_file_lock",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_file_locks_path",
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_write_json",
+          "data.get",
+          "existing.get",
+          "path.exists",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_file_locks_path",
+          "_get_lock",
+          "_now",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_file_locks_path",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_now",
+          "_permission_winerror",
+          "_read_json",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "file-unlock": {
+      "action": "file-unlock",
+      "handler": "action_file_unlock",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_file_locks_path",
+          "_get_lock",
+          "_read_json",
+          "_write_json",
+          "data.get",
+          "data.pop",
+          "existing.get",
+          "path.exists",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_file_locks_path",
+          "_get_lock",
+          "_read_json",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_file_locks_path",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_permission_winerror",
+          "_read_json",
+          "_write_json",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:_write_json",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "lock-status": {
+      "action": "lock-status",
+      "handler": "action_lock_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_file_locks_path",
+          "_read_json",
+          "data.items",
+          "item.get",
+          "path.exists",
+          "print"
+        ],
+        "internal_helpers": [
+          "_file_locks_path",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_file_locks_path",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "profile-validate": {
+      "action": "profile-validate",
+      "handler": "action_validate_profiles",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_check_flag_parity",
+          "_default_nodes",
+          "_load_model_profiles",
+          "_read_json",
+          "_resolve_profile_id",
+          "checks_cfg.get",
+          "errors.append",
+          "errors.extend",
+          "len",
+          "list",
+          "node.get",
+          "nodes.get",
+          "nodes.keys",
+          "print",
+          "profile.get",
+          "profiles.get",
+          "status.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_check_flag_parity",
+          "_default_nodes",
+          "_load_model_profiles",
+          "_read_json",
+          "_resolve_profile_id"
+        ],
+        "transitive_internal_helpers": [
+          "_check_flag_parity",
+          "_default_nodes",
+          "_load_model_profiles",
+          "_load_orchestration",
+          "_read_json",
+          "_resolve_profile_id",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "lease-status": {
+      "action": "lease-status",
+      "handler": "action_lease_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_leases_path",
+          "_now",
+          "_parse_lease_timestamp",
+          "_read_json",
+          "data.values",
+          "entry.get",
+          "leases_path.exists",
+          "print",
+          "psutil.pid_exists",
+          "str"
+        ],
+        "internal_helpers": [
+          "_leases_path",
+          "_now",
+          "_parse_lease_timestamp",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_leases_path",
+          "_now",
+          "_parse_lease_timestamp",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "lease-sweep": {
+      "action": "lease-sweep",
+      "handler": "_lease_sweep",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_ask_history",
+          "_get_lock",
+          "_kill_process_tree",
+          "_leases_path",
+          "_load_orchestration",
+          "_log_p2p",
+          "_now",
+          "_parse_lease_timestamp",
+          "_read_json",
+          "_record_ask_failure",
+          "_validated_live_lease_pid",
+          "_write_json",
+          "data.items",
+          "dict",
+          "entry.get",
+          "expired.append",
+          "hub_peer.root_peer_id",
+          "invalid_timestamps.append",
+          "peer_id.split",
+          "print",
+          "str",
+          "type"
+        ],
+        "internal_helpers": [
+          "_append_ask_history",
+          "_get_lock",
+          "_kill_process_tree",
+          "_leases_path",
+          "_load_orchestration",
+          "_log_p2p",
+          "_now",
+          "_parse_lease_timestamp",
+          "_read_json",
+          "_record_ask_failure",
+          "_validated_live_lease_pid",
+          "_write_json"
+        ],
+        "transitive_internal_helpers": [
+          "_append_ask_history",
+          "_append_handoff_item",
+          "_auto_promote_runtime_directive",
+          "_bump_directive_trigger",
+          "_default_nodes",
+          "_get_active_runtime_directives",
+          "_get_lock",
+          "_get_logger",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_kill_process_tree",
+          "_kill_tree_no_psutil",
+          "_leases_path",
+          "_load_lifecycle_policy",
+          "_load_model_profiles",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_now",
+          "_operational_error_path",
+          "_operational_guard_cfg",
+          "_parse_handoff",
+          "_parse_lease_timestamp",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_pid_alive",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_record_ask_failure",
+          "_render_handoff",
+          "_resolve_profile_id",
+          "_runtime_directives_path",
+          "_save_runtime_directive",
+          "_validated_live_lease_pid",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_quarantine",
+          "action_report_error",
+          "find_ai_root",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:run"
+      ]
+    },
+    "model-status": {
+      "action": "model-status",
+      "handler": "action_model_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_load_orchestration",
+          "_peer_effective_health",
+          "data.get",
+          "health_profile.get",
+          "node.get",
+          "print",
+          "profile.get",
+          "str"
+        ],
+        "internal_helpers": [
+          "_load_orchestration",
+          "_peer_effective_health"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "transient-scan": {
+      "action": "transient-scan",
+      "handler": "action_transient_scan",
+      "helper_dependencies": {
+        "direct_calls": [
+          "candidates.append",
+          "path.is_file",
+          "path.read_bytes",
+          "path.stat",
+          "print",
+          "re.fullmatch",
+          "root.iterdir"
+        ],
+        "internal_helpers": [],
+        "transitive_internal_helpers": []
+      },
+      "declared_state_reads": [
+        "call:read_bytes"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "directive-add": {
+      "action": "directive-add",
+      "handler": "action_directive_add",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_runtime_directives_path",
+          "_save_runtime_directive",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_runtime_directives_path",
+          "_save_runtime_directive"
+        ],
+        "transitive_internal_helpers": [
+          "_runtime_directives_path",
+          "_save_runtime_directive"
+        ]
+      },
+      "declared_state_reads": [
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:mkdir"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "directive-list": {
+      "action": "directive-list",
+      "handler": "action_directive_list",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_active_runtime_directives",
+          "_runtime_directives_path",
+          "item.get",
+          "print"
+        ],
+        "internal_helpers": [
+          "_get_active_runtime_directives",
+          "_runtime_directives_path"
+        ],
+        "transitive_internal_helpers": [
+          "_get_active_runtime_directives",
+          "_runtime_directives_path"
+        ]
+      },
+      "declared_state_reads": [
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "directive-clear": {
+      "action": "directive-clear",
+      "handler": "action_directive_clear",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_now",
+          "_runtime_directives_path",
+          "item.get",
+          "json.dumps",
+          "json.loads",
+          "line.strip",
+          "output.append",
+          "path.exists",
+          "path.read_text",
+          "path.write_text",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_now",
+          "_runtime_directives_path"
+        ],
+        "transitive_internal_helpers": [
+          "_now",
+          "_runtime_directives_path"
+        ]
+      },
+      "declared_state_reads": [
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "lessons-list": {
+      "action": "lessons-list",
+      "handler": "action_lessons_list",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_filter_lessons_for_peer",
+          "_load_active_lessons",
+          "len",
+          "lesson.get",
+          "print",
+          "severity_rank.get",
+          "sorted",
+          "x.get"
+        ],
+        "internal_helpers": [
+          "_filter_lessons_for_peer",
+          "_load_active_lessons"
+        ],
+        "transitive_internal_helpers": [
+          "_filter_lessons_for_peer",
+          "_is_active",
+          "_knowledge_config",
+          "_knowledge_root",
+          "_load_active_lessons",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "lessons-propose": {
+      "action": "lessons-propose",
+      "handler": "action_lessons_propose",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_knowledge_root",
+          "_read_json",
+          "action_broadcast",
+          "check_path.exists",
+          "check_path.read_text",
+          "datetime.now",
+          "f.write",
+          "int",
+          "item.get",
+          "json.dumps",
+          "json.loads",
+          "len",
+          "lid.startswith",
+          "list",
+          "max",
+          "print",
+          "severity.upper",
+          "state.get",
+          "sys.exit",
+          "target.open"
+        ],
+        "internal_helpers": [
+          "_knowledge_root",
+          "_read_json",
+          "action_broadcast"
+        ],
+        "transitive_internal_helpers": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_knowledge_root",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_log_p2p",
+          "_maildir_path",
+          "_maildir_write",
+          "_now",
+          "_payload_ids_from_messages",
+          "_permission_winerror",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "_write_json_atomic",
+          "action_broadcast",
+          "action_send",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "state:consensus_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "lessons-activate": {
+      "action": "lessons-activate",
+      "handler": "action_lessons_activate",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_knowledge_root",
+          "_lesson_activation_blocker",
+          "_try_lesson_broadcast",
+          "datetime.now",
+          "item.get",
+          "json.dumps",
+          "json.loads",
+          "lesson_path.exists",
+          "lesson_path.read_text",
+          "lesson_path.write_text",
+          "lf.write",
+          "line.strip",
+          "log_path.open",
+          "output.append",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_knowledge_root",
+          "_lesson_activation_blocker",
+          "_try_lesson_broadcast"
+        ],
+        "transitive_internal_helpers": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_is_active",
+          "_is_sandbox_rename_denied",
+          "_knowledge_config",
+          "_knowledge_root",
+          "_lesson_activation_blocker",
+          "_lesson_enforcement_artifact",
+          "_lesson_pass_marker",
+          "_load_active_lessons",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_log_p2p",
+          "_maildir_path",
+          "_maildir_write",
+          "_now",
+          "_path_is_under",
+          "_payload_ids_from_messages",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_resolve_lesson_artifact",
+          "_short_id",
+          "_try_lesson_broadcast",
+          "_write_json",
+          "_write_json_atomic",
+          "action_broadcast",
+          "action_lesson_broadcast",
+          "action_send",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "lessons-retire": {
+      "action": "lessons-retire",
+      "handler": "action_lessons_retire",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_knowledge_root",
+          "datetime.now",
+          "item.get",
+          "item.setdefault",
+          "json.dumps",
+          "json.loads",
+          "lesson_path.exists",
+          "lesson_path.read_text",
+          "lesson_path.write_text",
+          "line.strip",
+          "output.append",
+          "print",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_knowledge_root"
+        ],
+        "transitive_internal_helpers": [
+          "_knowledge_root"
+        ]
+      },
+      "declared_state_reads": [
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "lesson-broadcast": {
+      "action": "lesson-broadcast",
+      "handler": "action_lesson_broadcast",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_load_active_lessons",
+          "_read_json",
+          "action_broadcast",
+          "l.get",
+          "lesson.get",
+          "next",
+          "print",
+          "state.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_load_active_lessons",
+          "_read_json",
+          "action_broadcast"
+        ],
+        "transitive_internal_helpers": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_is_active",
+          "_is_sandbox_rename_denied",
+          "_knowledge_config",
+          "_knowledge_root",
+          "_load_active_lessons",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_log_p2p",
+          "_maildir_path",
+          "_maildir_write",
+          "_now",
+          "_payload_ids_from_messages",
+          "_permission_winerror",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_short_id",
+          "_write_json",
+          "_write_json_atomic",
+          "action_broadcast",
+          "action_send",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "state:consensus_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "lesson-sweep": {
+      "action": "lesson-sweep",
+      "handler": "action_lesson_sweep",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_knowledge_root",
+          "_runtime_directives_path",
+          "_save_runtime_directive",
+          "datetime.now",
+          "datetime.strptime",
+          "item.get",
+          "item.setdefault",
+          "json.dumps",
+          "json.loads",
+          "lesson_path.exists",
+          "lesson_path.read_text",
+          "lesson_path.write_text",
+          "line.strip",
+          "now.strftime",
+          "output.append",
+          "print",
+          "timedelta"
+        ],
+        "internal_helpers": [
+          "_knowledge_root",
+          "_runtime_directives_path",
+          "_save_runtime_directive"
+        ],
+        "transitive_internal_helpers": [
+          "_knowledge_root",
+          "_runtime_directives_path",
+          "_save_runtime_directive"
+        ]
+      },
+      "declared_state_reads": [
+        "call:read_text"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "lesson-inject": {
+      "action": "lesson-inject",
+      "handler": "action_lesson_inject",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_compile_lessons_block",
+          "_filter_lessons_for_peer",
+          "_load_active_lessons",
+          "print"
+        ],
+        "internal_helpers": [
+          "_compile_lessons_block",
+          "_filter_lessons_for_peer",
+          "_load_active_lessons"
+        ],
+        "transitive_internal_helpers": [
+          "_compile_lessons_block",
+          "_filter_lessons_for_peer",
+          "_is_active",
+          "_knowledge_config",
+          "_knowledge_root",
+          "_load_active_lessons",
+          "_read_json"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text"
+      ],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "thread-new": {
+      "action": "thread-new",
+      "handler": "action_thread_new",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_now",
+          "_short_msg_id",
+          "_threads_dir",
+          "f.write",
+          "json.dumps",
+          "path.exists",
+          "path.open",
+          "print",
+          "re.sub",
+          "topic.lower"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_now",
+          "_short_msg_id",
+          "_threads_dir"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_short_msg_id",
+          "_threads_dir",
+          "_write_handoff",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "thread-append": {
+      "action": "thread-append",
+      "handler": "action_thread_append",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_now",
+          "_short_msg_id",
+          "_threads_dir",
+          "f.write",
+          "json.dumps",
+          "path.exists",
+          "path.open",
+          "print",
+          "re.sub",
+          "sys.exit",
+          "topic.lower"
+        ],
+        "internal_helpers": [
+          "_now",
+          "_short_msg_id",
+          "_threads_dir"
+        ],
+        "transitive_internal_helpers": [
+          "_now",
+          "_read_json",
+          "_short_msg_id",
+          "_threads_dir"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "thread-react": {
+      "action": "thread-react",
+      "handler": "action_thread_react",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_load_protocol_cfg",
+          "_now",
+          "_threads_dir",
+          "cfg.get",
+          "enumerate",
+          "json.dumps",
+          "json.loads",
+          "l.strip",
+          "len",
+          "m.get",
+          "messages.append",
+          "path.exists",
+          "path.read_text",
+          "path.write_text",
+          "print",
+          "re.sub",
+          "reacted_msg.get",
+          "reactions.get",
+          "str",
+          "sys.exit",
+          "topic.lower"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_load_protocol_cfg",
+          "_now",
+          "_threads_dir"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_render_handoff",
+          "_threads_dir",
+          "_write_handoff",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "thread-promote": {
+      "action": "thread-promote",
+      "handler": "action_thread_promote",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_jsonl",
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_msg_id",
+          "_threads_dir",
+          "_write_json_atomic",
+          "found_msg.get",
+          "m.get",
+          "mbox.get",
+          "print",
+          "re.sub",
+          "sys.exit",
+          "to_thread_id.lower"
+        ],
+        "internal_helpers": [
+          "_append_jsonl",
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_msg_id",
+          "_threads_dir",
+          "_write_json_atomic"
+        ],
+        "transitive_internal_helpers": [
+          "_append_jsonl",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_log_p2p",
+          "_now",
+          "_permission_winerror",
+          "_read_json",
+          "_short_msg_id",
+          "_threads_dir",
+          "_write_json_atomic"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_append_jsonl",
+        "call:_log_p2p",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "alert-raise": {
+      "action": "alert-raise",
+      "handler": "action_alert_raise",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_id",
+          "_write_state",
+          "action_send",
+          "list",
+          "print",
+          "severity.upper",
+          "state.get",
+          "sys.exit"
+        ],
+        "internal_helpers": [
+          "_get_lock",
+          "_log_p2p",
+          "_now",
+          "_read_json",
+          "_short_id",
+          "_write_state",
+          "action_send"
+        ],
+        "transitive_internal_helpers": [
+          "_canonical_admission_identity",
+          "_gc_unreferenced_payloads",
+          "_get_lock",
+          "_is_sandbox_rename_denied",
+          "_load_lifecycle_policy",
+          "_load_orchestration",
+          "_log_p2p",
+          "_maildir_path",
+          "_maildir_write",
+          "_now",
+          "_payload_ids_from_messages",
+          "_permission_winerror",
+          "_prune_mailbox_messages",
+          "_read_json",
+          "_short_id",
+          "_validate_state",
+          "_write_json",
+          "_write_json_atomic",
+          "_write_state",
+          "action_send",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_lifecycle_policy",
+        "call:_load_orchestration",
+        "call:_read_json",
+        "call:read_text",
+        "config:lifecycle_policy.json",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit"
+      ]
+    },
+    "proposal-add": {
+      "action": "proposal-add",
+      "handler": "action_proposal_add",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_configured_consensus_voters",
+          "_load_protocol_cfg",
+          "_now",
+          "_peer_effective_health",
+          "_proposals_dir",
+          "cfg.get",
+          "datetime.now",
+          "impact.upper",
+          "int",
+          "max",
+          "p_dir.glob",
+          "path.write_text",
+          "print",
+          "re.sub",
+          "subject.lower",
+          "voters.append"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_configured_consensus_voters",
+          "_load_protocol_cfg",
+          "_now",
+          "_peer_effective_health",
+          "_proposals_dir"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_configured_consensus_voters",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_proposals_dir",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_routable_root_peer_ids",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "proposal-vote": {
+      "action": "proposal-vote",
+      "handler": "action_proposal_vote",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_append_handoff_item",
+          "_now",
+          "_peer_effective_health",
+          "_proposals_dir",
+          "changes_match.group",
+          "doc_content.splitlines",
+          "enumerate",
+          "f.write",
+          "int",
+          "len",
+          "line.strip",
+          "lines.append",
+          "lines.insert",
+          "list",
+          "match.group",
+          "max",
+          "os.fdopen",
+          "os.replace",
+          "p_dir.glob",
+          "path.read_text",
+          "path.write_text",
+          "print",
+          "proposer_match.group",
+          "re.escape",
+          "re.findall",
+          "re.finditer",
+          "re.search",
+          "re.sub",
+          "sum",
+          "sys.exit",
+          "target_doc_match.group",
+          "target_path.exists",
+          "target_path.read_text",
+          "tempfile.mkstemp",
+          "vote.upper",
+          "votes_dict.items"
+        ],
+        "internal_helpers": [
+          "_append_handoff_item",
+          "_now",
+          "_peer_effective_health",
+          "_proposals_dir"
+        ],
+        "transitive_internal_helpers": [
+          "_append_handoff_item",
+          "_get_lock",
+          "_is_phantom",
+          "_is_sandbox_rename_denied",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_now",
+          "_parse_compact_ts",
+          "_parse_handoff",
+          "_peer_effective_health",
+          "_peer_sys_dir",
+          "_permission_winerror",
+          "_proposals_dir",
+          "_read_handoff",
+          "_read_json",
+          "_read_peer_health",
+          "_render_handoff",
+          "_write_handoff",
+          "_write_json_atomic",
+          "_write_peer_health",
+          "action_peer_recover",
+          "find_ai_root",
+          "gate_effectively_open"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "proposal-list": {
+      "action": "proposal-list",
+      "handler": "action_proposal_list",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_configured_consensus_voters",
+          "_load_protocol_cfg",
+          "_proposals_dir",
+          "cfg.get",
+          "len",
+          "p_dir.glob",
+          "path.read_text",
+          "print",
+          "re.escape",
+          "re.search",
+          "sorted",
+          "sum"
+        ],
+        "internal_helpers": [
+          "_configured_consensus_voters",
+          "_load_protocol_cfg",
+          "_proposals_dir"
+        ],
+        "transitive_internal_helpers": [
+          "_configured_consensus_voters",
+          "_load_orchestration",
+          "_load_protocol_cfg",
+          "_proposals_dir",
+          "_routable_root_peer_ids",
+          "is_routable"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir"
+      ],
+      "declared_state_writes": [
+        "call:mkdir"
+      ],
+      "declared_external_effects": []
+    },
+    "broker-submit": {
+      "action": "broker-submit",
+      "handler": "action_broker_submit",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_broker_dirs",
+          "_now",
+          "_validate_broker_payload",
+          "datetime.now",
+          "hashlib.sha256",
+          "json.dumps",
+          "json.loads",
+          "os.replace",
+          "pending_dir.mkdir",
+          "print",
+          "str",
+          "sys.exit",
+          "target_path.exists",
+          "target_path.read_bytes",
+          "tmp_path.write_text",
+          "uuid.uuid4"
+        ],
+        "internal_helpers": [
+          "_broker_dirs",
+          "_now",
+          "_validate_broker_payload"
+        ],
+        "transitive_internal_helpers": [
+          "_broker_dirs",
+          "_broker_rel_target",
+          "_now",
+          "_validate_broker_payload",
+          "_validate_consensus_payload",
+          "_validate_handoff_payload",
+          "_validate_mailbox_payload",
+          "_validate_state",
+          "_validate_task_registry"
+        ]
+      },
+      "declared_state_reads": [
+        "call:read_bytes",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "broker-drain": {
+      "action": "broker-drain",
+      "handler": "action_broker_drain",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_broker_archive_request",
+          "_broker_request_from_dict",
+          "_commit_hub_mutation_request",
+          "_ensure_broker_dirs",
+          "_get_lock",
+          "_journal_op",
+          "_maybe_run_arbiter_on_finalize",
+          "_read_json",
+          "finalized_rounds.append",
+          "int",
+          "max",
+          "pending_dir.glob",
+          "print",
+          "sorted",
+          "str",
+          "type"
+        ],
+        "internal_helpers": [
+          "_broker_archive_request",
+          "_broker_request_from_dict",
+          "_commit_hub_mutation_request",
+          "_ensure_broker_dirs",
+          "_get_lock",
+          "_journal_op",
+          "_maybe_run_arbiter_on_finalize",
+          "_read_json"
+        ],
+        "transitive_internal_helpers": [
+          "_action_group",
+          "_append_consensus_history",
+          "_append_jsonl",
+          "_apply_arbiter_override_to_round",
+          "_apply_vote_merge",
+          "_arbiter_budget_count",
+          "_arbiter_record_invocation",
+          "_broker_archive_request",
+          "_broker_dirs",
+          "_broker_rel_target",
+          "_broker_request_from_dict",
+          "_commit_hub_mutation_request",
+          "_current_coordinator_health",
+          "_current_phase",
+          "_decide_consensus",
+          "_emit_decision_capsule",
+          "_ensure_broker_dirs",
+          "_final_arbiter_config",
+          "_finalize_round_side_effects",
+          "_get_lock",
+          "_guard_action",
+          "_guard_action_dry_run",
+          "_guard_decision",
+          "_guard_shadow_bucket_facts",
+          "_guard_shadow_case_key",
+          "_guard_shadow_phase_key",
+          "_has_finalized_consensus",
+          "_is_mutating_action",
+          "_is_sandbox_rename_denied",
+          "_journal_op",
+          "_load_orchestration",
+          "_load_peers",
+          "_load_protocol_cfg",
+          "_log_p2p",
+          "_maybe_run_arbiter_on_finalize",
+          "_mutation_lock_resource",
+          "_now",
+          "_operational_guard_cfg",
+          "_parse_arbiter_verdict",
+          "_parse_handoff",
+          "_permission_winerror",
+          "_read_handoff",
+          "_read_json",
+          "_real_arbiter_invoker",
+          "_record_guard_shadow",
+          "_record_routing_metric",
+          "_render_handoff",
+          "_routing_metrics_path",
+          "_s",
+          "_short_id",
+          "_validate_broker_payload",
+          "_validate_consensus_payload",
+          "_validate_handoff_payload",
+          "_validate_mailbox_payload",
+          "_validate_state",
+          "_validate_task_registry",
+          "_write_handoff",
+          "_write_json",
+          "_write_json_atomic",
+          "arbiter_decide",
+          "condense_arbiter_input",
+          "detect_dissent",
+          "invoke_arbiter",
+          "run_arbiter_on_round"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_load_orchestration",
+        "call:_load_protocol_cfg",
+        "call:_read_json",
+        "call:read_bytes",
+        "call:read_text",
+        "config:orchestration.json",
+        "state:consensus_dir",
+        "state:sessions_dir",
+        "state:state.json"
+      ],
+      "declared_state_writes": [
+        "call:_append_jsonl",
+        "call:_log_p2p",
+        "call:_write_json",
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ]
+    },
+    "broker-status": {
+      "action": "broker-status",
+      "handler": "action_broker_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_broker_dirs",
+          "done_dir.exists",
+          "done_dir.glob",
+          "error_dir.exists",
+          "error_dir.glob",
+          "len",
+          "list",
+          "pending_dir.exists",
+          "pending_dir.glob",
+          "print",
+          "sorted"
+        ],
+        "internal_helpers": [
+          "_broker_dirs"
+        ],
+        "transitive_internal_helpers": [
+          "_broker_dirs"
+        ]
+      },
+      "declared_state_reads": [],
+      "declared_state_writes": [],
+      "declared_external_effects": []
+    },
+    "update-signatures": {
+      "action": "update-signatures",
+      "handler": "action_update_signatures",
+      "helper_dependencies": {
+        "direct_calls": [
+          "Path",
+          "_dt.now",
+          "_extract_hub_signatures",
+          "json.dumps",
+          "len",
+          "print",
+          "snapshot_dir.mkdir",
+          "snapshot_path.write_text"
+        ],
+        "internal_helpers": [
+          "_extract_hub_signatures"
+        ],
+        "transitive_internal_helpers": [
+          "_api_signature_patterns",
+          "_extract_hub_signatures"
+        ]
+      },
+      "declared_state_reads": [],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:write_text"
+      ],
+      "declared_external_effects": []
+    },
+    "arbiter-review": {
+      "action": "arbiter-review",
+      "handler": "run_arbiter_on_round",
+      "helper_dependencies": {
+        "direct_calls": [
+          "_final_arbiter_config",
+          "_real_arbiter_invoker",
+          "arbiter_decide",
+          "cfg.get",
+          "decision.get",
+          "detect_dissent",
+          "invoke_arbiter",
+          "record.get"
+        ],
+        "internal_helpers": [
+          "_final_arbiter_config",
+          "_real_arbiter_invoker",
+          "arbiter_decide",
+          "detect_dissent",
+          "invoke_arbiter"
+        ],
+        "transitive_internal_helpers": [
+          "_arbiter_budget_count",
+          "_arbiter_record_invocation",
+          "_final_arbiter_config",
+          "_read_json",
+          "_real_arbiter_invoker",
+          "_s",
+          "arbiter_decide",
+          "condense_arbiter_input",
+          "detect_dissent",
+          "invoke_arbiter"
+        ]
+      },
+      "declared_state_reads": [
+        "call:_read_json",
+        "call:read_text",
+        "state:consensus_dir"
+      ],
+      "declared_state_writes": [
+        "call:mkdir",
+        "call:unlink",
+        "call:write_text"
+      ],
+      "declared_external_effects": [
+        "process:run"
+      ]
+    },
+    "credit-status": {
+      "action": "credit-status",
+      "handler": "action_credit_status",
+      "helper_dependencies": {
+        "direct_calls": [
+          "CodexAccountClient",
+          "client.read_rate_limits",
+          "isinstance",
+          "json.dumps",
+          "print",
+          "result.get",
+          "summary.get",
+          "supports_reset_credits",
+          "sys.exit"
+        ],
+        "internal_helpers": [],
+        "transitive_internal_helpers": []
+      },
+      "declared_state_reads": [],
+      "declared_state_writes": [],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    },
+    "credit-consume": {
+      "action": "credit-consume",
+      "handler": "action_credit_consume",
+      "helper_dependencies": {
+        "direct_calls": [
+          "CodexAccountClient",
+          "_audit_credit_step",
+          "_is_canonical_uuid",
+          "_validate_reset_credit",
+          "_verify_reset_credit",
+          "client.consume_reset_credit",
+          "client.read_rate_limits",
+          "json.dumps",
+          "print",
+          "str",
+          "supports_reset_credits",
+          "sys.exit",
+          "uuid.uuid4"
+        ],
+        "internal_helpers": [
+          "_audit_credit_step",
+          "_is_canonical_uuid",
+          "_validate_reset_credit",
+          "_verify_reset_credit"
+        ],
+        "transitive_internal_helpers": [
+          "_audit_credit_step",
+          "_get_logger",
+          "_is_canonical_uuid",
+          "_validate_reset_credit",
+          "_verify_reset_credit"
+        ]
+      },
+      "declared_state_reads": [],
+      "declared_state_writes": [],
+      "declared_external_effects": [
+        "process:exit"
+      ]
+    }
+  },
+  "help_receipt": {
+    "normalized_help_text": "usage: hub [-h] [--ai-root AI_ROOT] [--force] [--needs NEEDS]\n           [--effort EFFORT] [--agent AGENT] [--room ROOM] [--from FROM_]\n           [--to TO_] [--msg MSG] [--thread-id THREAD_ID] [--msg-id MSG_ID]\n           [--type TYPE] [--priority PRIORITY] [--cc CC] [--ref REF]\n           [--query QUERY] [--query-file QUERY_FILE]\n           [--payload-file PAYLOAD_FILE] [--target TARGET] [--recover] [--all]\n           [--id ID] [--axis AXIS] [--script SCRIPT] [--status STATUS_VAL]\n           [--detail DETAIL] [--name NAME] [--file FILE_PATH]\n           [--mission MISSION] [--blocked BLOCKED] [--phase PHASE]\n           [--round-id ROUND_ID] [--subject SUBJECT] [--voters VOTERS]\n           [--voter VOTER] [--vote VOTE_VAL] [--reason REASON]\n           [--timeout TIMEOUT] [--tier TIER] [--node-type NODE_TYPE]\n           [--invoke INVOKE] [--invoke-args INVOKE_ARGS_STR] [--memory MEMORY]\n           [--peer PEER] [--lease-id LEASE_ID] [--pid PID] [--cmd CMD]\n           [--shell SHELL] [--pattern PATTERN] [--severity SEVERITY]\n           [--force-tier0] [--jsonl-mb JSONL_MB] [--failures FAILURES]\n           [--sections SECTIONS] [--frame] [--quiet]\n           [--output-file OUTPUT_FILE] [--category CATEGORY]\n           [--draft-path DRAFT_PATH] [--feedback-id FEEDBACK_ID] [--role ROLE]\n           [--section SECTION] [--text TEXT] [--task-id TASK_ID]\n           [--auth-needed AUTH_NEEDED] [--scope SCOPE] [--fallback FALLBACK]\n           [--session-policy {auto,reuse,fresh,none}]\n           [--allow-governed-mutation]\n           [--governed-mutation-reason GOVERNED_MUTATION_REASON]\n           [--allow-terminal-spend] [--rule RULE]\n           [--enforcement-artifact ENFORCEMENT_ARTIFACT]\n           [--expires-at EXPIRES_AT] [--ttl-hours TTL_HOURS]\n           [--clear-condition CLEAR_CONDITION] [--lesson-id LESSON_ID]\n           [--title TITLE] [--peers PEERS] [--directive-id DIRECTIVE_ID]\n           [--topic TOPIC] [--emoji EMOJI] [--proposal-id PROPOSAL_ID]\n           [--impact IMPACT] [--rationale RATIONALE] [--trim] [--days DAYS]\n           [--min-triggers MIN_TRIGGERS] [--limit LIMIT]\n           [--credit-id CREDIT_ID] [--confirm]\n           [--idempotency-key IDEMPOTENCY_KEY] [--json]\n           {init-session,end-session,send,broadcast,mark-read,append-log,archive-file,update-status,check,status,check-gate,ask,ask-all,ask-coordinator,consensus-propose,consensus-vote,consensus-check,consensus-sweep,register-node,list-nodes,health-update,health-check,peer-status,context-fill,checkpoint,peer-quarantine,peer-recover,new-topic,clear-room,preflight,context-hash,report-error,feedback-add,feedback-list,feedback-resolve,artifact-claim,artifact-status,artifact-finalize,leader-yield,leader-claim,elect-leader,discover,assign-role,release-role,role-status,health-precheck,health-sweep,freshness-sweep,terminal-handoff,terminal-duty-sweep,terminal-heartbeat,terminal-close,append-handoff,task-checkpoint,task-status,task-failover,approval-request,file-lock,file-unlock,lock-status,profile-validate,lease-status,lease-sweep,model-status,transient-scan,directive-add,directive-list,directive-clear,lessons-list,lessons-propose,lessons-activate,lessons-retire,lesson-broadcast,lesson-sweep,lesson-inject,thread-new,thread-append,thread-react,thread-promote,alert-raise,proposal-add,proposal-vote,proposal-list,broker-submit,broker-drain,broker-status,update-signatures,arbiter-review,credit-status,credit-consume}\n\nAI collaboration hub - Protocol v4.2\n\npositional arguments:\n  {init-session,end-session,send,broadcast,mark-read,append-log,archive-file,update-status,check,status,check-gate,ask,ask-all,ask-coordinator,consensus-propose,consensus-vote,consensus-check,consensus-sweep,register-node,list-nodes,health-update,health-check,peer-status,context-fill,checkpoint,peer-quarantine,peer-recover,new-topic,clear-room,preflight,context-hash,report-error,feedback-add,feedback-list,feedback-resolve,artifact-claim,artifact-status,artifact-finalize,leader-yield,leader-claim,elect-leader,discover,assign-role,release-role,role-status,health-precheck,health-sweep,freshness-sweep,terminal-handoff,terminal-duty-sweep,terminal-heartbeat,terminal-close,append-handoff,task-checkpoint,task-status,task-failover,approval-request,file-lock,file-unlock,lock-status,profile-validate,lease-status,lease-sweep,model-status,transient-scan,directive-add,directive-list,directive-clear,lessons-list,lessons-propose,lessons-activate,lessons-retire,lesson-broadcast,lesson-sweep,lesson-inject,thread-new,thread-append,thread-react,thread-promote,alert-raise,proposal-add,proposal-vote,proposal-list,broker-submit,broker-drain,broker-status,update-signatures,arbiter-review,credit-status,credit-consume}\n\noptions:\n  -h, --help            show this help message and exit\n  --ai-root AI_ROOT     Explicit .ai root; pins HUB_AI_ROOT for this process\n                        (deterministic; avoids the cwd-phantom bug)\n  --force               freshness-sweep: bypass the min-interval gate and run\n                        now\n  --needs NEEDS\n  --effort EFFORT\n  --agent AGENT\n  --room ROOM\n  --from FROM_\n  --to TO_\n  --msg MSG\n  --thread-id THREAD_ID\n  --msg-id MSG_ID\n  --type TYPE\n  --priority PRIORITY\n  --cc CC\n  --ref REF\n  --query QUERY\n  --query-file QUERY_FILE\n  --payload-file PAYLOAD_FILE\n  --target TARGET\n  --recover             Recover state for health-check\n  --all\n  --id ID\n  --axis AXIS\n  --script SCRIPT\n  --status STATUS_VAL\n  --detail DETAIL\n  --name NAME\n  --file FILE_PATH\n  --mission MISSION\n  --blocked BLOCKED\n  --phase PHASE\n  --round-id ROUND_ID\n  --subject SUBJECT\n  --voters VOTERS\n  --voter VOTER\n  --vote VOTE_VAL\n  --reason REASON\n  --timeout TIMEOUT\n  --tier TIER\n  --node-type NODE_TYPE\n  --invoke INVOKE\n  --invoke-args INVOKE_ARGS_STR\n  --memory MEMORY\n  --peer PEER\n  --lease-id LEASE_ID\n  --pid PID\n  --cmd CMD\n  --shell SHELL\n  --pattern PATTERN\n  --severity SEVERITY\n  --force-tier0\n  --jsonl-mb JSONL_MB\n  --failures FAILURES\n  --sections SECTIONS\n  --frame\n  --quiet\n  --output-file OUTPUT_FILE\n  --category CATEGORY\n  --draft-path DRAFT_PATH\n  --feedback-id FEEDBACK_ID\n  --role ROLE\n  --section SECTION\n  --text TEXT\n  --task-id TASK_ID\n  --auth-needed AUTH_NEEDED\n  --scope SCOPE\n  --fallback FALLBACK\n  --session-policy {auto,reuse,fresh,none}\n                        Session reuse policy: auto=use node config,\n                        reuse=always reuse, fresh=always new, none=disable\n  --allow-governed-mutation\n                        Authorize a peer to mutate governed files during this\n                        ask (broker/consensus execution); skips the\n                        LL-20260703-005 out-of-band mutation guard. REQUIRES\n                        --governed-mutation-reason.\n  --governed-mutation-reason GOVERNED_MUTATION_REASON\n                        Required alongside --allow-governed-mutation: a short\n                        justification, recorded in the audit log.\n  --allow-terminal-spend\n                        Acknowledge an explicit ask that spends tokens on the\n                        human-interface terminal peer\n  --rule RULE\n  --enforcement-artifact ENFORCEMENT_ARTIFACT\n                        G-bridge artifact path (relative to .ai or knowledge\n                        root) whose pass marker gates lesson activation\n  --expires-at EXPIRES_AT\n                        Advisory expiry (ISO date) for lessons without an\n                        enforcement artifact\n  --ttl-hours TTL_HOURS\n  --clear-condition CLEAR_CONDITION\n  --lesson-id LESSON_ID\n  --title TITLE\n  --peers PEERS\n  --directive-id DIRECTIVE_ID\n  --topic TOPIC\n  --emoji EMOJI\n  --proposal-id PROPOSAL_ID\n  --impact IMPACT\n  --rationale RATIONALE\n  --trim\n  --days DAYS\n  --min-triggers MIN_TRIGGERS\n  --limit LIMIT\n  --credit-id CREDIT_ID\n  --confirm\n  --idempotency-key IDEMPOTENCY_KEY\n  --json\n",
+    "help_text_sha256": "8351ea058a5fa4dbd283e4526e898633e1adc556d94dac4f522b623d8ec367d3"
+  }
+}
