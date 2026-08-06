@@ -33,6 +33,7 @@ from peerhub.adapters.contract import (
     PromptPolicy,
     SessionHint,
 )
+from peerhub.core.errors import ErrorCode
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
     TransportKind,
@@ -57,6 +58,52 @@ def _split_canonical_lines(text: str) -> tuple[str, ...]:
     if normalized.endswith("\n"):
         lines = lines[:-1]
     return tuple(lines)
+
+
+class FakeOutputDecoder:
+    """Decoder implementation for FakePeerAdapter."""
+
+    def __init__(self) -> None:
+        self._utf8_decoder = codecs.getincrementaldecoder("utf-8")()
+        self._text_parts: list[str] = []
+        self._events: list[DecoderEvent] = []
+        self._finalized = False
+
+    def feed(self, chunk: bytes, *, channel: OutputChannel = OutputChannel.STDOUT) -> tuple[DecoderEvent, ...]:
+        if self._finalized:
+            raise RuntimeError("feed called after finalize")
+        if type(chunk) is not bytes:
+            raise ValueError("chunk must be bytes")
+        if not isinstance(channel, OutputChannel):
+            raise ValueError("channel must be OutputChannel")
+
+        text = self._utf8_decoder.decode(chunk)
+        if not text:
+            return ()
+
+        self._text_parts.append(text)
+        event = DecoderEvent(
+            kind=DecoderEventKind.ASSISTANT_TEXT,
+            payload={"text": text, "channel": channel.value},
+        )
+        self._events.append(event)
+        return (event,)
+
+    def finalize(self) -> DecodedOutput:
+        if self._finalized:
+            raise RuntimeError("finalize already called")
+        self._finalized = True
+
+        tail = self._utf8_decoder.decode(b"", final=True)
+        if tail:
+            self._text_parts.append(tail)
+
+        canonical_text = "".join(self._text_parts)
+        return DecodedOutput(
+            canonical_text=canonical_text,
+            canonical_lines=_split_canonical_lines(canonical_text),
+            events=tuple(self._events),
+        )
 
 
 _FAKE_PROFILE = ProfileDescriptor(
@@ -108,16 +155,15 @@ class FakePeerAdapter:
     descriptor: PeerDescriptor = _FAKE_DESCRIPTOR
 
     def __init__(self) -> None:
-        # Per-instance incremental decode state -- NOT shared across
-        # instances/invocations (OutputDecoder's own contract: "per-
-        # invocation mutable parsing state, not a singleton").
-        self._utf8_decoder = codecs.getincrementaldecoder("utf-8")()
-        self._text_parts: list[str] = []
-        self._events: list[DecoderEvent] = []
-        self._finalized = False
+        # Expose the legacy incremental decode path using an internal decoder.
+        self._internal_decoder = FakeOutputDecoder()
 
     def prompt_policy(self, profile: ProfileDescriptor) -> PromptPolicy:
-        raise NotImplementedError("implemented in Slice 5 Step 3")
+        return PromptPolicy(
+            policy_id="fake-standard-policy",
+            max_inline_utf8_bytes=1000000,
+            artifact_reference_supported=False,
+        )
 
     def plan_invocation(
         self,
@@ -126,10 +172,29 @@ class FakePeerAdapter:
         session: SessionHint | None,
         limits: TransportLimits,
     ) -> InvocationPlan:
-        raise NotImplementedError("implemented in Slice 5 Step 3")
+        import sys
+        
+        return InvocationPlan(
+            argv=(
+                sys.executable,
+                "tools/fake_peer/pipe_executable.py",
+                "--stdout",
+                request.prompt_content or "FAKE_PEER_STDOUT\n",
+                "--exit-code",
+                "0",
+            ),
+            cwd_reference=request.workspace_scope,
+            environment_delta={},
+            transport=TransportKind.PIPE,
+            stdin_payload=None,
+            limits=limits,
+            redacted_display="python pipe_executable.py",
+            artifacts=(),
+            session_action=request.requested_session_action,
+        )
 
     def new_decoder(self, plan: InvocationPlan) -> OutputDecoder:
-        raise NotImplementedError("implemented in Slice 5 Step 3")
+        return FakeOutputDecoder()
 
     def interpret_output(
         self,
@@ -137,7 +202,19 @@ class FakePeerAdapter:
         process: ProcessTerminalEvidence,
         raw_chunks: Sequence[bytes],
     ) -> ProtocolAssessment:
-        raise NotImplementedError("implemented in Slice 5 Step 3")
+        # Basic pattern-based success classification for the test double.
+        success = (
+            process.execution_outcome.exit_code == 0
+            and not process.execution_outcome.timed_out
+            and not process.execution_outcome.cancelled
+        )
+        return ProtocolAssessment(
+            parsed=True,
+            response_present=len(raw_chunks) > 0,
+            vendor_completion_marker=success,
+            suspected_truncation=process.execution_outcome.timed_out or process.execution_outcome.cancelled,
+            protocol_failure=None if success else ErrorCode.VENDOR_PROTOCOL_FAILURE,
+        )
 
     # --- Incremental decode convenience path exercised by DT-02 ----------
     #
@@ -168,44 +245,13 @@ class FakePeerAdapter:
         ``events``, only ``canonical_lines``. Emitted events are also
         accumulated and returned in the terminal ``DecodedOutput.events``.
         """
-        if self._finalized:
-            raise RuntimeError(
-                "interpret_chunk called after finalize_decoded_output"
-            )
-        if type(chunk) is not bytes:
-            raise ValueError("chunk must be bytes")
-        if not isinstance(channel, OutputChannel):
-            raise ValueError("channel must be OutputChannel")
-
-        text = self._utf8_decoder.decode(chunk)
-        if not text:
-            return ()
-
-        self._text_parts.append(text)
-        event = DecoderEvent(
-            kind=DecoderEventKind.ASSISTANT_TEXT,
-            payload={"text": text, "channel": channel.value},
-        )
-        self._events.append(event)
-        return (event,)
+        try:
+            return self._internal_decoder.feed(chunk, channel=channel)
+        except RuntimeError as e:
+            raise RuntimeError("interpret_chunk called after finalize_decoded_output") from e
 
     def finalize_decoded_output(self) -> DecodedOutput:
-        if self._finalized:
-            raise RuntimeError("finalize_decoded_output already called")
-        self._finalized = True
-
-        # Flush any incomplete trailing UTF-8 sequence. A genuinely
-        # incomplete sequence at true stream end raises UnicodeDecodeError
-        # from the incremental decoder itself (final=True) -- that is the
-        # correct signal for malformed/truncated output, not silently
-        # dropped here.
-        tail = self._utf8_decoder.decode(b"", final=True)
-        if tail:
-            self._text_parts.append(tail)
-
-        canonical_text = "".join(self._text_parts)
-        return DecodedOutput(
-            canonical_text=canonical_text,
-            canonical_lines=_split_canonical_lines(canonical_text),
-            events=tuple(self._events),
-        )
+        try:
+            return self._internal_decoder.finalize()
+        except RuntimeError as e:
+            raise RuntimeError("finalize_decoded_output already called") from e
