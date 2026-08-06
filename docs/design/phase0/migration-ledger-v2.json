@@ -1,0 +1,3219 @@
+{
+  "meta": {
+    "schema_version": "2.0",
+    "generator": "tools/migration_ledger/generate_ledger.py",
+    "note": "Authoritative migration ledger v2"
+  },
+  "ledger": [
+    {
+      "legacy_action": "init-session",
+      "legacy_handler": "action_init_session",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.session.open",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "end-session",
+      "legacy_handler": "action_end_session",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.session.close",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "send",
+      "legacy_handler": "action_send",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.message.send",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "broadcast",
+      "legacy_handler": "action_broadcast",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.message.broadcast",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "mark-read",
+      "legacy_handler": "action_mark_read",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.message.mark_read",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "append-log",
+      "legacy_handler": "action_append_log",
+      "domain": "audit",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.audit.append",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "archive-file",
+      "legacy_handler": "action_archive_file",
+      "domain": "artifact",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [],
+        "writes": [
+          "call:mkdir"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.artifact.archive",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "update-status",
+      "legacy_handler": "action_update_status",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.mission.update",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "check",
+      "legacy_handler": "action_check",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.message.check",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "status",
+      "legacy_handler": "action_status",
+      "domain": "diagnostic",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "peerhub.status.read",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "check-gate",
+      "legacy_handler": "action_check_gate",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.admission.check",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "ask",
+      "legacy_handler": "action_ask",
+      "domain": "dispatch",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_bytes",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_append_jsonl",
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:rmtree",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:Popen",
+        "process:_ask_with_pty",
+        "process:exit",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "dispatch.submit",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "ask-all",
+      "legacy_handler": "action_ask_all",
+      "domain": "dispatch",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:read_text",
+          "config:orchestration.json"
+        ],
+        "writes": [
+          "call:_append_jsonl",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "dispatch.submit_many",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "ask-coordinator",
+      "legacy_handler": "action_ask_coordinator",
+      "domain": "dispatch",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_bytes",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_append_jsonl",
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:rmtree",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:Popen",
+        "process:_ask_with_pty",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "dispatch.submit_coordinator",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "consensus-propose",
+      "legacy_handler": "action_consensus_propose",
+      "domain": "consensus",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "consensus.round.propose",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "consensus-vote",
+      "legacy_handler": "action_consensus_vote",
+      "domain": "consensus",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "consensus.vote.cast",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "consensus-check",
+      "legacy_handler": "action_consensus_check",
+      "domain": "consensus",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "consensus.round.read",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "consensus-sweep",
+      "legacy_handler": "action_consensus_sweep",
+      "domain": "consensus",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "consensus.round.sweep",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "register-node",
+      "legacy_handler": "action_register_node",
+      "domain": "configuration",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "configuration.instance.register",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "list-nodes",
+      "legacy_handler": "action_list_nodes",
+      "domain": "configuration",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "configuration.instance.list",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "health-update",
+      "legacy_handler": "action_health_update",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.evidence.record",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "health-check",
+      "legacy_handler": "action_health_check",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.projection.read",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "peer-status",
+      "legacy_handler": "action_peer_status",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.instance.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "context-fill",
+      "legacy_handler": "action_context_fill",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.context.fill",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "checkpoint",
+      "legacy_handler": "action_checkpoint",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.checkpoint.create",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "peer-quarantine",
+      "legacy_handler": "action_peer_quarantine",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.admission.quarantine",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "peer-recover",
+      "legacy_handler": "action_peer_recover",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.recovery.authorize_probe",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "new-topic",
+      "legacy_handler": "action_new_topic",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.topic.create",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "clear-room",
+      "legacy_handler": "action_clear_room",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.room.clear",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "preflight",
+      "legacy_handler": "action_preflight",
+      "domain": "diagnostic",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "peerhub.preflight",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "context-hash",
+      "legacy_handler": "action_context_hash",
+      "domain": "diagnostic",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:state.json"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "peerhub.context.hash",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "report-error",
+      "legacy_handler": "action_report_error",
+      "domain": "telemetry",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "telemetry.error.record",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "feedback-add",
+      "legacy_handler": "action_feedback_add",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:mkdir"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.feedback.create",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "feedback-list",
+      "legacy_handler": "action_feedback_list",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.feedback.list",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "feedback-resolve",
+      "legacy_handler": "action_feedback_resolve",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.feedback.resolve",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "artifact-claim",
+      "legacy_handler": "action_artifact_claim",
+      "domain": "artifact",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.artifact.claim",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "artifact-status",
+      "legacy_handler": "action_artifact_status",
+      "domain": "artifact",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.artifact.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "artifact-finalize",
+      "legacy_handler": "action_artifact_finalize",
+      "domain": "artifact",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_bytes",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.artifact.finalize",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "leader-yield",
+      "legacy_handler": "action_leader_yield",
+      "domain": "routing",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "routing.leadership.yield",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "leader-claim",
+      "legacy_handler": "action_leader_claim",
+      "domain": "routing",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "routing.leadership.claim",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "elect-leader",
+      "legacy_handler": "action_elect_leader",
+      "domain": "routing",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_append_jsonl",
+          "call:_log_p2p",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "routing.leadership.elect",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "discover",
+      "legacy_handler": "action_discover",
+      "domain": "routing",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:state.json"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "routing.candidate.discover",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "assign-role",
+      "legacy_handler": "action_assign_role",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.role.assign",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "release-role",
+      "legacy_handler": "action_role_release",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.role.release",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "role-status",
+      "legacy_handler": "action_role_status",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:state.json"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.role.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "health-precheck",
+      "legacy_handler": "action_health_precheck",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.admission.precheck",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "health-sweep",
+      "legacy_handler": "action_health_sweep",
+      "domain": "health",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "health.projection.sweep",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "freshness-sweep",
+      "legacy_handler": "action_freshness_sweep",
+      "domain": "telemetry",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "telemetry.freshness.sweep",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "terminal-handoff",
+      "legacy_handler": "action_terminal_handoff",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.terminal.handoff",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "terminal-duty-sweep",
+      "legacy_handler": "action_terminal_duty_sweep",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.terminal.duty_sweep",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "terminal-heartbeat",
+      "legacy_handler": "action_terminal_heartbeat",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.terminal.heartbeat",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "terminal-close",
+      "legacy_handler": "action_terminal_close",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.terminal.close",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "append-handoff",
+      "legacy_handler": "action_append_handoff",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.handoff.append",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "task-checkpoint",
+      "legacy_handler": "action_task_checkpoint",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.task.checkpoint",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "task-status",
+      "legacy_handler": "action_task_status",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.task.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "task-failover",
+      "legacy_handler": "action_task_failover",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.task.failover",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "approval-request",
+      "legacy_handler": "action_approval_request",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_append_jsonl",
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.approval.request",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "file-lock",
+      "legacy_handler": "action_file_lock",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lock.acquire",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "file-unlock",
+      "legacy_handler": "action_file_unlock",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": [
+          "call:_write_json",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lock.release",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lock-status",
+      "legacy_handler": "action_lock_status",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lock.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "profile-validate",
+      "legacy_handler": "action_validate_profiles",
+      "domain": "configuration",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "configuration.profile.validate",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lease-status",
+      "legacy_handler": "action_lease_status",
+      "domain": "dispatch",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "dispatch.lease.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lease-sweep",
+      "legacy_handler": "_lease_sweep",
+      "domain": "dispatch",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "dispatch.lease.sweep",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "model-status",
+      "legacy_handler": "action_model_status",
+      "domain": "configuration",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "configuration.model.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "transient-scan",
+      "legacy_handler": "action_transient_scan",
+      "domain": "telemetry",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:read_bytes"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "telemetry.transient.scan",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "directive-add",
+      "legacy_handler": "action_directive_add",
+      "domain": "host-policy",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:read_text"
+        ],
+        "writes": [
+          "call:mkdir"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "host.directive.add",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "directive-list",
+      "legacy_handler": "action_directive_list",
+      "domain": "host-policy",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "host.directive.list",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "directive-clear",
+      "legacy_handler": "action_directive_clear",
+      "domain": "host-policy",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:read_text"
+        ],
+        "writes": [
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "host.directive.clear",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lessons-list",
+      "legacy_handler": "action_lessons_list",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lesson.list",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lessons-propose",
+      "legacy_handler": "action_lessons_propose",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "state:consensus_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lesson.propose",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lessons-activate",
+      "legacy_handler": "action_lessons_activate",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lesson.activate",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lessons-retire",
+      "legacy_handler": "action_lessons_retire",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:read_text"
+        ],
+        "writes": [
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lesson.retire",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lesson-broadcast",
+      "legacy_handler": "action_lesson_broadcast",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "state:consensus_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.lesson.broadcast",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lesson-sweep",
+      "legacy_handler": "action_lesson_sweep",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:read_text"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.lesson.sweep",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "lesson-inject",
+      "legacy_handler": "action_lesson_inject",
+      "domain": "host-policy",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text"
+        ],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "host.lesson.inject",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "thread-new",
+      "legacy_handler": "action_thread_new",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.thread.create",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "thread-append",
+      "legacy_handler": "action_thread_append",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.thread.append",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "thread-react",
+      "legacy_handler": "action_thread_react",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.thread.react",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "thread-promote",
+      "legacy_handler": "action_thread_promote",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_append_jsonl",
+          "call:_log_p2p",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.thread.promote",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "alert-raise",
+      "legacy_handler": "action_alert_raise",
+      "domain": "coordination",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_lifecycle_policy",
+          "call:_load_orchestration",
+          "call:_read_json",
+          "call:read_text",
+          "config:lifecycle_policy.json",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "coordination.alert.raise",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "proposal-add",
+      "legacy_handler": "action_proposal_add",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.proposal.create",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "proposal-vote",
+      "legacy_handler": "action_proposal_vote",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.proposal.vote",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "proposal-list",
+      "legacy_handler": "action_proposal_list",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir"
+        ],
+        "writes": [
+          "call:mkdir"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.proposal.list",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "broker-submit",
+      "legacy_handler": "action_broker_submit",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:read_bytes",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.mutation.submit",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "broker-drain",
+      "legacy_handler": "action_broker_drain",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_load_orchestration",
+          "call:_load_protocol_cfg",
+          "call:_read_json",
+          "call:read_bytes",
+          "call:read_text",
+          "config:orchestration.json",
+          "state:consensus_dir",
+          "state:sessions_dir",
+          "state:state.json"
+        ],
+        "writes": [
+          "call:_append_jsonl",
+          "call:_log_p2p",
+          "call:_write_json",
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "env:os.environ",
+        "process:exit",
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.effect.drain",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "broker-status",
+      "legacy_handler": "action_broker_status",
+      "domain": "governance",
+      "effect_class": "unspecified",
+      "mutability": "readonly",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [],
+        "writes": []
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "governance.mutation.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "update-signatures",
+      "legacy_handler": "action_update_signatures",
+      "domain": "diagnostic",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [],
+        "writes": [
+          "call:mkdir",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "peerhub.signature.update",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "arbiter-review",
+      "legacy_handler": "run_arbiter_on_round",
+      "domain": "consensus",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [
+          "call:_read_json",
+          "call:read_text",
+          "state:consensus_dir"
+        ],
+        "writes": [
+          "call:mkdir",
+          "call:unlink",
+          "call:write_text"
+        ]
+      },
+      "subprocess_provider_effects": [
+        "process:run"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "consensus.arbiter.review",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "required",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "credit-status",
+      "legacy_handler": "action_credit_status",
+      "domain": "external-action",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [],
+        "writes": []
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "host.credit.status",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    },
+    {
+      "legacy_action": "credit-consume",
+      "legacy_handler": "action_credit_consume",
+      "domain": "external-action",
+      "effect_class": "unspecified",
+      "mutability": "mutable",
+      "relevant_legacy_arguments_defaults": "see_global_surface",
+      "state_files_tables_read_written": {
+        "reads": [],
+        "writes": []
+      },
+      "subprocess_provider_effects": [
+        "process:exit"
+      ],
+      "exit_error_output_contract": "unspecified",
+      "target_peerhub_command": "host.credit.consume",
+      "target_peerhub_module_symbol": "unspecified",
+      "disposition": "compatibility-wrapper",
+      "implementation_status": "INVENTORIED",
+      "fixture_ids": [],
+      "current_capture_revision": null,
+      "shadow_comparison_status": "NONE",
+      "authority_phase": "ENGRAM_AUTHORITY",
+      "rollback_owner_path": "legacy_hub",
+      "last_verified_legacy_and_peerhub_revisions": null,
+      "unresolved_drift_finding_ids": []
+    }
+  ]
+}
