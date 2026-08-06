@@ -154,6 +154,7 @@ def recover_interrupted_attempt(
 
 
 from .admission import AdmissionCoordinator
+from .artifact_coordination import ArtifactCoordinator
 from .attempt_lifecycle import AttemptLifecycleCoordinator
 from .session_lease import SessionLeaseCoordinator
 from .helpers import (
@@ -185,6 +186,7 @@ class DispatchService:
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
         self._admission = AdmissionCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
+        self._artifacts = ArtifactCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
         self._attempts = AttemptLifecycleCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
         self._sessions = SessionLeaseCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
     def now(self) -> int:
@@ -197,12 +199,10 @@ class DispatchService:
         item_records: Sequence[ArtifactMetadata],
     ) -> None:
         """Persist an artifact manifest and item metadata records."""
-        with self._store.unit_of_work() as unit:
-            unit.add_artifact_manifest(
-                manifest_record,
-                tuple(item_records),
-            )
-            unit.commit()
+        return self._artifacts.record_artifact_manifest(
+            manifest_record,
+            item_records,
+        )
 
     def mark_artifacts_orphaned_if_manifest_exists(
         self,
@@ -211,19 +211,10 @@ class DispatchService:
         failure_code: str,
     ) -> bool:
         """Mark artifacts orphaned for an attempt if an artifact manifest exists."""
-        timestamp = self._clock.now()
-        with self._store.unit_of_work() as unit:
-            manifest_row = unit.get_artifact_manifest(attempt_id)
-            if manifest_row is None:
-                return False
-            unit.mark_artifacts_orphaned(
-                attempt_id=attempt_id,
-                expected_manifest_revision=manifest_row.revision,
-                orphaned_at=timestamp,
-                failure_code=failure_code,
-            )
-            unit.commit()
-            return True
+        return self._artifacts.mark_artifacts_orphaned_if_manifest_exists(
+            attempt_id,
+            failure_code=failure_code,
+        )
 
     def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
         """Retrieve a lease snapshot by ID, if found."""
