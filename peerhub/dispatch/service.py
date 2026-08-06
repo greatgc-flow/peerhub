@@ -153,242 +153,19 @@ def recover_interrupted_attempt(
     )
 
 
-class DispatchUnitOfWork(UnitOfWork, Protocol):
-    """Persistence operations required by the dispatch service."""
-
-    def allocate_fencing_token(self) -> int:
-        """Allocate one database-monotonic fencing token."""
-
-        ...
-
-    def get_client_request_binding(
-        self,
-        client_id: str,
-        client_request_id: str,
-    ) -> ClientRequestBinding | None:
-        """Return a caller-request identity binding."""
-
-        ...
-
-    def add_client_request_binding(
-        self,
-        binding: ClientRequestBinding,
-    ) -> None:
-        """Insert a caller-request identity binding."""
-
-        ...
-
-    def get_command_idempotency_binding(
-        self,
-        client_id: str,
-        command_type: str,
-        idempotency_key: str,
-    ) -> CommandIdempotencyBinding | None:
-        """Return a command-idempotency binding."""
-
-        ...
-
-    def add_command_idempotency_binding(
-        self,
-        binding: CommandIdempotencyBinding,
-    ) -> None:
-        """Insert a command-idempotency binding."""
-
-        ...
-
-    def add_admission_receipt(
-        self,
-        receipt: AdmissionReceipt,
-    ) -> None:
-        """Insert an immutable admission receipt."""
-
-        ...
-
-    def get_admission_receipt(
-        self,
-        admission_receipt_id: str,
-    ) -> AdmissionReceipt | None:
-        """Return an admission receipt by ID."""
-
-        ...
-
-    def add_request(self, request: RequestSnapshot) -> None:
-        """Insert an admitted request snapshot."""
-
-        ...
-
-    def get_request(
-        self,
-        command_id: CommandID | str,
-    ) -> RequestSnapshot | None:
-        """Return a request by server command ID."""
-
-        ...
-
-    def cas_update_request(
-        self,
-        current: RequestSnapshot,
-        updated: RequestSnapshot,
-    ) -> bool:
-        """CAS-update a request by revision."""
-
-        ...
-
-    def next_attempt_number(
-        self,
-        command_id: CommandID | str,
-    ) -> int:
-        """Return the next attempt number in this transaction."""
-
-        ...
-
-    def add_attempt(self, attempt: AttemptSnapshot) -> None:
-        """Insert an immutable initial attempt snapshot."""
-
-        ...
-
-    def get_attempt(
-        self,
-        attempt_id: str,
-    ) -> AttemptSnapshot | None:
-        """Return an attempt by ID."""
-
-        ...
-
-    def list_attempts(
-        self,
-        command_id: CommandID | str,
-    ) -> tuple[AttemptSnapshot, ...]:
-        """Return attempts in monotonic attempt-number order."""
-
-        ...
-
-    def cas_update_attempt(
-        self,
-        current: AttemptSnapshot,
-        updated: AttemptSnapshot,
-    ) -> bool:
-        """CAS-update an attempt by revision."""
-
-        ...
-
-    def cas_update_dispatch_bundle(
-        self,
-        current_request: RequestSnapshot,
-        updated_request: RequestSnapshot,
-        current_attempt: AttemptSnapshot,
-        updated_attempt: AttemptSnapshot,
-        current_lease: LeaseSnapshot,
-        updated_lease: LeaseSnapshot,
-    ) -> bool:
-        """Atomically CAS request, attempt, and full lease fence."""
-
-        ...
-
-    def add_outbox_event(self, event: OutboxEvent) -> None:
-        """Insert one canonical outbox event."""
-
-        ...
-
-    def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
-        """Return a lease by ID."""
-
-        ...
-
-    def add_lease(self, lease: LeaseSnapshot) -> None:
-        """Persist a new lease."""
-
-        ...
-
-    def cas_update_lease(
-        self,
-        current: LeaseSnapshot,
-        updated: LeaseSnapshot,
-    ) -> bool:
-        """CAS-update a lease if its complete fence is current."""
-
-        ...
-
-    def get_session_binding(
-        self,
-        key: SessionBindingKey,
-    ) -> SessionBindingSnapshot | None:
-        """Return a session binding by its canonical key."""
-
-        ...
-
-    def add_session_binding(
-        self,
-        binding: SessionBindingSnapshot,
-    ) -> None:
-        """Persist a new session binding."""
-
-        ...
-
-    def cas_update_session_binding(
-        self,
-        current: SessionBindingSnapshot,
-        updated: SessionBindingSnapshot,
-    ) -> bool:
-        """CAS-update a binding if its revision is current."""
-
-        ...
-
-    def add_recovery_receipt(self, receipt: RecoveryReceipt) -> None:
-        """Persist an immutable recovery receipt."""
-
-        ...
-
-    def get_recovery_receipt(
-        self,
-        receipt_id: str,
-    ) -> RecoveryReceipt | None:
-        """Return a recovery receipt by ID."""
-
-        ...
-
-
-class FaultPoint(str):
-    """Named transaction fault boundaries for deterministic tests."""
-
-    AFTER_REQUEST_WRITE = "AFTER_REQUEST_WRITE"
-    AFTER_LEASE_WRITE = "AFTER_LEASE_WRITE"
-    AFTER_SESSION_BINDING_WRITE = "AFTER_SESSION_BINDING_WRITE"
-    AFTER_ADMISSION_RECEIPT_WRITE = (
-        "AFTER_ADMISSION_RECEIPT_WRITE"
-    )
-    AFTER_CLIENT_REQUEST_BINDING_WRITE = (
-        "AFTER_CLIENT_REQUEST_BINDING_WRITE"
-    )
-    AFTER_IDEMPOTENCY_BINDING_WRITE = (
-        "AFTER_IDEMPOTENCY_BINDING_WRITE"
-    )
-    AFTER_OUTBOX_WRITE = "AFTER_OUTBOX_WRITE"
-    AFTER_ATTEMPT_WRITE = "AFTER_ATTEMPT_WRITE"
-    AFTER_REQUEST_CAS = "AFTER_REQUEST_CAS"
-    AFTER_ATTEMPT_CAS = "AFTER_ATTEMPT_CAS"
-    AFTER_DISPATCH_BUNDLE_CAS = "AFTER_DISPATCH_BUNDLE_CAS"
-    AFTER_LEASE_CAS = "AFTER_LEASE_CAS"
-    AFTER_RECOVERY_RECEIPT_WRITE = (
-        "AFTER_RECOVERY_RECEIPT_WRITE"
-    )
-    BEFORE_COMMIT = "BEFORE_COMMIT"
-    AFTER_COMMIT = "AFTER_COMMIT"
-
-
-class FaultInjector(Protocol):
-    """Transaction-boundary fault injection hook."""
-
-    def hit(self, point: str) -> None:
-        """Raise a fault or return normally."""
-
-        ...
-
-
-class _NoFaultInjector:
-    def hit(self, point: str) -> None:
-        del point
-
+from .admission import AdmissionCoordinator
+from .helpers import (
+    attempt_terminal_event as _attempt_terminal_event,
+    cas_request_attempt as _cas_request_attempt,
+    dispatch_event as _dispatch_event,
+    raise_attempt_cas as _raise_attempt_cas,
+    raise_request_cas as _raise_request_cas,
+    require_actor_authorized as _require_actor_authorized,
+    require_attempt as _require_attempt,
+    require_lease as _require_lease,
+    require_request as _require_request,
+)
+from .unit_of_work import DispatchUnitOfWork, FaultPoint, FaultInjector, _NoFaultInjector
 
 class DispatchService:
     """Orchestrate Phase 1 dispatch state through one state store."""
@@ -405,7 +182,7 @@ class DispatchService:
         self._clock = clock
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
-
+        self._admission = AdmissionCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
     def now(self) -> int:
         """Return the current timestamp from the configured clock."""
         return self._clock.now()
@@ -456,368 +233,9 @@ class DispatchService:
     ) -> tuple[RequestSnapshot, AttemptSnapshot]:
         """Retrieve current request and attempt snapshots."""
         with self._store.unit_of_work() as unit:
-            req = self._require_request(unit, command_id)
-            att = self._require_attempt(unit, attempt_id)
+            req = _require_request(unit, command_id)
+            att = _require_attempt(unit, attempt_id)
             return req, att
-
-    @staticmethod
-    def _dispatch_event(
-        request: RequestSnapshot,
-        *,
-        event_id: str,
-        occurred_at: int,
-    ) -> OutboxEvent:
-        return OutboxEvent(
-            event_id=event_id,
-            protocol_major=PROTOCOL_MAJOR,
-            protocol_minor=PROTOCOL_MINOR,
-            schema_version=SCHEMA_VERSION,
-            correlation_id=request.correlation_id,
-            occurred_at=occurred_at,
-            event_kind=request.state.value,
-            payload={
-                "command_id": str(request.command_id),
-                "state": request.state.value,
-                "request_revision": request.revision,
-                "lease_id": request.lease_id,
-                "terminal_error_code": (
-                    request.terminal_error_code.value
-                    if request.terminal_error_code is not None
-                    else None
-                ),
-            },
-            state=OutboxState.PENDING,
-            created_at=occurred_at,
-        )
-
-    @staticmethod
-    def _attempt_terminal_event(
-        request: RequestSnapshot,
-        attempt: AttemptSnapshot,
-        *,
-        event_id: str,
-        terminal_at: int,
-        transport: str,
-        operational_failure_category: (
-            OperationalFailureCategory | None
-        ),
-        process_integrity: bool,
-        started_at: int | None,
-        evidence_refs: tuple[str, ...],
-    ) -> OutboxEvent:
-        if request.command_id != attempt.command_id:
-            raise InvalidMutationError(
-                "terminal observation request/attempt mismatch"
-            )
-
-        latency = (
-            None
-            if started_at is None
-            else terminal_at - started_at
-        )
-        terminal = AttemptTerminalObserved(
-            instance_id=request.selected_peer_instance_id,
-            profile_id=request.selected_profile_id,
-            transport=transport,
-            operational_failure_category=(
-                operational_failure_category
-            ),
-            execution_certainty=(
-                attempt.execution_certainty
-            ),
-            process_integrity=process_integrity,
-            started_at=started_at,
-            terminal_at=terminal_at,
-            latency=latency,
-            evidence_refs=evidence_refs,
-        )
-        return OutboxEvent(
-            event_id=event_id,
-            protocol_major=PROTOCOL_MAJOR,
-            protocol_minor=PROTOCOL_MINOR,
-            schema_version=SCHEMA_VERSION,
-            correlation_id=request.correlation_id,
-            occurred_at=terminal_at,
-            event_kind=(
-                ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND
-            ),
-            payload={
-                "instance_id": terminal.instance_id,
-                "profile_id": terminal.profile_id,
-                "transport": terminal.transport,
-                "operational_failure_category": (
-                    terminal.operational_failure_category.value
-                    if terminal.operational_failure_category
-                    is not None
-                    else None
-                ),
-                "execution_certainty": (
-                    terminal.execution_certainty.value
-                ),
-                "process_integrity": (
-                    terminal.process_integrity
-                ),
-                "started_at": terminal.started_at,
-                "terminal_at": terminal.terminal_at,
-                "latency": terminal.latency,
-                "evidence_refs": list(terminal.evidence_refs),
-            },
-            evidence_refs=terminal.evidence_refs,
-            state=OutboxState.PENDING,
-            created_at=terminal_at,
-        )
-
-    @staticmethod
-    def _load_admission(
-        unit: DispatchUnitOfWork,
-        *,
-        command_id: CommandID,
-        admission_receipt_id: str,
-    ) -> tuple[
-        RequestSnapshot,
-        AdmissionReceipt,
-        LeaseSnapshot,
-    ]:
-        request = unit.get_request(command_id)
-        if request is None:
-            raise RuntimeError(
-                "idempotency binding references a missing request"
-            )
-        receipt = unit.get_admission_receipt(
-            admission_receipt_id
-        )
-        if receipt is None:
-            raise RuntimeError(
-                "idempotency binding references a missing "
-                "admission receipt"
-            )
-        lease = unit.get_lease(receipt.lease_id)
-        if lease is None:
-            raise RuntimeError(
-                "admission receipt references a missing lease"
-            )
-        if (
-            request.command_id != command_id
-            or receipt.command_id != command_id
-            or request.lease_id != receipt.lease_id
-            or lease.fence.command_id != command_id
-        ):
-            raise RuntimeError(
-                "stored admission records are internally inconsistent"
-            )
-        return (request, receipt, lease)
-
-    def _find_idempotent_admission(
-        self,
-        unit: DispatchUnitOfWork,
-        submission: ValidatedSubmission,
-        *,
-        created_at: int,
-    ) -> tuple[
-        tuple[
-            RequestSnapshot,
-            AdmissionReceipt,
-            LeaseSnapshot,
-        ] | None,
-        ClientRequestBinding | None,
-        CommandIdempotencyBinding | None,
-    ]:
-        envelope = submission.envelope
-        client_binding = unit.get_client_request_binding(
-            envelope.client_id,
-            envelope.client_request_id,
-        )
-        if (
-            client_binding is not None
-            and client_binding.payload_digest
-            != submission.payload_digest
-        ):
-            raise DuplicateClientRequestError(
-                envelope.client_id,
-                envelope.client_request_id,
-            )
-
-        key_binding: CommandIdempotencyBinding | None = None
-        if envelope.idempotency_key is not None:
-            key_binding = unit.get_command_idempotency_binding(
-                envelope.client_id,
-                envelope.method,
-                envelope.idempotency_key,
-            )
-            if (
-                key_binding is not None
-                and key_binding.payload_digest
-                != submission.payload_digest
-            ):
-                raise IdempotencyPayloadMismatchError(
-                    envelope.client_id,
-                    envelope.method,
-                    envelope.idempotency_key,
-                )
-
-        if (
-            client_binding is not None
-            and key_binding is not None
-            and (
-                client_binding.command_id
-                != key_binding.command_id
-                or client_binding.admission_receipt_id
-                != key_binding.admission_receipt_id
-            )
-        ):
-            raise RuntimeError(
-                "client-request and idempotency bindings disagree"
-            )
-
-        if client_binding is None and key_binding is None:
-            return (None, None, None)
-
-        if client_binding is not None:
-            command_id = client_binding.command_id
-            admission_receipt_id = (
-                client_binding.admission_receipt_id
-            )
-        else:
-            if key_binding is None:
-                raise AssertionError(
-                    "idempotency binding selection is unreachable"
-                )
-            command_id = key_binding.command_id
-            admission_receipt_id = (
-                key_binding.admission_receipt_id
-            )
-
-        admission = self._load_admission(
-            unit,
-            command_id=command_id,
-            admission_receipt_id=admission_receipt_id,
-        )
-
-        missing_client_binding = None
-        if client_binding is None:
-            missing_client_binding = ClientRequestBinding(
-                client_id=envelope.client_id,
-                client_request_id=envelope.client_request_id,
-                payload_digest=submission.payload_digest,
-                command_id=command_id,
-                admission_receipt_id=admission_receipt_id,
-                created_at=created_at,
-            )
-
-        missing_key_binding = None
-        if (
-            key_binding is None
-            and envelope.idempotency_key is not None
-        ):
-            missing_key_binding = CommandIdempotencyBinding(
-                client_id=envelope.client_id,
-                command_type=envelope.method,
-                idempotency_key=envelope.idempotency_key,
-                payload_digest=submission.payload_digest,
-                command_id=command_id,
-                admission_receipt_id=admission_receipt_id,
-                created_at=created_at,
-            )
-
-        return (
-            admission,
-            missing_client_binding,
-            missing_key_binding,
-        )
-
-    @staticmethod
-    def _require_request(
-        unit: DispatchUnitOfWork,
-        command_id: CommandID | str,
-    ) -> RequestSnapshot:
-        request = unit.get_request(command_id)
-        if request is None:
-            raise RecordNotFoundError(
-                "dispatch_request",
-                str(command_id),
-            )
-        return request
-
-    @staticmethod
-    def _require_actor_authorized(
-        actor_authorized: bool,
-        authenticated_principal: str,
-    ) -> None:
-        if type(actor_authorized) is not bool:
-            raise ValueError("actor_authorized must be a boolean")
-        if not actor_authorized:
-            raise ActorUnauthorizedError(
-                authenticated_principal
-            )
-
-    @staticmethod
-    def _require_attempt(
-        unit: DispatchUnitOfWork,
-        attempt_id: str,
-    ) -> AttemptSnapshot:
-        attempt = unit.get_attempt(attempt_id)
-        if attempt is None:
-            raise RecordNotFoundError(
-                "dispatch_attempt",
-                attempt_id,
-            )
-        return attempt
-
-    @staticmethod
-    def _require_lease(
-        unit: DispatchUnitOfWork,
-        lease_id: str,
-    ) -> LeaseSnapshot:
-        lease = unit.get_lease(lease_id)
-        if lease is None:
-            raise RecordNotFoundError("lease", lease_id)
-        return lease
-
-    @staticmethod
-    def _raise_request_cas(
-        unit: DispatchUnitOfWork,
-        current: RequestSnapshot,
-    ) -> None:
-        latest = unit.get_request(current.command_id)
-        raise StaleRevisionError(
-            str(current.command_id),
-            current.revision,
-            0 if latest is None else latest.revision,
-        )
-
-    @staticmethod
-    def _raise_attempt_cas(
-        unit: DispatchUnitOfWork,
-        current: AttemptSnapshot,
-    ) -> None:
-        latest = unit.get_attempt(current.attempt_id)
-        raise StaleRevisionError(
-            current.attempt_id,
-            current.revision,
-            0 if latest is None else latest.revision,
-        )
-
-    def _cas_request_attempt(
-        self,
-        unit: DispatchUnitOfWork,
-        current_request: RequestSnapshot,
-        updated_request: RequestSnapshot,
-        current_attempt: AttemptSnapshot,
-        updated_attempt: AttemptSnapshot,
-    ) -> None:
-        if not unit.cas_update_request(
-            current_request,
-            updated_request,
-        ):
-            self._raise_request_cas(unit, current_request)
-        self._faults.hit(FaultPoint.AFTER_REQUEST_CAS)
-
-        if not unit.cas_update_attempt(
-            current_attempt,
-            updated_attempt,
-        ):
-            self._raise_attempt_cas(unit, current_attempt)
-        self._faults.hit(FaultPoint.AFTER_ATTEMPT_CAS)
 
     def peek_idempotent_admission(
         self,
@@ -826,81 +244,14 @@ class DispatchService:
         authenticated_principal: str,
         actor_authorized: bool,
         completion_contract: CompletionContract,
-    ) -> tuple[
-        RequestSnapshot,
-        AdmissionReceipt,
-        LeaseSnapshot,
-    ] | None:
-        """Return an existing idempotent admission, if one exists.
-
-        Callers that must derive routing/health inputs before admitting
-        (e.g. ``application.workflows``) can check this first to avoid
-        wasted work and to avoid ever comparing freshly-derived routing
-        state against a request frozen by a prior attempt. Fully
-        replicates ``admit_request``'s existing-admission branch --
-        the same authorization check and the same alias-binding
-        persistence -- so an idempotent hit found here is byte-for-byte
-        equivalent to one found by calling ``admit_request`` itself,
-        never a narrower, less-safe check.
-
-        This is a *separate*, independently-transacted, best-effort
-        fast path -- never a substitute for ``admit_request``'s own
-        atomicity. Two callers racing to admit the identical envelope
-        must still go through ``admit_request`` itself to converge on
-        exactly one durable admission; a positive result from this
-        method only ever short-circuits the common case where an
-        admission already durably exists.
-        """
-
-        self._require_actor_authorized(
-            actor_authorized,
-            authenticated_principal,
-        )
-        submission = validate_submission(
+    ) -> tuple[RequestSnapshot, AdmissionReceipt, LeaseSnapshot] | None:
+        """Return an existing idempotent admission, if one exists."""
+        return self._admission.peek_idempotent_admission(
             envelope,
             authenticated_principal=authenticated_principal,
+            actor_authorized=actor_authorized,
             completion_contract=completion_contract,
-            state_changing=True,
         )
-
-        with self._store.unit_of_work() as unit:
-            (
-                existing,
-                missing_client_binding,
-                missing_key_binding,
-            ) = self._find_idempotent_admission(
-                unit,
-                submission,
-                created_at=self._clock.now(),
-            )
-            if existing is None:
-                return None
-
-            aliases_added = False
-            if missing_client_binding is not None:
-                unit.add_client_request_binding(
-                    missing_client_binding
-                )
-                self._faults.hit(
-                    FaultPoint
-                    .AFTER_CLIENT_REQUEST_BINDING_WRITE
-                )
-                aliases_added = True
-            if missing_key_binding is not None:
-                unit.add_command_idempotency_binding(
-                    missing_key_binding
-                )
-                self._faults.hit(
-                    FaultPoint
-                    .AFTER_IDEMPOTENCY_BINDING_WRITE
-                )
-                aliases_added = True
-
-            if aliases_added:
-                self._faults.hit(FaultPoint.BEFORE_COMMIT)
-                unit.commit()
-                self._faults.hit(FaultPoint.AFTER_COMMIT)
-            return existing
 
     def admit_request(
         self,
@@ -920,156 +271,25 @@ class DispatchService:
         authority_epoch: int,
         heartbeat_timeout_ms: int,
         owner_peer_id: str = "",
-    ) -> tuple[
-        RequestSnapshot,
-        AdmissionReceipt,
-        LeaseSnapshot,
-    ]:
-        """Atomically admit, reserve, bind identities, and emit outbox.
-
-        The idempotent-existing-admission check and every write below
-        share one transaction deliberately: two concurrent calls with
-        the same envelope must resolve to exactly one durable admission
-        (see ``test_concurrent_identical_submissions_converge_on_one_
-        command``), which requires the check and the write to be
-        atomic together. ``peek_idempotent_admission`` is a *separate*,
-        independently-transacted method for callers that must decide
-        whether to admit before doing unrelated, possibly slow work
-        (e.g. ``application.workflows`` deriving routing/health inputs)
-        -- it is a best-effort fast path, never a substitute for this
-        method's own atomicity.
-        """
-
-        self._require_actor_authorized(
-            actor_authorized,
-            authenticated_principal,
-        )
-        submission = validate_submission(
+    ) -> tuple[RequestSnapshot, AdmissionReceipt, LeaseSnapshot]:
+        """Atomically admit, reserve, bind identities, and emit outbox."""
+        return self._admission.admit_request(
             envelope,
             authenticated_principal=authenticated_principal,
+            actor_authorized=actor_authorized,
             completion_contract=completion_contract,
-            state_changing=True,
+            policy_revision=policy_revision,
+            configuration_revision=configuration_revision,
+            selected_peer_instance_id=selected_peer_instance_id,
+            selected_profile_id=selected_profile_id,
+            route_decision_digest=route_decision_digest,
+            session_id=session_id,
+            owner_principal_id=owner_principal_id,
+            owner_instance_id=owner_instance_id,
+            authority_epoch=authority_epoch,
+            heartbeat_timeout_ms=heartbeat_timeout_ms,
+            owner_peer_id=owner_peer_id,
         )
-
-        admitted_at = self._clock.now()
-        with self._store.unit_of_work() as unit:
-            (
-                existing,
-                missing_client_binding,
-                missing_key_binding,
-            ) = self._find_idempotent_admission(
-                unit,
-                submission,
-                created_at=admitted_at,
-            )
-            if existing is not None:
-                aliases_added = False
-                if missing_client_binding is not None:
-                    unit.add_client_request_binding(
-                        missing_client_binding
-                    )
-                    self._faults.hit(
-                        FaultPoint
-                        .AFTER_CLIENT_REQUEST_BINDING_WRITE
-                    )
-                    aliases_added = True
-                if missing_key_binding is not None:
-                    unit.add_command_idempotency_binding(
-                        missing_key_binding
-                    )
-                    self._faults.hit(
-                        FaultPoint
-                        .AFTER_IDEMPOTENCY_BINDING_WRITE
-                    )
-                    aliases_added = True
-
-                if aliases_added:
-                    self._faults.hit(FaultPoint.BEFORE_COMMIT)
-                    unit.commit()
-                    self._faults.hit(FaultPoint.AFTER_COMMIT)
-                return existing
-
-            command_id = CommandID(
-                self._ids.new_id("command")
-            )
-            admission_receipt_id = self._ids.new_id(
-                "admission-receipt"
-            )
-            lease_id = self._ids.new_id("lease")
-            event_id = self._ids.new_id("outbox-event")
-            fencing_token = unit.allocate_fencing_token()
-
-            (
-                request,
-                client_binding,
-                idempotency_binding,
-                receipt,
-            ) = reduce_admit_request(
-                submission,
-                command_id=command_id,
-                admission_receipt_id=admission_receipt_id,
-                lease_id=lease_id,
-                policy_revision=policy_revision,
-                configuration_revision=configuration_revision,
-                selected_peer_instance_id=(
-                    selected_peer_instance_id
-                ),
-                selected_profile_id=selected_profile_id,
-                route_decision_digest=route_decision_digest,
-                admitted_at=admitted_at,
-            )
-            lease = reserve_lease(
-                LeaseReservationRequest(
-                    session_id=session_id,
-                    owner_principal_id=owner_principal_id,
-                    owner_instance_id=owner_instance_id,
-                    heartbeat_timeout_ms=heartbeat_timeout_ms,
-                    command_id=command_id,
-                    authority_epoch=authority_epoch,
-                    owner_peer_id=owner_peer_id,
-                ),
-                lease_id=lease_id,
-                fencing_token=fencing_token,
-                created_at=admitted_at,
-            )
-            event = self._dispatch_event(
-                request,
-                event_id=event_id,
-                occurred_at=admitted_at,
-            )
-
-            unit.add_request(request)
-            self._faults.hit(FaultPoint.AFTER_REQUEST_WRITE)
-
-            unit.add_lease(lease)
-            self._faults.hit(FaultPoint.AFTER_LEASE_WRITE)
-
-            unit.add_admission_receipt(receipt)
-            self._faults.hit(
-                FaultPoint.AFTER_ADMISSION_RECEIPT_WRITE
-            )
-
-            unit.add_client_request_binding(client_binding)
-            self._faults.hit(
-                FaultPoint.AFTER_CLIENT_REQUEST_BINDING_WRITE
-            )
-
-            unit.add_command_idempotency_binding(
-                idempotency_binding
-            )
-            self._faults.hit(
-                FaultPoint.AFTER_IDEMPOTENCY_BINDING_WRITE
-            )
-
-            unit.add_outbox_event(event)
-            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
-
-            self._faults.hit(FaultPoint.BEFORE_COMMIT)
-            unit.commit()
-
-        self._faults.hit(FaultPoint.AFTER_COMMIT)
-        return (request, receipt, lease)
-
     def get_request(
         self,
         command_id: CommandID | str,
@@ -1086,32 +306,7 @@ class DispatchService:
         error_code: ErrorCode,
     ) -> RequestSnapshot:
         """Atomically reject an admitted request and emit terminal outbox."""
-
-        with self._store.unit_of_work() as unit:
-            current = self._require_request(unit, command_id)
-            timestamp = self._clock.now()
-            updated = reduce_reject_policy(
-                current,
-                error_code=error_code,
-                updated_at=timestamp,
-            )
-            if not unit.cas_update_request(current, updated):
-                self._raise_request_cas(unit, current)
-            self._faults.hit(FaultPoint.AFTER_REQUEST_CAS)
-
-            unit.add_outbox_event(
-                self._dispatch_event(
-                    updated,
-                    event_id=self._ids.new_id("outbox-event"),
-                    occurred_at=timestamp,
-                )
-            )
-            self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
-            self._faults.hit(FaultPoint.BEFORE_COMMIT)
-            unit.commit()
-
-        self._faults.hit(FaultPoint.AFTER_COMMIT)
-        return updated
+        return self._admission.reject_policy(command_id, error_code=error_code)
 
     def prepare_request(
         self,
@@ -1120,33 +315,7 @@ class DispatchService:
         session_key: SessionBindingKey | None = None,
     ) -> RequestSnapshot:
         """Validate persisted binding evidence and enter PREPARED."""
-
-        with self._store.unit_of_work() as unit:
-            current = self._require_request(unit, command_id)
-            lease = self._require_lease(
-                unit,
-                current.lease_id,
-            )
-            binding = (
-                unit.get_session_binding(session_key)
-                if session_key is not None
-                else None
-            )
-            updated = reduce_prepare_request(
-                current,
-                session_binding=binding,
-                lease=lease,
-                updated_at=self._clock.now(),
-            )
-            if not unit.cas_update_request(current, updated):
-                self._raise_request_cas(unit, current)
-            self._faults.hit(FaultPoint.AFTER_REQUEST_CAS)
-            self._faults.hit(FaultPoint.BEFORE_COMMIT)
-            unit.commit()
-
-        self._faults.hit(FaultPoint.AFTER_COMMIT)
-        return updated
-
+        return self._admission.prepare_request(command_id, session_key=session_key)
     def create_attempt(
         self,
         command_id: CommandID | str,
@@ -1154,8 +323,8 @@ class DispatchService:
         """Create the next monotonic attempt under PREPARED."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            lease = self._require_lease(
+            request = _require_request(unit, command_id)
+            lease = _require_lease(
                 unit,
                 request.lease_id,
             )
@@ -1191,8 +360,8 @@ class DispatchService:
         """Commit a proven pre-dispatch failure and terminal outbox."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            attempt = self._require_attempt(unit, attempt_id)
+            request = _require_request(unit, command_id)
+            attempt = _require_attempt(unit, attempt_id)
             timestamp = self._clock.now()
             updated_request, updated_attempt = (
                 reduce_fail_pre_dispatch(
@@ -1202,15 +371,9 @@ class DispatchService:
                     updated_at=timestamp,
                 )
             )
-            self._cas_request_attempt(
-                unit,
-                request,
-                updated_request,
-                attempt,
-                updated_attempt,
-            )
+            _cas_request_attempt(unit, self._faults, request, updated_request, attempt, updated_attempt)
             unit.add_outbox_event(
-                self._dispatch_event(
+                _dispatch_event(
                     updated_request,
                     event_id=self._ids.new_id("outbox-event"),
                     occurred_at=timestamp,
@@ -1218,7 +381,7 @@ class DispatchService:
             )
             self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
             unit.add_outbox_event(
-                self._attempt_terminal_event(
+                _attempt_terminal_event(
                     updated_request,
                     updated_attempt,
                     event_id=self._ids.new_id(
@@ -1248,9 +411,9 @@ class DispatchService:
         attempt_id: str,
         timestamp: int,
     ) -> tuple[RequestSnapshot, AttemptSnapshot, LeaseSnapshot, str]:
-        request = self._require_request(unit, command_id)
-        attempt = self._require_attempt(unit, attempt_id)
-        lease = self._require_lease(
+        request = _require_request(unit, command_id)
+        attempt = _require_attempt(unit, attempt_id)
+        lease = _require_lease(
             unit,
             request.lease_id,
         )
@@ -1283,7 +446,7 @@ class DispatchService:
         # "Ratified decisions" item 4).
         event_id = self._ids.new_id("outbox-event")
         unit.add_outbox_event(
-            self._dispatch_event(
+            _dispatch_event(
                 updated_request,
                 event_id=event_id,
                 occurred_at=timestamp,
@@ -1385,8 +548,8 @@ class DispatchService:
         """Commit START_UNCERTAIN without claiming process identity."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            attempt = self._require_attempt(unit, attempt_id)
+            request = _require_request(unit, command_id)
+            attempt = _require_attempt(unit, attempt_id)
             timestamp = self._clock.now()
             updated_request, updated_attempt = (
                 reduce_start_uncertain(
@@ -1395,15 +558,9 @@ class DispatchService:
                     updated_at=timestamp,
                 )
             )
-            self._cas_request_attempt(
-                unit,
-                request,
-                updated_request,
-                attempt,
-                updated_attempt,
-            )
+            _cas_request_attempt(unit, self._faults, request, updated_request, attempt, updated_attempt)
             unit.add_outbox_event(
-                self._dispatch_event(
+                _dispatch_event(
                     updated_request,
                     event_id=self._ids.new_id("outbox-event"),
                     occurred_at=timestamp,
@@ -1430,9 +587,9 @@ class DispatchService:
         """Bind process-birth identity and atomically enter RUNNING."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            attempt = self._require_attempt(unit, attempt_id)
-            lease = self._require_lease(
+            request = _require_request(unit, command_id)
+            attempt = _require_attempt(unit, attempt_id)
+            lease = _require_lease(
                 unit,
                 request.lease_id,
             )
@@ -1463,7 +620,7 @@ class DispatchService:
                 FaultPoint.AFTER_DISPATCH_BUNDLE_CAS
             )
             unit.add_outbox_event(
-                self._dispatch_event(
+                _dispatch_event(
                     updated_request,
                     event_id=self._ids.new_id("outbox-event"),
                     occurred_at=timestamp,
@@ -1488,8 +645,8 @@ class DispatchService:
         """Persist CANCELLING without performing process cancellation."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            attempt = self._require_attempt(unit, attempt_id)
+            request = _require_request(unit, command_id)
+            attempt = _require_attempt(unit, attempt_id)
             updated_request, updated_attempt = (
                 reduce_begin_cancellation(
                     request,
@@ -1497,13 +654,7 @@ class DispatchService:
                     updated_at=self._clock.now(),
                 )
             )
-            self._cas_request_attempt(
-                unit,
-                request,
-                updated_request,
-                attempt,
-                updated_attempt,
-            )
+            _cas_request_attempt(unit, self._faults, request, updated_request, attempt, updated_attempt)
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 
@@ -1518,8 +669,8 @@ class DispatchService:
         """Persist ASSESSING from injected terminal process evidence."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            attempt = self._require_attempt(unit, attempt_id)
+            request = _require_request(unit, command_id)
+            attempt = _require_attempt(unit, attempt_id)
             updated_request, updated_attempt = (
                 reduce_begin_assessment(
                     request,
@@ -1527,13 +678,7 @@ class DispatchService:
                     updated_at=self._clock.now(),
                 )
             )
-            self._cas_request_attempt(
-                unit,
-                request,
-                updated_request,
-                attempt,
-                updated_attempt,
-            )
+            _cas_request_attempt(unit, self._faults, request, updated_request, attempt, updated_attempt)
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
 
@@ -1556,8 +701,8 @@ class DispatchService:
         ) = None,
         evidence_refs: tuple[str, ...] = (),
     ) -> tuple[RequestSnapshot, AttemptSnapshot, str]:
-        request = self._require_request(unit, command_id)
-        attempt = self._require_attempt(unit, attempt_id)
+        request = _require_request(unit, command_id)
+        attempt = _require_attempt(unit, attempt_id)
         updated_request, updated_attempt = (
             reduce_complete_attempt(
                 request,
@@ -1566,15 +711,9 @@ class DispatchService:
                 updated_at=timestamp,
             )
         )
-        self._cas_request_attempt(
-            unit,
-            request,
-            updated_request,
-            attempt,
-            updated_attempt,
-        )
+        _cas_request_attempt(unit, self._faults, request, updated_request, attempt, updated_attempt)
         unit.add_outbox_event(
-            self._dispatch_event(
+            _dispatch_event(
                 updated_request,
                 event_id=self._ids.new_id("outbox-event"),
                 occurred_at=timestamp,
@@ -1583,7 +722,7 @@ class DispatchService:
         self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
         terminal_event_id = self._ids.new_id("outbox-event")
         unit.add_outbox_event(
-            self._attempt_terminal_event(
+            _attempt_terminal_event(
                 updated_request,
                 updated_attempt,
                 event_id=terminal_event_id,
@@ -1655,12 +794,12 @@ class DispatchService:
         """Atomically rotate to a fresh RESERVED lease for a retry."""
 
         with self._store.unit_of_work() as unit:
-            request = self._require_request(unit, command_id)
-            previous_attempt = self._require_attempt(
+            request = _require_request(unit, command_id)
+            previous_attempt = _require_attempt(
                 unit,
                 previous_attempt_id,
             )
-            current_lease = self._require_lease(
+            current_lease = _require_lease(
                 unit,
                 request.lease_id,
             )
@@ -1707,7 +846,7 @@ class DispatchService:
                 request,
                 updated_request,
             ):
-                self._raise_request_cas(unit, request)
+                _raise_request_cas(unit, request)
             self._faults.hit(FaultPoint.AFTER_REQUEST_CAS)
 
             if updated_attempt != previous_attempt:
@@ -1715,7 +854,7 @@ class DispatchService:
                     previous_attempt,
                     updated_attempt,
                 ):
-                    self._raise_attempt_cas(
+                    _raise_attempt_cas(
                         unit,
                         previous_attempt,
                     )
