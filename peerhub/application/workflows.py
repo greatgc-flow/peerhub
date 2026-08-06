@@ -11,6 +11,8 @@ from typing import Protocol, TypeAlias
 from peerhub.adapters.contract import (
     AdapterRequest,
     InvocationPlan,
+    PeerAdapter,
+    ProfileDescriptor,
     ProtocolAssessment,
 )
 from peerhub.core.errors import (
@@ -22,6 +24,11 @@ from peerhub.core.protocol import (
     CommandID,
     ErrorCode,
     RevisionValue,
+)
+from peerhub.core.execution import (
+    ProcessTerminalEvidence,
+    TransportKind,
+    TransportLimits,
 )
 from peerhub.dispatch.artifacts import (
     WorkspacePaths,
@@ -503,11 +510,12 @@ class ApplicationWorkflows:
         *,
         materializer: ArtifactMaterializer,
         adapter_request: AdapterRequest,
-        invocation_plan: InvocationPlan,
+        peer_adapter: PeerAdapter,
+        profile: ProfileDescriptor,
+        limits: TransportLimits,
         workspace_roots: Mapping[str, Path],
         content_providers: Mapping[str, Callable[[], bytes]],
         completion_contract: CompletionContract,
-        protocol_assessment: ProtocolAssessment,
         heartbeat_timeout_ms: int,
         transport: str = "pipe",
         service: DispatchService | None = None,
@@ -515,6 +523,13 @@ class ApplicationWorkflows:
         """Dispatch and execute an admitted/prepared command through process supervision."""
 
         dispatch_service = service if service is not None else self._dispatch
+
+        invocation_plan = peer_adapter.plan_invocation(
+            request=adapter_request,
+            profile=profile,
+            session=None,
+            limits=limits,
+        )
 
         # Step 1: Create attempt under PREPARED request
         attempt = dispatch_service.create_attempt(command_id)
@@ -766,6 +781,12 @@ class ApplicationWorkflows:
         assert process_outcome is not None
 
         # Step 7: Assess completion and begin assessment
+        raw_chunks = (process_outcome.canonical_stream,) if process_outcome.canonical_stream else ()
+        protocol_assessment = peer_adapter.interpret_output(
+            invocation_plan,
+            process_outcome.execution_outcome,
+            raw_chunks,
+        )
         assessment = assess_completion(
             completion_contract,
             process_outcome.execution_outcome,

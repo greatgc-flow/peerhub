@@ -20,6 +20,7 @@ from collections.abc import Sequence
 
 from peerhub.adapters.contract import (
     AdapterRequest,
+    ArtifactSpec,
     Capability,
     DecodedOutput,
     DecoderEvent,
@@ -33,7 +34,7 @@ from peerhub.adapters.contract import (
     PromptPolicy,
     SessionHint,
 )
-from peerhub.core.errors import ErrorCode
+from peerhub.core.protocol import ErrorCode
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
     TransportKind,
@@ -154,7 +155,28 @@ class FakePeerAdapter:
 
     descriptor: PeerDescriptor = _FAKE_DESCRIPTOR
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        stdout: str | None = None,
+        chunks: Sequence[str] | None = None,
+        chunk_delay: float = 0.0,
+        stderr: str | None = None,
+        stderr_chunks: Sequence[str] | None = None,
+        exit_code: int = 0,
+        echo_stdin: bool = False,
+        delay: float = 0.0,
+        artifacts: Sequence[ArtifactSpec] = (),
+    ) -> None:
+        self._stdout = stdout
+        self._chunks = chunks
+        self._chunk_delay = chunk_delay
+        self._stderr = stderr
+        self._stderr_chunks = stderr_chunks
+        self._exit_code = exit_code
+        self._echo_stdin = echo_stdin
+        self._delay = delay
+        self._artifacts = tuple(artifacts)
         # Expose the legacy incremental decode path using an internal decoder.
         self._internal_decoder = FakeOutputDecoder()
 
@@ -173,23 +195,46 @@ class FakePeerAdapter:
         limits: TransportLimits,
     ) -> InvocationPlan:
         import sys
+        import pathlib
+        
+        script_path = str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "fake_peer" / "pipe_executable.py")
+
+        argv: list[str] = [
+            sys.executable,
+            script_path,
+        ]
+        
+        if self._echo_stdin:
+            argv.append("--echo-stdin")
+        if self._chunks:
+            for chunk in self._chunks:
+                argv.extend(["--chunk", chunk])
+            if self._chunk_delay > 0:
+                argv.extend(["--chunk-delay", str(self._chunk_delay)])
+        elif self._stdout is not None:
+            argv.extend(["--stdout", self._stdout])
+
+        if self._stderr_chunks:
+            for chunk in self._stderr_chunks:
+                argv.extend(["--stderr-chunk", chunk])
+        elif self._stderr is not None:
+            argv.extend(["--stderr", self._stderr])
+
+        if self._exit_code != 0:
+            argv.extend(["--exit-code", str(self._exit_code)])
+
+        if self._delay > 0:
+            argv.extend(["--delay", str(self._delay)])
         
         return InvocationPlan(
-            argv=(
-                sys.executable,
-                "tools/fake_peer/pipe_executable.py",
-                "--stdout",
-                request.prompt_content or "FAKE_PEER_STDOUT\n",
-                "--exit-code",
-                "0",
-            ),
+            argv=tuple(argv),
             cwd_reference=request.workspace_scope,
             environment_delta={},
             transport=TransportKind.PIPE,
             stdin_payload=None,
             limits=limits,
-            redacted_display="python pipe_executable.py",
-            artifacts=(),
+            redacted_display="python pipe_executable.py" + (" ..." if len(argv) > 2 else ""),
+            artifacts=self._artifacts,
             session_action=request.requested_session_action,
         )
 
@@ -204,16 +249,16 @@ class FakePeerAdapter:
     ) -> ProtocolAssessment:
         # Basic pattern-based success classification for the test double.
         success = (
-            process.execution_outcome.exit_code == 0
-            and not process.execution_outcome.timed_out
-            and not process.execution_outcome.cancelled
+            process.exit_code == 0
+            and not process.timed_out
+            and not process.cancelled
         )
         return ProtocolAssessment(
             parsed=True,
             response_present=len(raw_chunks) > 0,
             vendor_completion_marker=success,
-            suspected_truncation=process.execution_outcome.timed_out or process.execution_outcome.cancelled,
-            protocol_failure=None if success else ErrorCode.VENDOR_PROTOCOL_FAILURE,
+            suspected_truncation=process.timed_out or process.cancelled,
+            protocol_failure=None if success else ErrorCode.PROTOCOL_ASSESSMENT_FAILED,
         )
 
     # --- Incremental decode convenience path exercised by DT-02 ----------

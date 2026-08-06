@@ -18,11 +18,10 @@ import pytest
 from peerhub.adapters.contract import (
     AdapterRequest,
     ArtifactSpec,
-    InvocationPlan,
-    ProtocolAssessment,
     SessionAction,
 )
 from peerhub.application.workflows import ApplicationWorkflows
+from peerhub.builtins.fake_adapter import FakePeerAdapter, _FAKE_PROFILE
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
 from peerhub.core.execution import TransportKind, TransportLimits
 from peerhub.core.protocol import (
@@ -300,45 +299,23 @@ def test_e2e_clean_vertical_dispatch_zero_artifacts(
         requested_session_action=SessionAction.NONE,
         completion_contract=contract,
     )
-    inv_plan = InvocationPlan(
-        argv=(
-            sys.executable,
-            str(fake_peer_script),
-            "--stdout",
-            "FAKE_PEER_DETERMINISTIC_STDOUT\n",
-            "--exit-code",
-            "0",
-        ),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(
-            process_timeout_ms=5000,
-            silence_timeout_ms=5000,
-            max_output_bytes=65536,
-        ),
-        redacted_display="python fake_peer/pipe_executable.py",
-        artifacts=(),
-        session_action=SessionAction.NONE,
+    limits = TransportLimits(
+        process_timeout_ms=5000,
+        silence_timeout_ms=5000,
+        max_output_bytes=65536,
     )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    adapter = FakePeerAdapter(stdout="FAKE_PEER_DETERMINISTIC_STDOUT\n", exit_code=0)
 
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
 
@@ -396,45 +373,23 @@ def test_e2e_clean_vertical_dispatch_with_materialized_artifact(
         requested_session_action=SessionAction.NONE,
         completion_contract=contract,
     )
-    inv_plan = InvocationPlan(
-        argv=(
-            sys.executable,
-            str(fake_peer_script),
-            "--stdout",
-            "ARTIFACT_PROCESSED_OK\n",
-            "--exit-code",
-            "0",
-        ),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(
-            process_timeout_ms=5000,
-            silence_timeout_ms=5000,
-            max_output_bytes=65536,
-        ),
-        redacted_display="python fake_peer/pipe_executable.py",
-        artifacts=(spec,),
-        session_action=SessionAction.NONE,
+    limits = TransportLimits(
+        process_timeout_ms=5000,
+        silence_timeout_ms=5000,
+        max_output_bytes=65536,
     )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    adapter = FakePeerAdapter(stdout="ARTIFACT_PROCESSED_OK\n", exit_code=0, artifacts=(spec,))
 
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={"art-vertical-01": lambda: content},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
 
@@ -565,35 +520,12 @@ def test_process_cancellation_on_heartbeat_failure(
 
     # Spawn fake peer with an artificial exit delay of 10 seconds.
     # Without cancellation, this would run for 10 seconds.
-    inv_plan = InvocationPlan(
-        argv=(
-            sys.executable,
-            str(fake_peer_script),
-            "--stdout",
-            "LONG_RUNNING_PEER_START\n",
-            "--delay",
-            "10.0",
-        ),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(
-            process_timeout_ms=10000,
-            silence_timeout_ms=10000,
-            max_output_bytes=65536,
-        ),
-        redacted_display="python fake_peer/pipe_executable.py --delay 10.0",
-        artifacts=(),
-        session_action=SessionAction.NONE,
+    limits = TransportLimits(
+        process_timeout_ms=10000,
+        silence_timeout_ms=10000,
+        max_output_bytes=65536,
     )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    adapter = FakePeerAdapter(stdout="LONG_RUNNING_PEER_START\n", delay=10.0)
 
     failing_service = _FailingRenewerDispatchService(dispatch)
 
@@ -602,11 +534,12 @@ def test_process_cancellation_on_heartbeat_failure(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=50,  # Short heartbeat timeout to tick rapidly (~16ms)
         service=failing_service,  # Inject failing renew_lease
     )
@@ -652,44 +585,24 @@ def test_dp04_process_deadline_e2e(
         completion_contract=contract,
     )
 
-    inv_plan = InvocationPlan(
-        argv=(
-            sys.executable,
-            str(fake_peer_script),
-            "--delay",
-            "5.0",
-        ),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(
-            process_timeout_ms=500,
-            silence_timeout_ms=10000,
-            max_output_bytes=65536,
-        ),
-        redacted_display="python fake_peer/pipe_executable.py --delay 5.0",
-        artifacts=(),
-        session_action=SessionAction.NONE,
+    limits = TransportLimits(
+        process_timeout_ms=500,
+        silence_timeout_ms=10000,
+        max_output_bytes=65536,
     )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    adapter = FakePeerAdapter(delay=5.0)
 
     start_time = time.monotonic()
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-dp04": workspace_root},
         content_providers={},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
     elapsed = time.monotonic() - start_time
@@ -737,45 +650,23 @@ def test_dp05_output_cap_e2e(
     # 5000 bytes output string to exceed 4096 buffer
     excessive_output = "A" * 5000
 
-    inv_plan = InvocationPlan(
-        argv=(
-            sys.executable,
-            str(fake_peer_script),
-            "--stdout",
-            excessive_output,
-            "--delay",
-            "5.0",
-        ),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(
-            process_timeout_ms=5000,
-            silence_timeout_ms=5000,
-            max_output_bytes=100,
-        ),
-        redacted_display="python fake_peer/pipe_executable.py --stdout ...",
-        artifacts=(),
-        session_action=SessionAction.NONE,
+    limits = TransportLimits(
+        process_timeout_ms=5000,
+        silence_timeout_ms=5000,
+        max_output_bytes=100,
     )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    adapter = FakePeerAdapter(stdout=excessive_output, delay=5.0)
 
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-dp05": workspace_root},
         content_providers={},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
 

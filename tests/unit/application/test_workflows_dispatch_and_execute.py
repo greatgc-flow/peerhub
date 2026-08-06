@@ -11,10 +11,10 @@ import pytest
 from peerhub.adapters.contract import (
     AdapterRequest,
     ArtifactSpec,
-    InvocationPlan,
-    ProtocolAssessment,
     SessionAction,
 )
+from peerhub.application.workflows import ApplicationWorkflows
+from peerhub.builtins.fake_adapter import FakePeerAdapter, _FAKE_PROFILE
 from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
@@ -313,34 +313,19 @@ def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: S
         requested_session_action=SessionAction.NONE,
         completion_contract=contract,
     )
-    inv_plan = InvocationPlan(
-        argv=(sys.executable, "-c", "print('hello')"),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536),
-        redacted_display="python -c print",
-        artifacts=(),
-        session_action=SessionAction.NONE,
-    )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    adapter = FakePeerAdapter(stdout="hello\n")
 
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
 
@@ -392,34 +377,19 @@ def test_dispatch_and_execute_happy_path_with_artifact(tmp_path: Path, store: Sq
         requested_session_action=SessionAction.NONE,
         completion_contract=contract,
     )
-    inv_plan = InvocationPlan(
-        argv=(sys.executable, "-c", "print('art-ok')", "__ART1__"),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536),
-        redacted_display="python -c art",
-        artifacts=(spec,),
-        session_action=SessionAction.NONE,
-    )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    adapter = FakePeerAdapter(stdout="art-ok\n", artifacts=(spec,))
 
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={"art-1": lambda: content},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
 
@@ -472,35 +442,20 @@ def test_dispatch_and_execute_materialization_failure(tmp_path: Path, store: Sql
         requested_session_action=SessionAction.NONE,
         completion_contract=contract,
     )
-    inv_plan = InvocationPlan(
-        argv=(sys.executable, "-c", "print('should not run')"),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536),
-        redacted_display="python -c test",
-        artifacts=(spec,),
-        session_action=SessionAction.NONE,
-    )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    adapter = FakePeerAdapter(stdout="should not run\n", artifacts=(spec,))
 
     # Provider returns wrong content -> digest mismatch -> HARD_FAILURE
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={"art-1": lambda: b"CORRUPTED CONTENT"},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
 
@@ -545,24 +500,8 @@ def test_dispatch_and_execute_reservation_failure(tmp_path: Path, store: SqliteS
         lifecycle="EPHEMERAL",
     )
 
-    inv_plan = InvocationPlan(
-        argv=(sys.executable, "-c", "print('hello')"),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536),
-        redacted_display="python -c print",
-        artifacts=(spec,),
-        session_action=SessionAction.NONE,
-    )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    adapter = FakePeerAdapter(stdout="hello\n", artifacts=(spec,))
 
     # Monkeypatch service method to simulate reservation failure
     def mock_reserve(*args, **kwargs):
@@ -574,11 +513,12 @@ def test_dispatch_and_execute_reservation_failure(tmp_path: Path, store: SqliteS
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={"art-1": lambda: content},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
         service=dispatch,
     )
@@ -611,34 +551,19 @@ def test_dispatch_and_execute_nonzero_exit(tmp_path: Path, store: SqliteStateSto
         requested_session_action=SessionAction.NONE,
         completion_contract=contract,
     )
-    inv_plan = InvocationPlan(
-        argv=(sys.executable, "-c", "import sys; sys.exit(1)"),
-        cwd_reference=".",
-        environment_delta={},
-        transport=TransportKind.PIPE,
-        stdin_payload=None,
-        limits=TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536),
-        redacted_display="python exit 1",
-        artifacts=(),
-        session_action=SessionAction.NONE,
-    )
-    protocol_assessment = ProtocolAssessment(
-        parsed=True,
-        response_present=True,
-        vendor_completion_marker=True,
-        suspected_truncation=False,
-        protocol_failure=None,
-    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    adapter = FakePeerAdapter(exit_code=1)
 
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        invocation_plan=inv_plan,
+        peer_adapter=adapter,
+        profile=_FAKE_PROFILE,
+        limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={},
         completion_contract=contract,
-        protocol_assessment=protocol_assessment,
         heartbeat_timeout_ms=10000,
     )
 
