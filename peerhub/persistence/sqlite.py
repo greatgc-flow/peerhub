@@ -18,6 +18,7 @@ from typing import Any
 from .sqlite_governance import SqliteGovernanceRepository
 from .sqlite_dispatch import SqliteDispatchRepository
 from .sqlite_health import SqliteHealthRepository
+from .sqlite_telemetry import SqliteTelemetryRepository
 from .sqlite_helpers import (
     _json_text,
     _json_value,
@@ -367,6 +368,7 @@ class SqliteUnitOfWork:
         self.governance = SqliteGovernanceRepository(self._db)
         self.dispatch = SqliteDispatchRepository(self._db)
         self.health = SqliteHealthRepository(self._db)
+        self.telemetry = SqliteTelemetryRepository(self._db)
 
     def __enter__(self) -> SqliteUnitOfWork:
         """Open a connection and begin an immediate transaction."""
@@ -788,35 +790,35 @@ class SqliteUnitOfWork:
         observed: ReadinessObserved,
     ) -> None:
         """Insert an immutable readiness observation."""
-        return self.health.add_readiness_observation(observed)
+        return self.telemetry.add_readiness_observation(observed)
 
     def get_readiness_observation(
         self,
         observation_id: str,
     ) -> ReadinessObserved | None:
         """Return a readiness observation by observation ID."""
-        return self.health.get_readiness_observation(observation_id)
+        return self.telemetry.get_readiness_observation(observation_id)
 
     def add_operational_observation(
         self,
         observation: OperationalObservation,
     ) -> None:
         """Insert an immutable operational observation."""
-        return self.health.add_operational_observation(observation)
+        return self.telemetry.add_operational_observation(observation)
 
     def get_operational_observation(
         self,
         observation_id: str,
     ) -> OperationalObservation | None:
         """Return an operational observation by observation ID."""
-        return self.health.get_operational_observation(observation_id)
+        return self.telemetry.get_operational_observation(observation_id)
 
     def add_operational_projection(
         self,
         projection: OperationalProjectionSnapshot,
     ) -> None:
         """Insert a revision-one operational projection snapshot."""
-        return self.health.add_operational_projection(projection)
+        return self.telemetry.add_operational_projection(projection)
 
     def get_operational_projection(
         self,
@@ -824,7 +826,7 @@ class SqliteUnitOfWork:
         profile_id: str,
     ) -> OperationalProjectionSnapshot | None:
         """Return an operational projection by instance ID and profile ID."""
-        return self.health.get_operational_projection(instance_id, profile_id)
+        return self.telemetry.get_operational_projection(instance_id, profile_id)
 
     def cas_update_operational_projection(
         self,
@@ -832,7 +834,7 @@ class SqliteUnitOfWork:
         updated: OperationalProjectionSnapshot,
     ) -> bool:
         """CAS-update an operational projection snapshot."""
-        return self.health.cas_update_operational_projection(current, updated)
+        return self.telemetry.cas_update_operational_projection(current, updated)
 
     def add_health_projection(
         self,
