@@ -33,7 +33,6 @@ from peerhub.telemetry.contract import (
     OperationalProjectionSnapshot,
     SessionContextObserved,
     SessionContextProjectionSnapshot,
-    SessionBindingKey,
 )
 
 
@@ -182,7 +181,7 @@ def _required_int(
     name: str,
 ) -> int:
     value = payload.get(name)  # type: ignore[union-attr]
-    if type(value) is not int or value < 0:
+    if type(value) is not int or value < 0:  # pyright: ignore[reportUnknownArgumentType]
         raise ValueError(
             f"{name} must be a nonnegative integer"
         )
@@ -249,7 +248,7 @@ def decode_attempt_terminal_event(
             "evidence_refs must be an array"
         )
     refs = tuple(
-        require_text(value, "evidence_ref")
+        require_text(value, "evidence_ref")  # pyright: ignore[reportArgumentType]
         for value in raw_refs
     )
 
@@ -311,14 +310,14 @@ def _outbox_evidence_ref(
     )
 
 
-def _evidence(
+def _evidence(  # pyright: ignore[reportUnknownParameterType]
     observation: OperationalObservation,
     *,
     state: EvidenceState,
     value: object,
     freshness_ttl: int,
     observed_at: int | None,
-) -> EvidenceValue:
+) -> EvidenceValue:  # pyright: ignore[reportMissingTypeArgument]
     terminal = observation.terminal_event
     return EvidenceValue(
         state=state,
@@ -385,21 +384,21 @@ def project_operational_observation(
         if terminal.operational_failure_category is not None
         else EvidenceState.ABSENT
     )
-    failure_category = _evidence(
+    failure_category = _evidence(  # pyright: ignore[reportUnknownVariableType]
         observation,
         state=category_state,
         value=terminal.operational_failure_category,
         freshness_ttl=freshness_ttl,
         observed_at=terminal.terminal_at,
     )
-    process_integrity = _evidence(
+    process_integrity = _evidence(  # pyright: ignore[reportUnknownVariableType]
         observation,
         state=EvidenceState.MEASURED,
         value=terminal.process_integrity,
         freshness_ttl=freshness_ttl,
         observed_at=terminal.terminal_at,
     )
-    latency = _evidence(
+    latency = _evidence(  # pyright: ignore[reportUnknownVariableType]
         observation,
         state=(
             EvidenceState.MEASURED
@@ -411,7 +410,7 @@ def project_operational_observation(
         observed_at=terminal.terminal_at,
     )
 
-    usage = (
+    usage = (  # pyright: ignore[reportUnknownVariableType]
         current.usage
         if current is not None
         else _evidence(
@@ -456,10 +455,10 @@ def project_operational_observation(
         ),
         instance_id=terminal.instance_id,
         profile_id=terminal.profile_id,
-        failure_category=failure_category,
-        process_integrity=process_integrity,
-        latency=latency,
-        usage=usage,
+        failure_category=failure_category,  # pyright: ignore[reportUnknownArgumentType]
+        process_integrity=process_integrity,  # pyright: ignore[reportUnknownArgumentType]
+        latency=latency,  # pyright: ignore[reportUnknownArgumentType]
+        usage=usage,  # pyright: ignore[reportUnknownArgumentType]
         failure_streak=failure_streak,
         last_terminal_at=terminal.terminal_at,
         evidence_refs=_dedupe_refs(
@@ -627,11 +626,11 @@ class TelemetryProjector:
             )
             if checkpoint is None:
                 unit.add_outbox_checkpoint(
-                    updated_checkpoint
+                    updated_checkpoint  # pyright: ignore[reportArgumentType]
                 )
             elif not unit.cas_update_outbox_checkpoint(
                 checkpoint,
-                updated_checkpoint,
+                updated_checkpoint,  # pyright: ignore[reportArgumentType]
             ):
                 latest = unit.get_outbox_checkpoint(
                     self._consumer_id

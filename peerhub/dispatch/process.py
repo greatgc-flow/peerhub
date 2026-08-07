@@ -53,7 +53,7 @@ class TreeProcessObservation:
     observed_creation_time: int | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.identity, ProcessBirthIdentity):
+        if not isinstance(self.identity, ProcessBirthIdentity):  # pyright: ignore[reportUnnecessaryIsInstance]
             if type(self.identity) is int and self.identity > 0:
                 creation_time = (
                     self.observed_creation_time
@@ -72,7 +72,7 @@ class TreeProcessObservation:
                 raise ValueError(
                     "identity must be ProcessBirthIdentity or positive int PID"
                 )
-        if not isinstance(self.state, ObservationState):
+        if not isinstance(self.state, ObservationState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be ObservationState")
 
     @property
@@ -112,9 +112,9 @@ class CancellationDecision:
     all_terminated: bool = False
 
     def __post_init__(self) -> None:
-        if not isinstance(self.stage, CancellationStage):
+        if not isinstance(self.stage, CancellationStage):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("stage must be CancellationStage")
-        if not isinstance(self.action, CancellationAction):
+        if not isinstance(self.action, CancellationAction):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("action must be CancellationAction")
         if self.next_deadline_ms is not None and (
             type(self.next_deadline_ms) is not int
@@ -386,7 +386,7 @@ class ProcessSupervisionOutcome:
     cleanup_evidence: ProcessCleanupEvidence | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.execution_outcome, ExecutionOutcome):
+        if not isinstance(self.execution_outcome, ExecutionOutcome):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "execution_outcome must be ExecutionOutcome"
             )
@@ -398,7 +398,7 @@ class ProcessSupervisionOutcome:
             raise ValueError("canonical_stream must be bytes")
         if (
             self.terminal_classification is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 self.terminal_classification,
                 TerminalClassification,
             )
@@ -409,7 +409,7 @@ class ProcessSupervisionOutcome:
             )
         if (
             self.cleanup_evidence is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 self.cleanup_evidence,
                 ProcessCleanupEvidence,
             )
@@ -442,7 +442,7 @@ class InterruptedAttemptRecoveryOutcome:
     journal_digest: str
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.terminal_classification,
             TerminalClassification,
         ):
@@ -450,7 +450,7 @@ class InterruptedAttemptRecoveryOutcome:
                 "terminal_classification must be "
                 "TerminalClassification"
             )
-        if not isinstance(self.execution_outcome, ExecutionOutcome):
+        if not isinstance(self.execution_outcome, ExecutionOutcome):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "execution_outcome must be ExecutionOutcome"
             )
@@ -511,7 +511,7 @@ class ProcessSupervisor:
     ) -> None:
         if (
             cancellation_ladder is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 cancellation_ladder,
                 CancellationLadder,
             )
@@ -570,7 +570,7 @@ class ProcessSupervisor:
         identity: ProcessBirthIdentity | None = None,
     ) -> None:
         if identity is not None:
-            if not isinstance(identity, ProcessBirthIdentity):
+            if not isinstance(identity, ProcessBirthIdentity):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError("identity must be a ProcessBirthIdentity")
             with self._lock:
                 self._identity = identity
@@ -627,7 +627,7 @@ class ProcessSupervisor:
         for item in raw_obs:
             if isinstance(item, TreeProcessObservation):
                 norm_observations.append(item)
-            elif isinstance(item, int):
+            elif isinstance(item, int):  # pyright: ignore[reportUnnecessaryIsInstance]
                 norm_observations.append(
                     TreeProcessObservation(
                         identity=ProcessBirthIdentity(

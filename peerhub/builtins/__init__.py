@@ -3,5 +3,5 @@
 from __future__ import annotations
 
 __all__ = [
-    "fake_adapter",
+    "fake_adapter",  # pyright: ignore[reportUnsupportedDunderAll]
 ]

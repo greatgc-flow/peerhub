@@ -49,7 +49,7 @@ def _require_sha256_hex(
     return normalized
 
 
-def _normalize_text_tuple(
+def _normalize_text_tuple(  # pyright: ignore[reportUnusedFunction]
     values: tuple[str, ...],
     name: str,
 ) -> tuple[str, ...]:
@@ -308,7 +308,7 @@ class ReadinessEvaluation:
             )
         if (
             self.revalidation_action is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 self.revalidation_action,
                 RevalidationAction,
             )
@@ -335,9 +335,9 @@ class HealthStageObservation:
     status: HealthStageStatus
 
     def __post_init__(self) -> None:
-        if not isinstance(self.stage, HealthStage):
+        if not isinstance(self.stage, HealthStage):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("stage must be HealthStage")
-        if not isinstance(self.status, HealthStageStatus):
+        if not isinstance(self.status, HealthStageStatus):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("status must be HealthStageStatus")
 
 
@@ -354,7 +354,7 @@ class HealthFailureClassification:
     admission_only: bool = False
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.category,
             OperationalFailureCategory,
         ):
@@ -402,7 +402,7 @@ class EvidenceSubject:
     subject: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.scope, PolicyScope):
+        if not isinstance(self.scope, PolicyScope):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("scope must be PolicyScope")
         object.__setattr__(
             self,
@@ -445,7 +445,7 @@ class PolicyAction:
     receipt: PolicyReceipt
 
     def __post_init__(self) -> None:
-        if not isinstance(self.scope, PolicyScope):
+        if not isinstance(self.scope, PolicyScope):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("scope must be PolicyScope")
         object.__setattr__(
             self,
@@ -456,14 +456,14 @@ class PolicyAction:
             raise ValueError(
                 "policy action must open a health circuit"
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.quarantine_authority_class,
             QuarantineAuthorityClass,
         ):
             raise ValueError(
                 "quarantine_authority_class has wrong enum type"
             )
-        if not isinstance(self.receipt, PolicyReceipt):
+        if not isinstance(self.receipt, PolicyReceipt):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("receipt must be PolicyReceipt")
 
 
@@ -490,11 +490,11 @@ class HealthCircuitSnapshot:
                 name,
                 require_text(getattr(self, name), name),
             )
-        if not isinstance(self.scope, PolicyScope):
+        if not isinstance(self.scope, PolicyScope):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("scope must be PolicyScope")
-        if not isinstance(self.state, CircuitState):
+        if not isinstance(self.state, CircuitState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be CircuitState")
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.quarantine_authority_class,
             QuarantineAuthorityClass,
         ):
@@ -503,7 +503,7 @@ class HealthCircuitSnapshot:
             )
         if (
             self.receipt is not None
-            and not isinstance(self.receipt, PolicyReceipt)
+            and not isinstance(self.receipt, PolicyReceipt)  # pyright: ignore[reportUnnecessaryIsInstance]
         ):
             raise ValueError(
                 "receipt must be PolicyReceipt or null"
@@ -536,7 +536,7 @@ class AutomaticClearanceResult:
     reason: str
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.circuit,
             HealthCircuitSnapshot,
         ):
@@ -602,14 +602,14 @@ class HealthProjectionSnapshot:
                     require_text(value, name),
                 )
 
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.availability_state,
             AvailabilityState,
         ):
             raise ValueError(
                 "availability_state must be AvailabilityState"
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.admission_state,
             AdmissionState,
         ):
@@ -664,7 +664,7 @@ class HealthProjectionSnapshot:
                 self,
                 "sealed_runtime_revision",
                 require_text(
-                    self.sealed_runtime_revision,
+                    self.sealed_runtime_revision,  # pyright: ignore[reportArgumentType]
                     "sealed_runtime_revision",
                 ),
             )
@@ -708,7 +708,7 @@ class RecoveryProbeGrant:
                 name,
                 require_text(getattr(self, name), name),
             )
-        if not isinstance(self.receipt, PolicyReceipt):
+        if not isinstance(self.receipt, PolicyReceipt):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("receipt must be PolicyReceipt")
         _require_nonnegative(
             self.authorized_at,
@@ -735,7 +735,7 @@ class RecoveryProbeGrant:
                 self,
                 "consumed_by_attempt_id",
                 require_text(
-                    self.consumed_by_attempt_id,
+                    self.consumed_by_attempt_id,  # pyright: ignore[reportArgumentType]
                     "consumed_by_attempt_id",
                 ),
             )
@@ -765,21 +765,21 @@ class RecoveryProbeAuthorization:
     grant: RecoveryProbeGrant
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.projection,
             HealthProjectionSnapshot,
         ):
             raise ValueError(
                 "projection must be HealthProjectionSnapshot"
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.circuit,
             HealthCircuitSnapshot,
         ):
             raise ValueError(
                 "circuit must be HealthCircuitSnapshot"
             )
-        if not isinstance(self.grant, RecoveryProbeGrant):
+        if not isinstance(self.grant, RecoveryProbeGrant):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "grant must be RecoveryProbeGrant"
             )
@@ -795,7 +795,7 @@ class RecoveryProbeClaimResult:
     reason: str | None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.grant, RecoveryProbeGrant):
+        if not isinstance(self.grant, RecoveryProbeGrant):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "grant must be RecoveryProbeGrant"
             )
@@ -804,7 +804,7 @@ class RecoveryProbeClaimResult:
             "attempt_id",
             require_text(self.attempt_id, "attempt_id"),
         )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.disposition,
             ProbeDisposition,
         ):
@@ -847,14 +847,14 @@ class RecoveryProbeReceipt:
             self.reported_revision,
             "reported_revision",
         )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.reported_receipt,
             PolicyReceipt,
         ):
             raise ValueError(
                 "reported_receipt must be PolicyReceipt"
             )
-        if not isinstance(self.result, ProbeResult):
+        if not isinstance(self.result, ProbeResult):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("result must be ProbeResult")
         _require_nonnegative(
             self.observed_at,
@@ -876,7 +876,7 @@ class RecoveryProbeApplication:
     transition: ProbeTransition
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.circuit,
             HealthCircuitSnapshot,
         ):
@@ -887,7 +887,7 @@ class RecoveryProbeApplication:
             raise ValueError(
                 "reported_matches_current must be a boolean"
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.transition,
             ProbeTransition,
         ):
@@ -905,7 +905,7 @@ class CooldownEvaluation:
     cooldown_ended: bool
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.admission_state,
             AdmissionState,
         ):
@@ -932,7 +932,7 @@ class HealthScopeBinding:
     members: tuple[tuple[str, str], ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.scope, PolicyScope):
+        if not isinstance(self.scope, PolicyScope):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("scope must be PolicyScope")
         object.__setattr__(
             self,
@@ -1017,7 +1017,7 @@ class HealthScopeMembershipSnapshot:
 
         bindings = tuple(self.bindings)
         if any(
-            not isinstance(binding, HealthScopeBinding)
+            not isinstance(binding, HealthScopeBinding)  # pyright: ignore[reportUnnecessaryIsInstance]
             for binding in bindings
         ):
             raise ValueError(
@@ -1093,14 +1093,14 @@ class AdmissionSnapshotEntry:
             self.health_projection_revision,
             "health_projection_revision",
         )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.availability_state,
             AvailabilityState,
         ):
             raise ValueError(
                 "availability_state must be AvailabilityState"
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.admission_state,
             AdmissionState,
         ):

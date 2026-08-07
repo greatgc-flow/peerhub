@@ -188,7 +188,7 @@ class UsageObserved:
             self.evidence.state
             in {EvidenceState.MEASURED, EvidenceState.STALE}
             and self.evidence.value is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 self.evidence.value,
                 UsageMeasurement,
             )
@@ -221,7 +221,7 @@ class OperationalObservation:
             self.outbox_position,
             "outbox_position",
         )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.terminal_event,
             AttemptTerminalObserved,
         ):
@@ -325,7 +325,7 @@ class SessionContextObserved:
             "observation_id",
             require_text(self.observation_id, "observation_id"),
         )
-        if not isinstance(self.binding_key, SessionBindingKey):
+        if not isinstance(self.binding_key, SessionBindingKey):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("binding_key must be SessionBindingKey")
         _require_positive(self.generation_id, "generation_id")
         _require_nonnegative(self.observed_tokens, "observed_tokens")
@@ -358,7 +358,7 @@ class SessionContextProjectionSnapshot:
             "projection_id",
             require_text(self.projection_id, "projection_id"),
         )
-        if not isinstance(self.binding_key, SessionBindingKey):
+        if not isinstance(self.binding_key, SessionBindingKey):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("binding_key must be SessionBindingKey")
         _require_positive(self.generation_id, "generation_id")
         _require_nonnegative(self.observed_tokens, "observed_tokens")

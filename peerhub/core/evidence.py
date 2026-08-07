@@ -53,7 +53,7 @@ class EvidenceValue(Generic[T]):
     value: T | None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.state, EvidenceState):
+        if not isinstance(self.state, EvidenceState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be EvidenceState")
 
         for name in (

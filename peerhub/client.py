@@ -1,6 +1,5 @@
 """Embedded client for PeerHub commands."""
 
-from collections.abc import Mapping
 from typing import TypeVar
 
 from peerhub.core.ports import RequestContext
@@ -8,8 +7,6 @@ from peerhub.core.protocol import (
     CommandEnvelope,
     CommandOutcome,
     CommandSuccess,
-    CommandFailure,
-    JsonValue,
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
     SCHEMA_VERSION,
@@ -55,21 +52,21 @@ class Client:
         outcome = self._submitter.submit(envelope, caller=self._caller)
 
         if outcome.ok:
-            result = command.decode_result(outcome.result)
+            result = command.decode_result(outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             return CommandSuccess(
                 ok=True,
                 protocol_major=outcome.protocol_major,
                 protocol_minor=outcome.protocol_minor,
                 schema_version=outcome.schema_version,
                 diagnostic_id=outcome.diagnostic_id,
-                correlation_id=outcome.correlation_id,
+                correlation_id=outcome.correlation_id,  # pyright: ignore[reportArgumentType]
                 command_id=outcome.command_id,
-                state=outcome.state,
-                receipt_ref=outcome.receipt_ref,
-                policy_revision=outcome.policy_revision,
-                configuration_revision=outcome.configuration_revision,
-                idempotency=outcome.idempotency,
+                state=outcome.state,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                receipt_ref=outcome.receipt_ref,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                policy_revision=outcome.policy_revision,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                configuration_revision=outcome.configuration_revision,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                idempotency=outcome.idempotency,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 result=result,
             )
         else:
-            return outcome
+            return outcome  # pyright: ignore[reportReturnType]

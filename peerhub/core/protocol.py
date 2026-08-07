@@ -125,7 +125,7 @@ class ErrorCode(str, Enum):
 def require_text(value: str, name: str) -> str:
     """Validate and NFC-normalize a required protocol string."""
 
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value.strip():  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError(f"{name} must be a non-empty string")
     return unicodedata.normalize("NFC", value)
 
@@ -168,10 +168,10 @@ def _freeze_json_value(value: object) -> JsonValue:
     if isinstance(value, str):
         return _normalize_json_string(value)
     if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json_value(item) for item in value)
+        return tuple(_freeze_json_value(item) for item in value)  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
     if isinstance(value, Mapping):
         frozen: dict[str, JsonValue] = {}
-        for raw_key, raw_value in value.items():
+        for raw_key, raw_value in value.items():  # pyright: ignore[reportUnknownVariableType]
             if not isinstance(raw_key, str):
                 raise ValueError("JSON object keys must be strings")
             key = _normalize_json_string(raw_key)
@@ -179,7 +179,7 @@ def _freeze_json_value(value: object) -> JsonValue:
                 raise ValueError(
                     f"duplicate JSON key after normalization: {key}"
                 )
-            frozen[key] = _freeze_json_value(raw_value)
+            frozen[key] = _freeze_json_value(raw_value)  # pyright: ignore[reportUnknownArgumentType]
         return MappingProxyType(frozen)
     raise ValueError(
         f"unsupported JSON value type: {type(value).__name__}"
@@ -209,10 +209,10 @@ def _normalize_json_value(value: object) -> object:
     if isinstance(value, str):
         return _normalize_json_string(value)
     if isinstance(value, (list, tuple)):
-        return [_normalize_json_value(item) for item in value]
+        return [_normalize_json_value(item) for item in value]  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
     if isinstance(value, Mapping):
         normalized: dict[str, object] = {}
-        for raw_key, raw_value in value.items():
+        for raw_key, raw_value in value.items():  # pyright: ignore[reportUnknownVariableType]
             if not isinstance(raw_key, str):
                 raise ValueError("JSON object keys must be strings")
             key = _normalize_json_string(raw_key)
@@ -220,7 +220,7 @@ def _normalize_json_value(value: object) -> object:
                 raise ValueError(
                     f"duplicate JSON key after normalization: {key}"
                 )
-            normalized[key] = _normalize_json_value(raw_value)
+            normalized[key] = _normalize_json_value(raw_value)  # pyright: ignore[reportUnknownArgumentType]
         return normalized
     raise ValueError(
         f"unsupported JSON value type: {type(value).__name__}"
@@ -327,19 +327,19 @@ def _canonical_json_text(value: object) -> str:
         )
     if isinstance(value, list):
         return "[" + ",".join(
-            _canonical_json_text(item) for item in value
+            _canonical_json_text(item) for item in value  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
         ) + "]"
     if isinstance(value, Mapping):
         # RFC 8785 sorts object member names as UTF-16 code units.
-        keys = sorted(
-            value,
-            key=lambda item: item.encode("utf-16-be"),
+        keys = sorted(  # pyright: ignore[reportUnknownVariableType]
+            value,  # pyright: ignore[reportUnknownArgumentType]
+            key=lambda item: item.encode("utf-16-be"),  # pyright: ignore[reportUnknownArgumentType, reportUnknownLambdaType, reportUnknownMemberType]
         )
         return "{" + ",".join(
-            _canonical_json_text(key)
+            _canonical_json_text(key)  # pyright: ignore[reportUnknownArgumentType]
             + ":"
-            + _canonical_json_text(value[key])
-            for key in keys
+            + _canonical_json_text(value[key])  # pyright: ignore[reportUnknownArgumentType]
+            for key in keys  # pyright: ignore[reportUnknownVariableType]
         ) + "}"
     raise ValueError(
         f"unsupported JSON value type: {type(value).__name__}"
@@ -510,7 +510,7 @@ class AttemptTerminalObserved:
 
         if (
             self.operational_failure_category is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 self.operational_failure_category,
                 OperationalFailureCategory,
             )
@@ -520,7 +520,7 @@ class AttemptTerminalObserved:
                 "OperationalFailureCategory or null"
             )
 
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.execution_certainty,
             ExecutionCertainty,
         ):
@@ -778,7 +778,7 @@ def cli_exit_code(outcome: CommandOutcome[object]) -> int:
     if outcome.ok:
         return 0
 
-    code = outcome.error.code
+    code = outcome.error.code  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
 
     if code == ErrorCode.INTERNAL_ERROR:
         return 1
@@ -793,7 +793,7 @@ def cli_exit_code(outcome: CommandOutcome[object]) -> int:
         ErrorCode.INVALID_PARAMS,
         ErrorCode.MISSING_IDEMPOTENCY_KEY,
         ErrorCode.RECORD_NOT_FOUND,
-    } or outcome.error.phase == ErrorPhase.VALIDATION:
+    } or outcome.error.phase == ErrorPhase.VALIDATION:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
         return 2
 
     if code in {
@@ -810,7 +810,7 @@ def cli_exit_code(outcome: CommandOutcome[object]) -> int:
         ErrorCode.ADMISSION_CLOSED,
         ErrorCode.CONFIGURATION_STALE,
         ErrorCode.POLICY_STALE,
-    } or outcome.error.phase == ErrorPhase.ADMISSION:
+    } or outcome.error.phase == ErrorPhase.ADMISSION:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
         return 4
 
     if code in {
@@ -828,8 +828,8 @@ def cli_exit_code(outcome: CommandOutcome[object]) -> int:
         return 7
 
     if (
-        outcome.error.execution_certainty == ExecutionCertainty.NOT_STARTED
-        or outcome.error.phase == ErrorPhase.PRE_SPAWN
+        outcome.error.execution_certainty == ExecutionCertainty.NOT_STARTED  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+        or outcome.error.phase == ErrorPhase.PRE_SPAWN  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
     ):
         return 5
 

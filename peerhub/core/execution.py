@@ -98,7 +98,7 @@ class TransportLimits:
                 raise ValueError(
                     f"{name} must be a nonnegative integer"
                 )
-        if not isinstance(self.cancellation_grace, CancellationGrace):
+        if not isinstance(self.cancellation_grace, CancellationGrace):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("cancellation_grace must be CancellationGrace")
 
 

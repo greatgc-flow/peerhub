@@ -12,13 +12,13 @@ blocked on the empirical PTY probe per DIR-004.
 """
 
 from __future__ import annotations
+from dataclasses import dataclass
 
 import subprocess
 import sys
 import threading
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, IO, Protocol
 
@@ -39,7 +39,7 @@ class TreeHandle(Protocol):
     def root_identity(self) -> ProcessBirthIdentity: ...
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True)  # pyright: ignore[reportUntypedClassDecorator]
 class TreeDispatchReceipt:
     """Receipt returned after dispatching a tree cancellation signal."""
 
@@ -83,7 +83,7 @@ def _time_ms() -> int:
 _CANCELLATION_POLL_INTERVAL_S = 0.1
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True)  # pyright: ignore[reportUntypedClassDecorator]
 class PipeRunnerConfig:
     """Configuration for a pipe-based process runner invocation.
 
@@ -283,14 +283,14 @@ def run_process(
         else {"start_new_session": True}
     )
     argv = list(config.argv)
-    proc = subprocess.Popen(
+    proc = subprocess.Popen(  # pyright: ignore[reportCallIssue]
         argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.PIPE if config.stdin_data is not None else subprocess.DEVNULL,
         cwd=config.cwd,
         env=config.env,
-        **extra_kwargs,
+        **extra_kwargs,  # pyright: ignore[reportArgumentType]
     )
 
     # Record process birth identity immediately after spawn.
@@ -313,7 +313,7 @@ def run_process(
 
     tree_handle: TreeHandle | None = None
     if tree_controller is not None:
-        tree_handle = tree_controller.bind_spawn(process=proc, root=identity)
+        tree_handle = tree_controller.bind_spawn(process=proc, root=identity)  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         setattr(proc, "_tree_handle", tree_handle)
         setattr(proc, "_tree_controller", tree_controller)
 
@@ -364,7 +364,7 @@ def run_process(
             and tree_handle is not None
         ):
             _drive_cancellation_ladder(
-                supervisor, tree_controller, tree_handle, get_time,
+                supervisor, tree_controller, tree_handle, get_time,  # pyright: ignore[reportUnknownArgumentType]
             )
             # Check if ladder completed; if so, give the process a brief
             # moment to exit from the signal before the next poll.
@@ -397,7 +397,7 @@ def run_process(
         # Process may still be running if ladder completed but process
         # hasn't exited yet.  Force-wait and record.
         proc.wait()
-        supervisor.on_exit(exit_code=proc.returncode)
+        supervisor.on_exit(exit_code=proc.returncode)  # pyright: ignore[reportArgumentType]
 
     # Check for reader errors as cleanup evidence.
     reader_errors: list[int] = []

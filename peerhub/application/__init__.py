@@ -3,5 +3,5 @@
 from __future__ import annotations
 
 __all__ = [
-    "workflows",
+    "workflows",  # pyright: ignore[reportUnsupportedDunderAll]
 ]

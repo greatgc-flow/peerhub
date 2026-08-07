@@ -9,7 +9,7 @@ from peerhub.routing.contract import (
     RouteEligibility,
 )
 
-from .sqlite_helpers import _json_text, _string_tuple
+from .sqlite_helpers import _json_text, _string_tuple  # pyright: ignore[reportPrivateUsage]
 
 class SqliteRoutingRepository:
     def __init__(self, db_factory: Callable[[], sqlite3.Connection]) -> None:

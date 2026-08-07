@@ -38,13 +38,13 @@ class WorkspacePaths:
     scope_id: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.workspace_root, Path):
+        if not isinstance(self.workspace_root, Path):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("workspace_root must be a Path")
         if not self.workspace_root.is_absolute():
             raise ValueError("workspace_root must be an absolute Path")
-        if not isinstance(self.staging_dir, Path):
+        if not isinstance(self.staging_dir, Path):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("staging_dir must be a Path")
-        if not isinstance(self.scope_id, str) or not self.scope_id:
+        if not isinstance(self.scope_id, str) or not self.scope_id:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("scope_id must be a non-empty string")
 
 
@@ -60,11 +60,11 @@ def resolve_workspace_paths(
     Looks up request.workspace_scope in the trusted workspace_roots mapping.
     Raises ValueError if scope is unknown or staging path attempts traversal.
     """
-    if not isinstance(request, AdapterRequest):
+    if not isinstance(request, AdapterRequest):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError("request must be an AdapterRequest")
-    if not isinstance(plan, InvocationPlan):
+    if not isinstance(plan, InvocationPlan):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError("plan must be an InvocationPlan")
-    if not isinstance(workspace_roots, Mapping):
+    if not isinstance(workspace_roots, Mapping):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError("workspace_roots must be a Mapping")
 
     scope_id = request.workspace_scope
@@ -72,7 +72,7 @@ def resolve_workspace_paths(
         raise ValueError(f"Unknown workspace scope: {scope_id!r}")
 
     raw_root = workspace_roots[scope_id]
-    if not isinstance(raw_root, (str, Path)):
+    if not isinstance(raw_root, (str, Path)):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError(
             f"workspace_roots[{scope_id!r}] must be a Path or str"
         )
@@ -120,30 +120,30 @@ class MaterializationItem:
     lifecycle: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.artifact_id, str) or not self.artifact_id:
+        if not isinstance(self.artifact_id, str) or not self.artifact_id:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("artifact_id must be a non-empty string")
-        if not isinstance(self.placeholder, str) or not self.placeholder:
+        if not isinstance(self.placeholder, str) or not self.placeholder:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("placeholder must be a non-empty string")
         if (
-            not isinstance(self.staging_filename, str)
+            not isinstance(self.staging_filename, str)  # pyright: ignore[reportUnnecessaryIsInstance]
             or not self.staging_filename
         ):
             raise ValueError("staging_filename must be a non-empty string")
-        if not isinstance(self.staging_path, Path):
+        if not isinstance(self.staging_path, Path):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("staging_path must be a Path")
-        if self.source_path is not None and not isinstance(
+        if self.source_path is not None and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.source_path, Path
         ):
             raise ValueError("source_path must be None or a Path")
         if self.content_bytes is not None and type(self.content_bytes) is not bytes:
             raise ValueError("content_bytes must be None or bytes")
-        if not isinstance(self.sha256_hex, str):
+        if not isinstance(self.sha256_hex, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("sha256_hex must be a string")
         if type(self.expected_length) is not int or self.expected_length < 0:
             raise ValueError("expected_length must be a nonnegative integer")
-        if not isinstance(self.access_mode, str) or not self.access_mode:
+        if not isinstance(self.access_mode, str) or not self.access_mode:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("access_mode must be a non-empty string")
-        if not isinstance(self.lifecycle, str) or not self.lifecycle:
+        if not isinstance(self.lifecycle, str) or not self.lifecycle:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("lifecycle must be a non-empty string")
 
 
@@ -158,20 +158,20 @@ class MaterializationManifest:
     substitutions: Mapping[str, str]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.attempt_id, str) or not self.attempt_id:
+        if not isinstance(self.attempt_id, str) or not self.attempt_id:  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("attempt_id must be a non-empty string")
-        if not isinstance(self.workspace, WorkspacePaths):
+        if not isinstance(self.workspace, WorkspacePaths):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("workspace must be a WorkspacePaths instance")
 
         items = tuple(self.items)
         for item in items:
-            if not isinstance(item, MaterializationItem):
+            if not isinstance(item, MaterializationItem):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError("every item must be a MaterializationItem")
         object.__setattr__(self, "items", items)
 
         argv = tuple(self.substituted_argv)
         for token in argv:
-            if not isinstance(token, str):
+            if not isinstance(token, str):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "every substituted_argv token must be a string"
                 )
@@ -208,11 +208,11 @@ def generate_materialization_manifest(
     artifacts: Sequence[ArtifactSpec] = (),
 ) -> MaterializationManifest:
     """Generate a MaterializationManifest for an invocation plan and workspace."""
-    if not isinstance(plan, InvocationPlan):
+    if not isinstance(plan, InvocationPlan):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError("plan must be an InvocationPlan")
-    if not isinstance(workspace, WorkspacePaths):
+    if not isinstance(workspace, WorkspacePaths):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError("workspace must be a WorkspacePaths instance")
-    if not isinstance(attempt_id, str) or not attempt_id:
+    if not isinstance(attempt_id, str) or not attempt_id:  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError("attempt_id must be a non-empty string")
 
     raw_specs: list[ArtifactSpec] = list(plan.artifacts)
@@ -226,7 +226,7 @@ def generate_materialization_manifest(
     substitutions: dict[str, str] = {}
 
     for spec in raw_specs:
-        if not isinstance(spec, ArtifactSpec):
+        if not isinstance(spec, ArtifactSpec):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("every artifact must be an ArtifactSpec")
 
         if spec.artifact_id in seen_ids:

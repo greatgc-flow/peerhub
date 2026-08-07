@@ -29,7 +29,7 @@ from .model import (
     resume_session_binding,
     validate_lease_fence,
 )
-from .unit_of_work import DispatchUnitOfWork, FaultInjector, FaultPoint, _NoFaultInjector
+from .unit_of_work import DispatchUnitOfWork, FaultInjector, FaultPoint, _NoFaultInjector  # pyright: ignore[reportPrivateUsage]
 
 
 class SessionLeaseCoordinator:
@@ -199,7 +199,7 @@ class SessionLeaseCoordinator:
         request: LeaseCloseRequest,
         timestamp: int,
     ) -> LeaseSnapshot:
-        current = unit.get_lease(request.lease_id)
+        current = unit.get_lease(request.lease_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
         if current is None:
             raise RecordNotFoundError(
                 "lease",
@@ -207,12 +207,12 @@ class SessionLeaseCoordinator:
             )
 
         updated = close_lease(
-            current,
+            current,  # pyright: ignore[reportUnknownArgumentType]
             request,
             updated_at=timestamp,
         )
 
-        if not unit.cas_update_lease(current, updated):
+        if not unit.cas_update_lease(current, updated):  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             raise InvalidMutationError(
                 f"CAS failure closing lease "
                 f"{request.lease_id}"

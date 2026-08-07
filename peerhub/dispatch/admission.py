@@ -29,7 +29,7 @@ from .model import (
     reserve_lease,
     validate_submission,
 )
-from .unit_of_work import DispatchUnitOfWork, FaultInjector, FaultPoint, _NoFaultInjector
+from .unit_of_work import DispatchUnitOfWork, FaultInjector, FaultPoint, _NoFaultInjector  # pyright: ignore[reportPrivateUsage]
 
 
 class AdmissionCoordinator:

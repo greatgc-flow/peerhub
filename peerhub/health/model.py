@@ -153,7 +153,7 @@ def resolve_admission_state(
     can win only when it is the sole contributing non-OPEN state.
     """
 
-    if not isinstance(readiness, ReadinessEvaluation):
+    if not isinstance(readiness, ReadinessEvaluation):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError(
             "readiness must be ReadinessEvaluation"
         )
@@ -186,7 +186,7 @@ def resolve_admission_state(
 
     normalized_circuit_states = tuple(circuit_states)
     if any(
-        not isinstance(state, AdmissionState)
+        not isinstance(state, AdmissionState)  # pyright: ignore[reportUnnecessaryIsInstance]
         for state in normalized_circuit_states
     ):
         raise ValueError(
@@ -211,13 +211,13 @@ def resolve_projection_cooldown_until(
     wins so no applicable circuit is advertised as ready prematurely.
     """
 
-    if not isinstance(admission_state, AdmissionState):
+    if not isinstance(admission_state, AdmissionState):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError(
             "admission_state must be AdmissionState"
         )
     evaluations = tuple(circuit_evaluations)
     if any(
-        not isinstance(evaluation, CooldownEvaluation)
+        not isinstance(evaluation, CooldownEvaluation)  # pyright: ignore[reportUnnecessaryIsInstance]
         for evaluation in evaluations
     ):
         raise ValueError(

@@ -1,0 +1,6 @@
+{
+  "include": ["peerhub"],
+  "exclude": ["tests", "tools"],
+  "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": false
+}

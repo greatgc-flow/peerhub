@@ -127,7 +127,7 @@ class HeartbeatWorker:
                 "heartbeat_timeout_ms must be positive"
             )
 
-        self._process = process
+        self._process = process  # pyright: ignore[reportUnknownMemberType]
         self._identity = identity
         self._heartbeat_timeout_ms = heartbeat_timeout_ms
         self._interval_ms = (
@@ -266,12 +266,12 @@ class HeartbeatWorker:
 
                 # A normally exited child no longer needs renewal; preserve
                 # ownership so the workflow can terminalize and release it.
-                if self._process.poll() is not None:
+                if self._process.poll() is not None:  # pyright: ignore[reportUnknownMemberType]
                     break
 
                 # A live process with a different PID is an identity breach,
                 # not a normal exit, and must stop the cancellation-safe flow.
-                if self._process.pid != self._identity.pid:
+                if self._process.pid != self._identity.pid:  # pyright: ignore[reportUnknownMemberType]
                     self._record_failure(
                         "PROCESS_IDENTITY_MISMATCH",
                         "process PID no longer matches its recorded birth identity",

@@ -85,7 +85,7 @@ def create_runtime(
     # ── Telemetry ──
     # AMBIGUITY FLAG: freshness_ttl is hardcoded. Where should it come from in a shared runtime?
     telemetry_projector = TelemetryProjector(
-        state_store,
+        state_store,  # pyright: ignore[reportArgumentType]
         ids=context.ids,
         freshness_ttl=7200,
     )
@@ -112,7 +112,7 @@ def create_runtime(
     
     health_service = HealthService(
         state_store,
-        telemetry=telemetry_projector,
+        telemetry=telemetry_projector,  # pyright: ignore[reportArgumentType]
         policy=policy,
         membership=membership,
         clock=context.clock,

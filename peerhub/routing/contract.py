@@ -186,14 +186,14 @@ class RouteRequest:
                 "client_request_id",
             ),
         )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.configuration,
             ConfigurationSnapshot,
         ):
             raise ValueError(
                 "configuration must be ConfigurationSnapshot"
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.admission_snapshot,
             AdmissionSnapshot,
         ):
@@ -289,7 +289,7 @@ class RouteCandidateDecision:
                 name,
                 require_text(getattr(self, name), name),
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.eligibility,
             RouteEligibility,
         ):
@@ -424,7 +424,7 @@ class RouteDecision:
                 require_text(getattr(self, name), name),
             )
 
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.configuration,
             ConfigurationSnapshot,
         ):
@@ -475,19 +475,19 @@ class RouteDecision:
                 self,
                 "audit_seed",
                 _require_sha256_hex(
-                    self.audit_seed,
+                    self.audit_seed,  # pyright: ignore[reportArgumentType]
                     "audit_seed",
                 ),
             )
             _require_nonnegative(
-                self.selection_index,
+                self.selection_index,  # pyright: ignore[reportArgumentType]
                 "selection_index",
             )
             object.__setattr__(
                 self,
                 "selected_candidate_id",
                 require_text(
-                    self.selected_candidate_id,
+                    self.selected_candidate_id,  # pyright: ignore[reportArgumentType]
                     "selected_candidate_id",
                 ),
             )
@@ -517,7 +517,7 @@ def canonical_route_decision_digest(
 ) -> str:
     """Hash the complete immutable route-decision audit."""
 
-    if not isinstance(decision, RouteDecision):
+    if not isinstance(decision, RouteDecision):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError("decision must be RouteDecision")
 
     ordered_candidates = tuple(
@@ -581,7 +581,7 @@ class RoutePlanResult:
     error_code: ErrorCode | None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.decision, RouteDecision):
+        if not isinstance(self.decision, RouteDecision):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "decision must be RouteDecision"
             )
@@ -680,7 +680,7 @@ class RoutePreDispatchResult:
     replanned_route: RoutePlanResult | None
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.validation,
             RouteDispatchValidation,
         ):
@@ -697,7 +697,7 @@ class RoutePreDispatchResult:
             raise ValueError(
                 "stale dispatch validation requires a replan"
             )
-        elif not isinstance(
+        elif not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.replanned_route,
             RoutePlanResult,
         ):

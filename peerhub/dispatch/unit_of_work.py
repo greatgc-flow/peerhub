@@ -251,6 +251,6 @@ class FaultInjector(Protocol):
         ...
 
 
-class _NoFaultInjector:
+class _NoFaultInjector:  # pyright: ignore[reportUnusedClass]
     def hit(self, point: str) -> None:
         del point

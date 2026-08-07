@@ -1,11 +1,10 @@
 import sqlite3
-from collections.abc import Sequence
 from typing import Callable
 from .sqlite_helpers import (
-    _json_object, 
-    _json_text, 
-    _string_tuple, 
-    _optional_json_object
+    _json_object,   # pyright: ignore[reportPrivateUsage]
+    _json_text,   # pyright: ignore[reportPrivateUsage]
+    _string_tuple,   # pyright: ignore[reportPrivateUsage]
+    _optional_json_object  # pyright: ignore[reportPrivateUsage]
 )
 from peerhub.dispatch.contract import OutboxCheckpoint
 from peerhub.governance.contract import (

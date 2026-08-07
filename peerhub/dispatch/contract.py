@@ -207,7 +207,7 @@ class CompletionContract:
             "contract_id",
             require_text(self.contract_id, "contract_id"),
         )
-        if not isinstance(self.kind, CompletionContractKind):
+        if not isinstance(self.kind, CompletionContractKind):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "kind must be a CompletionContractKind"
             )
@@ -257,7 +257,7 @@ class ExecutionOutcome:
         _require_bool(self.cancelled, "cancelled")
         if self.exit_code is not None and type(self.exit_code) is not int:
             raise ValueError("exit_code must be an integer or null")
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.execution_certainty,
             ExecutionCertainty,
         ):
@@ -307,14 +307,14 @@ class CompletionAssessment:
     )
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.state,
             CompletionAssessmentState,
         ):
             raise ValueError(
                 "state must be CompletionAssessmentState"
             )
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.contract_kind,
             CompletionContractKind,
         ):
@@ -657,7 +657,7 @@ class RequestSnapshot:
             self.configuration_revision,
             "configuration_revision",
         )
-        if not isinstance(self.state, RequestState):
+        if not isinstance(self.state, RequestState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be RequestState")
         _require_positive_int(self.revision, "revision")
         _require_nonnegative_int(self.created_at, "created_at")
@@ -668,7 +668,7 @@ class RequestSnapshot:
             )
         if (
             self.terminal_error_code is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 self.terminal_error_code,
                 ErrorCode,
             )
@@ -717,9 +717,9 @@ class AttemptSnapshot:
             self.attempt_number,
             "attempt_number",
         )
-        if not isinstance(self.state, RequestState):
+        if not isinstance(self.state, RequestState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be RequestState")
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.execution_certainty,
             ExecutionCertainty,
         ):
@@ -746,7 +746,7 @@ class AttemptSnapshot:
             )
         if (
             self.terminal_error_code is not None
-            and not isinstance(
+            and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
                 self.terminal_error_code,
                 ErrorCode,
             )
@@ -835,7 +835,7 @@ class SessionRotationGenerationSnapshot:
             "conversation_id",
             require_text(self.conversation_id, "conversation_id"),
         )
-        if not isinstance(self.state, SessionRotationState):
+        if not isinstance(self.state, SessionRotationState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be SessionRotationState")
         if self.claim_token is not None:
             object.__setattr__(
@@ -958,7 +958,7 @@ class LeaseSnapshot:
             raise ValueError(
                 "session_id must match the fence session_id"
             )
-        if not isinstance(self.state, LeaseState):
+        if not isinstance(self.state, LeaseState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be LeaseState")
 
         process_bound_states = {
@@ -1251,7 +1251,7 @@ class ArtifactMetadata:
             "declared_lifecycle",
             require_text(self.declared_lifecycle, "declared_lifecycle"),
         )
-        if not isinstance(self.state, ArtifactState):
+        if not isinstance(self.state, ArtifactState):  # pyright: ignore[reportUnnecessaryIsInstance]
             object.__setattr__(self, "state", ArtifactState(self.state))
         _require_nonnegative_int(self.declared_at, "declared_at")
         _require_positive_int(self.revision, "revision")
@@ -1339,7 +1339,7 @@ class ArtifactRecoveryDigest:
             raise ValueError("intent_event_verified must be a boolean")
         arts = tuple(self.artifacts)
         for a in arts:
-            if not isinstance(a, ArtifactMetadata):
+            if not isinstance(a, ArtifactMetadata):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "every artifact must be an ArtifactMetadata instance"
                 )

@@ -3,6 +3,6 @@
 from __future__ import annotations
 
 __all__ = [
-    "contract",
-    "projections",
+    "contract",  # pyright: ignore[reportUnsupportedDunderAll]
+    "projections",  # pyright: ignore[reportUnsupportedDunderAll]
 ]

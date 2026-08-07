@@ -7,81 +7,42 @@ can supply their missing command, attempt, or authority-epoch identities.
 
 from __future__ import annotations
 
-import json
 import sqlite3
-from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
 from types import TracebackType
-from typing import Any
 
 from .sqlite_governance import SqliteGovernanceRepository
 from .sqlite_dispatch import SqliteDispatchRepository
 from .sqlite_health import SqliteHealthRepository
 from .sqlite_telemetry import SqliteTelemetryRepository
 from .sqlite_routing import SqliteRoutingRepository
-from .sqlite_helpers import (
-    _json_text,
-    _json_value,
-    _json_object,
-    _optional_json_object,
-    _string_tuple,
-    _stored_revision,
-    _stored_optional_revision,
-)
+
 
 from peerhub.core.errors import (
-    InvalidMutationError,
-    RecoveryProbeGrantConflictError,
     WorkspaceIdentityMismatchError,
 )
-from peerhub.core.evidence import (
-    EvidenceRef,
-    EvidenceState,
-    EvidenceValue,
-)
-from peerhub.core.execution import ExecutionCertainty
+
 from peerhub.core.protocol import (
-    AttemptTerminalObserved,
     CommandID,
-    ErrorCode,
-    OperationalFailureCategory,
-    canonical_json_bytes,
 )
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     ArtifactManifestRecord,
     ArtifactMetadata,
     ArtifactRecoveryDigest,
-    ArtifactState,
-    AskResult,
     AttemptSnapshot,
     ClientRequestBinding,
     CommandIdempotencyBinding,
-    CompletionAssessment,
-    CompletionAssessmentState,
-    CompletionContract,
-    CompletionContractKind,
-    ExecutionOutcome,
-    LeaseAuthorityCertainty,
-    LeaseFenceTuple,
     LeaseSnapshot,
-    LeaseState,
     OutboxCheckpoint,
-    ProcessBirthIdentity,
-    ProtocolAssessment,
-    RecoveryDecision,
     RecoveryReceipt,
-    RecoveryTrigger,
     RequestSnapshot,
-    RequestState,
     SessionBindingKey,
     SessionBindingSnapshot,
-    SessionBindingState,
 )
 from peerhub.governance.contract import (
     CommandBinding,
-    EffectOutcome,
     EffectReceipt,
     MutationPlan,
     MutationRequest,
@@ -89,28 +50,15 @@ from peerhub.governance.contract import (
     OutboxState,
     TargetState,
     TransitionReceipt,
-    TransitionStatus,
 )
 from peerhub.health.contract import (
-    AdmissionDecision,
     AdmissionSnapshot,
-    AdmissionSnapshotEntry,
-    AdmissionState,
-    AvailabilityState,
-    CircuitState,
     HealthCircuitSnapshot,
     HealthPolicy,
     HealthProjectionSnapshot,
-    PolicyReceipt,
     PolicyScope,
-    ProbeResult,
-    QuarantineAuthorityClass,
-    ReadinessEvaluation,
-    ReadinessGateState,
-    ReadinessState,
     RecoveryProbeGrant,
     RecoveryProbeReceipt,
-    RevalidationAction,
 )
 from peerhub.routing.contract import (
     RouteDecision,
@@ -118,9 +66,7 @@ from peerhub.routing.contract import (
 from peerhub.telemetry.contract import (
     OperationalObservation,
     OperationalProjectionSnapshot,
-    ReadinessMeasurement,
     ReadinessObserved,
-    UsageMeasurement,
     SessionBindingKey,
     SessionContextObserved,
     SessionContextProjectionSnapshot,
@@ -403,7 +349,7 @@ class SqliteUnitOfWork:
             raise RuntimeError(
                 "SQLite unit of work cannot be re-entered"
             )
-        self._connection = self._store._connect()
+        self._connection = self._store._connect()  # pyright: ignore[reportPrivateUsage]
         self._connection.execute("BEGIN IMMEDIATE")
         return self
 
@@ -843,7 +789,7 @@ class SqliteUnitOfWork:
         observation: SessionContextObserved,
     ) -> None:
         """Insert an immutable session context observation."""
-        return self.telemetry.add_session_context_observation(observation)
+        return self.telemetry.add_session_context_observation(observation)  # pyright: ignore[reportUnknownMemberType]
 
     def get_session_context_projection(
         self,

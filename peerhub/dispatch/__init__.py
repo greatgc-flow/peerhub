@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 __all__ = [
-    "contract",
-    "model",
-    "process",
-    "service",
+    "contract",  # pyright: ignore[reportUnsupportedDunderAll]
+    "model",  # pyright: ignore[reportUnsupportedDunderAll]
+    "process",  # pyright: ignore[reportUnsupportedDunderAll]
+    "service",  # pyright: ignore[reportUnsupportedDunderAll]
 ]

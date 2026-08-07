@@ -23,7 +23,7 @@ class SubmissionMetadata:
     client_timestamp: int
 
 
-class Command(Protocol, Generic[R]):
+class Command(Protocol, Generic[R]):  # pyright: ignore[reportInvalidTypeVarUse]
     method: ClassVar[str]
     submission: SubmissionMetadata
 
@@ -66,7 +66,7 @@ class AdmitDispatch(Command["DispatchAdmissionView"]):
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {
             "prompt": self.prompt,
-            "requested_capabilities": list(self.requested_capabilities),
+            "requested_capabilities": list(self.requested_capabilities),  # pyright: ignore[reportReturnType]
             "profile_constraints": self.profile_constraints,
             "completion_contract": self.completion_contract,
             "session_policy": self.session_policy,

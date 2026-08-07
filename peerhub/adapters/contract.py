@@ -74,7 +74,7 @@ class ProtocolAssessment:
                 "vendor_completion_marker must be boolean or null"
             )
         _require_bool(self.suspected_truncation, "suspected_truncation")
-        if self.protocol_failure is not None and not isinstance(
+        if self.protocol_failure is not None and not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.protocol_failure, ErrorCode
         ):
             raise ValueError(
@@ -177,7 +177,7 @@ class PeerDescriptor:
         if not profiles:
             raise ValueError("profiles must be non-empty")
         for profile in profiles:
-            if not isinstance(profile, ProfileDescriptor):
+            if not isinstance(profile, ProfileDescriptor):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "every profile must be a ProfileDescriptor"
                 )
@@ -189,7 +189,7 @@ class PeerDescriptor:
         if not transports:
             raise ValueError("transports must be non-empty")
         for transport in transports:
-            if not isinstance(transport, TransportKind):
+            if not isinstance(transport, TransportKind):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "every transport must be a TransportKind"
                 )
@@ -197,7 +197,7 @@ class PeerDescriptor:
 
         capabilities = frozenset(self.capabilities)
         for capability in capabilities:
-            if not isinstance(capability, Capability):
+            if not isinstance(capability, Capability):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "every capability must be a Capability"
                 )
@@ -320,11 +320,11 @@ class AdapterRequest:
         object.__setattr__(
             self, "profile_id", require_text(self.profile_id, "profile_id")
         )
-        if not isinstance(self.requested_session_action, SessionAction):
+        if not isinstance(self.requested_session_action, SessionAction):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "requested_session_action must be SessionAction"
             )
-        if self.completion_contract is None or not hasattr(
+        if self.completion_contract is None or not hasattr(  # pyright: ignore[reportUnnecessaryComparison]
             self.completion_contract, "contract_id"
         ):
             raise ValueError(
@@ -343,13 +343,13 @@ class AdapterRequest:
             object.__setattr__(
                 self,
                 "prompt_content",
-                require_text(self.prompt_content, "prompt_content"),
+                require_text(self.prompt_content, "prompt_content"),  # pyright: ignore[reportArgumentType]
             )
         if has_reference:
             object.__setattr__(
                 self,
                 "prompt_reference",
-                require_text(self.prompt_reference, "prompt_reference"),
+                require_text(self.prompt_reference, "prompt_reference"),  # pyright: ignore[reportArgumentType]
             )
 
 
@@ -424,7 +424,7 @@ class ArtifactSpec:
                 self,
                 "content_reference",
                 require_text(
-                    self.content_reference, "content_reference"
+                    self.content_reference, "content_reference"  # pyright: ignore[reportArgumentType]
                 ),
             )
 
@@ -453,7 +453,7 @@ class InvocationPlan:
     def __post_init__(self) -> None:
         argv = tuple(self.argv)
         if not argv or any(
-            not isinstance(token, str) or not token for token in argv
+            not isinstance(token, str) or not token for token in argv  # pyright: ignore[reportUnnecessaryIsInstance]
         ):
             raise ValueError(
                 "argv must be a non-empty tuple of non-empty strings"
@@ -468,11 +468,11 @@ class InvocationPlan:
 
         env = dict(self.environment_delta)
         for key, value in env.items():
-            if not isinstance(key, str) or not key:
+            if not isinstance(key, str) or not key:  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "environment_delta keys must be non-empty strings"
                 )
-            if not isinstance(value, str):
+            if not isinstance(value, str):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "environment_delta values must be strings"
                 )
@@ -480,7 +480,7 @@ class InvocationPlan:
             self, "environment_delta", MappingProxyType(env)
         )
 
-        if not isinstance(self.transport, TransportKind):
+        if not isinstance(self.transport, TransportKind):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("transport must be TransportKind")
 
         if (
@@ -489,7 +489,7 @@ class InvocationPlan:
         ):
             raise ValueError("stdin_payload must be bytes or null")
 
-        if not isinstance(self.limits, TransportLimits):
+        if not isinstance(self.limits, TransportLimits):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("limits must be TransportLimits")
 
         object.__setattr__(
@@ -500,7 +500,7 @@ class InvocationPlan:
 
         artifacts = tuple(self.artifacts)
         for artifact in artifacts:
-            if not isinstance(artifact, ArtifactSpec):
+            if not isinstance(artifact, ArtifactSpec):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError(
                     "every artifact must be an ArtifactSpec"
                 )
@@ -508,7 +508,7 @@ class InvocationPlan:
             raise ValueError("artifact_id values must be unique")
         object.__setattr__(self, "artifacts", artifacts)
 
-        if not isinstance(self.session_action, SessionAction):
+        if not isinstance(self.session_action, SessionAction):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("session_action must be SessionAction")
 
 
@@ -542,7 +542,7 @@ class DecoderEvent:
     payload: Mapping[str, JsonValue]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.kind, DecoderEventKind):
+        if not isinstance(self.kind, DecoderEventKind):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("kind must be DecoderEventKind")
         object.__setattr__(
             self, "payload", freeze_json_mapping(self.payload)
@@ -563,11 +563,11 @@ class DecodedOutput:
     events: tuple[DecoderEvent, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.canonical_text, str):
+        if not isinstance(self.canonical_text, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("canonical_text must be a string")
 
         lines = tuple(self.canonical_lines)
-        if any(not isinstance(line, str) for line in lines):
+        if any(not isinstance(line, str) for line in lines):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "canonical_lines must be a tuple of strings"
             )
@@ -575,7 +575,7 @@ class DecodedOutput:
 
         events = tuple(self.events)
         for event in events:
-            if not isinstance(event, DecoderEvent):
+            if not isinstance(event, DecoderEvent):  # pyright: ignore[reportUnnecessaryIsInstance]
                 raise ValueError("every event must be a DecoderEvent")
         object.__setattr__(self, "events", events)
 

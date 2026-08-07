@@ -75,7 +75,7 @@ class FakeOutputDecoder:
             raise RuntimeError("feed called after finalize")
         if type(chunk) is not bytes:
             raise ValueError("chunk must be bytes")
-        if not isinstance(channel, OutputChannel):
+        if not isinstance(channel, OutputChannel):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("channel must be OutputChannel")
 
         text = self._utf8_decoder.decode(chunk)
@@ -250,14 +250,14 @@ class FakePeerAdapter:
         # Basic pattern-based success classification for the test double.
         success = (
             process.exit_code == 0
-            and not process.timed_out
-            and not process.cancelled
+            and not process.timed_out  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+            and not process.cancelled  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
         )
         return ProtocolAssessment(
             parsed=True,
             response_present=len(raw_chunks) > 0,
             vendor_completion_marker=success,
-            suspected_truncation=process.timed_out or process.cancelled,
+            suspected_truncation=process.timed_out or process.cancelled,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             protocol_failure=None if success else ErrorCode.PROTOCOL_ASSESSMENT_FAILED,
         )
 

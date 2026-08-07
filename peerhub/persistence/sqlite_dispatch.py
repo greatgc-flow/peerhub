@@ -1,15 +1,12 @@
 import sqlite3
-from collections.abc import Mapping
-from typing import Any, Callable
+from collections.abc import Callable, Mapping
 
 from .sqlite_helpers import (
-    _json_text,
-    _json_value,
-    _json_object,
-    _optional_json_object,
-    _string_tuple,
-    _stored_revision,
-    _stored_optional_revision,
+    _json_text,  # pyright: ignore[reportPrivateUsage]
+    _json_object,  # pyright: ignore[reportPrivateUsage]
+    _string_tuple,  # pyright: ignore[reportPrivateUsage]
+    _stored_revision,  # pyright: ignore[reportPrivateUsage]
+    _stored_optional_revision,  # pyright: ignore[reportPrivateUsage]
 )
 
 from peerhub.core.errors import InvalidMutationError
@@ -65,7 +62,7 @@ def _completion_contract_from_raw(
     requirements = value.get("requirements")
     if not isinstance(requirements, list) or any(
         not isinstance(item, dict)
-        for item in requirements
+        for item in requirements  # pyright: ignore[reportUnknownVariableType]
     ):
         raise RuntimeError(
             "stored completion requirements are invalid"
@@ -73,7 +70,7 @@ def _completion_contract_from_raw(
     return CompletionContract(
         contract_id=str(value["contract_id"]),
         kind=CompletionContractKind(str(value["kind"])),
-        requirements=tuple(requirements),
+        requirements=tuple(requirements),  # pyright: ignore[reportUnknownArgumentType]
         replay_safe=bool(value["replay_safe"]),
     )
 
@@ -130,16 +127,16 @@ def _ask_result_from_raw(raw: str) -> AskResult:
     if not isinstance(completion, dict):
         raise RuntimeError("stored completion assessment is invalid")
 
-    raw_failure = protocol.get("protocol_failure")
+    raw_failure = protocol.get("protocol_failure")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     failure = (
-        ErrorCode(str(raw_failure))
+        ErrorCode(str(raw_failure))  # pyright: ignore[reportUnknownArgumentType]
         if raw_failure is not None
         else None
     )
-    failed_requirements = completion.get(
+    failed_requirements = completion.get(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         "failed_requirements"
     )
-    evidence_refs = completion.get("evidence_refs")
+    evidence_refs = completion.get("evidence_refs")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
     if not isinstance(failed_requirements, list):
         raise RuntimeError(
             "stored failed_requirements is invalid"
@@ -158,39 +155,39 @@ def _ask_result_from_raw(raw: str) -> AskResult:
 
     return AskResult(
         execution=ExecutionOutcome(
-            started=bool(execution["started"]),
-            exit_code=execution.get("exit_code"),
-            timed_out=bool(execution["timed_out"]),
-            cancelled=bool(execution["cancelled"]),
+            started=bool(execution["started"]),  # pyright: ignore[reportUnknownArgumentType]
+            exit_code=execution.get("exit_code"),  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
+            timed_out=bool(execution["timed_out"]),  # pyright: ignore[reportUnknownArgumentType]
+            cancelled=bool(execution["cancelled"]),  # pyright: ignore[reportUnknownArgumentType]
             execution_certainty=ExecutionCertainty(
-                str(execution["execution_certainty"])
+                str(execution["execution_certainty"])  # pyright: ignore[reportUnknownArgumentType]
             ),
         ),
         protocol=ProtocolAssessment(
-            parsed=bool(protocol["parsed"]),
+            parsed=bool(protocol["parsed"]),  # pyright: ignore[reportUnknownArgumentType]
             response_present=bool(
-                protocol["response_present"]
+                protocol["response_present"]  # pyright: ignore[reportUnknownArgumentType]
             ),
-            vendor_completion_marker=protocol.get(
+            vendor_completion_marker=protocol.get(  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
                 "vendor_completion_marker"
             ),
             suspected_truncation=bool(
-                protocol["suspected_truncation"]
+                protocol["suspected_truncation"]  # pyright: ignore[reportUnknownArgumentType]
             ),
             protocol_failure=failure,
         ),
         completion=CompletionAssessment(
             state=CompletionAssessmentState(
-                str(completion["state"])
+                str(completion["state"])  # pyright: ignore[reportUnknownArgumentType]
             ),
             contract_kind=CompletionContractKind(
-                str(completion["contract_kind"])
+                str(completion["contract_kind"])  # pyright: ignore[reportUnknownArgumentType]
             ),
             failed_requirements=tuple(
-                str(item) for item in failed_requirements
+                str(item) for item in failed_requirements  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
             ),
             evidence_refs=tuple(
-                str(item) for item in evidence_refs
+                str(item) for item in evidence_refs  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
             ),
         ),
         policy_revision=policy_revision,
@@ -198,8 +195,8 @@ def _ask_result_from_raw(raw: str) -> AskResult:
 
 
 class SqliteDispatchRepository:
-    def __init__(self, db_factory: Callable[[], sqlite3.Connection]) -> None:
-        self._db = db_factory
+    def __init__(self, db_factory: Callable[[], sqlite3.Connection]) -> None:  # pyright: ignore[reportUnknownParameterType]
+        self._db = db_factory  # pyright: ignore[reportUnknownMemberType]
 
     def get_client_request_binding(
         self,
@@ -208,7 +205,7 @@ class SqliteDispatchRepository:
     ) -> ClientRequestBinding | None:
         """Return a caller-request identity binding."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT
                 client_id,
@@ -225,14 +222,14 @@ class SqliteDispatchRepository:
         if row is None:
             return None
         return ClientRequestBinding(
-            client_id=row["client_id"],
-            client_request_id=row["client_request_id"],
-            payload_digest=row["payload_digest"],
-            command_id=CommandID(row["command_id"]),
-            admission_receipt_id=row[
+            client_id=row["client_id"],  # pyright: ignore[reportUnknownArgumentType]
+            client_request_id=row["client_request_id"],  # pyright: ignore[reportUnknownArgumentType]
+            payload_digest=row["payload_digest"],  # pyright: ignore[reportUnknownArgumentType]
+            command_id=CommandID(row["command_id"]),  # pyright: ignore[reportUnknownArgumentType]
+            admission_receipt_id=row[  # pyright: ignore[reportUnknownArgumentType]
                 "admission_receipt_id"
             ],
-            created_at=row["created_at"],
+            created_at=row["created_at"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def add_client_request_binding(
@@ -241,7 +238,7 @@ class SqliteDispatchRepository:
     ) -> None:
         """Insert an immutable caller-request identity."""
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO client_request_bindings (
                 client_id,
@@ -270,7 +267,7 @@ class SqliteDispatchRepository:
     ) -> CommandIdempotencyBinding | None:
         """Return a Slice 3 idempotency-key binding."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT
                 client_id,
@@ -291,15 +288,15 @@ class SqliteDispatchRepository:
         if row is None:
             return None
         return CommandIdempotencyBinding(
-            client_id=row["client_id"],
-            command_type=row["command_type"],
-            idempotency_key=row["idempotency_key"],
-            payload_digest=row["payload_digest"],
-            command_id=CommandID(row["command_id"]),
-            admission_receipt_id=row[
+            client_id=row["client_id"],  # pyright: ignore[reportUnknownArgumentType]
+            command_type=row["command_type"],  # pyright: ignore[reportUnknownArgumentType]
+            idempotency_key=row["idempotency_key"],  # pyright: ignore[reportUnknownArgumentType]
+            payload_digest=row["payload_digest"],  # pyright: ignore[reportUnknownArgumentType]
+            command_id=CommandID(row["command_id"]),  # pyright: ignore[reportUnknownArgumentType]
+            admission_receipt_id=row[  # pyright: ignore[reportUnknownArgumentType]
                 "admission_receipt_id"
             ],
-            created_at=row["created_at"],
+            created_at=row["created_at"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def add_command_idempotency_binding(
@@ -308,7 +305,7 @@ class SqliteDispatchRepository:
     ) -> None:
         """Insert an immutable Slice 3 idempotency binding."""
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO command_idempotency_bindings (
                 client_id,
@@ -337,7 +334,7 @@ class SqliteDispatchRepository:
     ) -> None:
         """Insert an immutable admission receipt."""
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO admission_receipts (
                 admission_receipt_id,
@@ -376,7 +373,7 @@ class SqliteDispatchRepository:
     ) -> AdmissionReceipt | None:
         """Return an admission receipt by ID."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT *
             FROM admission_receipts
@@ -387,30 +384,30 @@ class SqliteDispatchRepository:
         if row is None:
             return None
         return AdmissionReceipt(
-            admission_receipt_id=row["admission_receipt_id"],
-            command_id=CommandID(row["command_id"]),
-            client_id=row["client_id"],
-            client_request_id=row["client_request_id"],
-            command_type=row["command_type"],
-            idempotency_key=row["idempotency_key"],
-            payload_digest=row["payload_digest"],
-            completion_contract_id=row[
+            admission_receipt_id=row["admission_receipt_id"],  # pyright: ignore[reportUnknownArgumentType]
+            command_id=CommandID(row["command_id"]),  # pyright: ignore[reportUnknownArgumentType]
+            client_id=row["client_id"],  # pyright: ignore[reportUnknownArgumentType]
+            client_request_id=row["client_request_id"],  # pyright: ignore[reportUnknownArgumentType]
+            command_type=row["command_type"],  # pyright: ignore[reportUnknownArgumentType]
+            idempotency_key=row["idempotency_key"],  # pyright: ignore[reportUnknownArgumentType]
+            payload_digest=row["payload_digest"],  # pyright: ignore[reportUnknownArgumentType]
+            completion_contract_id=row[  # pyright: ignore[reportUnknownArgumentType]
                 "completion_contract_id"
             ],
-            lease_id=row["lease_id"],
+            lease_id=row["lease_id"],  # pyright: ignore[reportUnknownArgumentType]
             policy_revision=_stored_revision(
-                row["policy_revision_json"]
+                row["policy_revision_json"]  # pyright: ignore[reportUnknownArgumentType]
             ),
             configuration_revision=_stored_revision(
-                row["configuration_revision_json"]
+                row["configuration_revision_json"]  # pyright: ignore[reportUnknownArgumentType]
             ),
-            admitted_at=row["admitted_at"],
+            admitted_at=row["admitted_at"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def add_request(self, request: RequestSnapshot) -> None:
         """Insert an admitted request snapshot."""
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO dispatch_requests (
                 command_id,
@@ -451,7 +448,7 @@ class SqliteDispatchRepository:
     ) -> RequestSnapshot | None:
         """Return a request snapshot by server command ID."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT *
             FROM dispatch_requests
@@ -459,7 +456,7 @@ class SqliteDispatchRepository:
             """,
             (str(command_id),),
         ).fetchone()
-        return None if row is None else self._request_from_row(row)
+        return None if row is None else self._request_from_row(row)  # pyright: ignore[reportUnknownArgumentType]
 
     def cas_update_request(
         self,
@@ -470,7 +467,7 @@ class SqliteDispatchRepository:
 
         if current.command_id != updated.command_id:
             raise ValueError("request command IDs do not match")
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_requests
             SET
@@ -495,7 +492,7 @@ class SqliteDispatchRepository:
                 current.revision,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def next_attempt_number(
         self,
@@ -503,7 +500,7 @@ class SqliteDispatchRepository:
     ) -> int:
         """Return the next monotonic attempt number in this transaction."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next_number
             FROM dispatch_attempts
@@ -515,12 +512,12 @@ class SqliteDispatchRepository:
             raise RuntimeError(
                 "failed to allocate attempt number"
             )
-        return int(row["next_number"])
+        return int(row["next_number"])  # pyright: ignore[reportUnknownArgumentType]
 
     def add_attempt(self, attempt: AttemptSnapshot) -> None:
         """Insert a revision-one dispatch attempt."""
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO dispatch_attempts (
                 attempt_id,
@@ -546,7 +543,7 @@ class SqliteDispatchRepository:
     ) -> AttemptSnapshot | None:
         """Return an attempt by server attempt ID."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT *
             FROM dispatch_attempts
@@ -554,7 +551,7 @@ class SqliteDispatchRepository:
             """,
             (attempt_id,),
         ).fetchone()
-        return None if row is None else self._attempt_from_row(row)
+        return None if row is None else self._attempt_from_row(row)  # pyright: ignore[reportUnknownArgumentType]
 
     def list_attempts(
         self,
@@ -562,7 +559,7 @@ class SqliteDispatchRepository:
     ) -> tuple[AttemptSnapshot, ...]:
         """Return command attempts in monotonic attempt order."""
 
-        rows = self._db().execute(
+        rows = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT *
             FROM dispatch_attempts
@@ -571,7 +568,7 @@ class SqliteDispatchRepository:
             """,
             (str(command_id),),
         ).fetchall()
-        return tuple(self._attempt_from_row(row) for row in rows)
+        return tuple(self._attempt_from_row(row) for row in rows)  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
 
     def cas_update_attempt(
         self,
@@ -582,7 +579,7 @@ class SqliteDispatchRepository:
 
         if current.attempt_id != updated.attempt_id:
             raise ValueError("attempt IDs do not match")
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_attempts
             SET
@@ -619,25 +616,25 @@ class SqliteDispatchRepository:
                 current.revision,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def allocate_fencing_token(self) -> int:
         """Allocate one database-monotonic lease fencing token."""
 
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             "INSERT INTO lease_fencing_sequence DEFAULT VALUES"
         )
-        token = cursor.lastrowid
+        token = cursor.lastrowid  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         if token is None:
             raise RuntimeError(
                 "failed to allocate lease fencing token"
             )
-        return int(token)
+        return int(token)  # pyright: ignore[reportUnknownArgumentType]
 
     def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
         """Return a lease snapshot by ID."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT *
             FROM leases
@@ -651,40 +648,40 @@ class SqliteDispatchRepository:
         process_identity = None
         if row["owner_process_pid"] is not None:
             process_identity = ProcessBirthIdentity(
-                pid=row["owner_process_pid"],
-                process_creation_time=(
+                pid=row["owner_process_pid"],  # pyright: ignore[reportUnknownArgumentType]
+                process_creation_time=(  # pyright: ignore[reportUnknownArgumentType]
                     row["owner_process_creation_time"]
                 ),
             )
 
         fence = LeaseFenceTuple(
-            session_id=row["session_id"],
-            lease_id=row["lease_id"],
-            fencing_token=row["fencing_token"],
-            revision=row["revision"],
-            owner_principal_id=row["owner_principal_id"],
-            owner_instance_id=row["owner_instance_id"],
+            session_id=row["session_id"],  # pyright: ignore[reportUnknownArgumentType]
+            lease_id=row["lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            fencing_token=row["fencing_token"],  # pyright: ignore[reportUnknownArgumentType]
+            revision=row["revision"],  # pyright: ignore[reportUnknownArgumentType]
+            owner_principal_id=row["owner_principal_id"],  # pyright: ignore[reportUnknownArgumentType]
+            owner_instance_id=row["owner_instance_id"],  # pyright: ignore[reportUnknownArgumentType]
             owner_process_birth_identity=process_identity,
-            command_id=CommandID(row["command_id"]),
-            authority_epoch=row["authority_epoch"],
-            attempt_id=row["attempt_id"],
-            owner_peer_id=row["owner_peer_id"],
+            command_id=CommandID(row["command_id"]),  # pyright: ignore[reportUnknownArgumentType]
+            authority_epoch=row["authority_epoch"],  # pyright: ignore[reportUnknownArgumentType]
+            attempt_id=row["attempt_id"],  # pyright: ignore[reportUnknownArgumentType]
+            owner_peer_id=row["owner_peer_id"],  # pyright: ignore[reportUnknownArgumentType]
         )
         return LeaseSnapshot(
-            lease_id=row["lease_id"],
-            session_id=row["session_id"],
+            lease_id=row["lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            session_id=row["session_id"],  # pyright: ignore[reportUnknownArgumentType]
             fence=fence,
             state=LeaseState(row["state"]),
-            heartbeat_expires_at=row["heartbeat_expires_at"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
+            heartbeat_expires_at=row["heartbeat_expires_at"],  # pyright: ignore[reportUnknownArgumentType]
+            created_at=row["created_at"],  # pyright: ignore[reportUnknownArgumentType]
+            updated_at=row["updated_at"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def add_lease(self, lease: LeaseSnapshot) -> None:
         """Insert a new lease snapshot."""
 
         process = lease.fence.owner_process_birth_identity
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO leases (
                 lease_id,
@@ -748,7 +745,7 @@ class SqliteDispatchRepository:
             updated.fence.owner_process_birth_identity
         )
 
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE leases
             SET
@@ -809,7 +806,7 @@ class SqliteDispatchRepository:
                 ),
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def cas_update_dispatch_bundle(
         self,
@@ -848,41 +845,41 @@ class SqliteDispatchRepository:
                     "lease attempt_id does not match dispatch attempt"
                 )
 
-        connection = self._db()
-        connection.execute("SAVEPOINT dispatch_bundle")
+        connection = self._db()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        connection.execute("SAVEPOINT dispatch_bundle")  # pyright: ignore[reportUnknownMemberType]
         try:
             if not self.cas_update_lease(
                 current_lease,
                 updated_lease,
             ):
-                connection.execute(
+                connection.execute(  # pyright: ignore[reportUnknownMemberType]
                     "ROLLBACK TO dispatch_bundle"
                 )
-                connection.execute("RELEASE dispatch_bundle")
+                connection.execute("RELEASE dispatch_bundle")  # pyright: ignore[reportUnknownMemberType]
                 return False
             if not self.cas_update_attempt(
                 current_attempt,
                 updated_attempt,
             ):
-                connection.execute(
+                connection.execute(  # pyright: ignore[reportUnknownMemberType]
                     "ROLLBACK TO dispatch_bundle"
                 )
-                connection.execute("RELEASE dispatch_bundle")
+                connection.execute("RELEASE dispatch_bundle")  # pyright: ignore[reportUnknownMemberType]
                 return False
             if not self.cas_update_request(
                 current_request,
                 updated_request,
             ):
-                connection.execute(
+                connection.execute(  # pyright: ignore[reportUnknownMemberType]
                     "ROLLBACK TO dispatch_bundle"
                 )
-                connection.execute("RELEASE dispatch_bundle")
+                connection.execute("RELEASE dispatch_bundle")  # pyright: ignore[reportUnknownMemberType]
                 return False
-            connection.execute("RELEASE dispatch_bundle")
+            connection.execute("RELEASE dispatch_bundle")  # pyright: ignore[reportUnknownMemberType]
             return True
         except BaseException:
-            connection.execute("ROLLBACK TO dispatch_bundle")
-            connection.execute("RELEASE dispatch_bundle")
+            connection.execute("ROLLBACK TO dispatch_bundle")  # pyright: ignore[reportUnknownMemberType]
+            connection.execute("RELEASE dispatch_bundle")  # pyright: ignore[reportUnknownMemberType]
             raise
 
     def get_session_binding(
@@ -891,7 +888,7 @@ class SqliteDispatchRepository:
     ) -> SessionBindingSnapshot | None:
         """Return a session binding snapshot by canonical key."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT
                 workspace_scope_id,
@@ -924,14 +921,14 @@ class SqliteDispatchRepository:
             return None
         return SessionBindingSnapshot(
             key=key,
-            session_id=row["session_id"],
-            current_lease_id=row["current_lease_id"],
-            adapter_fingerprint=row["adapter_fingerprint"],
-            readiness_binding=row["readiness_binding"],
-            session_generation=row["session_generation"],
-            revision=row["revision"],
+            session_id=row["session_id"],  # pyright: ignore[reportUnknownArgumentType]
+            current_lease_id=row["current_lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            adapter_fingerprint=row["adapter_fingerprint"],  # pyright: ignore[reportUnknownArgumentType]
+            readiness_binding=row["readiness_binding"],  # pyright: ignore[reportUnknownArgumentType]
+            session_generation=row["session_generation"],  # pyright: ignore[reportUnknownArgumentType]
+            revision=row["revision"],  # pyright: ignore[reportUnknownArgumentType]
             state=SessionBindingState(row["state"]),
-            updated_at=row["updated_at"],
+            updated_at=row["updated_at"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def add_session_binding(
@@ -940,7 +937,7 @@ class SqliteDispatchRepository:
     ) -> None:
         """Insert a new session binding."""
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO session_bindings (
                 workspace_scope_id,
@@ -980,7 +977,7 @@ class SqliteDispatchRepository:
     ) -> bool:
         """CAS-update a session binding by key and current revision."""
 
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE session_bindings
             SET
@@ -1007,7 +1004,7 @@ class SqliteDispatchRepository:
                 current.revision,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def add_recovery_receipt(
         self,
@@ -1015,7 +1012,7 @@ class SqliteDispatchRepository:
     ) -> None:
         """Insert an immutable recovery receipt."""
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO recovery_receipts (
                 recovery_receipt_id,
@@ -1077,7 +1074,7 @@ class SqliteDispatchRepository:
     ) -> RecoveryReceipt | None:
         """Return a recovery receipt by ID."""
 
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT *
             FROM recovery_receipts
@@ -1087,7 +1084,7 @@ class SqliteDispatchRepository:
         ).fetchone()
         if row is None:
             return None
-        raw_effect_certainty = row[
+        raw_effect_certainty = row[  # pyright: ignore[reportUnknownVariableType]
             "external_effect_certainty"
         ]
         effect_certainty = (
@@ -1096,20 +1093,20 @@ class SqliteDispatchRepository:
             else None
         )
         return RecoveryReceipt(
-            recovery_receipt_id=row["recovery_receipt_id"],
-            session_id=row["session_id"],
-            lease_id=row["lease_id"],
-            detected_at=row["detected_at"],
-            recovery_actor_principal_id=row[
+            recovery_receipt_id=row["recovery_receipt_id"],  # pyright: ignore[reportUnknownArgumentType]
+            session_id=row["session_id"],  # pyright: ignore[reportUnknownArgumentType]
+            lease_id=row["lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            detected_at=row["detected_at"],  # pyright: ignore[reportUnknownArgumentType]
+            recovery_actor_principal_id=row[  # pyright: ignore[reportUnknownArgumentType]
                 "recovery_actor_principal_id"
             ],
             trigger=RecoveryTrigger(row["trigger"]),
             mismatch_dimensions=_string_tuple(
-                row["mismatch_dimensions_json"]
+                row["mismatch_dimensions_json"]  # pyright: ignore[reportUnknownArgumentType]
             ),
-            evidence_digest=row["evidence_digest"],
-            policy_id=row["policy_id"],
-            policy_revision=row["policy_revision"],
+            evidence_digest=row["evidence_digest"],  # pyright: ignore[reportUnknownArgumentType]
+            policy_id=row["policy_id"],  # pyright: ignore[reportUnknownArgumentType]
+            policy_revision=row["policy_revision"],  # pyright: ignore[reportUnknownArgumentType]
             decision=RecoveryDecision(row["decision"]),
             certainty_before_policy=LeaseAuthorityCertainty(
                 row["certainty_before_policy"]
@@ -1121,13 +1118,13 @@ class SqliteDispatchRepository:
             pre_lifecycle_state=LeaseState(
                 row["pre_lifecycle_state"]
             ),
-            pre_revision=row["pre_revision"],
-            pre_fencing_token=row["pre_fencing_token"],
+            pre_revision=row["pre_revision"],  # pyright: ignore[reportUnknownArgumentType]
+            pre_fencing_token=row["pre_fencing_token"],  # pyright: ignore[reportUnknownArgumentType]
             post_lifecycle_state=LeaseState(
                 row["post_lifecycle_state"]
             ),
-            post_revision=row["post_revision"],
-            post_fencing_token=row["post_fencing_token"],
+            post_revision=row["post_revision"],  # pyright: ignore[reportUnknownArgumentType]
+            post_fencing_token=row["post_fencing_token"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     @staticmethod
@@ -1342,7 +1339,7 @@ class SqliteDispatchRepository:
         artifacts: tuple[ArtifactMetadata, ...],
     ) -> None:
         """Insert durable artifact manifest and artifact metadata rows."""
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO dispatch_artifact_manifests (
                 attempt_id,
@@ -1369,7 +1366,7 @@ class SqliteDispatchRepository:
             ),
         )
         for art in artifacts:
-            self._db().execute(
+            self._db().execute(  # pyright: ignore[reportUnknownMemberType]
                 """
                 INSERT INTO dispatch_artifacts (
                     attempt_id,
@@ -1426,32 +1423,32 @@ class SqliteDispatchRepository:
         self, attempt_id: str
     ) -> ArtifactManifestRecord | None:
         """Return artifact manifest by attempt ID."""
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT * FROM dispatch_artifact_manifests WHERE attempt_id = ?
             """,
             (attempt_id,),
         ).fetchone()
-        return None if row is None else self._artifact_manifest_from_row(row)
+        return None if row is None else self._artifact_manifest_from_row(row)  # pyright: ignore[reportUnknownArgumentType]
 
     def get_artifact_metadata(
         self, attempt_id: str, artifact_id: str
     ) -> ArtifactMetadata | None:
         """Return artifact metadata by attempt ID and artifact ID."""
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT * FROM dispatch_artifacts
             WHERE attempt_id = ? AND artifact_id = ?
             """,
             (attempt_id, artifact_id),
         ).fetchone()
-        return None if row is None else self._artifact_metadata_from_row(row)
+        return None if row is None else self._artifact_metadata_from_row(row)  # pyright: ignore[reportUnknownArgumentType]
 
     def list_artifact_metadata(
         self, attempt_id: str
     ) -> tuple[ArtifactMetadata, ...]:
         """List all artifact metadata rows for an attempt."""
-        rows = self._db().execute(
+        rows = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT * FROM dispatch_artifacts
             WHERE attempt_id = ?
@@ -1459,7 +1456,7 @@ class SqliteDispatchRepository:
             """,
             (attempt_id,),
         ).fetchall()
-        return tuple(self._artifact_metadata_from_row(row) for row in rows)
+        return tuple(self._artifact_metadata_from_row(row) for row in rows)  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
 
     def cas_update_artifact_metadata(
         self, current: ArtifactMetadata, updated: ArtifactMetadata
@@ -1472,7 +1469,7 @@ class SqliteDispatchRepository:
             raise ValueError(
                 "attempt_id and artifact_id must match for CAS update"
             )
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_artifacts
             SET
@@ -1524,7 +1521,7 @@ class SqliteDispatchRepository:
                 current.revision,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def reserve_verified_artifacts_for_dispatch(
         self,
@@ -1539,7 +1536,7 @@ class SqliteDispatchRepository:
         If any item in the manifest is not VERIFIED, zero items change state.
         Links intent_event_id on the manifest.
         """
-        manifest_row = self._db().execute(
+        manifest_row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT manifest_digest, item_count
             FROM dispatch_artifact_manifests
@@ -1553,21 +1550,21 @@ class SqliteDispatchRepository:
         if manifest_row["manifest_digest"] != expected_manifest_digest:
             return False
 
-        item_count = manifest_row["item_count"]
-        art_rows = self._db().execute(
+        item_count = manifest_row["item_count"]  # pyright: ignore[reportUnknownVariableType]
+        art_rows = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT state FROM dispatch_artifacts WHERE attempt_id = ?
             """,
             (attempt_id,),
         ).fetchall()
 
-        if len(art_rows) != item_count or any(
-            row["state"] != ArtifactState.VERIFIED.value for row in art_rows
+        if len(art_rows) != item_count or any(  # pyright: ignore[reportUnknownArgumentType]
+            row["state"] != ArtifactState.VERIFIED.value for row in art_rows  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
         ):
             return False
 
         # All items are VERIFIED and match count -- perform reservation
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_artifacts
             SET state = ?, reserved_at = ?, revision = revision + 1
@@ -1580,10 +1577,10 @@ class SqliteDispatchRepository:
                 ArtifactState.VERIFIED.value,
             ),
         )
-        if cursor.rowcount != item_count:
+        if cursor.rowcount != item_count:  # pyright: ignore[reportUnknownMemberType]
             return False
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             UPDATE dispatch_artifact_manifests
             SET intent_event_id = ?, revision = revision + 1
@@ -1604,7 +1601,7 @@ class SqliteDispatchRepository:
 
         Atomic with setting consumed_at on manifest.
         """
-        manifest_row = self._db().execute(
+        manifest_row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT item_count FROM dispatch_artifact_manifests WHERE attempt_id = ?
             """,
@@ -1614,7 +1611,7 @@ class SqliteDispatchRepository:
         if manifest_row is None:
             return False
 
-        art_rows = self._db().execute(
+        art_rows = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT state FROM dispatch_artifacts WHERE attempt_id = ?
             """,
@@ -1622,11 +1619,11 @@ class SqliteDispatchRepository:
         ).fetchall()
 
         if not art_rows or any(
-            row["state"] != ArtifactState.RESERVED.value for row in art_rows
+            row["state"] != ArtifactState.RESERVED.value for row in art_rows  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
         ):
             return False
 
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_artifacts
             SET state = ?, consumed_at = ?, revision = revision + 1
@@ -1639,10 +1636,10 @@ class SqliteDispatchRepository:
                 ArtifactState.RESERVED.value,
             ),
         )
-        if cursor.rowcount != len(art_rows):
+        if cursor.rowcount != len(art_rows):  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
             return False
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             UPDATE dispatch_artifact_manifests
             SET consumed_at = ?, revision = revision + 1
@@ -1664,15 +1661,15 @@ class SqliteDispatchRepository:
         intent_event_verified = False
 
         if manifest.intent_event_id is not None:
-            outbox_row = self._db().execute(
+            outbox_row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
                 """
                 SELECT event_kind, payload_json FROM outbox_events WHERE event_id = ?
                 """,
                 (manifest.intent_event_id,),
             ).fetchone()
             if outbox_row is not None:
-                kind = outbox_row["event_kind"]
-                payload = _json_object(outbox_row["payload_json"])
+                kind = outbox_row["event_kind"]  # pyright: ignore[reportUnknownVariableType]
+                payload = _json_object(outbox_row["payload_json"])  # pyright: ignore[reportUnknownArgumentType]
                 manifest_digest_in_payload = payload.get("manifest_digest")
                 if kind == "DISPATCH_INTENT" and (
                     manifest_digest_in_payload is None
@@ -1699,7 +1696,7 @@ class SqliteDispatchRepository:
         failure_code: str,
     ) -> bool:
         """Mark non-terminal artifacts as ORPHANED."""
-        manifest_row = self._db().execute(
+        manifest_row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT revision FROM dispatch_artifact_manifests WHERE attempt_id = ?
             """,
@@ -1712,7 +1709,7 @@ class SqliteDispatchRepository:
         ):
             return False
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             UPDATE dispatch_artifacts
             SET state = ?, orphaned_at = ?, failure_code = ?, revision = revision + 1
@@ -1728,7 +1725,7 @@ class SqliteDispatchRepository:
             ),
         )
 
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             UPDATE dispatch_artifact_manifests
             SET revision = revision + 1
@@ -1745,7 +1742,7 @@ class SqliteDispatchRepository:
         if current.state != ArtifactState.CONSUMED:
             return False
 
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_artifacts
             SET state = ?, cleaned_at = ?, revision = revision + 1
@@ -1760,7 +1757,7 @@ class SqliteDispatchRepository:
                 ArtifactState.CONSUMED.value,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def mark_artifact_staged(
         self,
@@ -1777,7 +1774,7 @@ class SqliteDispatchRepository:
         contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
         generic ``cas_update_artifact_metadata`` for this transition.
         """
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_artifacts
             SET state = ?,
@@ -1799,7 +1796,7 @@ class SqliteDispatchRepository:
                 ArtifactState.DECLARED.value,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def mark_artifact_verified(
         self,
@@ -1818,7 +1815,7 @@ class SqliteDispatchRepository:
         contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
         generic ``cas_update_artifact_metadata`` for this transition.
         """
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_artifacts
             SET state = ?,
@@ -1844,7 +1841,7 @@ class SqliteDispatchRepository:
                 ArtifactState.STAGED.value,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def reclaim_orphaned_artifact(
         self,
@@ -1865,7 +1862,7 @@ class SqliteDispatchRepository:
         if current.state != ArtifactState.ORPHANED:
             return False
 
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE dispatch_artifacts
             SET state = ?, cleaned_at = ?, revision = revision + 1
@@ -1880,7 +1877,7 @@ class SqliteDispatchRepository:
                 ArtifactState.ORPHANED.value,
             ),
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def get_max_rotation_generation(
         self,
@@ -1889,7 +1886,7 @@ class SqliteDispatchRepository:
         profile_id: str,
     ) -> SessionRotationGenerationSnapshot | None:
         """Return the current max generation for a session rotation key."""
-        row = self._db().execute(
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT * FROM session_binding_generations
             WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ?
@@ -1899,7 +1896,7 @@ class SqliteDispatchRepository:
         ).fetchone()
         if row is None:
             return None
-        return self._session_rotation_from_row(row)
+        return self._session_rotation_from_row(row)  # pyright: ignore[reportUnknownArgumentType]
 
     @staticmethod
     def _session_rotation_from_row(row: sqlite3.Row) -> SessionRotationGenerationSnapshot:
@@ -1923,7 +1920,7 @@ class SqliteDispatchRepository:
         snapshot: SessionRotationGenerationSnapshot,
     ) -> None:
         """Insert a new session rotation generation."""
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO session_binding_generations (
                 workspace_scope_id,
@@ -1964,7 +1961,7 @@ class SqliteDispatchRepository:
         updated_at: int,
     ) -> bool:
         """CAS the current ACTIVE generation to DRAINING with a claim_token+claim_expiry."""
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE session_binding_generations
             SET state = ?, claim_token = ?, claim_expiry = ?, updated_at = ?
@@ -1983,7 +1980,7 @@ class SqliteDispatchRepository:
                 SessionRotationState.ACTIVE.value,
             )
         )
-        return cursor.rowcount == 1
+        return cursor.rowcount == 1  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     def commit_rotation(
         self,
@@ -1997,7 +1994,7 @@ class SqliteDispatchRepository:
         updated_at: int,
     ) -> bool:
         """Commit rotation: insert generation+1 as ACTIVE and update DRAINING to RETIRED."""
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE session_binding_generations
             SET state = ?, updated_at = ?
@@ -2015,10 +2012,10 @@ class SqliteDispatchRepository:
                 claim_token,
             )
         )
-        if cursor.rowcount != 1:
+        if cursor.rowcount != 1:  # pyright: ignore[reportUnknownMemberType]
             return False
             
-        self._db().execute(
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
             """
             INSERT INTO session_binding_generations (
                 workspace_scope_id,
@@ -2054,7 +2051,7 @@ class SqliteDispatchRepository:
         current_time: int,
     ) -> int:
         """Revert DRAINING rows with expired claim_expiry to ACTIVE."""
-        cursor = self._db().execute(
+        cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             UPDATE session_binding_generations
             SET state = ?, claim_token = NULL, claim_expiry = NULL, updated_at = ?
@@ -2067,4 +2064,4 @@ class SqliteDispatchRepository:
                 current_time,
             )
         )
-        return cursor.rowcount
+        return cursor.rowcount  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]

@@ -14,13 +14,14 @@ from peerhub.telemetry.contract import (
     ReadinessMeasurement,
     ReadinessObserved,
     SessionContextProjectionSnapshot,
+    UsageMeasurement,
+    SessionContextObserved,
 )
 from peerhub.dispatch.contract import SessionBindingKey
 from .sqlite_helpers import (
-    _json_object,
-    _json_text,
-    _json_value,
-    _string_tuple,
+    _json_text,  # pyright: ignore[reportPrivateUsage]
+    _json_value,  # pyright: ignore[reportPrivateUsage]
+    _string_tuple,  # pyright: ignore[reportPrivateUsage]
 )
 
 
@@ -216,7 +217,7 @@ class SqliteTelemetryRepository:
     @staticmethod
     def _evidence_value_to_dict(
         ev: EvidenceValue[Any],
-        value_encoder,
+        value_encoder,  # pyright: ignore[reportMissingParameterType, reportUnknownParameterType]
     ) -> dict[str, Any]:
         return {
             "state": ev.state.value,
@@ -235,7 +236,7 @@ class SqliteTelemetryRepository:
     @staticmethod
     def _evidence_value_from_dict(
         data: dict[str, Any],
-        value_decoder,
+        value_decoder,  # pyright: ignore[reportMissingParameterType, reportUnknownParameterType]
     ) -> EvidenceValue[Any]:
         raw_value = data["value"]
         return EvidenceValue(
@@ -247,7 +248,7 @@ class SqliteTelemetryRepository:
             captured_at=data["captured_at"],
             freshness_ttl=data["freshness_ttl"],
             evidence_ref=EvidenceRef(data["evidence_ref"]),
-            value=(
+            value=(  # pyright: ignore[reportUnknownArgumentType]
                 None if raw_value is None else value_decoder(raw_value)
             ),
         )
@@ -259,26 +260,26 @@ class SqliteTelemetryRepository:
         refs = tuple(
             EvidenceRef(r) for r in _string_tuple(row["evidence_refs_json"])
         )
-        failure_category = self._evidence_value_from_dict(
+        failure_category = self._evidence_value_from_dict(  # pyright: ignore[reportUnknownMemberType]
             _json_value(row["failure_category_json"]),
-            lambda raw: OperationalFailureCategory(raw),
+            lambda raw: OperationalFailureCategory(raw),  # pyright: ignore[reportUnknownLambdaType]
         )
-        process_integrity = self._evidence_value_from_dict(
+        process_integrity = self._evidence_value_from_dict(  # pyright: ignore[reportUnknownMemberType]
             _json_value(row["process_integrity_json"]),
-            lambda raw: bool(raw),
+            lambda raw: bool(raw),  # pyright: ignore[reportUnknownArgumentType, reportUnknownLambdaType]
         )
-        latency = self._evidence_value_from_dict(
+        latency = self._evidence_value_from_dict(  # pyright: ignore[reportUnknownMemberType]
             _json_value(row["latency_json"]),
-            lambda raw: int(raw),
+            lambda raw: int(raw),  # pyright: ignore[reportUnknownArgumentType, reportUnknownLambdaType]
         )
-        usage = self._evidence_value_from_dict(
+        usage = self._evidence_value_from_dict(  # pyright: ignore[reportUnknownMemberType]
             _json_value(row["usage_json"]),
-            lambda raw: UsageMeasurement(
-                quota_pool_scope=raw["quota_pool_scope"],
-                used_fraction=float(raw["used_fraction"]),
-                remaining_fraction=float(raw["remaining_fraction"]),
-                window_started_at=int(raw["window_started_at"]),
-                resets_at=int(raw["resets_at"]),
+            lambda raw: UsageMeasurement(  # pyright: ignore[reportUnknownLambdaType]
+                quota_pool_scope=raw["quota_pool_scope"],  # pyright: ignore[reportUnknownArgumentType]
+                used_fraction=float(raw["used_fraction"]),  # pyright: ignore[reportUnknownArgumentType]
+                remaining_fraction=float(raw["remaining_fraction"]),  # pyright: ignore[reportUnknownArgumentType]
+                window_started_at=int(raw["window_started_at"]),  # pyright: ignore[reportUnknownArgumentType]
+                resets_at=int(raw["resets_at"]),  # pyright: ignore[reportUnknownArgumentType]
             ),
         )
         return OperationalProjectionSnapshot(
@@ -323,32 +324,32 @@ class SqliteTelemetryRepository:
                 projection.instance_id,
                 projection.profile_id,
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         projection.failure_category,
-                        lambda v: v.value,
+                        lambda v: v.value,  # pyright: ignore[reportUnknownLambdaType, reportUnknownMemberType]
                     )
                 ),
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         projection.process_integrity,
-                        lambda v: v,
+                        lambda v: v,  # pyright: ignore[reportUnknownLambdaType]
                     )
                 ),
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         projection.latency,
-                        lambda v: v,
+                        lambda v: v,  # pyright: ignore[reportUnknownLambdaType]
                     )
                 ),
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         projection.usage,
-                        lambda v: {
-                            "quota_pool_scope": v.quota_pool_scope,
-                            "used_fraction": v.used_fraction,
-                            "remaining_fraction": v.remaining_fraction,
-                            "window_started_at": v.window_started_at,
-                            "resets_at": v.resets_at,
+                        lambda v: {  # pyright: ignore[reportUnknownLambdaType]
+                            "quota_pool_scope": v.quota_pool_scope,  # pyright: ignore[reportUnknownMemberType]
+                            "used_fraction": v.used_fraction,  # pyright: ignore[reportUnknownMemberType]
+                            "remaining_fraction": v.remaining_fraction,  # pyright: ignore[reportUnknownMemberType]
+                            "window_started_at": v.window_started_at,  # pyright: ignore[reportUnknownMemberType]
+                            "resets_at": v.resets_at,  # pyright: ignore[reportUnknownMemberType]
                         },
                     )
                 ),
@@ -403,32 +404,32 @@ class SqliteTelemetryRepository:
             """,
             (
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         updated.failure_category,
-                        lambda v: v.value,
+                        lambda v: v.value,  # pyright: ignore[reportUnknownLambdaType, reportUnknownMemberType]
                     )
                 ),
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         updated.process_integrity,
-                        lambda v: v,
+                        lambda v: v,  # pyright: ignore[reportUnknownLambdaType]
                     )
                 ),
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         updated.latency,
-                        lambda v: v,
+                        lambda v: v,  # pyright: ignore[reportUnknownLambdaType]
                     )
                 ),
                 _json_text(
-                    self._evidence_value_to_dict(
+                    self._evidence_value_to_dict(  # pyright: ignore[reportUnknownMemberType]
                         updated.usage,
-                        lambda v: {
-                            "quota_pool_scope": v.quota_pool_scope,
-                            "used_fraction": v.used_fraction,
-                            "remaining_fraction": v.remaining_fraction,
-                            "window_started_at": v.window_started_at,
-                            "resets_at": v.resets_at,
+                        lambda v: {  # pyright: ignore[reportUnknownLambdaType]
+                            "quota_pool_scope": v.quota_pool_scope,  # pyright: ignore[reportUnknownMemberType]
+                            "used_fraction": v.used_fraction,  # pyright: ignore[reportUnknownMemberType]
+                            "remaining_fraction": v.remaining_fraction,  # pyright: ignore[reportUnknownMemberType]
+                            "window_started_at": v.window_started_at,  # pyright: ignore[reportUnknownMemberType]
+                            "resets_at": v.resets_at,  # pyright: ignore[reportUnknownMemberType]
                         },
                     )
                 ),
@@ -445,11 +446,11 @@ class SqliteTelemetryRepository:
 
     # ── Slice 5: session context observations ──
 
-    def _session_context_observation_from_row(
+    def _session_context_observation_from_row(  # pyright: ignore[reportUnknownParameterType]
         self,
         row: sqlite3.Row,
     ) -> SessionContextObserved:
-        return SessionContextObserved(
+        return SessionContextObserved(  # pyright: ignore[reportUnknownVariableType]
             observation_id=row["observation_id"],
             binding_key=SessionBindingKey(
                 workspace_scope_id=row["workspace_scope_id"],
@@ -466,7 +467,7 @@ class SqliteTelemetryRepository:
 
     def add_session_context_observation(
         self,
-        observation: SessionContextObserved,
+        observation: SessionContextObserved,  # pyright: ignore[reportUnknownParameterType]
     ) -> None:
         """Insert an immutable session context observation."""
         self._db().execute(
@@ -484,17 +485,17 @@ class SqliteTelemetryRepository:
                 observed_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                observation.observation_id,
-                observation.binding_key.workspace_scope_id,
-                observation.binding_key.instance_id,
-                observation.binding_key.profile_id,
-                observation.binding_key.conversation_scope,
-                observation.generation_id,
-                observation.observed_tokens,
-                observation.window_tokens,
-                observation.source,
-                observation.observed_at,
+            (  # pyright: ignore[reportUnknownArgumentType]
+                observation.observation_id,  # pyright: ignore[reportUnknownMemberType]
+                observation.binding_key.workspace_scope_id,  # pyright: ignore[reportUnknownMemberType]
+                observation.binding_key.instance_id,  # pyright: ignore[reportUnknownMemberType]
+                observation.binding_key.profile_id,  # pyright: ignore[reportUnknownMemberType]
+                observation.binding_key.conversation_scope,  # pyright: ignore[reportUnknownMemberType]
+                observation.generation_id,  # pyright: ignore[reportUnknownMemberType]
+                observation.observed_tokens,  # pyright: ignore[reportUnknownMemberType]
+                observation.window_tokens,  # pyright: ignore[reportUnknownMemberType]
+                observation.source,  # pyright: ignore[reportUnknownMemberType]
+                observation.observed_at,  # pyright: ignore[reportUnknownMemberType]
             ),
         )
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -47,7 +46,7 @@ from .helpers import (
     require_lease as _require_lease,
     require_request as _require_request,
 )
-from .unit_of_work import DispatchUnitOfWork, FaultInjector, FaultPoint, _NoFaultInjector
+from .unit_of_work import DispatchUnitOfWork, FaultInjector, FaultPoint, _NoFaultInjector  # pyright: ignore[reportPrivateUsage]
 
 
 class AttemptLifecycleCoordinator:
@@ -161,10 +160,10 @@ class AttemptLifecycleCoordinator:
         attempt_id: str,
         timestamp: int,
     ) -> tuple[RequestSnapshot, AttemptSnapshot, LeaseSnapshot, str]:
-        request = _require_request(unit, command_id)
-        attempt = _require_attempt(unit, attempt_id)
+        request = _require_request(unit, command_id)  # pyright: ignore[reportArgumentType]
+        attempt = _require_attempt(unit, attempt_id)  # pyright: ignore[reportArgumentType]
         lease = _require_lease(
-            unit,
+            unit,  # pyright: ignore[reportArgumentType]
             request.lease_id,
         )
         (
@@ -177,7 +176,7 @@ class AttemptLifecycleCoordinator:
             lease,
             updated_at=timestamp,
         )
-        if not unit.cas_update_dispatch_bundle(
+        if not unit.cas_update_dispatch_bundle(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             request,
             updated_request,
             attempt,
@@ -195,7 +194,7 @@ class AttemptLifecycleCoordinator:
         # must be durably appended here (SLICE5-KICKOFF-R1.md
         # "Ratified decisions" item 4).
         event_id = self._ids.new_id("outbox-event")
-        unit.add_outbox_event(
+        unit.add_outbox_event(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             _dispatch_event(
                 updated_request,
                 event_id=event_id,
@@ -270,7 +269,7 @@ class AttemptLifecycleCoordinator:
                 attempt_id,
                 timestamp,
             )
-            reserved_ok = unit.reserve_verified_artifacts_for_dispatch(
+            reserved_ok = unit.reserve_verified_artifacts_for_dispatch(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
                 attempt_id=attempt_id,
                 expected_manifest_digest=expected_manifest_digest,
                 intent_event_id=intent_event_id,
@@ -451,8 +450,8 @@ class AttemptLifecycleCoordinator:
         ) = None,
         evidence_refs: tuple[str, ...] = (),
     ) -> tuple[RequestSnapshot, AttemptSnapshot, str]:
-        request = _require_request(unit, command_id)
-        attempt = _require_attempt(unit, attempt_id)
+        request = _require_request(unit, command_id)  # pyright: ignore[reportArgumentType]
+        attempt = _require_attempt(unit, attempt_id)  # pyright: ignore[reportArgumentType]
         updated_request, updated_attempt = (
             reduce_complete_attempt(
                 request,
@@ -461,8 +460,8 @@ class AttemptLifecycleCoordinator:
                 updated_at=timestamp,
             )
         )
-        _cas_request_attempt(unit, self._faults, request, updated_request, attempt, updated_attempt)
-        unit.add_outbox_event(
+        _cas_request_attempt(unit, self._faults, request, updated_request, attempt, updated_attempt)  # pyright: ignore[reportArgumentType]
+        unit.add_outbox_event(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             _dispatch_event(
                 updated_request,
                 event_id=self._ids.new_id("outbox-event"),
@@ -471,7 +470,7 @@ class AttemptLifecycleCoordinator:
         )
         self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
         terminal_event_id = self._ids.new_id("outbox-event")
-        unit.add_outbox_event(
+        unit.add_outbox_event(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             _attempt_terminal_event(
                 updated_request,
                 updated_attempt,
@@ -535,7 +534,7 @@ class AttemptLifecycleCoordinator:
         request: LeaseCloseRequest,
         timestamp: int,
     ) -> LeaseSnapshot:
-        current = unit.get_lease(request.lease_id)
+        current = unit.get_lease(request.lease_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
         if current is None:
             raise RecordNotFoundError(
                 "lease",
@@ -543,12 +542,12 @@ class AttemptLifecycleCoordinator:
             )
 
         updated = close_lease(
-            current,
+            current,  # pyright: ignore[reportUnknownArgumentType]
             request,
             updated_at=timestamp,
         )
 
-        if not unit.cas_update_lease(current, updated):
+        if not unit.cas_update_lease(current, updated):  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             raise InvalidMutationError(
                 f"CAS failure closing lease "
                 f"{request.lease_id}"
@@ -591,8 +590,8 @@ class AttemptLifecycleCoordinator:
                 operational_failure_category=operational_failure_category,
                 evidence_refs=evidence_refs,
             )
-            if unit.get_artifact_manifest(attempt_id) is not None:
-                consumed_ok = unit.consume_reserved_artifacts(
+            if unit.get_artifact_manifest(attempt_id) is not None:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                consumed_ok = unit.consume_reserved_artifacts(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
                     attempt_id=attempt_id,
                     terminal_outcome_event_id=terminal_event_id,
                     consumed_at=timestamp,

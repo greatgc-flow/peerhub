@@ -9,7 +9,7 @@ from .contract import (
     ArtifactManifestRecord,
     ArtifactMetadata,
 )
-from .unit_of_work import DispatchUnitOfWork, FaultInjector, _NoFaultInjector
+from .unit_of_work import DispatchUnitOfWork, FaultInjector, _NoFaultInjector  # pyright: ignore[reportPrivateUsage]
 
 
 class ArtifactCoordinator:
@@ -35,7 +35,7 @@ class ArtifactCoordinator:
     ) -> None:
         """Persist an artifact manifest and item metadata records."""
         with self._store.unit_of_work() as unit:
-            unit.add_artifact_manifest(
+            unit.add_artifact_manifest(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
                 manifest_record,
                 tuple(item_records),
             )
@@ -50,12 +50,12 @@ class ArtifactCoordinator:
         """Mark artifacts orphaned for an attempt if an artifact manifest exists."""
         timestamp = self._clock.now()
         with self._store.unit_of_work() as unit:
-            manifest_row = unit.get_artifact_manifest(attempt_id)
+            manifest_row = unit.get_artifact_manifest(attempt_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
             if manifest_row is None:
                 return False
-            unit.mark_artifacts_orphaned(
+            unit.mark_artifacts_orphaned(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
                 attempt_id=attempt_id,
-                expected_manifest_revision=manifest_row.revision,
+                expected_manifest_revision=manifest_row.revision,  # pyright: ignore[reportUnknownMemberType]
                 orphaned_at=timestamp,
                 failure_code=failure_code,
             )

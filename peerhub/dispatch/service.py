@@ -9,32 +9,20 @@ dispatch intents. Those behaviors remain outside this Phase 1 slice.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Protocol
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.execution import ExecutionCertainty
-from peerhub.core.errors import (
-    ActorUnauthorizedError,
-    DuplicateClientRequestError,
-    IdempotencyPayloadMismatchError,
-    InvalidMutationError,
-    RecordNotFoundError,
-    StaleRevisionError,
-)
+from peerhub.core.errors import InvalidMutationError
 from peerhub.core.protocol import (
     ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND,
-    PROTOCOL_MAJOR,
-    PROTOCOL_MINOR,
-    SCHEMA_VERSION,
-    AttemptTerminalObserved,
     CommandEnvelope,
     CommandID,
     ErrorCode,
     OperationalFailureCategory,
     RevisionValue,
 )
-from peerhub.governance.contract import OutboxEvent, OutboxState
-from peerhub.state.contract import StateStore, UnitOfWork
+from peerhub.governance.contract import OutboxEvent
+from peerhub.state.contract import StateStore
 
 from .contract import (
     AdmissionReceipt,
@@ -42,8 +30,6 @@ from .contract import (
     ArtifactMetadata,
     AskResult,
     AttemptSnapshot,
-    ClientRequestBinding,
-    CommandIdempotencyBinding,
     CompletionContract,
     ExecutionOutcome,
     LeaseCloseRequest,
@@ -51,7 +37,6 @@ from .contract import (
     LeaseFenceCheckRequest,
     LeaseFenceTuple,
     LeaseRenewRequest,
-    LeaseReservationRequest,
     LeaseSnapshot,
     ProcessBirthIdentity,
     RecoveryReceipt,
@@ -60,38 +45,6 @@ from .contract import (
     SessionBindingKey,
     SessionBindingSnapshot,
     SessionResumeRequest,
-    ValidatedSubmission,
-)
-from .model import (
-    admit_request as reduce_admit_request,
-)
-from .model import (
-    authorize_retry as reduce_authorize_retry,
-)
-from .model import (
-    begin_assessment as reduce_begin_assessment,
-)
-from .model import (
-    begin_cancellation as reduce_begin_cancellation,
-)
-from .model import (
-    close_lease,
-    complete_attempt as reduce_complete_attempt,
-    create_attempt as reduce_create_attempt,
-    create_lease,
-    create_session_binding,
-    expire_and_recover_lease,
-    fail_pre_dispatch as reduce_fail_pre_dispatch,
-    prepare_request as reduce_prepare_request,
-    record_dispatch_intent as reduce_dispatch_intent,
-    record_running as reduce_running,
-    record_start_uncertain as reduce_start_uncertain,
-    reject_request_policy as reduce_reject_policy,
-    renew_lease,
-    reserve_lease,
-    resume_session_binding,
-    validate_lease_fence,
-    validate_submission,
 )
 from .process import (
     InterruptedAttemptRecoveryOutcome,
@@ -115,7 +68,7 @@ def recover_interrupted_attempt(
         raise InvalidMutationError("journal_entries cannot be empty")
 
     for entry in journal_entries:
-        if not isinstance(entry, str):
+        if not isinstance(entry, str):  # pyright: ignore[reportUnnecessaryIsInstance]  # defensive: validates untrusted durable-journal data, not just the static type
             raise InvalidMutationError("journal_entries must contain string entries")
 
     if "INTENT_PERSISTED" not in journal_entries:
@@ -153,13 +106,11 @@ def recover_interrupted_attempt(
     )
 
 
-from peerhub.core.protocol import ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND
-
 def translate_outbox_to_journal(
     events: Sequence[OutboxEvent],
 ) -> list[str]:
     """Translate canonical outbox events to the abstract journal vocabulary."""
-    journal = []
+    journal: list[str] = []
     for event in events:
         if event.event_kind == "DISPATCH_INTENT":
             journal.append("INTENT_PERSISTED")
@@ -175,17 +126,15 @@ from .artifact_coordination import ArtifactCoordinator
 from .attempt_lifecycle import AttemptLifecycleCoordinator
 from .session_lease import SessionLeaseCoordinator
 from .helpers import (
-    attempt_terminal_event as _attempt_terminal_event,
-    cas_request_attempt as _cas_request_attempt,
-    dispatch_event as _dispatch_event,
-    raise_attempt_cas as _raise_attempt_cas,
-    raise_request_cas as _raise_request_cas,
-    require_actor_authorized as _require_actor_authorized,
     require_attempt as _require_attempt,
-    require_lease as _require_lease,
     require_request as _require_request,
 )
-from .unit_of_work import DispatchUnitOfWork, FaultPoint, FaultInjector, _NoFaultInjector
+from .unit_of_work import (
+    DispatchUnitOfWork,
+    FaultInjector,
+    FaultPoint,  # pyright: ignore[reportUnusedImport]  # public re-export: tests import this name from here
+    _NoFaultInjector,  # pyright: ignore[reportPrivateUsage]
+)
 
 class DispatchService:
     """Orchestrate Phase 1 dispatch state through one state store."""

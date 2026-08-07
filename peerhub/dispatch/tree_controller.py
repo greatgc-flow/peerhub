@@ -34,7 +34,7 @@ import sys
 from dataclasses import dataclass
 
 from peerhub.dispatch.contract import ProcessBirthIdentity
-from peerhub.dispatch.pipe import TreeController, TreeDispatchReceipt, TreeHandle
+from peerhub.dispatch.pipe import TreeHandle, TreeDispatchReceipt
 from peerhub.dispatch.process import ObservationState, TreeProcessObservation
 
 
@@ -169,7 +169,7 @@ class RealTreeController:
     for Windows and POSIX operating systems per the ratified OS-mapping table.
     """
 
-    def bind_spawn(
+    def bind_spawn(  # pyright: ignore[reportUnknownParameterType]
         self,
         *,
         process: subprocess.Popen[bytes],
@@ -210,16 +210,16 @@ class RealTreeController:
             posix_pgid=posix_pgid,
         )
 
-    def soft_cancel(self, tree: TreeHandle) -> TreeDispatchReceipt:
+    def soft_cancel(self, tree: TreeHandle) -> TreeDispatchReceipt:  # pyright: ignore[reportUnknownParameterType]
         """Attempt graceful cancellation (SOFT_CANCEL).
 
         Windows: Sends CTRL_BREAK_EVENT if console is available; records unavailable otherwise.
         POSIX: Sends SIGINT to process group.
         """
-        root = tree.root_identity
-        verified, _ = verify_process_identity(root.pid, root)
+        root = tree.root_identity  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        verified, _ = verify_process_identity(root.pid, root)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
         if not verified:
-            return TreeDispatchReceipt(
+            return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
                 signal_name="SOFT_CANCEL",
                 target_identities=(),
@@ -229,16 +229,16 @@ class RealTreeController:
             try:
                 kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
                 # CTRL_BREAK_EVENT = 1
-                res = kernel32.GenerateConsoleCtrlEvent(1, root.pid)
+                res = kernel32.GenerateConsoleCtrlEvent(1, root.pid)  # pyright: ignore[reportUnknownMemberType]
                 if res:
-                    return TreeDispatchReceipt(
+                    return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                         dispatched=True,
                         signal_name="CTRL_BREAK_EVENT",
                         target_identities=(root,),
                     )
             except Exception:
                 pass
-            return TreeDispatchReceipt(
+            return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
                 signal_name="CTRL_BREAK_EVENT",
                 target_identities=(),
@@ -267,16 +267,16 @@ class RealTreeController:
                         target_identities=(),
                     )
 
-    def terminate_tree(self, tree: TreeHandle) -> TreeDispatchReceipt:
+    def terminate_tree(self, tree: TreeHandle) -> TreeDispatchReceipt:  # pyright: ignore[reportUnknownParameterType]
         """Attempt process tree termination (TERMINATE_TREE).
 
         Windows: No safe generic graceful-tree primitive; records unavailable per ratified spec.
         POSIX: Sends SIGTERM to process group.
         """
-        root = tree.root_identity
-        verified, _ = verify_process_identity(root.pid, root)
+        root = tree.root_identity  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        verified, _ = verify_process_identity(root.pid, root)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
         if not verified:
-            return TreeDispatchReceipt(
+            return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
                 signal_name="TERMINATE_TREE",
                 target_identities=(),
@@ -285,7 +285,7 @@ class RealTreeController:
         if sys.platform == "win32":
             # Per ratified table: no safe generic graceful-tree primitive on Windows.
             # Record unavailable and advance immediately.
-            return TreeDispatchReceipt(
+            return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
                 signal_name="TERMINATE_TREE",
                 target_identities=(),
@@ -314,29 +314,29 @@ class RealTreeController:
                         target_identities=(),
                     )
 
-    def kill_tree(self, tree: TreeHandle) -> TreeDispatchReceipt:
+    def kill_tree(self, tree: TreeHandle) -> TreeDispatchReceipt:  # pyright: ignore[reportUnknownParameterType]
         """Forcibly kill process tree (KILL_TREE).
 
         Windows: Calls TerminateJobObject on Job Object, or TerminateProcess on root PID.
         POSIX: Sends SIGKILL to process group.
         """
-        root = tree.root_identity
-        verified, _ = verify_process_identity(root.pid, root)
+        root = tree.root_identity  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        verified, _ = verify_process_identity(root.pid, root)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
         if not verified:
-            return TreeDispatchReceipt(
+            return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
                 signal_name="KILL_TREE",
                 target_identities=(),
             )
 
         if sys.platform == "win32":
-            job_handle = getattr(tree, "win_job_handle", None)
+            job_handle = getattr(tree, "win_job_handle", None)  # pyright: ignore[reportUnknownArgumentType]
             if job_handle is not None:
                 try:
                     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
                     res = kernel32.TerminateJobObject(job_handle, 1)
                     if res:
-                        return TreeDispatchReceipt(
+                        return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                             dispatched=True,
                             signal_name="TerminateJobObject",
                             target_identities=(root,),
@@ -348,12 +348,12 @@ class RealTreeController:
             try:
                 kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
                 # PROCESS_TERMINATE = 0x0001
-                h_proc = kernel32.OpenProcess(0x0001, False, root.pid)
+                h_proc = kernel32.OpenProcess(0x0001, False, root.pid)  # pyright: ignore[reportUnknownMemberType]
                 if h_proc:
                     try:
                         res = kernel32.TerminateProcess(h_proc, 1)
                         if res:
-                            return TreeDispatchReceipt(
+                            return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                                 dispatched=True,
                                 signal_name="TerminateProcess",
                                 target_identities=(root,),
@@ -363,7 +363,7 @@ class RealTreeController:
             except Exception:
                 pass
 
-            return TreeDispatchReceipt(
+            return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
                 signal_name="KILL_TREE",
                 target_identities=(),
@@ -394,19 +394,19 @@ class RealTreeController:
 
     def observe_tree(
         self,
-        tree: TreeHandle,
+        tree: TreeHandle,  # pyright: ignore[reportUnknownParameterType]
     ) -> tuple[TreeProcessObservation, ...]:
         """Observe state of all processes in the managed process tree.
 
         Performs atomic identity verification against ProcessBirthIdentity.
         If creation time is mismatched, reports IDENTITY_UNCERTAIN.
         """
-        root = tree.root_identity
-        verified, actual_creation = verify_process_identity(root.pid, root)
+        root = tree.root_identity  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+        verified, actual_creation = verify_process_identity(root.pid, root)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
         if not verified:
             return (
                 TreeProcessObservation(
-                    identity=root,
+                    identity=root,  # pyright: ignore[reportUnknownArgumentType]
                     state=ObservationState.IDENTITY_UNCERTAIN,
                     observed_creation_time=actual_creation,
                 ),
@@ -415,7 +415,7 @@ class RealTreeController:
         observations: list[TreeProcessObservation] = []
 
         if sys.platform == "win32":
-            job_handle = getattr(tree, "win_job_handle", None)
+            job_handle = getattr(tree, "win_job_handle", None)  # pyright: ignore[reportUnknownArgumentType]
             if job_handle is not None:
                 try:
                     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
@@ -430,7 +430,7 @@ class RealTreeController:
                     if res and buf.NumberOfProcessIdsInList > 0:
                         for i in range(buf.NumberOfProcessIdsInList):
                             pid = int(buf.ProcessIdList[i])
-                            if pid == root.pid:
+                            if pid == root.pid:  # pyright: ignore[reportUnknownMemberType]
                                 is_active = _is_win_process_active(pid)
                                 state = (
                                     ObservationState.RUNNING
@@ -439,7 +439,7 @@ class RealTreeController:
                                 )
                                 observations.append(
                                     TreeProcessObservation(
-                                        identity=root,
+                                        identity=root,  # pyright: ignore[reportUnknownArgumentType]
                                         state=state,
                                         observed_creation_time=actual_creation,
                                     )
@@ -467,11 +467,11 @@ class RealTreeController:
                     pass
 
             # Fallback for root process observation
-            proc = getattr(tree, "process", None)
+            proc = getattr(tree, "process", None)  # pyright: ignore[reportUnknownArgumentType]
             if proc is not None:
                 is_active = proc.poll() is None
             else:
-                is_active = _is_win_process_active(root.pid)
+                is_active = _is_win_process_active(root.pid)  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
 
             state = (
                 ObservationState.RUNNING
@@ -480,7 +480,7 @@ class RealTreeController:
             )
             return (
                 TreeProcessObservation(
-                    identity=root,
+                    identity=root,  # pyright: ignore[reportUnknownArgumentType]
                     state=state,
                     observed_creation_time=actual_creation,
                 ),

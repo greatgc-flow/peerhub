@@ -59,7 +59,7 @@ class RequirementEvaluation:
             raise ValueError(
                 "requirement_index must be a nonnegative integer"
             )
-        if not isinstance(self.verdict, RequirementVerdict):
+        if not isinstance(self.verdict, RequirementVerdict):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError(
                 "verdict must be a RequirementVerdict"
             )

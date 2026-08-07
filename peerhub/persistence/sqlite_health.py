@@ -29,10 +29,10 @@ from peerhub.health.contract import (
     RevalidationAction,
 )
 from .sqlite_helpers import (
-    _json_object,
-    _json_text,
-    _json_value,
-    _string_tuple,
+    _json_object,  # pyright: ignore[reportPrivateUsage]
+    _json_text,  # pyright: ignore[reportPrivateUsage]
+    _json_value,  # pyright: ignore[reportPrivateUsage]
+    _string_tuple,  # pyright: ignore[reportPrivateUsage]
 )
 
 

@@ -54,7 +54,7 @@ class RecoveryDisposition(str, Enum):
 
 
 def _text(value: str, name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
+    if not isinstance(value, str) or not value.strip():  # pyright: ignore[reportUnnecessaryIsInstance]
         raise ValueError(f"{name} must be a non-empty string")
     return unicodedata.normalize("NFC", value)
 
@@ -92,10 +92,10 @@ def _freeze_json(value: object) -> JsonValue:
     if isinstance(value, str):
         return unicodedata.normalize("NFC", value)
     if isinstance(value, (list, tuple)):
-        return tuple(_freeze_json(item) for item in value)
+        return tuple(_freeze_json(item) for item in value)  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
     if isinstance(value, Mapping):
         frozen: dict[str, JsonValue] = {}
-        for raw_key, raw_value in value.items():
+        for raw_key, raw_value in value.items():  # pyright: ignore[reportUnknownVariableType]
             if not isinstance(raw_key, str):
                 raise ValueError("JSON object keys must be strings")
             key = unicodedata.normalize("NFC", raw_key)
@@ -103,7 +103,7 @@ def _freeze_json(value: object) -> JsonValue:
                 raise ValueError(
                     f"duplicate JSON key after normalization: {key}"
                 )
-            frozen[key] = _freeze_json(raw_value)
+            frozen[key] = _freeze_json(raw_value)  # pyright: ignore[reportUnknownArgumentType]
         return MappingProxyType(frozen)
     raise ValueError(
         f"unsupported JSON value type: {type(value).__name__}"
@@ -363,7 +363,7 @@ class TransitionReceipt:
             raise ValueError(
                 "next_revision must equal previous_revision + 1"
             )
-        if not isinstance(self.status, TransitionStatus):
+        if not isinstance(self.status, TransitionStatus):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("status must be a TransitionStatus")
         object.__setattr__(
             self,
@@ -444,7 +444,7 @@ class OutboxEvent:
             raise ValueError(
                 "created_at cannot precede occurred_at"
             )
-        if not isinstance(self.state, OutboxState):
+        if not isinstance(self.state, OutboxState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be an OutboxState")
         object.__setattr__(
             self,
@@ -553,7 +553,7 @@ class EffectReceipt:
                 name,
                 _text(getattr(self, name), name),
             )
-        if not isinstance(self.outcome, EffectOutcome):
+        if not isinstance(self.outcome, EffectOutcome):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("outcome must be an EffectOutcome")
         object.__setattr__(
             self,
@@ -575,7 +575,7 @@ class MutationSubmission:
     receipt: TransitionReceipt
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.disposition,
             MutationDisposition,
         ):
@@ -593,7 +593,7 @@ class PendingEffect:
     disposition: RecoveryDisposition
 
     def __post_init__(self) -> None:
-        if not isinstance(
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
             self.disposition,
             RecoveryDisposition,
         ):

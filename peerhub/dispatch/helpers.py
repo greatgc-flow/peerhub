@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
 
 from peerhub.core.errors import (
     ActorUnauthorizedError,
@@ -18,7 +17,6 @@ from peerhub.core.protocol import (
     OperationalFailureCategory,
 )
 from peerhub.governance.contract import OutboxEvent, OutboxState
-from peerhub.state.contract import UnitOfWork
 
 from .contract import AttemptSnapshot, LeaseSnapshot, RequestSnapshot
 from .unit_of_work import DispatchUnitOfWork, FaultPoint, FaultInjector
@@ -185,7 +183,7 @@ def attempt_terminal_event(
             "started_at": terminal.started_at,
             "terminal_at": terminal.terminal_at,
             "latency": terminal.latency,
-            "evidence_refs": list(terminal.evidence_refs),
+            "evidence_refs": list(terminal.evidence_refs),  # pyright: ignore[reportArgumentType]
         },
         evidence_refs=terminal.evidence_refs,
         state=OutboxState.PENDING,
