@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar, Generic, Protocol
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.ports import RequestContext
 from peerhub.core.protocol import (
@@ -114,6 +116,15 @@ def reconstruct_envelope(cmd: Command[Any]) -> CommandEnvelope:  # pyright: igno
     )
 
 
+class AdmitDispatchPayload(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    prompt: str = ""
+    requested_capabilities: list[str] = Field(default_factory=list)
+    profile_constraints: dict[str, Any] = Field(default_factory=dict)
+    completion_contract: dict[str, Any] = Field(default_factory=dict)
+    session_policy: dict[str, Any] = Field(default_factory=dict)
+
+
 class ApplicationAPI:
     def __init__(
         self,
@@ -135,8 +146,20 @@ class ApplicationAPI:
         self._registry[descriptor.method] = descriptor
 
     def _register_builtins(self) -> None:
-        # 1. AdmitDispatch
         def decode_admit(env: CommandEnvelope) -> AdmitDispatch:
+            from collections.abc import Mapping
+            def _normalize(v: Any) -> Any:
+                if isinstance(v, Mapping):
+                    return {k: _normalize(val) for k, val in v.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+                if isinstance(v, (list, tuple)):
+                    return [_normalize(val) for val in v]  # pyright: ignore[reportUnknownVariableType]
+                return v
+
+            try:
+                payload = AdmitDispatchPayload.model_validate(_normalize(env.params))
+            except ValidationError as exc:
+                raise ValueError(str(exc)) from exc
+
             sm = SubmissionMetadata(
                 client_request_id=env.client_request_id,
                 correlation_id=env.correlation_id,
@@ -150,11 +173,11 @@ class ApplicationAPI:
             )
             return AdmitDispatch(
                 submission=sm,
-                prompt=str(env.params.get("prompt", "")),
-                requested_capabilities=tuple(env.params.get("requested_capabilities", [])),  # type: ignore
-                profile_constraints=freeze_json_mapping(env.params.get("profile_constraints", {})),  # type: ignore
-                completion_contract=freeze_json_mapping(env.params.get("completion_contract", {})),  # type: ignore
-                session_policy=freeze_json_mapping(env.params.get("session_policy", {})),  # type: ignore
+                prompt=payload.prompt,
+                requested_capabilities=tuple(payload.requested_capabilities),
+                profile_constraints=freeze_json_mapping(payload.profile_constraints),
+                completion_contract=freeze_json_mapping(payload.completion_contract),
+                session_policy=freeze_json_mapping(payload.session_policy),
             )
 
         def handle_admit(cmd: AdmitDispatch, caller: RequestContext) -> DispatchAdmissionView:

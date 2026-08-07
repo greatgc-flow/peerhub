@@ -9,6 +9,7 @@ description = "Local transactional coordination for collaborating AI peers"
 requires-python = ">=3.11"
 dependencies = [
     "psutil>=5.9.0",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
