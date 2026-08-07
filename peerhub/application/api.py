@@ -125,6 +125,16 @@ class AdmitDispatchPayload(BaseModel):
     session_policy: dict[str, Any] = Field(default_factory=dict)
 
 
+class GetDispatchRequestPayload(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    target_command_id: str
+
+
+class GetDispatchLeasePayload(BaseModel):
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    lease_id: str
+
+
 class ApplicationAPI:
     def __init__(
         self,
@@ -259,6 +269,19 @@ class ApplicationAPI:
 
         # 2. GetDispatchRequest
         def decode_req_get(env: CommandEnvelope) -> GetDispatchRequest:
+            from collections.abc import Mapping
+            def _normalize(v: Any) -> Any:
+                if isinstance(v, Mapping):
+                    return {k: _normalize(val) for k, val in v.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+                if isinstance(v, (list, tuple)):
+                    return [_normalize(val) for val in v]  # pyright: ignore[reportUnknownVariableType]
+                return v
+
+            try:
+                payload = GetDispatchRequestPayload.model_validate(_normalize(env.params))
+            except ValidationError as exc:
+                raise ValueError(str(exc)) from exc
+
             sm = SubmissionMetadata(
                 client_request_id=env.client_request_id,
                 correlation_id=env.correlation_id,
@@ -272,7 +295,7 @@ class ApplicationAPI:
             )
             return GetDispatchRequest(
                 submission=sm,
-                target_command_id=str(env.params.get("target_command_id", "")),
+                target_command_id=payload.target_command_id,
             )
 
         def handle_req_get(cmd: GetDispatchRequest, caller: RequestContext) -> DispatchRequestView:
@@ -344,6 +367,19 @@ class ApplicationAPI:
 
         # 3. GetDispatchLease
         def decode_lease_get(env: CommandEnvelope) -> GetDispatchLease:
+            from collections.abc import Mapping
+            def _normalize(v: Any) -> Any:
+                if isinstance(v, Mapping):
+                    return {k: _normalize(val) for k, val in v.items()}  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+                if isinstance(v, (list, tuple)):
+                    return [_normalize(val) for val in v]  # pyright: ignore[reportUnknownVariableType]
+                return v
+
+            try:
+                payload = GetDispatchLeasePayload.model_validate(_normalize(env.params))
+            except ValidationError as exc:
+                raise ValueError(str(exc)) from exc
+
             sm = SubmissionMetadata(
                 client_request_id=env.client_request_id,
                 correlation_id=env.correlation_id,
@@ -357,7 +393,7 @@ class ApplicationAPI:
             )
             return GetDispatchLease(
                 submission=sm,
-                lease_id=str(env.params.get("lease_id", "")),
+                lease_id=payload.lease_id,
             )
 
         def handle_lease_get(cmd: GetDispatchLease, caller: RequestContext) -> DispatchLeaseView:

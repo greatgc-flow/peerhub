@@ -305,3 +305,100 @@ def test_admit_rejected_internal_error(runtime_setup):
     assert outcome.error.code == ErrorCode.INTERNAL_ERROR
     assert outcome.error.details.get("exception") == "RuntimeError"
 
+
+def test_req_get_validation_error(runtime_setup):
+    rt, client, caller = runtime_setup
+    
+    envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="req-1",
+        correlation_id="corr-1",
+        client_id="client-1",
+        actor_id="user-1",
+        scope={},
+        method="dispatch.request.get",
+        params={"target_command_id": "cmd-123", "unexpected_extra": 123},
+        idempotency_key="idem-1",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+    
+    outcome = rt.application_api.submit(envelope, caller=caller)
+    assert isinstance(outcome, CommandFailure)
+    assert outcome.error.code == ErrorCode.INVALID_PARAMS
+    assert "unexpected_extra" in outcome.error.message
+
+    # Test missing required field
+    envelope2 = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="req-1",
+        correlation_id="corr-1",
+        client_id="client-1",
+        actor_id="user-1",
+        scope={},
+        method="dispatch.request.get",
+        params={},  # missing target_command_id
+        idempotency_key="idem-1",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+    
+    outcome2 = rt.application_api.submit(envelope2, caller=caller)
+    assert isinstance(outcome2, CommandFailure)
+    assert outcome2.error.code == ErrorCode.INVALID_PARAMS
+    assert "target_command_id" in outcome2.error.message
+
+
+def test_lease_get_validation_error(runtime_setup):
+    rt, client, caller = runtime_setup
+    
+    envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="req-1",
+        correlation_id="corr-1",
+        client_id="client-1",
+        actor_id="user-1",
+        scope={},
+        method="dispatch.lease.get",
+        params={"lease_id": "lease-123", "unexpected_extra": 123},
+        idempotency_key="idem-1",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+    
+    outcome = rt.application_api.submit(envelope, caller=caller)
+    assert isinstance(outcome, CommandFailure)
+    assert outcome.error.code == ErrorCode.INVALID_PARAMS
+    assert "unexpected_extra" in outcome.error.message
+
+    # Test missing required field
+    envelope2 = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="req-1",
+        correlation_id="corr-1",
+        client_id="client-1",
+        actor_id="user-1",
+        scope={},
+        method="dispatch.lease.get",
+        params={},  # missing lease_id
+        idempotency_key="idem-1",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+    
+    outcome2 = rt.application_api.submit(envelope2, caller=caller)
+    assert isinstance(outcome2, CommandFailure)
+    assert outcome2.error.code == ErrorCode.INVALID_PARAMS
+    assert "lease_id" in outcome2.error.message
