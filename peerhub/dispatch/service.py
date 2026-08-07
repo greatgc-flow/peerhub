@@ -153,6 +153,8 @@ def recover_interrupted_attempt(
     )
 
 
+from peerhub.core.protocol import ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND
+
 def translate_outbox_to_journal(
     events: Sequence[OutboxEvent],
 ) -> list[str]:
@@ -163,7 +165,7 @@ def translate_outbox_to_journal(
             journal.append("INTENT_PERSISTED")
         elif event.event_kind == "RUNNING":
             journal.append("SPAWNED")
-        elif event.event_kind == "ATTEMPT_TERMINAL_OBSERVED":
+        elif event.event_kind == ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND:
             journal.append("EXIT")
     return journal
 

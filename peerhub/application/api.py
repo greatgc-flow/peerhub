@@ -195,7 +195,8 @@ class ApplicationAPI:
             if not adm:
                 raise RuntimeError(f"Admission rejected: {res.route.error_code if res.route else 'unknown'}")
             req = adm[0]
-            receipt = adm[3]
+            receipt = adm[1]
+            lease = adm[2]
 
             return DispatchAdmissionView(
                 command_id=str(req.command_id),
@@ -203,7 +204,7 @@ class ApplicationAPI:
                 request_revision=req.revision,
                 admission_receipt_id=receipt.admission_receipt_id,
                 lease_id=req.lease_id,
-                lease_state=LeaseState.RESERVED,
+                lease_state=lease.state,
                 selected_instance_id=req.selected_peer_instance_id,
                 selected_profile_id=req.selected_profile_id,
                 route_decision_digest=req.route_decision_digest,
@@ -568,3 +569,4 @@ class ApplicationAPI:
                     details={"exception": type(exc).__name__},
                 ),
             )
+

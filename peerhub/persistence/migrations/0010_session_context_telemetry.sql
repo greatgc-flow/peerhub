@@ -28,3 +28,8 @@ CREATE TABLE IF NOT EXISTS session_context_projections (
     updated_at INTEGER NOT NULL,
     UNIQUE (workspace_scope_id, instance_id, profile_id, generation_id)
 );
+
+INSERT INTO schema_migrations(version, name)
+VALUES (10, '0010_session_context_telemetry');
+
+PRAGMA user_version = 10;
