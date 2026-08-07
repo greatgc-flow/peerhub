@@ -15,6 +15,7 @@ from .health.contract import HealthPolicy, HealthScopeMembershipSnapshot
 from .health.service import HealthService
 from .routing.service import RoutingService
 from .application.workflows import ApplicationWorkflows
+from .application.api import ApplicationAPI
 
 
 @dataclass
@@ -30,6 +31,7 @@ class Runtime:
     health_service: HealthService
     routing_service: RoutingService
     application_workflows: ApplicationWorkflows
+    application_api: ApplicationAPI
 
     def close(self) -> None:
         """Release resources owned by this runtime."""
@@ -53,7 +55,14 @@ class Runtime:
         self.close()
 
 
-def create_runtime(context: RuntimeContext) -> Runtime:
+from .application.workflows import ApplicationWorkflows
+from .application.api import ApplicationAPI, AdmissionInputsProvider
+
+def create_runtime(
+    context: RuntimeContext,
+    *,
+    admission_provider: AdmissionInputsProvider | None = None,
+) -> Runtime:
     """Create the composed Phase 1 runtime."""
 
     state_store = SqliteStateStore(
@@ -125,6 +134,12 @@ def create_runtime(context: RuntimeContext) -> Runtime:
         dispatch=dispatch_service,
     )
 
+    application_api = ApplicationAPI(
+        workflows=application_workflows,
+        dispatch=dispatch_service,
+        admission_provider=admission_provider,
+    )
+
     # Note: session-rotation wiring is deliberately deferred pending a proper unit-of-work-sharing design.
 
     return Runtime(
@@ -136,5 +151,6 @@ def create_runtime(context: RuntimeContext) -> Runtime:
         health_service=health_service,
         routing_service=routing_service,
         application_workflows=application_workflows,
+        application_api=application_api,
     )
 

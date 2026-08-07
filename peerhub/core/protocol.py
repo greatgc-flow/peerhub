@@ -9,10 +9,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
-from typing import NewType, TypeAlias
+from typing import Generic, Literal, NewType, TypeAlias, TypeVar
 from uuid import RFC_4122, UUID
 
 from .execution import ExecutionCertainty
+
+R = TypeVar("R")
 
 
 PROTOCOL_MAJOR = 1
@@ -57,6 +59,8 @@ class ErrorCode(str, Enum):
     )
 
     UNKNOWN_COMMAND = "UNKNOWN_COMMAND"
+    COMMAND_NOT_BACKED = "COMMAND_NOT_BACKED"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
     INVALID_PARAMS = "INVALID_PARAMS"
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
     MISSING_IDEMPOTENCY_KEY = "MISSING_IDEMPOTENCY_KEY"
@@ -701,3 +705,132 @@ class EventEnvelope:
         """Return the event protocol version as ``major.minor``."""
 
         return f"{self.protocol_major}.{self.protocol_minor}"
+
+
+class IdempotencyDisposition(str, Enum):
+    CREATED = "CREATED"
+    HIT = "HIT"
+
+
+class ErrorPhase(str, Enum):
+    VALIDATION = "VALIDATION"
+    ADMISSION = "ADMISSION"
+    PRE_SPAWN = "PRE_SPAWN"
+    POST_SPAWN = "POST_SPAWN"
+    ASSESSMENT = "ASSESSMENT"
+    EFFECT = "EFFECT"
+
+
+class RetryDisposition(str, Enum):
+    SAFE = "SAFE"
+    UNSAFE = "UNSAFE"
+    CONDITIONAL = "CONDITIONAL"
+    NEVER = "NEVER"
+
+
+@dataclass(frozen=True)
+class ErrorDetail:
+    code: ErrorCode
+    phase: ErrorPhase
+    execution_certainty: ExecutionCertainty
+    retry_disposition: RetryDisposition
+    message: str
+    details: Mapping[str, JsonValue]
+
+
+@dataclass(frozen=True)
+class CommandSuccess(Generic[R]):
+    ok: Literal[True]
+    protocol_major: int
+    protocol_minor: int
+    schema_version: str
+
+    diagnostic_id: str
+    correlation_id: str
+    command_id: str | None
+
+    state: str
+    receipt_ref: str | None
+    policy_revision: RevisionValue | None
+    configuration_revision: RevisionValue | None
+    idempotency: IdempotencyDisposition
+
+    result: R
+
+
+@dataclass(frozen=True)
+class CommandFailure:
+    ok: Literal[False]
+    protocol_major: int
+    protocol_minor: int
+    schema_version: str
+
+    diagnostic_id: str
+    correlation_id: str | None
+    command_id: str | None
+    error: ErrorDetail
+
+
+CommandOutcome: TypeAlias = CommandSuccess[R] | CommandFailure
+
+
+def cli_exit_code(outcome: CommandOutcome[object]) -> int:
+    if outcome.ok:
+        return 0
+
+    code = outcome.error.code
+
+    if code == ErrorCode.INTERNAL_ERROR:
+        return 1
+
+    if code in {
+        ErrorCode.PROTOCOL_VERSION_MISMATCH,
+        ErrorCode.SCHEMA_VERSION_UNSUPPORTED,
+        ErrorCode.MALFORMED_ENVELOPE,
+        ErrorCode.TRUNCATED_FRAME,
+        ErrorCode.UNKNOWN_COMMAND,
+        ErrorCode.COMMAND_NOT_BACKED,
+        ErrorCode.INVALID_PARAMS,
+        ErrorCode.MISSING_IDEMPOTENCY_KEY,
+        ErrorCode.RECORD_NOT_FOUND,
+    } or outcome.error.phase == ErrorPhase.VALIDATION:
+        return 2
+
+    if code in {
+        ErrorCode.CLIENT_UNKNOWN,
+        ErrorCode.ACTOR_UNAUTHORIZED,
+        ErrorCode.SCOPE_UNAUTHORIZED,
+    }:
+        return 3
+
+    if code in {
+        ErrorCode.PEER_UNAVAILABLE,
+        ErrorCode.PROFILE_UNAVAILABLE,
+        ErrorCode.ROUTE_EXHAUSTED,
+        ErrorCode.ADMISSION_CLOSED,
+        ErrorCode.CONFIGURATION_STALE,
+        ErrorCode.POLICY_STALE,
+    } or outcome.error.phase == ErrorPhase.ADMISSION:
+        return 4
+
+    if code in {
+        ErrorCode.DUPLICATE_ID_CONTENT_MISMATCH,
+        ErrorCode.IDEMPOTENCY_PAYLOAD_MISMATCH,
+        ErrorCode.REVISION_CONFLICT,
+        ErrorCode.UNIQUE_CONSTRAINT_VIOLATED,
+        ErrorCode.EPOCH_STALE,
+        ErrorCode.CUTOVER_INPUT_DRIFT,
+        ErrorCode.CUTOVER_EPOCH_CONTENDED,
+        ErrorCode.MIGRATION_LOCK_LOST,
+        ErrorCode.WRITE_SCOPE_NOT_QUIESCED,
+        ErrorCode.PEERHUB_ERA_WRITES_PRESENT,
+    }:
+        return 7
+
+    if (
+        outcome.error.execution_certainty == ExecutionCertainty.NOT_STARTED
+        or outcome.error.phase == ErrorPhase.PRE_SPAWN
+    ):
+        return 5
+
+    return 6
