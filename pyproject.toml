@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pyright>=1.1.370", "hypothesis>=6.0"]
+dev = ["pytest>=8.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
