@@ -1884,15 +1884,16 @@ class SqliteDispatchRepository:
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
     ) -> SessionRotationGenerationSnapshot | None:
         """Return the current max generation for a session rotation key."""
         row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             """
             SELECT * FROM session_binding_generations
-            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ?
+            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ? AND conversation_scope = ?
             ORDER BY generation_id DESC LIMIT 1
             """,
-            (workspace_scope_id, instance_id, profile_id),
+            (workspace_scope_id, instance_id, profile_id, conversation_scope),
         ).fetchone()
         if row is None:
             return None
@@ -1905,6 +1906,7 @@ class SqliteDispatchRepository:
                 workspace_scope_id=row["workspace_scope_id"],
                 instance_id=row["instance_id"],
                 profile_id=row["profile_id"],
+                conversation_scope=row["conversation_scope"],
                 generation_id=row["generation_id"],
             ),
             conversation_id=row["conversation_id"],
@@ -1926,6 +1928,7 @@ class SqliteDispatchRepository:
                 workspace_scope_id,
                 instance_id,
                 profile_id,
+                conversation_scope,
                 generation_id,
                 conversation_id,
                 state,
@@ -1933,12 +1936,13 @@ class SqliteDispatchRepository:
                 claim_expiry,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 snapshot.key.workspace_scope_id,
                 snapshot.key.instance_id,
                 snapshot.key.profile_id,
+                snapshot.key.conversation_scope,
                 snapshot.key.generation_id,
                 snapshot.conversation_id,
                 snapshot.state.value,
@@ -1955,6 +1959,7 @@ class SqliteDispatchRepository:
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         expected_generation_id: int,
         claim_token: str,
         claim_expiry: int,
@@ -1965,7 +1970,7 @@ class SqliteDispatchRepository:
             """
             UPDATE session_binding_generations
             SET state = ?, claim_token = ?, claim_expiry = ?, updated_at = ?
-            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ? 
+            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ? AND conversation_scope = ?
               AND generation_id = ? AND state = ?
             """,
             (
@@ -1976,6 +1981,7 @@ class SqliteDispatchRepository:
                 workspace_scope_id,
                 instance_id,
                 profile_id,
+                conversation_scope,
                 expected_generation_id,
                 SessionRotationState.ACTIVE.value,
             )
@@ -1988,6 +1994,7 @@ class SqliteDispatchRepository:
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         expected_generation_id: int,
         claim_token: str,
         new_conversation_id: str,
@@ -1998,7 +2005,7 @@ class SqliteDispatchRepository:
             """
             UPDATE session_binding_generations
             SET state = ?, updated_at = ?
-            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ? 
+            WHERE workspace_scope_id = ? AND instance_id = ? AND profile_id = ? AND conversation_scope = ?
               AND generation_id = ? AND state = ? AND claim_token = ?
             """,
             (
@@ -2007,6 +2014,7 @@ class SqliteDispatchRepository:
                 workspace_scope_id,
                 instance_id,
                 profile_id,
+                conversation_scope,
                 expected_generation_id,
                 SessionRotationState.DRAINING.value,
                 claim_token,
@@ -2021,6 +2029,7 @@ class SqliteDispatchRepository:
                 workspace_scope_id,
                 instance_id,
                 profile_id,
+                conversation_scope,
                 generation_id,
                 conversation_id,
                 state,
@@ -2028,12 +2037,13 @@ class SqliteDispatchRepository:
                 claim_expiry,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 workspace_scope_id,
                 instance_id,
                 profile_id,
+                conversation_scope,
                 expected_generation_id + 1,
                 new_conversation_id,
                 SessionRotationState.ACTIVE.value,

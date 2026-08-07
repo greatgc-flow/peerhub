@@ -227,6 +227,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 12 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0012_session_rotation_conversation_scope.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

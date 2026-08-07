@@ -801,6 +801,7 @@ class SessionRotationKey:
     workspace_scope_id: str
     instance_id: str
     profile_id: str
+    conversation_scope: str
     generation_id: int
 
     def __post_init__(self) -> None:
@@ -808,6 +809,7 @@ class SessionRotationKey:
             "workspace_scope_id",
             "instance_id",
             "profile_id",
+            "conversation_scope",
         ):
             object.__setattr__(
                 self,

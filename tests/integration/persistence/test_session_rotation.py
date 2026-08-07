@@ -43,6 +43,7 @@ def test_session_rotation_cas_flow(repo):
         workspace_scope_id=scope,
         instance_id=inst,
         profile_id=prof,
+        conversation_scope="conv_scope_a",
         generation_id=1,
     )
 
@@ -62,6 +63,7 @@ def test_session_rotation_cas_flow(repo):
         workspace_scope_id=scope,
         instance_id=inst,
         profile_id=prof,
+        conversation_scope="conv_scope_a",
         expected_generation_id=2, # wrong
         claim_token="token_1",
         claim_expiry=200,
@@ -74,6 +76,7 @@ def test_session_rotation_cas_flow(repo):
         workspace_scope_id=scope,
         instance_id=inst,
         profile_id=prof,
+        conversation_scope="conv_scope_a",
         expected_generation_id=1,
         claim_token="token_1",
         claim_expiry=200,
@@ -86,6 +89,7 @@ def test_session_rotation_cas_flow(repo):
         workspace_scope_id=scope,
         instance_id=inst,
         profile_id=prof,
+        conversation_scope="conv_scope_a",
         expected_generation_id=1,
         claim_token="token_WRONG",
         new_conversation_id="conv_b",
@@ -98,6 +102,7 @@ def test_session_rotation_cas_flow(repo):
         workspace_scope_id=scope,
         instance_id=inst,
         profile_id=prof,
+        conversation_scope="conv_scope_a",
         expected_generation_id=1,
         claim_token="token_1",
         new_conversation_id="conv_b",
@@ -106,7 +111,7 @@ def test_session_rotation_cas_flow(repo):
     assert committed
 
     # Verify max generation is 2
-    max_gen = repo.get_max_rotation_generation(scope, inst, prof)
+    max_gen = repo.get_max_rotation_generation(scope, inst, prof, "conv_scope_a")
     assert max_gen.key.generation_id == 2
     assert max_gen.conversation_id == "conv_b"
     assert max_gen.state == SessionRotationState.ACTIVE
@@ -121,6 +126,7 @@ def test_session_rotation_sweep_expired(repo):
         workspace_scope_id=scope,
         instance_id=inst,
         profile_id=prof,
+        conversation_scope="conv_scope_a",
         generation_id=1,
     )
 
@@ -143,7 +149,7 @@ def test_session_rotation_sweep_expired(repo):
     swept = repo.sweep_expired_rotation_claims(current_time=150)
     assert swept == 1
     
-    max_gen = repo.get_max_rotation_generation(scope, inst, prof)
+    max_gen = repo.get_max_rotation_generation(scope, inst, prof, "conv_scope_a")
     assert max_gen.state == SessionRotationState.ACTIVE
     assert max_gen.claim_token is None
     assert max_gen.claim_expiry is None
