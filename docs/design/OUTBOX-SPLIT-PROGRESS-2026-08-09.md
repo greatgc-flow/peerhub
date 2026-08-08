@@ -1,0 +1,21 @@
+# Outbox Table Split — Progress & Continuation Notes (2026-08-09)
+
+Ratified design: `docs/design/` session history (cx proposed with real evidence, ag critiqued and corrected a real SQLite cross-table-CHECK impossibility). Executed as small, independently-verified increments after an earlier same-night attempt to do the full split in one dispatch broke the repo badly (747 new pyright errors, test collection failures) and was fully reverted.
+
+## Landed (all independently re-verified by cc, all green)
+
+1. **`a40c301`** — New tables (`event_log`, `consumer_offsets`, `effect_deliveries`, migration 0014) + `SqliteEventRepository` + `uow.events` facet. Purely additive, zero changes to `outbox_events`/`outbox_checkpoints` or any consumer.
+2. **`88c53e6`** — Dual-write: every event appended via `SqliteUnitOfWork.add_outbox_event()` now also lands in `event_log`. `TelemetryProjector` (the one consumer that never cared about delivery/claim state) fully migrated to read from `uow.events` instead of the old outbox methods.
+3. **`b652543`** — Governance dual-write: events carrying a `transition_receipt_id` also get a mirrored `effect_deliveries` row on creation; `claim_outbox_event()` mirrors claim fields onto it too. `GovernanceBroker` itself, `governance/mutations.py`, `governance/contract.py` are **completely untouched** — still reads/writes `outbox_events` exclusively, unaware `effect_deliveries` exists.
+
+**Current real state**: `effect_deliveries` has been silently, correctly accumulating real shadow data (mirroring every governance event's creation and claim) since commit `b652543` landed. It has NOT been read by anything yet — pure shadow-write, zero behavioral risk to the live system.
+
+## What's left (deliberately not started — this is the risky remaining part)
+
+**The hard cutover.** `GovernanceBroker`'s actual read/claim/complete cycle still queries `outbox_events` exclusively. Moving it onto `effect_deliveries` was assessed (by ag, independently reasoned) as **unsafe to attempt as a naive dual-run** — running both a legacy claim path and a new one over the same underlying work risks double-processing. It also can't be a same-night surprise cutover today because `effect_deliveries` only started backfilling from the moment `b652543` landed — any governance event that was already `PENDING`/`CLAIMED` in `outbox_events` *before* that commit has no corresponding `effect_deliveries` row and would be silently orphaned by a naive cutover.
+
+**Before attempting the cutover, whoever picks this up next needs to:**
+1. Confirm (empirically, on the real dev DB, not assumed) whether any governance events are currently sitting `PENDING`/`CLAIMED` in `outbox_events` from before `b652543` — if peerhub has had zero real governance traffic yet (plausible, pre-cutover from hub.py), this may be moot and a clean cutover is trivial. If there IS old unprocessed work, it needs an explicit backfill migration (create `effect_deliveries` rows for those specific pre-existing rows) before the read-path cutover, not silently dropped.
+2. Only then: flip `GovernanceBroker`'s find/claim/complete queries onto `effect_deliveries`, add the previously-deferred `effect_receipts` FK, and (as a final, separate step after that's proven solid) drop `outbox_events`/`outbox_checkpoints` entirely.
+
+**Do not attempt this in one dispatch.** The pattern that worked all three landed steps: investigate first (report findings, don't implement), cc reviews the investigation and approves a narrow scope, then implement that narrow scope only, independently re-verify (pyright + full pytest + `git diff --stat` confirming the claimed blast radius) before committing — never trust a single dispatch's self-reported test count without an independent fresh run (this session found the same peer profile reporting wrong test counts — sometimes wildly wrong, with real transient failures mixed in — on 2 consecutive dispatches even when the underlying work was ultimately correct).
