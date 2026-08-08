@@ -25,4 +25,7 @@ include = ["peerhub*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
-addopts = "-ra"
+addopts = "-ra -m 'not slow'"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
