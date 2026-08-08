@@ -558,6 +558,58 @@ class SqliteGovernanceRepository:
             ).fetchall()
             return tuple(self._delivery_outbox_from_row(row) for row in rows)
 
+    def claim_effect_delivery(
+            self,
+            event_id: str,
+            owner_id: str,
+            attempt_id: str,
+            claimed_at: int,
+        ) -> OutboxEvent | None:
+            """CAS-claim one unreceipted effect delivery and mirror legacy state."""
+
+            cursor = self._db().execute(
+                """
+                UPDATE effect_deliveries
+                SET
+                    claimed_by = ?,
+                    claim_attempt_id = ?,
+                    claimed_at = ?
+                WHERE
+                    event_id = ?
+                    AND claimed_by IS NULL
+                    AND claim_attempt_id IS NULL
+                    AND claimed_at IS NULL
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM effect_receipts
+                        WHERE outbox_event_id = effect_deliveries.event_id
+                    )
+                """,
+                (owner_id, attempt_id, claimed_at, event_id),
+            )
+            if cursor.rowcount != 1:
+                return None
+
+            legacy_claim = self.claim_outbox_event(
+                event_id,
+                owner_id,
+                attempt_id,
+                claimed_at,
+            )
+            if legacy_claim is None:
+                raise RuntimeError(
+                    "effect delivery claim could not be mirrored to "
+                    f"legacy outbox event {event_id!r}"
+                )
+
+            claimed = self.get_effect_delivery(event_id)
+            if claimed is None:
+                raise RuntimeError(
+                    "claimed effect delivery could not be reloaded for "
+                    f"event {event_id!r}"
+                )
+            return claimed
+
     def claim_outbox_event(
             self,
             event_id: str,

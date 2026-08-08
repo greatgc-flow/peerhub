@@ -599,6 +599,21 @@ class SqliteUnitOfWork:
         """Return ONLY pending (unclaimed) deliveries in outbox order."""
         return self.governance.list_claimable_effect_deliveries(limit=limit, after_position=after_position)
 
+    def claim_effect_delivery(
+        self,
+        event_id: str,
+        owner_id: str,
+        attempt_id: str,
+        claimed_at: int,
+    ) -> OutboxEvent | None:
+        """CAS-claim an effect delivery and mirror its legacy outbox state."""
+        return self.governance.claim_effect_delivery(
+            event_id,
+            owner_id,
+            attempt_id,
+            claimed_at,
+        )
+
     def claim_outbox_event(
         self,
         event_id: str,
