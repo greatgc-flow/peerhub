@@ -96,6 +96,10 @@ class ScopeKind(str, Enum):
     ANY = "ANY"
 
 
+class _ResourceOwnershipError(Exception):
+    """Signal a client/resource ownership mismatch to ``submit``."""
+
+
 @dataclass(frozen=True)
 class CommandDescriptor(Generic[C, R]):  # pyright: ignore[reportUntypedBaseClass]
     method: str
@@ -384,9 +388,9 @@ class ApplicationAPI:
             req = self._dispatch.get_request(cmd.target_command_id)
             if not req:
                 raise KeyError(cmd.target_command_id)
-            
-            # Scope check (simplified for now)
-            # In a real impl, compare req.scope to cmd.submission.scope or caller
+
+            if req.client_id != caller.client_id:
+                raise _ResourceOwnershipError()
 
             return DispatchRequestView(
                 command_id=str(req.command_id),
@@ -482,9 +486,12 @@ class ApplicationAPI:
             lease = self._dispatch.get_lease(cmd.lease_id)
             if not lease:
                 raise KeyError(cmd.lease_id)
-            
-            # Authorization: follow lease's fenced command ID to request and check scope
-            # ... scope check omitted for brevity, assuming authorized
+
+            request = self._dispatch.get_request(lease.fence.command_id)
+            if request is None:
+                raise KeyError(str(lease.fence.command_id))
+            if request.client_id != caller.client_id:
+                raise _ResourceOwnershipError()
 
             return DispatchLeaseView(
                 lease_id=lease.lease_id,
@@ -673,6 +680,24 @@ class ApplicationAPI:
                 result=encoded_res,
             )
             
+        except _ResourceOwnershipError:
+            return CommandFailure(
+                ok=False,
+                protocol_major=PROTOCOL_MAJOR,
+                protocol_minor=PROTOCOL_MINOR,
+                schema_version=SCHEMA_VERSION,
+                diagnostic_id="diag-9",
+                correlation_id=envelope.correlation_id,
+                command_id=None,
+                error=ErrorDetail(
+                    code=ErrorCode.CLIENT_UNKNOWN,
+                    phase=ErrorPhase.VALIDATION,
+                    execution_certainty=ExecutionCertainty.NOT_STARTED,
+                    retry_disposition=RetryDisposition.NEVER,
+                    message="Client ID mismatch",
+                    details={},
+                ),
+            )
         except KeyError as exc:
             return CommandFailure(
                 ok=False,

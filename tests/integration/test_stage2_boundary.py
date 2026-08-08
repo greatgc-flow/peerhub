@@ -409,6 +409,82 @@ def test_req_get_validation_error(runtime_setup):
     assert "target_command_id" in outcome2.error.message
 
 
+def test_request_get_enforces_resource_ownership(runtime_setup):
+    from unittest.mock import MagicMock
+    from types import SimpleNamespace
+    from peerhub.dispatch.contract import RequestState
+
+    rt, _, caller = runtime_setup
+    dispatch = MagicMock()
+    dispatch.get_request.return_value = SimpleNamespace(
+        command_id="cmd-123",
+        client_id="client-1",
+        client_request_id="original-request",
+        correlation_id="original-correlation",
+        authenticated_principal="user-1",
+        command_type="dispatch.admit",
+        idempotency_key="original-idempotency",
+        payload_digest="0" * 64,
+        scope={},
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        policy_revision=1,
+        configuration_revision=1,
+        selected_peer_instance_id="instance-1",
+        selected_profile_id="profile-1",
+        route_decision_digest="1" * 64,
+        lease_id="lease-123",
+        state=RequestState.ADMITTED,
+        revision=1,
+        created_at=1000,
+        updated_at=1000,
+        terminal_error_code=None,
+    )
+    rt.application_api._dispatch = dispatch
+
+    own_envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="lookup-own",
+        correlation_id="corr-own",
+        client_id="client-1",
+        actor_id="user-1",
+        scope={},
+        method="dispatch.request.get",
+        params={"target_command_id": "cmd-123"},
+        idempotency_key=None,
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+    own = rt.application_api.submit(own_envelope, caller=caller)
+    assert isinstance(own, CommandSuccess)
+    assert own.result["command_id"] == "cmd-123"
+
+    other_caller = RequestContext(principal="user-2", client_id="client-2")
+    other_envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="lookup-other",
+        correlation_id="corr-other",
+        client_id="client-2",
+        actor_id="user-2",
+        scope={},
+        method="dispatch.request.get",
+        params={"target_command_id": "cmd-123"},
+        idempotency_key=None,
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+    other = rt.application_api.submit(other_envelope, caller=other_caller)
+    assert isinstance(other, CommandFailure)
+    assert other.error.code is ErrorCode.CLIENT_UNKNOWN
+    assert other.error.execution_certainty is ExecutionCertainty.NOT_STARTED
+
+
 def test_lease_get_validation_error(runtime_setup):
     rt, client, caller = runtime_setup
     
@@ -492,8 +568,11 @@ def test_lease_get_success(runtime_setup):
         updated_at=1000
     )
     mock_dispatch.get_lease.return_value = lease
+    request = MagicMock()
+    request.client_id = "client-1"
+    mock_dispatch.get_request.return_value = request
     rt.application_api._dispatch = mock_dispatch
-    
+
     envelope = CommandEnvelope(
         protocol_major=PROTOCOL_MAJOR,
         protocol_minor=PROTOCOL_MINOR,
@@ -510,9 +589,114 @@ def test_lease_get_success(runtime_setup):
         expected_configuration_revision=None,
         client_timestamp=1000,
     )
-    
+
     outcome = rt.application_api.submit(envelope, caller=caller)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["revision"] == 42
     assert outcome.result["fence_revision"] == 42
     assert outcome.result["lease_id"] == "lease-123"
+
+
+def test_lease_get_enforces_resource_ownership(runtime_setup):
+    rt, _, caller = runtime_setup
+
+    from unittest.mock import MagicMock
+    from peerhub.dispatch.contract import LeaseSnapshot, LeaseState, LeaseFenceTuple, ProcessBirthIdentity
+    from peerhub.core.protocol import CommandID
+
+    mock_dispatch = MagicMock()
+    fence = LeaseFenceTuple(
+        session_id="sess-1",
+        lease_id="lease-123",
+        fencing_token=1,
+        revision=42,
+        owner_principal_id="principal-1",
+        owner_instance_id="instance-1",
+        owner_process_birth_identity=ProcessBirthIdentity(
+            pid=9999,
+            process_creation_time=1000,
+        ),
+        command_id=CommandID("cmd-123"),
+        authority_epoch=1,
+        attempt_id="att-1",
+        owner_peer_id="peer-1",
+    )
+    lease = LeaseSnapshot(
+        lease_id="lease-123",
+        session_id="sess-1",
+        fence=fence,
+        state=LeaseState.RESERVED,
+        heartbeat_expires_at=1000,
+        created_at=1000,
+        updated_at=1000,
+    )
+    mock_dispatch.get_lease.return_value = lease
+    request = MagicMock()
+    request.client_id = "client-1"
+    mock_dispatch.get_request.return_value = request
+    rt.application_api._dispatch = mock_dispatch
+
+    other_caller = RequestContext(principal="user-2", client_id="client-2")
+    envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="req-other",
+        correlation_id="corr-other",
+        client_id="client-2",
+        actor_id="user-2",
+        scope={},
+        method="dispatch.lease.get",
+        params={"lease_id": "lease-123"},
+        idempotency_key="idem-other",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+
+    outcome = rt.application_api.submit(envelope, caller=other_caller)
+    assert isinstance(outcome, CommandFailure)
+    assert outcome.error.code is ErrorCode.CLIENT_UNKNOWN
+    assert outcome.error.execution_certainty is ExecutionCertainty.NOT_STARTED
+
+
+def test_admit_route_exhausted(runtime_setup):
+    rt, client, caller = runtime_setup
+    
+    from unittest.mock import MagicMock
+    from peerhub.application.workflows import AdmissionWorkflowResult
+    
+    res = AdmissionWorkflowResult(
+        projected_terminal_events=0,
+        admission_snapshot=None,
+        route=MagicMock(error_code="exhausted"),
+        dispatch_admission=None
+    )
+    mock_workflows = MagicMock()
+    mock_workflows.admit_request.return_value = res
+    rt.application_api._workflows = mock_workflows
+
+    cmd = AdmitDispatch(
+        submission=SubmissionMetadata(
+            client_request_id="req-exhausted",
+            correlation_id="corr-1",
+            client_id="client-1",
+            actor_id="user-1",
+            scope={},
+            idempotency_key="idem-1",
+            expected_policy_revision=None,
+            expected_configuration_revision=None,
+            client_timestamp=1000,
+        ),
+        prompt="hello",
+        requested_capabilities=(),
+        profile_constraints={},
+        completion_contract={"kind": "DELIVERY_ONLY"},
+        session_policy={},
+    )
+    
+    outcome = client.submit(cmd)
+    
+    assert isinstance(outcome, CommandFailure)
+    assert outcome.error.code == ErrorCode.INTERNAL_ERROR
+
