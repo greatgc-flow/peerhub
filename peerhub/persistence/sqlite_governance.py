@@ -610,6 +610,89 @@ class SqliteGovernanceRepository:
                 )
             return claimed
 
+    def complete_effect_delivery(
+            self,
+            receipt: EffectReceipt,
+        ) -> bool:
+            """Guardedly complete one claimed delivery and mirror legacy state."""
+
+            cursor = self._db().execute(
+                """
+                INSERT INTO effect_receipts (
+                    effect_receipt_id,
+                    request_id,
+                    outbox_event_id,
+                    attempt_id,
+                    owner_id,
+                    outcome,
+                    completed_at,
+                    evidence_refs_json
+                )
+                SELECT
+                    ?,
+                    delivery.request_id,
+                    delivery.event_id,
+                    ?,
+                    ?,
+                    ?,
+                    ?,
+                    ?
+                FROM effect_deliveries AS delivery
+                LEFT JOIN effect_receipts AS existing
+                    ON existing.outbox_event_id = delivery.event_id
+                WHERE
+                    delivery.event_id = ?
+                    AND delivery.claimed_by = ?
+                    AND delivery.claim_attempt_id = ?
+                    AND delivery.claimed_at IS NOT NULL
+                    AND existing.outbox_event_id IS NULL
+                """,
+                (
+                    receipt.effect_receipt_id,
+                    receipt.attempt_id,
+                    receipt.owner_id,
+                    receipt.outcome.value,
+                    receipt.completed_at,
+                    _json_text(receipt.evidence_refs),
+                    receipt.outbox_event_id,
+                    receipt.owner_id,
+                    receipt.attempt_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                existing = self.get_effect_receipt(
+                    receipt.outbox_event_id
+                )
+                delivery = self.get_effect_delivery(
+                    receipt.outbox_event_id
+                )
+                if existing is not None:
+                    return (
+                        existing.owner_id == receipt.owner_id
+                        and existing.attempt_id == receipt.attempt_id
+                        and existing.outcome is receipt.outcome
+                    )
+                if delivery is None:
+                    return False
+                if (
+                    delivery.claimed_by != receipt.owner_id
+                    or delivery.claim_attempt_id != receipt.attempt_id
+                ):
+                    return False
+                return False
+
+            if not self.mark_outbox_consumed(
+                receipt.outbox_event_id,
+                receipt.owner_id,
+                receipt.attempt_id,
+                receipt.completed_at,
+            ):
+                raise RuntimeError(
+                    "effect delivery completion could not be mirrored to "
+                    f"legacy outbox event {receipt.outbox_event_id!r}"
+                )
+            return True
+
     def claim_outbox_event(
             self,
             event_id: str,

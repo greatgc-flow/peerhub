@@ -614,6 +614,13 @@ class SqliteUnitOfWork:
             claimed_at,
         )
 
+    def complete_effect_delivery(
+        self,
+        receipt: EffectReceipt,
+    ) -> bool:
+        """Guardedly complete an effect delivery and mirror legacy state."""
+        return self.governance.complete_effect_delivery(receipt)
+
     def claim_outbox_event(
         self,
         event_id: str,
