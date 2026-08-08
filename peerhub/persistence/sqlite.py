@@ -525,7 +525,27 @@ class SqliteUnitOfWork:
             predecessor_digest=event.predecessor_digest,
             recovery_context=event.recovery_context,
         )
-        self.events.append(envelope, appended_at=event.created_at)
+        outbox_position = self.events.append(envelope, appended_at=event.created_at)
+
+        if event.transition_receipt_id is not None:
+            self._db().execute(
+                """
+                INSERT INTO effect_deliveries (
+                    event_id,
+                    outbox_position,
+                    request_id,
+                    transition_receipt_id,
+                    topic
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    event.event_id,
+                    outbox_position,
+                    event.request_id,
+                    event.transition_receipt_id,
+                    event.topic,
+                ),
+            )
         
         return self.governance.add_outbox_event(event)
 
@@ -562,7 +582,20 @@ class SqliteUnitOfWork:
         claimed_at: int,
     ) -> OutboxEvent | None:
         """CAS-claim one pending outbox event."""
-        return self.governance.claim_outbox_event(event_id, owner_id, attempt_id, claimed_at)
+        claimed = self.governance.claim_outbox_event(event_id, owner_id, attempt_id, claimed_at)
+        if claimed is not None:
+            self._db().execute(
+                """
+                UPDATE effect_deliveries
+                SET
+                    claimed_by = ?,
+                    claim_attempt_id = ?,
+                    claimed_at = ?
+                WHERE event_id = ?
+                """,
+                (owner_id, attempt_id, claimed_at, event_id),
+            )
+        return claimed
 
     def mark_outbox_consumed(
         self,
