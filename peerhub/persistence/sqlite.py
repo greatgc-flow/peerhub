@@ -352,11 +352,36 @@ class SqliteUnitOfWork:
         self._store = store
         self._connection: sqlite3.Connection | None = None
         self._finished = False
-        self.governance = SqliteGovernanceRepository(self._db)
-        self.dispatch = SqliteDispatchRepository(self._db)
-        self.health = SqliteHealthRepository(self._db)
-        self.telemetry = SqliteTelemetryRepository(self._db)
-        self.routing = SqliteRoutingRepository(self._db)
+        self._governance = SqliteGovernanceRepository(self._db)
+        self._dispatch = SqliteDispatchRepository(self._db)
+        self._health = SqliteHealthRepository(self._db)
+        self._telemetry = SqliteTelemetryRepository(self._db)
+        self._routing = SqliteRoutingRepository(self._db)
+
+    @property
+    def governance(self) -> SqliteGovernanceRepository:
+        """The governance domain repository facet."""
+        return self._governance
+
+    @property
+    def dispatch(self) -> SqliteDispatchRepository:
+        """The dispatch domain repository facet."""
+        return self._dispatch
+
+    @property
+    def health(self) -> SqliteHealthRepository:
+        """The health domain repository facet."""
+        return self._health
+
+    @property
+    def telemetry(self) -> SqliteTelemetryRepository:
+        """The telemetry domain repository facet."""
+        return self._telemetry
+
+    @property
+    def routing(self) -> SqliteRoutingRepository:
+        """The routing domain repository facet."""
+        return self._routing
 
     def __enter__(self) -> SqliteUnitOfWork:
         """Open a connection and begin an immediate transaction."""
