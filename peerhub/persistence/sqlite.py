@@ -26,6 +26,7 @@ from peerhub.core.errors import (
 
 from peerhub.core.protocol import (
     CommandID,
+    EventEnvelope,
 )
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
@@ -506,7 +507,26 @@ class SqliteUnitOfWork:
         return self.governance.get_transition_receipt(receipt_id)
 
     def add_outbox_event(self, event: OutboxEvent) -> None:
-        """Insert one canonical pending outbox event."""
+        """Insert one canonical pending outbox event and dual-write to new event log."""
+        
+        # Dual-write mapping:
+        envelope = EventEnvelope(
+            protocol_major=event.protocol_major,
+            protocol_minor=event.protocol_minor,
+            schema_version=event.schema_version,
+            event_id=event.event_id,
+            correlation_id=event.correlation_id,
+            occurred_at=event.occurred_at,
+            kind=event.event_kind,
+            payload=event.payload,
+            request_id=event.request_id,
+            round_id=event.round_id,
+            evidence_refs=event.evidence_refs,
+            predecessor_digest=event.predecessor_digest,
+            recovery_context=event.recovery_context,
+        )
+        self.events.append(envelope, appended_at=event.created_at)
+        
         return self.governance.add_outbox_event(event)
 
     def get_outbox_event(

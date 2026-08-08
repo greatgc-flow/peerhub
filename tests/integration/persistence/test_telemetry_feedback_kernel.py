@@ -190,7 +190,7 @@ def test_projector_builds_projection_from_terminal_event(
     assert projection.latency.value is not None
 
     with store.unit_of_work() as unit:
-        checkpoint = unit.get_outbox_checkpoint(
+        checkpoint = unit.events.get_consumer_offset(
             "telemetry.operational.v1"
         )
     assert checkpoint is not None
@@ -303,11 +303,10 @@ def test_projector_checkpoint_and_projection_commit_atomically(
             "ag",
             "ag.deepthink",
         )
-        checkpoint = unit.get_outbox_checkpoint(
+        checkpoint = unit.events.get_consumer_offset(
             "telemetry.operational.v1"
         )
-        events = unit.list_outbox_events(
-            (OutboxState.PENDING,),
+        events = unit.events.list(
             limit=100,
         )
 

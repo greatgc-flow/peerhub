@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Protocol
 
 from peerhub.core.context import IdSource
@@ -23,9 +22,9 @@ from peerhub.core.protocol import (
     OperationalFailureCategory,
     require_text,
 )
-from peerhub.governance.contract import (
-    OutboxEvent,
-    OutboxState,
+from peerhub.events.contract import (
+    ConsumerOffset,
+    EventLogRecord,
 )
 from peerhub.state.contract import StateStore, UnitOfWork
 from peerhub.telemetry.contract import (
@@ -40,64 +39,40 @@ DEFAULT_CONSUMER_ID = "telemetry.operational.v1"
 _PROVIDER_ID = "peerhub.dispatch.service"
 
 
-class _CheckpointLike(Protocol):
-    consumer_id: str
-    outbox_position: int
-    event_id: str
-    revision: int
+class _EventRepository(Protocol):
+    def list(
+        self,
+        *,
+        limit: int,
+        after_position: int = 0,
+    ) -> tuple[EventLogRecord, ...]:
+        ...
 
+    def get_consumer_offset(
+        self,
+        consumer_id: str,
+    ) -> ConsumerOffset | None:
+        ...
 
-@dataclass(frozen=True)
-class _CheckpointValue:
-    consumer_id: str
-    outbox_position: int
-    event_id: str
-    revision: int
+    def add_consumer_offset(
+        self,
+        offset: ConsumerOffset,
+    ) -> None:
+        ...
 
-    def __post_init__(self) -> None:
-        require_text(self.consumer_id, "consumer_id")
-        require_text(self.event_id, "event_id")
-        if (
-            type(self.outbox_position) is not int
-            or self.outbox_position < 0
-        ):
-            raise ValueError(
-                "outbox_position must be a nonnegative integer"
-            )
-        if type(self.revision) is not int or self.revision < 1:
-            raise ValueError("revision must be a positive integer")
+    def cas_update_consumer_offset(
+        self,
+        current: ConsumerOffset,
+        updated: ConsumerOffset,
+    ) -> bool:
+        ...
 
 
 class TelemetryUnitOfWork(UnitOfWork, Protocol):
     """Store operations required by the operational projector."""
 
-    def list_outbox_events(
-        self,
-        states: tuple[OutboxState, ...],
-        *,
-        limit: int,
-        governance_only: bool = False,
-        after_position: int = 0,
-    ) -> tuple[OutboxEvent, ...]:
-        ...
-
-    def get_outbox_checkpoint(
-        self,
-        consumer_id: str,
-    ) -> _CheckpointLike | None:
-        ...
-
-    def add_outbox_checkpoint(
-        self,
-        checkpoint: _CheckpointLike,
-    ) -> None:
-        ...
-
-    def cas_update_outbox_checkpoint(
-        self,
-        current: _CheckpointLike,
-        updated: _CheckpointLike,
-    ) -> bool:
+    @property
+    def events(self) -> _EventRepository:
         ...
 
     def add_operational_observation(
@@ -190,23 +165,19 @@ def _required_int(
 
 
 def decode_attempt_terminal_event(
-    event: OutboxEvent,
+    event: EventLogRecord,
 ) -> AttemptTerminalObserved:
     """Decode and integrity-check one canonical terminal event."""
 
     if (
-        event.event_kind
+        event.envelope.kind
         != ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND
     ):
         raise ValueError(
             "event is not AttemptTerminalObserved"
         )
-    if event.outbox_position is None:
-        raise ValueError(
-            "persisted terminal event requires outbox_position"
-        )
 
-    payload = event.payload
+    payload = event.envelope.payload
     raw_category = payload.get(
         "operational_failure_category"
     )
@@ -283,7 +254,7 @@ def decode_attempt_terminal_event(
         evidence_refs=refs,
     )
 
-    if terminal.terminal_at != event.occurred_at:
+    if terminal.terminal_at != event.envelope.occurred_at:
         raise ValueError(
             "terminal_at must equal outbox occurred_at"
         )
@@ -294,7 +265,7 @@ def decode_attempt_terminal_event(
         raise ValueError(
             "latency does not match terminal_at-started_at"
         )
-    if tuple(event.evidence_refs) != terminal.evidence_refs:
+    if tuple(event.envelope.evidence_refs) != terminal.evidence_refs:
         raise ValueError(
             "payload and envelope evidence_refs differ"
         )
@@ -525,7 +496,7 @@ class TelemetryProjector:
             raise ValueError("limit must be a positive integer")
 
         with self._store.unit_of_work() as unit:
-            checkpoint = unit.get_outbox_checkpoint(
+            checkpoint = unit.events.get_consumer_offset(
                 self._consumer_id
             )
             after_position = (
@@ -533,12 +504,7 @@ class TelemetryProjector:
                 if checkpoint is None
                 else checkpoint.outbox_position
             )
-            events = unit.list_outbox_events(
-                (
-                    OutboxState.PENDING,
-                    OutboxState.CLAIMED,
-                    OutboxState.CONSUMED,
-                ),
+            events = unit.events.list(
                 limit=limit,
                 after_position=after_position,
             )
@@ -549,15 +515,11 @@ class TelemetryProjector:
                 projected += 1
         return projected
 
-    def _project_one(self, event: OutboxEvent) -> bool:
+    def _project_one(self, event: EventLogRecord) -> bool:
         position = event.outbox_position
-        if position is None:
-            raise ValueError(
-                "persisted outbox event has no position"
-            )
 
         with self._store.unit_of_work() as unit:
-            checkpoint = unit.get_outbox_checkpoint(
+            checkpoint = unit.events.get_consumer_offset(
                 self._consumer_id
             )
             if (
@@ -567,7 +529,7 @@ class TelemetryProjector:
                 return False
 
             if (
-                event.event_kind
+                event.envelope.kind
                 == ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND
             ):
                 terminal = decode_attempt_terminal_event(event)
@@ -575,7 +537,7 @@ class TelemetryProjector:
                     observation_id=self._ids.new_id(
                         "operational-observation"
                     ),
-                    source_event_id=event.event_id,
+                    source_event_id=event.envelope.event_id,
                     outbox_position=position,
                     terminal_event=terminal,
                 )
@@ -615,10 +577,10 @@ class TelemetryProjector:
                         ),
                     )
 
-            updated_checkpoint = _CheckpointValue(
+            updated_checkpoint = ConsumerOffset(
                 consumer_id=self._consumer_id,
                 outbox_position=position,
-                event_id=event.event_id,
+                event_id=event.envelope.event_id,
                 revision=(
                     1
                     if checkpoint is None
@@ -626,14 +588,14 @@ class TelemetryProjector:
                 ),
             )
             if checkpoint is None:
-                unit.add_outbox_checkpoint(
-                    updated_checkpoint  # pyright: ignore[reportArgumentType]
+                unit.events.add_consumer_offset(
+                    updated_checkpoint
                 )
-            elif not unit.cas_update_outbox_checkpoint(
+            elif not unit.events.cas_update_consumer_offset(
                 checkpoint,
-                updated_checkpoint,  # pyright: ignore[reportArgumentType]
+                updated_checkpoint,
             ):
-                latest = unit.get_outbox_checkpoint(
+                latest = unit.events.get_consumer_offset(
                     self._consumer_id
                 )
                 raise StaleRevisionError(
