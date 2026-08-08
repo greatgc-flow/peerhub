@@ -11,6 +11,7 @@ import pytest
 from peerhub.adapters.contract import (
     AdapterRequest,
     ArtifactSpec,
+    PeerAdapter,
     SessionAction,
 )
 from peerhub.application.workflows import ApplicationWorkflows
@@ -228,6 +229,7 @@ def _workflows(
     store: SqliteStateStore,
     *,
     start: int = 200,
+    peer_adapter: PeerAdapter | None = None,
 ) -> tuple[ApplicationWorkflows, DispatchService]:
     telemetry = TelemetryProjector(
         store,
@@ -257,6 +259,7 @@ def _workflows(
         health=health,
         routing=routing,
         dispatch=dispatch,
+        peer_adapter=peer_adapter,
     )
     return workflows, dispatch
 
@@ -292,7 +295,8 @@ def _admit_and_prepare(
 
 def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: SqliteStateStore) -> None:
     """Trivial subprocess exiting 0 cleanly with zero artifacts."""
-    workflows, dispatch = _workflows(store)
+    adapter = FakePeerAdapter(stdout="hello\n")
+    workflows, dispatch = _workflows(store, peer_adapter=adapter)
     cmd_id = _admit_and_prepare(workflows, _envelope())
 
     workspace_root = tmp_path / "ws"
@@ -314,13 +318,10 @@ def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: S
         completion_contract=contract,
     )
     limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
-    adapter = FakePeerAdapter(stdout="hello\n")
-
     res = workflows.dispatch_and_execute(
         cmd_id,
         materializer=materializer,
         adapter_request=adapter_req,
-        peer_adapter=adapter,
         profile=_FAKE_PROFILE,
         limits=limits,
         workspace_roots={"ws-1": workspace_root},

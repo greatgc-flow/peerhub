@@ -5,17 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from types import TracebackType
 
+from .adapters.contract import PeerAdapter
+from .adapters.registry import resolve_peer_adapter
+from .application.api import AdmissionInputsProvider, ApplicationAPI
+from .application.workflows import ApplicationWorkflows
 from .core.context import RuntimeContext
 from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
-from .persistence.sqlite import SqliteStateStore
-
-from .telemetry.projections import TelemetryProjector
 from .health.contract import HealthPolicy, HealthScopeMembershipSnapshot
 from .health.service import HealthService
+from .persistence.sqlite import SqliteStateStore
 from .routing.service import RoutingService
-from .application.workflows import ApplicationWorkflows
-from .application.api import ApplicationAPI
+from .telemetry.projections import TelemetryProjector
 
 
 @dataclass
@@ -26,7 +27,8 @@ class Runtime:
     state_store: SqliteStateStore
     governance_broker: GovernanceBroker
     dispatch_service: DispatchService
-    
+    peer_adapter: PeerAdapter
+
     telemetry_projector: TelemetryProjector
     health_service: HealthService
     routing_service: RoutingService
@@ -54,16 +56,15 @@ class Runtime:
         del exception_type, exception, traceback
         self.close()
 
-
-from .application.workflows import ApplicationWorkflows
-from .application.api import ApplicationAPI, AdmissionInputsProvider
-
 def create_runtime(
     context: RuntimeContext,
     *,
     admission_provider: AdmissionInputsProvider | None = None,
+    adapter_peer_kind: str = "fake",
 ) -> Runtime:
     """Create the composed Phase 1 runtime."""
+
+    peer_adapter = resolve_peer_adapter(adapter_peer_kind)
 
     state_store = SqliteStateStore(
         context.paths.database_path,
@@ -132,6 +133,7 @@ def create_runtime(
         health=health_service,
         routing=routing_service,
         dispatch=dispatch_service,
+        peer_adapter=peer_adapter,
     )
 
     application_api = ApplicationAPI(
@@ -147,6 +149,7 @@ def create_runtime(
         state_store=state_store,
         governance_broker=governance_broker,
         dispatch_service=dispatch_service,
+        peer_adapter=peer_adapter,
         telemetry_projector=telemetry_projector,
         health_service=health_service,
         routing_service=routing_service,

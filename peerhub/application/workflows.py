@@ -163,11 +163,13 @@ class ApplicationWorkflows:
         health: HealthService,
         routing: RoutingService,
         dispatch: DispatchService,
+        peer_adapter: PeerAdapter | None = None,
     ) -> None:
         self._telemetry = telemetry
         self._health = health
         self._routing = routing
         self._dispatch = dispatch
+        self._peer_adapter = peer_adapter
 
     @staticmethod
     def _selected_candidate(
@@ -506,7 +508,7 @@ class ApplicationWorkflows:
         *,
         materializer: ArtifactMaterializer,
         adapter_request: AdapterRequest,
-        peer_adapter: PeerAdapter,
+        peer_adapter: PeerAdapter | None = None,
         profile: ProfileDescriptor,
         limits: TransportLimits,
         workspace_roots: Mapping[str, Path],
@@ -519,8 +521,13 @@ class ApplicationWorkflows:
         """Dispatch and execute an admitted/prepared command through process supervision."""
 
         dispatch_service = service if service is not None else self._dispatch
+        selected_peer_adapter = (
+            peer_adapter if peer_adapter is not None else self._peer_adapter
+        )
+        if selected_peer_adapter is None:
+            raise ValueError("peer_adapter is required")
 
-        invocation_plan = peer_adapter.plan_invocation(
+        invocation_plan = selected_peer_adapter.plan_invocation(
             request=adapter_request,
             profile=profile,
             session=None,
@@ -784,7 +791,7 @@ class ApplicationWorkflows:
             timed_out=execution_outcome.timed_out,
             cancelled=execution_outcome.cancelled,
         )
-        protocol_assessment = peer_adapter.interpret_output(
+        protocol_assessment = selected_peer_adapter.interpret_output(
             invocation_plan,
             terminal_evidence,
             raw_chunks,
