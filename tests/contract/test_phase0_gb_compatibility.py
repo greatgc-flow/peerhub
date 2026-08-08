@@ -17,7 +17,12 @@ from peerhub.core.errors import (
     IdempotencyPayloadMismatchError,
     StaleRevisionError,
 )
-from peerhub.core.protocol import CommandID
+from peerhub.core.protocol import (
+    CommandID,
+    PROTOCOL_MAJOR,
+    PROTOCOL_MINOR,
+    SCHEMA_VERSION,
+)
 from peerhub.governance.broker import (
     FaultPoint,
     GovernanceBroker,
@@ -27,6 +32,7 @@ from peerhub.governance.contract import (
     EffectOutcome,
     MutationDisposition,
     MutationRequest,
+    OutboxEvent,
     OutboxState,
     RecoveryDisposition,
 )
@@ -351,3 +357,139 @@ def test_gb06_exclusive_claim_rejects_contender(
         outcome=EffectOutcome.EFFECT_SUCCEEDED,
     )
     assert receipt.owner_id == "owner-ag"
+
+
+def test_recover_pending_effects_excludes_pure_dispatch_events(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([950]),
+        ids=FakeIdSource(
+            [
+                "plan-recovery-gov",
+                "receipt-recovery-gov",
+                "outbox-recovery-gov",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="recovery-gov",
+            target_id="target-recovery-gov",
+            expected_revision=0,
+            idempotency_key="recovery-gov",
+            value=7,
+        )
+    )
+    dispatch_event = OutboxEvent(
+        event_id=deterministic_uuid4("dispatch-recovery-only"),
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        correlation_id="correlation-dispatch-recovery",
+        occurred_at=951,
+        event_kind="dispatch.attempt.started",
+        payload={"attempt_id": "attempt-dispatch-recovery"},
+        state=OutboxState.PENDING,
+        created_at=951,
+    )
+    with store.unit_of_work() as unit:
+        unit.add_outbox_event(dispatch_event)
+        unit.commit()
+
+    recovered = broker.recover_pending_effects()
+
+    assert tuple(item.event.event_id for item in recovered) == (
+        submission.receipt.outbox_event_id,
+    )
+    with store.unit_of_work() as unit:
+        assert unit.get_effect_delivery(dispatch_event.event_id) is None
+
+
+def test_recover_pending_effects_preserves_limit_and_position_order(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([960, 961, 962]),
+        ids=FakeIdSource(
+            [
+                "plan-recovery-limit-1",
+                "receipt-recovery-limit-1",
+                "outbox-recovery-limit-1",
+                "plan-recovery-limit-2",
+                "receipt-recovery-limit-2",
+                "outbox-recovery-limit-2",
+                "plan-recovery-limit-3",
+                "receipt-recovery-limit-3",
+                "outbox-recovery-limit-3",
+            ]
+        ),
+    )
+    submissions = tuple(
+        broker.submit(
+            _request(
+                suffix=f"recovery-limit-{index}",
+                target_id=f"target-recovery-limit-{index}",
+                expected_revision=0,
+                idempotency_key=f"recovery-limit-{index}",
+                value=index,
+            )
+        )
+        for index in range(1, 4)
+    )
+
+    recovered = broker.recover_pending_effects(limit=2)
+
+    assert tuple(item.event.event_id for item in recovered) == tuple(
+        submission.receipt.outbox_event_id
+        for submission in submissions[:2]
+    )
+    assert [item.event.outbox_position for item in recovered] == sorted(
+        item.event.outbox_position for item in recovered
+    )
+
+
+def test_recover_pending_effects_keeps_claimed_unreceipted_delivery(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([970, 971]),
+        ids=FakeIdSource(
+            [
+                "plan-recovery-claimed",
+                "receipt-recovery-claimed",
+                "outbox-recovery-claimed",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="recovery-claimed",
+            target_id="target-recovery-claimed",
+            expected_revision=0,
+            idempotency_key="recovery-claimed",
+            value=8,
+        )
+    )
+    claimed = broker.claim_effect(
+        submission.receipt.outbox_event_id,
+        owner_id="owner-recovery-claimed",
+        attempt_id="attempt-recovery-claimed",
+    )
+
+    recovered = broker.recover_pending_effects()
+
+    assert len(recovered) == 1
+    assert recovered[0].event.event_id == claimed.event_id
+    assert recovered[0].event.state is OutboxState.CLAIMED
+    assert (
+        recovered[0].disposition
+        is RecoveryDisposition.CONFIRMATION_REQUIRED
+    )
+    assert broker.get_effect_receipt(claimed.event_id) is None

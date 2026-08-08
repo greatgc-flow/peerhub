@@ -131,6 +131,16 @@ class GovernanceUnitOfWork(UnitOfWork, Protocol):
 
         ...
 
+    def list_unfinished_effect_deliveries(
+        self,
+        *,
+        limit: int,
+        after_position: int = 0,
+    ) -> tuple[OutboxEvent, ...]:
+        """Return unreceipted effect deliveries in workspace order."""
+
+        ...
+
     def claim_outbox_event(
         self,
         event_id: str,
@@ -369,13 +379,8 @@ class GovernanceBroker:
             raise ValueError("limit must be a positive integer")
 
         with self._store.unit_of_work() as unit:
-            events = unit.list_outbox_events(
-                (
-                    OutboxState.PENDING,
-                    OutboxState.CLAIMED,
-                ),
+            events = unit.list_unfinished_effect_deliveries(
                 limit=limit,
-                governance_only=True,
             )
             pending: list[PendingEffect] = []
             for event in events:
