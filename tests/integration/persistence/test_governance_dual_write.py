@@ -242,3 +242,18 @@ def test_dispatch_event_does_not_dual_write_to_effect_deliveries(
 
     delivery = _get_effect_delivery(store, event_id)
     assert delivery is None
+
+    # Claiming a dispatch event should succeed without failing (the SQL UPDATE simply matches 0 rows)
+    with store.unit_of_work() as unit:
+        claimed = unit.claim_outbox_event(
+            event_id,
+            owner_id="owner-dispatch",
+            attempt_id="attempt-dispatch",
+            claimed_at=310,
+        )
+        assert claimed is not None
+        unit.commit()
+    
+    # And there should still be no delivery row created
+    delivery_after_claim = _get_effect_delivery(store, event_id)
+    assert delivery_after_claim is None
