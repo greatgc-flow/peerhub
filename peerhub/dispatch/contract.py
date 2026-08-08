@@ -816,7 +816,8 @@ class SessionRotationKey:
                 name,
                 require_text(getattr(self, name), name),
             )
-        _require_nonnegative_int(self.generation_id, "generation_id")
+        if not isinstance(self.generation_id, int) or self.generation_id < 1:  # pyright: ignore[reportUnnecessaryIsInstance]  # defensive: type hints aren't runtime-enforced across construction boundaries
+            raise ValueError(f"generation_id must be an integer >= 1, got {self.generation_id}")
 
 
 @dataclass(frozen=True)

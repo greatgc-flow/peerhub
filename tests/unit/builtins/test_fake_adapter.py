@@ -7,8 +7,15 @@ from __future__ import annotations
 
 import pytest
 
-from peerhub.adapters.contract import DecoderEventKind, OutputChannel
+from typing import cast
+
+from peerhub.adapters.contract import (
+    DecoderEventKind,
+    InvocationPlan,
+    OutputChannel,
+)
 from peerhub.builtins.fake_adapter import FakePeerAdapter, _split_canonical_lines
+from peerhub.core.execution import ProcessTerminalEvidence
 
 
 def test_empty_stream_yields_empty_output():
@@ -101,6 +108,32 @@ def test_decoded_output_accumulates_all_emitted_events():
     decoded = adapter.finalize_decoded_output()
     assert len(decoded.events) == 2
     assert all(e.kind is DecoderEventKind.ASSISTANT_TEXT for e in decoded.events)
+
+
+@pytest.mark.parametrize(
+    ("timed_out", "cancelled"),
+    ((True, False), (False, True)),
+)
+def test_interpret_output_receives_shared_terminal_evidence(
+    timed_out: bool,
+    cancelled: bool,
+):
+    adapter = FakePeerAdapter()
+    process = ProcessTerminalEvidence(
+        exit_code=0,
+        timed_out=timed_out,
+        cancelled=cancelled,
+    )
+
+    assessment = adapter.interpret_output(
+        cast(InvocationPlan, object()),
+        process,
+        (b"response",),
+    )
+
+    assert assessment.vendor_completion_marker is False
+    assert assessment.suspected_truncation is True
+    assert assessment.protocol_failure is not None
 
 
 class TestSplitCanonicalLines:

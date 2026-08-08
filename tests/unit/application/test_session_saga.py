@@ -60,6 +60,7 @@ def test_reuse_at_hard_limit_does_not_rotate_returns_checkpoint_required():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=True,
     )
@@ -77,6 +78,7 @@ def test_auto_with_pressure_and_safe_signal_claims_rotation():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=True,
     )
@@ -95,6 +97,7 @@ def test_auto_with_pressure_no_safe_signal_does_not_rotate():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=False,
     )
@@ -112,6 +115,7 @@ def test_auto_with_stale_absent_evidence_fails_safe_does_not_rotate():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=True,
     )
@@ -129,6 +133,7 @@ def test_estimated_source_evidence_fails_safe_does_not_rotate():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=True,
     )
@@ -146,6 +151,7 @@ def test_stale_exact_attribution_evidence_fails_safe_does_not_rotate():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=True,
         max_observation_age_ms=300, # Clock is at 1000, diff is 500 > 300
@@ -164,6 +170,7 @@ def test_concurrent_claim_attempt_fails():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=True,
     )
@@ -182,6 +189,7 @@ def test_fresh_always_claims_rotation():
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
+        conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=False,
     )

@@ -143,6 +143,7 @@ class TelemetryUnitOfWork(UnitOfWork, Protocol):
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         generation_id: int,
     ) -> SessionContextProjectionSnapshot | None:
         ...

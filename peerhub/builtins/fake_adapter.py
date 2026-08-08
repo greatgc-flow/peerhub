@@ -250,14 +250,14 @@ class FakePeerAdapter:
         # Basic pattern-based success classification for the test double.
         success = (
             process.exit_code == 0
-            and not process.timed_out  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
-            and not process.cancelled  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+            and not process.timed_out
+            and not process.cancelled
         )
         return ProtocolAssessment(
             parsed=True,
             response_present=len(raw_chunks) > 0,
             vendor_completion_marker=success,
-            suspected_truncation=process.timed_out or process.cancelled,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+            suspected_truncation=process.timed_out or process.cancelled,
             protocol_failure=None if success else ErrorCode.PROTOCOL_ASSESSMENT_FAILED,
         )
 

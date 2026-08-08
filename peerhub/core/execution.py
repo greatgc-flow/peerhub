@@ -29,19 +29,31 @@ class TransportKind(str, Enum):
 
 @dataclass(frozen=True)
 class ProcessTerminalEvidence:
-    """Terminal evidence observed from a child process execution."""
+    """Neutral process facts exposed to vendor protocol adapters.
 
-    exit_code: int
+    This is an ephemeral adapter view, not a second authoritative outcome.
+    ``dispatch.contract.ExecutionOutcome`` remains the durable owner of
+    execution state; the application workflow projects only the facts an
+    adapter needs to assess framing and truncation into this core-owned DTO.
+    """
+
+    exit_code: int | None
     signal: int | None = None
     terminated_at: int = 0
+    timed_out: bool = False
+    cancelled: bool = False
 
     def __post_init__(self) -> None:
-        if type(self.exit_code) is not int:
-            raise ValueError("exit_code must be an integer")
+        if self.exit_code is not None and type(self.exit_code) is not int:
+            raise ValueError("exit_code must be an integer or null")
         if self.signal is not None and type(self.signal) is not int:
             raise ValueError("signal must be None or an integer")
         if type(self.terminated_at) is not int or self.terminated_at < 0:
             raise ValueError("terminated_at must be a nonnegative integer")
+        if type(self.timed_out) is not bool:
+            raise ValueError("timed_out must be a boolean")
+        if type(self.cancelled) is not bool:
+            raise ValueError("cancelled must be a boolean")
 
 
 @dataclass(frozen=True)

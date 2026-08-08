@@ -1511,8 +1511,21 @@ CREATE TABLE session_binding_generations (
         """
     )
 
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (1, '0001_phase1_kernel');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (2, '0002_dispatch_session_lease');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (3, '0003_command_request_attempt');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (4, '0004_idempotency_aliases');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (5, '0005_health_routing');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (6, '0006_recovery_probe_single_flight');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (7, '0007_health_projection_readiness_context');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (8, '0008_dispatch_artifact_metadata');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (9, '0009_session_binding_generations');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (10, '0010_session_context_telemetry');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (11, '0011_admission_snapshot_configuration_digest');")
+    op.execute("INSERT INTO schema_migrations(version, name) VALUES (12, '0012_session_rotation_conversation_scope');")
+    op.execute("PRAGMA user_version = 12;")
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    pass
+    raise NotImplementedError("no prior revision to downgrade to")

@@ -24,6 +24,7 @@ from peerhub.core.protocol import (
     RevisionValue,
 )
 from peerhub.core.execution import (
+    ProcessTerminalEvidence,
     TransportLimits,
 )
 from peerhub.dispatch.artifacts import (
@@ -777,14 +778,20 @@ class ApplicationWorkflows:
 
         # Step 7: Assess completion and begin assessment
         raw_chunks = (process_outcome.canonical_stream,) if process_outcome.canonical_stream else ()
+        execution_outcome = process_outcome.execution_outcome
+        terminal_evidence = ProcessTerminalEvidence(
+            exit_code=execution_outcome.exit_code,
+            timed_out=execution_outcome.timed_out,
+            cancelled=execution_outcome.cancelled,
+        )
         protocol_assessment = peer_adapter.interpret_output(
             invocation_plan,
-            process_outcome.execution_outcome,  # pyright: ignore[reportArgumentType]
+            terminal_evidence,
             raw_chunks,
         )
         assessment = assess_completion(
             completion_contract,
-            process_outcome.execution_outcome,
+            execution_outcome,
             protocol_assessment,
         )
         dispatch_service.begin_assessment(command_id, attempt.attempt_id)

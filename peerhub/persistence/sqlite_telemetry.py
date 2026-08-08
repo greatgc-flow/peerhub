@@ -565,6 +565,7 @@ class SqliteTelemetryRepository:
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         generation_id: int,
     ) -> SessionContextProjectionSnapshot | None:
         """Return the current context occupancy by binding+generation."""
@@ -575,9 +576,10 @@ class SqliteTelemetryRepository:
             WHERE workspace_scope_id = ? 
               AND instance_id = ? 
               AND profile_id = ? 
+              AND conversation_scope = ?
               AND generation_id = ?
             """,
-            (workspace_scope_id, instance_id, profile_id, generation_id),
+            (workspace_scope_id, instance_id, profile_id, conversation_scope, generation_id),
         ).fetchone()
         return None if row is None else self._session_context_projection_from_row(row)
 

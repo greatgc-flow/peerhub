@@ -3,9 +3,17 @@
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, TypeVar, Generic, Protocol
+import math
+from typing import Any, TypeVar, Generic, Protocol, cast
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.ports import RequestContext
@@ -41,6 +49,30 @@ from peerhub.application.commands import (
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
 R = TypeVar("R")  # pyright: ignore[reportUnknownVariableType]
+
+
+def _validate_wire_json_value(value: object) -> None:
+    """Reject non-JSON values without coercing caller input."""
+
+    if value is None or type(value) in {str, int, bool}:
+        return
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise ValueError("JSON numbers must be finite")
+        return
+    if isinstance(value, list):
+        for item in cast(list[object], value):
+            _validate_wire_json_value(item)
+        return
+    if isinstance(value, dict):
+        for key, item in cast(dict[object, object], value).items():
+            if not isinstance(key, str):
+                raise ValueError("JSON object keys must be strings")
+            _validate_wire_json_value(item)
+        return
+    raise ValueError(
+        f"unsupported JSON value type: {type(value).__name__}"
+    )
 
 
 class CommandAvailability(str, Enum):
@@ -116,12 +148,58 @@ def reconstruct_envelope(cmd: Command[Any]) -> CommandEnvelope:  # pyright: igno
     )
 
 
+class CompletionContractPayload(BaseModel):
+    """Strict wire representation of a caller completion contract."""
+
+    model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
+    kind: str = CompletionContractKind.DELIVERY_ONLY.value
+    requirements: list[dict[str, object]] = Field(  # pyright: ignore[reportUnknownVariableType]
+        default_factory=list
+    )
+    replay_safe: bool = True
+
+    @field_validator("kind")
+    @classmethod
+    def validate_kind(cls, value: str) -> str:
+        try:
+            CompletionContractKind(value)
+        except ValueError as exc:
+            raise ValueError(
+                "kind must be a valid CompletionContractKind"
+            ) from exc
+        return value
+
+    @field_validator("requirements")
+    @classmethod
+    def validate_requirement_values(
+        cls,
+        value: list[dict[str, object]],
+    ) -> list[dict[str, object]]:
+        for requirement in value:
+            _validate_wire_json_value(requirement)
+        return value
+
+    @model_validator(mode="after")
+    def validate_requirements(self) -> "CompletionContractPayload":
+        if (
+            CompletionContractKind(self.kind)
+            is not CompletionContractKind.DELIVERY_ONLY
+            and not self.requirements
+        ):
+            raise ValueError(
+                "non-delivery completion contracts need requirements"
+            )
+        return self
+
+
 class AdmitDispatchPayload(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
     prompt: str = ""
     requested_capabilities: list[str] = Field(default_factory=list)
     profile_constraints: dict[str, Any] = Field(default_factory=dict)
-    completion_contract: dict[str, Any] = Field(default_factory=dict)
+    completion_contract: CompletionContractPayload = Field(
+        default_factory=CompletionContractPayload
+    )
     session_policy: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -186,7 +264,9 @@ class ApplicationAPI:
                 prompt=payload.prompt,
                 requested_capabilities=tuple(payload.requested_capabilities),
                 profile_constraints=freeze_json_mapping(payload.profile_constraints),
-                completion_contract=freeze_json_mapping(payload.completion_contract),
+                completion_contract=freeze_json_mapping(
+                    payload.completion_contract.model_dump(mode="json")
+                ),
                 session_policy=freeze_json_mapping(payload.session_policy),
             )
 
@@ -198,12 +278,14 @@ class ApplicationAPI:
             env = reconstruct_envelope(cmd)
 
             cc_in = cmd.completion_contract
-            kind_val = cc_in.get("kind", "DELIVERY_ONLY")
             cc = CompletionContract(
                 contract_id=f"{cmd.submission.client_request_id}-cc",
-                kind=CompletionContractKind(kind_val),
-                requirements=tuple(cc_in.get("requirements", [])),  # type: ignore
-                replay_safe=bool(cc_in.get("replay_safe", True)),
+                kind=CompletionContractKind(cast(str, cc_in["kind"])),
+                requirements=cast(
+                    tuple[Mapping[str, JsonValue], ...],
+                    cc_in["requirements"],
+                ),
+                replay_safe=cast(bool, cc_in["replay_safe"]),
             )
 
             res = self._workflows.admit_request(
@@ -407,7 +489,7 @@ class ApplicationAPI:
             return DispatchLeaseView(
                 lease_id=lease.lease_id,
                 state=lease.state,
-                revision=lease.revision,  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                revision=lease.fence.revision,
                 created_at=lease.created_at,
                 updated_at=lease.updated_at,
                 fence_command_id=str(lease.fence.command_id) if lease.fence.command_id else None,

@@ -8,6 +8,7 @@ from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, Adm
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
 from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG
 from peerhub.client import Client
+from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import CommandEnvelope, CommandSuccess, CommandFailure, ErrorCode, PROTOCOL_MAJOR, PROTOCOL_MINOR, SCHEMA_VERSION, IdempotencyDisposition
 from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
@@ -103,12 +104,19 @@ def test_admit_success(runtime_setup, monkeypatch):
         prompt="hello",
         requested_capabilities=(),
         profile_constraints={},
-        completion_contract={"kind": "DELIVERY_ONLY"},
+        completion_contract={
+            "kind": "DELIVERY_ONLY",
+            "replay_safe": False,
+        },
         session_policy={},
     )
     
     outcome = client.submit(cmd)
     assert isinstance(outcome, CommandSuccess)
+    frozen_contract = mock_workflows.admit_request.call_args.kwargs[
+        "completion_contract"
+    ]
+    assert frozen_contract.replay_safe is False
 
 
 def test_missing_idempotency_key(runtime_setup):
@@ -162,6 +170,52 @@ def test_admit_validation_error(runtime_setup):
     assert isinstance(outcome, CommandFailure)
     assert outcome.error.code == ErrorCode.INVALID_PARAMS
     assert "unexpected_extra" in outcome.error.message
+
+
+@pytest.mark.parametrize(
+    "completion_contract",
+    (
+        {"replay_safe": "false"},
+        {"kind": "NOT_A_COMPLETION_KIND"},
+        {"kind": "ARTIFACT_REQUIRED", "requirements": []},
+        {"requirements": {"field": "status"}},
+        {"requirements": ["not-an-object"]},
+        {"unexpected_extra": True},
+    ),
+)
+def test_admit_rejects_malformed_completion_contract_at_decode(
+    runtime_setup,
+    completion_contract: dict[str, Any],
+):
+    rt, _, caller = runtime_setup
+    envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="req-malformed-contract",
+        correlation_id="corr-malformed-contract",
+        client_id="client-1",
+        actor_id="user-1",
+        scope={},
+        method="dispatch.admit",
+        params={
+            "prompt": "hello",
+            "completion_contract": completion_contract,
+        },
+        idempotency_key="idem-malformed-contract",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+
+    outcome = rt.application_api.submit(envelope, caller=caller)
+
+    assert isinstance(outcome, CommandFailure)
+    assert outcome.error.code is ErrorCode.INVALID_PARAMS
+    assert (
+        outcome.error.execution_certainty
+        is ExecutionCertainty.NOT_STARTED
+    )
 
 def test_unauthorized_client(runtime_setup):
     rt, client, _ = runtime_setup
@@ -402,3 +456,63 @@ def test_lease_get_validation_error(runtime_setup):
     assert isinstance(outcome2, CommandFailure)
     assert outcome2.error.code == ErrorCode.INVALID_PARAMS
     assert "lease_id" in outcome2.error.message
+
+
+def test_lease_get_success(runtime_setup):
+    rt, client, caller = runtime_setup
+    
+    from unittest.mock import MagicMock
+    from peerhub.dispatch.contract import LeaseSnapshot, LeaseState, LeaseFenceTuple, ProcessBirthIdentity
+    from peerhub.core.protocol import CommandID
+
+    mock_dispatch = MagicMock()
+    fence = LeaseFenceTuple(
+        session_id="sess-1",
+        lease_id="lease-123",
+        fencing_token=1,
+        revision=42,
+        owner_principal_id="principal-1",
+        owner_instance_id="instance-1",
+        owner_process_birth_identity=ProcessBirthIdentity(
+            pid=9999,
+            process_creation_time=1000,
+        ),
+        command_id=CommandID("cmd-123"),
+        authority_epoch=1,
+        attempt_id="att-1",
+        owner_peer_id="peer-1",
+    )
+    lease = LeaseSnapshot(
+        lease_id="lease-123",
+        session_id="sess-1",
+        fence=fence,
+        state=LeaseState.RESERVED,
+        heartbeat_expires_at=1000,
+        created_at=1000,
+        updated_at=1000
+    )
+    mock_dispatch.get_lease.return_value = lease
+    rt.application_api._dispatch = mock_dispatch
+    
+    envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="req-1",
+        correlation_id="corr-1",
+        client_id="client-1",
+        actor_id="user-1",
+        scope={},
+        method="dispatch.lease.get",
+        params={"lease_id": "lease-123"},
+        idempotency_key="idem-1",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=1000,
+    )
+    
+    outcome = rt.application_api.submit(envelope, caller=caller)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["revision"] == 42
+    assert outcome.result["fence_revision"] == 42
+    assert outcome.result["lease_id"] == "lease-123"

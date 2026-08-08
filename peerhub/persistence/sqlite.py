@@ -804,10 +804,11 @@ class SqliteUnitOfWork:
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         generation_id: int,
     ) -> SessionContextProjectionSnapshot | None:
         """Return the current context occupancy by binding+generation."""
-        return self.telemetry.get_session_context_projection(workspace_scope_id, instance_id, profile_id, generation_id)
+        return self.telemetry.get_session_context_projection(workspace_scope_id, instance_id, profile_id, conversation_scope, generation_id)
 
     def add_session_context_projection(
         self,

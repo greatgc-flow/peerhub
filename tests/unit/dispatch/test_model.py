@@ -473,5 +473,39 @@ class TestDispatchModelReducers(unittest.TestCase):
         self.assertEqual(updated.revision, 2)
 
 
+class TestSessionRotationKey(unittest.TestCase):
+    def test_session_rotation_key_generation_id_validation(self):
+        from peerhub.dispatch.contract import SessionRotationKey
+        
+        # Valid
+        SessionRotationKey(
+            workspace_scope_id="ws-1",
+            instance_id="inst-1",
+            profile_id="prof-1",
+            conversation_scope="global",
+            generation_id=1,
+        )
+        
+        # Invalid (0)
+        with self.assertRaisesRegex(ValueError, "generation_id must be an integer >= 1"):
+            SessionRotationKey(
+                workspace_scope_id="ws-1",
+                instance_id="inst-1",
+                profile_id="prof-1",
+                conversation_scope="global",
+                generation_id=0,
+            )
+        
+        # Invalid (negative)
+        with self.assertRaisesRegex(ValueError, "generation_id must be an integer >= 1"):
+            SessionRotationKey(
+                workspace_scope_id="ws-1",
+                instance_id="inst-1",
+                profile_id="prof-1",
+                conversation_scope="global",
+                generation_id=-1,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

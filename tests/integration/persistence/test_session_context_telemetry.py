@@ -53,6 +53,7 @@ def test_session_context_projection_is_idempotent(store: SqliteStateStore) -> No
             workspace_scope_id="ws-1",
             instance_id="inst-1",
             profile_id="prof-1",
+            conversation_scope="conv-1",
             generation_id=1,
         )
         updated = project_session_context_observation(
@@ -67,14 +68,14 @@ def test_session_context_projection_is_idempotent(store: SqliteStateStore) -> No
         unit.commit()
 
     with store.unit_of_work() as unit:
-        proj1 = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", 1)
+        proj1 = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", "conv-1", 1)
         assert proj1 is not None
         assert proj1.observed_tokens == 100
         assert proj1.revision == 1
 
     # Replay exactly the same observation
     with store.unit_of_work() as unit:
-        current = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", 1)
+        current = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", "conv-1", 1)
         updated = project_session_context_observation(
             current,
             obs,
@@ -85,7 +86,7 @@ def test_session_context_projection_is_idempotent(store: SqliteStateStore) -> No
         unit.commit()
 
     with store.unit_of_work() as unit:
-        proj2 = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", 1)
+        proj2 = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", "conv-1", 1)
         assert proj2 is not None
         assert proj2.observed_tokens == 100
         assert proj2.revision == 1  # unchanged
@@ -121,20 +122,20 @@ def test_session_context_projection_reflects_exact_attribution(store: SqliteStat
 
     with store.unit_of_work() as unit:
         unit.add_session_context_observation(obs_exact)
-        current = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", 1)
+        current = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", "conv-1", 1)
         updated = project_session_context_observation(current, obs_exact, projection_id="proj-1")
         unit.add_session_context_projection(updated)
         unit.commit()
 
     with store.unit_of_work() as unit:
         unit.add_session_context_observation(obs_estimated)
-        current = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", 1)
+        current = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", "conv-1", 1)
         updated = project_session_context_observation(current, obs_estimated, projection_id="proj-1")
         unit.cas_update_session_context_projection(current, updated)
         unit.commit()
 
     with store.unit_of_work() as unit:
-        proj = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", 1)
+        proj = unit.get_session_context_projection("ws-1", "inst-1", "prof-1", "conv-1", 1)
         assert proj is not None
         assert proj.source == "estimated"
         assert proj.source != "exact_attribution"
@@ -148,6 +149,7 @@ def test_session_context_unknown_returns_no_evidence(store: SqliteStateStore) ->
             workspace_scope_id="ws-unknown",
             instance_id="inst-unknown",
             profile_id="prof-unknown",
+            conversation_scope="conv-unknown",
             generation_id=1,
         )
         assert proj is None

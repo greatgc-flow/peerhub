@@ -41,6 +41,7 @@ class DispatchRepository(Protocol):
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         expected_generation_id: int,
         claim_token: str,
         claim_expiry: int,
@@ -54,6 +55,7 @@ class DispatchRepository(Protocol):
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         expected_generation_id: int,
         claim_token: str,
         new_conversation_id: str,
@@ -68,6 +70,7 @@ class TelemetryRepository(Protocol):
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         generation_id: int,
     ) -> SessionContextProjectionSnapshot | None:
         ...
@@ -98,6 +101,7 @@ class SessionRotationSaga:
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         current_generation_id: int,
         rotation_safe: bool,
         max_observation_age_ms: int = 30000,
@@ -109,6 +113,7 @@ class SessionRotationSaga:
                 workspace_scope_id,
                 instance_id,
                 profile_id,
+                conversation_scope,
                 current_generation_id,
             )
 
@@ -116,6 +121,7 @@ class SessionRotationSaga:
             workspace_scope_id=workspace_scope_id,
             instance_id=instance_id,
             profile_id=profile_id,
+            conversation_scope=conversation_scope,
             generation_id=current_generation_id,
         )
 
@@ -139,6 +145,7 @@ class SessionRotationSaga:
                 workspace_scope_id,
                 instance_id,
                 profile_id,
+                conversation_scope,
                 current_generation_id,
             )
 
@@ -149,6 +156,7 @@ class SessionRotationSaga:
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
+        conversation_scope: str,
         current_generation_id: int,
     ) -> SessionSagaResult:
         now = self._clock.now()
@@ -159,6 +167,7 @@ class SessionRotationSaga:
             workspace_scope_id=workspace_scope_id,
             instance_id=instance_id,
             profile_id=profile_id,
+            conversation_scope=conversation_scope,
             expected_generation_id=current_generation_id,
             claim_token=claim_token,
             claim_expiry=claim_expiry,
