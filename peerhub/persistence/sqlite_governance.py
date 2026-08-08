@@ -450,6 +450,114 @@ class SqliteGovernanceRepository:
             ).fetchall()
             return tuple(self._outbox_from_row(row) for row in rows)
 
+    def get_effect_delivery(
+            self,
+            event_id: str,
+        ) -> OutboxEvent | None:
+            """Return one effect delivery hydrated as an OutboxEvent."""
+            row = self._db().execute(
+                """
+                SELECT 
+                    el.*,
+                    ed.claimed_by,
+                    ed.claim_attempt_id,
+                    ed.claimed_at,
+                    ed.topic,
+                    ed.transition_receipt_id,
+                    er.completed_at as consumed_at,
+                    CASE 
+                        WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.claimed_at IS NULL THEN 'PENDING'
+                        ELSE 'CLAIMED'
+                    END as state
+                FROM effect_deliveries ed
+                JOIN event_log el ON ed.event_id = el.event_id
+                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                WHERE ed.event_id = ?
+                """,
+                (event_id,),
+            ).fetchone()
+            return None if row is None else self._delivery_outbox_from_row(row)
+
+    def list_unfinished_effect_deliveries(
+            self,
+            *,
+            limit: int,
+            after_position: int = 0,
+        ) -> tuple[OutboxEvent, ...]:
+            """Return pending AND claimed (but unreceipted) deliveries in outbox order."""
+            if type(after_position) is not int or after_position < 0:
+                raise ValueError("after_position must be a nonnegative integer")
+            if type(limit) is not int or limit < 1:
+                raise ValueError("limit must be a positive integer")
+            rows = self._db().execute(
+                """
+                SELECT 
+                    el.*,
+                    ed.claimed_by,
+                    ed.claim_attempt_id,
+                    ed.claimed_at,
+                    ed.topic,
+                    ed.transition_receipt_id,
+                    er.completed_at as consumed_at,
+                    CASE 
+                        WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.claimed_at IS NULL THEN 'PENDING'
+                        ELSE 'CLAIMED'
+                    END as state
+                FROM effect_deliveries ed
+                JOIN event_log el ON ed.event_id = el.event_id
+                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                WHERE er.effect_receipt_id IS NULL
+                AND ed.outbox_position > ?
+                ORDER BY ed.outbox_position
+                LIMIT ?
+                """,
+                (after_position, limit),
+            ).fetchall()
+            return tuple(self._delivery_outbox_from_row(row) for row in rows)
+
+    def list_claimable_effect_deliveries(
+            self,
+            *,
+            limit: int,
+            after_position: int = 0,
+        ) -> tuple[OutboxEvent, ...]:
+            """Return ONLY pending (unclaimed) deliveries in outbox order."""
+            if type(after_position) is not int or after_position < 0:
+                raise ValueError("after_position must be a nonnegative integer")
+            if type(limit) is not int or limit < 1:
+                raise ValueError("limit must be a positive integer")
+            rows = self._db().execute(
+                """
+                SELECT 
+                    el.*,
+                    ed.claimed_by,
+                    ed.claim_attempt_id,
+                    ed.claimed_at,
+                    ed.topic,
+                    ed.transition_receipt_id,
+                    er.completed_at as consumed_at,
+                    CASE 
+                        WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.claimed_at IS NULL THEN 'PENDING'
+                        ELSE 'CLAIMED'
+                    END as state
+                FROM effect_deliveries ed
+                JOIN event_log el ON ed.event_id = el.event_id
+                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                WHERE ed.claimed_at IS NULL 
+                AND ed.claimed_by IS NULL 
+                AND ed.claim_attempt_id IS NULL 
+                AND er.effect_receipt_id IS NULL
+                AND ed.outbox_position > ?
+                ORDER BY ed.outbox_position
+                LIMIT ?
+                """,
+                (after_position, limit),
+            ).fetchall()
+            return tuple(self._delivery_outbox_from_row(row) for row in rows)
+
     def claim_outbox_event(
             self,
             event_id: str,
@@ -675,6 +783,32 @@ class SqliteGovernanceRepository:
                 ),
             )
 
+
+    def _delivery_outbox_from_row(self, row: sqlite3.Row) -> OutboxEvent:
+        return OutboxEvent(
+            event_id=row["event_id"],
+            protocol_major=row["protocol_major"],
+            protocol_minor=row["protocol_minor"],
+            schema_version=row["schema_version"],
+            correlation_id=row["correlation_id"],
+            occurred_at=row["occurred_at"],
+            event_kind=row["event_kind"],
+            payload=_json_object(row["payload_json"]),
+            state=OutboxState(row["state"]),
+            created_at=row["appended_at"],
+            request_id=row["request_id"],
+            transition_receipt_id=row["transition_receipt_id"],
+            topic=row["topic"],
+            outbox_position=row["outbox_position"],
+            round_id=row["round_id"],
+            evidence_refs=_string_tuple(row["evidence_refs_json"]),
+            predecessor_digest=row["predecessor_digest"],
+            recovery_context=_optional_json_object(row["recovery_context_json"]),
+            claimed_by=row["claimed_by"],
+            claim_attempt_id=row["claim_attempt_id"],
+            claimed_at=row["claimed_at"],
+            consumed_at=row["consumed_at"],
+        )
 
     def _outbox_from_row(self, row: sqlite3.Row) -> OutboxEvent:
         return OutboxEvent(

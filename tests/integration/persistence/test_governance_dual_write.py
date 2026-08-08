@@ -257,3 +257,138 @@ def test_dispatch_event_does_not_dual_write_to_effect_deliveries(
     # And there should still be no delivery row created
     delivery_after_claim = _get_effect_delivery(store, event_id)
     assert delivery_after_claim is None
+
+
+def test_delivery_queries_derived_state_and_pagination(
+    store: SqliteStateStore,
+) -> None:
+    from peerhub.governance.contract import EffectReceipt, EffectOutcome
+
+    def _setup_delivery(index: int) -> str:
+        event_id = str(uuid.uuid4())
+        request_id = f"req-10{index}"
+        receipt_id = f"receipt-10{index}"
+        
+        request = MutationRequest(
+            request_id=request_id,
+            command_id=f"cmd-10{index}",
+            correlation_id=f"corr-10{index}",
+            actor_id="actor",
+            client_id="client",
+            command_type="peer.ask",
+            idempotency_key=f"idemp-10{index}",
+            policy_revision="1",
+            target_id="target",
+            expected_revision=0,
+            operation="noop",
+            desired_state={},
+            effect_intent=EffectIntent(kind="foo", payload={}),
+        )
+        plan = MutationPlan(
+            plan_id=f"plan-10{index}",
+            request_id=request_id,
+            request_digest=f"digest-10{index}",
+            target_id="target",
+            previous_revision=0,
+            next_revision=1,
+            next_state={},
+            effect_intent=EffectIntent(kind="foo", payload={}),
+            planned_at=1000 + index,
+        )
+        t_receipt = TransitionReceipt(
+            receipt_id=receipt_id,
+            request_id=request_id,
+            plan_id=f"plan-10{index}",
+            target_id="target",
+            previous_revision=0,
+            next_revision=1,
+            status=TransitionStatus.COMMITTED_ENFORCEMENT_PENDING,
+            committed_at=1000 + index,
+            outbox_event_id=event_id,
+        )
+        event = OutboxEvent(
+            event_id=event_id,
+            protocol_major=PROTOCOL_MAJOR,
+            protocol_minor=PROTOCOL_MINOR,
+            schema_version=SCHEMA_VERSION,
+            correlation_id=f"corr-10{index}",
+            occurred_at=1000 + index,
+            event_kind="governance.effect.requested",
+            payload={},
+            state=OutboxState.PENDING,
+            created_at=1000 + index,
+            request_id=request_id,
+            transition_receipt_id=receipt_id,
+            topic="governance.effect.requested",
+        )
+
+        with store.unit_of_work() as unit:
+            unit.governance.add_mutation_request(request, f"digest-10{index}", 1000 + index)
+            unit.governance.add_mutation_plan(plan)
+            unit.governance.add_transition_receipt(t_receipt)
+            unit.add_outbox_event(event)
+            unit.commit()
+            
+        return event_id
+
+    # Create 3 events
+    e1 = _setup_delivery(1)
+    e2 = _setup_delivery(2)
+    e3 = _setup_delivery(3)
+
+    # Leave e1 pending.
+    # Claim e2.
+    with store.unit_of_work() as unit:
+        unit.claim_outbox_event(e2, "owner-02", "attempt-02", 2000)
+        unit.commit()
+        
+    # Claim and Consume e3.
+    with store.unit_of_work() as unit:
+        unit.claim_outbox_event(e3, "owner-03", "attempt-03", 2000)
+        e_receipt = EffectReceipt(
+            effect_receipt_id="ereceipt-03",
+            request_id="req-103",
+            outbox_event_id=e3,
+            attempt_id="attempt-03",
+            owner_id="owner-03",
+            outcome=EffectOutcome.EFFECT_SUCCEEDED,
+            completed_at=3000,
+            evidence_refs=(),
+        )
+        unit.add_effect_receipt(e_receipt)
+        unit.mark_outbox_consumed(e3, "owner-03", "attempt-03", 3000)
+        unit.commit()
+
+    with store.unit_of_work() as unit:
+        # 1. State derivations
+        d1 = unit.get_effect_delivery(e1)
+        assert d1 is not None and d1.state == OutboxState.PENDING
+        
+        d2 = unit.get_effect_delivery(e2)
+        assert d2 is not None and d2.state == OutboxState.CLAIMED
+        
+        d3 = unit.get_effect_delivery(e3)
+        assert d3 is not None and d3.state == OutboxState.CONSUMED
+
+        # 2. list_claimable_effect_deliveries (only PENDING)
+        claimable = unit.list_claimable_effect_deliveries(limit=10)
+        assert len(claimable) == 1
+        assert claimable[0].event_id == e1
+
+        # 3. list_unfinished_effect_deliveries (PENDING + CLAIMED, but not CONSUMED)
+        unfinished = unit.list_unfinished_effect_deliveries(limit=10)
+        assert len(unfinished) == 2
+        assert unfinished[0].event_id == e1
+        assert unfinished[1].event_id == e2
+
+        # 4. list_unfinished_effect_deliveries pagination
+        page1 = unit.list_unfinished_effect_deliveries(limit=1)
+        assert len(page1) == 1
+        assert page1[0].event_id == e1
+        
+        page2 = unit.list_unfinished_effect_deliveries(limit=1, after_position=page1[0].outbox_position)
+        assert len(page2) == 1
+        assert page2[0].event_id == e2
+        
+        page3 = unit.list_unfinished_effect_deliveries(limit=1, after_position=page2[0].outbox_position)
+        assert len(page3) == 0

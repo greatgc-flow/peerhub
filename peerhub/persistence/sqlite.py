@@ -574,6 +574,31 @@ class SqliteUnitOfWork:
         """Return all outbox events for a given command_id, ordered by position."""
         return self.governance.list_outbox_events_by_command(command_id)
 
+    def get_effect_delivery(
+        self,
+        event_id: str,
+    ) -> OutboxEvent | None:
+        """Return one effect delivery hydrated as an OutboxEvent."""
+        return self.governance.get_effect_delivery(event_id)
+
+    def list_unfinished_effect_deliveries(
+        self,
+        *,
+        limit: int,
+        after_position: int = 0,
+    ) -> tuple[OutboxEvent, ...]:
+        """Return pending AND claimed (but unreceipted) deliveries in outbox order."""
+        return self.governance.list_unfinished_effect_deliveries(limit=limit, after_position=after_position)
+
+    def list_claimable_effect_deliveries(
+        self,
+        *,
+        limit: int,
+        after_position: int = 0,
+    ) -> tuple[OutboxEvent, ...]:
+        """Return ONLY pending (unclaimed) deliveries in outbox order."""
+        return self.governance.list_claimable_effect_deliveries(limit=limit, after_position=after_position)
+
     def claim_outbox_event(
         self,
         event_id: str,
