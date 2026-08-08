@@ -728,6 +728,18 @@ class SqliteDispatchRepository:
             ),
         )
 
+    def count_active_leases(self) -> int:
+        """Return the number of active leases."""
+
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            """
+            SELECT COUNT(*) AS active_count
+            FROM leases
+            WHERE state IN ('RESERVED', 'ACTIVE', 'RENEWED')
+            """
+        ).fetchone()
+        return int(row["active_count"]) if row else 0  # pyright: ignore[reportUnknownArgumentType]
+
     def cas_update_lease(
         self,
         current: LeaseSnapshot,

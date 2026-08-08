@@ -235,6 +235,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 13 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0013_session_context_conversation_scope.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()
@@ -541,6 +549,10 @@ class SqliteUnitOfWork:
     ) -> EffectReceipt | None:
         """Return an outbox event's immutable terminal receipt."""
         return self.governance.get_effect_receipt(outbox_event_id)
+
+    def count_active_leases(self) -> int:
+        """Return the number of active leases."""
+        return self.dispatch.count_active_leases()
 
     def get_client_request_binding(
         self,

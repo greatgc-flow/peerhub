@@ -187,6 +187,11 @@ class DispatchService:
         with self._store.unit_of_work() as unit:
             return unit.get_lease(lease_id)
 
+    def count_active_leases(self) -> int:
+        """Return the number of active leases."""
+        with self._store.unit_of_work() as unit:
+            return unit.count_active_leases()
+
     def get_request_and_attempt(
         self,
         command_id: CommandID | str,

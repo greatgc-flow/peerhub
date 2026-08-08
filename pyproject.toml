@@ -12,6 +12,9 @@ dependencies = [
     "pydantic>=2.0",
 ]
 
+[project.scripts]
+peerhub = "peerhub.cli:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0"]
 

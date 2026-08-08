@@ -27,6 +27,11 @@ class DispatchUnitOfWork(UnitOfWork, Protocol):
 
         ...
 
+    def count_active_leases(self) -> int:
+        """Return the number of active leases."""
+        
+        ...
+
     def get_client_request_binding(
         self,
         client_id: str,
