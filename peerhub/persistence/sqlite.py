@@ -17,6 +17,7 @@ from .sqlite_dispatch import SqliteDispatchRepository
 from .sqlite_health import SqliteHealthRepository
 from .sqlite_telemetry import SqliteTelemetryRepository
 from .sqlite_routing import SqliteRoutingRepository
+from .sqlite_events import SqliteEventRepository
 
 
 from peerhub.core.errors import (
@@ -243,6 +244,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 14 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0014_event_log_delivery_split.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()
@@ -357,6 +366,7 @@ class SqliteUnitOfWork:
         self._health = SqliteHealthRepository(self._db)
         self._telemetry = SqliteTelemetryRepository(self._db)
         self._routing = SqliteRoutingRepository(self._db)
+        self._events = SqliteEventRepository(self._db)
 
     @property
     def governance(self) -> SqliteGovernanceRepository:
@@ -382,6 +392,11 @@ class SqliteUnitOfWork:
     def routing(self) -> SqliteRoutingRepository:
         """The routing domain repository facet."""
         return self._routing
+
+    @property
+    def events(self) -> SqliteEventRepository:
+        """The events domain repository facet."""
+        return self._events
 
     def __enter__(self) -> SqliteUnitOfWork:
         """Open a connection and begin an immediate transaction."""
