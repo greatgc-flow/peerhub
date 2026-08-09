@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from types import TracebackType
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from peerhub.application.bootstrap import DirectAskAdmissionConfig
 
 from .adapters.contract import PeerAdapter
 from .adapters.registry import resolve_peer_adapter
@@ -61,6 +65,7 @@ def create_runtime(
     *,
     admission_provider: AdmissionInputsProvider | None = None,
     adapter_peer_kind: str = "fake",
+    admission_config: "DirectAskAdmissionConfig | None" = None,
 ) -> Runtime:
     """Create the composed Phase 1 runtime."""
 
@@ -92,24 +97,27 @@ def create_runtime(
     )
 
     # ── Health ──
-    # AMBIGUITY FLAG: HealthPolicy and HealthScopeMembershipSnapshot require configuration values
-    # (e.g. configuration_digest) that are not available in RuntimeContext.
-    # We are injecting dummy/default values here to allow composition to succeed.
-    policy = HealthPolicy(
-        policy_id="v1-health-default-r1",
-        revision=1,
-        readiness_freshness_seconds=7200,
-        recovery_backoff_seconds=(30, 60, 120, 240, 480, 900),
-        recovery_jitter_fraction=0.2,
-        readiness_observation_threshold=1,
-        administrative_recovery_probe_limit=1,
-    )
-    membership = HealthScopeMembershipSnapshot(
-        configuration_revision=1,
-        configuration_digest="0" * 64,
-        configured_members=(),
-        bindings=(),
-    )
+    if admission_config is not None:
+        from peerhub.application.bootstrap import persist_direct_ask_admission
+        persist_direct_ask_admission(state_store, admission_config)
+        policy = admission_config.health_policy
+        membership = admission_config.membership
+    else:
+        policy = HealthPolicy(
+            policy_id="v1-health-default-r1",
+            revision=1,
+            readiness_freshness_seconds=7200,
+            recovery_backoff_seconds=(30, 60, 120, 240, 480, 900),
+            recovery_jitter_fraction=0.2,
+            readiness_observation_threshold=1,
+            administrative_recovery_probe_limit=1,
+        )
+        membership = HealthScopeMembershipSnapshot(
+            configuration_revision=1,
+            configuration_digest="0" * 64,
+            configured_members=(),
+            bindings=(),
+        )
     
     health_service = HealthService(
         state_store,
@@ -119,6 +127,14 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+
+    if admission_config is not None:
+        health_service.evaluate_and_persist_readiness(
+            admission_config.readiness,
+            # sealed_runtime_revision must match the raw hex digest, NOT the prefixed evidence_ref
+            sealed_runtime_revision=admission_config.readiness.evidence.value.runtime_revision,  # type: ignore[reportOptionalMemberAccess]
+            adapter_declares_probe_safe=True,
+        )
 
     # ── Routing ──
     routing_service = RoutingService(
