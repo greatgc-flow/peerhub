@@ -1,7 +1,42 @@
+import json
+import os
 import sys
+import uuid
 from pathlib import Path
 from unittest.mock import patch
-from peerhub.cli import main
+
+import pytest
+
+from peerhub.application.direct_ask import DirectAskResult
+from peerhub.core.execution import ExecutionCertainty
+from peerhub.core.protocol import ErrorCode
+from peerhub.dispatch.contract import RequestState
+from peerhub.cli import UuidSource, main
+
+
+def _ask_result(
+    *,
+    state: RequestState = RequestState.SUCCEEDED_VERIFIED,
+    response_text: str | None = "hello from peer",
+    error_code: ErrorCode | None = None,
+    execution_certainty: ExecutionCertainty | None = None,
+) -> DirectAskResult:
+    return DirectAskResult(
+        command_id="command-1",
+        attempt_id="attempt-1",
+        peer_kind="ag",
+        profile_id="ag.standard",
+        response_text=response_text,
+        request_state=state,
+        error_code=error_code,
+        execution_certainty=execution_certainty,
+    )
+
+
+def test_cli_uuid_source_produces_domain_compatible_uuid4() -> None:
+    value = UuidSource().new_id("outbox-event")
+
+    assert str(uuid.UUID(value, version=4)) == value
 
 def test_cli_status_uninitialized(tmp_path: Path, capsys):
     """Test 'peerhub status' against a fresh, uninitialized workspace."""
@@ -117,3 +152,197 @@ def test_cli_version(capsys):
             
     captured = capsys.readouterr()
     assert "0.1.0" in captured.out
+
+
+def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
+    with patch(
+        "peerhub.cli.execute_direct_ask",
+        return_value=_ask_result(),
+    ) as execute:
+        exit_code = main(
+            [
+                "ask",
+                "ag",
+                "say hello",
+                "--workspace",
+                str(tmp_path),
+                "--profile",
+                "ag.standard",
+                "--timeout-seconds",
+                "17",
+                "--silence-timeout-seconds",
+                "19",
+                "--max-output-bytes",
+                "12345",
+            ]
+        )
+
+    assert exit_code == 0
+    request = execute.call_args.args[0]
+    assert request.peer_name == "ag"
+    assert request.prompt == "say hello"
+    assert request.workspace_root == tmp_path.resolve()
+    assert request.profile_id == "ag.standard"
+    assert request.limits.process_timeout_ms == 17_000
+    assert request.limits.silence_timeout_ms == 19_000
+    assert request.limits.max_output_bytes == 12_345
+    captured = capsys.readouterr()
+    assert captured.out == "hello from peer\n"
+    assert captured.err == ""
+
+
+def test_cli_ask_unknown_peer_returns_usage_error(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    with patch(
+        "peerhub.cli.execute_direct_ask",
+        side_effect=ValueError(
+            "unsupported peer 'stranger'"
+        ),
+    ):
+        exit_code = main(
+            [
+                "ask",
+                "stranger",
+                "hello",
+                "--workspace",
+                str(tmp_path),
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert captured.err == "peerhub ask: unsupported peer 'stranger'\n"
+
+
+def test_cli_ask_json_output_has_stable_shape(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    with patch(
+        "peerhub.cli.execute_direct_ask",
+        return_value=_ask_result(),
+    ):
+        exit_code = main(
+            [
+                "ask",
+                "ag",
+                "hello",
+                "--workspace",
+                str(tmp_path),
+                "--json",
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "command_id": "command-1",
+        "attempt_id": "attempt-1",
+        "peer_kind": "ag",
+        "profile_id": "ag.standard",
+        "response_text": "hello from peer",
+        "request_state": "SUCCEEDED_VERIFIED",
+        "error_code": None,
+        "execution_certainty": None,
+    }
+
+
+@pytest.mark.parametrize(
+    ("result", "expected_exit"),
+    [
+        (
+            _ask_result(
+                state=RequestState.FAILED,
+                response_text=None,
+                error_code=ErrorCode.PROTOCOL_ASSESSMENT_FAILED,
+                execution_certainty=ExecutionCertainty.TERMINAL,
+            ),
+            3,
+        ),
+        (
+            _ask_result(
+                state=RequestState.INTERRUPTED,
+                response_text=None,
+                error_code=ErrorCode.PROCESS_TIMEOUT,
+                execution_certainty=ExecutionCertainty.MAY_HAVE_STARTED,
+            ),
+            4,
+        ),
+    ],
+)
+def test_cli_ask_maps_returned_failure_states(
+    tmp_path: Path,
+    capsys,
+    result: DirectAskResult,
+    expected_exit: int,
+) -> None:
+    with patch(
+        "peerhub.cli.execute_direct_ask",
+        return_value=result,
+    ):
+        exit_code = main(
+            ["ask", "ag", "hello", "--workspace", str(tmp_path)]
+        )
+
+    captured = capsys.readouterr()
+    assert exit_code == expected_exit
+    assert captured.out == ""
+    assert captured.err == f"peerhub ask: {result.error_code.value}\n"
+
+
+def test_cli_ask_keyboard_interrupt_is_honest(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    with patch(
+        "peerhub.cli.execute_direct_ask",
+        side_effect=KeyboardInterrupt,
+    ):
+        exit_code = main(
+            ["ask", "ag", "hello", "--workspace", str(tmp_path)]
+        )
+
+    captured = capsys.readouterr()
+    assert exit_code == 130
+    assert captured.out == ""
+    assert "in-flight process may still be running" in captured.err
+    assert "cancellation-ladder wiring is not yet implemented" in captured.err
+
+
+@pytest.mark.slow
+def test_cli_ask_real_agy_end_to_end(
+    tmp_path: Path,
+    capsys,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    portable_root = Path(__file__).resolve().parents[3]
+    agy_dir = portable_root / "_sys" / "tools" / "agy"
+    agy_executable = agy_dir / "agy.exe"
+    assert agy_executable.is_file()
+    monkeypatch.setenv(
+        "PATH",
+        f"{agy_dir}{os.pathsep}{os.environ.get('PATH', '')}",
+    )
+
+    exit_code = main(
+        [
+            "ask",
+            "ag",
+            "say hello in two words",
+            "--workspace",
+            str(tmp_path),
+            "--timeout-seconds",
+            "180",
+            "--silence-timeout-seconds",
+            "180",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out.strip()
+    assert captured.err == ""
