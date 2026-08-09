@@ -253,6 +253,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 15 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0015_effect_receipts_delivery_fk.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()
@@ -1243,4 +1251,3 @@ class SqliteUnitOfWork:
         cleanup guard exactly as strict as Step 4 ratified it.
         """
         return self.dispatch.reclaim_orphaned_artifact(current, cleaned_at=cleaned_at)
-
