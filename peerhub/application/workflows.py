@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+
+
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +14,8 @@ from peerhub.adapters.contract import (
     AdapterRequest,
     PeerAdapter,
     ProfileDescriptor,
+    DecodedOutput,
+    OutputChannel,
 )
 from peerhub.core.errors import (
     InvalidMutationError,
@@ -86,6 +90,7 @@ class ExecutionWorkflowResult:
     materialization_results: tuple[MaterializationResult, ...] | None = None
     process_outcome: ProcessSupervisionOutcome | None = None
     completion_assessment: CompletionAssessment | None = None
+    decoded_output: DecodedOutput | None = None
 
 
 DispatchAdmission: TypeAlias = tuple[
@@ -638,6 +643,7 @@ class ApplicationWorkflows:
                 materialization_results=mat_results,
                 process_outcome=None,
                 completion_assessment=None,
+                decoded_output=None,
             )
 
         # Step 4: Record dispatch intent and reserve artifacts atomically if artifacts exist
@@ -673,6 +679,7 @@ class ApplicationWorkflows:
                 materialization_results=mat_results,
                 process_outcome=None,
                 completion_assessment=None,
+                decoded_output=None,
             )
 
         # Step 5: Spawn process and drive supervisor + heartbeat
@@ -765,6 +772,7 @@ class ApplicationWorkflows:
                 materialization_results=mat_results,
                 process_outcome=None,
                 completion_assessment=None,
+                decoded_output=None,
             )
 
         if record_running_error is not None or (spawn_error is not None and on_spawned_called):
@@ -779,6 +787,7 @@ class ApplicationWorkflows:
                 materialization_results=mat_results,
                 process_outcome=process_outcome,
                 completion_assessment=None,
+                decoded_output=None,
             )
 
         assert process_outcome is not None
@@ -796,6 +805,12 @@ class ApplicationWorkflows:
             terminal_evidence,
             raw_chunks,
         )
+        
+        decoder = selected_peer_adapter.new_decoder(invocation_plan)
+        if process_outcome.canonical_stream:
+            decoder.feed(process_outcome.canonical_stream, channel=OutputChannel.STDOUT)
+        decoded_output = decoder.finalize()
+        
         assessment = assess_completion(
             completion_contract,
             execution_outcome,
@@ -830,6 +845,7 @@ class ApplicationWorkflows:
                 materialization_results=mat_results,
                 process_outcome=process_outcome,
                 completion_assessment=assessment,
+                decoded_output=decoded_output,
             )
 
         # Lease ownership was lost during execution: leave attempt for conservative recovery
@@ -844,4 +860,5 @@ class ApplicationWorkflows:
             materialization_results=mat_results,
             process_outcome=process_outcome,
             completion_assessment=assessment,
+            decoded_output=decoded_output,
         )

@@ -30,3 +30,10 @@ def test_resolve_peer_adapter_returns_registered_type(
 def test_resolve_peer_adapter_rejects_unknown_peer_kind() -> None:
     with pytest.raises(ValueError, match="unsupported peer_kind"):
         resolve_peer_adapter("unknown")
+
+def test_resolve_executable_path_resolves_all_real_names() -> None:
+    from peerhub.adapters.registry import _resolve_executable_path
+    for name in ["agy.exe", "claude.cmd", "codex.cmd"]:
+        resolved = _resolve_executable_path(name)
+        assert resolved.is_absolute()
+        assert resolved.name.lower() == name

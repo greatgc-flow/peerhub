@@ -88,6 +88,8 @@ def _resolve_executable_path(executable_name: str) -> Path:
         if not extensions:
             extensions = [".com", ".exe", ".bat", ".cmd"]
 
+    has_recognized_ext = Path(executable_name).suffix.lower() in extensions
+
     for p in paths:
         try:
             # Skip invalid paths
@@ -96,11 +98,17 @@ def _resolve_executable_path(executable_name: str) -> Path:
         except OSError:
             continue
             
-        for ext in extensions:
-            candidate = p / f"{executable_name}{ext}"
-            if candidate.is_file():
-                # We return the first valid absolute path
-                return candidate.resolve()
+        candidate = p / executable_name
+        if candidate.is_file():
+            return candidate.resolve()
+            
+        if not has_recognized_ext:
+            for ext in extensions:
+                if not ext:
+                    continue
+                candidate_ext = p / f"{executable_name}{ext}"
+                if candidate_ext.is_file():
+                    return candidate_ext.resolve()
 
     raise ExecutableNotFoundError(f"executable {executable_name!r} not found in PATH")
 
