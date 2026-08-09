@@ -562,8 +562,6 @@ class SqliteUnitOfWork:
                     event.topic,
                 ),
             )
-        
-        return self.governance.add_outbox_event(event)
 
     def get_outbox_event(
         self,

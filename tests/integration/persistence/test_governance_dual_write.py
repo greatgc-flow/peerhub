@@ -251,7 +251,7 @@ def test_dispatch_event_does_not_dual_write_to_effect_deliveries(
             attempt_id="attempt-dispatch",
             claimed_at=310,
         )
-        assert claimed is not None
+        assert claimed is None
         unit.commit()
     
     # And there should still be no delivery row created

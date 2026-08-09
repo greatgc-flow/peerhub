@@ -232,15 +232,14 @@ def test_complete_effect_delivery_rejects_different_existing_receipt(
     assert persisted_receipt == existing
 
 
-def test_complete_effect_delivery_legacy_mirror_failure_rolls_back(
+def test_complete_effect_delivery_independent_of_legacy_outbox(
     store: SqliteStateStore,
 ) -> None:
     event_id, request_id = _seed_delivery(store)
     receipt = _receipt(event_id, request_id)
 
     with store.unit_of_work() as unit:
-        # Build the compatibility-window mismatch deliberately: the new
-        # delivery is claimed while the legacy row remains pending.
+        # Delivery is claimed
         # pyright: ignore[reportPrivateUsage]
         cursor = unit._db().execute(
             """
@@ -253,22 +252,15 @@ def test_complete_effect_delivery_legacy_mirror_failure_rolls_back(
         assert cursor.rowcount == 1
         unit.commit()
 
-    with pytest.raises(
-        RuntimeError,
-        match="effect delivery completion could not be mirrored",
-    ):
-        with store.unit_of_work() as unit:
-            unit.complete_effect_delivery(receipt)
+    with store.unit_of_work() as unit:
+        completed = unit.complete_effect_delivery(receipt)
+        assert completed is True
+        unit.commit()
 
     with store.unit_of_work() as unit:
         persisted_receipt = unit.get_effect_receipt(event_id)
         delivery = unit.get_effect_delivery(event_id)
-        legacy = unit.get_outbox_event(event_id)
-    assert persisted_receipt is None
+    assert persisted_receipt is not None
+    assert persisted_receipt.outcome is EffectOutcome.EFFECT_SUCCEEDED
     assert delivery is not None
-    assert delivery.state is OutboxState.CLAIMED
-    assert delivery.claimed_by == "owner-one"
-    assert delivery.claim_attempt_id == "attempt-one"
-    assert legacy is not None
-    assert legacy.state is OutboxState.PENDING
-    assert legacy.consumed_at is None
+    assert delivery.state is OutboxState.CONSUMED

@@ -171,47 +171,29 @@ def test_claim_effect_delivery_returns_none_for_missing_event(
     assert claimed is None
 
 
-def test_claim_effect_delivery_legacy_mirror_mismatch_rolls_back(
+def test_claim_effect_delivery_independent_of_legacy_outbox(
     store: SqliteStateStore,
 ) -> None:
     event_id, _ = _seed_delivery(store)
 
     with store.unit_of_work() as unit:
-        legacy_claim = unit.governance.claim_outbox_event(
+        claimed = unit.claim_effect_delivery(
             event_id,
-            "legacy-owner",
-            "legacy-attempt",
-            150,
+            "new-owner",
+            "new-attempt",
+            200,
         )
-        assert legacy_claim is not None
+        assert claimed is not None
         unit.commit()
-
-    with pytest.raises(
-        RuntimeError,
-        match="effect delivery claim could not be mirrored",
-    ):
-        with store.unit_of_work() as unit:
-            unit.claim_effect_delivery(
-                event_id,
-                "new-owner",
-                "new-attempt",
-                200,
-            )
 
     with store.unit_of_work() as unit:
         delivery = unit.get_effect_delivery(event_id)
-        legacy = unit.get_outbox_event(event_id)
 
     assert delivery is not None
-    assert delivery.state is OutboxState.PENDING
-    assert delivery.claimed_by is None
-    assert delivery.claim_attempt_id is None
-    assert delivery.claimed_at is None
-    assert legacy is not None
-    assert legacy.state is OutboxState.CLAIMED
-    assert legacy.claimed_by == "legacy-owner"
-    assert legacy.claim_attempt_id == "legacy-attempt"
-    assert legacy.claimed_at == 150
+    assert delivery.state is OutboxState.CLAIMED
+    assert delivery.claimed_by == "new-owner"
+    assert delivery.claim_attempt_id == "new-attempt"
+    assert delivery.claimed_at == 200
 
 
 def test_concurrent_effect_delivery_claim_has_exactly_one_winner(

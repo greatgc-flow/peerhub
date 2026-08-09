@@ -317,81 +317,38 @@ class SqliteGovernanceRepository:
             )
 
     def add_outbox_event(self, event: OutboxEvent) -> None:
-            """Insert one canonical pending outbox event."""
-
-            self._db().execute(
-                """
-                INSERT INTO outbox_events (
-                    event_id,
-                    protocol_major,
-                    protocol_minor,
-                    schema_version,
-                    correlation_id,
-                    occurred_at,
-                    event_kind,
-                    payload_json,
-                    request_id,
-                    round_id,
-                    evidence_refs_json,
-                    predecessor_digest,
-                    recovery_context_json,
-                    transition_receipt_id,
-                    topic,
-                    state,
-                    created_at,
-                    claimed_by,
-                    claim_attempt_id,
-                    claimed_at,
-                    consumed_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?
-                )
-                """,
-                (
-                    event.event_id,
-                    event.protocol_major,
-                    event.protocol_minor,
-                    event.schema_version,
-                    event.correlation_id,
-                    event.occurred_at,
-                    event.event_kind,
-                    _json_text(event.payload),
-                    event.request_id,
-                    event.round_id,
-                    _json_text(event.evidence_refs),
-                    event.predecessor_digest,
-                    (
-                        _json_text(event.recovery_context)
-                        if event.recovery_context is not None
-                        else None
-                    ),
-                    event.transition_receipt_id,
-                    event.topic,
-                    event.state.value,
-                    event.created_at,
-                    event.claimed_by,
-                    event.claim_attempt_id,
-                    event.claimed_at,
-                    event.consumed_at,
-                ),
-            )
+            """Legacy outbox_events insert removed (Step E3). Writes are routed through SqliteUnitOfWork -> event_log."""
+            pass
 
     def get_outbox_event(
             self,
             event_id: str,
         ) -> OutboxEvent | None:
-            """Return one canonical outbox event."""
+            """Return one canonical outbox event from event_log / effect_deliveries."""
 
             row = self._db().execute(
                 """
-                SELECT *
-                FROM outbox_events
-                WHERE event_id = ?
+                SELECT
+                    el.*,
+                    ed.claimed_by,
+                    ed.claim_attempt_id,
+                    ed.claimed_at,
+                    ed.topic,
+                    ed.transition_receipt_id,
+                    er.completed_at as consumed_at,
+                    CASE
+                        WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.claimed_at IS NULL THEN 'PENDING'
+                        ELSE 'CLAIMED'
+                    END as state
+                FROM event_log el
+                LEFT JOIN effect_deliveries ed ON ed.event_id = el.event_id
+                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                WHERE el.event_id = ?
                 """,
                 (event_id,),
             ).fetchone()
-            return None if row is None else self._outbox_from_row(row)
+            return None if row is None else self._delivery_outbox_from_row(row)
 
     def list_outbox_events(
             self,
@@ -401,7 +358,7 @@ class SqliteGovernanceRepository:
             governance_only: bool = False,
             after_position: int = 0,
         ) -> tuple[OutboxEvent, ...]:
-            """Return matching events in workspace outbox order."""
+            """Return matching events in workspace outbox order from event_log/effect_deliveries."""
 
             if not states:
                 return ()
@@ -413,26 +370,46 @@ class SqliteGovernanceRepository:
                 raise ValueError("limit must be a positive integer")
             placeholders = ", ".join("?" for _ in states)
             governance_clause = (
-                "AND transition_receipt_id IS NOT NULL"
+                "AND ed.transition_receipt_id IS NOT NULL"
                 if governance_only
                 else ""
             )
-            parameters = tuple(
+            parameters = (after_position,) + tuple(
                 state.value for state in states
-            ) + (after_position, limit)
+            ) + (limit,)
             rows = self._db().execute(
                 f"""
-                SELECT *
-                FROM outbox_events
-                WHERE state IN ({placeholders})
-                AND outbox_position > ?
+                SELECT
+                    el.*,
+                    ed.claimed_by,
+                    ed.claim_attempt_id,
+                    ed.claimed_at,
+                    ed.topic,
+                    ed.transition_receipt_id,
+                    er.completed_at as consumed_at,
+                    CASE
+                        WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.claimed_at IS NULL THEN 'PENDING'
+                        ELSE 'CLAIMED'
+                    END as state
+                FROM event_log el
+                LEFT JOIN effect_deliveries ed ON ed.event_id = el.event_id
+                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                WHERE el.outbox_position > ?
+                AND (
+                    CASE
+                        WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.claimed_at IS NULL THEN 'PENDING'
+                        ELSE 'CLAIMED'
+                    END
+                ) IN ({placeholders})
                 {governance_clause}
-                ORDER BY outbox_position
+                ORDER BY el.outbox_position
                 LIMIT ?
                 """,
                 parameters,
             ).fetchall()
-            return tuple(self._outbox_from_row(row) for row in rows)
+            return tuple(self._delivery_outbox_from_row(row) for row in rows)
 
     def list_outbox_events_by_command(
             self,
@@ -441,14 +418,29 @@ class SqliteGovernanceRepository:
             """Return all outbox events for a given command_id, ordered by position."""
             rows = self._db().execute(
                 """
-                SELECT *
-                FROM outbox_events
-                WHERE json_extract(payload_json, '$.command_id') = ?
-                ORDER BY outbox_position ASC
+                SELECT
+                    el.*,
+                    ed.claimed_by,
+                    ed.claim_attempt_id,
+                    ed.claimed_at,
+                    ed.topic,
+                    ed.transition_receipt_id,
+                    er.completed_at as consumed_at,
+                    CASE
+                        WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.claimed_at IS NULL THEN 'PENDING'
+                        ELSE 'CLAIMED'
+                    END as state
+                FROM event_log el
+                LEFT JOIN effect_deliveries ed ON ed.event_id = el.event_id
+                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                WHERE json_extract(el.payload_json, '$.command_id') = ?
+                   OR el.request_id = ?
+                ORDER BY el.outbox_position ASC
                 """,
-                (command_id,),
+                (command_id, command_id),
             ).fetchall()
-            return tuple(self._outbox_from_row(row) for row in rows)
+            return tuple(self._delivery_outbox_from_row(row) for row in rows)
 
     def get_effect_delivery(
             self,
@@ -590,18 +582,6 @@ class SqliteGovernanceRepository:
             if cursor.rowcount != 1:
                 return None
 
-            legacy_claim = self.claim_outbox_event(
-                event_id,
-                owner_id,
-                attempt_id,
-                claimed_at,
-            )
-            if legacy_claim is None:
-                raise RuntimeError(
-                    "effect delivery claim could not be mirrored to "
-                    f"legacy outbox event {event_id!r}"
-                )
-
             claimed = self.get_effect_delivery(event_id)
             if claimed is None:
                 raise RuntimeError(
@@ -614,7 +594,7 @@ class SqliteGovernanceRepository:
             self,
             receipt: EffectReceipt,
         ) -> bool:
-            """Guardedly complete one claimed delivery and mirror legacy state."""
+            """Guardedly complete one claimed delivery."""
 
             cursor = self._db().execute(
                 """
@@ -681,16 +661,6 @@ class SqliteGovernanceRepository:
                     return False
                 return False
 
-            if not self.mark_outbox_consumed(
-                receipt.outbox_event_id,
-                receipt.owner_id,
-                receipt.attempt_id,
-                receipt.completed_at,
-            ):
-                raise RuntimeError(
-                    "effect delivery completion could not be mirrored to "
-                    f"legacy outbox event {receipt.outbox_event_id!r}"
-                )
             return True
 
     def claim_outbox_event(
@@ -700,30 +670,13 @@ class SqliteGovernanceRepository:
             attempt_id: str,
             claimed_at: int,
         ) -> OutboxEvent | None:
-            """CAS-claim one pending outbox event."""
-
-            cursor = self._db().execute(
-                """
-                UPDATE outbox_events
-                SET
-                    state = ?,
-                    claimed_by = ?,
-                    claim_attempt_id = ?,
-                    claimed_at = ?
-                WHERE event_id = ? AND state = ?
-                """,
-                (
-                    OutboxState.CLAIMED.value,
-                    owner_id,
-                    attempt_id,
-                    claimed_at,
-                    event_id,
-                    OutboxState.PENDING.value,
-                ),
+            """CAS-claim one pending effect delivery (legacy alias)."""
+            return self.claim_effect_delivery(
+                event_id,
+                owner_id,
+                attempt_id,
+                claimed_at,
             )
-            if cursor.rowcount != 1:
-                return None
-            return self.get_outbox_event(event_id)
 
     def mark_outbox_consumed(
             self,
@@ -732,34 +685,26 @@ class SqliteGovernanceRepository:
             attempt_id: str,
             consumed_at: int,
         ) -> bool:
-            """CAS-mark a claimed event consumed."""
-
-            cursor = self._db().execute(
-                """
-                UPDATE outbox_events
-                SET state = ?, consumed_at = ?
-                WHERE
-                    event_id = ?
-                    AND state = ?
-                    AND claimed_by = ?
-                    AND claim_attempt_id = ?
-                """,
-                (
-                    OutboxState.CONSUMED.value,
-                    consumed_at,
-                    event_id,
-                    OutboxState.CLAIMED.value,
-                    owner_id,
-                    attempt_id,
-                ),
+            """CAS-mark a claimed effect delivery consumed (legacy alias)."""
+            delivery = self.get_effect_delivery(event_id)
+            req_id = delivery.request_id if delivery is not None and delivery.request_id else "legacy-request"
+            return self.complete_effect_delivery(
+                EffectReceipt(
+                    effect_receipt_id=f"receipt-{event_id}",
+                    request_id=req_id,
+                    outbox_event_id=event_id,
+                    attempt_id=attempt_id,
+                    owner_id=owner_id,
+                    outcome=EffectOutcome.EFFECT_SUCCEEDED,
+                    completed_at=consumed_at,
+                )
             )
-            return cursor.rowcount == 1
 
     def get_outbox_checkpoint(
             self,
             consumer_id: str,
         ) -> OutboxCheckpoint | None:
-            """Return a consumer's revisioned outbox checkpoint."""
+            """Return a consumer's revisioned outbox checkpoint from consumer_offsets."""
 
             row = self._db().execute(
                 """
@@ -768,7 +713,7 @@ class SqliteGovernanceRepository:
                     outbox_position,
                     event_id,
                     revision
-                FROM outbox_checkpoints
+                FROM consumer_offsets
                 WHERE consumer_id = ?
                 """,
                 (consumer_id,),
@@ -786,11 +731,11 @@ class SqliteGovernanceRepository:
             self,
             checkpoint: OutboxCheckpoint,
         ) -> None:
-            """Insert a consumer's initial checkpoint."""
+            """Insert a consumer's initial checkpoint into consumer_offsets."""
 
             self._db().execute(
                 """
-                INSERT INTO outbox_checkpoints (
+                INSERT INTO consumer_offsets (
                     consumer_id,
                     outbox_position,
                     event_id,
@@ -810,7 +755,7 @@ class SqliteGovernanceRepository:
             current: OutboxCheckpoint,
             updated: OutboxCheckpoint,
         ) -> bool:
-            """CAS-advance a checkpoint using its stored revision."""
+            """CAS-advance a checkpoint using its stored revision in consumer_offsets."""
 
             if current.consumer_id != updated.consumer_id:
                 raise ValueError(
@@ -827,7 +772,7 @@ class SqliteGovernanceRepository:
 
             cursor = self._db().execute(
                 """
-                UPDATE outbox_checkpoints
+                UPDATE consumer_offsets
                 SET
                     outbox_position = ?,
                     event_id = ?,
