@@ -269,6 +269,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 17 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0017_drop_legacy_outbox.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

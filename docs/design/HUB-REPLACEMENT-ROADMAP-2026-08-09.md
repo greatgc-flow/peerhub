@@ -19,7 +19,7 @@ for "can replace hub.py" -- everything before it is groundwork, everything
 after it is safety/validation before a real cutover.
 
 ## Phase 1 — Governance schema cleanup (Steps E/F)
-Status: in progress (Step E1 and E2 completed; Steps E3/F ratified and next up).
+Status: COMPLETED (Steps E1, E2, E3, and F completed).
 - Step E1 (DONE): Rebuild `effect_receipts` FK to target `effect_deliveries(event_id)`
   instead of `outbox_events(event_id)` via migration `0015_effect_receipts_delivery_fk.sql`.
 - Step E2 (DONE): Rebuild `dispatch_artifact_manifests` FK (migration 0008) to target
@@ -29,16 +29,15 @@ Status: in progress (Step E1 and E2 completed; Steps E3/F ratified and next up).
   - Mandatory fail-closed template: every table recreation/migration script MUST
     execute `PRAGMA foreign_key_check;` *inside* the transaction before `COMMIT;`
     (remedying the post-commit verification gap identified in migration 0015).
-- Step E3 (NEXT): Zero-reader & zero-writer tripwire gate. Remove legacy mirror writes in
-  `sqlite_governance.py` (lines 324, 707, 739); update integration tests calling
-  `unit.list_outbox_events()`; verify with a SQLite query authorizer test that
-  exactly 0 reads and 0 writes touch `outbox_events` across the full test suite.
-- Step F: Drop `outbox_events` and `outbox_checkpoints` via migration 0017 in a
-  separate, isolated commit once zero readers remain.
-  - Verification gate: Requires an automated DB backup/restore test fixture
-    (snapshot pre-migration DB at v16 -> apply migration 0017 -> assert clean drop
-    and valid FKs -> restore snapshot and verify v16 operational state), confirming
-    recovery beyond `git revert --no-commit`.
+- Step E3 (DONE): Zero-reader & zero-writer tripwire gate. Removed legacy mirror writes in
+  `sqlite_governance.py` and `sqlite.py`; updated tests; verified with a SQLite authorizer
+  tripwire test (`test_outbox_zero_access_tripwire.py`) that exactly 0 reads and 0 writes
+  touch `outbox_events` and `outbox_checkpoints`.
+- Step F (DONE): Dropped `outbox_events` and `outbox_checkpoints` via migration `0017_drop_legacy_outbox.sql`.
+  - Verification gate: Implemented automated DB backup/restore test fixture
+    (`test_migration_0017_drop_legacy_outbox.py`) taking an online SQLite `.backup()` snapshot at v16,
+    applying migration 0017, asserting tables dropped and foreign keys intact, then restoring
+    and verifying pre-drop v16 operational state.
 - Alembic Scope Note: Alembic cutover remains strictly scoped to Phase 2 (Structural
   debt). The bespoke runner (`peerhub/persistence/migrations/*.sql`) is the sole
   runtime migration engine in Phase 1.
