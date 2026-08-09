@@ -139,12 +139,7 @@ def execute_direct_ask(
     if prompt_bytes > policy.max_inline_utf8_bytes:
         raise ValueError(f"prompt invalid: exceeds {policy.max_inline_utf8_bytes} bytes")
 
-    workspace_home = request.workspace_root / ".ai" / "peerhub"
-    paths = PathLayout(
-        workspace_root=request.workspace_root,
-        workspace_home=workspace_home,
-        database_path=workspace_home / "peerhub.db"
-    )
+    paths = PathLayout.for_workspace(request.workspace_root)
 
     context = RuntimeContext(
         workspace_home_id="cli",
