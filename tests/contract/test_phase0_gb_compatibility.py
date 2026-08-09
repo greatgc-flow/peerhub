@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier, get_ident
 
 import pytest
 
@@ -493,3 +495,156 @@ def test_recover_pending_effects_keeps_claimed_unreceipted_delivery(
         is RecoveryDisposition.CONFIRMATION_REQUIRED
     )
     assert broker.get_effect_receipt(claimed.event_id) is None
+
+
+def test_claim_effect_same_owner_attempt_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([972, 973]),
+        ids=FakeIdSource(
+            [
+                "plan-claim-idempotent",
+                "receipt-claim-idempotent",
+                "outbox-claim-idempotent",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="claim-idempotent",
+            target_id="target-claim-idempotent",
+            expected_revision=0,
+            idempotency_key="claim-idempotent",
+            value=9,
+        )
+    )
+
+    first = broker.claim_effect(
+        submission.receipt.outbox_event_id,
+        owner_id="owner-claim-idempotent",
+        attempt_id="attempt-claim-idempotent",
+    )
+    repeated = broker.claim_effect(
+        submission.receipt.outbox_event_id,
+        owner_id="owner-claim-idempotent",
+        attempt_id="attempt-claim-idempotent",
+    )
+
+    assert repeated == first
+    assert repeated.state is OutboxState.CLAIMED
+    assert repeated.claimed_by == "owner-claim-idempotent"
+    assert repeated.claim_attempt_id == "attempt-claim-idempotent"
+
+
+def test_claim_effect_conflict_reports_delivery_owner(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([974, 975]),
+        ids=FakeIdSource(
+            [
+                "plan-claim-owner",
+                "receipt-claim-owner",
+                "outbox-claim-owner",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="claim-owner",
+            target_id="target-claim-owner",
+            expected_revision=0,
+            idempotency_key="claim-owner",
+            value=10,
+        )
+    )
+    broker.claim_effect(
+        submission.receipt.outbox_event_id,
+        owner_id="owner-first",
+        attempt_id="attempt-first",
+    )
+
+    with pytest.raises(ExclusiveClaimConflictError) as raised:
+        broker.claim_effect(
+            submission.receipt.outbox_event_id,
+            owner_id="owner-second",
+            attempt_id="attempt-second",
+        )
+
+    assert raised.value.current_owner_id == "owner-first"
+
+
+def test_claim_effect_concurrent_contenders_have_one_winner(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([980, 981]),
+        ids=FakeIdSource(
+            [
+                "plan-claim-concurrent",
+                "receipt-claim-concurrent",
+                "outbox-claim-concurrent",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="claim-concurrent",
+            target_id="target-claim-concurrent",
+            expected_revision=0,
+            idempotency_key="claim-concurrent",
+            value=11,
+        )
+    )
+    event_id = submission.receipt.outbox_event_id
+    barrier = Barrier(2)
+
+    def contend(
+        index: int,
+    ) -> tuple[
+        int,
+        str,
+        OutboxEvent | ExclusiveClaimConflictError,
+    ]:
+        barrier.wait()
+        try:
+            claimed = broker.claim_effect(
+                event_id,
+                owner_id=f"owner-concurrent-{index}",
+                attempt_id=f"attempt-concurrent-{index}",
+            )
+        except ExclusiveClaimConflictError as conflict:
+            return (get_ident(), "conflict", conflict)
+        return (get_ident(), "claimed", claimed)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(contend, (1, 2)))
+
+    assert len({thread_id for thread_id, _, _ in results}) == 2
+    winners = [result for result in results if result[1] == "claimed"]
+    conflicts = [result for result in results if result[1] == "conflict"]
+    assert len(winners) == 1
+    assert len(conflicts) == 1
+    winner = winners[0][2]
+    conflict = conflicts[0][2]
+    assert isinstance(winner, OutboxEvent)
+    assert isinstance(conflict, ExclusiveClaimConflictError)
+    assert conflict.current_owner_id == winner.claimed_by
+
+    with store.unit_of_work() as unit:
+        delivery = unit.get_effect_delivery(event_id)
+        legacy = unit.get_outbox_event(event_id)
+    assert delivery is not None
+    assert legacy is not None
+    assert delivery.state is OutboxState.CLAIMED
+    assert delivery.claimed_by == winner.claimed_by
+    assert delivery.claimed_by == legacy.claimed_by
+    assert delivery.claim_attempt_id == legacy.claim_attempt_id
+    assert delivery.claimed_at == legacy.claimed_at

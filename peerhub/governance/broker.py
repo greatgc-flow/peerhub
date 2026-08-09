@@ -119,6 +119,14 @@ class GovernanceUnitOfWork(UnitOfWork, Protocol):
 
         ...
 
+    def get_effect_delivery(
+        self,
+        event_id: str,
+    ) -> OutboxEvent | None:
+        """Return an effect delivery by event ID."""
+
+        ...
+
     def list_outbox_events(
         self,
         states: tuple[OutboxState, ...],
@@ -149,6 +157,17 @@ class GovernanceUnitOfWork(UnitOfWork, Protocol):
         claimed_at: int,
     ) -> OutboxEvent | None:
         """CAS-claim one pending outbox event."""
+
+        ...
+
+    def claim_effect_delivery(
+        self,
+        event_id: str,
+        owner_id: str,
+        attempt_id: str,
+        claimed_at: int,
+    ) -> OutboxEvent | None:
+        """CAS-claim an effect delivery and mirror legacy state."""
 
         ...
 
@@ -425,7 +444,7 @@ class GovernanceBroker:
         """Exclusively claim one pending governance effect intent."""
 
         with self._store.unit_of_work() as unit:
-            event = unit.get_outbox_event(event_id)
+            event = unit.get_effect_delivery(event_id)
             if event is None:
                 raise RecordNotFoundError(
                     "outbox_event",
@@ -446,14 +465,14 @@ class GovernanceBroker:
                     event.claimed_by,
                 )
 
-            claimed = unit.claim_outbox_event(
+            claimed = unit.claim_effect_delivery(
                 event_id,
                 owner_id,
                 attempt_id,
                 self._clock.now(),
             )
             if claimed is None:
-                latest = unit.get_outbox_event(event_id)
+                latest = unit.get_effect_delivery(event_id)
                 raise ExclusiveClaimConflictError(
                     event_id,
                     None if latest is None else latest.claimed_by,
