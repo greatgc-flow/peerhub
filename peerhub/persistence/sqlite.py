@@ -261,6 +261,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 16 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0016_dispatch_artifact_manifests_event_log_fk.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

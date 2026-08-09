@@ -1675,7 +1675,7 @@ class SqliteDispatchRepository:
         if manifest.intent_event_id is not None:
             outbox_row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
                 """
-                SELECT event_kind, payload_json FROM outbox_events WHERE event_id = ?
+                SELECT event_kind, payload_json FROM event_log WHERE event_id = ?
                 """,
                 (manifest.intent_event_id,),
             ).fetchone()

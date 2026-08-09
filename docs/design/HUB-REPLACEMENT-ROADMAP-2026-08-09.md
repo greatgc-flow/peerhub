@@ -19,15 +19,30 @@ for "can replace hub.py" -- everything before it is groundwork, everything
 after it is safety/validation before a real cutover.
 
 ## Phase 1 — Governance schema cleanup (Steps E/F)
-Status: not started, next up.
-- Step E: rebuild `effect_receipts`' FK to target `effect_deliveries`
-  instead of `outbox_events`; remove the legacy-mirror writes now that
-  broker.py fully reads/writes through the new tables.
-- Step F: drop `outbox_events`/`outbox_checkpoints` once nothing reads them.
-- Risk: low-moderate. Dropping tables is irreversible in a way column
-  additions aren't -- verify zero remaining readers before Step F,
-  same "full grep first" discipline used for the mark_outbox_consumed
-  Protocol removal in Step D3.
+Status: in progress (Step E1 and E2 completed; Steps E3/F ratified and next up).
+- Step E1 (DONE): Rebuild `effect_receipts` FK to target `effect_deliveries(event_id)`
+  instead of `outbox_events(event_id)` via migration `0015_effect_receipts_delivery_fk.sql`.
+- Step E2 (DONE): Rebuild `dispatch_artifact_manifests` FK (migration 0008) to target
+  `event_log(event_id)` instead of `outbox_events(event_id)` via migration
+  `0016_dispatch_artifact_manifests_event_log_fk.sql`; rewire the remaining raw-SQL
+  reader in `sqlite_dispatch.py` (line 1678 in `get_artifact_recovery_digest`) to query `event_log`.
+  - Mandatory fail-closed template: every table recreation/migration script MUST
+    execute `PRAGMA foreign_key_check;` *inside* the transaction before `COMMIT;`
+    (remedying the post-commit verification gap identified in migration 0015).
+- Step E3 (NEXT): Zero-reader & zero-writer tripwire gate. Remove legacy mirror writes in
+  `sqlite_governance.py` (lines 324, 707, 739); update integration tests calling
+  `unit.list_outbox_events()`; verify with a SQLite query authorizer test that
+  exactly 0 reads and 0 writes touch `outbox_events` across the full test suite.
+- Step F: Drop `outbox_events` and `outbox_checkpoints` via migration 0017 in a
+  separate, isolated commit once zero readers remain.
+  - Verification gate: Requires an automated DB backup/restore test fixture
+    (snapshot pre-migration DB at v16 -> apply migration 0017 -> assert clean drop
+    and valid FKs -> restore snapshot and verify v16 operational state), confirming
+    recovery beyond `git revert --no-commit`.
+- Alembic Scope Note: Alembic cutover remains strictly scoped to Phase 2 (Structural
+  debt). The bespoke runner (`peerhub/persistence/migrations/*.sql`) is the sole
+  runtime migration engine in Phase 1.
+
 
 ## Phase 2 — Structural debt
 Status: not started.

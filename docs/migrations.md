@@ -1,53 +1,73 @@
 # Database Migrations Workflow
 
-PeerHub is transitioning to Alembic for managing SQLite schema migrations. This guide outlines the workflow for developing new migrations.
+PeerHub uses a bespoke SQLite migration runner located in `peerhub/persistence/sqlite.py`. This guide outlines the workflow for developing and applying schema migrations.
 
-## Current State
+## Current State & Supported Workflow
 
-The initial 12 migrations (`0001` through `0012`) were applied sequentially by a bespoke runner in `peerhub/persistence/sqlite.py`. We have generated a single Alembic baseline revision (`alembic/versions/*_baseline_schema.py`) that encapsulates the exact schema state produced by those 12 scripts.
+- **Supported Migration Engine**: The bespoke runner in `peerhub/persistence/sqlite.py` reading SQL files from `peerhub/persistence/migrations/` is the **only supported migration path** in Phase 1.
+- **Alembic Status**: Alembic scaffolding (`alembic.ini`, `alembic/`) was added as exploratory scaffolding during Tier-2, but is **frozen and unsupported** until the full Phase 2 cutover.
+- **Warning**: Do **not** run `alembic upgrade head` or `alembic stamp head`. The existing Alembic baseline only reflects schema ~v12, whereas the active database schema is at v16+. Running Alembic commands against an active database will corrupt or attempt to overwrite schema state.
 
-**Important**: The bespoke runner is still active during this transition. You must NOT delete the existing `0001` through `0012` `.sql` files or remove the bespoke runner yet.
+## Authoring New Bespoke Migrations
 
-## Working with Alembic
-
-### For Existing Developer Databases
-If you already have a populated development database (`.peerhub/peerhub.sqlite3`) created by the bespoke runner:
-```bash
-alembic stamp head
-```
-This tells Alembic that your database already contains all the tables from the baseline schema, without trying to recreate them.
-
-### For Fresh Databases
-If you are starting from a completely clean slate with a new database:
-```bash
-alembic upgrade head
-```
-This applies the baseline schema from scratch using Alembic.
-
-### Authoring New Migrations
 When adding new schema changes:
 
-1. **Create a new revision**:
-   ```bash
-   alembic revision -m "Add new feature X"
+1. **Create a new SQL file**:
+   Add `peerhub/persistence/migrations/NNNN_<descriptive_name>.sql` with the next sequential integer prefix (e.g. `0016_dispatch_artifact_manifests_event_log_fk.sql`).
+
+2. **Follow the mandatory fail-closed migration template**:
+   For any table recreation or foreign key modification, always use SQLite's 12-step table recreation pattern with an **in-transaction `PRAGMA foreign_key_check;` before `COMMIT;`**:
+
+   ```sql
+   PRAGMA foreign_keys = OFF;
+   BEGIN IMMEDIATE;
+
+   -- 1. Create replacement table with new constraints/columns
+   CREATE TABLE my_table_new (
+       id TEXT PRIMARY KEY,
+       parent_id TEXT NOT NULL REFERENCES other_table(id),
+       ...
+   );
+
+   -- 2. Copy data from old table
+   INSERT INTO my_table_new (id, parent_id, ...)
+   SELECT id, parent_id, ...
+   FROM my_table;
+
+   -- 3. Drop old table and rename new table
+   DROP TABLE my_table;
+   ALTER TABLE my_table_new RENAME TO my_table;
+
+   -- 4. Recreate any indexes
+   CREATE INDEX my_table_parent_idx ON my_table(parent_id);
+
+   -- 5. Record migration in schema_migrations table
+   INSERT INTO schema_migrations(version, name)
+   VALUES (16, '0016_my_migration_name');
+   PRAGMA user_version = 16;
+
+   -- 6. Fail-closed verification: check foreign keys BEFORE commit
+   PRAGMA foreign_key_check;
+
+   COMMIT;
+   PRAGMA foreign_keys = ON;
    ```
-2. **Edit the revision file**:
-   Open the newly generated `.py` file in `alembic/versions/` and use `op.execute()` to define your raw fail-closed SQL. We avoid using Alembic's ORM or autogenerate tools.
-   
-   Example:
+
+3. **Register migration in `SqliteStateStore.initialize()`**:
+   Open `peerhub/persistence/sqlite.py` and register the migration execution block in sequential order:
+
    ```python
-   def upgrade() -> None:
-       op.execute("""
-       CREATE TABLE feature_x (
-           id TEXT PRIMARY KEY,
-           name TEXT NOT NULL
-       );
-       """)
+   versions = self._migration_versions(connection)
+   if 16 not in versions:
+       connection.executescript(
+           self._migration_text(
+               "0016_my_migration_name.sql"
+           )
+       )
    ```
 
-3. **Apply the migration**:
-   ```bash
-   alembic upgrade head
-   ```
-
-*(Note: During the transition period, any new tables must also be compatible with or dual-registered in the bespoke runner until it is fully retired).*
+4. **Add integration test coverage**:
+   Add tests in `tests/integration/persistence/` validating:
+   - Migration applies forward cleanly.
+   - Foreign keys and constraints are enforced.
+   - Negative / orphaned data cases fail closed without committing a corrupt state.
