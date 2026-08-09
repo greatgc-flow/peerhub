@@ -2,24 +2,29 @@
 
 A lightweight, installable coordination layer for orchestrating multiple AI CLI agents (Claude, Codex, Antigravity, ...) as collaborating peers: dispatch, routing, consensus, and health. It's built to eventually replace an existing hand-rolled multi-peer coordination system (`hub.py`) with a proper, tested package.
 
-## Status (2026-08-08)
+## Status (2026-08-09)
 
-Implementation in progress. The coordination kernel, command boundary, and a first slice of real (non-mocked) peer adapters are functional and tested.
+**`peerhub ask` works end-to-end today** — it genuinely dispatches a prompt to a real peer CLI (agy/claude/codex) through peerhub's own governance, admission, and process-supervision layers, and returns the response. See "Try it" below.
 
 - **Implemented**:
   - Coordination kernel: dispatch, process supervision, heartbeat/liveness, routing, health, telemetry, SQLite persistence with Alembic-baselined migrations.
-  - A typed command boundary (`ApplicationAPI`/`Client`) with Pydantic v2 strict validation at the wire edge for all 3 registered commands.
-  - **Real peer adapters** for all 3 target CLIs — `RealAgyAdapter`, `RealClaudeAdapter`, `RealCodexAdapter` — each proven by an integration test that actually shells out to the real binary (not mocked), plus a `FakePeerAdapter` for tests. Selectable via a small peer-kind registry (`peerhub.adapters.registry`), wired into `create_runtime()` (defaults to the fake adapter).
-  - A first CLI entrypoint: `peerhub --version` and `peerhub status [--workspace PATH]` (see below).
+  - GovernanceBroker's exclusive-claim, completion, and recovery paths all read/write through `effect_deliveries` (the outbox/delivery-tracking split completed end to end — see `docs/design/OUTBOX-SPLIT-PROGRESS-2026-08-09.md`).
+  - A typed command boundary (`ApplicationAPI`/`Client`) with Pydantic v2 strict validation at the wire edge.
+  - **Real peer adapters** for all 3 target CLIs — `RealAgyAdapter`, `RealClaudeAdapter`, `RealCodexAdapter` — each proven both standalone and through the full supervised `dispatch_and_execute()` pipeline (not a bypass), plus a `FakePeerAdapter` for tests. Selectable via a peer-kind registry (`peerhub.adapters.registry`).
+  - **A real CLI**: `peerhub --version`, `peerhub status [--workspace PATH]`, and `peerhub ask PEER PROMPT [options]` — the last one performs a genuine end-to-end dispatch (admission → routing → supervised process execution → decoded response), not a stub. See "Try it" below.
+  - A direct-ask admission bootstrap (`peerhub.direct-ask/v1`) that auto-provisions a real, measured-readiness health/routing configuration for a single requested peer on a fresh workspace — no manual policy setup required.
   - Static type checking (Pyright, 0 errors) and CI (GitHub Actions: pytest + pyright on every push/PR).
-  - 477 passing tests (`pytest -q`; add `-m slow` to also run the 3 real-CLI adapter tests, which need the actual `agy.exe`/`claude.cmd`/`codex.cmd` binaries installed and authenticated, and take real wall-clock time).
+  - A ratified traceability convention and fact-refresh procedure for keeping design/code/test/commit/memory records in sync going forward (`docs/design/TRACEABILITY-CONVENTION-R1.md`, `docs/design/FACT-REFRESH-PROCEDURE-R1.md`) — the fact-refresh tool itself (`tools/peerhub_facts/`) is spec'd but not yet built.
 - **Not yet implemented / honest gaps**:
-  - No live end-to-end multi-peer orchestration through peerhub itself — `hub.py` remains the authoritative system for real multi-peer work today. The real adapters exist and work individually, but nothing wires them into a running orchestration loop yet.
-  - No diag-style live health/quota dashboard. `peerhub status` reports what it can honestly answer today (schema version, active lease count) and says so plainly where the underlying service doesn't expose a queryable answer yet (e.g. health-circuit listing).
+  - Ctrl-C during `peerhub ask` does not yet walk the real cancellation ladder (SOFT_CANCEL → TERMINATE_TREE → KILL_TREE) — it prints a message that the in-flight process may still be running and exits 130, rather than falsely claiming a clean cancel. Wiring this needs a `dispatch_and_execute()` signature change (see the TODO at `peerhub/cli.py`).
   - Session continuation, streaming decode, detailed per-vendor error-taxonomy mapping, and PTY transport are deliberately out of scope for the current adapter slice.
-  - The bespoke SQLite migration runner and the newly-added Alembic scaffolding currently coexist (Alembic is additive-only, not yet the sole migration path).
+  - No shadow-mode validation yet (routing a subset of real traffic through peerhub in parallel with `hub.py` for comparison before any real cutover) — `hub.py` remains the authoritative system for real multi-peer coordination work today; `peerhub ask` is a real, working command, not yet a production replacement.
+  - The bespoke SQLite migration runner and Alembic scaffolding currently coexist (Alembic is additive-only, not yet the sole migration path).
+  - `effect_receipts`' legacy-mirror writes into `outbox_events` are still active during the compatibility window (safe to leave running indefinitely, costs extra writes); dropping the legacy `outbox_events`/`outbox_checkpoints` tables entirely is still pending.
 
-The target architecture was designed and converged through a 9-round adversarial review (`ag`/`cx`/`cc`) documented in [`docs/design/ARCHITECTURE.md`](docs/design/ARCHITECTURE.md). The full debate record, including rejected alternatives and evidence citations, is in [`docs/design/peerhub-architecture-debate.md`](docs/design/peerhub-architecture-debate.md). Later design decisions (Stage 2 command boundary, Stage 3 real adapters, the capability/mutation-lease proposal) are under [`docs/design/`](docs/design/), dated by filename.
+See [`docs/design/HUB-REPLACEMENT-ROADMAP-2026-08-09.md`](docs/design/HUB-REPLACEMENT-ROADMAP-2026-08-09.md) for the full phased plan toward functional hub.py parity, and [`docs/design/PEERHUB-P-DRIVE-ISOLATION-2026-08-09.md`](docs/design/PEERHUB-P-DRIVE-ISOLATION-2026-08-09.md) for how peerhub's own runtime state relates to (and is deliberately isolated from) the wider P: development environment this repo happens to live inside during development.
+
+The target architecture was designed and converged through a 9-round adversarial review (`ag`/`cx`/`cc`) documented in [`docs/design/ARCHITECTURE.md`](docs/design/ARCHITECTURE.md). The full debate record, including rejected alternatives and evidence citations, is in [`docs/design/peerhub-architecture-debate.md`](docs/design/peerhub-architecture-debate.md). Later design decisions are under [`docs/design/`](docs/design/), dated by filename.
 
 ## Install
 
@@ -36,35 +41,44 @@ Requires Python >= 3.11. This installs the `peerhub` package and registers a `pe
 ```bash
 peerhub --version
 
-# Check a workspace (creates nothing -- read-only; reports "uninitialized" if the
-# workspace has no database yet)
+# Check a workspace (read-only; reports "uninitialized" if no database yet)
 peerhub status --workspace ./my-workspace
+
+# Genuinely dispatch a prompt to a real peer and get its response
+peerhub ask ag "say hello in exactly three words"
+peerhub ask cc "..." --profile <profile-id>   # claude, if you have more than one profile configured
+peerhub ask cx "..." --json                    # structured output instead of plain text
 ```
 
-Example output against an initialized workspace with one active lease:
+`ask` accepts `--workspace PATH` (default `.`), `--profile PROFILE_ID`,
+`--timeout-seconds`/`--silence-timeout-seconds`/`--max-output-bytes`
+(process limits), and `--json`. Exit codes: `0` verified response,
+`2` usage/config/pre-spawn failure (unknown peer, executable not found,
+readiness probe failed), `3` definite peer/protocol failure, `4`
+uncertain execution (timeout, lost lease ownership), `130` interrupted.
+It requires the real peer CLI (`agy.exe`/`claude.cmd`/`codex.cmd`) to be
+installed and authenticated on your machine — `ask` will tell you clearly
+if it can't find or run one, rather than failing silently.
+
+Example `status` output against a workspace with one active lease:
 ```
 Workspace: /path/to/my-workspace
 Database: /path/to/my-workspace/.peerhub/peerhub.sqlite3
-Schema Migrations Applied: 13
+Schema Migrations Applied: 15
 Health Circuit ('system'): (no listing API exists yet -- not queryable from the CLI)
 Active Leases: 1
 Status: OK
 ```
 
-To exercise a real adapter directly (not through any CLI yet -- this is library-level usage):
-```python
-from peerhub.adapters.agy_adapter import RealAgyAdapter
-from peerhub.adapters.contract import AdapterRequest, SessionAction, TransportLimits
-
-adapter = RealAgyAdapter()
-# see tests/integration/adapters/test_real_agy_adapter.py for a complete working example
-# of plan_invocation -> real subprocess -> interpret_output
-```
-
 ## Run the tests
 
 ```bash
-pytest -q                 # fast suite, ~1 minute, no real CLI calls
-pytest -q -m slow          # + the 3 real-adapter integration tests (needs real CLIs, ~30-60s more)
+pytest -q                 # fast suite, no real CLI calls
+pytest -q -m slow          # + the real-adapter/real-dispatch integration tests (needs real CLIs installed & authenticated, real wall-clock time)
 pyright                    # static type check, should report 0 errors
 ```
+
+This repo's own convention (see `docs/design/FACT-REFRESH-PROCEDURE-R1.md`)
+is to never cite a specific "current passing count" in this file — it
+changes with nearly every commit. Run `pytest -q` yourself for the real,
+current number.
