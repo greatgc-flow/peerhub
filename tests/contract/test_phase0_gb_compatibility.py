@@ -648,3 +648,199 @@ def test_claim_effect_concurrent_contenders_have_one_winner(
     assert delivery.claimed_by == legacy.claimed_by
     assert delivery.claim_attempt_id == legacy.claim_attempt_id
     assert delivery.claimed_at == legacy.claimed_at
+
+
+def test_record_effect_result_retry_returns_existing_receipt(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([1000, 1001, 1002]),
+        ids=FakeIdSource(
+            [
+                "plan-result-idempotent",
+                "receipt-result-idempotent",
+                "outbox-result-idempotent",
+                "effect-receipt-result-idempotent",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="result-idempotent",
+            target_id="target-result-idempotent",
+            expected_revision=0,
+            idempotency_key="result-idempotent",
+            value=12,
+        )
+    )
+    claimed = broker.claim_effect(
+        submission.receipt.outbox_event_id,
+        owner_id="owner-result-idempotent",
+        attempt_id="attempt-result-idempotent",
+    )
+
+    first = broker.record_effect_result(
+        claimed.event_id,
+        owner_id="owner-result-idempotent",
+        attempt_id="attempt-result-idempotent",
+        outcome=EffectOutcome.EFFECT_SUCCEEDED,
+    )
+    repeated = broker.record_effect_result(
+        claimed.event_id,
+        owner_id="owner-result-idempotent",
+        attempt_id="attempt-result-idempotent",
+        outcome=EffectOutcome.EFFECT_SUCCEEDED,
+    )
+
+    assert repeated == first
+
+
+def test_record_effect_result_rejects_conflicting_existing_receipt(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([1010, 1011, 1012]),
+        ids=FakeIdSource(
+            [
+                "plan-result-conflict",
+                "receipt-result-conflict",
+                "outbox-result-conflict",
+                "effect-receipt-result-conflict",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="result-conflict",
+            target_id="target-result-conflict",
+            expected_revision=0,
+            idempotency_key="result-conflict",
+            value=13,
+        )
+    )
+    claimed = broker.claim_effect(
+        submission.receipt.outbox_event_id,
+        owner_id="owner-result-first",
+        attempt_id="attempt-result-first",
+    )
+    broker.record_effect_result(
+        claimed.event_id,
+        owner_id="owner-result-first",
+        attempt_id="attempt-result-first",
+        outcome=EffectOutcome.EFFECT_SUCCEEDED,
+    )
+
+    with pytest.raises(ExclusiveClaimConflictError) as raised:
+        broker.record_effect_result(
+            claimed.event_id,
+            owner_id="owner-result-second",
+            attempt_id="attempt-result-second",
+            outcome=EffectOutcome.EFFECT_FAILED,
+        )
+
+    assert raised.value.current_owner_id == "owner-result-first"
+
+
+def test_record_effect_result_rejects_unclaimed_and_wrong_owner(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([1020, 1021]),
+        ids=FakeIdSource(
+            [
+                "plan-result-invalid-claim",
+                "receipt-result-invalid-claim",
+                "outbox-result-invalid-claim",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="result-invalid-claim",
+            target_id="target-result-invalid-claim",
+            expected_revision=0,
+            idempotency_key="result-invalid-claim",
+            value=14,
+        )
+    )
+    event_id = submission.receipt.outbox_event_id
+
+    with pytest.raises(ExclusiveClaimConflictError):
+        broker.record_effect_result(
+            event_id,
+            owner_id="owner-result-unclaimed",
+            attempt_id="attempt-result-unclaimed",
+            outcome=EffectOutcome.EFFECT_SUCCEEDED,
+        )
+
+    broker.claim_effect(
+        event_id,
+        owner_id="owner-result-valid",
+        attempt_id="attempt-result-valid",
+    )
+    with pytest.raises(ExclusiveClaimConflictError) as raised:
+        broker.record_effect_result(
+            event_id,
+            owner_id="owner-result-wrong",
+            attempt_id="attempt-result-wrong",
+            outcome=EffectOutcome.EFFECT_FAILED,
+        )
+
+    assert raised.value.current_owner_id == "owner-result-valid"
+    assert broker.get_effect_receipt(event_id) is None
+
+
+def test_governance_effect_pipeline_completes_both_delivery_views(
+    tmp_path: Path,
+) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock([1030, 1031, 1032]),
+        ids=FakeIdSource(
+            [
+                "plan-result-pipeline",
+                "receipt-result-pipeline",
+                "outbox-result-pipeline",
+                "effect-receipt-result-pipeline",
+            ]
+        ),
+    )
+    submission = broker.submit(
+        _request(
+            suffix="result-pipeline",
+            target_id="target-result-pipeline",
+            expected_revision=0,
+            idempotency_key="result-pipeline",
+            value=15,
+        )
+    )
+    claimed = broker.claim_effect(
+        submission.receipt.outbox_event_id,
+        owner_id="owner-result-pipeline",
+        attempt_id="attempt-result-pipeline",
+    )
+    receipt = broker.record_effect_result(
+        claimed.event_id,
+        owner_id="owner-result-pipeline",
+        attempt_id="attempt-result-pipeline",
+        outcome=EffectOutcome.EFFECT_SUCCEEDED,
+    )
+
+    assert broker.get_effect_receipt(claimed.event_id) == receipt
+    assert broker.recover_pending_effects() == ()
+    with store.unit_of_work() as unit:
+        delivery = unit.get_effect_delivery(claimed.event_id)
+        legacy = unit.get_outbox_event(claimed.event_id)
+    assert delivery is not None
+    assert legacy is not None
+    assert delivery.state is OutboxState.CONSUMED
+    assert legacy.state is OutboxState.CONSUMED
+    assert delivery.consumed_at == receipt.completed_at
+    assert legacy.consumed_at == receipt.completed_at

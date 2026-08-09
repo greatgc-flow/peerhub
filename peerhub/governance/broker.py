@@ -171,14 +171,11 @@ class GovernanceUnitOfWork(UnitOfWork, Protocol):
 
         ...
 
-    def mark_outbox_consumed(
+    def complete_effect_delivery(
         self,
-        event_id: str,
-        owner_id: str,
-        attempt_id: str,
-        consumed_at: int,
+        receipt: EffectReceipt,
     ) -> bool:
-        """CAS-mark one claimed outbox event consumed."""
+        """Guardedly complete a delivery and mirror legacy state."""
 
         ...
 
@@ -509,7 +506,7 @@ class GovernanceBroker:
                     existing.owner_id,
                 )
 
-            event = unit.get_outbox_event(event_id)
+            event = unit.get_effect_delivery(event_id)
             if event is None:
                 raise RecordNotFoundError(
                     "outbox_event",
@@ -538,13 +535,7 @@ class GovernanceBroker:
                 completed_at=completed_at,
                 evidence_refs=evidence_refs,
             )
-            unit.add_effect_receipt(receipt)
-            if not unit.mark_outbox_consumed(
-                event_id,
-                owner_id,
-                attempt_id,
-                completed_at,
-            ):
+            if not unit.complete_effect_delivery(receipt):
                 raise ExclusiveClaimConflictError(
                     event_id,
                     event.claimed_by,
