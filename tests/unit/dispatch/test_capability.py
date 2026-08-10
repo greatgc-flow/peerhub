@@ -13,9 +13,17 @@ from peerhub.dispatch.capability import (
     CapabilityLeaseViolation,
     CapabilityTier,
     EnforcementLevel,
+    PeerEnforcementEvidence,
     ValidatedCapabilityBinding,
     mandatory_enforcement_floor,
+    require_enforcement_floor,
     validate_capability_binding,
+)
+from peerhub.dispatch.capability_policy import (
+    StaticCapabilityPolicy,
+    StaticPeerEnforcementEvidenceProvider,
+    default_capability_policy,
+    default_enforcement_evidence_provider,
 )
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
@@ -477,3 +485,258 @@ def test_read_only_and_non_ag_floor_matrix() -> None:
         )
         is EnforcementLevel.ENFORCED
     )
+
+
+# --- The shipped defaults (peerhub.dispatch.capability_policy) -------------
+#
+# capability_policy.py is what a production DispatchService/AdmissionCoordinator
+# falls back to when nothing is injected, so its behavior IS the deployed
+# security posture.  These tests pin the two claims its module docstring makes:
+# no real peer carries a measured enforcement ceiling, and the policy grants
+# least privilege only.
+
+_MUTATING_TIERS = (
+    CapabilityTier.WORKTREE_WRITE,
+    CapabilityTier.GIT_MUTATE,
+    CapabilityTier.REMOTE_MUTATE,
+)
+
+_BUILTIN_PEERS = ("ag", "cc", "cx")
+
+
+@pytest.mark.parametrize("peer", _BUILTIN_PEERS)
+def test_shipped_evidence_provider_claims_no_measured_ceiling(
+    peer: str,
+) -> None:
+    """Every built-in peer resolves to an absent, DIR-004-tagged ceiling."""
+
+    evidence = default_enforcement_evidence_provider().resolve(
+        peer_instance_id=peer,
+        profile_id=f"{peer}.standard",
+    )
+
+    assert evidence.peer_kind == peer
+    assert evidence.peer_instance_id == peer
+    assert evidence.enforcement_ceiling is None
+    assert evidence.source_tag == "absent"
+
+
+def test_shipped_evidence_provider_treats_unknown_instances_as_unmeasured() -> None:
+    """An unmapped instance is unknown, never optimistically ADVISORY."""
+
+    evidence = default_enforcement_evidence_provider().resolve(
+        peer_instance_id="some-instance-nobody-measured",
+        profile_id="whatever.profile",
+    )
+
+    assert evidence.peer_kind == "some-instance-nobody-measured"
+    assert evidence.enforcement_ceiling is None
+    assert evidence.source_tag == "absent"
+
+
+@pytest.mark.parametrize("peer", _BUILTIN_PEERS)
+@pytest.mark.parametrize("tier", _MUTATING_TIERS)
+def test_shipped_evidence_cannot_satisfy_any_mutating_floor(
+    peer: str,
+    tier: CapabilityTier,
+) -> None:
+    """No built-in peer can be granted a mutating tier as shipped.
+
+    This is the by-construction claim in ``capability_policy``'s docstring:
+    the denial is not a peer-specific carve-out, it holds for the whole
+    built-in cross product.
+    """
+
+    evidence = default_enforcement_evidence_provider().resolve(
+        peer_instance_id=peer,
+        profile_id=f"{peer}.standard",
+    )
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        require_enforcement_floor(evidence.peer_kind, tier, evidence)
+
+    assert exc_info.value.invariant == (
+        "selected adapter has no measured enforcement evidence for the "
+        "mandatory enforcement floor"
+    )
+
+
+@pytest.mark.parametrize("peer", _BUILTIN_PEERS)
+def test_shipped_evidence_still_satisfies_the_read_only_floor(
+    peer: str,
+) -> None:
+    """READ_ONLY's ADVISORY floor needs no measurement -- fail closed, not always."""
+
+    evidence = default_enforcement_evidence_provider().resolve(
+        peer_instance_id=peer,
+        profile_id=f"{peer}.standard",
+    )
+
+    assert (
+        require_enforcement_floor(
+            evidence.peer_kind,
+            CapabilityTier.READ_ONLY,
+            evidence,
+        )
+        is EnforcementLevel.ADVISORY
+    )
+
+
+def test_require_enforcement_floor_rejects_a_ceiling_below_the_floor() -> None:
+    """A measured but too-weak ceiling is denied, not rounded up."""
+
+    weak = PeerEnforcementEvidence(
+        peer_instance_id="ag",
+        peer_kind="ag",
+        enforcement_ceiling=EnforcementLevel.ENFORCED,
+        source_tag="controlled_fake",
+    )
+
+    # ag + mutating demands CONFINED; ENFORCED is one level short.
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        require_enforcement_floor(
+            "ag",
+            CapabilityTier.WORKTREE_WRITE,
+            weak,
+        )
+
+    assert exc_info.value.invariant == (
+        "selected adapter cannot meet the mandatory enforcement floor"
+    )
+
+
+@pytest.mark.parametrize("tier", (CapabilityTier.READ_ONLY,) + _MUTATING_TIERS)
+def test_shipped_policy_grants_least_privilege_only(
+    tier: CapabilityTier,
+) -> None:
+    """``authorized_tier`` equals ``required_tier`` -- never a wider grant."""
+
+    decision = default_capability_policy().decide(
+        subject_principal_id="principal-01",
+        selected_peer_kind="cx",
+        selected_peer_instance_id="cx-instance-01",
+        selected_profile_id="cx-profile-01",
+        policy_revision=_POLICY_REVISION,
+        required_tier=tier,
+        minimum_enforcement=EnforcementLevel.CONFINED,
+    )
+
+    assert decision.granted is True
+    assert decision.authorized_tier is tier
+    assert decision.required_tier is tier
+    # The code-owned floor handed in is carried through, never lowered.
+    assert decision.minimum_enforcement is EnforcementLevel.CONFINED
+    assert decision.denial_reason is None
+
+
+def test_static_policy_denies_configured_tiers_without_authority() -> None:
+    """A denied decision carries a reason and no tier or enforcement level."""
+
+    policy = StaticCapabilityPolicy(
+        denied_tiers=frozenset({CapabilityTier.REMOTE_MUTATE}),
+    )
+
+    decision = policy.decide(
+        subject_principal_id="principal-01",
+        selected_peer_kind="cx",
+        selected_peer_instance_id="cx-instance-01",
+        selected_profile_id="cx-profile-01",
+        policy_revision=_POLICY_REVISION,
+        required_tier=CapabilityTier.REMOTE_MUTATE,
+        minimum_enforcement=EnforcementLevel.ENFORCED,
+    )
+
+    assert decision.granted is False
+    assert decision.authorized_tier is None
+    assert decision.minimum_enforcement is None
+    assert decision.denial_reason == "tier denied by policy"
+
+
+def test_shipped_policy_revalidation_fails_closed_on_a_revision_change() -> None:
+    """A rotated policy revision revokes an already-issued lease.
+
+    This is the revocation window the pre-merge review flagged: the lease was
+    minted under revision 7 and is presented while the live policy has moved
+    on.  ``revalidate`` must reject it rather than honor the stale grant.
+    """
+
+    binding = _validate(_binding_records())
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        default_capability_policy().revalidate(
+            binding,
+            current_policy_revision=_POLICY_REVISION + 1,
+            now=binding.capability_lease.issued_at,
+        )
+
+    assert exc_info.value.invariant == (
+        "capability lease policy revision differs from the current "
+        "policy revision"
+    )
+
+
+def test_shipped_policy_revalidation_fails_closed_after_expiry() -> None:
+    """An expired lease is refused at the boundary, not at the boundary + 1."""
+
+    binding = _validate(_binding_records())
+    expires_at = binding.capability_lease.expires_at
+    assert expires_at is not None
+
+    # Exactly at expiry is still valid; one tick past it is not.
+    default_capability_policy().revalidate(
+        binding,
+        current_policy_revision=_POLICY_REVISION,
+        now=expires_at,
+    )
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        default_capability_policy().revalidate(
+            binding,
+            current_policy_revision=_POLICY_REVISION,
+            now=expires_at + 1,
+        )
+
+    assert exc_info.value.invariant == "capability lease has expired"
+
+
+def test_shipped_policy_issues_leases_without_an_expiry_by_default() -> None:
+    """The shipped TTL is absent; a configured TTL is added to issuance time."""
+
+    assert default_capability_policy().expires_at(1_000) is None
+    assert StaticCapabilityPolicy(lease_ttl_seconds=60).expires_at(1_000) == 1_060
+
+
+@pytest.mark.parametrize("bad_ttl", [0, -1, 1.5, "60", True])
+def test_static_policy_rejects_a_non_positive_integer_ttl(
+    bad_ttl: object,
+) -> None:
+    """A malformed TTL is a construction error, not a silently ignored one."""
+
+    with pytest.raises(ValueError):
+        StaticCapabilityPolicy(lease_ttl_seconds=bad_ttl)  # pyright: ignore[reportArgumentType]
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_static_evidence_provider_rejects_blank_selection_identifiers(
+    blank: str,
+) -> None:
+    """Neither identifier may be blank -- an empty instance is not a peer."""
+
+    provider = StaticPeerEnforcementEvidenceProvider()
+
+    with pytest.raises(ValueError):
+        provider.resolve(peer_instance_id=blank, profile_id="cx.standard")
+    with pytest.raises(ValueError):
+        provider.resolve(peer_instance_id="cx", profile_id=blank)
+
+
+def test_unmeasured_evidence_must_carry_the_absent_source_tag() -> None:
+    """A ``None`` ceiling can never be dressed up as a real measurement."""
+
+    with pytest.raises(ValueError):
+        PeerEnforcementEvidence(
+            peer_instance_id="ag",
+            peer_kind="ag",
+            enforcement_ceiling=None,
+            source_tag="empirical_probe",
+        )

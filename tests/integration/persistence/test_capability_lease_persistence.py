@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.core.context import IdSource
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -31,7 +32,35 @@ from peerhub.dispatch.contract import (
 )
 from peerhub.dispatch.service import DispatchService
 from peerhub.persistence.sqlite import SqliteStateStore
-from tests.fakes import DeterministicClock, SequentialIdSource
+from tests.fakes import DeterministicClock, SequentialIdSource, deterministic_uuid4
+
+
+class _TaggedIdSource:
+    """Sequential IDs carrying a distinguishing tag, and a mint log.
+
+    ``SequentialIdSource`` restarts at 1 for every instance, so a second
+    coordinator that wrongly re-minted a capability lease would hand back the
+    *same* string as the original and an equality assertion would pass
+    vacuously.  Tagging makes a re-mint visibly different, and ``namespaces``
+    records every mint so a test can assert the "capability-lease" namespace
+    was never drawn from at all on a replay.
+    """
+
+    def __init__(self, tag: str) -> None:
+        self._tag = tag
+        self._counters: dict[str, int] = {}
+        self.namespaces: list[str] = []
+
+    def new_id(self, namespace: str) -> str:
+        """Return the next tagged identifier and record the namespace."""
+
+        self.namespaces.append(namespace)
+        count = self._counters.get(namespace, 0) + 1
+        self._counters[namespace] = count
+        value = f"{namespace}-{self._tag}-{count}"
+        if namespace == "outbox-event":
+            return deterministic_uuid4(value)
+        return value
 
 
 class _RaisingFaultInjector(FaultInjector):
@@ -74,19 +103,8 @@ _MEASURED_CX_EVIDENCE = StaticPeerEnforcementEvidenceProvider(
 )
 
 
-def _admit(
-    store: SqliteStateStore,
-    *,
-    fault_injector: FaultInjector | None = None,
-) -> tuple[RequestSnapshot, AdmissionReceipt, CapabilityLease]:
-    service = DispatchService(
-        store,
-        clock=DeterministicClock(start=100),
-        ids=SequentialIdSource(),
-        fault_injector=fault_injector,
-        enforcement_evidence=_MEASURED_CX_EVIDENCE,
-    )
-    envelope = CommandEnvelope(
+def _envelope() -> CommandEnvelope:
+    return CommandEnvelope(
         protocol_major=PROTOCOL_MAJOR,
         protocol_minor=PROTOCOL_MINOR,
         schema_version=SCHEMA_VERSION,
@@ -102,16 +120,52 @@ def _admit(
         expected_configuration_revision=11,
         client_timestamp=10,
     )
+
+
+def _completion_contract() -> CompletionContract:
+    return CompletionContract(
+        contract_id="completion-capability",
+        kind=CompletionContractKind.DELIVERY_ONLY,
+        requirements=(),
+        replay_safe=False,
+    )
+
+
+def _service(
+    store: SqliteStateStore,
+    *,
+    fault_injector: FaultInjector | None = None,
+    ids: IdSource | None = None,
+    start: int = 100,
+) -> DispatchService:
+    return DispatchService(
+        store,
+        clock=DeterministicClock(start=start),
+        ids=ids if ids is not None else SequentialIdSource(),
+        fault_injector=fault_injector,
+        enforcement_evidence=_MEASURED_CX_EVIDENCE,
+    )
+
+
+def _admit(
+    store: SqliteStateStore,
+    *,
+    fault_injector: FaultInjector | None = None,
+    ids: IdSource | None = None,
+    start: int = 100,
+) -> tuple[RequestSnapshot, AdmissionReceipt, CapabilityLease]:
+    service = _service(
+        store,
+        fault_injector=fault_injector,
+        ids=ids,
+        start=start,
+    )
+    envelope = _envelope()
     request, receipt, _, capability_lease = service.admit_request(
         envelope,
         authenticated_principal="principal-capability",
         actor_authorized=True,
-        completion_contract=CompletionContract(
-            contract_id="completion-capability",
-            kind=CompletionContractKind.DELIVERY_ONLY,
-            requirements=(),
-            replay_safe=False,
-        ),
+        completion_contract=_completion_contract(),
         policy_revision=7,
         configuration_revision=11,
         required_capability_tier=CapabilityTier.WORKTREE_WRITE,
@@ -263,3 +317,90 @@ def test_capability_lease_replay_returns_identical_durable_record(
     assert by_id is not lease
     assert by_id is not by_command
     assert by_command is not by_receipt
+
+
+def _count_capability_leases(database_path: Path) -> int:
+    connection = sqlite3.connect(database_path)
+    try:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM capability_leases"
+        ).fetchone()
+    finally:
+        connection.close()
+    return int(row[0])
+
+
+def test_idempotent_admit_replay_returns_the_original_capability_lease(
+    tmp_path: Path,
+) -> None:
+    """A replayed admission reuses the bound lease instead of minting one.
+
+    Errata 7.1/7.2: exactly one capability lease exists per command, and the
+    idempotency path must hand back *that* lease.  The replaying coordinator
+    is given a tagged ID source, so a freshly minted lease would carry a
+    visibly different identifier rather than colliding with the original --
+    and ``namespaces`` proves the "capability-lease" namespace was never even
+    drawn from.
+    """
+
+    database_path = tmp_path / "capability-idempotent-admit.sqlite3"
+    store = _store(database_path)
+    _, _, original = _admit(store)
+
+    replay_ids = _TaggedIdSource("replay")
+    _, _, replayed = _admit(store, ids=replay_ids, start=900)
+
+    assert replayed.capability_lease_id == original.capability_lease_id
+    assert replayed == original
+    assert "capability-lease" not in replay_ids.namespaces
+    assert _count_capability_leases(database_path) == 1
+
+
+def test_peek_idempotent_admission_returns_the_original_capability_lease(
+    tmp_path: Path,
+) -> None:
+    """``peek_idempotent_admission`` returns the same lease identity too.
+
+    The peek path is the one a caller uses *before* deciding to admit, so it
+    is a separate way into ``_load_admission()`` and needs its own proof that
+    it loads rather than mints.
+    """
+
+    database_path = tmp_path / "capability-peek.sqlite3"
+    store = _store(database_path)
+    _, _, original = _admit(store)
+
+    peek_ids = _TaggedIdSource("peek")
+    peeked = _service(store, ids=peek_ids, start=900).peek_idempotent_admission(
+        _envelope(),
+        authenticated_principal="principal-capability",
+        actor_authorized=True,
+        completion_contract=_completion_contract(),
+    )
+
+    assert peeked is not None
+    assert peeked[3].capability_lease_id == original.capability_lease_id
+    assert peeked[3] == original
+    assert "capability-lease" not in peek_ids.namespaces
+    assert _count_capability_leases(database_path) == 1
+
+
+def test_peek_idempotent_admission_is_none_before_any_admission(
+    tmp_path: Path,
+) -> None:
+    """No admission means no lease to hand back -- not a minted one."""
+
+    database_path = tmp_path / "capability-peek-empty.sqlite3"
+    store = _store(database_path)
+
+    peek_ids = _TaggedIdSource("peek-empty")
+    peeked = _service(store, ids=peek_ids).peek_idempotent_admission(
+        _envelope(),
+        authenticated_principal="principal-capability",
+        actor_authorized=True,
+        completion_contract=_completion_contract(),
+    )
+
+    assert peeked is None
+    assert peek_ids.namespaces == []
+    assert _count_capability_leases(database_path) == 0

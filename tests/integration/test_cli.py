@@ -202,6 +202,36 @@ def test_cli_ask_requires_capability_tier() -> None:
     assert exc_info.value.code == 2
 
 
+@pytest.mark.parametrize(
+    "supplied_tier",
+    [
+        "SUPERUSER",
+        "read_only",
+        "READONLY",
+        "0",
+        "",
+    ],
+)
+def test_cli_ask_rejects_a_capability_tier_outside_the_enum(
+    supplied_tier: str,
+) -> None:
+    """The CLI accepts exact enum names only -- never a coerced near-miss.
+
+    Increment 3 deliberately made ``--capability-tier`` an exact-choice flag
+    with no prompt-text inference.  A value that merely *looks* like a tier
+    (wrong case, the ordinal, the empty string) must exit 2 rather than be
+    normalized into a grant, and ``execute_direct_ask`` must never be
+    reached.
+    """
+
+    with patch("peerhub.cli.execute_direct_ask") as execute:
+        with pytest.raises(SystemExit) as exc_info:
+            main(["ask", "ag", "hello", "--capability-tier", supplied_tier])
+
+    assert exc_info.value.code == 2
+    assert execute.call_count == 0
+
+
 def test_cli_ask_unknown_peer_returns_usage_error(
     tmp_path: Path,
     capsys,

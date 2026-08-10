@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 import hashlib
 from pathlib import Path
+import sqlite3
 import sys
 import pytest
 
@@ -16,7 +18,12 @@ from peerhub.adapters.contract import (
     SessionAction,
 )
 from peerhub.application.workflows import ApplicationWorkflows
-from peerhub.builtins.fake_adapter import FakePeerAdapter, _FAKE_PROFILE
+from peerhub.builtins.fake_adapter import (
+    FakePeerAdapter,
+    _FAKE_DESCRIPTOR,
+    _FAKE_PROFILE,
+)
+from peerhub.application import workflows as workflows_module
 from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
@@ -36,11 +43,15 @@ from peerhub.dispatch.contract import (
     RequestState,
 )
 from peerhub.dispatch.capability import (
+    CapabilityLeaseViolation,
     CapabilityTier,
+    EnforcementLevel,
     PeerEnforcementEvidence,
+    PeerEnforcementEvidenceProvider,
 )
 from peerhub.dispatch.capability_policy import (
     StaticPeerEnforcementEvidenceProvider,
+    default_enforcement_evidence_provider,
 )
 from peerhub.dispatch.materializer import (
     ArtifactMaterializer,
@@ -182,7 +193,12 @@ def _candidate(eligible: bool = True) -> RouteCandidateInput:
     )
 
 
-def _route_request_factory(client_request_id: str = "client-request-01", configuration_revision: int = 11, eligible: bool = True):
+def _route_request_factory(
+    client_request_id: str = "client-request-01",
+    configuration_revision: int = 11,
+    eligible: bool = True,
+    required_capability_tier: CapabilityTier = CapabilityTier.READ_ONLY,
+):
     def factory(admission_snapshot: AdmissionSnapshot) -> RouteRequest:
         return RouteRequest(
             client_request_id=client_request_id,
@@ -191,7 +207,7 @@ def _route_request_factory(client_request_id: str = "client-request-01", configu
                 digest=admission_snapshot.configuration_digest,
             ),
             admission_snapshot=admission_snapshot,
-            required_capability_tier=CapabilityTier.READ_ONLY,
+            required_capability_tier=required_capability_tier,
             requested_capabilities=(),
             profile_constraints={},
             required_readiness_binding=None,
@@ -267,6 +283,9 @@ def _workflows(
     *,
     start: int = 200,
     peer_adapter: PeerAdapter | None = None,
+    enforcement_evidence: PeerEnforcementEvidenceProvider = (
+        _CONTROLLED_FAKE_EVIDENCE
+    ),
 ) -> tuple[ApplicationWorkflows, DispatchService]:
     telemetry = TelemetryProjector(
         store,
@@ -290,7 +309,7 @@ def _workflows(
         store,
         ids=SequentialIdSource(),
         clock=DeterministicClock(start=start + 20),
-        enforcement_evidence=_CONTROLLED_FAKE_EVIDENCE,
+        enforcement_evidence=enforcement_evidence,
     )
     workflows = ApplicationWorkflows(
         telemetry=telemetry,
@@ -305,14 +324,19 @@ def _workflows(
 def _admit_and_prepare(
     workflows: ApplicationWorkflows,
     envelope: CommandEnvelope,
+    *,
+    required_capability_tier: CapabilityTier = CapabilityTier.READ_ONLY,
 ) -> tuple[str, str, str]:
     """Admit and prepare, returning (command_id, capability_lease_id, instance)."""
-    factory = _route_request_factory(client_request_id=envelope.client_request_id)
+    factory = _route_request_factory(
+        client_request_id=envelope.client_request_id,
+        required_capability_tier=required_capability_tier,
+    )
     contract = _completion_contract()
     adm = workflows.admit_request(
         envelope,
         route_request_factory=factory,
-        required_capability_tier=CapabilityTier.READ_ONLY,
+        required_capability_tier=required_capability_tier,
         authenticated_principal="actor-01",
         actor_authorized=True,
         completion_contract=contract,
@@ -632,3 +656,276 @@ def test_dispatch_and_execute_nonzero_exit(tmp_path: Path, store: SqliteStateSto
     assert res.process_outcome.execution_outcome.exit_code == 1
     assert res.completion_assessment is not None
     assert res.completion_assessment.state is CompletionAssessmentState.NOT_APPLICABLE
+
+
+# --- Enforcement-gate security properties (errata 7.2 point 3 / 7.4) -------
+#
+# The tests below assert that require_dispatch_capability() actually BLOCKS,
+# not merely that it raises: a gate that raised after planning or spawning
+# would still have leaked authority to a subprocess.  They therefore spy on
+# plan_invocation() and run_process() and assert neither was ever entered.
+
+
+class _RecordingFakePeerAdapter(FakePeerAdapter):
+    """``FakePeerAdapter`` with a chosen ``peer_kind`` that records planning.
+
+    The stock fake declares ``peer_kind="fake"``.  The gate compares the
+    adapter's own declared kind against the machine-resolved kind for the
+    admitted instance, so a test that wants to reach the enforcement check
+    (rather than stopping at the kind mismatch) has to declare the same kind
+    the evidence provider resolves.
+    """
+
+    def __init__(self, *, peer_kind: str, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # pyright: ignore[reportArgumentType]
+        self.descriptor = replace(_FAKE_DESCRIPTOR, peer_kind=peer_kind)
+        self.plan_invocation_calls = 0
+
+    def plan_invocation(
+        self,
+        request: AdapterRequest,
+        profile: ProfileDescriptor,
+        session,  # pyright: ignore[reportMissingParameterType]
+        limits: TransportLimits,
+    ):
+        self.plan_invocation_calls += 1
+        return super().plan_invocation(request, profile, session, limits)  # pyright: ignore[reportUnknownArgumentType]
+
+
+# Admission-time evidence stating a measured CONFINED ceiling for instance
+# "ag" under peer kind "ag".  This exists ONLY so a WORKTREE_WRITE lease can
+# be minted at all: without it, admission itself fails closed and the dispatch
+# gate under test is never reached.  source_tag is "controlled_fake", never
+# "empirical_probe" -- no real peer has DIR-004-qualifying enforcement
+# evidence today, and this fixture must never be mistaken for one.
+_MEASURED_AG_EVIDENCE = StaticPeerEnforcementEvidenceProvider(
+    {
+        "ag": PeerEnforcementEvidence(
+            peer_instance_id="ag",
+            peer_kind="ag",
+            enforcement_ceiling=EnforcementLevel.CONFINED,
+            source_tag="controlled_fake",
+        )
+    }
+)
+
+
+def _count_attempts(database_path: Path) -> int:
+    connection = sqlite3.connect(database_path)
+    try:
+        row = connection.execute(
+            "SELECT COUNT(*) FROM dispatch_attempts"
+        ).fetchone()
+    finally:
+        connection.close()
+    return int(row[0])
+
+
+def test_mutating_dispatch_without_enforcement_evidence_is_denied_before_spawn(
+    tmp_path: Path,
+    store: SqliteStateStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A WORKTREE_WRITE dispatch to an unenforced peer never reaches planning.
+
+    The lease is minted under evidence that claims a measured CONFINED
+    ceiling, then dispatched through a service carrying the SHIPPED
+    ``default_enforcement_evidence_provider()`` -- for which every built-in
+    peer resolves to ``enforcement_ceiling=None``.  That is the production
+    configuration, and it is also the revocation shape errata 7.2.3 exists
+    for: the gate must re-derive the floor from machine-owned evidence at
+    dispatch time rather than trusting the grant admission already made.
+    """
+
+    adapter = _RecordingFakePeerAdapter(peer_kind="ag", stdout="MUST NOT RUN\n")
+    workflows, _ = _workflows(
+        store,
+        peer_adapter=adapter,
+        enforcement_evidence=_MEASURED_AG_EVIDENCE,
+    )
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+        required_capability_tier=CapabilityTier.WORKTREE_WRITE,
+    )
+
+    shipped_dispatch = DispatchService(
+        store,
+        ids=SequentialIdSource(),
+        clock=DeterministicClock(start=400),
+        enforcement_evidence=default_enforcement_evidence_provider(),
+    )
+
+    run_process_calls: list[object] = []
+
+    def _spy_run_process(*args: object, **kwargs: object) -> object:
+        # Recorded BEFORE raising: dispatch_and_execute wraps run_process in
+        # `except Exception`, so a bare raise here would be swallowed and the
+        # test would pass vacuously.
+        run_process_calls.append(kwargs)
+        raise AssertionError("run_process must not be reached by a denied dispatch")
+
+    monkeypatch.setattr(workflows_module, "run_process", _spy_run_process)
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    limits = TransportLimits(
+        process_timeout_ms=5000,
+        silence_timeout_ms=5000,
+        max_output_bytes=65536,
+    )
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        workflows.dispatch_and_execute(
+            cmd_id,
+            capability_lease_id=cap_lease_id,
+            peer_instance_id=peer_instance,
+            current_policy_revision=7,
+            materializer=materializer,
+            adapter_request=adapter_req,
+            peer_adapter=adapter,
+            profile=_ROUTED_PROFILE,
+            limits=limits,
+            workspace_roots={"ws-1": workspace_root},
+            content_providers={},
+            completion_contract=contract,
+            heartbeat_timeout_ms=10000,
+            service=shipped_dispatch,
+        )
+
+    assert exc_info.value.invariant == (
+        "selected adapter has no measured enforcement evidence for the "
+        "mandatory enforcement floor"
+    )
+    # The security property itself: nothing downstream of the gate ran.
+    assert adapter.plan_invocation_calls == 0
+    assert run_process_calls == []
+    assert _count_attempts(tmp_path / "workflows_exec.sqlite3") == 0
+    still_prepared = shipped_dispatch.get_request(cmd_id)
+    assert still_prepared is not None
+    assert still_prepared.state is RequestState.PREPARED
+
+
+def test_read_only_dispatch_to_the_same_unenforced_peer_is_authorized(
+    tmp_path: Path,
+    store: SqliteStateStore,
+) -> None:
+    """READ_ONLY needs no enforcement measurement and reaches execution.
+
+    Same peer, same shipped evidence provider (``enforcement_ceiling=None``)
+    on BOTH admission and dispatch -- only the tier differs from the denial
+    test above.  The mandatory floor for a READ_ONLY dispatch is ADVISORY,
+    which errata 7.4 says is satisfiable without any measurement.
+    """
+
+    adapter = _RecordingFakePeerAdapter(peer_kind="ag", stdout="read-only-ok\n")
+    workflows, dispatch = _workflows(
+        store,
+        peer_adapter=adapter,
+        enforcement_evidence=default_enforcement_evidence_provider(),
+    )
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+        required_capability_tier=CapabilityTier.READ_ONLY,
+    )
+
+    validated = dispatch.require_dispatch_capability(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        adapter_peer_kind="ag",
+        profile=_ROUTED_PROFILE,
+        current_policy_revision=7,
+    )
+    assert validated.capability_lease_id == cap_lease_id
+    assert validated.authorized_tier is CapabilityTier.READ_ONLY
+    assert validated.satisfied_floor is EnforcementLevel.ADVISORY
+    assert validated.minimum_enforcement is EnforcementLevel.ADVISORY
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    limits = TransportLimits(
+        process_timeout_ms=5000,
+        silence_timeout_ms=5000,
+        max_output_bytes=65536,
+    )
+
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        peer_adapter=adapter,
+        profile=_ROUTED_PROFILE,
+        limits=limits,
+        workspace_roots={"ws-1": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        heartbeat_timeout_ms=10000,
+    )
+
+    assert adapter.plan_invocation_calls == 1
+    assert res.request.state is RequestState.SUCCEEDED_VERIFIED
+    assert res.process_outcome is not None
+    assert res.process_outcome.execution_outcome.exit_code == 0
+
+
+def test_mutating_admission_to_an_unenforced_peer_never_mints_a_lease(
+    store: SqliteStateStore,
+) -> None:
+    """Defense in depth: the shipped provider also fails closed at admission.
+
+    The gate above is the last line; this is the first.  Under the shipped
+    evidence provider a WORKTREE_WRITE admission cannot produce a capability
+    lease at all, so there is nothing for a later dispatch to present.
+    """
+
+    adapter = _RecordingFakePeerAdapter(peer_kind="ag", stdout="MUST NOT RUN\n")
+    workflows, _ = _workflows(
+        store,
+        peer_adapter=adapter,
+        enforcement_evidence=default_enforcement_evidence_provider(),
+    )
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        _admit_and_prepare(
+            workflows,
+            _envelope(),
+            required_capability_tier=CapabilityTier.WORKTREE_WRITE,
+        )
+
+    assert exc_info.value.invariant == (
+        "selected adapter has no measured enforcement evidence for the "
+        "mandatory enforcement floor"
+    )

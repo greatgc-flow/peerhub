@@ -36,6 +36,48 @@ def test_admit_dispatch_payload_rejects_unknown_capability_tier() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "supplied_tier",
+    [
+        None,
+        0,
+        1,
+        True,
+        1.0,
+        "read_only",
+        "READONLY",
+        "",
+        ["READ_ONLY"],
+        {"name": "READ_ONLY"},
+    ],
+)
+def test_admit_dispatch_payload_rejects_non_enum_capability_tiers(
+    supplied_tier: object,
+) -> None:
+    """Only an exact ``CapabilityTier`` name (or member) is accepted.
+
+    The API boundary must not coerce an ordinal, a truthy value, or a
+    case-variant name into a tier: ``CapabilityTier`` is an ``IntEnum``, so
+    an unguarded validator would happily read ``1`` as ``WORKTREE_WRITE``
+    and silently widen the grant a caller asked for.
+    """
+
+    with pytest.raises(ValueError):
+        AdmitDispatchPayload.model_validate(
+            {"required_capability_tier": supplied_tier}
+        )
+
+
+def test_admit_dispatch_payload_accepts_every_declared_capability_tier() -> None:
+    """Fail-closed must not mean fail-always: each real name still parses."""
+
+    for tier in CapabilityTier:
+        payload = AdmitDispatchPayload.model_validate(
+            {"required_capability_tier": tier.name}
+        )
+        assert payload.required_capability_tier is tier
+
+
 class FakeAdmissionProvider:
     def resolve(self, command: AdmitDispatch, caller: RequestContext) -> AdmissionInputs:
         class FakeInputs:
