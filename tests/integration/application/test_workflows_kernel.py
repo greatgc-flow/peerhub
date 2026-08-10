@@ -12,6 +12,7 @@ from peerhub.application.api import ApplicationAPI
 from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -283,8 +284,10 @@ def _seed_health(store: SqliteStateStore) -> None:
 def _admission_kwargs() -> dict:
     return dict(
         required_capability_tier=CapabilityTier.READ_ONLY,
-        authenticated_principal="principal-01",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "principal-01",
+            "test",
+        ),
         completion_contract=_completion_contract(),
         dispatch_policy_revision=7,
         session_id="session-01",

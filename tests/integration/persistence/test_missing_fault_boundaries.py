@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     CommandEnvelope,
     PROTOCOL_MAJOR,
@@ -95,7 +96,9 @@ def _setup_request_and_attempt(store: SqliteStateStore, ids: SequentialIdSource)
     )
     cc = CompletionContract(contract_id="cc", kind=CompletionContractKind.DELIVERY_ONLY, requirements=(), replay_safe=False)
     req, _, _, _ = s.admit_request(
-        env, authenticated_principal="ap", actor_authorized=True, completion_contract=cc,
+        env,
+        authenticated_subject=AuthenticatedSubject("ap", "test"),
+        completion_contract=cc,
         policy_revision=1, configuration_revision=1,
         required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="i",
@@ -170,7 +173,9 @@ def test_reject_policy_rollback(store: SqliteStateStore, ids: SequentialIdSource
     )
     cc = CompletionContract(contract_id="cc", kind=CompletionContractKind.DELIVERY_ONLY, requirements=(), replay_safe=False)
     req, _, _, _ = s0.admit_request(
-        env, authenticated_principal="ap", actor_authorized=True, completion_contract=cc,
+        env,
+        authenticated_subject=AuthenticatedSubject("ap", "test"),
+        completion_contract=cc,
         policy_revision=1, configuration_revision=1,
         required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="i",

@@ -14,6 +14,7 @@ from peerhub.core.errors import (
     DuplicateClientRequestError,
     IdempotencyPayloadMismatchError,
 )
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -29,6 +30,9 @@ from peerhub.dispatch.service import DispatchService
 from peerhub.governance.contract import OutboxState
 from peerhub.persistence.sqlite import SqliteStateStore
 from tests.fakes import DeterministicClock, SequentialIdSource
+
+
+_TEST_SUBJECT = AuthenticatedSubject("principal-01", "test")
 
 
 @pytest.fixture
@@ -98,14 +102,13 @@ def _admit(
     service: DispatchService,
     envelope: CommandEnvelope,
     *,
-    actor_authorized: bool = True,
+    authenticated_subject: AuthenticatedSubject | None = _TEST_SUBJECT,
 ):
     # Increment 4: admit_request also returns the issued capability lease;
     # these fixtures assert on the original three records only.
     return service.admit_request(
         envelope,
-        authenticated_principal="principal-01",
-        actor_authorized=actor_authorized,
+        authenticated_subject=authenticated_subject,  # pyright: ignore[reportArgumentType]
         completion_contract=_contract(),
         policy_revision=7,
         configuration_revision=11,
@@ -233,7 +236,7 @@ def test_unauthorized_submission_has_no_ids_or_durable_writes(
         _admit(
             service,
             envelope,
-            actor_authorized=False,
+            authenticated_subject=None,
         )
 
     with store.unit_of_work() as unit:
@@ -394,16 +397,14 @@ def test_peek_idempotent_admission_rejects_unauthorized_replay(
     with pytest.raises(ActorUnauthorizedError):
         service.peek_idempotent_admission(
             _envelope(),
-            authenticated_principal="principal-01",
-            actor_authorized=False,
+            authenticated_subject=None,  # pyright: ignore[reportArgumentType]
             completion_contract=_contract(),
         )
 
     # A subsequently authorized peek still finds the same admission.
     existing = service.peek_idempotent_admission(
         _envelope(),
-        authenticated_principal="principal-01",
-        actor_authorized=True,
+        authenticated_subject=_TEST_SUBJECT,
         completion_contract=_contract(),
     )
     assert existing is not None
@@ -422,8 +423,7 @@ def test_peek_idempotent_admission_persists_missing_alias(
     # Peek with a new idempotency-key alias for the same client_request_id.
     peeked = service.peek_idempotent_admission(
         _envelope(idempotency_key="idempotency-alias"),
-        authenticated_principal="principal-01",
-        actor_authorized=True,
+        authenticated_subject=_TEST_SUBJECT,
         completion_contract=_contract(),
     )
     assert peeked is not None

@@ -28,6 +28,7 @@ from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
 from peerhub.core.execution import TransportKind, TransportLimits
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -337,8 +338,10 @@ def _admit_and_prepare(
         envelope,
         route_request_factory=factory,
         required_capability_tier=required_capability_tier,
-        authenticated_principal="actor-01",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "actor-01",
+            "test",
+        ),
         completion_contract=contract,
         dispatch_policy_revision=7,
         session_id="session-01",

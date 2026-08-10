@@ -8,6 +8,7 @@ from peerhub.adapters.contract import AdapterRequest, SessionAction
 from peerhub.application.bootstrap import build_direct_ask_admission_config
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import ErrorCode
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import (
@@ -130,6 +131,7 @@ def execute_direct_ask(
     *,
     clock: Clock,
     ids: IdSource,
+    authenticated_subject: AuthenticatedSubject,
 ) -> DirectAskResult:
     """Execute a single peerhub ask command pipeline."""
     
@@ -209,12 +211,11 @@ def execute_direct_ask(
             envelope,
             route_request_factory=route_request_factory,
             required_capability_tier=request.required_capability_tier,
-            authenticated_principal="cli-user",
-            actor_authorized=True,
+            authenticated_subject=authenticated_subject,
             completion_contract=completion_contract,
             dispatch_policy_revision=1,
             session_id=ids.new_id("session"),
-            owner_principal_id="cli-user",
+            owner_principal_id=authenticated_subject.principal_id,
             owner_instance_id="cli-instance",
             authority_epoch=1,
             heartbeat_timeout_ms=30000,

@@ -1,12 +1,17 @@
 import pytest
 from pathlib import Path
+import sqlite3
+import sys
 import time
 
+from peerhub.adapters.registry import ResolvedPeerTarget
 from peerhub.application.direct_ask import execute_direct_ask, DirectAskRequest, DirectAskResult
+from peerhub.builtins.fake_adapter import FakePeerAdapter
+from peerhub.core.context import Clock, IdSource, PathLayout
 from peerhub.core.execution import TransportLimits
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import RequestState
-from peerhub.core.context import Clock, IdSource
 
 class DummyClock:
     def now(self) -> int:
@@ -51,7 +56,15 @@ def test_execute_direct_ask_real_agy(tmp_path: Path, clock: Clock, ids: IdSource
         )
     )
     
-    result = execute_direct_ask(request, clock=clock, ids=ids)
+    result = execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject(
+            "local-cli:test-user",
+            "test",
+        ),
+    )
     
     assert result.error_code is None
     # Depending on what the adapter says, it'll likely be SUCCEEDED_VERIFIED
@@ -76,4 +89,75 @@ def test_execute_direct_ask_unknown_peer(tmp_path: Path, clock: Clock, ids: IdSo
     
     # Let the exception propagate naturally (resolve_peer_target should raise ValueError)
     with pytest.raises(ValueError, match="unsupported cli_name"):
-        execute_direct_ask(request, clock=clock, ids=ids)
+        execute_direct_ask(
+            request,
+            clock=clock,
+            ids=ids,
+            authenticated_subject=AuthenticatedSubject(
+                "local-cli:test-user",
+                "test",
+            ),
+        )
+
+
+def test_direct_ask_binds_machine_subject_to_issued_lease(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = FakePeerAdapter(stdout="authenticated hello")
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    subject = AuthenticatedSubject(
+        principal_id=r"local-cli:DOMAIN\alice",
+        evidence_source="os-process-owner",
+    )
+
+    result = execute_direct_ask(
+        DirectAskRequest(
+            workspace_root=tmp_path,
+            peer_name="fake",
+            prompt="say hello",
+            required_capability_tier=CapabilityTier.READ_ONLY,
+            profile_id=profile.profile_id,
+            limits=TransportLimits(
+                process_timeout_ms=10_000,
+                silence_timeout_ms=10_000,
+                max_output_bytes=1_000_000,
+            ),
+        ),
+        clock=clock,
+        ids=ids,
+        authenticated_subject=subject,
+    )
+
+    assert result.response_text == "authenticated hello"
+    connection = sqlite3.connect(
+        PathLayout.for_workspace(tmp_path).database_path
+    )
+    try:
+        row = connection.execute(
+            """
+            SELECT
+                dispatch_requests.authenticated_principal,
+                capability_leases.subject_principal_id
+            FROM dispatch_requests
+            JOIN capability_leases USING (command_id)
+            """
+        ).fetchone()
+    finally:
+        connection.close()
+
+    assert row == (subject.principal_id, subject.principal_id)
+    assert row != ("cli-user", "cli-user")

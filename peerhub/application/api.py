@@ -16,6 +16,7 @@ from pydantic import (
 )
 
 from peerhub.core.execution import ExecutionCertainty
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.ports import RequestContext
 from peerhub.core.protocol import (
     CommandEnvelope,
@@ -321,8 +322,10 @@ class ApplicationAPI:
                 env,
                 route_request_factory=inputs.route_request_factory,  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
                 required_capability_tier=cmd.required_capability_tier,
-                authenticated_principal=caller.principal,
-                actor_authorized=True,
+                authenticated_subject=AuthenticatedSubject(
+                    principal_id=caller.principal,
+                    evidence_source="api-request-context",
+                ),
                 completion_contract=cc,
                 dispatch_policy_revision=inputs.dispatch_policy_revision,  # pyright: ignore[reportArgumentType]
                 session_id=inputs.session_id,

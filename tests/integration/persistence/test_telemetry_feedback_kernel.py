@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.core.execution import ExecutionCertainty
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -95,8 +96,10 @@ def _admit(service: DispatchService, envelope: CommandEnvelope):
     # these fixtures assert on the original three records only.
     return service.admit_request(
         envelope,
-        authenticated_principal="principal-01",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "principal-01",
+            "test",
+        ),
         completion_contract=_contract(),
         policy_revision=7,
         configuration_revision=11,

@@ -21,6 +21,7 @@ from peerhub.core.errors import (
     InvalidMutationError,
     RecordNotFoundError,
 )
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     CommandEnvelope,
     CommandID,
@@ -299,8 +300,7 @@ class ApplicationWorkflows:
         *,
         route_request_factory: RouteRequestFactory,
         required_capability_tier: CapabilityTier,
-        authenticated_principal: str,
-        actor_authorized: bool,
+        authenticated_subject: AuthenticatedSubject,
         completion_contract: CompletionContract,
         dispatch_policy_revision: RevisionValue,
         session_id: str,
@@ -329,8 +329,7 @@ class ApplicationWorkflows:
 
         existing = self._dispatch.peek_idempotent_admission(
             envelope,
-            authenticated_principal=authenticated_principal,
-            actor_authorized=actor_authorized,
+            authenticated_subject=authenticated_subject,
             completion_contract=completion_contract,
         )
         if existing is not None:
@@ -393,8 +392,7 @@ class ApplicationWorkflows:
         )
         dispatch_admission = self._dispatch.admit_request(
             envelope,
-            authenticated_principal=authenticated_principal,
-            actor_authorized=actor_authorized,
+            authenticated_subject=authenticated_subject,
             completion_contract=completion_contract,
             policy_revision=dispatch_policy_revision,
             configuration_revision=(

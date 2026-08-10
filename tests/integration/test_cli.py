@@ -9,6 +9,7 @@ import pytest
 
 from peerhub.application.direct_ask import DirectAskResult
 from peerhub.core.execution import ExecutionCertainty
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import ErrorCode
 from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
@@ -156,10 +157,20 @@ def test_cli_version(capsys):
 
 
 def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
-    with patch(
-        "peerhub.cli.execute_direct_ask",
-        return_value=_ask_result(),
-    ) as execute:
+    subject = AuthenticatedSubject(
+        principal_id=r"local-cli:DOMAIN\alice",
+        evidence_source="os-process-owner",
+    )
+    with (
+        patch(
+            "peerhub.cli.LocalProcessCallerIdentityProvider"
+        ) as provider_type,
+        patch(
+            "peerhub.cli.execute_direct_ask",
+            return_value=_ask_result(),
+        ) as execute,
+    ):
+        provider_type.return_value.resolve.return_value = subject
         exit_code = main(
             [
                 "ask",
@@ -190,6 +201,13 @@ def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
     assert request.limits.process_timeout_ms == 17_000
     assert request.limits.silence_timeout_ms == 19_000
     assert request.limits.max_output_bytes == 12_345
+    assert execute.call_args.kwargs["authenticated_subject"] == subject
+    assert (
+        execute.call_args.kwargs[
+            "authenticated_subject"
+        ].principal_id
+        != "cli-user"
+    )
     captured = capsys.readouterr()
     assert captured.out == "hello from peer\n"
     assert captured.err == ""
@@ -200,6 +218,57 @@ def test_cli_ask_requires_capability_tier() -> None:
         main(["ask", "ag", "hello"])
 
     assert exc_info.value.code == 2
+
+
+def test_cli_ask_has_no_principal_override_flag() -> None:
+    with patch("peerhub.cli.execute_direct_ask") as execute:
+        with pytest.raises(SystemExit) as exc_info:
+            main(
+                [
+                    "ask",
+                    "ag",
+                    "hello",
+                    "--capability-tier",
+                    "READ_ONLY",
+                    "--principal",
+                    "attacker-chosen",
+                ]
+            )
+
+    assert exc_info.value.code == 2
+    assert execute.call_count == 0
+
+
+def test_cli_ask_fails_closed_without_local_identity(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    with (
+        patch(
+            "peerhub.cli.LocalProcessCallerIdentityProvider"
+        ) as provider_type,
+        patch("peerhub.cli.execute_direct_ask") as execute,
+    ):
+        provider_type.return_value.resolve.return_value = None
+        exit_code = main(
+            [
+                "ask",
+                "ag",
+                "hello",
+                "--capability-tier",
+                "READ_ONLY",
+                "--workspace",
+                str(tmp_path),
+            ]
+        )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert execute.call_count == 0
+    assert captured.out == ""
+    assert captured.err == (
+        "peerhub ask: local caller identity could not be verified\n"
+    )
 
 
 @pytest.mark.parametrize(

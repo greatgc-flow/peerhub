@@ -24,6 +24,11 @@ from peerhub.application.direct_ask import (
 )
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
+from peerhub.core.identity import (
+    CallerIdentityProvider,
+    LocalProcessCallerIdentityProvider,
+    require_caller_identity,
+)
 from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.runtime import create_runtime
@@ -104,8 +109,17 @@ def _print_ask_json(result: DirectAskResult) -> None:
     )
 
 
-def _run_ask(parsed: argparse.Namespace) -> int:
+def _run_ask(
+    parsed: argparse.Namespace,
+    *,
+    caller_identity_provider: CallerIdentityProvider | None = None,
+) -> int:
     try:
+        authenticated_subject = require_caller_identity(
+            caller_identity_provider
+            if caller_identity_provider is not None
+            else LocalProcessCallerIdentityProvider()
+        )
         request = DirectAskRequest(
             workspace_root=Path(parsed.workspace).resolve(),
             peer_name=parsed.peer,
@@ -126,6 +140,7 @@ def _run_ask(parsed: argparse.Namespace) -> int:
             request,
             clock=SystemClock(),
             ids=UuidSource(),
+            authenticated_subject=authenticated_subject,
         )
     except KeyboardInterrupt:
         # TODO(Phase 3 increment 5): dispatch_and_execute() constructs its

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -177,8 +178,10 @@ def test_zero_access_tripwire_across_full_governance_and_dispatch_pipeline(
     )
     admitted, rec, reserved, _capability = dispatch.admit_request(
         envelope,
-        authenticated_principal="principal-01",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "principal-01",
+            "test",
+        ),
         completion_contract=contract,
         policy_revision=7,
         configuration_revision=11,

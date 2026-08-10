@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import DuplicateClientRequestError, IdempotencyPayloadMismatchError
+from peerhub.core.identity import (
+    AuthenticatedSubject,
+    require_authenticated_subject,
+)
 from peerhub.core.protocol import CommandEnvelope, CommandID, ErrorCode, RevisionValue
 from peerhub.state.contract import StateStore
 
@@ -31,7 +35,6 @@ from .capability_policy import (
 from .helpers import (
     dispatch_event,
     raise_request_cas,
-    require_actor_authorized,
     require_lease,
     require_request,
 )
@@ -237,8 +240,7 @@ class AdmissionCoordinator:
         self,
         envelope: CommandEnvelope,
         *,
-        authenticated_principal: str,
-        actor_authorized: bool,
+        authenticated_subject: AuthenticatedSubject,
         completion_contract: CompletionContract,
     ) -> tuple[
         RequestSnapshot,
@@ -246,10 +248,12 @@ class AdmissionCoordinator:
         LeaseSnapshot,
         CapabilityLease,
     ] | None:
-        require_actor_authorized(actor_authorized, authenticated_principal)
+        authenticated_subject = require_authenticated_subject(
+            authenticated_subject
+        )
         submission = validate_submission(
             envelope,
-            authenticated_principal=authenticated_principal,
+            authenticated_principal=authenticated_subject.principal_id,
             completion_contract=completion_contract,
             state_changing=True,
         )
@@ -287,8 +291,7 @@ class AdmissionCoordinator:
         self,
         envelope: CommandEnvelope,
         *,
-        authenticated_principal: str,
-        actor_authorized: bool,
+        authenticated_subject: AuthenticatedSubject,
         completion_contract: CompletionContract,
         policy_revision: RevisionValue,
         configuration_revision: RevisionValue,
@@ -308,10 +311,12 @@ class AdmissionCoordinator:
         LeaseSnapshot,
         CapabilityLease,
     ]:
-        require_actor_authorized(actor_authorized, authenticated_principal)
+        authenticated_subject = require_authenticated_subject(
+            authenticated_subject
+        )
         submission = validate_submission(
             envelope,
-            authenticated_principal=authenticated_principal,
+            authenticated_principal=authenticated_subject.principal_id,
             completion_contract=completion_contract,
             state_changing=True,
         )

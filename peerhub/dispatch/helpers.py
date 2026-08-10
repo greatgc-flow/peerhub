@@ -2,7 +2,6 @@ from __future__ import annotations
 
 
 from peerhub.core.errors import (
-    ActorUnauthorizedError,
     RecordNotFoundError,
     StaleRevisionError,
     InvalidMutationError,
@@ -25,16 +24,6 @@ from .unit_of_work import (
     FaultPoint,
     FaultInjector,
 )
-
-
-def require_actor_authorized(
-    actor_authorized: bool,
-    authenticated_principal: str,
-) -> None:
-    if type(actor_authorized) is not bool:
-        raise ValueError("actor_authorized must be a boolean")
-    if not actor_authorized:
-        raise ActorUnauthorizedError(authenticated_principal)
 
 
 def require_request(

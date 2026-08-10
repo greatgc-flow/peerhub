@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.core.context import IdSource
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -163,8 +164,10 @@ def _admit(
     envelope = _envelope()
     request, receipt, _, capability_lease = service.admit_request(
         envelope,
-        authenticated_principal="principal-capability",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "principal-capability",
+            "test",
+        ),
         completion_contract=_completion_contract(),
         policy_revision=7,
         configuration_revision=11,
@@ -314,6 +317,8 @@ def test_capability_lease_replay_returns_identical_durable_record(
     assert by_id == lease
     assert by_command == lease
     assert by_receipt == lease
+    assert request.authenticated_principal == "principal-capability"
+    assert lease.subject_principal_id == "principal-capability"
     assert by_id is not lease
     assert by_id is not by_command
     assert by_command is not by_receipt
@@ -373,8 +378,10 @@ def test_peek_idempotent_admission_returns_the_original_capability_lease(
     peek_ids = _TaggedIdSource("peek")
     peeked = _service(store, ids=peek_ids, start=900).peek_idempotent_admission(
         _envelope(),
-        authenticated_principal="principal-capability",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "principal-capability",
+            "test",
+        ),
         completion_contract=_completion_contract(),
     )
 
@@ -396,8 +403,10 @@ def test_peek_idempotent_admission_is_none_before_any_admission(
     peek_ids = _TaggedIdSource("peek-empty")
     peeked = _service(store, ids=peek_ids).peek_idempotent_admission(
         _envelope(),
-        authenticated_principal="principal-capability",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "principal-capability",
+            "test",
+        ),
         completion_contract=_completion_contract(),
     )
 

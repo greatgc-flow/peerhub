@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.core.errors import RecordNotFoundError
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -236,8 +237,10 @@ def test_dispatch_domain_read_methods_use_read_unit_of_work(
     )
     admitted, _, reserved_lease, _capability = dispatch.admit_request(
         envelope,
-        authenticated_principal="principal-read-uow-dispatch",
-        actor_authorized=True,
+        authenticated_subject=AuthenticatedSubject(
+            "principal-read-uow-dispatch",
+            "test",
+        ),
         completion_contract=contract,
         policy_revision=7,
         configuration_revision=11,

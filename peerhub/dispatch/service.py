@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.errors import InvalidMutationError
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.adapters.contract import ProfileDescriptor
 from peerhub.core.protocol import (
     ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND,
@@ -244,8 +245,7 @@ class DispatchService:
         self,
         envelope: CommandEnvelope,
         *,
-        authenticated_principal: str,
-        actor_authorized: bool,
+        authenticated_subject: AuthenticatedSubject,
         completion_contract: CompletionContract,
     ) -> tuple[
         RequestSnapshot,
@@ -256,8 +256,7 @@ class DispatchService:
         """Return an existing idempotent admission, if one exists."""
         return self._admission.peek_idempotent_admission(
             envelope,
-            authenticated_principal=authenticated_principal,
-            actor_authorized=actor_authorized,
+            authenticated_subject=authenticated_subject,
             completion_contract=completion_contract,
         )
 
@@ -265,8 +264,7 @@ class DispatchService:
         self,
         envelope: CommandEnvelope,
         *,
-        authenticated_principal: str,
-        actor_authorized: bool,
+        authenticated_subject: AuthenticatedSubject,
         completion_contract: CompletionContract,
         policy_revision: RevisionValue,
         configuration_revision: RevisionValue,
@@ -289,8 +287,7 @@ class DispatchService:
         """Atomically admit, reserve, bind identities, and emit outbox."""
         return self._admission.admit_request(
             envelope,
-            authenticated_principal=authenticated_principal,
-            actor_authorized=actor_authorized,
+            authenticated_subject=authenticated_subject,
             completion_contract=completion_contract,
             policy_revision=policy_revision,
             configuration_revision=configuration_revision,
