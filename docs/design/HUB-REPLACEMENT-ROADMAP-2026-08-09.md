@@ -89,7 +89,7 @@ now-corrected guidance (Alembic explicitly frozen/unsupported until this
 lands, see that file).
 
 ### Capability-lease design implementation
-Status: **APPROVED, implementation IN PROGRESS.** Increments 1-3 of
+Status: **APPROVED, implementation IN PROGRESS.** Increments 1-4 of
 Section 7.5's 5-increment plan are committed:
 - Increment 1 (`c91cc0b`): `CapabilityTier`/`EnforcementLevel` enums,
   frozen `CapabilityLease`/`CapabilityGrantDecision` DTOs,
@@ -102,10 +102,29 @@ Section 7.5's 5-increment plan are committed:
   (API payload → CLI `--capability-tier` flag → routing/route-decision
   digest → admission → durable request), migration 0019
   (`route_decisions.required_capability_tier`, same nullable/no-default/
-  fail-closed-on-legacy-row pattern). Still NOT included: actual lease
-  issuance and the enforcement gate wired into `dispatch_and_execute()`
-  -- that's increment 4, not started.
-- Increments 4 (enforcement gate) and 5 (adapter translation) remain.
+  fail-closed-on-legacy-row pattern).
+- Increment 4 (`ad56938`): the actual enforcement gate. Authoritative
+  atomic lease issuance in `AdmissionCoordinator` (new
+  `peerhub/dispatch/capability_policy.py` for the minimal concrete
+  `CapabilityPolicy`/`PeerEnforcementEvidenceProvider` -- every built-in
+  peer resolves to `enforcement_ceiling=None` today, so mutating
+  dispatches fail closed by construction, not a peer-specific
+  carve-out); replay-path validation instead of re-minting; the
+  pre-spawn `DispatchService.require_dispatch_capability()` gate wired
+  into `dispatch_and_execute()`, re-checking policy revision (closes
+  cx's revocation-window finding), adapter `peer_kind`, and the
+  mandatory floor immediately before any subprocess can spawn.
+  **Explicitly still open within increment 4's own scope** (deferred,
+  not silently dropped): post-plan `InvocationEnforcementReceipt` +
+  `record_dispatch_intent*()` revalidation (errata 7.2's final
+  paragraph); `plan_invocation()` receiving the `ValidatedCapabilityLease`;
+  `AuthenticatedSubject`/`CallerIdentityProvider` replacing
+  `direct_ask.py`'s literal `"cli-user"` (errata 7.1) -- direct-ask
+  issuance does not yet use real authenticated-subject evidence: and
+  the security-property tests themselves (prove `ag` mutation denied
+  before `plan_invocation()`/`run_process()`, replay reuses the same
+  lease, etc.) are not yet written.
+- Increment 5 (adapter translation) not started.
 
 Below is the design-history/ratification record (kept for context on
 *why* the design looks the way it does -- skip to "Status: APPROVED"
