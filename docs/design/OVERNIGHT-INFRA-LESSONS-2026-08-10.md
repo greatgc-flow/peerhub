@@ -172,7 +172,10 @@ immune to being loaded up quickly when used concurrently.
 Before dispatching 3+ things in parallel, check free memory (`Get-CimInstance
 Win32_OperatingSystem | Select-Object FreePhysicalMemory`); if it's
 trending low or a dispatch fails with `MemoryError`/`Thread failed to
-start`, stagger dispatches instead of firing them concurrently and let
+start` (also observed: a bare `git status` failing with `fatal: Out of
+memory, malloc failed`, and PowerShell's own CLR failing to start —
+neither is a peerhub bug, both cleared once concurrent load eased),
+stagger dispatches instead of firing them concurrently and let
 in-flight ones finish first.
 
 ## Incident 6 — ag.opus 429s are a provider-side QPM limit, not real quota exhaustion
@@ -215,18 +218,39 @@ not the real constraint here). Two separate things are true:
   short QPM pattern — it may be the longer-lockout bug class instead;
   escalate/wait rather than repeatedly hammering it.
 
-## Known-open, not fixed here
+## Resolved: 2 pre-existing test failures (was "known-open")
 
 Two pre-existing test failures were found (independently reproduced via
 git-stash bisection, confirmed unrelated to any of the work done during
-this session):
+this session), and later fixed (commit `ac26ed9`, first `cc.*`-profile
+peer dispatch used this session):
 - `tests/static/test_client_architecture.py::test_client_never_imports_persistence`
-  — hardcodes a stale `D:\PortableDev (v2.1)\peerhub\peerhub\client.py`
-  path missing the `Engram&Peerhub` segment. This is itself another
-  Incident-1-shaped casualty of the same drive rename, just in test code
-  instead of hub.py.
+  — hardcoded a stale `D:\PortableDev (v2.1)\peerhub\peerhub\client.py`
+  path missing the `Engram&Peerhub` segment (another Incident-1-shaped
+  casualty of the drive rename, in test code instead of hub.py). Fixed
+  by deriving the repo root from the test file's own location.
 - `tests/unit/tools/test_generate_manifest.py::test_generator_runs_and_produces_valid_manifest`
-  — asserts a stale expected content hash.
+  — asserted a stale expected content hash. Root-caused (not blindly
+  re-pinned): the old hash matched `hub.py` as of commit `54bedd7`
+  (2026-08-06); a later commit (`656a1f8`, this session's
+  `_resolve_invoke_cli` fix) legitimately changed `hub.py`'s content.
+  Re-pinned to the current correct hash. Flagged for a future call: this
+  assertion pins a live external file's hash inside a test, so it will
+  go stale again on the next `hub.py` change — a self-consistency check
+  would be more durable than pinning, but that's a design decision
+  beyond a mechanical fix.
+
+## Also observed: 2 load-sensitive flaky tests (Incident 5's shape, not separate bugs)
+
+`tests/integration/application/test_bootstrap.py::test_build_direct_ask_admission_config`
+and `tests/unit/dispatch/test_tree_controller.py::test_soft_cancel_on_signal_ignoring_process`
+failed once each during a full-suite run under heavy concurrent system
+load (a peer review + a local pytest run + other activity all at once),
+but passed cleanly when re-run in isolation immediately after. Both are
+process-timing-sensitive (the tree-controller one literally asserts a
+process is still `RUNNING` when it can race to `TERMINATED` under load).
+Not associated with any specific commit -- if either fails again, check
+system load before assuming a real regression, per Incident 5.
 
 ## Summary for future readers
 
