@@ -123,13 +123,17 @@ Section 7.5's 5-increment plan are committed:
   type-confusion risk found while writing the tests (an unguarded
   validator would silently accept raw `1` as `WORKTREE_WRITE`). No
   production bugs found this pass.
+  `AuthenticatedSubject`/`CallerIdentityProvider` (`e99ad67`) replaced
+  `direct_ask.py`'s forgeable `"cli-user"`/`actor_authorized=True` pair
+  with a real OS-process-owner-derived identity
+  (`peerhub/core/identity.py`) that fails closed if unresolvable, flows
+  through the whole chain as an opaque object instead of being
+  reconstructed at each layer, and has no CLI override flag.
   **Explicitly still open within increment 4's own scope** (deferred,
   not silently dropped): post-plan `InvocationEnforcementReceipt` +
   `record_dispatch_intent*()` revalidation (errata 7.2's final
-  paragraph); `plan_invocation()` receiving the `ValidatedCapabilityLease`;
-  `AuthenticatedSubject`/`CallerIdentityProvider` replacing
-  `direct_ask.py`'s literal `"cli-user"` (errata 7.1) -- direct-ask
-  issuance does not yet use real authenticated-subject evidence.
+  paragraph) and `plan_invocation()` receiving the
+  `ValidatedCapabilityLease`.
 - Increment 5 (adapter translation) not started.
 
 Below is the design-history/ratification record (kept for context on
