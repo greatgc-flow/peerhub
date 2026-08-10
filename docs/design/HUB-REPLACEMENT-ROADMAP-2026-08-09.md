@@ -89,8 +89,29 @@ now-corrected guidance (Alembic explicitly frozen/unsupported until this
 lands, see that file).
 
 ### Capability-lease design implementation
-Status: **HOLD -- not authorized for implementation.** Two design passes
-so far: `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md` (original) →
+Status: **APPROVED, implementation IN PROGRESS.** Increments 1-3 of
+Section 7.5's 5-increment plan are committed:
+- Increment 1 (`c91cc0b`): `CapabilityTier`/`EnforcementLevel` enums,
+  frozen `CapabilityLease`/`CapabilityGrantDecision` DTOs,
+  `validate_capability_binding()`, `mandatory_enforcement_floor()`, 24
+  negative unit tests. Pure/isolated, no call sites touched.
+- Increment 2 (`df1ef77`): migration 0018 (`capability_leases` table),
+  `dispatch_requests.required_capability_tier` (nullable/no-default),
+  UoW/repository read+write methods, rollback + replay-identity tests.
+- Increment 3 (`ca5862e`): `required_capability_tier` threaded end-to-end
+  (API payload → CLI `--capability-tier` flag → routing/route-decision
+  digest → admission → durable request), migration 0019
+  (`route_decisions.required_capability_tier`, same nullable/no-default/
+  fail-closed-on-legacy-row pattern). Still NOT included: actual lease
+  issuance and the enforcement gate wired into `dispatch_and_execute()`
+  -- that's increment 4, not started.
+- Increments 4 (enforcement gate) and 5 (adapter translation) remain.
+
+Below is the design-history/ratification record (kept for context on
+*why* the design looks the way it does -- skip to "Status: APPROVED"
+further down if you just need the current state).
+
+Two design passes: `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md` (original) →
 `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md` (commit
 `d7017e9`, ag.opus's re-ratification resolving the anchor point,
 enforcement gate location, and a 3-level EnforcementLevel model) → cx's
@@ -171,12 +192,12 @@ that gap. Implementation can proceed per Section 7.5's 5 increments
 whenever picked up -- start with increment 1 (enums/DTOs/pure validators
 + negative unit tests), no code exists yet.
 
-### Known-open, not part of Phase 2 itself
+### Resolved, not part of Phase 2 itself
 2 pre-existing test failures (`test_client_never_imports_persistence`,
-`test_generator_runs_and_produces_valid_manifest`) confirmed unrelated to
-any Phase 1/2 work via git-stash bisection -- see
-`docs/design/OVERNIGHT-INFRA-LESSONS-2026-08-10.md` for detail. Fix when
-convenient, not blocking.
+`test_generator_runs_and_produces_valid_manifest`), confirmed unrelated
+to any Phase 1/2 work via git-stash bisection, were fixed in `ac26ed9`
+(first `cc.*`-profile peer dispatch used this session) -- see
+`docs/design/OVERNIGHT-INFRA-LESSONS-2026-08-10.md` for detail.
 
 ## Phase 3 — Real orchestration loop (the actual hub.py replacement)
 Status: not started. **This is the critical path** -- nothing before this

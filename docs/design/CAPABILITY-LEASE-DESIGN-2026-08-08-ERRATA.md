@@ -173,6 +173,13 @@ The original doc's 4-tier model is retained without modification:
 
 A `CapabilityLease` combines both:
 
+> **Superseded by Section 7:** the 6-field sketch below predates
+> issuance/binding design and is kept only as historical record of the
+> original shape. The actual, implemented `CapabilityLease` is the
+> 16-field durable record in Section 7.1 (also mirrored by the real code
+> in `peerhub/dispatch/capability.py`, committed) -- do not implement
+> against the fields shown here.
+
 ```python
 @dataclass(frozen=True)
 class CapabilityLease:
