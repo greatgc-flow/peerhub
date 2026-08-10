@@ -15,6 +15,11 @@ from peerhub.core.protocol import (
     CommandID,
     ErrorCode,
 )
+from peerhub.dispatch.capability import (
+    CapabilityLease,
+    CapabilityTier,
+    EnforcementLevel,
+)
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     ArtifactManifestRecord,
@@ -402,6 +407,132 @@ class SqliteDispatchRepository:
                 row["configuration_revision_json"]  # pyright: ignore[reportUnknownArgumentType]
             ),
             admitted_at=row["admitted_at"],  # pyright: ignore[reportUnknownArgumentType]
+        )
+
+    def add_capability_lease(
+        self,
+        lease: CapabilityLease,
+    ) -> None:
+        """Insert an immutable capability lease."""
+
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
+            """
+            INSERT INTO capability_leases (
+                capability_lease_id,
+                command_id,
+                admission_receipt_id,
+                session_lease_id,
+                subject_principal_id,
+                selected_peer_kind,
+                required_tier,
+                authorized_tier,
+                minimum_enforcement,
+                selected_peer_instance_id,
+                selected_profile_id,
+                route_decision_digest,
+                policy_revision_json,
+                issuer_id,
+                issued_at,
+                expires_at
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                lease.capability_lease_id,
+                str(lease.command_id),
+                lease.admission_receipt_id,
+                lease.session_lease_id,
+                lease.subject_principal_id,
+                lease.selected_peer_kind,
+                lease.required_tier.name,
+                lease.authorized_tier.name,
+                lease.minimum_enforcement.name,
+                lease.selected_peer_instance_id,
+                lease.selected_profile_id,
+                lease.route_decision_digest,
+                _json_text(lease.policy_revision),
+                lease.issuer_id,
+                lease.issued_at,
+                lease.expires_at,
+            ),
+        )
+
+    def get_capability_lease(
+        self,
+        capability_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return one capability lease by ID."""
+
+        return self._get_capability_lease(
+            "capability_lease_id",
+            capability_lease_id,
+        )
+
+    def get_capability_lease_by_command_id(
+        self,
+        command_id: CommandID | str,
+    ) -> CapabilityLease | None:
+        """Return the capability lease uniquely bound to a command."""
+
+        return self._get_capability_lease(
+            "command_id",
+            str(command_id),
+        )
+
+    def get_capability_lease_by_admission_receipt_id(
+        self,
+        admission_receipt_id: str,
+    ) -> CapabilityLease | None:
+        """Return the lease uniquely bound to an admission receipt."""
+
+        return self._get_capability_lease(
+            "admission_receipt_id",
+            admission_receipt_id,
+        )
+
+    def _get_capability_lease(
+        self,
+        column: str,
+        value: str,
+    ) -> CapabilityLease | None:
+        if column not in {
+            "capability_lease_id",
+            "command_id",
+            "admission_receipt_id",
+        }:
+            raise ValueError("unsupported capability lease lookup")
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            f"""
+            SELECT *
+            FROM capability_leases
+            WHERE {column} = ?
+            """,
+            (value,),
+        ).fetchone()
+        if row is None:
+            return None
+        return CapabilityLease(
+            capability_lease_id=row["capability_lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            command_id=CommandID(row["command_id"]),  # pyright: ignore[reportUnknownArgumentType]
+            admission_receipt_id=row["admission_receipt_id"],  # pyright: ignore[reportUnknownArgumentType]
+            session_lease_id=row["session_lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            subject_principal_id=row["subject_principal_id"],  # pyright: ignore[reportUnknownArgumentType]
+            selected_peer_kind=row["selected_peer_kind"],  # pyright: ignore[reportUnknownArgumentType]
+            required_tier=CapabilityTier[row["required_tier"]],  # pyright: ignore[reportUnknownArgumentType]
+            authorized_tier=CapabilityTier[row["authorized_tier"]],  # pyright: ignore[reportUnknownArgumentType]
+            minimum_enforcement=EnforcementLevel[  # pyright: ignore[reportUnknownArgumentType]
+                row["minimum_enforcement"]
+            ],
+            selected_peer_instance_id=row["selected_peer_instance_id"],  # pyright: ignore[reportUnknownArgumentType]
+            selected_profile_id=row["selected_profile_id"],  # pyright: ignore[reportUnknownArgumentType]
+            route_decision_digest=row["route_decision_digest"],  # pyright: ignore[reportUnknownArgumentType]
+            policy_revision=_stored_revision(
+                row["policy_revision_json"]  # pyright: ignore[reportUnknownArgumentType]
+            ),
+            issuer_id=row["issuer_id"],  # pyright: ignore[reportUnknownArgumentType]
+            issued_at=row["issued_at"],  # pyright: ignore[reportUnknownArgumentType]
+            expires_at=row["expires_at"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def add_request(self, request: RequestSnapshot) -> None:

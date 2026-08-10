@@ -30,6 +30,7 @@ from peerhub.core.protocol import (
     CommandID,
     EventEnvelope,
 )
+from peerhub.dispatch.capability import CapabilityLease
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     ArtifactManifestRecord,
@@ -279,6 +280,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 18 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0018_capability_leases.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()
@@ -519,6 +528,29 @@ class SqliteReadUnitOfWork:
     def get_session_binding(self, key: SessionBindingKey) -> SessionBindingSnapshot | None:
         """Return one session binding by key."""
         return self.dispatch.get_session_binding(key)
+
+    def get_capability_lease(
+        self,
+        capability_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return one capability lease by ID."""
+        return self.dispatch.get_capability_lease(capability_lease_id)
+
+    def get_capability_lease_by_command_id(
+        self,
+        command_id: CommandID | str,
+    ) -> CapabilityLease | None:
+        """Return the capability lease uniquely bound to a command."""
+        return self.dispatch.get_capability_lease_by_command_id(command_id)
+
+    def get_capability_lease_by_admission_receipt_id(
+        self,
+        admission_receipt_id: str,
+    ) -> CapabilityLease | None:
+        """Return the lease uniquely bound to an admission receipt."""
+        return self.dispatch.get_capability_lease_by_admission_receipt_id(
+            admission_receipt_id
+        )
 
     def get_target(self, target_id: str) -> TargetState | None:
         """Return the current target, if present."""
@@ -979,6 +1011,36 @@ class SqliteUnitOfWork:
     ) -> AdmissionReceipt | None:
         """Return an admission receipt by ID."""
         return self.dispatch.get_admission_receipt(admission_receipt_id)
+
+    def add_capability_lease(
+        self,
+        lease: CapabilityLease,
+    ) -> None:
+        """Insert an immutable capability lease."""
+        return self.dispatch.add_capability_lease(lease)
+
+    def get_capability_lease(
+        self,
+        capability_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return one capability lease by ID."""
+        return self.dispatch.get_capability_lease(capability_lease_id)
+
+    def get_capability_lease_by_command_id(
+        self,
+        command_id: CommandID | str,
+    ) -> CapabilityLease | None:
+        """Return the capability lease uniquely bound to a command."""
+        return self.dispatch.get_capability_lease_by_command_id(command_id)
+
+    def get_capability_lease_by_admission_receipt_id(
+        self,
+        admission_receipt_id: str,
+    ) -> CapabilityLease | None:
+        """Return the lease uniquely bound to an admission receipt."""
+        return self.dispatch.get_capability_lease_by_admission_receipt_id(
+            admission_receipt_id
+        )
 
     def add_request(self, request: RequestSnapshot) -> None:
         """Insert an admitted request snapshot."""

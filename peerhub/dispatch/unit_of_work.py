@@ -6,6 +6,7 @@ from peerhub.core.protocol import CommandID
 from peerhub.governance.contract import OutboxEvent
 from peerhub.state.contract import ReadUnitOfWork, UnitOfWork
 
+from .capability import CapabilityLease
 from .contract import (
     AdmissionReceipt,
     AttemptSnapshot,
@@ -75,6 +76,30 @@ class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
 
         ...
 
+    def get_capability_lease(
+        self,
+        capability_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return one capability lease by ID."""
+
+        ...
+
+    def get_capability_lease_by_command_id(
+        self,
+        command_id: CommandID | str,
+    ) -> CapabilityLease | None:
+        """Return the capability lease uniquely bound to a command."""
+
+        ...
+
+    def get_capability_lease_by_admission_receipt_id(
+        self,
+        admission_receipt_id: str,
+    ) -> CapabilityLease | None:
+        """Return the lease uniquely bound to an admission receipt."""
+
+        ...
+
 
 class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
     """Persistence operations required by the dispatch service."""
@@ -137,6 +162,14 @@ class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
         admission_receipt_id: str,
     ) -> AdmissionReceipt | None:
         """Return an admission receipt by ID."""
+
+        ...
+
+    def add_capability_lease(
+        self,
+        lease: CapabilityLease,
+    ) -> None:
+        """Insert an immutable capability lease."""
 
         ...
 
