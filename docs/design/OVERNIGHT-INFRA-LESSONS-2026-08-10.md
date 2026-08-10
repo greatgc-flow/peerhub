@@ -142,6 +142,39 @@ pool if available (e.g. `ag.opus`/`ag.gptoss` use a separate 3P-pool from
 that's already near its ceiling). Treat ≥4.0× as a hard stop for new
 dispatches to that peer, not just a number to note.
 
+## Incident 5 — general system resource contention under heavy concurrent dispatch
+
+**Symptom:** multiple distinct failure shapes appeared during stretches
+with 3+ concurrent `hub.py ask` dispatches running: a raw `MemoryError`
+with no other context from `hub.py` itself; a PowerShell diagnostic
+command failing with `Thread failed to start`; `ag` dispatch output
+saturated with Cygwin/Git-Bash `dofork: child -1` and `cygheap read copy
+failed` noise (usually harmless on its own, see the separate
+`reference_ag_cygwin_dofork_noise_2026_08_10` memory note); and one
+confirmed Windows Application-Error crash of `claude.exe` itself
+(`Exception code: 0xc0000409`, a stack-corruption fault) at 06:19:53,
+found via `Get-WinEvent -FilterHashtable @{LogName='Application';
+ProviderName='Application Error'}`.
+
+**Root cause:** this machine was running 25-30+ concurrent
+node/python/codex/bash processes during peak overnight multi-peer
+dispatch stretches, with free physical memory observed as low as
+~4.7GB/15.8GB. All of the above are consistent symptoms of the same
+underlying resource exhaustion, not separate bugs. The one `claude.exe`
+crash was NOT caused by any specific config change (verified: it
+happened at 06:19:53, hours before the cx sandbox `config.toml` change
+made later that afternoon — timing rules out that specific hypothesis).
+The 3P-pool (`ag.opus`/`ag.gptoss`) also climbed to 3.28x EXH during a
+3-way-parallel dispatch stretch, showing even the "spare" pool isn't
+immune to being loaded up quickly when used concurrently.
+
+**Fix:** none needed in code — this is a capacity signal, not a bug.
+Before dispatching 3+ things in parallel, check free memory (`Get-CimInstance
+Win32_OperatingSystem | Select-Object FreePhysicalMemory`); if it's
+trending low or a dispatch fails with `MemoryError`/`Thread failed to
+start`, stagger dispatches instead of firing them concurrently and let
+in-flight ones finish first.
+
 ## Known-open, not fixed here
 
 Two pre-existing test failures were found (independently reproduced via
@@ -172,3 +205,9 @@ this session):
 - A peer's EXH is climbing fast with no counterpart peer sharing load →
   that's Incident 4's shape; consider a different quota pool (opus/gptoss
   vs effort/deepthink for `ag`) before just pushing through the ceiling.
+- A dispatch fails with `MemoryError`, `Thread failed to start`, or a
+  session/app crash during heavy concurrent dispatching → check free
+  memory before assuming a code bug; that's Incident 5's shape. Verify
+  timing against any recent config change before blaming it — a
+  same-night `claude.exe` crash turned out to predate a suspected config
+  change by 8 hours once actually checked against `Get-WinEvent`.
