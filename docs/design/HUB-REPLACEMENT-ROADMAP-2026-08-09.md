@@ -123,17 +123,42 @@ the actual code before accepting this verdict, not just taken on faith.
 Migrations 0016/0017 confirmed to introduce no incompatibility (no
 capability-lease code references either legacy table).
 
-**Next step**: either a corrective design pass addressing all 4 points
-(authoritative issuance + durable admission binding, validation on both
-fresh admission AND replay, a structured capability-tier field reaching
-the gate, and a fail-closed enforcement floor for unconfined peers), or a
-counter-response from ag.opus if it disagrees with cx's verdict -- not
-yet obtained (`ag`'s EXH was at/over ceiling on both pools when this
-verdict landed). Do not authorize implementation on the errata as
-currently written. This is the mutation-authorization mechanism hub.py's
-own preflight system was found to NOT actually enforce (see
+**Status update 2026-08-10 (same day, later): HOLD addressed, ready for
+implementation review.** cx wrote a normative Section 7 addendum to the
+same errata file (commit `11adb7a`) directly resolving all 4 blockers --
+coordinator-owned atomic lease issuance (`AdmissionCoordinator.
+admit_request()` mints; `_load_admission()` becomes replay-validator
+only), one shared `validate_capability_binding()` +
+`CapabilityPolicy.revalidate()` pair invoked identically at fresh
+admission/replay/pre-plan/final-dispatch-intent, a real typed
+`required_capability_tier` threaded end-to-end from the API payload
+through routing/admission/the durable lease (explicitly NOT reusing
+`CommandDescriptor.mutability`, a different axis), and a code-owned
+mandatory enforcement floor that denies `ag` mutation outright (not
+advisory-logs it) until `CONFINED` evidence exists. Also closed two
+things cx found during its own consistency pass: a revocation-window gap
+(policy could change between pre-plan and final-intent with no re-check)
+and a real auth bypass in `direct_ask.py` (hardcoded
+`authenticated_principal="cli-user"` / `actor_authorized=True`, verified
+at direct_ask.py:201-202 -- not real authority evidence).
+
+Section 7.5 lays out 5 independently-reviewable implementation
+increments (enums/DTOs/validators → schema+repository → tier threading →
+enforcement gate → adapter translation) with required negative-test
+coverage. Section 7.6 explicitly separates the fail-closed security
+decisions (no ambiguity, ready to implement) from one genuine future
+product choice left open (a convenience CLI default tier) -- correctly
+not invented here.
+
+**Still open**: this Section 7 resolution has NOT yet had its own
+cross-check from a second peer (ag.opus, who wrote the original errata
+this corrects) -- `ag` was EXH-unavailable on both pools when Section 7
+landed. Get that counter-response before treating implementation as
+fully authorized, closing the same dialectical loop Steps E/F went
+through. This is the mutation-authorization mechanism hub.py's own
+preflight system was found to NOT actually enforce (see
 `project_mutation_lease_design_2026_08_08.md`); peerhub should not repeat
-that gap -- which is exactly what cx's verdict is protecting against.
+that gap.
 
 ### Known-open, not part of Phase 2 itself
 2 pre-existing test failures (`test_client_never_imports_persistence`,
