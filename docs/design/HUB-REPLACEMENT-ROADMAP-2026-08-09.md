@@ -44,20 +44,69 @@ Status: COMPLETED (Steps E1, E2, E3, and F completed).
 
 
 ## Phase 2 — Structural debt
-Status: not started.
-- Read/write UnitOfWork split (every read currently opens a write
-  transaction via BEGIN IMMEDIATE -- fine for correctness, costs
-  unnecessary write-lock contention under real concurrent load).
-- Bespoke migration runner → Alembic full cutover (currently both coexist,
-  Alembic additive-only since Tier-2). Needs a plan for the bespoke
-  runner's existing applied-migration history to be legible to Alembic
-  without re-running anything.
-- Capability-lease design implementation
-  (`docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md`) -- currently
-  ratified-not-implemented. This is the mutation-authorization mechanism
-  hub.py's own preflight system was found to NOT actually enforce
-  (see `project_mutation_lease_design_2026_08_08.md`); peerhub should not
-  repeat that gap.
+Status: in progress. Scoped 2026-08-10 via cx (read-only, GitHub-mirror
+analysis) + ag.effort (local verification/correction) dialectical pass --
+see `project_step_ef_ratified_2026_08_10.md` and this session's history
+for the scoping conversation itself.
+
+### Read/write UnitOfWork split
+Status: in progress. Every read used to open a write transaction via
+`BEGIN IMMEDIATE`; migrating to an additive `ReadUnitOfWork`
+(`PRAGMA query_only=ON` + deferred `BEGIN`) one call site at a time.
+13 total call sites identified (ag's local audit corrected cx's initial
+remote-mirror-derived count of 10):
+- **Done**: `DispatchService.count_active_leases` (PH-UOW-READ-01,
+  commit `7bad9ff`); `GovernanceBroker.get_target`/`get_outbox_event`/
+  `get_effect_receipt`/`recover_pending_effects` (PH-UOW-READ-02, commit
+  `99bbce0`).
+- **Remaining (8)**: Dispatch -- `get_lease`, `get_request_and_attempt`,
+  `get_request` (service.py); `SessionLeaseService.check_lease_fence`
+  (session_lease.py). Routing -- `get_route_decision` (routing/service.py).
+  Telemetry -- `get`, `project_pending` (telemetry/projections.py).
+  Health -- `freeze_admission_snapshot` (health/service.py). Each is a
+  small, independently-verifiable increment following PH-UOW-READ-01/02's
+  pattern -- migrate a domain's read methods + protocol + tests in one
+  commit, same as the two already done.
+
+### Bespoke migration runner → Alembic full cutover
+Status: not started, but timing resolved. Both cx and ag independently
+confirmed post-Phase-1 schema v17 (current) is the correct point to
+generate a single consolidated Alembic baseline -- do NOT backport
+parity revisions for bespoke migrations 13-17 (Alembic is not invoked
+anywhere in the runtime or test suite; incremental parity would be
+unexercised double-maintenance). Baseline generation and the actual
+runtime cutover should be separate increments; before cutover, prove
+fresh-Alembic-v17 == fresh-bespoke-v17, define the stamping path for
+existing bespoke-v17 databases, and fix `docs/migrations.md`'s
+now-corrected guidance (Alembic explicitly frozen/unsupported until this
+lands, see that file).
+
+### Capability-lease design implementation
+Status: re-ratification done, implementation not started, one review
+round still pending. `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md`
+was found materially drifted (direct_ask.py bypasses
+`CommandDescriptor.mutability`, the real spawn boundary is
+`dispatch_and_execute()`'s `PipeRunnerConfig`/`run_process()`, no honest
+answer existed for peers like `ag` that can't be technically confined).
+`docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md` (commit
+`d7017e9`) resolves the anchor (`CapabilityLease` as a required
+`dispatch_and_execute()` parameter), the pre-spawn enforcement gate
+location, and a new 3-level `EnforcementLevel` model
+(ADVISORY/ENFORCED/CONFINED) that answers the ag-confinement gap
+honestly instead of papering over it. **Still needs**: cx's final
+cross-check on this errata (cx raised the original drift concern, ag.opus
+wrote the resolution -- close the dialectical loop before authorizing
+implementation). This is the mutation-authorization mechanism hub.py's
+own preflight system was found to NOT actually enforce (see
+`project_mutation_lease_design_2026_08_08.md`); peerhub should not repeat
+that gap.
+
+### Known-open, not part of Phase 2 itself
+2 pre-existing test failures (`test_client_never_imports_persistence`,
+`test_generator_runs_and_produces_valid_manifest`) confirmed unrelated to
+any Phase 1/2 work via git-stash bisection -- see
+`docs/design/OVERNIGHT-INFRA-LESSONS-2026-08-10.md` for detail. Fix when
+convenient, not blocking.
 
 ## Phase 3 — Real orchestration loop (the actual hub.py replacement)
 Status: not started. **This is the critical path** -- nothing before this
