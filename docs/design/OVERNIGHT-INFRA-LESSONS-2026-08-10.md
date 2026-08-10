@@ -175,6 +175,46 @@ trending low or a dispatch fails with `MemoryError`/`Thread failed to
 start`, stagger dispatches instead of firing them concurrently and let
 in-flight ones finish first.
 
+## Incident 6 — ag.opus 429s are a provider-side QPM limit, not real quota exhaustion
+
+**Symptom:** `ag.opus` fails with `Error: Eligibility check failed:
+RESOURCE_EXHAUSTED (code 429): Resource has been exhausted (e.g. check
+quota).` and `health.json` marks it `gate_open: false`, even though
+`diag.py`'s 3P-pool (the quota pool `ag.opus`/`ag.gptoss` share) shows
+low actual usage (14% on the 7-day window, observed).
+
+**Root cause:** `ag.opus` routes through Google Antigravity's
+third-party model access to Claude Opus, not Anthropic's direct API
+(whose own limits — 4,000 RPM per Anthropic's docs — are generous and
+not the real constraint here). Two separate things are true:
+1. This specific 429 is a **provider-side QPM/concurrency rate limiter**,
+   not a depleted token budget — it self-clears in minutes, confirmed by
+   a live retest ~15 minutes later succeeding immediately. An
+   independent `ag.effort` finding from 2026-07-15 diagnosed the exact
+   same pattern previously, so this is a recurring, known characteristic
+   of `ag.opus` specifically, not a one-off.
+2. Separately, Google Antigravity resets Claude Opus quota on a
+   **5-hour window** (not just the 7-day one `diag.py` also tracks), has
+   cut free-tier quotas by ~92% (March 2026) and tightened Pro-tier
+   limits too, and has at least one credible user-reported bug describing
+   a **7-day lockout** for a paying subscriber — far beyond the
+   documented 5-hour maximum. This session's incident matched the
+   short-QPM pattern, but that's not guaranteed every time.
+
+**How to avoid / respond:**
+- A 429 on `ag.opus` does not mean the whole 3P-pool or `ag.gptoss` is
+  unavailable — they can be (and were, in this session) separate
+  failure domains. Fall back to `ag.gptoss` rather than assuming the
+  peer is down.
+- Check actual quota used-% before treating a 429 as real exhaustion —
+  low used-% + a 429 is the QPM-limiter signature, not a budget problem.
+- Avoid firing `ag.opus` inside 3+-way concurrent dispatch bursts if
+  avoidable (see Incident 5) — bursty concurrent load is exactly what
+  trips a QPM-style limiter.
+- If a retry after ~15-30 minutes still fails, stop assuming it's the
+  short QPM pattern — it may be the longer-lockout bug class instead;
+  escalate/wait rather than repeatedly hammering it.
+
 ## Known-open, not fixed here
 
 Two pre-existing test failures were found (independently reproduced via
@@ -211,3 +251,7 @@ this session):
   timing against any recent config change before blaming it — a
   same-night `claude.exe` crash turned out to predate a suspected config
   change by 8 hours once actually checked against `Get-WinEvent`.
+- `ag.opus` fails with `RESOURCE_EXHAUSTED`/429 but actual quota used-%
+  is low → that's Incident 6's shape, a provider-side QPM limiter, not
+  real exhaustion; fall back to `ag.gptoss` or retry in ~15 minutes,
+  don't wait on a full quota-reset window.
