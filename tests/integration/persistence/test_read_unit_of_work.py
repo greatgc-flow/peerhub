@@ -19,9 +19,11 @@ from peerhub.dispatch.contract import (
     CompletionContractKind,
     LeaseCloseRequest,
     LeaseCreateRequest,
+    LeaseFenceCheckRequest,
 )
 from peerhub.dispatch.model import create_lease
 from peerhub.dispatch.service import DispatchService
+from peerhub.dispatch.unit_of_work import DispatchReadUnitOfWork
 from peerhub.governance.broker import (
     GovernanceBroker,
     GovernanceReadUnitOfWork,
@@ -51,6 +53,7 @@ def test_read_unit_of_work_protocol_conformance(store: SqliteStateStore) -> None
 
     read_uow = store.read_unit_of_work()
     assert isinstance(read_uow, ReadUnitOfWork)
+    assert isinstance(read_uow, DispatchReadUnitOfWork)
     assert isinstance(read_uow, GovernanceReadUnitOfWork)
     assert isinstance(read_uow, SqliteReadUnitOfWork)
 
@@ -162,6 +165,97 @@ def test_dispatch_service_count_active_leases_migrated_call_site(
 
     # Count active leases is now 0
     assert dispatch.count_active_leases() == 0
+
+
+def test_dispatch_domain_read_methods_use_read_unit_of_work(
+    store: SqliteStateStore,
+) -> None:
+    """The remaining dispatch queries open read-only UoWs, never write UoWs."""
+    write_uow_calls = 0
+    read_uow_calls = 0
+
+    class TrackingStore:
+        def initialize(self) -> None:
+            store.initialize()
+
+        def unit_of_work(self) -> SqliteUnitOfWork:
+            nonlocal write_uow_calls
+            write_uow_calls += 1
+            return store.unit_of_work()
+
+        def read_unit_of_work(self) -> SqliteReadUnitOfWork:
+            nonlocal read_uow_calls
+            read_uow_calls += 1
+            return store.read_unit_of_work()
+
+        def close(self) -> None:
+            store.close()
+
+    dispatch = DispatchService(
+        TrackingStore(),
+        clock=DeterministicClock(start=300),
+        ids=SequentialIdSource(),
+    )
+    envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="client-request-read-uow-dispatch",
+        correlation_id="correlation-read-uow-dispatch",
+        client_id="client-read-uow-dispatch",
+        actor_id="actor-read-uow-dispatch",
+        scope={
+            "workspace_id": "workspace-read-uow-dispatch",
+            "home_id": "home-read-uow-dispatch",
+        },
+        method="peer.ask",
+        params={"prompt": "read through the dispatch read UoW"},
+        idempotency_key="idempotency-read-uow-dispatch",
+        expected_policy_revision=7,
+        expected_configuration_revision=11,
+        client_timestamp=300,
+    )
+    contract = CompletionContract(
+        contract_id="completion-contract-read-uow-dispatch",
+        kind=CompletionContractKind.DELIVERY_ONLY,
+        requirements=(),
+        replay_safe=False,
+    )
+    admitted, _, reserved_lease = dispatch.admit_request(
+        envelope,
+        authenticated_principal="principal-read-uow-dispatch",
+        actor_authorized=True,
+        completion_contract=contract,
+        policy_revision=7,
+        configuration_revision=11,
+        selected_peer_instance_id="instance-read-uow-dispatch",
+        selected_profile_id="profile-read-uow-dispatch",
+        route_decision_digest="d" * 64,
+        session_id="session-read-uow-dispatch",
+        owner_principal_id="principal-read-uow-dispatch",
+        owner_instance_id="instance-read-uow-dispatch",
+        authority_epoch=5,
+        heartbeat_timeout_ms=5_000,
+        owner_peer_id="peer-read-uow-dispatch",
+    )
+    prepared = dispatch.prepare_request(admitted.command_id)
+    attempt = dispatch.create_attempt(admitted.command_id)
+
+    write_uow_calls = 0
+    read_uow_calls = 0
+
+    assert dispatch.get_lease(reserved_lease.lease_id) == reserved_lease
+    assert dispatch.get_request_and_attempt(
+        admitted.command_id,
+        attempt.attempt_id,
+    ) == (prepared, attempt)
+    assert dispatch.get_request(admitted.command_id) == prepared
+    assert dispatch.check_lease_fence(
+        LeaseFenceCheckRequest(requester_fence=reserved_lease.fence)
+    ) == (True, ())
+
+    assert read_uow_calls == 4
+    assert write_uow_calls == 0
 
 
 def test_governance_broker_read_methods_use_read_unit_of_work(

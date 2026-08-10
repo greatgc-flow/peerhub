@@ -29,7 +29,13 @@ from .model import (
     resume_session_binding,
     validate_lease_fence,
 )
-from .unit_of_work import DispatchUnitOfWork, FaultInjector, FaultPoint, _NoFaultInjector  # pyright: ignore[reportPrivateUsage]
+from .unit_of_work import (
+    DispatchReadUnitOfWork,
+    DispatchUnitOfWork,
+    FaultInjector,
+    FaultPoint,
+    _NoFaultInjector,  # pyright: ignore[reportPrivateUsage]
+)
 
 
 class SessionLeaseCoordinator:
@@ -37,7 +43,7 @@ class SessionLeaseCoordinator:
 
     def __init__(
         self,
-        store: StateStore[DispatchUnitOfWork],
+        store: StateStore[DispatchUnitOfWork, DispatchReadUnitOfWork],
         *,
         clock: Clock,
         ids: IdSource,
@@ -245,7 +251,7 @@ class SessionLeaseCoordinator:
     ) -> tuple[bool, tuple[str, ...]]:
         """Validate a requester fence against persisted lease state."""
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             current = unit.get_lease(
                 request.requester_fence.lease_id
             )

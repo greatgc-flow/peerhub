@@ -185,7 +185,7 @@ class DispatchService:
 
     def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
         """Retrieve a lease snapshot by ID, if found."""
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             return unit.get_lease(lease_id)
 
     def count_active_leases(self) -> int:
@@ -199,7 +199,7 @@ class DispatchService:
         attempt_id: str,
     ) -> tuple[RequestSnapshot, AttemptSnapshot]:
         """Retrieve current request and attempt snapshots."""
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             req = _require_request(unit, command_id)
             att = _require_attempt(unit, attempt_id)
             return req, att
@@ -263,7 +263,7 @@ class DispatchService:
     ) -> RequestSnapshot | None:
         """Return one persisted request snapshot."""
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             return unit.get_request(command_id)
 
     def reject_policy(

@@ -19,7 +19,12 @@ from peerhub.core.protocol import (
 from peerhub.governance.contract import OutboxEvent, OutboxState
 
 from .contract import AttemptSnapshot, LeaseSnapshot, RequestSnapshot
-from .unit_of_work import DispatchUnitOfWork, FaultPoint, FaultInjector
+from .unit_of_work import (
+    DispatchReadUnitOfWork,
+    DispatchUnitOfWork,
+    FaultPoint,
+    FaultInjector,
+)
 
 
 def require_actor_authorized(
@@ -33,7 +38,7 @@ def require_actor_authorized(
 
 
 def require_request(
-    unit: DispatchUnitOfWork,
+    unit: DispatchReadUnitOfWork,
     command_id: CommandID | str,
 ) -> RequestSnapshot:
     request = unit.get_request(command_id)
@@ -43,7 +48,7 @@ def require_request(
 
 
 def require_attempt(
-    unit: DispatchUnitOfWork,
+    unit: DispatchReadUnitOfWork,
     attempt_id: str,
 ) -> AttemptSnapshot:
     attempt = unit.get_attempt(attempt_id)
