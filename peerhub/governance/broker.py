@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
 from peerhub.core.context import Clock, IdSource
@@ -12,7 +13,7 @@ from peerhub.core.errors import (
     RecordNotFoundError,
     StaleRevisionError,
 )
-from peerhub.state.contract import StateStore, UnitOfWork
+from peerhub.state.contract import ReadUnitOfWork, StateStore, UnitOfWork
 
 from .contract import (
     CommandBinding,
@@ -40,7 +41,54 @@ from .mutations import (
 )
 
 
-class GovernanceUnitOfWork(UnitOfWork, Protocol):
+class GovernanceReadUnitOfWork(ReadUnitOfWork, Protocol):
+    """Read-only persistence operations required by the governance broker."""
+
+    def get_target(self, target_id: str) -> TargetState | None:
+        """Return the current target, if present."""
+
+        ...
+
+    def get_transition_receipt(
+        self,
+        receipt_id: str,
+    ) -> TransitionReceipt | None:
+        """Return a transition receipt by ID."""
+
+        ...
+
+    def get_outbox_event(
+        self,
+        event_id: str,
+    ) -> OutboxEvent | None:
+        """Return an outbox event by ID."""
+
+        ...
+
+    def list_unfinished_effect_deliveries(
+        self,
+        *,
+        limit: int,
+        after_position: int = 0,
+    ) -> Sequence[OutboxEvent]:
+        """Return unreceipted effect deliveries in workspace order."""
+
+        ...
+
+    def get_effect_receipt(
+        self,
+        outbox_event_id: str,
+    ) -> EffectReceipt | None:
+        """Return the terminal receipt for an outbox event."""
+
+        ...
+
+
+class GovernanceUnitOfWork(
+    GovernanceReadUnitOfWork,
+    UnitOfWork,
+    Protocol,
+):
     """Persistence operations required by the governance broker."""
 
     def get_target(self, target_id: str) -> TargetState | None:
@@ -223,7 +271,10 @@ class GovernanceBroker:
 
     def __init__(
         self,
-        store: StateStore[GovernanceUnitOfWork],
+        store: StateStore[
+            GovernanceUnitOfWork,
+            GovernanceReadUnitOfWork,
+        ],
         *,
         clock: Clock,
         ids: IdSource,
@@ -363,7 +414,7 @@ class GovernanceBroker:
     def get_target(self, target_id: str) -> TargetState | None:
         """Return the current authoritative target state."""
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             return unit.get_target(target_id)
 
     def get_outbox_event(
@@ -372,7 +423,7 @@ class GovernanceBroker:
     ) -> OutboxEvent | None:
         """Return one canonical outbox event."""
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             return unit.get_outbox_event(event_id)
 
     def get_effect_receipt(
@@ -381,7 +432,7 @@ class GovernanceBroker:
     ) -> EffectReceipt | None:
         """Return an event's immutable terminal receipt."""
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             return unit.get_effect_receipt(event_id)
 
     def recover_pending_effects(
@@ -394,7 +445,7 @@ class GovernanceBroker:
         if type(limit) is not int or limit < 1:
             raise ValueError("limit must be a positive integer")
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             events = unit.list_unfinished_effect_deliveries(
                 limit=limit,
             )

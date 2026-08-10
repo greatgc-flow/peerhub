@@ -524,9 +524,19 @@ class SqliteReadUnitOfWork:
         """Return the current target, if present."""
         return self.governance.get_target(target_id)
 
-    def get_effect_receipt(self, event_id: str) -> EffectReceipt | None:
+    def get_transition_receipt(
+        self,
+        receipt_id: str,
+    ) -> TransitionReceipt | None:
+        """Return a transition receipt by ID."""
+        return self.governance.get_transition_receipt(receipt_id)
+
+    def get_effect_receipt(
+        self,
+        outbox_event_id: str,
+    ) -> EffectReceipt | None:
         """Return an effect receipt by outbox event ID."""
-        return self.governance.get_effect_receipt(event_id)
+        return self.governance.get_effect_receipt(outbox_event_id)
 
     def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
         """Return one canonical outbox event."""

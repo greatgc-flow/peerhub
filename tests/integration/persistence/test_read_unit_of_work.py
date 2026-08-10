@@ -22,6 +22,15 @@ from peerhub.dispatch.contract import (
 )
 from peerhub.dispatch.model import create_lease
 from peerhub.dispatch.service import DispatchService
+from peerhub.governance.broker import (
+    GovernanceBroker,
+    GovernanceReadUnitOfWork,
+)
+from peerhub.governance.contract import (
+    EffectIntent,
+    EffectOutcome,
+    MutationRequest,
+)
 from peerhub.persistence.sqlite import SqliteReadUnitOfWork, SqliteStateStore, SqliteUnitOfWork
 from peerhub.state.contract import ReadStateStore, ReadUnitOfWork, StateStore
 from tests.fakes import DeterministicClock, SequentialIdSource
@@ -42,6 +51,7 @@ def test_read_unit_of_work_protocol_conformance(store: SqliteStateStore) -> None
 
     read_uow = store.read_unit_of_work()
     assert isinstance(read_uow, ReadUnitOfWork)
+    assert isinstance(read_uow, GovernanceReadUnitOfWork)
     assert isinstance(read_uow, SqliteReadUnitOfWork)
 
 
@@ -152,6 +162,88 @@ def test_dispatch_service_count_active_leases_migrated_call_site(
 
     # Count active leases is now 0
     assert dispatch.count_active_leases() == 0
+
+
+def test_governance_broker_read_methods_use_read_unit_of_work(
+    store: SqliteStateStore,
+) -> None:
+    """All four governance query methods use the read-only UoW factory."""
+    write_uow_calls = 0
+    read_uow_calls = 0
+
+    class TrackingStore:
+        def initialize(self) -> None:
+            store.initialize()
+
+        def unit_of_work(self) -> SqliteUnitOfWork:
+            nonlocal write_uow_calls
+            write_uow_calls += 1
+            return store.unit_of_work()
+
+        def read_unit_of_work(self) -> SqliteReadUnitOfWork:
+            nonlocal read_uow_calls
+            read_uow_calls += 1
+            return store.read_unit_of_work()
+
+        def close(self) -> None:
+            store.close()
+
+    broker = GovernanceBroker(
+        TrackingStore(),
+        clock=DeterministicClock(start=200),
+        ids=SequentialIdSource(),
+    )
+    request = MutationRequest(
+        request_id="request-read-uow-governance",
+        command_id=CommandID("command-read-uow-governance"),
+        correlation_id="correlation-read-uow-governance",
+        client_id="client-read-uow-governance",
+        command_type="governance.read-uow.test",
+        idempotency_key="idempotency-read-uow-governance",
+        actor_id="actor-read-uow-governance",
+        policy_revision="policy-read-uow-governance",
+        target_id="target-read-uow-governance",
+        expected_revision=0,
+        operation="set",
+        desired_state={"enabled": True},
+        effect_intent=EffectIntent(
+            kind="test.effect",
+            payload={"enabled": True},
+        ),
+    )
+    submission = broker.submit(request)
+    event_id = submission.receipt.outbox_event_id
+
+    write_uow_calls = 0
+    target = broker.get_target(request.target_id)
+    event = broker.get_outbox_event(event_id)
+    pending = broker.recover_pending_effects()
+
+    assert target is not None
+    assert target.state == {"enabled": True}
+    assert event is not None
+    assert event.event_id == event_id
+    assert tuple(item.event.event_id for item in pending) == (event_id,)
+    assert read_uow_calls == 3
+    assert write_uow_calls == 0
+
+    claimed = broker.claim_effect(
+        event_id,
+        owner_id="owner-read-uow-governance",
+        attempt_id="attempt-read-uow-governance",
+    )
+    receipt = broker.record_effect_result(
+        claimed.event_id,
+        owner_id="owner-read-uow-governance",
+        attempt_id="attempt-read-uow-governance",
+        outcome=EffectOutcome.EFFECT_SUCCEEDED,
+    )
+
+    write_uow_calls = 0
+    read_uow_calls = 0
+    assert broker.get_effect_receipt(event_id) == receipt
+    assert read_uow_calls == 1
+    assert write_uow_calls == 0
 
 
 def test_read_unit_of_work_cannot_be_reentered(store: SqliteStateStore) -> None:
