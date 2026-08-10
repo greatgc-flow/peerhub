@@ -327,6 +327,11 @@ def validate_capability_binding(
         "capability policy revision must match receipt",
     )
     _require_binding(
+        capability_lease.required_tier
+        == request.required_capability_tier,
+        "capability required tier must match request",
+    )
+    _require_binding(
         capability_lease.authorized_tier
         == capability_lease.required_tier,
         "capability authorized tier must equal required tier",

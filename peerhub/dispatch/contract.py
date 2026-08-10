@@ -18,6 +18,7 @@ from enum import Enum
 
 from peerhub.adapters.contract import ProtocolAssessment
 from peerhub.core.execution import ExecutionCertainty
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.core.protocol import (
     CommandEnvelope,
     CommandID,
@@ -581,6 +582,7 @@ class RequestSnapshot:
     policy_revision: RevisionValue
     configuration_revision: RevisionValue
     completion_contract: CompletionContract
+    required_capability_tier: CapabilityTier
     selected_peer_instance_id: str
     selected_profile_id: str
     route_decision_digest: str
@@ -657,6 +659,13 @@ class RequestSnapshot:
             self.configuration_revision,
             "configuration_revision",
         )
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.required_capability_tier,
+            CapabilityTier,
+        ):
+            raise ValueError(
+                "required_capability_tier must be CapabilityTier"
+            )
         if not isinstance(self.state, RequestState):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("state must be RequestState")
         _require_positive_int(self.revision, "revision")
@@ -1347,4 +1356,3 @@ class ArtifactRecoveryDigest:
                     "every artifact must be an ArtifactMetadata instance"
                 )
         object.__setattr__(self, "artifacts", arts)
-

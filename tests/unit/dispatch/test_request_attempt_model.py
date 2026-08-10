@@ -14,6 +14,7 @@ from peerhub.core.protocol import (
     CommandEnvelope,
     CommandID,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import (
     AskResult,
     CompletionAssessment,
@@ -84,6 +85,7 @@ class TestRequestAttemptModel(unittest.TestCase):
             lease_id="lease-01",
             policy_revision=3,
             configuration_revision=4,
+            required_capability_tier=CapabilityTier.READ_ONLY,
             selected_peer_instance_id="instance-01",
             selected_profile_id="profile-01",
             route_decision_digest=hashlib.sha256(
@@ -347,6 +349,7 @@ class TestRequestAttemptModel(unittest.TestCase):
             lease_id="lease-replay",
             policy_revision=3,
             configuration_revision=4,
+            required_capability_tier=CapabilityTier.READ_ONLY,
             selected_peer_instance_id="instance-01",
             selected_profile_id="profile-01",
             route_decision_digest=hashlib.sha256(

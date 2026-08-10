@@ -4,11 +4,12 @@ import pytest
 from pathlib import Path
 from typing import Any
 
-from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs
+from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
 from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.core.protocol import CommandEnvelope, CommandSuccess, CommandFailure, ErrorCode, PROTOCOL_MAJOR, PROTOCOL_MINOR, SCHEMA_VERSION, IdempotencyDisposition
 from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
@@ -21,6 +22,18 @@ class FakeClock:
 class FakeIdSource:
     def new_id(self, namespace: str) -> str:
         return f"{namespace}-123"
+
+
+def test_admit_dispatch_payload_requires_capability_tier() -> None:
+    with pytest.raises(ValueError):
+        AdmitDispatchPayload.model_validate({})
+
+
+def test_admit_dispatch_payload_rejects_unknown_capability_tier() -> None:
+    with pytest.raises(ValueError):
+        AdmitDispatchPayload.model_validate(
+            {"required_capability_tier": "SUPERUSER"}
+        )
 
 
 class FakeAdmissionProvider:
@@ -102,6 +115,7 @@ def test_admit_success(runtime_setup, monkeypatch):
             client_timestamp=1000,
         ),
         prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         completion_contract={
@@ -135,6 +149,7 @@ def test_missing_idempotency_key(runtime_setup):
             client_timestamp=1000,
         ),
         prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         completion_contract={"kind": "DELIVERY_ONLY"},
@@ -233,6 +248,7 @@ def test_unauthorized_client(runtime_setup):
             client_timestamp=1000,
         ),
         prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         completion_contract={},
@@ -269,6 +285,7 @@ def test_unbacked_command(tmp_path: Path):
             client_timestamp=1000,
         ),
         prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         completion_contract={},
@@ -347,6 +364,7 @@ def test_admit_rejected_internal_error(runtime_setup):
             client_timestamp=1000,
         ),
         prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         completion_contract={"kind": "DELIVERY_ONLY"},
@@ -689,6 +707,7 @@ def test_admit_route_exhausted(runtime_setup):
             client_timestamp=1000,
         ),
         prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         completion_contract={"kind": "DELIVERY_ONLY"},
@@ -699,4 +718,3 @@ def test_admit_route_exhausted(runtime_setup):
     
     assert isinstance(outcome, CommandFailure)
     assert outcome.error.code == ErrorCode.INTERNAL_ERROR
-

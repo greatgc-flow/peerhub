@@ -26,6 +26,7 @@ from peerhub.dispatch.contract import (
     ProcessBirthIdentity,
     ProtocolAssessment,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import DispatchService
 from peerhub.governance.contract import OutboxState
 from peerhub.persistence.sqlite import SqliteStateStore
@@ -97,6 +98,7 @@ def _admit(service: DispatchService, envelope: CommandEnvelope):
         completion_contract=_contract(),
         policy_revision=7,
         configuration_revision=11,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="ag",
         selected_profile_id="ag.deepthink",
         route_decision_digest="a" * 64,

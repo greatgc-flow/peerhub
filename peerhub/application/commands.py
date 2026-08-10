@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Generic, Protocol, TypeVar
 
 from peerhub.core.protocol import JsonValue, RevisionValue
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import LeaseState, RequestState
 
 R = TypeVar("R")
@@ -58,6 +59,7 @@ class AdmitDispatch(Command["DispatchAdmissionView"]):
 
     submission: SubmissionMetadata
     prompt: str
+    required_capability_tier: CapabilityTier
     requested_capabilities: tuple[str, ...]
     profile_constraints: Mapping[str, JsonValue]
     completion_contract: CompletionContractInput
@@ -66,6 +68,7 @@ class AdmitDispatch(Command["DispatchAdmissionView"]):
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {
             "prompt": self.prompt,
+            "required_capability_tier": self.required_capability_tier.name,
             "requested_capabilities": list(self.requested_capabilities),  # pyright: ignore[reportReturnType]
             "profile_constraints": self.profile_constraints,
             "completion_contract": self.completion_contract,

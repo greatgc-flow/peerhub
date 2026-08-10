@@ -34,6 +34,7 @@ from peerhub.core.protocol import (
     freeze_json_mapping,
 )
 from peerhub.dispatch.contract import CompletionContract, CompletionContractKind
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import DispatchService
 from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.application.commands import (
@@ -199,12 +200,33 @@ class CompletionContractPayload(BaseModel):
 class AdmitDispatchPayload(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid", frozen=True)
     prompt: str = ""
+    required_capability_tier: CapabilityTier
     requested_capabilities: list[str] = Field(default_factory=list)
     profile_constraints: dict[str, Any] = Field(default_factory=dict)
     completion_contract: CompletionContractPayload = Field(
         default_factory=CompletionContractPayload
     )
     session_policy: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("required_capability_tier", mode="before")
+    @classmethod
+    def validate_required_capability_tier(
+        cls,
+        value: object,
+    ) -> CapabilityTier:
+        if isinstance(value, CapabilityTier):
+            return value
+        if isinstance(value, str):
+            try:
+                return CapabilityTier[value]
+            except KeyError as exc:
+                raise ValueError(
+                    "required_capability_tier must be a valid "
+                    "CapabilityTier"
+                ) from exc
+        raise ValueError(
+            "required_capability_tier must be a valid CapabilityTier"
+        )
 
 
 class GetDispatchRequestPayload(BaseModel):
@@ -266,6 +288,9 @@ class ApplicationAPI:
             return AdmitDispatch(
                 submission=sm,
                 prompt=payload.prompt,
+                required_capability_tier=(
+                    payload.required_capability_tier
+                ),
                 requested_capabilities=tuple(payload.requested_capabilities),
                 profile_constraints=freeze_json_mapping(payload.profile_constraints),
                 completion_contract=freeze_json_mapping(
@@ -295,6 +320,7 @@ class ApplicationAPI:
             res = self._workflows.admit_request(
                 env,
                 route_request_factory=inputs.route_request_factory,  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
+                required_capability_tier=cmd.required_capability_tier,
                 authenticated_principal=caller.principal,
                 actor_authorized=True,
                 completion_contract=cc,

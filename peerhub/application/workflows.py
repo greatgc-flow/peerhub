@@ -36,6 +36,7 @@ from peerhub.dispatch.artifacts import (
     resolve_workspace_paths,
 )
 from peerhub.dispatch.completion import assess_completion
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     ArtifactManifestRecord,
@@ -270,6 +271,7 @@ class ApplicationWorkflows:
         expected_binding = (
             decision.client_request_id,
             decision.configuration.revision,
+            decision.required_capability_tier,
             selected.instance_id,
             selected.representative_profile_id,
             digest,
@@ -277,6 +279,7 @@ class ApplicationWorkflows:
         actual_binding = (
             request.client_request_id,
             request.configuration_revision,
+            request.required_capability_tier,
             request.selected_peer_instance_id,
             request.selected_profile_id,
             request.route_decision_digest,
@@ -294,6 +297,7 @@ class ApplicationWorkflows:
         envelope: CommandEnvelope,
         *,
         route_request_factory: RouteRequestFactory,
+        required_capability_tier: CapabilityTier,
         authenticated_principal: str,
         actor_authorized: bool,
         completion_contract: CompletionContract,
@@ -329,6 +333,13 @@ class ApplicationWorkflows:
             completion_contract=completion_contract,
         )
         if existing is not None:
+            if (
+                existing[0].required_capability_tier
+                is not required_capability_tier
+            ):
+                raise InvalidMutationError(
+                    "idempotent admission capability tier mismatch"
+                )
             return AdmissionWorkflowResult(
                 projected_terminal_events=0,
                 admission_snapshot=None,
@@ -346,7 +357,22 @@ class ApplicationWorkflows:
             telemetry_limit=telemetry_limit,
         )
 
+        if (
+            route_request.required_capability_tier
+            is not required_capability_tier
+        ):
+            raise InvalidMutationError(
+                "route request capability tier does not match admission"
+            )
+
         route = self._routing.select_route(route_request)
+        if (
+            route.decision.required_capability_tier
+            is not required_capability_tier
+        ):
+            raise InvalidMutationError(
+                "route decision capability tier does not match admission"
+            )
         if route.error_code is ErrorCode.ROUTE_EXHAUSTED:
             return AdmissionWorkflowResult(
                 projected_terminal_events=projected,
@@ -373,6 +399,7 @@ class ApplicationWorkflows:
             configuration_revision=(
                 route.decision.configuration.revision
             ),
+            required_capability_tier=required_capability_tier,
             selected_peer_instance_id=selected.instance_id,
             selected_profile_id=(
                 selected.representative_profile_id

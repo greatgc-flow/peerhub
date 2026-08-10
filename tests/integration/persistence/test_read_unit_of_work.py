@@ -22,6 +22,7 @@ from peerhub.dispatch.contract import (
     LeaseCreateRequest,
     LeaseFenceCheckRequest,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.model import create_lease
 from peerhub.dispatch.service import DispatchService
 from peerhub.dispatch.unit_of_work import DispatchReadUnitOfWork
@@ -240,6 +241,7 @@ def test_dispatch_domain_read_methods_use_read_unit_of_work(
         completion_contract=contract,
         policy_revision=7,
         configuration_revision=11,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="instance-read-uow-dispatch",
         selected_profile_id="profile-read-uow-dispatch",
         route_decision_digest="d" * 64,

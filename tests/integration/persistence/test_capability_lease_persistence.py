@@ -74,6 +74,7 @@ def _admit(
         ),
         policy_revision=7,
         configuration_revision=11,
+        required_capability_tier=CapabilityTier.WORKTREE_WRITE,
         selected_peer_instance_id="cx-instance-capability",
         selected_profile_id="cx.deepthink",
         route_decision_digest="a" * 64,
@@ -111,7 +112,7 @@ def _capability_lease(
     )
 
 
-def test_migration_0018_registers_schema_without_implicit_tier(
+def test_migrations_register_capability_tiers_without_implicit_grants(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "capability-schema.sqlite3"
@@ -121,7 +122,7 @@ def test_migration_0018_registers_schema_without_implicit_tier(
     try:
         assert connection.execute(
             "PRAGMA user_version"
-        ).fetchone() == (18,)
+        ).fetchone() == (19,)
         assert connection.execute(
             "SELECT name FROM schema_migrations WHERE version = 18"
         ).fetchone() == ("0018_capability_leases",)
@@ -135,6 +136,23 @@ def test_migration_0018_registers_schema_without_implicit_tier(
         tier_column = request_columns["required_capability_tier"]
         assert tier_column[3] == 0
         assert tier_column[4] is None
+
+        assert connection.execute(
+            "SELECT name FROM schema_migrations WHERE version = 19"
+        ).fetchone() == (
+            "0019_route_decision_capability_tier",
+        )
+        route_columns = {
+            row[1]: row
+            for row in connection.execute(
+                "PRAGMA table_info(route_decisions)"
+            ).fetchall()
+        }
+        route_tier_column = route_columns[
+            "required_capability_tier"
+        ]
+        assert route_tier_column[3] == 0
+        assert route_tier_column[4] is None
 
         foreign_keys = {
             (row[3], row[2], row[4])

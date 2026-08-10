@@ -31,6 +31,7 @@ from peerhub.dispatch.contract import (
     ProtocolAssessment,
     RequestState,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.model import (
     admit_request,
     canonical_payload_digest,
@@ -102,6 +103,7 @@ class TestPhase0DpCjCompatibility(unittest.TestCase):
                 lease_id="lease-01",
                 policy_revision=7,
                 configuration_revision=11,
+                required_capability_tier=CapabilityTier.READ_ONLY,
                 selected_peer_instance_id="instance-01",
                 selected_profile_id="profile-01",
                 route_decision_digest=hashlib.sha256(
@@ -291,6 +293,7 @@ class TestPhase0DpCjCompatibility(unittest.TestCase):
             lease_id="lease-dp02",
             policy_revision=7,
             configuration_revision=11,
+            required_capability_tier=CapabilityTier.READ_ONLY,
             selected_peer_instance_id="instance-01",
             selected_profile_id="profile-01",
             route_decision_digest=hashlib.sha256(

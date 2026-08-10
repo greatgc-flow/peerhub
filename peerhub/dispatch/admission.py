@@ -15,6 +15,7 @@ from .contract import (
     SessionBindingKey,
     ValidatedSubmission,
 )
+from .capability import CapabilityTier
 from .helpers import (
     dispatch_event,
     raise_request_cas,
@@ -240,6 +241,7 @@ class AdmissionCoordinator:
         completion_contract: CompletionContract,
         policy_revision: RevisionValue,
         configuration_revision: RevisionValue,
+        required_capability_tier: CapabilityTier,
         selected_peer_instance_id: str,
         selected_profile_id: str,
         route_decision_digest: str,
@@ -274,6 +276,15 @@ class AdmissionCoordinator:
                 created_at=admitted_at,
             )
             if existing is not None:
+                if (
+                    existing[0].required_capability_tier
+                    is not required_capability_tier
+                ):
+                    raise IdempotencyPayloadMismatchError(
+                        envelope.client_id,
+                        envelope.method,
+                        envelope.idempotency_key or "",
+                    )
                 aliases_added = False
                 if missing_client_binding is not None:
                     unit.add_client_request_binding(missing_client_binding)
@@ -308,6 +319,7 @@ class AdmissionCoordinator:
                 lease_id=lease_id,
                 policy_revision=policy_revision,
                 configuration_revision=configuration_revision,
+                required_capability_tier=required_capability_tier,
                 selected_peer_instance_id=selected_peer_instance_id,
                 selected_profile_id=selected_profile_id,
                 route_decision_digest=route_decision_digest,

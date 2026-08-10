@@ -46,6 +46,7 @@ from .contract import (
     SessionBindingSnapshot,
     SessionResumeRequest,
 )
+from .capability import CapabilityTier
 from .process import (
     InterruptedAttemptRecoveryOutcome,
     TerminalClassification,
@@ -229,6 +230,7 @@ class DispatchService:
         completion_contract: CompletionContract,
         policy_revision: RevisionValue,
         configuration_revision: RevisionValue,
+        required_capability_tier: CapabilityTier,
         selected_peer_instance_id: str,
         selected_profile_id: str,
         route_decision_digest: str,
@@ -247,6 +249,7 @@ class DispatchService:
             completion_contract=completion_contract,
             policy_revision=policy_revision,
             configuration_revision=configuration_revision,
+            required_capability_tier=required_capability_tier,
             selected_peer_instance_id=selected_peer_instance_id,
             selected_profile_id=selected_profile_id,
             route_decision_digest=route_decision_digest,

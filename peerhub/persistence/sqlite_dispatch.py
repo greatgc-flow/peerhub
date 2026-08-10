@@ -80,6 +80,21 @@ def _completion_contract_from_raw(
     )
 
 
+def _required_capability_tier_from_stored(
+    raw: object,
+) -> CapabilityTier:
+    if not isinstance(raw, str):
+        raise RuntimeError(
+            "stored request is missing required_capability_tier"
+        )
+    try:
+        return CapabilityTier[raw]
+    except KeyError as exc:
+        raise RuntimeError(
+            "stored request required_capability_tier is invalid"
+        ) from exc
+
+
 def _ask_result_data(result: AskResult) -> Mapping[str, object]:
     return {
         "execution": {
@@ -556,6 +571,7 @@ class SqliteDispatchRepository:
                 policy_revision_json,
                 configuration_revision_json,
                 completion_contract_json,
+                required_capability_tier,
                 selected_peer_instance_id,
                 selected_profile_id,
                 route_decision_digest,
@@ -567,7 +583,7 @@ class SqliteDispatchRepository:
                 terminal_error_code
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             self._request_values(request),
@@ -1296,6 +1312,7 @@ class SqliteDispatchRepository:
                     request.completion_contract
                 )
             ),
+            request.required_capability_tier.name,
             request.selected_peer_instance_id,
             request.selected_profile_id,
             request.route_decision_digest,
@@ -1350,6 +1367,11 @@ class SqliteDispatchRepository:
             completion_contract=(
                 _completion_contract_from_raw(
                     row["completion_contract_json"]
+                )
+            ),
+            required_capability_tier=(
+                _required_capability_tier_from_stored(
+                    row["required_capability_tier"]
                 )
             ),
             selected_peer_instance_id=row[

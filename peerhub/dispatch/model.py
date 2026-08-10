@@ -32,6 +32,7 @@ from peerhub.core.protocol import (
     RevisionValue,
     canonical_json_bytes,
 )
+from .capability import CapabilityTier
 
 from .contract import (
     AdmissionReceipt,
@@ -171,6 +172,7 @@ def admit_request(
     lease_id: str,
     policy_revision: RevisionValue,
     configuration_revision: RevisionValue,
+    required_capability_tier: CapabilityTier,
     selected_peer_instance_id: str,
     selected_profile_id: str,
     route_decision_digest: str,
@@ -215,6 +217,7 @@ def admit_request(
         policy_revision=policy_revision,
         configuration_revision=configuration_revision,
         completion_contract=submission.completion_contract,
+        required_capability_tier=required_capability_tier,
         selected_peer_instance_id=selected_peer_instance_id,
         selected_profile_id=selected_profile_id,
         route_decision_digest=route_decision_digest,

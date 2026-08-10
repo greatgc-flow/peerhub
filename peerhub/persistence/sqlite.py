@@ -288,6 +288,14 @@ class SqliteStateStore:
                     )
                 )
 
+            versions = self._migration_versions(connection)
+            if 19 not in versions:
+                connection.executescript(
+                    self._migration_text(
+                        "0019_route_decision_capability_tier.sql"
+                    )
+                )
+
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
             ).fetchall()

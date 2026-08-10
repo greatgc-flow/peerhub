@@ -4,6 +4,7 @@ import time
 
 from peerhub.application.direct_ask import execute_direct_ask, DirectAskRequest, DirectAskResult
 from peerhub.core.execution import TransportLimits
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import RequestState
 from peerhub.core.context import Clock, IdSource
 
@@ -41,6 +42,7 @@ def test_execute_direct_ask_real_agy(tmp_path: Path, clock: Clock, ids: IdSource
         workspace_root=tmp_path,
         peer_name="ag",
         prompt="say hello in two words",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         profile_id="ag.standard",
         limits=TransportLimits(
             process_timeout_ms=60000,
@@ -63,6 +65,7 @@ def test_execute_direct_ask_unknown_peer(tmp_path: Path, clock: Clock, ids: IdSo
         workspace_root=tmp_path,
         peer_name="unknown-peer-xyz",
         prompt="say hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
         profile_id=None,
         limits=TransportLimits(
             process_timeout_ms=60000,

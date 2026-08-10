@@ -41,6 +41,7 @@ from peerhub.dispatch.contract import (
     LeaseState,
     RequestState,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import TerminalClassification
 from peerhub.dispatch.materializer import ArtifactMaterializer
 from peerhub.dispatch.service import (
@@ -155,6 +156,7 @@ def _route_request_factory(
                 digest=admission_snapshot.configuration_digest,
             ),
             admission_snapshot=admission_snapshot,
+            required_capability_tier=CapabilityTier.READ_ONLY,
             requested_capabilities=(),
             profile_constraints={},
             required_readiness_binding=None,
@@ -247,6 +249,7 @@ def _admit_and_prepare(
     adm = workflows.admit_request(
         envelope,
         route_request_factory=factory,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         authenticated_principal="actor-01",
         actor_authorized=True,
         completion_contract=contract,

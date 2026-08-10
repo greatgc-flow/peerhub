@@ -33,6 +33,7 @@ from peerhub.dispatch.contract import (
     CompletionAssessmentState,
     SessionResumeRequest,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import (
     DispatchService,
     FaultInjector,
@@ -95,7 +96,9 @@ def _setup_request_and_attempt(store: SqliteStateStore, ids: SequentialIdSource)
     cc = CompletionContract(contract_id="cc", kind=CompletionContractKind.DELIVERY_ONLY, requirements=(), replay_safe=False)
     req, _, _ = s.admit_request(
         env, authenticated_principal="ap", actor_authorized=True, completion_contract=cc,
-        policy_revision=1, configuration_revision=1, selected_peer_instance_id="i",
+        policy_revision=1, configuration_revision=1,
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        selected_peer_instance_id="i",
         selected_profile_id="p", route_decision_digest="d"*64, session_id="s",
         owner_principal_id="op", owner_instance_id="oi", authority_epoch=1, heartbeat_timeout_ms=5000,
     )
@@ -168,7 +171,9 @@ def test_reject_policy_rollback(store: SqliteStateStore, ids: SequentialIdSource
     cc = CompletionContract(contract_id="cc", kind=CompletionContractKind.DELIVERY_ONLY, requirements=(), replay_safe=False)
     req, _, _ = s0.admit_request(
         env, authenticated_principal="ap", actor_authorized=True, completion_contract=cc,
-        policy_revision=1, configuration_revision=1, selected_peer_instance_id="i",
+        policy_revision=1, configuration_revision=1,
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        selected_peer_instance_id="i",
         selected_profile_id="p", route_decision_digest="d"*64, session_id="s",
         owner_principal_id="op", owner_instance_id="oi", authority_epoch=1, heartbeat_timeout_ms=5000,
     )

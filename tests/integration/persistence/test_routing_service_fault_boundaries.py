@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.health.contract import (
     AdmissionSnapshot,
     AdmissionSnapshotEntry,
@@ -141,6 +142,7 @@ def _request(snapshot: AdmissionSnapshot) -> RouteRequest:
             digest="c" * 64,
         ),
         admission_snapshot=snapshot,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         required_readiness_binding=None,
@@ -257,6 +259,7 @@ def test_replan_write_boundary_rolls_back_new_decision_only(
             digest="c" * 64,
         ),
         admission_snapshot=drifted_snapshot,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         requested_capabilities=(),
         profile_constraints={},
         required_readiness_binding=None,

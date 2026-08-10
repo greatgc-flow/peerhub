@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from peerhub.core.errors import (
 )
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
 from peerhub.core.protocol import ErrorCode
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.health.contract import (
     AdmissionSnapshot,
     AdmissionSnapshotEntry,
@@ -23,6 +25,7 @@ from peerhub.health.contract import (
 )
 from peerhub.persistence.sqlite import SqliteStateStore
 from peerhub.routing.contract import (
+    canonical_route_decision_digest,
     ConfigurationSnapshot,
     RouteCandidateInput,
     RouteRequest,
@@ -146,6 +149,7 @@ def _request(
     candidates: tuple[RouteCandidateInput, ...],
     client_request_id: str = "client-request-01",
     configuration_revision: int = 11,
+    required_capability_tier: CapabilityTier = CapabilityTier.READ_ONLY,
     admission_snapshot: AdmissionSnapshot | None = None,
 ) -> RouteRequest:
     return RouteRequest(
@@ -161,6 +165,7 @@ def _request(
                 configuration_revision=configuration_revision
             )
         ),
+        required_capability_tier=required_capability_tier,
         requested_capabilities=(),
         profile_constraints={},
         required_readiness_binding=None,
@@ -240,6 +245,20 @@ def test_select_route_persists_a_successful_decision(
         result.decision.decision_id
     )
     assert persisted == result.decision
+    assert (
+        persisted.required_capability_tier
+        is CapabilityTier.READ_ONLY
+    )
+    assert canonical_route_decision_digest(result.decision) != (
+        canonical_route_decision_digest(
+            replace(
+                result.decision,
+                required_capability_tier=(
+                    CapabilityTier.WORKTREE_WRITE
+                ),
+            )
+        )
+    )
 
 
 def test_select_route_persists_exhaustion_when_no_eligible_candidate(

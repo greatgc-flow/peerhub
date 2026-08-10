@@ -19,6 +19,7 @@ from peerhub.dispatch.contract import (
     CompletionContractKind,
     RequestState,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import (
     DispatchService,
     FaultInjector,
@@ -111,6 +112,7 @@ def _admit(service: DispatchService):
         completion_contract=_contract(),
         policy_revision=7,
         configuration_revision=11,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="instance-fault",
         selected_profile_id="profile-fault",
         route_decision_digest="c" * 64,

@@ -21,6 +21,7 @@ from peerhub.dispatch.contract import (
     CompletionContract,
     CompletionContractKind,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import DispatchService
 from peerhub.governance.contract import OutboxEvent, OutboxState
 from peerhub.persistence.sqlite import SqliteStateStore
@@ -76,6 +77,7 @@ def _seed_attempt(store: SqliteStateStore) -> str:
         completion_contract=contract,
         policy_revision=7,
         configuration_revision=11,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="instance-01",
         selected_profile_id="profile-01",
         route_decision_digest="b" * 64,

@@ -2,6 +2,7 @@ import sqlite3
 from typing import Callable
 
 from peerhub.core.evidence import EvidenceRef
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.routing.contract import (
     ConfigurationSnapshot,
     RouteCandidateDecision,
@@ -33,11 +34,12 @@ class SqliteRoutingRepository:
                 admission_snapshot_digest,
                 routing_policy_id,
                 routing_policy_revision,
+                required_capability_tier,
                 audit_seed,
                 selection_index,
                 selected_candidate_id,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 decision.decision_id,
@@ -49,6 +51,7 @@ class SqliteRoutingRepository:
                 decision.admission_snapshot_digest,
                 decision.routing_policy_id,
                 decision.routing_policy_revision,
+                decision.required_capability_tier.name,
                 decision.audit_seed,
                 decision.selection_index,
                 decision.selected_candidate_id,
@@ -137,9 +140,29 @@ class SqliteRoutingRepository:
             admission_snapshot_digest=row["admission_snapshot_digest"],
             routing_policy_id=row["routing_policy_id"],
             routing_policy_revision=row["routing_policy_revision"],
+            required_capability_tier=(
+                _required_capability_tier_from_stored(
+                    row["required_capability_tier"]
+                )
+            ),
             candidates=candidates,
             audit_seed=row["audit_seed"],
             selection_index=row["selection_index"],
             selected_candidate_id=row["selected_candidate_id"],
             created_at=row["created_at"],
         )
+
+
+def _required_capability_tier_from_stored(
+    raw: object,
+) -> CapabilityTier:
+    if not isinstance(raw, str):
+        raise RuntimeError(
+            "stored route decision is missing required_capability_tier"
+        )
+    try:
+        return CapabilityTier[raw]
+    except KeyError as exc:
+        raise RuntimeError(
+            "stored route decision required_capability_tier is invalid"
+        ) from exc

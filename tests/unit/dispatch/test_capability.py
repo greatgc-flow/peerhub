@@ -65,6 +65,7 @@ def _binding_records() -> _BindingRecords:
         policy_revision=_POLICY_REVISION,
         configuration_revision=1,
         completion_contract=completion_contract,
+        required_capability_tier=CapabilityTier.WORKTREE_WRITE,
         selected_peer_instance_id="cx-instance-01",
         selected_profile_id="cx-profile-01",
         route_decision_digest=_ROUTE_DIGEST,
@@ -428,6 +429,19 @@ def test_rejects_authorized_tier_different_from_required_tier() -> None:
             capability_lease=replace(
                 records.capability_lease,
                 authorized_tier=CapabilityTier.GIT_MUTATE,
+            ),
+        )
+    )
+
+
+def test_rejects_required_tier_different_from_request() -> None:
+    records = _binding_records()
+    _assert_binding_violation(
+        replace(
+            records,
+            request=replace(
+                records.request,
+                required_capability_tier=CapabilityTier.GIT_MUTATE,
             ),
         )
     )

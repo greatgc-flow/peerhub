@@ -11,6 +11,7 @@ from peerhub.application.direct_ask import DirectAskResult
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import ErrorCode
 from peerhub.dispatch.contract import RequestState
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.cli import UuidSource, main
 
 
@@ -164,6 +165,8 @@ def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
                 "ask",
                 "ag",
                 "say hello",
+                "--capability-tier",
+                "WORKTREE_WRITE",
                 "--workspace",
                 str(tmp_path),
                 "--profile",
@@ -181,6 +184,7 @@ def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
     request = execute.call_args.args[0]
     assert request.peer_name == "ag"
     assert request.prompt == "say hello"
+    assert request.required_capability_tier is CapabilityTier.WORKTREE_WRITE
     assert request.workspace_root == tmp_path.resolve()
     assert request.profile_id == "ag.standard"
     assert request.limits.process_timeout_ms == 17_000
@@ -189,6 +193,13 @@ def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert captured.out == "hello from peer\n"
     assert captured.err == ""
+
+
+def test_cli_ask_requires_capability_tier() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["ask", "ag", "hello"])
+
+    assert exc_info.value.code == 2
 
 
 def test_cli_ask_unknown_peer_returns_usage_error(
@@ -206,6 +217,8 @@ def test_cli_ask_unknown_peer_returns_usage_error(
                 "ask",
                 "stranger",
                 "hello",
+                "--capability-tier",
+                "READ_ONLY",
                 "--workspace",
                 str(tmp_path),
             ]
@@ -230,6 +243,8 @@ def test_cli_ask_json_output_has_stable_shape(
                 "ask",
                 "ag",
                 "hello",
+                "--capability-tier",
+                "READ_ONLY",
                 "--workspace",
                 str(tmp_path),
                 "--json",
@@ -285,7 +300,15 @@ def test_cli_ask_maps_returned_failure_states(
         return_value=result,
     ):
         exit_code = main(
-            ["ask", "ag", "hello", "--workspace", str(tmp_path)]
+            [
+                "ask",
+                "ag",
+                "hello",
+                "--capability-tier",
+                "READ_ONLY",
+                "--workspace",
+                str(tmp_path),
+            ]
         )
 
     captured = capsys.readouterr()
@@ -303,7 +326,15 @@ def test_cli_ask_keyboard_interrupt_is_honest(
         side_effect=KeyboardInterrupt,
     ):
         exit_code = main(
-            ["ask", "ag", "hello", "--workspace", str(tmp_path)]
+            [
+                "ask",
+                "ag",
+                "hello",
+                "--capability-tier",
+                "READ_ONLY",
+                "--workspace",
+                str(tmp_path),
+            ]
         )
 
     captured = capsys.readouterr()
@@ -333,6 +364,8 @@ def test_cli_ask_real_agy_end_to_end(
             "ask",
             "ag",
             "say hello in two words",
+            "--capability-tier",
+            "READ_ONLY",
             "--workspace",
             str(tmp_path),
             "--timeout-seconds",

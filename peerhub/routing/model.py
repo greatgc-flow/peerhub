@@ -205,6 +205,7 @@ def select_route(
         routing_policy_revision=(
             request.routing_policy_revision
         ),
+        required_capability_tier=request.required_capability_tier,
         candidates=candidates,
         audit_seed=(
             None

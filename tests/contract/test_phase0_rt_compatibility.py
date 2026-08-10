@@ -10,6 +10,7 @@ from peerhub.core.evidence import (
     EvidenceValue,
 )
 from peerhub.core.protocol import ErrorCode
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.routing.contract import (
     ConfigurationSnapshot,
     RouteCandidateDecision,
@@ -195,6 +196,7 @@ class TestPhase0RtCompatibility(unittest.TestCase):
             admission_snapshot_digest="b" * 64,
             routing_policy_id="equal-weight-r1",
             routing_policy_revision=1,
+            required_capability_tier=CapabilityTier.READ_ONLY,
             candidates=(candidate,),
             audit_seed="c" * 64,
             selection_index=0,

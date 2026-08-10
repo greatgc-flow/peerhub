@@ -36,6 +36,7 @@ from peerhub.dispatch.contract import (
     ProtocolAssessment,
     RequestState,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.model import (
     record_dispatch_intent as reduce_dispatch_intent,
 )
@@ -105,6 +106,7 @@ def _admit(service: DispatchService):
         completion_contract=_contract(),
         policy_revision=7,
         configuration_revision=11,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="instance-01",
         selected_profile_id="profile-01",
         route_decision_digest="b" * 64,

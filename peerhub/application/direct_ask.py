@@ -9,6 +9,7 @@ from peerhub.application.bootstrap import build_direct_ask_admission_config
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
 from peerhub.core.protocol import ErrorCode
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import (
     CommandEnvelope,
     CompletionContract,
@@ -32,6 +33,7 @@ class DirectAskRequest:
     workspace_root: Path
     peer_name: str
     prompt: str
+    required_capability_tier: CapabilityTier
     profile_id: str | None
     limits: TransportLimits
 
@@ -57,6 +59,7 @@ class _DirectAskRouteRequestFactory:
         client_request_id: str,
         policy_id: str,
         policy_revision: int,
+        required_capability_tier: CapabilityTier,
     ) -> None:
         self.target = target
         self.clock = clock
@@ -64,6 +67,7 @@ class _DirectAskRouteRequestFactory:
         self.client_request_id = client_request_id
         self.policy_id = policy_id
         self.policy_revision = policy_revision
+        self.required_capability_tier = required_capability_tier
 
     def __call__(self, admission_snapshot: AdmissionSnapshot, /) -> RouteRequest:
         now = self.clock.now()
@@ -111,6 +115,7 @@ class _DirectAskRouteRequestFactory:
             client_request_id=self.client_request_id,
             configuration=configuration,
             admission_snapshot=admission_snapshot,
+            required_capability_tier=self.required_capability_tier,
             requested_capabilities=(),
             profile_constraints={},
             required_readiness_binding=None,
@@ -169,6 +174,7 @@ def execute_direct_ask(
             client_request_id=client_request_id,
             policy_id=policy_id,
             policy_revision=policy_revision,
+            required_capability_tier=request.required_capability_tier,
         )
 
         envelope = CommandEnvelope(
@@ -181,7 +187,11 @@ def execute_direct_ask(
             actor_id="cli-direct-ask",
             scope={"workspace_root": str(request.workspace_root)},
             method="peer.ask",
-            params={},
+            params={
+                "required_capability_tier": (
+                    request.required_capability_tier.name
+                )
+            },
             idempotency_key=ids.new_id("idemp"),
             expected_policy_revision=policy_revision,
             expected_configuration_revision=1,
@@ -198,6 +208,7 @@ def execute_direct_ask(
         admission_result = runtime.application_workflows.admit_request(
             envelope,
             route_request_factory=route_request_factory,
+            required_capability_tier=request.required_capability_tier,
             authenticated_principal="cli-user",
             actor_authorized=True,
             completion_contract=completion_contract,

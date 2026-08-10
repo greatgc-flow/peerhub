@@ -25,6 +25,7 @@ from peerhub.application.direct_ask import (
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
 from peerhub.dispatch.contract import RequestState
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.runtime import create_runtime
 
 class SystemClock(Clock):
@@ -109,6 +110,9 @@ def _run_ask(parsed: argparse.Namespace) -> int:
             workspace_root=Path(parsed.workspace).resolve(),
             peer_name=parsed.peer,
             prompt=parsed.prompt,
+            required_capability_tier=CapabilityTier[
+                parsed.capability_tier
+            ],
             profile_id=parsed.profile,
             limits=TransportLimits(
                 process_timeout_ms=parsed.timeout_seconds * 1000,
@@ -184,6 +188,12 @@ def main(args: list[str] | None = None) -> int:
         help="Peer name (ag/agy, cc/claude, cx/codex)",
     )
     ask_parser.add_argument("prompt", help="Prompt text to send")
+    ask_parser.add_argument(
+        "--capability-tier",
+        required=True,
+        choices=tuple(tier.name for tier in CapabilityTier),
+        help="Required downstream capability tier",
+    )
     ask_parser.add_argument(
         "--workspace",
         default=".",

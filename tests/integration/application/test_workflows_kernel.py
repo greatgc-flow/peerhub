@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from peerhub.application.api import ApplicationAPI
 from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
@@ -22,6 +24,8 @@ from peerhub.dispatch.contract import (
     CompletionContractKind,
     RequestState,
 )
+from peerhub.core.ports import RequestContext
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import DispatchService
 from peerhub.health.contract import (
     AdmissionSnapshot,
@@ -139,6 +143,7 @@ def _route_request_factory(
     *,
     client_request_id: str,
     configuration_revision: int,
+    required_capability_tier: CapabilityTier = CapabilityTier.READ_ONLY,
     eligible: bool = True,
 ):
     def factory(
@@ -151,6 +156,7 @@ def _route_request_factory(
                 digest=admission_snapshot.configuration_digest,
             ),
             admission_snapshot=admission_snapshot,
+            required_capability_tier=required_capability_tier,
             requested_capabilities=(),
             profile_constraints={},
             required_readiness_binding=None,
@@ -266,6 +272,7 @@ def _seed_health(store: SqliteStateStore) -> None:
 
 def _admission_kwargs() -> dict:
     return dict(
+        required_capability_tier=CapabilityTier.READ_ONLY,
         authenticated_principal="principal-01",
         actor_authorized=True,
         completion_contract=_completion_contract(),
@@ -306,6 +313,86 @@ def test_admit_request_projects_freezes_routes_and_admits(
     assert request.selected_peer_instance_id == "ag"
     assert request.selected_profile_id == "ag.deepthink"
     assert request.state is RequestState.ADMITTED
+
+
+def test_application_api_persists_required_capability_tier(
+    store: SqliteStateStore,
+) -> None:
+    _seed_health(store)
+    workflows = _workflows(store)
+
+    class AdmissionProvider:
+        def resolve(self, command, caller):
+            return SimpleNamespace(
+                route_request_factory=_route_request_factory(
+                    client_request_id=(
+                        command.submission.client_request_id
+                    ),
+                    configuration_revision=11,
+                    required_capability_tier=(
+                        command.required_capability_tier
+                    ),
+                ),
+                dispatch_policy_revision=7,
+                session_id="session-api-capability",
+                owner_principal_id=caller.principal,
+                owner_instance_id="ag",
+                authority_epoch=3,
+                heartbeat_timeout_ms=5_000,
+                owner_peer_id="peer-01",
+            )
+
+    api = ApplicationAPI(
+        workflows=workflows,
+        dispatch=workflows._dispatch,  # pyright: ignore[reportPrivateUsage]
+        admission_provider=AdmissionProvider(),
+    )
+    envelope = CommandEnvelope(
+        protocol_major=PROTOCOL_MAJOR,
+        protocol_minor=PROTOCOL_MINOR,
+        schema_version=SCHEMA_VERSION,
+        client_request_id="client-request-api-capability",
+        correlation_id="correlation-api-capability",
+        client_id="client-api-capability",
+        actor_id="actor-api-capability",
+        scope={"workspace_id": "workspace-01"},
+        method="dispatch.admit",
+        params={
+            "prompt": "write through the API",
+            "required_capability_tier": "GIT_MUTATE",
+            "requested_capabilities": [],
+            "profile_constraints": {},
+            "completion_contract": {
+                "kind": "DELIVERY_ONLY",
+                "requirements": [],
+                "replay_safe": False,
+            },
+            "session_policy": {},
+        },
+        idempotency_key="idempotency-api-capability",
+        expected_policy_revision=7,
+        expected_configuration_revision=11,
+        client_timestamp=10,
+    )
+
+    outcome = api.submit(
+        envelope,
+        caller=RequestContext(
+            principal="principal-api-capability",
+            client_id="client-api-capability",
+        ),
+    )
+
+    assert outcome.ok
+    assert outcome.command_id is not None
+    stored = workflows._dispatch.get_request(  # pyright: ignore[reportPrivateUsage]
+        outcome.command_id
+    )
+    assert stored is not None
+    assert (
+        stored.required_capability_tier
+        is CapabilityTier.GIT_MUTATE
+    )
 
 
 def test_admit_request_is_idempotent_on_retry(

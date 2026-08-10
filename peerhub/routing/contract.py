@@ -16,6 +16,7 @@ from peerhub.core.protocol import (
     require_text,
 )
 from peerhub.health.contract import AdmissionSnapshot
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.telemetry.contract import UsageEvidence
 
 
@@ -170,6 +171,7 @@ class RouteRequest:
     client_request_id: str
     configuration: ConfigurationSnapshot
     admission_snapshot: AdmissionSnapshot
+    required_capability_tier: CapabilityTier
     requested_capabilities: tuple[str, ...]
     profile_constraints: Mapping[str, JsonValue]
     required_readiness_binding: str | None
@@ -215,6 +217,14 @@ class RouteRequest:
             raise ValueError(
                 "admission_snapshot configuration digest "
                 "must match configuration digest"
+            )
+
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.required_capability_tier,
+            CapabilityTier,
+        ):
+            raise ValueError(
+                "required_capability_tier must be CapabilityTier"
             )
 
         object.__setattr__(
@@ -405,6 +415,7 @@ class RouteDecision:
     admission_snapshot_digest: str
     routing_policy_id: str
     routing_policy_revision: int
+    required_capability_tier: CapabilityTier
     candidates: tuple[RouteCandidateDecision, ...]
     audit_seed: str | None
     selection_index: int | None
@@ -447,6 +458,13 @@ class RouteDecision:
             self.routing_policy_revision,
             "routing_policy_revision",
         )
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.required_capability_tier,
+            CapabilityTier,
+        ):
+            raise ValueError(
+                "required_capability_tier must be CapabilityTier"
+            )
 
         candidates = tuple(self.candidates)
         ids = [
@@ -542,6 +560,9 @@ def canonical_route_decision_digest(
             "policy_id": decision.routing_policy_id,
             "revision": decision.routing_policy_revision,
         },
+        "required_capability_tier": (
+            decision.required_capability_tier.name
+        ),
         "candidates": [
             {
                 "candidate_id": candidate.candidate_id,

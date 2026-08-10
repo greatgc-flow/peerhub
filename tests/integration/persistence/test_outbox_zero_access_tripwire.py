@@ -24,6 +24,7 @@ from peerhub.dispatch.contract import (
     OutboxCheckpoint,
     RequestState,
 )
+from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import DispatchService
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.contract import (
@@ -181,6 +182,7 @@ def test_zero_access_tripwire_across_full_governance_and_dispatch_pipeline(
         completion_contract=contract,
         policy_revision=7,
         configuration_revision=11,
+        required_capability_tier=CapabilityTier.READ_ONLY,
         selected_peer_instance_id="instance-01",
         selected_profile_id="profile-01",
         route_decision_digest="a" * 64,
