@@ -50,23 +50,30 @@ see `project_step_ef_ratified_2026_08_10.md` and this session's history
 for the scoping conversation itself.
 
 ### Read/write UnitOfWork split
-Status: in progress. Every read used to open a write transaction via
-`BEGIN IMMEDIATE`; migrating to an additive `ReadUnitOfWork`
-(`PRAGMA query_only=ON` + deferred `BEGIN`) one call site at a time.
-13 total call sites identified (ag's local audit corrected cx's initial
-remote-mirror-derived count of 10):
-- **Done**: `DispatchService.count_active_leases` (PH-UOW-READ-01,
-  commit `7bad9ff`); `GovernanceBroker.get_target`/`get_outbox_event`/
-  `get_effect_receipt`/`recover_pending_effects` (PH-UOW-READ-02, commit
-  `99bbce0`).
-- **Remaining (8)**: Dispatch -- `get_lease`, `get_request_and_attempt`,
-  `get_request` (service.py); `SessionLeaseService.check_lease_fence`
-  (session_lease.py). Routing -- `get_route_decision` (routing/service.py).
-  Telemetry -- `get`, `project_pending` (telemetry/projections.py).
-  Health -- `freeze_admission_snapshot` (health/service.py). Each is a
-  small, independently-verifiable increment following PH-UOW-READ-01/02's
-  pattern -- migrate a domain's read methods + protocol + tests in one
-  commit, same as the two already done.
+Status: **DONE.** Every read used to open a write transaction via
+`BEGIN IMMEDIATE`; migrated to an additive `ReadUnitOfWork`
+(`PRAGMA query_only=ON` + deferred `BEGIN`), one small commit per domain:
+- PH-UOW-READ-01 (`7bad9ff`): `DispatchService.count_active_leases`.
+- PH-UOW-READ-02 (`99bbce0`): `GovernanceBroker.get_target`/
+  `get_outbox_event`/`get_effect_receipt`/`recover_pending_effects`.
+- PH-UOW-READ-03 (`d38e113`): `DispatchService.get_lease`/
+  `get_request_and_attempt`/`get_request`;
+  `SessionLeaseCoordinator.check_lease_fence`.
+- PH-UOW-READ-04 (`d2eeef8`): `RoutingService.get_route_decision`;
+  `OperationalProjectionService.get` + `project_pending`'s read-only
+  fetch phase (its `_project_one()` write stays a write UoW by design).
+
+**Scope correction found during PH-UOW-READ-04**: the original 13-site
+audit miscategorized `HealthService.freeze_admission_snapshot` as
+read-only. It's actually an atomic read+write transaction (reads policy/
+projections, inserts an admission snapshot, commits together) that an
+existing rollback test (`test_health_service_fault_boundaries.py:453`)
+requires stay atomic. cx caught this before editing and correctly left
+it as a write UoW rather than forcing the wrong migration. Final tally:
+**12 read-only call sites migrated, 1 correctly retained as write.**
+
+Every commit independently re-verified by cc (pyright + full pytest),
+not just accepted on the implementing peer's self-report.
 
 ### Bespoke migration runner → Alembic full cutover
 Status: not started, but timing resolved. Both cx and ag independently
