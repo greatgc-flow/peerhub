@@ -82,24 +82,51 @@ now-corrected guidance (Alembic explicitly frozen/unsupported until this
 lands, see that file).
 
 ### Capability-lease design implementation
-Status: re-ratification done, implementation not started, one review
-round still pending. `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md`
-was found materially drifted (direct_ask.py bypasses
-`CommandDescriptor.mutability`, the real spawn boundary is
-`dispatch_and_execute()`'s `PipeRunnerConfig`/`run_process()`, no honest
-answer existed for peers like `ag` that can't be technically confined).
+Status: **HOLD -- not authorized for implementation.** Two design passes
+so far: `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md` (original) →
 `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md` (commit
-`d7017e9`) resolves the anchor (`CapabilityLease` as a required
-`dispatch_and_execute()` parameter), the pre-spawn enforcement gate
-location, and a new 3-level `EnforcementLevel` model
-(ADVISORY/ENFORCED/CONFINED) that answers the ag-confinement gap
-honestly instead of papering over it. **Still needs**: cx's final
-cross-check on this errata (cx raised the original drift concern, ag.opus
-wrote the resolution -- close the dialectical loop before authorizing
-implementation). This is the mutation-authorization mechanism hub.py's
+`d7017e9`, ag.opus's re-ratification resolving the anchor point,
+enforcement gate location, and a 3-level EnforcementLevel model) → cx's
+final cross-check (2026-08-10) found the errata itself has 4 concrete,
+code-verified gaps and issued a HOLD, not approval:
+1. The proposed `AdmissionCoordinator` defense-in-depth hook
+   (`_load_admission()`, admission.py:150) is only reachable via
+   `_find_idempotent_admission()`'s replay path -- it does NOT execute
+   on fresh admission, the normal direct-ask case. Verified directly:
+   the early return at admission.py:139 exits before `_load_admission`
+   is ever called when no prior binding exists.
+2. **"A required argument is not authorization."** The errata's
+   `CapabilityLease` parameter has no binding to `command_id`, principal,
+   adapter/profile, workspace, authority epoch, or admission receipt --
+   a caller could construct `REMOTE_MUTATE + ADVISORY` and satisfy the
+   type signature with no real constraint enforced.
+3. There is no authoritative "requested capability" data reaching the
+   gate to check the lease against -- `direct_ask.py:114` sets
+   `requested_capabilities=()` (verified), and `CommandDescriptor.
+   mutability` belongs to a separate path that never reaches
+   `dispatch_and_execute()`.
+4. `ADVISORY` (proposed for `ag`, which lacks enforceable confinement)
+   is audit-only and permits dispatch after a violation -- it doesn't
+   resolve the original ag-enforceability concern, just relabels it. cx's
+   proposed correction: mutating `ag` dispatches must fail closed
+   (blocked, not merely logged) until `CONFINED` actually exists.
+
+Both load-bearing claims (1 and 3) were independently spot-verified in
+the actual code before accepting this verdict, not just taken on faith.
+Migrations 0016/0017 confirmed to introduce no incompatibility (no
+capability-lease code references either legacy table).
+
+**Next step**: either a corrective design pass addressing all 4 points
+(authoritative issuance + durable admission binding, validation on both
+fresh admission AND replay, a structured capability-tier field reaching
+the gate, and a fail-closed enforcement floor for unconfined peers), or a
+counter-response from ag.opus if it disagrees with cx's verdict -- not
+yet obtained (`ag`'s EXH was at/over ceiling on both pools when this
+verdict landed). Do not authorize implementation on the errata as
+currently written. This is the mutation-authorization mechanism hub.py's
 own preflight system was found to NOT actually enforce (see
 `project_mutation_lease_design_2026_08_08.md`); peerhub should not repeat
-that gap.
+that gap -- which is exactly what cx's verdict is protecting against.
 
 ### Known-open, not part of Phase 2 itself
 2 pre-existing test failures (`test_client_never_imports_persistence`,
