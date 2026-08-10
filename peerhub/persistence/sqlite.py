@@ -537,6 +537,13 @@ class SqliteReadUnitOfWork:
         """Return one session binding by key."""
         return self.dispatch.get_session_binding(key)
 
+    def get_admission_receipt(
+        self,
+        admission_receipt_id: str,
+    ) -> AdmissionReceipt | None:
+        """Return an admission receipt by ID."""
+        return self.dispatch.get_admission_receipt(admission_receipt_id)
+
     def get_capability_lease(
         self,
         capability_lease_id: str,

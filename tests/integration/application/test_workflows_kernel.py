@@ -25,7 +25,15 @@ from peerhub.dispatch.contract import (
     RequestState,
 )
 from peerhub.core.ports import RequestContext
-from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.capability import (
+    CapabilityTier,
+    EnforcementLevel,
+    PeerEnforcementEvidence,
+    PeerEnforcementEvidenceProvider,
+)
+from peerhub.dispatch.capability_policy import (
+    StaticPeerEnforcementEvidenceProvider,
+)
 from peerhub.dispatch.service import DispatchService
 from peerhub.health.contract import (
     AdmissionSnapshot,
@@ -211,6 +219,7 @@ def _workflows(
     health_ids: SequentialIdSource | None = None,
     routing_ids: SequentialIdSource | None = None,
     dispatch_ids: SequentialIdSource | None = None,
+    enforcement_evidence: PeerEnforcementEvidenceProvider | None = None,
 ) -> ApplicationWorkflows:
     telemetry = TelemetryProjector(
         store,
@@ -236,6 +245,7 @@ def _workflows(
         store,
         clock=DeterministicClock(start=start),
         ids=dispatch_ids if dispatch_ids is not None else SequentialIdSource(),
+        enforcement_evidence=enforcement_evidence,
     )
     return ApplicationWorkflows(
         telemetry=telemetry,
@@ -309,7 +319,7 @@ def test_admit_request_projects_freezes_routes_and_admits(
     )
     assert len(result.admission_snapshot.entries) == 1
 
-    request, _, _ = result.dispatch_admission
+    request, _, _, _ = result.dispatch_admission
     assert request.selected_peer_instance_id == "ag"
     assert request.selected_profile_id == "ag.deepthink"
     assert request.state is RequestState.ADMITTED
@@ -319,7 +329,25 @@ def test_application_api_persists_required_capability_tier(
     store: SqliteStateStore,
 ) -> None:
     _seed_health(store)
-    workflows = _workflows(store)
+    # This test admits a mutating tier, which increment 4 denies unless
+    # machine-owned evidence proves the mandatory enforcement floor.  The
+    # fixture's target is a controlled fake with a declared CONFINED ceiling;
+    # it deliberately does NOT claim that the real "ag" peer is confined
+    # (DIR-002 records the opposite), which is why the peer kind here is
+    # "fake" rather than "ag".
+    workflows = _workflows(
+        store,
+        enforcement_evidence=StaticPeerEnforcementEvidenceProvider(
+            {
+                "ag": PeerEnforcementEvidence(
+                    peer_instance_id="ag",
+                    peer_kind="fake",
+                    enforcement_ceiling=EnforcementLevel.CONFINED,
+                    source_tag="controlled_fake",
+                )
+            }
+        ),
+    )
 
     class AdmissionProvider:
         def resolve(self, command, caller):
@@ -468,7 +496,7 @@ def test_prepare_for_dispatch_permits_with_no_drift(
         ),
         **_admission_kwargs(),
     )
-    request, _, _ = admission.dispatch_admission
+    request, _, _, _ = admission.dispatch_admission
 
     outcome = workflows.prepare_for_dispatch(
         request.command_id,
@@ -504,7 +532,7 @@ def test_prepare_for_dispatch_rejects_and_replans_on_drift(
         ),
         **_admission_kwargs(),
     )
-    request, _, _ = admission.dispatch_admission
+    request, _, _, _ = admission.dispatch_admission
 
     drifted_workflows = _workflows(
         store,
@@ -550,7 +578,7 @@ def test_authorize_retry_rechecks_route_before_authorizing(
         ),
         **_admission_kwargs(),
     )
-    request, _, _ = admission.dispatch_admission
+    request, _, _, _ = admission.dispatch_admission
     dispatch = workflows._dispatch  # noqa: SLF001 - direct service access for test setup only
 
     prepared = dispatch.prepare_request(request.command_id)
@@ -600,7 +628,7 @@ def test_authorize_retry_refuses_on_drift(
         ),
         **_admission_kwargs(),
     )
-    request, _, _ = admission.dispatch_admission
+    request, _, _, _ = admission.dispatch_admission
     dispatch = workflows._dispatch  # noqa: SLF001 - direct service access for test setup only
 
     prepared = dispatch.prepare_request(request.command_id)
@@ -662,7 +690,7 @@ def test_require_bound_route_rejects_mismatched_decision(
         **_admission_kwargs(),
     )
 
-    first_request, _, _ = first.dispatch_admission
+    first_request, _, _, _ = first.dispatch_admission
 
     with pytest.raises(InvalidMutationError):
         workflows.prepare_for_dispatch(

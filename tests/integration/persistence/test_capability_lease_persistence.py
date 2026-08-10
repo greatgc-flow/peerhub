@@ -17,7 +17,12 @@ from peerhub.dispatch.capability import (
     CapabilityLease,
     CapabilityTier,
     EnforcementLevel,
+    PeerEnforcementEvidence,
 )
+from peerhub.dispatch.capability_policy import (
+    StaticPeerEnforcementEvidenceProvider,
+)
+from peerhub.dispatch.unit_of_work import FaultInjector, FaultPoint
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     CompletionContract,
@@ -29,6 +34,17 @@ from peerhub.persistence.sqlite import SqliteStateStore
 from tests.fakes import DeterministicClock, SequentialIdSource
 
 
+class _RaisingFaultInjector(FaultInjector):
+    """Raise at one exact dispatch transaction boundary."""
+
+    def __init__(self, target: str) -> None:
+        self._target = target
+
+    def hit(self, point: str) -> None:
+        if point == self._target:
+            raise RuntimeError(f"injected fault at {point}")
+
+
 def _store(database_path: Path) -> SqliteStateStore:
     store = SqliteStateStore(
         database_path,
@@ -38,13 +54,37 @@ def _store(database_path: Path) -> SqliteStateStore:
     return store
 
 
+# Increment 4 makes admission itself the authoritative issuer, and it fails
+# closed on a mutating tier whose target has no measured enforcement ceiling.
+# This fixture therefore states a measured ceiling for its own instance so the
+# WORKTREE_WRITE admission under test is authorized; it is a controlled test
+# mapping, not evidence that any real peer is enforced. source_tag is
+# "controlled_fake" (not "empirical_probe") so this fixture can never be
+# mistaken for a real DIR-004 measurement if grepped/copied later -- no real
+# peer has empirical_probe-backed enforcement evidence today.
+_MEASURED_CX_EVIDENCE = StaticPeerEnforcementEvidenceProvider(
+    {
+        "cx-instance-capability": PeerEnforcementEvidence(
+            peer_instance_id="cx-instance-capability",
+            peer_kind="cx",
+            enforcement_ceiling=EnforcementLevel.ENFORCED,
+            source_tag="controlled_fake",
+        )
+    }
+)
+
+
 def _admit(
     store: SqliteStateStore,
-) -> tuple[RequestSnapshot, AdmissionReceipt]:
+    *,
+    fault_injector: FaultInjector | None = None,
+) -> tuple[RequestSnapshot, AdmissionReceipt, CapabilityLease]:
     service = DispatchService(
         store,
         clock=DeterministicClock(start=100),
         ids=SequentialIdSource(),
+        fault_injector=fault_injector,
+        enforcement_evidence=_MEASURED_CX_EVIDENCE,
     )
     envelope = CommandEnvelope(
         protocol_major=PROTOCOL_MAJOR,
@@ -62,7 +102,7 @@ def _admit(
         expected_configuration_revision=11,
         client_timestamp=10,
     )
-    request, receipt, _ = service.admit_request(
+    request, receipt, _, capability_lease = service.admit_request(
         envelope,
         authenticated_principal="principal-capability",
         actor_authorized=True,
@@ -85,31 +125,7 @@ def _admit(
         heartbeat_timeout_ms=5_000,
         owner_peer_id="cx",
     )
-    return request, receipt
-
-
-def _capability_lease(
-    request: RequestSnapshot,
-    receipt: AdmissionReceipt,
-) -> CapabilityLease:
-    return CapabilityLease(
-        capability_lease_id="capability-lease-01",
-        command_id=request.command_id,
-        admission_receipt_id=receipt.admission_receipt_id,
-        session_lease_id=request.lease_id,
-        subject_principal_id=request.authenticated_principal,
-        selected_peer_kind="cx",
-        required_tier=CapabilityTier.WORKTREE_WRITE,
-        authorized_tier=CapabilityTier.WORKTREE_WRITE,
-        minimum_enforcement=EnforcementLevel.ENFORCED,
-        selected_peer_instance_id=request.selected_peer_instance_id,
-        selected_profile_id=request.selected_profile_id,
-        route_decision_digest=request.route_decision_digest,
-        policy_revision=request.policy_revision,
-        issuer_id="capability-policy-r1",
-        issued_at=receipt.admitted_at,
-        expires_at=receipt.admitted_at + 10_000,
-    )
+    return request, receipt, capability_lease
 
 
 def test_migrations_register_capability_tiers_without_implicit_grants(
@@ -196,25 +212,31 @@ def test_migrations_register_capability_tiers_without_implicit_grants(
 def test_capability_lease_write_rolls_back_on_fault_before_commit(
     tmp_path: Path,
 ) -> None:
-    store = _store(tmp_path / "capability-rollback.sqlite3")
-    request, receipt = _admit(store)
-    lease = _capability_lease(request, receipt)
+    """A fault after the lease write leaves none of the four records durable.
 
-    with pytest.raises(RuntimeError, match="fault before commit"):
-        with store.unit_of_work() as unit:
-            unit.add_capability_lease(lease)
-            raise RuntimeError("fault before commit")
+    Increment 4 writes the capability lease inside the admission transaction,
+    so rollback is now exercised through admission rather than a hand-inserted
+    lease (errata 7.1 point 7).
+    """
+
+    store = _store(tmp_path / "capability-rollback.sqlite3")
+
+    with pytest.raises(RuntimeError, match="AFTER_CAPABILITY_LEASE_WRITE"):
+        _admit(
+            store,
+            fault_injector=_RaisingFaultInjector(
+                FaultPoint.AFTER_CAPABILITY_LEASE_WRITE
+            ),
+        )
 
     with store.read_unit_of_work() as unit:
         assert unit.get_capability_lease(
-            lease.capability_lease_id
+            "capability-lease-1"
         ) is None
         assert unit.get_capability_lease_by_command_id(
-            request.command_id
+            "command-1"
         ) is None
-        assert unit.get_capability_lease_by_admission_receipt_id(
-            receipt.admission_receipt_id
-        ) is None
+        assert unit.get_request("command-1") is None
 
 
 def test_capability_lease_replay_returns_identical_durable_record(
@@ -222,12 +244,7 @@ def test_capability_lease_replay_returns_identical_durable_record(
 ) -> None:
     database_path = tmp_path / "capability-replay.sqlite3"
     store = _store(database_path)
-    request, receipt = _admit(store)
-    lease = _capability_lease(request, receipt)
-
-    with store.unit_of_work() as unit:
-        unit.add_capability_lease(lease)
-        unit.commit()
+    request, receipt, lease = _admit(store)
 
     store.close()
     replay_store = _store(database_path)

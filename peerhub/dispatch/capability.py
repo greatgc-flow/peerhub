@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.protocol import CommandID, RevisionValue, require_text
@@ -359,13 +359,150 @@ def mandatory_enforcement_floor(
     return EnforcementLevel.ADVISORY
 
 
+@dataclass(frozen=True)
+class PeerEnforcementEvidence:
+    """Machine-owned peer identity and measured enforcement ceiling.
+
+    ``enforcement_ceiling`` is ``None`` whenever no qualifying measurement
+    exists.  Errata Section 7.4 requires unknown evidence to sort below every
+    *enforceable* floor, so ``None`` is never widened into ``ADVISORY``.
+    ``source_tag`` carries the DIR-004 provenance of the measurement, or
+    ``"absent"`` when there is none.
+    """
+
+    peer_instance_id: str
+    peer_kind: str
+    enforcement_ceiling: EnforcementLevel | None
+    source_tag: str
+
+    def __post_init__(self) -> None:
+        for name in ("peer_instance_id", "peer_kind", "source_tag"):
+            object.__setattr__(
+                self,
+                name,
+                require_text(getattr(self, name), name),
+            )
+        if self.enforcement_ceiling is not None:
+            _require_enum_member(
+                self.enforcement_ceiling,
+                EnforcementLevel,
+                "enforcement_ceiling",
+            )
+        elif self.source_tag != "absent":
+            raise ValueError(
+                "unmeasured evidence must carry the 'absent' source tag"
+            )
+
+
+def require_enforcement_floor(
+    peer_kind: str,
+    tier: CapabilityTier,
+    evidence: PeerEnforcementEvidence | None,
+) -> EnforcementLevel:
+    """Return the satisfied mandatory floor, or fail closed.
+
+    Per errata Section 7.4 the floor is code-owned.  Unknown or absent
+    evidence is insufficient for an ``ENFORCED`` or ``CONFINED`` floor and is
+    never guessed upward; a ``READ_ONLY`` dispatch whose floor is ``ADVISORY``
+    needs no enforcement measurement to proceed.
+    """
+
+    floor = mandatory_enforcement_floor(peer_kind, tier)
+    if floor is EnforcementLevel.ADVISORY:
+        return floor
+    if evidence is None or evidence.enforcement_ceiling is None:
+        raise CapabilityLeaseViolation(
+            "selected adapter has no measured enforcement evidence for the "
+            "mandatory enforcement floor"
+        )
+    if evidence.enforcement_ceiling < floor:
+        raise CapabilityLeaseViolation(
+            "selected adapter cannot meet the mandatory enforcement floor"
+        )
+    return floor
+
+
+class PeerEnforcementEvidenceProvider(Protocol):
+    """Resolve a selected instance/profile to machine-owned peer evidence."""
+
+    def resolve(
+        self,
+        *,
+        peer_instance_id: str,
+        profile_id: str,
+    ) -> PeerEnforcementEvidence:
+        """Return evidence for one selected target.
+
+        Implementations must never read peer kind or enforcement claims from
+        command payload text.
+        """
+
+        ...
+
+
+class CapabilityPolicy(Protocol):
+    """Authorize a capability grant and revalidate it over time."""
+
+    def decide(
+        self,
+        *,
+        subject_principal_id: str,
+        selected_peer_kind: str,
+        selected_peer_instance_id: str,
+        selected_profile_id: str,
+        policy_revision: RevisionValue,
+        required_tier: CapabilityTier,
+        minimum_enforcement: EnforcementLevel,
+    ) -> CapabilityGrantDecision:
+        """Return a grant decision bound to this subject and target."""
+
+        ...
+
+    def expires_at(self, issued_at: int) -> int | None:
+        """Return the expiry stamp for a lease issued at ``issued_at``."""
+
+        ...
+
+    def revalidate(
+        self,
+        binding: ValidatedCapabilityBinding,
+        *,
+        current_policy_revision: RevisionValue,
+        now: int,
+    ) -> None:
+        """Raise ``CapabilityLeaseViolation`` if the lease is no longer valid."""
+
+        ...
+
+
+@dataclass(frozen=True)
+class ValidatedCapabilityLease:
+    """Opaque dispatch-time proof; carries no independent grant authority."""
+
+    capability_lease_id: str
+    command_id: CommandID
+    subject_principal_id: str
+    selected_peer_kind: str
+    selected_peer_instance_id: str
+    selected_profile_id: str
+    authorized_tier: CapabilityTier
+    minimum_enforcement: EnforcementLevel
+    satisfied_floor: EnforcementLevel
+    revalidated_policy_revision: RevisionValue
+
+
 __all__ = [
     "CapabilityGrantDecision",
     "CapabilityLease",
     "CapabilityLeaseViolation",
+    "CapabilityPolicy",
     "CapabilityTier",
     "EnforcementLevel",
+    "PeerEnforcementEvidence",
+    "PeerEnforcementEvidenceProvider",
     "ValidatedCapabilityBinding",
+    "ValidatedCapabilityLease",
     "mandatory_enforcement_floor",
+    "require_enforcement_floor",
     "validate_capability_binding",
 ]

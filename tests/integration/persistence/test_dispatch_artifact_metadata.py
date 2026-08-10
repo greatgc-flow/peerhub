@@ -70,7 +70,7 @@ def _seed_attempt(store: SqliteStateStore) -> str:
         requirements=(),
         replay_safe=False,
     )
-    admitted, receipt, reserved = service.admit_request(
+    admitted, receipt, reserved, _capability = service.admit_request(
         envelope,
         authenticated_principal="principal-01",
         actor_authorized=True,

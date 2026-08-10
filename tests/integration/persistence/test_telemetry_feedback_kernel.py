@@ -91,6 +91,8 @@ def _service(store: SqliteStateStore) -> DispatchService:
 
 
 def _admit(service: DispatchService, envelope: CommandEnvelope):
+    # Increment 4: admit_request also returns the issued capability lease;
+    # these fixtures assert on the original three records only.
     return service.admit_request(
         envelope,
         authenticated_principal="principal-01",
@@ -108,7 +110,7 @@ def _admit(service: DispatchService, envelope: CommandEnvelope):
         authority_epoch=3,
         heartbeat_timeout_ms=5_000,
         owner_peer_id="peer-01",
-    )
+    )[:3]
 
 
 def _verified_result() -> AskResult:

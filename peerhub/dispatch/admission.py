@@ -15,7 +15,19 @@ from .contract import (
     SessionBindingKey,
     ValidatedSubmission,
 )
-from .capability import CapabilityTier
+from .capability import (
+    CapabilityLease,
+    CapabilityLeaseViolation,
+    CapabilityPolicy,
+    CapabilityTier,
+    PeerEnforcementEvidenceProvider,
+    require_enforcement_floor,
+    validate_capability_binding,
+)
+from .capability_policy import (
+    default_capability_policy,
+    default_enforcement_evidence_provider,
+)
 from .helpers import (
     dispatch_event,
     raise_request_cas,
@@ -43,14 +55,26 @@ class AdmissionCoordinator:
         clock: Clock,
         ids: IdSource,
         fault_injector: FaultInjector | None = None,
+        capability_policy: CapabilityPolicy | None = None,
+        enforcement_evidence: PeerEnforcementEvidenceProvider | None = None,
     ) -> None:
         self._store = store
         self._clock = clock
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
+        self._capability_policy: CapabilityPolicy = (
+            capability_policy
+            if capability_policy is not None
+            else default_capability_policy()
+        )
+        self._enforcement_evidence: PeerEnforcementEvidenceProvider = (
+            enforcement_evidence
+            if enforcement_evidence is not None
+            else default_enforcement_evidence_provider()
+        )
 
-    @staticmethod
     def _load_admission(
+        self,
         unit: DispatchUnitOfWork,
         *,
         command_id: CommandID,
@@ -59,6 +83,7 @@ class AdmissionCoordinator:
         RequestSnapshot,
         AdmissionReceipt,
         LeaseSnapshot,
+        CapabilityLease,
     ]:
         request = unit.get_request(command_id)
         if request is None:
@@ -78,7 +103,31 @@ class AdmissionCoordinator:
             or lease.fence.command_id != command_id
         ):
             raise RuntimeError("stored admission records are internally inconsistent")
-        return (request, receipt, lease)
+
+        # Errata 7.1/7.2: replay loads the uniquely bound lease and revalidates
+        # the same immutable binding.  It never mints or accepts a replacement,
+        # and static binding corruption is fatal rather than repairable.
+        capability_lease = unit.get_capability_lease_by_command_id(command_id)
+        if capability_lease is None:
+            raise CapabilityLeaseViolation(
+                "admitted request has no durable capability lease"
+            )
+        evidence = self._enforcement_evidence.resolve(
+            peer_instance_id=request.selected_peer_instance_id,
+            profile_id=request.selected_profile_id,
+        )
+        validate_capability_binding(
+            request,
+            receipt,
+            lease,
+            capability_lease,
+            expected_peer_kind=evidence.peer_kind,
+        )
+        if capability_lease.admission_receipt_id != admission_receipt_id:
+            raise CapabilityLeaseViolation(
+                "capability lease is bound to a different admission receipt"
+            )
+        return (request, receipt, lease, capability_lease)
 
     def _find_idempotent_admission(
         self,
@@ -91,6 +140,7 @@ class AdmissionCoordinator:
             RequestSnapshot,
             AdmissionReceipt,
             LeaseSnapshot,
+            CapabilityLease,
         ] | None,
         ClientRequestBinding | None,
         CommandIdempotencyBinding | None,
@@ -194,6 +244,7 @@ class AdmissionCoordinator:
         RequestSnapshot,
         AdmissionReceipt,
         LeaseSnapshot,
+        CapabilityLease,
     ] | None:
         require_actor_authorized(actor_authorized, authenticated_principal)
         submission = validate_submission(
@@ -255,6 +306,7 @@ class AdmissionCoordinator:
         RequestSnapshot,
         AdmissionReceipt,
         LeaseSnapshot,
+        CapabilityLease,
     ]:
         require_actor_authorized(actor_authorized, authenticated_principal)
         submission = validate_submission(
@@ -347,6 +399,13 @@ class AdmissionCoordinator:
                 occurred_at=admitted_at,
             )
 
+            capability_lease = self._issue_capability_lease(
+                request,
+                receipt,
+                lease,
+                issued_at=admitted_at,
+            )
+
             unit.add_request(request)
             self._faults.hit(FaultPoint.AFTER_REQUEST_WRITE)
 
@@ -355,6 +414,13 @@ class AdmissionCoordinator:
 
             unit.add_admission_receipt(receipt)
             self._faults.hit(FaultPoint.AFTER_ADMISSION_RECEIPT_WRITE)
+
+            # Written inside the existing admission transaction so a fault
+            # before commit leaves none of the four records durable
+            # (errata 7.1 point 7).  Ordered after its three foreign-key
+            # parents in migration 0018.
+            unit.add_capability_lease(capability_lease)
+            self._faults.hit(FaultPoint.AFTER_CAPABILITY_LEASE_WRITE)
 
             unit.add_client_request_binding(client_binding)
             self._faults.hit(FaultPoint.AFTER_CLIENT_REQUEST_BINDING_WRITE)
@@ -369,7 +435,85 @@ class AdmissionCoordinator:
             unit.commit()
 
         self._faults.hit(FaultPoint.AFTER_COMMIT)
-        return (request, receipt, lease)
+        return (request, receipt, lease, capability_lease)
+
+    def _issue_capability_lease(
+        self,
+        request: RequestSnapshot,
+        receipt: AdmissionReceipt,
+        session_lease: LeaseSnapshot,
+        *,
+        issued_at: int,
+    ) -> CapabilityLease:
+        """Authorize and mint the capability lease for a fresh admission.
+
+        Implements errata Section 7.1 points 1-6 in order: machine-owned
+        evidence resolution, the mandatory enforcement floor, the policy grant
+        decision, then a least-privilege lease.  Raises
+        ``CapabilityLeaseViolation`` before anything is written when the target
+        cannot meet the floor or the policy denies the grant.
+        """
+
+        required_tier = request.required_capability_tier
+        evidence = self._enforcement_evidence.resolve(
+            peer_instance_id=request.selected_peer_instance_id,
+            profile_id=request.selected_profile_id,
+        )
+        floor = require_enforcement_floor(
+            evidence.peer_kind,
+            required_tier,
+            evidence,
+        )
+        decision = self._capability_policy.decide(
+            subject_principal_id=request.authenticated_principal,
+            selected_peer_kind=evidence.peer_kind,
+            selected_peer_instance_id=request.selected_peer_instance_id,
+            selected_profile_id=request.selected_profile_id,
+            policy_revision=request.policy_revision,
+            required_tier=required_tier,
+            minimum_enforcement=floor,
+        )
+        if not decision.granted:
+            raise CapabilityLeaseViolation(
+                decision.denial_reason or "capability grant denied by policy"
+            )
+        minimum_enforcement = decision.minimum_enforcement
+        if minimum_enforcement is None or minimum_enforcement < floor:
+            # Policy may raise the code-owned floor but never lower it.
+            raise CapabilityLeaseViolation(
+                "policy minimum enforcement is below the mandatory floor"
+            )
+
+        capability_lease = CapabilityLease(
+            capability_lease_id=self._ids.new_id("capability-lease"),
+            command_id=request.command_id,
+            admission_receipt_id=receipt.admission_receipt_id,
+            session_lease_id=request.lease_id,
+            subject_principal_id=request.authenticated_principal,
+            selected_peer_kind=evidence.peer_kind,
+            required_tier=required_tier,
+            # Least privilege: the authorized tier is the required tier even
+            # when policy would permit more (errata 7.1 point 6).
+            authorized_tier=required_tier,
+            minimum_enforcement=minimum_enforcement,
+            selected_peer_instance_id=request.selected_peer_instance_id,
+            selected_profile_id=request.selected_profile_id,
+            route_decision_digest=request.route_decision_digest,
+            policy_revision=request.policy_revision,
+            issuer_id=decision.issuer_id,
+            issued_at=issued_at,
+            expires_at=self._capability_policy.expires_at(issued_at),
+        )
+        # Errata 7.2 point 1: validate the constructed four before the first
+        # insert, using the same validator replay and dispatch reuse.
+        validate_capability_binding(
+            request,
+            receipt,
+            session_lease,
+            capability_lease,
+            expected_peer_kind=evidence.peer_kind,
+        )
+        return capability_lease
 
     def reject_policy(
         self,

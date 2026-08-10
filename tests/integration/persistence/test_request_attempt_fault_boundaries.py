@@ -105,6 +105,8 @@ def _service(
 
 
 def _admit(service: DispatchService):
+    # Increment 4: admit_request also returns the issued capability lease;
+    # these fixtures assert on the original three records only.
     return service.admit_request(
         _envelope(),
         authenticated_principal="principal-fault",
@@ -122,7 +124,7 @@ def _admit(service: DispatchService):
         authority_epoch=9,
         heartbeat_timeout_ms=5_000,
         owner_peer_id="peer-fault",
-    )
+    )[:3]
 
 
 @pytest.mark.parametrize(

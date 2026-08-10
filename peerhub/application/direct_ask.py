@@ -223,7 +223,11 @@ def execute_direct_ask(
         if not admission_result.dispatch_admission:
             raise RuntimeError("request was not admitted")
             
-        command_id = admission_result.dispatch_admission[0].command_id
+        admitted_request = admission_result.dispatch_admission[0]
+        command_id = admitted_request.command_id
+        capability_lease_id = (
+            admission_result.dispatch_admission[3].capability_lease_id
+        )
         route = admission_result.route
         if route is None:
             raise RuntimeError("route plan was missing")
@@ -253,6 +257,9 @@ def execute_direct_ask(
         
         execution_result = runtime.application_workflows.dispatch_and_execute(
             command_id,
+            capability_lease_id=capability_lease_id,
+            peer_instance_id=admitted_request.selected_peer_instance_id,
+            current_policy_revision=1,
             materializer=materializer,
             adapter_request=adapter_request,
             peer_adapter=target.adapter,

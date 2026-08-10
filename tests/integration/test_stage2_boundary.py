@@ -91,12 +91,15 @@ def test_admit_success(runtime_setup, monkeypatch):
     lease = MagicMock()
     lease.lease_id = "lease-1"
     lease.state = LeaseState.RESERVED
-    
+
+    capability_lease = MagicMock()
+    capability_lease.capability_lease_id = "cap-lease-1"
+
     res = AdmissionWorkflowResult(
         projected_terminal_events=0,
         admission_snapshot=None,
         route=None,
-        dispatch_admission=(req, receipt, lease)
+        dispatch_admission=(req, receipt, lease, capability_lease)
     )
     mock_workflows = MagicMock()
     mock_workflows.admit_request.return_value = res

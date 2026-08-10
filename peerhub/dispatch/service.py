@@ -13,6 +13,7 @@ from collections.abc import Sequence
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.errors import InvalidMutationError
+from peerhub.adapters.contract import ProfileDescriptor
 from peerhub.core.protocol import (
     ATTEMPT_TERMINAL_OBSERVED_EVENT_KIND,
     CommandEnvelope,
@@ -20,6 +21,7 @@ from peerhub.core.protocol import (
     ErrorCode,
     OperationalFailureCategory,
     RevisionValue,
+    require_text,
 )
 from peerhub.governance.contract import OutboxEvent
 from peerhub.state.contract import StateStore
@@ -42,11 +44,25 @@ from .contract import (
     RecoveryReceipt,
     RecoveryTrigger,
     RequestSnapshot,
+    RequestState,
     SessionBindingKey,
     SessionBindingSnapshot,
     SessionResumeRequest,
 )
-from .capability import CapabilityTier
+from .capability import (
+    CapabilityLease,
+    CapabilityLeaseViolation,
+    CapabilityPolicy,
+    CapabilityTier,
+    PeerEnforcementEvidenceProvider,
+    ValidatedCapabilityLease,
+    require_enforcement_floor,
+    validate_capability_binding,
+)
+from .capability_policy import (
+    default_capability_policy,
+    default_enforcement_evidence_provider,
+)
 from .process import (
     InterruptedAttemptRecoveryOutcome,
     TerminalClassification,
@@ -148,12 +164,31 @@ class DispatchService:
         clock: Clock,
         ids: IdSource,
         fault_injector: FaultInjector | None = None,
+        capability_policy: CapabilityPolicy | None = None,
+        enforcement_evidence: PeerEnforcementEvidenceProvider | None = None,
     ) -> None:
         self._store = store
         self._clock = clock
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
-        self._admission = AdmissionCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
+        self._capability_policy: CapabilityPolicy = (
+            capability_policy
+            if capability_policy is not None
+            else default_capability_policy()
+        )
+        self._enforcement_evidence: PeerEnforcementEvidenceProvider = (
+            enforcement_evidence
+            if enforcement_evidence is not None
+            else default_enforcement_evidence_provider()
+        )
+        self._admission = AdmissionCoordinator(
+            store=store,
+            clock=clock,
+            ids=ids,
+            fault_injector=fault_injector,
+            capability_policy=self._capability_policy,
+            enforcement_evidence=self._enforcement_evidence,
+        )
         self._artifacts = ArtifactCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
         self._attempts = AttemptLifecycleCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
         self._sessions = SessionLeaseCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
@@ -212,7 +247,12 @@ class DispatchService:
         authenticated_principal: str,
         actor_authorized: bool,
         completion_contract: CompletionContract,
-    ) -> tuple[RequestSnapshot, AdmissionReceipt, LeaseSnapshot] | None:
+    ) -> tuple[
+        RequestSnapshot,
+        AdmissionReceipt,
+        LeaseSnapshot,
+        CapabilityLease,
+    ] | None:
         """Return an existing idempotent admission, if one exists."""
         return self._admission.peek_idempotent_admission(
             envelope,
@@ -240,7 +280,12 @@ class DispatchService:
         authority_epoch: int,
         heartbeat_timeout_ms: int,
         owner_peer_id: str = "",
-    ) -> tuple[RequestSnapshot, AdmissionReceipt, LeaseSnapshot]:
+    ) -> tuple[
+        RequestSnapshot,
+        AdmissionReceipt,
+        LeaseSnapshot,
+        CapabilityLease,
+    ]:
         """Atomically admit, reserve, bind identities, and emit outbox."""
         return self._admission.admit_request(
             envelope,
@@ -260,6 +305,128 @@ class DispatchService:
             heartbeat_timeout_ms=heartbeat_timeout_ms,
             owner_peer_id=owner_peer_id,
         )
+    def require_dispatch_capability(
+        self,
+        command_id: CommandID | str,
+        *,
+        capability_lease_id: str,
+        peer_instance_id: str,
+        adapter_peer_kind: str,
+        profile: ProfileDescriptor,
+        current_policy_revision: RevisionValue,
+        now: int | None = None,
+    ) -> ValidatedCapabilityLease:
+        """Authorize one dispatch immediately before planning (errata 7.2.3).
+
+        Loads the authoritative records, reuses ``validate_capability_binding``
+        and ``CapabilityPolicy.revalidate`` rather than restating their checks,
+        then adds the dispatch-time equalities: the caller-supplied lease ID
+        must match the durable one, the request must be dispatchable, the
+        selected target/profile must match the durable selection, the adapter's
+        own ``peer_kind`` must match the machine-resolved durable kind, and
+        machine-owned evidence must still prove the mandatory enforcement
+        floor.  Raises ``CapabilityLeaseViolation`` on any failure, before the
+        caller plans or spawns anything.
+
+        Enforcement evidence is resolved through the injected provider rather
+        than accepted as an argument, so no caller can hand in its own ceiling.
+        """
+
+        supplied_lease_id = require_text(capability_lease_id, "capability_lease_id")
+        supplied_instance = require_text(peer_instance_id, "peer_instance_id")
+        supplied_peer_kind = require_text(adapter_peer_kind, "adapter_peer_kind")
+        evaluated_at = self._clock.now() if now is None else now
+
+        with self._store.read_unit_of_work() as unit:
+            request = unit.get_request(command_id)
+            if request is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch references a missing request"
+                )
+            capability_lease = unit.get_capability_lease_by_command_id(
+                request.command_id
+            )
+            if capability_lease is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch references a missing capability lease"
+                )
+            receipt = unit.get_admission_receipt(
+                capability_lease.admission_receipt_id
+            )
+            if receipt is None:
+                raise CapabilityLeaseViolation(
+                    "capability lease references a missing admission receipt"
+                )
+            session_lease = unit.get_lease(request.lease_id)
+            if session_lease is None:
+                raise CapabilityLeaseViolation(
+                    "capability lease references a missing session lease"
+                )
+
+        if capability_lease.capability_lease_id != supplied_lease_id:
+            raise CapabilityLeaseViolation(
+                "supplied capability lease ID does not match the durable lease"
+            )
+        if request.state is not RequestState.PREPARED:
+            raise CapabilityLeaseViolation(
+                "request is not in a dispatchable state"
+            )
+        if request.selected_peer_instance_id != supplied_instance:
+            raise CapabilityLeaseViolation(
+                "dispatch target does not match the admitted peer instance"
+            )
+        if request.selected_profile_id != profile.profile_id:
+            raise CapabilityLeaseViolation(
+                "dispatch profile does not match the admitted profile"
+            )
+
+        evidence = self._enforcement_evidence.resolve(
+            peer_instance_id=request.selected_peer_instance_id,
+            profile_id=request.selected_profile_id,
+        )
+        if supplied_peer_kind != evidence.peer_kind:
+            raise CapabilityLeaseViolation(
+                "adapter peer kind does not match the machine-resolved kind"
+            )
+
+        binding = validate_capability_binding(
+            request,
+            receipt,
+            session_lease,
+            capability_lease,
+            expected_peer_kind=evidence.peer_kind,
+        )
+        self._capability_policy.revalidate(
+            binding,
+            current_policy_revision=current_policy_revision,
+            now=evaluated_at,
+        )
+        satisfied_floor = require_enforcement_floor(
+            evidence.peer_kind,
+            capability_lease.required_tier,
+            evidence,
+        )
+        if capability_lease.minimum_enforcement < satisfied_floor:
+            raise CapabilityLeaseViolation(
+                "capability lease minimum enforcement is below the mandatory "
+                "floor"
+            )
+
+        return ValidatedCapabilityLease(
+            capability_lease_id=capability_lease.capability_lease_id,
+            command_id=capability_lease.command_id,
+            subject_principal_id=capability_lease.subject_principal_id,
+            selected_peer_kind=capability_lease.selected_peer_kind,
+            selected_peer_instance_id=(
+                capability_lease.selected_peer_instance_id
+            ),
+            selected_profile_id=capability_lease.selected_profile_id,
+            authorized_tier=capability_lease.authorized_tier,
+            minimum_enforcement=capability_lease.minimum_enforcement,
+            satisfied_floor=satisfied_floor,
+            revalidated_policy_revision=current_policy_revision,
+        )
+
     def get_request(
         self,
         command_id: CommandID | str,

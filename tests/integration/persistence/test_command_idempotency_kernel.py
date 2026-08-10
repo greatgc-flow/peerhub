@@ -100,6 +100,8 @@ def _admit(
     *,
     actor_authorized: bool = True,
 ):
+    # Increment 4: admit_request also returns the issued capability lease;
+    # these fixtures assert on the original three records only.
     return service.admit_request(
         envelope,
         authenticated_principal="principal-01",
@@ -117,7 +119,7 @@ def _admit(
         authority_epoch=3,
         heartbeat_timeout_ms=5_000,
         owner_peer_id="peer-01",
-    )
+    )[:3]
 
 
 def test_same_digest_replay_returns_existing_admission_without_new_rows(
@@ -404,7 +406,8 @@ def test_peek_idempotent_admission_rejects_unauthorized_replay(
         actor_authorized=True,
         completion_contract=_contract(),
     )
-    assert existing == (first_request, first_receipt, first_lease)
+    assert existing is not None
+    assert existing[:3] == (first_request, first_receipt, first_lease)
 
 
 def test_peek_idempotent_admission_persists_missing_alias(
@@ -423,7 +426,8 @@ def test_peek_idempotent_admission_persists_missing_alias(
         actor_authorized=True,
         completion_contract=_contract(),
     )
-    assert peeked == (first_request, first_receipt, peeked[2])
+    assert peeked is not None
+    assert peeked[:3] == (first_request, first_receipt, peeked[2])
 
     with store.unit_of_work() as unit:
         key_alias = unit.get_command_idempotency_binding(

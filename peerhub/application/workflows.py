@@ -36,7 +36,7 @@ from peerhub.dispatch.artifacts import (
     resolve_workspace_paths,
 )
 from peerhub.dispatch.completion import assess_completion
-from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.capability import CapabilityLease, CapabilityTier
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     ArtifactManifestRecord,
@@ -98,6 +98,7 @@ DispatchAdmission: TypeAlias = tuple[
     RequestSnapshot,
     AdmissionReceipt,
     LeaseSnapshot,
+    CapabilityLease,
 ]
 RetryAdmission: TypeAlias = tuple[
     RequestSnapshot,
@@ -538,6 +539,9 @@ class ApplicationWorkflows:
         self,
         command_id: CommandID | str,
         *,
+        capability_lease_id: str,
+        peer_instance_id: str,
+        current_policy_revision: RevisionValue,
         materializer: ArtifactMaterializer,
         adapter_request: AdapterRequest,
         peer_adapter: PeerAdapter | None = None,
@@ -558,6 +562,19 @@ class ApplicationWorkflows:
         )
         if selected_peer_adapter is None:
             raise ValueError("peer_adapter is required")
+
+        # Pre-spawn enforcement gate (errata 7.2 point 3 / 7.4).  This runs
+        # between adapter selection and planning, so a denied dispatch never
+        # reaches plan_invocation(), attempt creation, or run_process().
+        # CapabilityLeaseViolation propagates to the caller by design.
+        _validated_capability = dispatch_service.require_dispatch_capability(  # pyright: ignore[reportUnusedVariable]
+            command_id,
+            capability_lease_id=capability_lease_id,
+            peer_instance_id=peer_instance_id,
+            adapter_peer_kind=selected_peer_adapter.descriptor.peer_kind,
+            profile=profile,
+            current_policy_revision=current_policy_revision,
+        )
 
         invocation_plan = selected_peer_adapter.plan_invocation(
             request=adapter_request,

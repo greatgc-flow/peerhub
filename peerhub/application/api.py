@@ -341,6 +341,7 @@ class ApplicationAPI:
             req = adm[0]
             receipt = adm[1]
             lease = adm[2]
+            capability_lease = adm[3]
 
             return DispatchAdmissionView(
                 command_id=str(req.command_id),
@@ -352,6 +353,7 @@ class ApplicationAPI:
                 selected_instance_id=req.selected_peer_instance_id,
                 selected_profile_id=req.selected_profile_id,
                 route_decision_digest=req.route_decision_digest,
+                capability_lease_id=capability_lease.capability_lease_id,
             )
 
         avail_admit = CommandAvailability.AVAILABLE if self._admission_provider else CommandAvailability.NOT_BACKED
@@ -374,6 +376,7 @@ class ApplicationAPI:
                 "selected_instance_id": r.selected_instance_id,  # pyright: ignore[reportUnknownMemberType]
                 "selected_profile_id": r.selected_profile_id,  # pyright: ignore[reportUnknownMemberType]
                 "route_decision_digest": r.route_decision_digest,  # pyright: ignore[reportUnknownMemberType]
+                "capability_lease_id": r.capability_lease_id,  # pyright: ignore[reportUnknownMemberType]
             },
             availability=avail_admit,
             unavailable_reason=reason_admit,

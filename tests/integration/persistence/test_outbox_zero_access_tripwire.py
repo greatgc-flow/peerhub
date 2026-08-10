@@ -175,7 +175,7 @@ def test_zero_access_tripwire_across_full_governance_and_dispatch_pipeline(
         requirements=(),
         replay_safe=False,
     )
-    admitted, rec, reserved = dispatch.admit_request(
+    admitted, rec, reserved, _capability = dispatch.admit_request(
         envelope,
         authenticated_principal="principal-01",
         actor_authorized=True,

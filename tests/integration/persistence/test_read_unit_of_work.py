@@ -234,7 +234,7 @@ def test_dispatch_domain_read_methods_use_read_unit_of_work(
         requirements=(),
         replay_safe=False,
     )
-    admitted, _, reserved_lease = dispatch.admit_request(
+    admitted, _, reserved_lease, _capability = dispatch.admit_request(
         envelope,
         authenticated_principal="principal-read-uow-dispatch",
         actor_authorized=True,

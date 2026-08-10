@@ -76,6 +76,14 @@ class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
 
         ...
 
+    def get_admission_receipt(
+        self,
+        admission_receipt_id: str,
+    ) -> AdmissionReceipt | None:
+        """Return an admission receipt by ID."""
+
+        ...
+
     def get_capability_lease(
         self,
         capability_lease_id: str,
@@ -154,14 +162,6 @@ class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
         receipt: AdmissionReceipt,
     ) -> None:
         """Insert an immutable admission receipt."""
-
-        ...
-
-    def get_admission_receipt(
-        self,
-        admission_receipt_id: str,
-    ) -> AdmissionReceipt | None:
-        """Return an admission receipt by ID."""
 
         ...
 
@@ -317,6 +317,9 @@ class FaultPoint(str):
     AFTER_SESSION_BINDING_WRITE = "AFTER_SESSION_BINDING_WRITE"
     AFTER_ADMISSION_RECEIPT_WRITE = (
         "AFTER_ADMISSION_RECEIPT_WRITE"
+    )
+    AFTER_CAPABILITY_LEASE_WRITE = (
+        "AFTER_CAPABILITY_LEASE_WRITE"
     )
     AFTER_CLIENT_REQUEST_BINDING_WRITE = (
         "AFTER_CLIENT_REQUEST_BINDING_WRITE"

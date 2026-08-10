@@ -12,6 +12,7 @@ from peerhub.adapters.contract import (
     AdapterRequest,
     ArtifactSpec,
     PeerAdapter,
+    ProfileDescriptor,
     SessionAction,
 )
 from peerhub.application.workflows import ApplicationWorkflows
@@ -34,7 +35,13 @@ from peerhub.dispatch.contract import (
     LeaseState,
     RequestState,
 )
-from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.capability import (
+    CapabilityTier,
+    PeerEnforcementEvidence,
+)
+from peerhub.dispatch.capability_policy import (
+    StaticPeerEnforcementEvidenceProvider,
+)
 from peerhub.dispatch.materializer import (
     ArtifactMaterializer,
     MaterializationStatus,
@@ -227,6 +234,34 @@ def _completion_contract() -> CompletionContract:
     )
 
 
+# The route names instance "ag" while these tests dispatch through
+# FakePeerAdapter (peer_kind "fake").  Increment 4 resolves peer kind from a
+# machine-owned evidence provider and requires it to match the adapter, so the
+# fixture states that mapping explicitly instead of letting the two disagree.
+_CONTROLLED_FAKE_EVIDENCE = StaticPeerEnforcementEvidenceProvider(
+    {
+        "ag": PeerEnforcementEvidence(
+            peer_instance_id="ag",
+            peer_kind="fake",
+            enforcement_ceiling=None,
+            source_tag="absent",
+        )
+    }
+)
+
+
+# dispatch_and_execute() must be handed the descriptor for the profile that
+# routing actually selected: increment 4's gate rejects a dispatch whose
+# profile differs from the admitted one, exactly as production does where the
+# route candidate and the dispatched profile come from the same resolved
+# target.  FakePeerAdapter.plan_invocation() ignores the profile itself.
+_ROUTED_PROFILE = ProfileDescriptor(
+    profile_id="ag.deepthink",
+    profile_class=_FAKE_PROFILE.profile_class,
+    supports_reasoning_effort=_FAKE_PROFILE.supports_reasoning_effort,
+)
+
+
 def _workflows(
     store: SqliteStateStore,
     *,
@@ -255,6 +290,7 @@ def _workflows(
         store,
         ids=SequentialIdSource(),
         clock=DeterministicClock(start=start + 20),
+        enforcement_evidence=_CONTROLLED_FAKE_EVIDENCE,
     )
     workflows = ApplicationWorkflows(
         telemetry=telemetry,
@@ -269,7 +305,8 @@ def _workflows(
 def _admit_and_prepare(
     workflows: ApplicationWorkflows,
     envelope: CommandEnvelope,
-) -> str:
+) -> tuple[str, str, str]:
+    """Admit and prepare, returning (command_id, capability_lease_id, instance)."""
     factory = _route_request_factory(client_request_id=envelope.client_request_id)
     contract = _completion_contract()
     adm = workflows.admit_request(
@@ -288,19 +325,24 @@ def _admit_and_prepare(
         owner_peer_id="peer-01",
     )
     req = adm.dispatch_admission[0]
+    capability_lease = adm.dispatch_admission[3]
     prep = workflows.prepare_for_dispatch(
         req.command_id,
         route_decision_id=adm.route.decision.decision_id,
         route_request_factory=factory,
     )
-    return str(req.command_id)
+    return (
+        str(req.command_id),
+        capability_lease.capability_lease_id,
+        req.selected_peer_instance_id,
+    )
 
 
 def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: SqliteStateStore) -> None:
     """Trivial subprocess exiting 0 cleanly with zero artifacts."""
     adapter = FakePeerAdapter(stdout="hello\n")
     workflows, dispatch = _workflows(store, peer_adapter=adapter)
-    cmd_id = _admit_and_prepare(workflows, _envelope())
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
 
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
@@ -323,9 +365,12 @@ def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: S
     limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
     res = workflows.dispatch_and_execute(
         cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
         materializer=materializer,
         adapter_request=adapter_req,
-        profile=_FAKE_PROFILE,
+        profile=_ROUTED_PROFILE,
         limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={},
@@ -346,7 +391,7 @@ def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: S
 def test_dispatch_and_execute_happy_path_with_artifact(tmp_path: Path, store: SqliteStateStore) -> None:
     """Happy path with 1 artifact materialized, reserved, executed, and consumed."""
     workflows, dispatch = _workflows(store)
-    cmd_id = _admit_and_prepare(workflows, _envelope())
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
 
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
@@ -386,10 +431,13 @@ def test_dispatch_and_execute_happy_path_with_artifact(tmp_path: Path, store: Sq
 
     res = workflows.dispatch_and_execute(
         cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
         materializer=materializer,
         adapter_request=adapter_req,
         peer_adapter=adapter,
-        profile=_FAKE_PROFILE,
+        profile=_ROUTED_PROFILE,
         limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={"art-1": lambda: content},
@@ -412,7 +460,7 @@ def test_dispatch_and_execute_happy_path_with_artifact(tmp_path: Path, store: Sq
 def test_dispatch_and_execute_materialization_failure(tmp_path: Path, store: SqliteStateStore) -> None:
     """Materialization failure aborts via fail_pre_dispatch, no process spawns."""
     workflows, dispatch = _workflows(store)
-    cmd_id = _admit_and_prepare(workflows, _envelope())
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
 
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
@@ -452,10 +500,13 @@ def test_dispatch_and_execute_materialization_failure(tmp_path: Path, store: Sql
     # Provider returns wrong content -> digest mismatch -> HARD_FAILURE
     res = workflows.dispatch_and_execute(
         cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
         materializer=materializer,
         adapter_request=adapter_req,
         peer_adapter=adapter,
-        profile=_FAKE_PROFILE,
+        profile=_ROUTED_PROFILE,
         limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={"art-1": lambda: b"CORRUPTED CONTENT"},
@@ -470,7 +521,7 @@ def test_dispatch_and_execute_materialization_failure(tmp_path: Path, store: Sql
 def test_dispatch_and_execute_reservation_failure(tmp_path: Path, store: SqliteStateStore) -> None:
     """Reservation failure triggers fail_pre_dispatch and orphans artifacts."""
     workflows, dispatch = _workflows(store)
-    cmd_id = _admit_and_prepare(workflows, _envelope())
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
 
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
@@ -515,10 +566,13 @@ def test_dispatch_and_execute_reservation_failure(tmp_path: Path, store: SqliteS
 
     res = workflows.dispatch_and_execute(
         cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
         materializer=materializer,
         adapter_request=adapter_req,
         peer_adapter=adapter,
-        profile=_FAKE_PROFILE,
+        profile=_ROUTED_PROFILE,
         limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={"art-1": lambda: content},
@@ -535,7 +589,7 @@ def test_dispatch_and_execute_reservation_failure(tmp_path: Path, store: SqliteS
 def test_dispatch_and_execute_nonzero_exit(tmp_path: Path, store: SqliteStateStore) -> None:
     """Trivial subprocess exiting nonzero -> completion assessment reflects failure."""
     workflows, dispatch = _workflows(store)
-    cmd_id = _admit_and_prepare(workflows, _envelope())
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
 
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
@@ -560,10 +614,13 @@ def test_dispatch_and_execute_nonzero_exit(tmp_path: Path, store: SqliteStateSto
 
     res = workflows.dispatch_and_execute(
         cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
         materializer=materializer,
         adapter_request=adapter_req,
         peer_adapter=adapter,
-        profile=_FAKE_PROFILE,
+        profile=_ROUTED_PROFILE,
         limits=limits,
         workspace_roots={"ws-1": workspace_root},
         content_providers={},

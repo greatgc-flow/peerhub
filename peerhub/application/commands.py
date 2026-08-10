@@ -51,6 +51,7 @@ class DispatchAdmissionView:
     selected_instance_id: str
     selected_profile_id: str
     route_decision_digest: str
+    capability_lease_id: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +88,7 @@ class AdmitDispatch(Command["DispatchAdmissionView"]):
             selected_instance_id=value["selected_instance_id"],  # type: ignore
             selected_profile_id=value["selected_profile_id"],  # type: ignore
             route_decision_digest=value["route_decision_digest"],  # type: ignore
+            capability_lease_id=value["capability_lease_id"],  # type: ignore
         )
 
 
