@@ -113,17 +113,23 @@ Section 7.5's 5-increment plan are committed:
   pre-spawn `DispatchService.require_dispatch_capability()` gate wired
   into `dispatch_and_execute()`, re-checking policy revision (closes
   cx's revocation-window finding), adapter `peer_kind`, and the
-  mandatory floor immediately before any subprocess can spawn.
+  mandatory floor immediately before any subprocess can spawn. The
+  security-property tests (`aadfb33`) prove this: mutating `ag` denied
+  before `plan_invocation()`/`run_process()` (spy-verified call counts,
+  mutation-tested -- gate-removed and gate-reordered variants confirmed
+  to fail correctly before being reverted), READ_ONLY succeeds, replay
+  returns the identical lease (tagged `IdSource` so a re-mint can't
+  vacuously match), and boundary fail-closed including an `IntEnum`
+  type-confusion risk found while writing the tests (an unguarded
+  validator would silently accept raw `1` as `WORKTREE_WRITE`). No
+  production bugs found this pass.
   **Explicitly still open within increment 4's own scope** (deferred,
   not silently dropped): post-plan `InvocationEnforcementReceipt` +
   `record_dispatch_intent*()` revalidation (errata 7.2's final
   paragraph); `plan_invocation()` receiving the `ValidatedCapabilityLease`;
   `AuthenticatedSubject`/`CallerIdentityProvider` replacing
   `direct_ask.py`'s literal `"cli-user"` (errata 7.1) -- direct-ask
-  issuance does not yet use real authenticated-subject evidence: and
-  the security-property tests themselves (prove `ag` mutation denied
-  before `plan_invocation()`/`run_process()`, replay reuses the same
-  lease, etc.) are not yet written.
+  issuance does not yet use real authenticated-subject evidence.
 - Increment 5 (adapter translation) not started.
 
 Below is the design-history/ratification record (kept for context on
