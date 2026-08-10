@@ -44,7 +44,50 @@ UnitOfWorkT = TypeVar(
 
 
 @runtime_checkable
-class StateStore(Protocol[UnitOfWorkT]):
+class ReadUnitOfWork(Protocol):
+    """One read-only view over an authoritative state store."""
+
+    def __enter__(self) -> Self:
+        """Begin the read-only view and return this unit of work."""
+
+        ...
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the read-only view."""
+
+        ...
+
+    def close(self) -> None:
+        """Explicitly close the read-only view."""
+
+        ...
+
+
+ReadUnitOfWorkT = TypeVar(
+    "ReadUnitOfWorkT",
+    bound=ReadUnitOfWork,
+    covariant=True,
+    default=ReadUnitOfWork,
+)
+
+
+@runtime_checkable
+class ReadStateStore(Protocol[ReadUnitOfWorkT]):
+    """A factory for isolated read-only units of work."""
+
+    def read_unit_of_work(self) -> ReadUnitOfWorkT:
+        """Return a new, not-yet-entered read-only unit of work."""
+
+        ...
+
+
+@runtime_checkable
+class StateStore(Protocol[UnitOfWorkT, ReadUnitOfWorkT]):
     """A factory for isolated units of work."""
 
     def initialize(self) -> None:
@@ -57,7 +100,13 @@ class StateStore(Protocol[UnitOfWorkT]):
 
         ...
 
+    def read_unit_of_work(self) -> ReadUnitOfWorkT:
+        """Return a new, not-yet-entered read-only unit of work."""
+
+        ...
+
     def close(self) -> None:
         """Release store-owned resources."""
 
         ...
+

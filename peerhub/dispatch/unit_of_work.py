@@ -4,7 +4,7 @@ from typing import Protocol
 
 from peerhub.core.protocol import CommandID
 from peerhub.governance.contract import OutboxEvent
-from peerhub.state.contract import UnitOfWork
+from peerhub.state.contract import ReadUnitOfWork, UnitOfWork
 
 from .contract import (
     AdmissionReceipt,
@@ -19,7 +19,64 @@ from .contract import (
 )
 
 
-class DispatchUnitOfWork(UnitOfWork, Protocol):
+class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
+    """Read-only persistence operations required by the dispatch service."""
+
+    def count_active_leases(self) -> int:
+        """Return the number of active leases."""
+
+        ...
+
+    def get_client_request_binding(
+        self,
+        client_id: str,
+        client_request_id: str,
+    ) -> ClientRequestBinding | None:
+        """Return a caller-request identity binding."""
+
+        ...
+
+    def get_command_idempotency_binding(
+        self,
+        client_id: str,
+        command_type: str,
+        idempotency_key: str,
+    ) -> CommandIdempotencyBinding | None:
+        """Return a command-idempotency binding."""
+
+        ...
+
+    def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
+        """Return one lease snapshot by ID."""
+
+        ...
+
+    def get_request(
+        self,
+        command_id: CommandID | str,
+    ) -> RequestSnapshot | None:
+        """Return one request snapshot."""
+
+        ...
+
+    def get_attempt(
+        self,
+        attempt_id: str,
+    ) -> AttemptSnapshot | None:
+        """Return one attempt snapshot."""
+
+        ...
+
+    def get_session_binding(
+        self,
+        key: SessionBindingKey,
+    ) -> SessionBindingSnapshot | None:
+        """Return one session binding snapshot."""
+
+        ...
+
+
+class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
     """Persistence operations required by the dispatch service."""
 
     def allocate_fencing_token(self) -> int:

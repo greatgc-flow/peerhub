@@ -12,6 +12,8 @@ from importlib import resources
 from pathlib import Path
 from types import TracebackType
 
+from typing import Self, Sequence
+
 from .sqlite_governance import SqliteGovernanceRepository
 from .sqlite_dispatch import SqliteDispatchRepository
 from .sqlite_health import SqliteHealthRepository
@@ -324,6 +326,11 @@ class SqliteStateStore:
 
         return SqliteUnitOfWork(self)
 
+    def read_unit_of_work(self) -> SqliteReadUnitOfWork:
+        """Return a new SQLite read-only unit of work."""
+
+        return SqliteReadUnitOfWork(self)
+
     def close(self) -> None:
         """Release store resources.
 
@@ -344,6 +351,11 @@ class SqliteStateStore:
         )
         connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA synchronous = FULL")
+        return connection
+
+    def _connect_read(self) -> sqlite3.Connection:
+        connection = self._connect()
+        connection.execute("PRAGMA query_only = ON")
         return connection
 
     @staticmethod
@@ -377,6 +389,191 @@ class SqliteStateStore:
             .joinpath(name)
             .read_text(encoding="utf-8")
         )
+
+
+class SqliteReadUnitOfWork:
+    """One read-only view over SQLite state storage using PRAGMA query_only=ON and deferred transactions."""
+
+    def __init__(self, store: SqliteStateStore) -> None:
+        self._store = store
+        self._connection: sqlite3.Connection | None = None
+        self._finished = False
+        self._governance = SqliteGovernanceRepository(self._db)
+        self._dispatch = SqliteDispatchRepository(self._db)
+        self._health = SqliteHealthRepository(self._db)
+        self._telemetry = SqliteTelemetryRepository(self._db)
+        self._routing = SqliteRoutingRepository(self._db)
+        self._events = SqliteEventRepository(self._db)
+
+    @property
+    def governance(self) -> SqliteGovernanceRepository:
+        """The governance domain repository facet."""
+        return self._governance
+
+    @property
+    def dispatch(self) -> SqliteDispatchRepository:
+        """The dispatch domain repository facet."""
+        return self._dispatch
+
+    @property
+    def health(self) -> SqliteHealthRepository:
+        """The health domain repository facet."""
+        return self._health
+
+    @property
+    def telemetry(self) -> SqliteTelemetryRepository:
+        """The telemetry domain repository facet."""
+        return self._telemetry
+
+    @property
+    def routing(self) -> SqliteRoutingRepository:
+        """The routing domain repository facet."""
+        return self._routing
+
+    @property
+    def events(self) -> SqliteEventRepository:
+        """The events domain repository facet."""
+        return self._events
+
+    def _db(self) -> sqlite3.Connection:
+        if self._connection is None:
+            raise RuntimeError(
+                "SQLite read unit of work has not been entered"
+            )
+        return self._connection
+
+    def __enter__(self) -> Self:
+        """Open a query_only connection and begin a deferred transaction."""
+        if self._connection is not None:
+            raise RuntimeError(
+                "SQLite read unit of work cannot be re-entered"
+            )
+        self._connection = self._store._connect_read()  # pyright: ignore[reportPrivateUsage]
+        self._connection.execute("BEGIN")
+        return self
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Close the read-only connection and roll back any deferred read state."""
+        del exception_type, exception, traceback
+        connection = self._connection
+        if connection is None:
+            return
+        try:
+            if connection.in_transaction:
+                connection.execute("ROLLBACK")
+        finally:
+            connection.close()
+            self._connection = None
+            self._finished = True
+
+    def close(self) -> None:
+        """Explicitly close the read-only unit of work."""
+        connection = self._connection
+        if connection is not None:
+            try:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+            finally:
+                connection.close()
+                self._connection = None
+                self._finished = True
+
+    def count_active_leases(self) -> int:
+        """Return the count of active leases."""
+        return self.dispatch.count_active_leases()
+
+    def get_client_request_binding(
+        self,
+        client_id: str,
+        client_request_id: str,
+    ) -> ClientRequestBinding | None:
+        """Return a caller-request identity binding."""
+        return self.dispatch.get_client_request_binding(client_id, client_request_id)
+
+    def get_command_idempotency_binding(
+        self,
+        client_id: str,
+        command_type: str,
+        idempotency_key: str,
+    ) -> CommandIdempotencyBinding | None:
+        """Return a command-idempotency binding."""
+        return self.dispatch.get_command_idempotency_binding(client_id, command_type, idempotency_key)
+
+    def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
+        """Return one lease by ID."""
+        return self.dispatch.get_lease(lease_id)
+
+    def get_request(self, command_id: CommandID | str) -> RequestSnapshot | None:
+        """Return one request by ID."""
+        return self.dispatch.get_request(command_id)
+
+    def get_attempt(self, attempt_id: str) -> AttemptSnapshot | None:
+        """Return one attempt by ID."""
+        return self.dispatch.get_attempt(attempt_id)
+
+    def get_session_binding(self, key: SessionBindingKey) -> SessionBindingSnapshot | None:
+        """Return one session binding by key."""
+        return self.dispatch.get_session_binding(key)
+
+    def get_target(self, target_id: str) -> TargetState | None:
+        """Return the current target, if present."""
+        return self.governance.get_target(target_id)
+
+    def get_effect_receipt(self, event_id: str) -> EffectReceipt | None:
+        """Return an effect receipt by outbox event ID."""
+        return self.governance.get_effect_receipt(event_id)
+
+    def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
+        """Return one canonical outbox event."""
+        return self.governance.get_outbox_event(event_id)
+
+    def list_outbox_events(
+        self,
+        states: tuple[OutboxState, ...] = (OutboxState.PENDING,),
+        *,
+        limit: int = 100,
+        governance_only: bool = False,
+    ) -> Sequence[OutboxEvent]:
+        """Return a page of canonical outbox events matching states."""
+        return self.governance.list_outbox_events(states, limit=limit, governance_only=governance_only)
+
+    def list_unfinished_effect_deliveries(
+        self,
+        *,
+        limit: int = 100,
+        after_position: int = 0,
+    ) -> Sequence[OutboxEvent]:
+        """Return a page of unfinished effect deliveries ordered by position."""
+        return self.governance.list_unfinished_effect_deliveries(limit=limit, after_position=after_position)
+
+    def get_route_decision(self, decision_id: str) -> RouteDecision | None:
+        """Return one persisted route decision."""
+        return self.routing.get_route_decision(decision_id)
+
+    def get_operational_projection(self, instance_id: str, profile_id: str) -> OperationalProjectionSnapshot | None:
+        """Return one operational projection."""
+        return self.telemetry.get_operational_projection(instance_id, profile_id)
+
+    def get_health_circuit(self, scope: PolicyScope, subject: str) -> HealthCircuitSnapshot | None:
+        """Return one health circuit snapshot."""
+        return self.health.get_health_circuit(scope, subject)
+
+    def get_health_policy_revision(self, policy_id: str, revision: int) -> HealthPolicy | None:
+        """Return one health policy revision."""
+        return self.health.get_health_policy_revision(policy_id, revision)
+
+    def get_health_projection(self, instance_id: str, profile_id: str) -> HealthProjectionSnapshot | None:
+        """Return one health projection snapshot."""
+        return self.health.get_health_projection(instance_id, profile_id)
+
+    def get_artifact_recovery_digest(self, attempt_id: str) -> ArtifactRecoveryDigest | None:
+        """Return recovery digest for an attempt."""
+        return self.dispatch.get_artifact_recovery_digest(attempt_id)
 
 
 class SqliteUnitOfWork:
@@ -474,6 +671,18 @@ class SqliteUnitOfWork:
             )
         connection.execute("ROLLBACK")
         self._finished = True
+
+    def close(self) -> None:
+        """Explicitly close the unit of work."""
+        connection = self._connection
+        if connection is not None:
+            try:
+                if not self._finished and connection.in_transaction:
+                    connection.execute("ROLLBACK")
+            finally:
+                connection.close()
+                self._connection = None
+                self._finished = True
 
     def get_target(self, target_id: str) -> TargetState | None:
         """Return the current target, if present."""

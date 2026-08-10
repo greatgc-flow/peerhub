@@ -130,6 +130,7 @@ from .helpers import (
     require_request as _require_request,
 )
 from .unit_of_work import (
+    DispatchReadUnitOfWork,
     DispatchUnitOfWork,
     FaultInjector,
     FaultPoint,  # pyright: ignore[reportUnusedImport]  # public re-export: tests import this name from here
@@ -141,7 +142,7 @@ class DispatchService:
 
     def __init__(
         self,
-        store: StateStore[DispatchUnitOfWork],
+        store: StateStore[DispatchUnitOfWork, DispatchReadUnitOfWork],
         *,
         clock: Clock,
         ids: IdSource,
@@ -189,7 +190,7 @@ class DispatchService:
 
     def count_active_leases(self) -> int:
         """Return the number of active leases."""
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             return unit.count_active_leases()
 
     def get_request_and_attempt(
