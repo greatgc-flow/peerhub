@@ -39,9 +39,12 @@ def test_generator_runs_and_produces_valid_manifest(tmp_path: Path) -> None:
     assert len(action_vector["actions"]) == 90
     assert len(action_vector["action_vector_digest"]) == 64
 
-    # hub.py hash invariant (bd13cf55...)
+    # hub.py hash invariant (3b2d7503...), i.e. live P:/_sys/core/hub.py as of
+    # legacy-hub commit 656a1f8. This pin tracks a file outside this repo, so it
+    # must be re-pinned whenever legacy hub.py changes; the previous value
+    # (bd13cf55, commit 54bedd7) is the one frozen in the committed snapshot below.
     hub_info = manifest["source_files"]["hub_py"]
-    assert hub_info["sha256"].startswith("bd13cf55")
+    assert hub_info["sha256"].startswith("3b2d7503")
     assert hub_info["line_count"] > 10000
 
     # Dispatch table & Action details 1-to-1 match
