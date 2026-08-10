@@ -150,15 +150,26 @@ decisions (no ambiguity, ready to implement) from one genuine future
 product choice left open (a convenience CLI default tier) -- correctly
 not invented here.
 
-**Still open**: this Section 7 resolution has NOT yet had its own
-cross-check from a second peer (ag.opus, who wrote the original errata
-this corrects) -- `ag` was EXH-unavailable on both pools when Section 7
-landed. Get that counter-response before treating implementation as
-fully authorized, closing the same dialectical loop Steps E/F went
-through. This is the mutation-authorization mechanism hub.py's own
-preflight system was found to NOT actually enforce (see
+**Status: APPROVED for implementation (2026-08-10, closing round).**
+`ag.opus` (who wrote the original errata Section 7 corrects) hit a real
+429 `RESOURCE_EXHAUSTED` quota error and couldn't do the counter-check;
+`ag.gptoss` did it instead (same peer, different profile/pool). Verdict:
+endorsed -- no disagreement with Section 7's security logic, only
+mechanical implementation caveats (call-site signature ripple, DI wiring
+for the new `CapabilityPolicy`/evidence-provider dependencies, CLI flag
+must be required not optional). **Caveat on this approval's weight**:
+`ag.gptoss` is a lower-capability profile than `ag.opus` -- treat this as
+a real but less rigorous confirmation than the Step E/F ratification
+rounds got from `ag.effort`/`ag.deepthink`. If `ag.opus` becomes
+available again, a quick sanity pass from it would strengthen this
+closure but is not currently blocking.
+
+This is the mutation-authorization mechanism hub.py's own preflight
+system was found to NOT actually enforce (see
 `project_mutation_lease_design_2026_08_08.md`); peerhub should not repeat
-that gap.
+that gap. Implementation can proceed per Section 7.5's 5 increments
+whenever picked up -- start with increment 1 (enums/DTOs/pure validators
++ negative unit tests), no code exists yet.
 
 ### Known-open, not part of Phase 2 itself
 2 pre-existing test failures (`test_client_never_imports_persistence`,
