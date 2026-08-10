@@ -55,6 +55,7 @@ from .capability import (
     CapabilityLeaseViolation,
     CapabilityPolicy,
     CapabilityTier,
+    InvocationEnforcementReceipt,
     PeerEnforcementEvidenceProvider,
     ValidatedCapabilityLease,
     require_enforcement_floor,
@@ -191,7 +192,14 @@ class DispatchService:
             enforcement_evidence=self._enforcement_evidence,
         )
         self._artifacts = ArtifactCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
-        self._attempts = AttemptLifecycleCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
+        self._attempts = AttemptLifecycleCoordinator(
+            store=store,
+            clock=clock,
+            ids=ids,
+            fault_injector=fault_injector,
+            capability_policy=self._capability_policy,
+            enforcement_evidence=self._enforcement_evidence,
+        )
         self._sessions = SessionLeaseCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
     def now(self) -> int:
         """Return the current timestamp from the configured clock."""
@@ -483,15 +491,26 @@ class DispatchService:
         self,
         command_id: CommandID | str,
         attempt_id: str,
+        *,
+        validated_lease: ValidatedCapabilityLease | None = None,
+        enforcement_receipt: InvocationEnforcementReceipt | None = None,
     ) -> tuple[
         RequestSnapshot,
         AttemptSnapshot,
         LeaseSnapshot,
     ]:
-        """Commit replay boundary and bind the lease attempt ID."""
+        """Commit replay boundary and bind the lease attempt ID.
+
+        When *validated_lease* and *enforcement_receipt* are supplied, the
+        write transaction re-validates the capability binding and policy
+        revision before committing — closing the TOCTOU window between the
+        pre-plan gate and the moment of spawn (errata 7.2 final ¶).
+        """
         return self._attempts.record_dispatch_intent(
             command_id,
             attempt_id,
+            validated_lease=validated_lease,
+            enforcement_receipt=enforcement_receipt,
         )
 
     def record_dispatch_intent_and_reserve_artifacts(
@@ -500,16 +519,25 @@ class DispatchService:
         attempt_id: str,
         *,
         expected_manifest_digest: str,
+        validated_lease: ValidatedCapabilityLease | None = None,
+        enforcement_receipt: InvocationEnforcementReceipt | None = None,
     ) -> tuple[
         RequestSnapshot,
         AttemptSnapshot,
         LeaseSnapshot,
     ]:
-        """Commit replay boundary, bind lease attempt ID, and reserve verified artifacts atomically in ONE transaction."""
+        """Commit replay boundary, bind lease attempt ID, and reserve verified artifacts atomically in ONE transaction.
+
+        When *validated_lease* and *enforcement_receipt* are supplied, the
+        write transaction re-validates the capability binding and policy
+        revision before committing (errata 7.2 final ¶).
+        """
         return self._attempts.record_dispatch_intent_and_reserve_artifacts(
             command_id,
             attempt_id,
             expected_manifest_digest=expected_manifest_digest,
+            validated_lease=validated_lease,
+            enforcement_receipt=enforcement_receipt,
         )
 
     def record_start_uncertain(

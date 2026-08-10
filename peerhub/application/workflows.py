@@ -37,7 +37,11 @@ from peerhub.dispatch.artifacts import (
     resolve_workspace_paths,
 )
 from peerhub.dispatch.completion import assess_completion
-from peerhub.dispatch.capability import CapabilityLease, CapabilityTier
+from peerhub.dispatch.capability import (
+    CapabilityLease,
+    CapabilityTier,
+    InvocationEnforcementReceipt,
+)
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     ArtifactManifestRecord,
@@ -565,7 +569,7 @@ class ApplicationWorkflows:
         # between adapter selection and planning, so a denied dispatch never
         # reaches plan_invocation(), attempt creation, or run_process().
         # CapabilityLeaseViolation propagates to the caller by design.
-        _validated_capability = dispatch_service.require_dispatch_capability(  # pyright: ignore[reportUnusedVariable]
+        _validated_capability = dispatch_service.require_dispatch_capability(
             command_id,
             capability_lease_id=capability_lease_id,
             peer_instance_id=peer_instance_id,
@@ -579,6 +583,18 @@ class ApplicationWorkflows:
             profile=profile,
             session=None,
             limits=limits,
+        )
+
+        # Produce the enforcement receipt for this invocation plan.
+        # Increment 4 scope: adapters emit "unverified" enforcement tags;
+        # increment 5 will extend each adapter to report its actual vector.
+        _enforcement_receipt = InvocationEnforcementReceipt(
+            capability_lease_id=_validated_capability.capability_lease_id,
+            command_id=_validated_capability.command_id,
+            realized_enforcement=_validated_capability.satisfied_floor,
+            controls_description="unverified",
+            evidence_source_tag="unverified",
+            plan_digest="unverified",
         )
 
         # Step 1: Create attempt under PREPARED request
@@ -696,12 +712,16 @@ class ApplicationWorkflows:
                         command_id,
                         attempt.attempt_id,
                         expected_manifest_digest=manifest_digest,
+                        validated_lease=_validated_capability,
+                        enforcement_receipt=_enforcement_receipt,
                     )
                 )
             else:
                 req, att, lease = dispatch_service.record_dispatch_intent(  # pyright: ignore[reportUnusedVariable]
                     command_id,
                     attempt.attempt_id,
+                    validated_lease=_validated_capability,
+                    enforcement_receipt=_enforcement_receipt,
                 )
         except Exception:
             dispatch_service.mark_artifacts_orphaned_if_manifest_exists(

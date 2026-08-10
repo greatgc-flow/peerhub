@@ -13,6 +13,15 @@ from peerhub.core.protocol import (
 )
 from peerhub.state.contract import StateStore, UnitOfWork
 
+from .capability import (
+    CapabilityLeaseViolation,
+    CapabilityPolicy,
+    InvocationEnforcementReceipt,
+    PeerEnforcementEvidenceProvider,
+    ValidatedCapabilityLease,
+    validate_capability_binding,
+)
+
 from .contract import (
     AskResult,
     AttemptSnapshot,
@@ -59,11 +68,15 @@ class AttemptLifecycleCoordinator:
         clock: Clock,
         ids: IdSource,
         fault_injector: FaultInjector | None = None,
+        capability_policy: CapabilityPolicy | None = None,
+        enforcement_evidence: PeerEnforcementEvidenceProvider | None = None,
     ) -> None:
         self._store = store
         self._clock = clock
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
+        self._capability_policy = capability_policy
+        self._enforcement_evidence = enforcement_evidence
 
     def create_attempt(
         self,
@@ -159,7 +172,67 @@ class AttemptLifecycleCoordinator:
         command_id: CommandID | str,
         attempt_id: str,
         timestamp: int,
+        *,
+        validated_lease: ValidatedCapabilityLease | None = None,
+        enforcement_receipt: InvocationEnforcementReceipt | None = None,
     ) -> tuple[RequestSnapshot, AttemptSnapshot, LeaseSnapshot, str]:
+        # -- Post-plan capability re-validation (errata 7.2 final ¶) ------
+        # When a validated lease and enforcement receipt are provided,
+        # re-run validate_capability_binding() and
+        # CapabilityPolicy.revalidate() against a fresh policy read
+        # inside this write transaction, closing the TOCTOU window
+        # between the pre-plan gate and dispatch-intent commit.
+        if validated_lease is not None and enforcement_receipt is not None:
+            if self._capability_policy is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch-intent re-validation requires a capability policy"
+                )
+            if self._enforcement_evidence is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch-intent re-validation requires enforcement evidence"
+                )
+            # Re-read authoritative records inside this write transaction.
+            reval_request = unit.get_request(command_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+            if reval_request is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch-intent re-validation references a missing request"
+                )
+            reval_cap_lease = unit.get_capability_lease_by_command_id(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+                reval_request.command_id  # pyright: ignore[reportUnknownMemberType]
+            )
+            if reval_cap_lease is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch-intent re-validation references a missing capability lease"
+                )
+            reval_receipt = unit.get_admission_receipt(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+                reval_cap_lease.admission_receipt_id  # pyright: ignore[reportUnknownMemberType]
+            )
+            if reval_receipt is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch-intent re-validation references a missing admission receipt"
+                )
+            reval_session_lease = unit.get_lease(reval_request.lease_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+            if reval_session_lease is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch-intent re-validation references a missing session lease"
+                )
+            reval_evidence = self._enforcement_evidence.resolve(
+                peer_instance_id=reval_request.selected_peer_instance_id,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+                profile_id=reval_request.selected_profile_id,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+            )
+            reval_binding = validate_capability_binding(
+                reval_request,  # pyright: ignore[reportUnknownArgumentType]
+                reval_receipt,  # pyright: ignore[reportUnknownArgumentType]
+                reval_session_lease,  # pyright: ignore[reportUnknownArgumentType]
+                reval_cap_lease,  # pyright: ignore[reportUnknownArgumentType]
+                expected_peer_kind=reval_evidence.peer_kind,
+            )
+            self._capability_policy.revalidate(
+                reval_binding,
+                current_policy_revision=validated_lease.revalidated_policy_revision,
+                now=timestamp,
+            )
+
         request = _require_request(unit, command_id)  # pyright: ignore[reportArgumentType]
         attempt = _require_attempt(unit, attempt_id)  # pyright: ignore[reportArgumentType]
         lease = _require_lease(
@@ -213,12 +286,21 @@ class AttemptLifecycleCoordinator:
         self,
         command_id: CommandID | str,
         attempt_id: str,
+        *,
+        validated_lease: ValidatedCapabilityLease | None = None,
+        enforcement_receipt: InvocationEnforcementReceipt | None = None,
     ) -> tuple[
         RequestSnapshot,
         AttemptSnapshot,
         LeaseSnapshot,
     ]:
-        """Commit replay boundary and bind the lease attempt ID."""
+        """Commit replay boundary and bind the lease attempt ID.
+
+        When *validated_lease* and *enforcement_receipt* are supplied, the
+        write transaction re-validates the capability binding and policy
+        revision before committing — closing the TOCTOU window between the
+        pre-plan gate and the moment of spawn (errata 7.2 final ¶).
+        """
 
         with self._store.unit_of_work() as unit:
             timestamp = self._clock.now()
@@ -232,6 +314,8 @@ class AttemptLifecycleCoordinator:
                 command_id,
                 attempt_id,
                 timestamp,
+                validated_lease=validated_lease,
+                enforcement_receipt=enforcement_receipt,
             )
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()
@@ -249,12 +333,19 @@ class AttemptLifecycleCoordinator:
         attempt_id: str,
         *,
         expected_manifest_digest: str,
+        validated_lease: ValidatedCapabilityLease | None = None,
+        enforcement_receipt: InvocationEnforcementReceipt | None = None,
     ) -> tuple[
         RequestSnapshot,
         AttemptSnapshot,
         LeaseSnapshot,
     ]:
-        """Commit replay boundary, bind lease attempt ID, and reserve verified artifacts atomically in ONE transaction."""
+        """Commit replay boundary, bind lease attempt ID, and reserve verified artifacts atomically in ONE transaction.
+
+        When *validated_lease* and *enforcement_receipt* are supplied, the
+        write transaction re-validates the capability binding and policy
+        revision before committing (errata 7.2 final ¶).
+        """
 
         with self._store.unit_of_work() as unit:
             timestamp = self._clock.now()
@@ -268,6 +359,8 @@ class AttemptLifecycleCoordinator:
                 command_id,
                 attempt_id,
                 timestamp,
+                validated_lease=validated_lease,
+                enforcement_receipt=enforcement_receipt,
             )
             reserved_ok = unit.reserve_verified_artifacts_for_dispatch(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
                 attempt_id=attempt_id,

@@ -491,6 +491,51 @@ class ValidatedCapabilityLease:
     revalidated_policy_revision: RevisionValue
 
 
+@dataclass(frozen=True)
+class InvocationEnforcementReceipt:
+    """Evidence of the actual realized enforcement for one invocation plan.
+
+    Errata Section 7.4: the receipt records the invocation-bound realized
+    level, controls, evidence source tag, and plan digest.  It is accepted
+    only when corroborated by the machine-owned launcher/evidence provider;
+    an adapter's self-declaration is not proof.
+
+    ``record_dispatch_intent*()`` requires this receipt alongside the
+    ``ValidatedCapabilityLease`` to close the window between pre-plan
+    validation and the dispatch-intent state transition.
+    """
+
+    capability_lease_id: str
+    command_id: CommandID
+    realized_enforcement: EnforcementLevel
+    controls_description: str
+    evidence_source_tag: str
+    plan_digest: str
+
+    def __post_init__(self) -> None:
+        for name in (
+            "capability_lease_id",
+            "controls_description",
+            "evidence_source_tag",
+            "plan_digest",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                require_text(getattr(self, name), name),
+            )
+        object.__setattr__(
+            self,
+            "command_id",
+            CommandID(require_text(str(self.command_id), "command_id")),
+        )
+        _require_enum_member(
+            self.realized_enforcement,
+            EnforcementLevel,
+            "realized_enforcement",
+        )
+
+
 __all__ = [
     "CapabilityGrantDecision",
     "CapabilityLease",
@@ -498,6 +543,7 @@ __all__ = [
     "CapabilityPolicy",
     "CapabilityTier",
     "EnforcementLevel",
+    "InvocationEnforcementReceipt",
     "PeerEnforcementEvidence",
     "PeerEnforcementEvidenceProvider",
     "ValidatedCapabilityBinding",
