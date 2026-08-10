@@ -16,7 +16,7 @@ from peerhub.core.errors import (
     RecordNotFoundError,
 )
 from peerhub.health.contract import AdmissionSnapshot
-from peerhub.state.contract import StateStore, UnitOfWork
+from peerhub.state.contract import ReadUnitOfWork, StateStore, UnitOfWork
 
 from .contract import (
     RouteDecision,
@@ -35,7 +35,19 @@ from .model import (
 )
 
 
-class RoutingUnitOfWork(UnitOfWork, Protocol):
+class RoutingReadUnitOfWork(ReadUnitOfWork, Protocol):
+    """Read-only persistence operations required by the routing service."""
+
+    def get_route_decision(
+        self,
+        decision_id: str,
+    ) -> RouteDecision | None:
+        """Return one immutable route decision audit."""
+
+        ...
+
+
+class RoutingUnitOfWork(RoutingReadUnitOfWork, UnitOfWork, Protocol):
     """Persistence operations required by the routing service."""
 
     def get_admission_snapshot(
@@ -92,7 +104,7 @@ class RoutingService:
 
     def __init__(
         self,
-        store: StateStore[RoutingUnitOfWork],
+        store: StateStore[RoutingUnitOfWork, RoutingReadUnitOfWork],
         *,
         clock: Clock,
         ids: IdSource,
@@ -178,7 +190,7 @@ class RoutingService:
     ) -> RouteDecision | None:
         """Return one persisted route decision audit."""
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             return unit.get_route_decision(decision_id)
 
     def validate_route_for_dispatch(

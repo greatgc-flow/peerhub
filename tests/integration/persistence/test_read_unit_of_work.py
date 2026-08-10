@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from peerhub.core.errors import RecordNotFoundError
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
     PROTOCOL_MINOR,
@@ -33,8 +34,17 @@ from peerhub.governance.contract import (
     EffectOutcome,
     MutationRequest,
 )
-from peerhub.persistence.sqlite import SqliteReadUnitOfWork, SqliteStateStore, SqliteUnitOfWork
+from peerhub.persistence.sqlite import (
+    SqliteReadUnitOfWork,
+    SqliteStateStore,
+    SqliteUnitOfWork,
+)
+from peerhub.routing.service import RoutingReadUnitOfWork, RoutingService
 from peerhub.state.contract import ReadStateStore, ReadUnitOfWork, StateStore
+from peerhub.telemetry.projections import (
+    TelemetryProjector,
+    TelemetryReadUnitOfWork,
+)
 from tests.fakes import DeterministicClock, SequentialIdSource
 
 
@@ -55,6 +65,8 @@ def test_read_unit_of_work_protocol_conformance(store: SqliteStateStore) -> None
     assert isinstance(read_uow, ReadUnitOfWork)
     assert isinstance(read_uow, DispatchReadUnitOfWork)
     assert isinstance(read_uow, GovernanceReadUnitOfWork)
+    assert isinstance(read_uow, RoutingReadUnitOfWork)
+    assert isinstance(read_uow, TelemetryReadUnitOfWork)
     assert isinstance(read_uow, SqliteReadUnitOfWork)
 
 
@@ -336,6 +348,88 @@ def test_governance_broker_read_methods_use_read_unit_of_work(
     write_uow_calls = 0
     read_uow_calls = 0
     assert broker.get_effect_receipt(event_id) == receipt
+    assert read_uow_calls == 1
+    assert write_uow_calls == 0
+
+
+def test_routing_and_telemetry_reads_use_read_unit_of_work(
+    store: SqliteStateStore,
+) -> None:
+    """Routing lookup and both telemetry read phases use read-only UoWs."""
+    write_uow_calls = 0
+    read_uow_calls = 0
+
+    class TrackingStore:
+        def initialize(self) -> None:
+            store.initialize()
+
+        def unit_of_work(self) -> SqliteUnitOfWork:
+            nonlocal write_uow_calls
+            write_uow_calls += 1
+            return store.unit_of_work()
+
+        def read_unit_of_work(self) -> SqliteReadUnitOfWork:
+            nonlocal read_uow_calls
+            read_uow_calls += 1
+            return store.read_unit_of_work()
+
+        def close(self) -> None:
+            store.close()
+
+    tracking_store = TrackingStore()
+    routing = RoutingService(
+        tracking_store,
+        clock=DeterministicClock(start=400),
+        ids=SequentialIdSource(),
+    )
+    telemetry = TelemetryProjector(
+        tracking_store,
+        ids=SequentialIdSource(),
+        freshness_ttl=3_600,
+    )
+
+    assert routing.get_route_decision("missing-route-decision") is None
+    with pytest.raises(RecordNotFoundError, match="operational projection"):
+        telemetry.get("missing-instance", "missing-profile")
+
+    assert read_uow_calls == 2
+    assert write_uow_calls == 0
+
+    broker = GovernanceBroker(
+        store,
+        clock=DeterministicClock(start=500),
+        ids=SequentialIdSource(),
+    )
+    broker.submit(
+        MutationRequest(
+            request_id="request-read-uow-telemetry",
+            command_id=CommandID("command-read-uow-telemetry"),
+            correlation_id="correlation-read-uow-telemetry",
+            client_id="client-read-uow-telemetry",
+            command_type="telemetry.read-uow.test",
+            idempotency_key="idempotency-read-uow-telemetry",
+            actor_id="actor-read-uow-telemetry",
+            policy_revision="policy-read-uow-telemetry",
+            target_id="target-read-uow-telemetry",
+            expected_revision=0,
+            operation="set",
+            desired_state={"enabled": True},
+            effect_intent=EffectIntent(
+                kind="test.effect",
+                payload={"enabled": True},
+            ),
+        )
+    )
+
+    write_uow_calls = 0
+    read_uow_calls = 0
+    assert telemetry.project_pending() == 1
+    assert read_uow_calls == 1
+    assert write_uow_calls == 1
+
+    write_uow_calls = 0
+    read_uow_calls = 0
+    assert telemetry.project_pending() == 0
     assert read_uow_calls == 1
     assert write_uow_calls == 0
 

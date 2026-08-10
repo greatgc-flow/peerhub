@@ -26,7 +26,7 @@ from peerhub.events.contract import (
     ConsumerOffset,
     EventLogRecord,
 )
-from peerhub.state.contract import StateStore, UnitOfWork
+from peerhub.state.contract import ReadUnitOfWork, StateStore, UnitOfWork
 from peerhub.telemetry.contract import (
     OperationalObservation,
     OperationalProjectionSnapshot,
@@ -39,7 +39,7 @@ DEFAULT_CONSUMER_ID = "telemetry.operational.v1"
 _PROVIDER_ID = "peerhub.dispatch.service"
 
 
-class _EventRepository(Protocol):
+class _ReadEventRepository(Protocol):
     def list(
         self,
         *,
@@ -54,6 +54,8 @@ class _EventRepository(Protocol):
     ) -> ConsumerOffset | None:
         ...
 
+
+class _EventRepository(_ReadEventRepository, Protocol):
     def add_consumer_offset(
         self,
         offset: ConsumerOffset,
@@ -68,7 +70,22 @@ class _EventRepository(Protocol):
         ...
 
 
-class TelemetryUnitOfWork(UnitOfWork, Protocol):
+class TelemetryReadUnitOfWork(ReadUnitOfWork, Protocol):
+    """Read-only store operations required by the operational projector."""
+
+    @property
+    def events(self) -> _ReadEventRepository:
+        ...
+
+    def get_operational_projection(
+        self,
+        instance_id: str,
+        profile_id: str,
+    ) -> OperationalProjectionSnapshot | None:
+        ...
+
+
+class TelemetryUnitOfWork(TelemetryReadUnitOfWork, UnitOfWork, Protocol):
     """Store operations required by the operational projector."""
 
     @property
@@ -448,7 +465,7 @@ class TelemetryProjector:
 
     def __init__(
         self,
-        store: StateStore[TelemetryUnitOfWork],
+        store: StateStore[TelemetryUnitOfWork, TelemetryReadUnitOfWork],
         *,
         ids: IdSource,
         freshness_ttl: int,
@@ -473,7 +490,7 @@ class TelemetryProjector:
     ) -> OperationalProjectionSnapshot:
         """Implement TelemetryProjectionReader."""
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             projection = unit.get_operational_projection(
                 instance_id,
                 profile_id,
@@ -495,7 +512,7 @@ class TelemetryProjector:
         if type(limit) is not int or limit < 1:
             raise ValueError("limit must be a positive integer")
 
-        with self._store.unit_of_work() as unit:
+        with self._store.read_unit_of_work() as unit:
             checkpoint = unit.events.get_consumer_offset(
                 self._consumer_id
             )
