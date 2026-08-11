@@ -1,11 +1,19 @@
 # Slice 5 Kickoff R1 — Fake-Peer Vertical Dispatch Slice (Phase 2)
 
-Status: proposed design document, not yet ratified. Drafted by
-ag.deepthink; revised once after cx.deepthink's independent ratification
-review found 11 real corrections (cc verified each directly against the
-repo before relaying them back for revision). Pending one more
-cross-review pass before implementation begins, following the same
-discipline used for every prior slice in this project.
+Status: **RATIFIED AND SHIPPED.** Header corrected 2026-08-11 — it had
+been left at "proposed, not yet ratified" long after the slice landed.
+Verified against the tree: `peerhub/dispatch/pipe.py`,
+`peerhub/dispatch/process.py`, `peerhub/dispatch/materializer.py`,
+`peerhub/adapters/contract.py`, and `tools/fake_peer/` all exist and are
+in active use. `peerhub/dispatch/pty.py` is deliberately absent per this
+document's own "PTY probe run, empirical resolution" section below —
+that is the ratified outcome, not an unfinished deliverable.
+
+Original drafting history: drafted by ag.deepthink; revised once after
+cx.deepthink's independent ratification review found 11 real corrections
+(cc verified each directly against the repo before relaying them back for
+revision), following the same discipline used for every prior slice in
+this project.
 
 ## Process summary
 
@@ -257,11 +265,13 @@ with `ImportError` for this reason):
 These 5 items need an explicit ratification round (a genuine
 architectural decision, not a mechanical fill-in) before
 `peerhub/adapters/contract.py` and `peerhub/builtins/fake_adapter.py`
-can be written. Also note: `docs/design/SLICE5-KICKOFF-R1.md`'s own
-status line still reads "proposed... not yet ratified" even though the
-*scope* (Phase 2) is unanimously ratified -- the doc's remaining
-"proposed" status refers to these unresolved *content* details, not the
-scope choice.
+can be written. Also note: at the time this paragraph was written, this
+document's own status line still read "proposed... not yet ratified"
+even though the *scope* (Phase 2) was already unanimously ratified --
+the remaining "proposed" status referred to these unresolved *content*
+details, not the scope choice. **Both are now closed**: the 5 items were
+resolved in the adapter-boundary ratification below, and the status line
+was corrected 2026-08-11 (the code it gated has long since shipped).
 
 ## Adapter-boundary ratification proposals (2026-08-01) -- NOT YET
 ## APPLIED, code work deferred to next session

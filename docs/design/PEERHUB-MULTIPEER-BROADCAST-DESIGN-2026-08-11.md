@@ -1,14 +1,20 @@
 # PeerHub multi-peer broadcast / consensus design (2026-08-11)
 
-Status: **draft 3 — revised after two rounds of dialectical review.** No
-code written. Same process as the capability-lease design and the Alembic
-increment-2 decision: this document is the artifact a ratification round
-votes on, not a plan already agreed.
+Status: **ratified through three dialectical review rounds and closed by
+a validated prototype.** Migration `0020_broadcast_correlation` and its
+7-test harness landed in commit `8650314`; see Section 8. (Header
+corrected 2026-08-11 — it previously read "draft 3 … No code written,"
+which stopped being true when `0020` landed.)
 
-Both rounds endorsed the direction (the Primitive A / Primitive B split)
-and found errors in the implementation reasoning: seven in round 1, six
-in round 2. All thirteen are addressed; **Section 7** has the disposition
-tables.
+All three rounds endorsed the direction (the Primitive A / Primitive B
+split) and found errors in the implementation reasoning: seven in round
+1, six in round 2, two in round 3. All fifteen are addressed;
+**Section 7** has the disposition tables.
+
+What remains unbuilt for Primitive A is the coordinator itself —
+`BroadcastCoordinator.fan_out()`, disposition computation, deadline
+closing, and partial-failure semantics. The prototype validated the
+schema and the admission/idempotency identity path only.
 
 Draft 3's headline change is a **descope**. Durable response transcripts
 are removed from Primitive A's initial increment and deferred to their
@@ -945,46 +951,66 @@ correctly-placed boundary.
   keeps response text in memory, exactly as the single-peer path does
   today.
 
-### 5.3 Open questions for the ratification round
+### 5.3 Question status — both Primitive-A gates are CLOSED
 
-Draft 2's question 1 (durable vs. in-memory) is **resolved** by
-Section 3.3: correlation durable, content deferred. Its retention-window
-sub-question moves with the deferred increment. What remains:
+> **Updated 2026-08-11 (Stage 0 accuracy pass).** This section previously
+> listed two questions as "gating Primitive A." **Both are resolved.** An
+> implementer reading the old text would have wrongly concluded design
+> work remained before `fan_out()` could be built. It does not.
 
-1. **Is correlation-durable the right floor, or is fully in-memory
-   enough?** (Section 3.3.2). The case for correlation is that recovery
-   must not re-dispatch a leg that already ran and already spent quota —
-   directly relevant to tonight's three `ag` crashes. The case against is
-   that any schema is over-built for a pattern peerhub has never run. I
-   recommend correlation-durable; this is the one remaining scope
-   question and it is small either way.
-2. **Recovery shape: resubmission-with-matching-digest, or prompt
-   retention?** (Section 3.2.1). I recommend resubmission, because
-   retention smuggles content durability back in through a side door. A
-   round whose caller is gone then cannot be resumed — an accepted,
-   stated limitation.
+**Resolved — no longer gating:**
+
+1. ~~Is correlation-durable the right floor, or is fully in-memory
+   enough?~~ **RESOLVED: correlation-durable.** Migration
+   `0020_broadcast_correlation` landed (commit `8650314`) storing
+   correlation only — no response text, digest, or artifact column. The
+   deciding argument is in Section 3.3.1: response-transcript durability
+   is a dispatch-layer property, and giving broadcast a stronger
+   guarantee than the path it wraps inverts the layering Section 3.1
+   protects. The retention-window sub-question moved to the deferred
+   transcript increment (3.3.3).
+2. ~~Recovery shape: resubmission-with-matching-digest, or prompt
+   retention?~~ **RESOLVED: resubmission-with-matching-digest.** Round 3
+   (Section 7.3, finding 2) bound the leg idempotency key —
+   domain-separated hashes of `(broadcast_round_id,
+   canonical_leg_target)` — into `envelope.params`, which is inside the
+   hashed payload projection. A replay under changed prompt content now
+   fails by digest, proven by
+   `test_broadcast_leg_prompt_digest_conflict_is_rejected`. Prompt
+   retention was rejected because it smuggles content durability back in
+   through a side door.
+
+**Still open, none blocking Primitive A's implementation:**
+
 3. **SQLite write contention under concurrent legs** (Section 3.5).
-   `TEST NEEDED` before any parallel implementation — not before the
-   sequential one. Not a blocker for ratification.
+   `TEST NEEDED` before any *parallel* implementation — not before the
+   sequential one. The first increment is sequential by design.
 4. **Should peerhub's broadcast read hub.py's peer health, or only its
-   own?** Section 2.3 argues only its own. That means peerhub and hub.py
-   can disagree about who is eligible during the transition window. I
-   believe that is correct and the alternative is worse, but it is a real
-   consequence and should be voted on rather than assumed.
+   own?** Section 2.3 argues only its own, accepting that the two systems
+   can disagree about eligibility during the transition window. Should be
+   voted on rather than assumed, but does not block `fan_out()`.
 5. **Does `ConsensusRound` need a separate immutable decision receipt?**
-   (Section 5.2). Deferred to B's detailed design, flagged so it is not
-   lost. Not a blocker for A.
+   (Section 5.2). Deferred to Primitive B's detailed design.
 
-Only questions 1 and 2 gate Primitive A. Questions 3-5 can be answered
-after ratification without reopening this design.
+**Net: `BroadcastCoordinator.fan_out()` is ready to implement against
+Section 6 with no unresolved design question.** What is unbuilt is code,
+not decisions.
 
 ---
 
-## Section 6 — What would be implemented first, if ratified
+## Section 6 — Implementation sequence
 
-Not a commitment; a scoping sketch so the round has something concrete to
-vote on. Draft 3's descope removes draft 2's response-durability step
-entirely and shrinks step 3.
+> **Updated 2026-08-11 (Stage 0 accuracy pass).** This section opened
+> "Not a commitment; a scoping sketch so the round has something concrete
+> to vote on." That was accurate for draft 3, and it is why the roadmap's
+> earlier claim that Section 6 was "a ready-to-execute spec" was
+> challenged in review. With round 3 closed and step 2 landed as
+> migration `0020`, the sketch has become the sequence: **steps 1-2 are
+> done, steps 3-6 are the remaining work**, and Section 5.3 records that
+> no design question gates them.
+
+Draft 3's descope removed draft 2's response-durability step entirely and
+shrank step 3.
 
 1. **Contracts only** — `BroadcastRound`/`BroadcastLeg` frozen DTOs plus
    validation, no call sites. Mirrors capability-lease increment 1.

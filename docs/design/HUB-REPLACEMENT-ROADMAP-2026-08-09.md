@@ -38,6 +38,21 @@ Status: COMPLETED (Steps E1, E2, E3, and F completed).
     (`test_migration_0017_drop_legacy_outbox.py`) taking an online SQLite `.backup()` snapshot at v16,
     applying migration 0017, asserting tables dropped and foreign keys intact, then restoring
     and verifying pre-drop v16 operational state.
+- **Outbox table split -- COMPLETE** (tracked here for the first time
+  2026-08-11; the progress notes in `OUTBOX-SPLIT-PROGRESS-2026-08-09.md`
+  were never folded into this roadmap). The additive/dual-write
+  increments (`a40c301`, `88c53e6`, `b652543`) and all three steps that
+  document lists under "What's left" have since landed. **That document
+  is now stale and should be read as history, not as an open work item.**
+  Verified 2026-08-11 against a freshly-migrated head database
+  (`empirical_probe`): `outbox_events` absent, `outbox_checkpoints`
+  absent, `effect_deliveries` present, and `effect_receipts`' FK targets
+  `effect_deliveries(event_id)` -- i.e. the read-path cutover (Step E3),
+  the previously-deferred FK (migration 0015 / Step E1), and the table
+  drop (migration 0017 / Step F) are all done. `sqlite_governance.py`'s
+  `list_outbox_events*` methods retain the legacy *name* but read from
+  `event_log`/`effect_deliveries`; the naming is cosmetic debt, not
+  pending cutover work.
 - Alembic Scope Note: Alembic cutover remains strictly scoped to Phase 2 (Structural
   debt). The bespoke runner (`peerhub/persistence/migrations/*.sql`) is the sole
   runtime migration engine in Phase 1.
@@ -507,10 +522,19 @@ context/quota state, retry/failover on peer trouble).
   dispatches (hub.py's diag reads CLI-native stat files per peer; a
   peerhub-orchestrated dispatch would need to either read the same files
   or maintain its own).
-- **Multi-peer broadcast/consensus -- gap identified 2026-08-11, designed
-  and revised through two dialectical review rounds the same day. See
-  `PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md` (draft 3); awaiting
-  a ratification round.** hub.py has real primitives for this
+- **Multi-peer broadcast/consensus -- gap identified 2026-08-11; designed,
+  revised through three dialectical review rounds, and closed by a
+  validated prototype the same day (commit `8650314`). See
+  `PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md`.** Primitive A's
+  correlation schema has landed as migration `0020_broadcast_correlation`
+  with 7 passing tests
+  (`tests/integration/persistence/test_broadcast_correlation_schema.py`);
+  the design doc's Sections 7.3 and 8 record round 3 and the prototype
+  evidence. The `BroadcastCoordinator.fan_out()` implementation itself
+  (fan-out loop, disposition computation, deadline closing,
+  partial-failure semantics) is **not yet built** -- the prototype
+  validated the schema and the admission/idempotency identity path only.
+  hub.py has real primitives for this
   that Phase 3's scope above doesn't mention: `ask-all`
   (parallel-broadcasts one query to every active peer, threaded, collects
   and prints all responses -- `hub.py:7564`), a full
@@ -549,17 +573,11 @@ context/quota state, retry/failover on peer trouble).
     can disagree about the same decision.
 
   R:10 plus `protocol.md` §4.4 genuinely cannot be expressed without
-  per-voter voting records (explicit agreement, absence != approval, a
-  frozen quorum denominator, a non-proposer requirement, a defined close
-  moment), so the voting primitive is specified in full in the design
-  doc against a named trigger. Round 1 moved that trigger to the correct
-  side of the line: Primitive B is a **readiness prerequisite** that must
-  be built, tested and ratified *before* the first
-  `r10_requires_finalized_for` decision class is routed to peerhub -- it
-  enters the Phase 4 shadow-validation gate as a blocking item, rather
-  than being started after R:10 traffic has already arrived. Nothing
-  routes through peerhub today, so it remains documented and unbuilt --
-  same posture as the Alembic increment-2 hold.
+  per-voter voting records, so Primitive B (`ConsensusRound`) is
+  specified in full in the design doc against a named trigger. **It is
+  tracked under Phase 4 as a blocking gate, not here** -- round 1 of the
+  design review moved that trigger to the correct side of the line. See
+  the Phase 4 entry below.
 
   The two review rounds cut the build down rather than growing it, each
   time off a verified defect. Round 1 invalidated draft 1's durability
@@ -585,7 +603,21 @@ context/quota state, retry/failover on peer trouble).
   the same way it inherits the capability-lease gate. Primitive A is now
   one coordinator, two correlation tables, and a sequential fan-out;
   cycle safety is enforced by a `BEFORE INSERT` trigger measured across
-  seven cases. Two open questions gate ratification, both small.
+  seven cases.
+
+  Round 3 then found two further defects -- `INSERT OR REPLACE` could
+  bypass the `wave_of` immutability trigger, and the idempotency-key
+  namespace was unspecified so two legs could alias one command -- which
+  met the pre-committed stop-paper threshold. Both are fixed and
+  empirically tested in migration `0020`. Draft 3's two remaining open
+  questions are resolved: correlation-durable is the ratified floor (the
+  landed schema stores no response content), and recovery is
+  resubmission-with-matching-digest (the leg idempotency key is bound
+  into `envelope.params`, so a changed prompt fails by digest).
+  **Deferred, each with a named trigger:** durable response transcripts
+  (a dispatch-layer increment, three known open problems recorded in the
+  design doc's Section 3.3.3), parallel fan-out (blocked on measuring
+  SQLite write contention), and Primitive B (Phase 4 gate, below).
 
 ## Phase 4 — Shadow validation before real cutover
 Status: not started (this is "Stage 4" from earlier Stage-numbered
@@ -599,6 +631,60 @@ planning, renamed into this roadmap's phase numbering for continuity).
 - This phase needs its own dedicated design pass -- larger and riskier
   than anything in Phase 1-3, since it's the first point where peerhub
   touches real dispatch traffic instead of only its own test/CLI usage.
+- **BLOCKING GATE: `ConsensusRound` / Primitive B must be built, tested,
+  and ratified BEFORE the first `r10_requires_finalized_for` decision
+  class is routed to peerhub.** Moved here from the Phase 3 backlog
+  2026-08-11 per the broadcast design doc's own Section 5.1 correction:
+  the trigger is the *decision* to route R:10 traffic, not its arrival.
+  Starting Primitive B after R:10 traffic already flows would leave a
+  window in which peerhub carries governed decisions it cannot
+  mechanically ratify. Fully specified in
+  `PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md` Section 4 (durable
+  state, decision function, failure/timeout, `deliberation_ref`);
+  deliberately unbuilt because a census found zero consensus rounds
+  opened in August 2026 and hub.py still owns protocol enforcement.
+  Ordering constraint: the deferred durable-response-transcript increment
+  must land **before or with** Primitive B, or `deliberation_ref` ships
+  as an evidence field that cannot be audited.
+
+## Cross-cutting tracked items (not owned by a single phase)
+
+Added 2026-08-11 -- these were ratified or recorded in design docs but
+had never appeared in this roadmap.
+
+- **`tools/peerhub_facts/` -- ratified procedure, tool NOT built.** The
+  fact-refresh procedure is fully specified in
+  `FACT-REFRESH-PROCEDURE-R1.md` (what it checks, where expected facts
+  live, output contract, test counts, cadence), and that document's own
+  "Implementation status" section states the tool "is **not yet built**
+  -- this is the next concrete implementation task." Verified 2026-08-11:
+  `tools/` contains `drift_report`, `fake_peer`, `migration_ledger`,
+  `phase0_fixture_runner`, `shared_seam_ledger`, and `surface_manifest`
+  -- no `peerhub_facts`. Tracking only; no scheduling decision recorded
+  here. Worth noting the motivation is live: this Stage 0 pass existed
+  precisely because doc/source drift accumulated unnoticed, which is the
+  drift `peerhub_facts` is designed to catch.
+- **Capability-lease enforcement-evidence prerequisites -- zero code,
+  trigger-gated.** `CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md`
+  Section 8 concluded that no real adapter can supply DIR-004-qualifying
+  enforcement evidence today, so every provider keeps
+  `enforcement_ceiling=None` / `source_tag="absent"` and
+  `dispatch_and_execute()` keeps its honest `"unverified"` receipt
+  fields. **Trigger: before any adapter's receipt is changed to a
+  positive enforcement claim, all four of the following must exist** --
+  (1) a machine-owned launcher/evidence provider that prepares and
+  attests the realized control for the exact invocation before the
+  process can execute, rather than echoing adapter argv; (2) that
+  observation bound to a canonical digest of the exact materialized
+  plan/process identity, carrying a DIR-004 source tag; (3) an empirical
+  negative probe demonstrating the claimed boundary actually blocks the
+  prohibited mutation for that adapter/profile/control combination; and
+  (4) the post-plan gate comparing the receipt against that independent
+  observation before dispatch intent commits (the current revalidation
+  hook checks the capability binding and policy revision but does not yet
+  corroborate `controls_description`, `evidence_source_tag`, or
+  `plan_digest`). Until then, changing a receipt would fabricate evidence
+  and violate DIR-004.
 
 ## Working discipline for all phases (carried forward from tonight)
 - Small, independently-verifiable increments -- no single dispatch

@@ -144,8 +144,9 @@ def _run_ask(
         )
     except KeyboardInterrupt:
         # TODO(Phase 3 increment 5): dispatch_and_execute() constructs its
-        # ProcessSupervisor internally (workflows.py:686), so the CLI has no
-        # live cancellation handle. Add a supervisor/cancellation hook there,
+        # ProcessSupervisor internally (peerhub/application/workflows.py:748),
+        # so the CLI has no live cancellation handle. Add a
+        # supervisor/cancellation hook there,
         # then route Ctrl-C through ProcessSupervisor.begin_cancellation() and
         # its SOFT_CANCEL -> TERMINATE_TREE -> KILL_TREE cleanup ladder.
         print(
