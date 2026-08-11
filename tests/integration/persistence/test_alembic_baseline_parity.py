@@ -29,13 +29,26 @@ def _normalize_sql(sql: str | None) -> str | None:
     return re.sub(r"\s+", " ", sql.strip()).replace('"', "")
 
 
-def _build_bespoke_database(path: Path) -> None:
-    store = SqliteStateStore(
-        path,
-        workspace_home_id="alembic-baseline-parity-workspace",
+def _build_bespoke_v19_database(path: Path) -> None:
+    """Apply exactly the migration sequence represented by the v19 baseline."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    migrations = tuple(
+        migration
+        for migration in SqliteStateStore._available_migrations()
+        if migration[0] <= 19
     )
-    store.initialize()
-    store.close()
+    assert tuple(version for version, _ in migrations) == tuple(range(1, 20))
+
+    connection = sqlite3.connect(path, isolation_level=None)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    try:
+        for version, filename in migrations:
+            SqliteStateStore._apply_migration(connection, version, filename)
+        assert tuple(connection.execute("PRAGMA foreign_key_check")) == ()
+    finally:
+        connection.close()
 
 
 def _alembic_config() -> Config:
@@ -130,7 +143,7 @@ def test_consolidated_alembic_baseline_matches_bespoke_v19(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bespoke_path = tmp_path / "bespoke.sqlite3"
-    _build_bespoke_database(bespoke_path)
+    _build_bespoke_v19_database(bespoke_path)
 
     alembic_workspace = tmp_path / "alembic-workspace"
     alembic_database_dir = alembic_workspace / ".peerhub"
@@ -189,7 +202,7 @@ def test_stamp_marks_existing_bespoke_v19_without_replaying_schema(
     database_dir = workspace / ".peerhub"
     database_dir.mkdir(parents=True)
     database_path = database_dir / "peerhub.sqlite3"
-    _build_bespoke_database(database_path)
+    _build_bespoke_v19_database(database_path)
     before = _domain_schema_inventory(database_path)
 
     monkeypatch.chdir(workspace)

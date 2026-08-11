@@ -507,31 +507,85 @@ context/quota state, retry/failover on peer trouble).
   dispatches (hub.py's diag reads CLI-native stat files per peer; a
   peerhub-orchestrated dispatch would need to either read the same files
   or maintain its own).
-- **Multi-peer broadcast/consensus -- gap identified 2026-08-11, not yet
-  designed.** hub.py has real primitives for exactly this that Phase 3's
-  scope above doesn't mention at all: `ask-all` (parallel-broadcasts one
-  query to every active peer, threaded, collects and prints all
-  responses -- `hub.py:7564`), a full `consensus-propose`/`-vote`/
-  `-check`/`-sweep` subsystem (round-based, voter-health-eligibility
-  filtering, a frozen `quorum_snapshot` so a mid-round peer-health change
-  can't retroactively change the rule, `collab_rate`-driven
-  unanimous-vs-majority decision, `MAX_ROUNDS=3` before forced human
-  escalation -- `hub.py:7676` on), plus `ask-coordinator`, room/thread
-  primitives, and `new-topic`. `protocol.json`'s `collab_rate=10` and
-  `CLAUDE.md`'s R:6-10 trigger rules (peer cross-check on ambiguity,
-  unanimous Final Audit) are *implemented by* this machinery today --
-  it's load-bearing for the actual collaboration protocol this whole
-  environment runs under, not a peripheral feature. Every dialectical
-  round run manually this session (e.g. the Alembic increment-2
-  ratification) was a hand-rolled approximation of what `ask-all` +
-  `consensus-propose` already do natively in hub.py, including at least
-  one real mistake (an IPC file accidentally reused across two different
-  peer targets, caught only because the second dispatch failed loudly).
-  Needs its own detailed design pass before Phase 3 can be scoped as
-  "done" -- see the in-progress dispatch investigating whether peerhub
-  needs hub.py's full consensus formality or a simpler broadcast +
-  cross-critique primitive matching what this session's actual usage
-  pattern looked like.
+- **Multi-peer broadcast/consensus -- gap identified 2026-08-11, designed
+  and revised through two dialectical review rounds the same day. See
+  `PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md` (draft 3); awaiting
+  a ratification round.** hub.py has real primitives for this
+  that Phase 3's scope above doesn't mention: `ask-all`
+  (parallel-broadcasts one query to every active peer, threaded, collects
+  and prints all responses -- `hub.py:7564`), a full
+  `consensus-propose`/`-vote`/`-check`/`-sweep` subsystem (round-based,
+  voter-health-eligibility filtering, a frozen `quorum_snapshot`,
+  `collab_rate`-driven unanimous-vs-majority decision, `MAX_ROUNDS=3`
+  before forced human escalation -- `hub.py:7676` on), plus
+  `ask-coordinator`, room/thread primitives, and `new-topic`.
+
+  The design pass **split the gap in two and recommends building only
+  half of it now**, on measured grounds:
+
+  - *Broadcast is justified and should be built.* Every dialectical
+    round run this session was a two-wave fan-out (N independent
+    positions, then a cross-critique wave over a synthesis) with no
+    voting anywhere in it. The design makes each leg an ordinary
+    dispatch -- own `CommandID`, own admission, own capability lease,
+    own attempt -- so broadcast inherits the capability-lease
+    enforcement gate instead of sitting beside it. The IPC file-reuse
+    defect hit this session cannot recur, though *not* for the reason
+    draft 1 gave: round 1 verified that all three real adapters inline
+    the prompt into `argv` and materialize no prompt artifact at all
+    (`artifacts=()`), so the property holds because the broadcast
+    contract accepts prompt *content* and never a caller-owned
+    query-file path -- there is no shared file to reuse.
+  - *Formal consensus is designed but deliberately NOT built yet.* A
+    census of `.ai/consensus/*.json` found 65 real rounds, 61 of them in
+    July and **zero in August** -- the Alembic increment-2 ratification
+    itself, an R:10-class `governed_decision`, opened no formal round at
+    all. Timestamp analysis shows 44% of historical rounds had every
+    vote land within 2 seconds, i.e. batch-written by one actor after
+    the deliberation concluded elsewhere; the round file is functioning
+    as a ratification receipt, not as the decision mechanism. Porting
+    voting machinery whose current adoption is zero, while hub.py still
+    owns protocol enforcement, would produce two consensus systems that
+    can disagree about the same decision.
+
+  R:10 plus `protocol.md` §4.4 genuinely cannot be expressed without
+  per-voter voting records (explicit agreement, absence != approval, a
+  frozen quorum denominator, a non-proposer requirement, a defined close
+  moment), so the voting primitive is specified in full in the design
+  doc against a named trigger. Round 1 moved that trigger to the correct
+  side of the line: Primitive B is a **readiness prerequisite** that must
+  be built, tested and ratified *before* the first
+  `r10_requires_finalized_for` decision class is routed to peerhub -- it
+  enters the Phase 4 shadow-validation gate as a blocking item, rather
+  than being started after R:10 traffic has already arrived. Nothing
+  routes through peerhub today, so it remains documented and unbuilt --
+  same posture as the Alembic increment-2 hold.
+
+  The two review rounds cut the build down rather than growing it, each
+  time off a verified defect. Round 1 invalidated draft 1's durability
+  argument: `AskResult` carries only outcome metadata, and
+  `DecodedOutput.canonical_text` -- the actual response text -- is
+  persisted nowhere, so a correlation row alone would record that a
+  response existed with no way to read it. Round 2 then found three
+  integrity gaps in draft 2's fix (the artifact subsystem is
+  input-oriented and cannot capture output; a crash window sits between
+  attempt terminalization and spill; a non-null reference column proves
+  nothing about retrievability), plus a **proven** cycle-safety bug --
+  SQLite defers FK checking to end-of-statement, so a single multi-row
+  INSERT could create a `wave_of` cycle that draft 2's CHECK+FK claimed
+  to prevent.
+
+  Draft 3 therefore **descopes durable response transcripts out of the
+  initial increment** to their own separately-ratified increment, with
+  those three gaps recorded as its known open problems. The deciding
+  argument is layering, not cost: draft 2 would have given broadcast a
+  stronger durability guarantee than the single-peer dispatch path it
+  wraps, when `direct_ask` drops response text today. Transcript
+  durability is a dispatch-layer property; broadcast should inherit it
+  the same way it inherits the capability-lease gate. Primitive A is now
+  one coordinator, two correlation tables, and a sequential fan-out;
+  cycle safety is enforced by a `BEFORE INSERT` trigger measured across
+  seven cases. Two open questions gate ratification, both small.
 
 ## Phase 4 — Shadow validation before real cutover
 Status: not started (this is "Stage 4" from earlier Stage-numbered

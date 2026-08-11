@@ -20,7 +20,8 @@ from peerhub.persistence.sqlite import SqliteStateStore
 
 
 REAL_MIGRATIONS = Path(str(resources.files("peerhub.persistence.migrations")))
-LATEST_PACKAGED_VERSION = 19
+LATEST_PACKAGED_VERSION = 20
+NEXT_PACKAGED_VERSION = LATEST_PACKAGED_VERSION + 1
 
 
 def _store(path: Path) -> SqliteStateStore:
@@ -100,7 +101,7 @@ def _table_exists(path: Path, table: str) -> bool:
         )
 
 
-_WELL_FORMED_0020 = """
+_WELL_FORMED_NEXT = f"""
 BEGIN IMMEDIATE;
 
 CREATE TABLE sequence_probe (
@@ -108,14 +109,14 @@ CREATE TABLE sequence_probe (
 );
 
 INSERT INTO schema_migrations(version, name)
-VALUES (20, '0020_sequence_probe');
+VALUES ({NEXT_PACKAGED_VERSION}, '{NEXT_PACKAGED_VERSION:04d}_sequence_probe');
 
-PRAGMA user_version = 20;
+PRAGMA user_version = {NEXT_PACKAGED_VERSION};
 
 COMMIT;
 """
 
-_UNRECORDED_0020 = """
+_UNRECORDED_NEXT = """
 BEGIN IMMEDIATE;
 
 CREATE TABLE sequence_probe (
@@ -157,7 +158,11 @@ def test_migration_file_on_disk_is_applied_without_code_registration(
         monkeypatch,
         _migration_dir(
             tmp_path,
-            extra={"0020_sequence_probe.sql": _WELL_FORMED_0020},
+            extra={
+                f"{NEXT_PACKAGED_VERSION:04d}_sequence_probe.sql": (
+                    _WELL_FORMED_NEXT
+                )
+            },
         ),
     )
     database_path = _database_path(tmp_path)
@@ -166,8 +171,10 @@ def test_migration_file_on_disk_is_applied_without_code_registration(
     store.initialize()
     store.close()
 
-    assert _applied(database_path) == tuple(range(1, 21))
-    assert _user_version(database_path) == 20
+    assert _applied(database_path) == tuple(
+        range(1, NEXT_PACKAGED_VERSION + 1)
+    )
+    assert _user_version(database_path) == NEXT_PACKAGED_VERSION
     assert _table_exists(database_path, "sequence_probe")
 
 
@@ -188,7 +195,11 @@ def test_existing_database_picks_up_a_newly_added_migration(
         monkeypatch,
         _migration_dir(
             tmp_path,
-            extra={"0020_sequence_probe.sql": _WELL_FORMED_0020},
+            extra={
+                f"{NEXT_PACKAGED_VERSION:04d}_sequence_probe.sql": (
+                    _WELL_FORMED_NEXT
+                )
+            },
             name="after",
         ),
     )
@@ -196,7 +207,9 @@ def test_existing_database_picks_up_a_newly_added_migration(
     store.initialize()
     store.close()
 
-    assert _applied(database_path) == tuple(range(1, 21))
+    assert _applied(database_path) == tuple(
+        range(1, NEXT_PACKAGED_VERSION + 1)
+    )
     assert _table_exists(database_path, "sequence_probe")
 
 
@@ -214,7 +227,11 @@ def test_migration_that_does_not_record_itself_fails_loudly(
         monkeypatch,
         _migration_dir(
             tmp_path,
-            extra={"0020_sequence_probe.sql": _UNRECORDED_0020},
+            extra={
+                f"{NEXT_PACKAGED_VERSION:04d}_sequence_probe.sql": (
+                    _UNRECORDED_NEXT
+                )
+            },
         ),
     )
     database_path = _database_path(tmp_path)
@@ -224,7 +241,7 @@ def test_migration_that_does_not_record_itself_fails_loudly(
         store.initialize()
 
     message = str(failure.value)
-    assert "20" in message
+    assert str(NEXT_PACKAGED_VERSION) in message
     assert "schema_migrations" in message
 
 
@@ -243,14 +260,18 @@ def test_database_recording_unknown_migrations_is_rejected(
     with sqlite3.connect(database_path) as connection:
         connection.execute(
             "INSERT INTO schema_migrations(version, name) "
-            "VALUES (20, '0020_from_a_newer_build')"
+            "VALUES (?, ?)",
+            (
+                NEXT_PACKAGED_VERSION,
+                f"{NEXT_PACKAGED_VERSION:04d}_from_a_newer_build",
+            ),
         )
         connection.commit()
 
     with pytest.raises(RuntimeError) as failure:
         _store(database_path).initialize()
 
-    assert "20" in str(failure.value)
+    assert str(NEXT_PACKAGED_VERSION) in str(failure.value)
 
 
 def test_interrupted_sequence_raises_then_resumes_on_retry(
@@ -322,8 +343,12 @@ def test_duplicate_migration_version_is_rejected(
         _migration_dir(
             tmp_path,
             extra={
-                "0020_sequence_probe.sql": _WELL_FORMED_0020,
-                "0020_duplicate_probe.sql": _WELL_FORMED_0020,
+                f"{NEXT_PACKAGED_VERSION:04d}_sequence_probe.sql": (
+                    _WELL_FORMED_NEXT
+                ),
+                f"{NEXT_PACKAGED_VERSION:04d}_duplicate_probe.sql": (
+                    _WELL_FORMED_NEXT
+                ),
             },
         ),
     )
@@ -344,11 +369,15 @@ def test_noncontiguous_migration_versions_are_rejected(
         monkeypatch,
         _migration_dir(
             tmp_path,
-            extra={"0021_sequence_probe.sql": _WELL_FORMED_0020},
+            extra={
+                f"{NEXT_PACKAGED_VERSION + 1:04d}_sequence_probe.sql": (
+                    _WELL_FORMED_NEXT
+                )
+            },
         ),
     )
 
     with pytest.raises(RuntimeError) as failure:
         _store(_database_path(tmp_path)).initialize()
 
-    assert "20" in str(failure.value)
+    assert str(NEXT_PACKAGED_VERSION) in str(failure.value)
