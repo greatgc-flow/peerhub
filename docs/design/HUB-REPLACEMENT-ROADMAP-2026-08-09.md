@@ -295,6 +295,33 @@ bespoke runner handles all four real-world states correctly today (rows
 A-D1 above), and increment 1's baseline retains its value as the
 parity-proven schema-of-record and the documented stamp target.
 
+#### Bespoke runner sequence-derivation fix (`a493843`, landed 2026-08-11)
+The "cross-sequence atomicity" hypothesis from the increment 2
+investigation was itself wrong: a mid-sequence crash already raises
+loudly and resumes cleanly on retry (per-migration transactions +
+`schema_migrations` already made this safe). The real, previously
+invisible silent-desync class was code/file desync — `initialize()`
+applied migrations off a hand-maintained ladder of `if N not in
+versions:` guards in `sqlite.py`, so shipping a new `.sql` file without
+also adding its guard returned normally while silently never applying
+it. Fixed by deriving the applied sequence from the packaged migrations
+directory itself, plus two new fail-closed checks: a database recording
+migrations this build doesn't ship is rejected (previously invisible
+downgrade-in-place risk), and any migration that runs without recording
+itself in `schema_migrations` now fails loudly instead of silently
+re-running forever. 9 new tests, each guard mutation-tested.
+
+**Known follow-up, deliberately not bundled into the above fix**: the
+same investigation found migrations 0016-0019's documented "fail-closed"
+in-transaction `PRAGMA foreign_key_check` doesn't actually raise -- SQLite
+returns violation rows rather than raising, and `executescript()`
+discards results, so the pre-`COMMIT` gate described in
+`docs/migrations.md` is currently a no-op. Severity is lowered by
+`initialize()`'s end-of-sequence `foreign_key_check`, which does catch
+violations and raise -- just after commit rather than before, and
+without naming which migration caused them. Not yet scheduled as its own
+increment.
+
 ### Capability-lease design implementation
 Status: **APPROVED, implementation COMPLETE.** All 5 increments of
 Section 7.5's plan are committed (increment 5 closed as a deliberate
