@@ -390,9 +390,11 @@ This design should land in independently reviewable increments:
 
 Mandatory negative tests include: omitted/unknown tier; missing or caller-forged authenticated subject; caller-supplied or mismatched lease ID; missing durable lease; request/receipt/session-lease/principal cross-binding mismatch; tier or route-digest mismatch; expired or revoked lease; policy revision changing before pre-plan validation or between planning and dispatch-intent recording; target/profile/peer-kind substitution; replay attempting to mint a second lease; missing/unknown enforcement evidence; and ag mutating at `ADVISORY` or `ENFORCED`. The ag tests must assert `plan_invocation()` and `run_process()` were never called. A controlled fake may demonstrate the positive `CONFINED` path; it is not evidence that real ag confinement exists.
 
-### 7.6 Remaining user decision
+### 7.6 Remaining user decision — RESOLVED 2026-08-11
 
 No security-critical ambiguity remains in these four corrections. The fail-closed choices are explicit: lease issuance is coordinator-owned, omission of the required tier is invalid, caller-provided lease values are untrusted, and ag mutation is denied until invocation-correlated `CONFINED` evidence exists. A future product decision may add a convenience CLI default of `READ_ONLY`, but that is intentionally outside this ratification because the current correction requires no default and no prompt-text inference.
+
+**Decision (user, 2026-08-11): keep `--capability-tier` mandatory, no default.** Explicit rationale given: a convenience default would let a caller who genuinely needs a higher tier (`WORKTREE_WRITE`/`GIT_MUTATE`/`REMOTE_MUTATE`) but forgets the flag get silently downgraded to a quietly-limited `READ_ONLY` run instead of a loud error — an unintended-behavior risk judged worse than the extra typing. No CLI default will be added; `cli.py`'s parser keeps `--capability-tier` required with no fallback.
 
 ## Section 8 — Increment 5 real-adapter evidence audit (2026-08-11)
 
