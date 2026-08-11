@@ -326,16 +326,20 @@ downgrade-in-place risk), and any migration that runs without recording
 itself in `schema_migrations` now fails loudly instead of silently
 re-running forever. 9 new tests, each guard mutation-tested.
 
-**Known follow-up, deliberately not bundled into the above fix**: the
-same investigation found migrations 0016-0019's documented "fail-closed"
-in-transaction `PRAGMA foreign_key_check` doesn't actually raise -- SQLite
-returns violation rows rather than raising, and `executescript()`
-discards results, so the pre-`COMMIT` gate described in
-`docs/migrations.md` is currently a no-op. Severity is lowered by
-`initialize()`'s end-of-sequence `foreign_key_check`, which does catch
-violations and raise -- just after commit rather than before, and
-without naming which migration caused them. Not yet scheduled as its own
-increment.
+**Follow-up fixed (`b6a827a`, 2026-08-12).** Migrations 0016-0020's
+documented "fail-closed" in-transaction `PRAGMA foreign_key_check` was a
+no-op -- SQLite returns violation rows rather than raising, and
+`executescript()` discards results. L1 triage first investigated all 20
+migrations empirically for any that intentionally rely on a transient
+cross-migration FK violation (none do), then `_apply_migration()` was
+given its own Python-side `PRAGMA foreign_key_check` after each
+migration's `executescript()`, raising immediately and naming the exact
+migration (version + filename) if violations exist. Independently
+reproduced by a second peer: the real improvement is attribution and
+fail-fast (a violating migration is now caught before any later
+migration can run on top of the bad state), not detection-from-zero --
+`initialize()`'s pre-existing end-of-sequence check was already a
+backstop. 9-case migration-sequence suite stayed green throughout.
 
 ### Capability-lease design implementation
 Status: **APPROVED, implementation COMPLETE.** All 5 increments of
@@ -652,18 +656,26 @@ planning, renamed into this roadmap's phase numbering for continuity).
 Added 2026-08-11 -- these were ratified or recorded in design docs but
 had never appeared in this roadmap.
 
-- **`tools/peerhub_facts/` -- ratified procedure, tool NOT built.** The
-  fact-refresh procedure is fully specified in
-  `FACT-REFRESH-PROCEDURE-R1.md` (what it checks, where expected facts
-  live, output contract, test counts, cadence), and that document's own
-  "Implementation status" section states the tool "is **not yet built**
-  -- this is the next concrete implementation task." Verified 2026-08-11:
-  `tools/` contains `drift_report`, `fake_peer`, `migration_ledger`,
-  `phase0_fixture_runner`, `shared_seam_ledger`, and `surface_manifest`
-  -- no `peerhub_facts`. Tracking only; no scheduling decision recorded
-  here. Worth noting the motivation is live: this Stage 0 pass existed
-  precisely because doc/source drift accumulated unnoticed, which is the
-  drift `peerhub_facts` is designed to catch.
+- **`tools/peerhub_facts/` -- BUILT (`dd7e3f4`).** Implements the
+  fact-refresh procedure from `FACT-REFRESH-PROCEDURE-R1.md`: resolves
+  each real peer CLI (ag/cc/cx), captures version/help/dependency facts
+  via live (non-mocked) probes, compares against `docs/compatibility/`'s
+  shipped contracts, and reports drift with per-fact evidence metadata.
+  Two interrupted implementation sessions left a substantial but untested
+  partial version; a fresh pass verified the architecture matched spec
+  and fixed 5 real gaps (help-token substring-matching false positives,
+  decoder protocol/field comparison never actually running, a skippable
+  mandatory test run, `pip check` failure not mapping to the contracted
+  exit code 2, missing per-fact evidence metadata in the Markdown
+  report) rather than either blindly trusting or discarding the partial
+  work. Independently verified by a second peer, including running the
+  live probes itself (ag `1.1.12`, cc `2.1.222`, cx `0.147.0`, all
+  correctly resolved) and confirming the tool immediately found real
+  drift on this machine: `torch 2.12.1` requires `setuptools<82`, but
+  `83.0.0` is installed. Full suite 716 passed (up from 655), fresh
+  pyright clean (note: `tools/` and `tests/` are excluded from pyright's
+  `include` scope machine-wide, same as all 6 sibling `tools/*`
+  packages -- existing convention, not a gap introduced here).
 - **Capability-lease enforcement-evidence prerequisites -- zero code,
   trigger-gated.** `CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md`
   Section 8 concluded that no real adapter can supply DIR-004-qualifying
