@@ -138,12 +138,21 @@ Section 7.5's 5-increment plan are committed:
   actual TOCTOU window, not a re-test of the pre-plan gate).
   **Increment 4 is now fully complete** -- every item in errata Section 7
   is implemented and tested.
-- Increment 5 (adapter translation) not started: each real adapter
-  (`RealAgyAdapter`/`RealClaudeAdapter`/`RealCodexAdapter`) currently
-  contributes `InvocationEnforcementReceipt`s tagged `"unverified"`
-  (workflows.py, per `e8f7745`'s comment) rather than reporting an
-  actual measured enforcement vector -- this increment threads real
-  per-adapter evidence through, replacing the placeholder tags.
+- **Increment 5 (adapter translation) complete as an audit, not an
+  implementation** (`f9580f0`, errata Section 8): investigated whether any
+  real adapter (`RealAgyAdapter`/`RealClaudeAdapter`/`RealCodexAdapter`)
+  can supply DIR-004-qualifying evidence for `InvocationEnforcementReceipt`.
+  Finding: none can. All three construct argv with no sandbox/confinement
+  control and an empty environment delta, and the receipt is committed
+  before process spawn, so post-spawn observation can't retroactively
+  justify it. The placeholder `"unverified"` tags (workflows.py, per
+  `e8f7745`'s comment) are correct as-is and were deliberately left in
+  place rather than replaced with fabricated evidence. Section 8 records
+  the 4 prerequisites (attested pre-spawn control, plan-bound digest,
+  empirical negative probe, receipt corroboration at the post-plan gate)
+  required before any adapter's receipt can honestly go positive. **This
+  closes out the capability-lease design's Section 7.5 increment list --
+  no further increments are planned until those prerequisites exist.**
 
 Below is the design-history/ratification record (kept for context on
 *why* the design looks the way it does -- skip to "Status: APPROVED"
