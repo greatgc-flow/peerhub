@@ -76,17 +76,26 @@ Every commit independently re-verified by cc (pyright + full pytest),
 not just accepted on the implementing peer's self-report.
 
 ### Bespoke migration runner → Alembic full cutover
-Status: not started, but timing resolved. Both cx and ag independently
-confirmed post-Phase-1 schema v17 (current) is the correct point to
-generate a single consolidated Alembic baseline -- do NOT backport
-parity revisions for bespoke migrations 13-17 (Alembic is not invoked
-anywhere in the runtime or test suite; incremental parity would be
-unexercised double-maintenance). Baseline generation and the actual
-runtime cutover should be separate increments; before cutover, prove
-fresh-Alembic-v17 == fresh-bespoke-v17, define the stamping path for
-existing bespoke-v17 databases, and fix `docs/migrations.md`'s
-now-corrected guidance (Alembic explicitly frozen/unsupported until this
-lands, see that file).
+Status: increment 1 (consolidated baseline) completed; increment 2
+(runtime cutover) not started. The earlier “schema v17” wording was
+superseded when capability-lease migrations 0018 and 0019 landed: a
+fresh authoritative bespoke database now has 19 migration rows and
+`PRAGMA user_version = 19`.
+
+Increment 1 replaces the exploratory ~v12 Alembic chain with the single
+root revision `v19_consolidated`. The regression proof builds one fresh
+database through bespoke migrations 0001-0019 and another through that
+Alembic revision, then compares normalized table constraints, columns,
+types/defaults/nullability/PKs, foreign keys, explicit and automatic
+indexes, `schema_migrations`, `user_version`, and `foreign_key_check`.
+The domain schemas match; Alembic adds only its expected
+`alembic_version` control table. `docs/migrations.md` defines and tests
+the existing-database path: verify bespoke v19, then `alembic stamp
+v19_consolidated` without executing baseline DDL.
+
+The runtime still invokes only the bespoke runner. Increment 2 must
+switch that ownership explicitly; this baseline increment does not alter
+runtime initialization or migration dispatch.
 
 ### Capability-lease design implementation
 Status: **APPROVED, implementation COMPLETE.** All 5 increments of
