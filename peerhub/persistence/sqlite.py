@@ -1,14 +1,20 @@
 """SQLite WAL implementation of the PeerHub state-store port.
 
-Migrations are version-guarded and applied exactly once. Migration 0003
-fails closed when pre-Slice-3 lease rows exist because no ratified source
-can supply their missing command, attempt, or authority-epoch identities.
+Migrations are discovered from the packaged ``migrations`` directory and
+applied exactly once, in ascending order. The sequence a database needs is
+derived from the scripts that exist rather than from a hand-maintained
+ladder in code, so a script can never be shipped and silently never run.
+Migration 0003 fails closed when pre-Slice-3 lease rows exist because no
+ratified source can supply their missing command, attempt, or
+authority-epoch identities.
 """
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from importlib import resources
+from importlib.resources.abc import Traversable
 from pathlib import Path
 from types import TracebackType
 
@@ -81,6 +87,19 @@ from peerhub.telemetry.contract import (
 
 
 
+_MIGRATION_FILENAME = re.compile(r"\A(\d{4})_[A-Za-z0-9_]+\.sql\Z")
+
+# Migrations 0002, 0009, and 0010 predate the self-contained migration
+# template and open no transaction of their own, so the runner supplies
+# one. This set is closed: every migration from 0011 onward follows the
+# template documented in docs/migrations.md.
+_UNWRAPPED_MIGRATIONS = frozenset({2, 9, 10})
+
+# Migration 0002 also predates self-recording and writes neither its
+# schema_migrations row nor user_version.
+_UNRECORDED_MIGRATIONS = frozenset({2})
+
+
 class SqliteStateStore:
     """One local SQLite database bound to one workspace identity."""
 
@@ -114,7 +133,13 @@ class SqliteStateStore:
         return self._database_path
 
     def initialize(self) -> None:
-        """Apply each schema migration once and bind workspace identity."""
+        """Apply every packaged migration once and bind workspace identity.
+
+        The sequence is derived from the migration scripts that exist, not
+        from a ladder maintained by hand, and the run is verified complete
+        before returning. A database can therefore never be left looking
+        fully migrated while a shipped migration has not run.
+        """
 
         self._database_path.parent.mkdir(
             parents=True,
@@ -122,179 +147,16 @@ class SqliteStateStore:
         )
         connection = self._connect()
         try:
-            if not self._table_exists(
-                connection,
-                "schema_migrations",
-            ):
-                connection.executescript(
-                    self._migration_text(
-                        "0001_phase1_kernel.sql"
-                    )
-                )
+            available = self._available_migrations()
+            applied = self._applied_versions(connection)
+            self._reject_unknown_migrations(applied, available)
 
-            versions = self._migration_versions(connection)
+            for version, filename in available:
+                if version in applied:
+                    continue
+                self._apply_migration(connection, version, filename)
 
-            if 1 not in versions:
-                raise RuntimeError(
-                    "schema_migrations is missing migration 1"
-                )
-
-            if 2 not in versions:
-                migration_2 = self._migration_text(
-                    "0002_dispatch_session_lease.sql"
-                )
-                connection.executescript(
-                    "\n".join(
-                        (
-                            "BEGIN IMMEDIATE;",
-                            migration_2,
-                            (
-                                "INSERT INTO schema_migrations"
-                                "(version, name) VALUES "
-                                "(2, "
-                                "'0002_dispatch_session_lease');"
-                            ),
-                            "PRAGMA user_version = 2;",
-                            "COMMIT;",
-                        )
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 3 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0003_command_request_attempt.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 4 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0004_idempotency_aliases.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 5 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0005_health_routing.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 6 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0006_recovery_probe_single_flight.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 7 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0007_health_projection_readiness_context.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 8 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0008_dispatch_artifact_metadata.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 9 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0009_session_binding_generations.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 10 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0010_session_context_telemetry.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 11 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0011_admission_snapshot_configuration_digest.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 12 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0012_session_rotation_conversation_scope.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 13 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0013_session_context_conversation_scope.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 14 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0014_event_log_delivery_split.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 15 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0015_effect_receipts_delivery_fk.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 16 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0016_dispatch_artifact_manifests_event_log_fk.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 17 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0017_drop_legacy_outbox.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 18 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0018_capability_leases.sql"
-                    )
-                )
-
-            versions = self._migration_versions(connection)
-            if 19 not in versions:
-                connection.executescript(
-                    self._migration_text(
-                        "0019_route_decision_capability_tier.sql"
-                    )
-                )
+            self._verify_sequence_complete(connection, available)
 
             violations = connection.execute(
                 "PRAGMA foreign_key_check"
@@ -399,10 +261,138 @@ class SqliteStateStore:
         ).fetchall()
         return frozenset(int(row["version"]) for row in rows)
 
+    @classmethod
+    def _applied_versions(
+        cls,
+        connection: sqlite3.Connection,
+    ) -> frozenset[int]:
+        """Return recorded migrations, treating a bare database as empty."""
+
+        if not cls._table_exists(connection, "schema_migrations"):
+            return frozenset()
+        return cls._migration_versions(connection)
+
     @staticmethod
-    def _migration_text(name: str) -> str:
+    def _migration_directory() -> Traversable:
+        return resources.files("peerhub.persistence.migrations")
+
+    @classmethod
+    def _available_migrations(cls) -> tuple[tuple[int, str], ...]:
+        """Return every packaged migration as ``(version, filename)``.
+
+        Versions must be unique and contiguous from 1: a gap means a script
+        is missing, and applying the sequence across it would produce a
+        schema no migration ever described.
+        """
+
+        discovered: dict[int, str] = {}
+        for entry in cls._migration_directory().iterdir():
+            if not entry.is_file():
+                continue
+            match = _MIGRATION_FILENAME.match(entry.name)
+            if match is None:
+                continue
+            version = int(match.group(1))
+            duplicate = discovered.get(version)
+            if duplicate is not None:
+                raise RuntimeError(
+                    "duplicate migration version "
+                    f"{version}: {duplicate!r} and {entry.name!r}"
+                )
+            discovered[version] = entry.name
+
+        if not discovered:
+            raise RuntimeError(
+                "no packaged migrations were found"
+            )
+
+        expected = tuple(range(1, max(discovered) + 1))
+        if tuple(sorted(discovered)) != expected:
+            missing = sorted(set(expected) - set(discovered))
+            raise RuntimeError(
+                "packaged migrations are not contiguous from 1; "
+                f"missing {missing}"
+            )
+
+        return tuple(
+            (version, discovered[version]) for version in expected
+        )
+
+    @classmethod
+    def _apply_migration(
+        cls,
+        connection: sqlite3.Connection,
+        version: int,
+        filename: str,
+    ) -> None:
+        """Run one migration script, supplying anything it predates."""
+
+        script = cls._migration_text(filename)
+        if version in _UNRECORDED_MIGRATIONS:
+            name = filename.removesuffix(".sql")
+            script = "\n".join(
+                (
+                    script,
+                    (
+                        "INSERT INTO schema_migrations(version, name) "
+                        f"VALUES ({version}, '{name}');"
+                    ),
+                    f"PRAGMA user_version = {version};",
+                )
+            )
+        if version in _UNWRAPPED_MIGRATIONS:
+            script = "\n".join(
+                ("BEGIN IMMEDIATE;", script, "COMMIT;")
+            )
+        connection.executescript(script)
+
+    @classmethod
+    def _reject_unknown_migrations(
+        cls,
+        applied: frozenset[int],
+        available: tuple[tuple[int, str], ...],
+    ) -> None:
+        """Refuse a database written by a build with more migrations."""
+
+        unknown = sorted(
+            applied - {version for version, _ in available}
+        )
+        if unknown:
+            raise RuntimeError(
+                "database records migrations this build does not "
+                f"provide: {unknown}; it was created by a newer "
+                "PeerHub and must not be downgraded in place"
+            )
+
+    @classmethod
+    def _verify_sequence_complete(
+        cls,
+        connection: sqlite3.Connection,
+        available: tuple[tuple[int, str], ...],
+    ) -> None:
+        """Fail unless every available migration recorded itself.
+
+        A script that runs without inserting its ``schema_migrations`` row
+        would otherwise re-run on every startup, forever, in silence.
+        """
+
+        applied = cls._migration_versions(connection)
+        missing = sorted(
+            version
+            for version, _ in available
+            if version not in applied
+        )
+        if missing:
+            raise RuntimeError(
+                "migration sequence did not complete: migrations "
+                f"{missing} ran without recording themselves in "
+                "schema_migrations"
+            )
+
+    @classmethod
+    def _migration_text(cls, name: str) -> str:
         return (
-            resources.files("peerhub.persistence.migrations")
+            cls._migration_directory()
             .joinpath(name)
             .read_text(encoding="utf-8")
         )

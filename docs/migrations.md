@@ -77,18 +77,14 @@ When adding new schema changes:
    PRAGMA foreign_keys = ON;
    ```
 
-3. **Register migration in `SqliteStateStore.initialize()`**:
-   Open `peerhub/persistence/sqlite.py` and register the migration execution block in sequential order:
-
-   ```python
-   versions = self._migration_versions(connection)
-   if 20 not in versions:
-       connection.executescript(
-           self._migration_text(
-               "0020_my_migration_name.sql"
-           )
-       )
-   ```
+3. **No code registration needed.** `initialize()` discovers migrations
+   from the packaged directory and applies whatever hasn't run yet, in
+   ascending version order. Dropping the `.sql` file in place (step 1) is
+   sufficient; there is no ladder in `peerhub/persistence/sqlite.py` to
+   edit. `initialize()` verifies every discovered migration recorded
+   itself before returning, so a script that runs without inserting its
+   `schema_migrations` row fails loudly instead of silently re-running on
+   every startup.
 
 4. **Add integration test coverage**:
    Add tests in `tests/integration/persistence/` validating:
