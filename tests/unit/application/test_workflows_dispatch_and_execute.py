@@ -35,6 +35,7 @@ from peerhub.core.protocol import (
     SCHEMA_VERSION,
     CommandEnvelope,
     ErrorCode,
+    RevisionValue,
 )
 from peerhub.dispatch.contract import (
     CompletionAssessmentState,
@@ -45,12 +46,17 @@ from peerhub.dispatch.contract import (
 )
 from peerhub.dispatch.capability import (
     CapabilityLeaseViolation,
+    CapabilityPolicy,
     CapabilityTier,
     EnforcementLevel,
+    InvocationEnforcementReceipt,
     PeerEnforcementEvidence,
     PeerEnforcementEvidenceProvider,
+    ValidatedCapabilityBinding,
+    ValidatedCapabilityLease,
 )
 from peerhub.dispatch.capability_policy import (
+    StaticCapabilityPolicy,
     StaticPeerEnforcementEvidenceProvider,
     default_enforcement_evidence_provider,
 )
@@ -59,6 +65,7 @@ from peerhub.dispatch.materializer import (
     MaterializationStatus,
 )
 from peerhub.dispatch.service import DispatchService
+from peerhub.governance.contract import OutboxEvent
 from peerhub.health.contract import (
     AdmissionSnapshot,
     HealthPolicy,
@@ -287,6 +294,7 @@ def _workflows(
     enforcement_evidence: PeerEnforcementEvidenceProvider = (
         _CONTROLLED_FAKE_EVIDENCE
     ),
+    capability_policy: CapabilityPolicy | None = None,
 ) -> tuple[ApplicationWorkflows, DispatchService]:
     telemetry = TelemetryProjector(
         store,
@@ -310,6 +318,7 @@ def _workflows(
         store,
         ids=SequentialIdSource(),
         clock=DeterministicClock(start=start + 20),
+        capability_policy=capability_policy,
         enforcement_evidence=enforcement_evidence,
     )
     workflows = ApplicationWorkflows(
@@ -711,6 +720,158 @@ _MEASURED_AG_EVIDENCE = StaticPeerEnforcementEvidenceProvider(
         )
     }
 )
+
+
+class _MutableRevisionCapabilityPolicy(StaticCapabilityPolicy):
+    """Test policy whose machine-owned current revision can advance."""
+
+    def __init__(self, current_revision: RevisionValue = 7) -> None:
+        super().__init__()
+        self.current_revision = current_revision
+        self.revalidation_calls: list[RevisionValue] = []
+
+    def revalidate(
+        self,
+        binding: ValidatedCapabilityBinding,
+        *,
+        current_policy_revision: RevisionValue,
+        now: int,
+    ) -> None:
+        self.revalidation_calls.append(current_policy_revision)
+        if current_policy_revision != self.current_revision:
+            raise CapabilityLeaseViolation(
+                "current policy revision changed after pre-plan validation"
+            )
+        super().revalidate(
+            binding,
+            current_policy_revision=current_policy_revision,
+            now=now,
+        )
+
+
+def _invocation_receipt(
+    validated: ValidatedCapabilityLease,
+) -> InvocationEnforcementReceipt:
+    return InvocationEnforcementReceipt(
+        capability_lease_id=validated.capability_lease_id,
+        command_id=validated.command_id,
+        realized_enforcement=validated.satisfied_floor,
+        controls_description="controlled fake",
+        evidence_source_tag="controlled_fake",
+        plan_digest="sha256:" + "d" * 64,
+    )
+
+
+def _command_events(
+    store: SqliteStateStore,
+    command_id: str,
+) -> tuple[OutboxEvent, ...]:
+    with store.unit_of_work() as unit:
+        return unit.list_outbox_events_by_command(command_id)
+
+
+def test_dispatch_intent_revalidates_policy_after_pre_plan_gate(
+    store: SqliteStateStore,
+) -> None:
+    """A policy change after planning cannot cross the intent commit."""
+
+    policy = _MutableRevisionCapabilityPolicy()
+    workflows, dispatch = _workflows(
+        store,
+        capability_policy=policy,
+    )
+    command_id, capability_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+    )
+    validated = dispatch.require_dispatch_capability(
+        command_id,
+        capability_lease_id=capability_lease_id,
+        peer_instance_id=peer_instance,
+        adapter_peer_kind="fake",
+        profile=_ROUTED_PROFILE,
+        current_policy_revision=7,
+    )
+    receipt = _invocation_receipt(validated)
+    attempt = dispatch.create_attempt(command_id)
+    before_request, before_attempt = dispatch.get_request_and_attempt(
+        command_id,
+        attempt.attempt_id,
+    )
+    before_lease = dispatch.get_lease(before_request.lease_id)
+    before_events = _command_events(store, str(command_id))
+
+    policy.current_revision = 8
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        dispatch.record_dispatch_intent(
+            command_id,
+            attempt.attempt_id,
+            validated_lease=validated,
+            enforcement_receipt=receipt,
+        )
+
+    assert exc_info.value.invariant == (
+        "current policy revision changed after pre-plan validation"
+    )
+    after_request, after_attempt = dispatch.get_request_and_attempt(
+        command_id,
+        attempt.attempt_id,
+    )
+    after_lease = dispatch.get_lease(after_request.lease_id)
+    after_events = _command_events(store, str(command_id))
+    assert after_request == before_request
+    assert after_request.state is RequestState.PREPARED
+    assert after_attempt == before_attempt
+    assert after_attempt.state is RequestState.PREPARED
+    assert after_lease == before_lease
+    assert after_events == before_events
+    assert all(
+        event.event_kind != "DISPATCH_INTENT"
+        for event in after_events
+    )
+    assert policy.revalidation_calls == [7, 7]
+
+
+def test_dispatch_intent_post_plan_revalidation_happy_path(
+    store: SqliteStateStore,
+) -> None:
+    """An unchanged policy permits the normal durable intent transition."""
+
+    policy = _MutableRevisionCapabilityPolicy()
+    workflows, dispatch = _workflows(
+        store,
+        capability_policy=policy,
+    )
+    command_id, capability_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+    )
+    validated = dispatch.require_dispatch_capability(
+        command_id,
+        capability_lease_id=capability_lease_id,
+        peer_instance_id=peer_instance,
+        adapter_peer_kind="fake",
+        profile=_ROUTED_PROFILE,
+        current_policy_revision=7,
+    )
+    receipt = _invocation_receipt(validated)
+    attempt = dispatch.create_attempt(command_id)
+    before_events = _command_events(store, str(command_id))
+
+    request, persisted_attempt, lease = dispatch.record_dispatch_intent(
+        command_id,
+        attempt.attempt_id,
+        validated_lease=validated,
+        enforcement_receipt=receipt,
+    )
+
+    after_events = _command_events(store, str(command_id))
+    assert request.state is RequestState.DISPATCH_INTENT
+    assert persisted_attempt.state is RequestState.DISPATCH_INTENT
+    assert lease.fence.attempt_id == attempt.attempt_id
+    assert len(after_events) == len(before_events) + 1
+    assert after_events[-1].event_kind == "DISPATCH_INTENT"
+    assert policy.revalidation_calls == [7, 7]
 
 
 def _count_attempts(database_path: Path) -> int:
