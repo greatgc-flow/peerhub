@@ -507,6 +507,31 @@ context/quota state, retry/failover on peer trouble).
   dispatches (hub.py's diag reads CLI-native stat files per peer; a
   peerhub-orchestrated dispatch would need to either read the same files
   or maintain its own).
+- **Multi-peer broadcast/consensus -- gap identified 2026-08-11, not yet
+  designed.** hub.py has real primitives for exactly this that Phase 3's
+  scope above doesn't mention at all: `ask-all` (parallel-broadcasts one
+  query to every active peer, threaded, collects and prints all
+  responses -- `hub.py:7564`), a full `consensus-propose`/`-vote`/
+  `-check`/`-sweep` subsystem (round-based, voter-health-eligibility
+  filtering, a frozen `quorum_snapshot` so a mid-round peer-health change
+  can't retroactively change the rule, `collab_rate`-driven
+  unanimous-vs-majority decision, `MAX_ROUNDS=3` before forced human
+  escalation -- `hub.py:7676` on), plus `ask-coordinator`, room/thread
+  primitives, and `new-topic`. `protocol.json`'s `collab_rate=10` and
+  `CLAUDE.md`'s R:6-10 trigger rules (peer cross-check on ambiguity,
+  unanimous Final Audit) are *implemented by* this machinery today --
+  it's load-bearing for the actual collaboration protocol this whole
+  environment runs under, not a peripheral feature. Every dialectical
+  round run manually this session (e.g. the Alembic increment-2
+  ratification) was a hand-rolled approximation of what `ask-all` +
+  `consensus-propose` already do natively in hub.py, including at least
+  one real mistake (an IPC file accidentally reused across two different
+  peer targets, caught only because the second dispatch failed loudly).
+  Needs its own detailed design pass before Phase 3 can be scoped as
+  "done" -- see the in-progress dispatch investigating whether peerhub
+  needs hub.py's full consensus formality or a simpler broadcast +
+  cross-critique primitive matching what this session's actual usage
+  pattern looked like.
 
 ## Phase 4 — Shadow validation before real cutover
 Status: not started (this is "Stage 4" from earlier Stage-numbered
