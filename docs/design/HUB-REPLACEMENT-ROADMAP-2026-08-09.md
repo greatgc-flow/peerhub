@@ -77,7 +77,9 @@ not just accepted on the implementing peer's self-report.
 
 ### Bespoke migration runner → Alembic full cutover
 Status: increment 1 (consolidated baseline) completed; increment 2
-(runtime cutover) not started. The earlier “schema v17” wording was
+(runtime cutover) investigated 2026-08-11 and **blocked on a user
+decision** — see the increment 2 subsection below. The earlier “schema
+v17” wording was
 superseded when capability-lease migrations 0018 and 0019 landed: a
 fresh authoritative bespoke database now has 19 migration rows and
 `PRAGMA user_version = 19`.
@@ -96,6 +98,163 @@ v19_consolidated` without executing baseline DDL.
 The runtime still invokes only the bespoke runner. Increment 2 must
 switch that ownership explicitly; this baseline increment does not alter
 runtime initialization or migration dispatch.
+
+#### Increment 2 (runtime cutover) — INVESTIGATED, BLOCKED ON A USER DECISION
+
+Status: **investigated 2026-08-11, deliberately not implemented.** Same
+outcome shape as capability-lease increment 5: the investigation is the
+deliverable. No runtime code changed. The blocker is not "more work
+needed" — it is that every cutover design reachable from today's assets
+either does nothing or introduces a silent under-migration path, and
+choosing between the two real ways forward is a user decision about
+peerhub's dependency surface, not an implementation detail.
+
+##### Measured behaviour of `SqliteStateStore.initialize()` today
+
+Every row below was produced by running the real `initialize()` against a
+purpose-built database, not reasoned about. States were constructed by
+applying the genuine bespoke migration scripts in order (so a "v18"
+database really is v18, not a v19 database with rows deleted).
+
+| State | Before | `initialize()` | After |
+| --- | --- | --- | --- |
+| A fresh workspace, no db file | — | OK | v19, 39 tables, rows 1-19 |
+| E db file exists, zero tables | empty file | OK | v19, 39 tables, rows 1-19 |
+| B existing bespoke v19 | v19 | OK (no-op) | v19, unchanged |
+| C existing bespoke v18 | v18 | OK | migrated to v19 |
+| C2 existing bespoke v12 | v12, 37 tables | OK | migrated to v19, 39 tables |
+| D1 v19 + `alembic_version` = head | v19 + marker | OK (marker ignored) | unchanged |
+| D2 `alembic_version` = head, rows to 12 | v12 + marker | `OperationalError: table event_log already exists` | **left at v13** |
+| D3 v19 + `alembic_version` = deleted revision | v19 + stale marker | OK (marker ignored) | unchanged |
+| D4 v19 + empty `alembic_version` table | v19 + empty marker | OK (marker ignored) | unchanged |
+| D5 v19 + two `alembic_version` rows | v19 + branched marker | OK (marker ignored) | unchanged |
+
+Two facts follow directly. First, `alembic_version` is **completely
+invisible** to the runtime today — `grep -rn alembic peerhub/ tools/`
+returns nothing — so states D1/D3/D4/D5 are all currently harmless, and
+any cutover that starts *reading* that table converts four benign states
+into potential failure modes. Second, D2 exposes a pre-existing property
+worth recording separately: the bespoke runner is atomic **per
+migration** but not **across the sequence**. It advanced user_version
+12 → 13, then died applying 0014, leaving a durable intermediate state.
+That is not caused by the cutover, but any cutover design inherits it.
+
+##### Why the obvious design is unsafe
+
+The natural shape — "if `alembic_version` is present and at head, skip
+the bespoke runner; otherwise run the bespoke runner and then auto-stamp"
+— fails the no-silent-corruption bar, for a reason specific to where the
+project stands right now:
+
+`docs/migrations.md` § *Authoring New Bespoke Migrations* currently, and
+correctly, instructs the next schema change to be authored as bespoke
+`0020_*.sql` plus a new version guard in `initialize()`. Under the design
+above, a database stamped at `v19_consolidated` would take the skip
+branch and **never receive migration 0020**, with no error — the
+application would then run against a schema missing 0020's objects. That
+is precisely the silent-corruption class the increment is supposed to
+avoid. Gating the skip on "alembic at head AND bespoke max version == 19"
+technically avoids it, but only by making the Alembic marker
+non-authoritative: two version authorities that must be hand-synchronised
+on every future migration, which is worse than either engine alone.
+
+Auto-stamping considered on its own is *not* the sharp edge here. After
+the bespoke runner completes, the database is at v19 by exactly the trust
+standard the runner already uses (`if 19 not in versions`), and
+increment 1 proved bespoke-v19 and `v19_consolidated` produce identical
+schemas. Writing that marker inside the existing `BEGIN IMMEDIATE` adds
+no new trust assumption and needs no Alembic import. The problem is that
+it also buys nothing: no Alembic revision 0020 exists, nothing reads the
+marker, and the write is **not reversible** — reverting the commit would
+still leave `alembic_version` rows in every database that ran the new
+code. A durable write to every user's database in exchange for zero
+present benefit is the wrong trade.
+
+##### Hard blockers to Alembic actually owning runtime invocation
+
+These are not judgement calls; each was verified against the tree.
+
+1. **Alembic assets are not packaged.** `alembic/` and `alembic.ini` live
+   at the repository root, outside `[tool.setuptools.packages.find]`'s
+   `include = ["peerhub*"]`, and `peerhub.egg-info/SOURCES.txt` contains
+   zero `alembic` matches. Runtime invocation works today only because
+   the install is editable; from a built wheel there would be no
+   `alembic.ini` and no `versions/` directory. Fixing this means moving
+   the migration assets inside the `peerhub` package, which also
+   invalidates the paths in `docs/migrations.md` and the parity test.
+2. **Alembic is a dev-only extra.** Runtime dependencies are
+   `psutil` and `pydantic`; `alembic>=1.13.0` sits in the `dev` extra.
+   Making it the runtime engine promotes Alembic **and SQLAlchemy**
+   (2.0.51 in this environment) to hard runtime dependencies of a project
+   whose persistence layer is deliberately stdlib `sqlite3`. This is a
+   dependency-surface decision, not a refactor.
+3. **Measured startup cost.** `import alembic.command` costs ~578 ms
+   standalone and adds ~439 ms on top of `import peerhub.cli`, whose own
+   cumulative import time is ~375 ms (`python -X importtime`, this
+   machine). `initialize()` runs on every `create_runtime()`
+   (`peerhub/runtime.py:78`), i.e. every CLI invocation, so an
+   unconditional import roughly doubles CLI startup latency. A lazy
+   import behind an "is a migration actually needed?" check avoids most
+   of this, but is an explicit design requirement, not a freebie.
+4. **`env.py` resolves the database from the process cwd.**
+   `alembic/env.py:61-63` builds the URL from
+   `Path(os.getcwd()) / ".peerhub" / "peerhub.sqlite3"`, ignoring the
+   store's own `database_path`. Runtime invocation with cwd ≠ workspace
+   root would migrate, or create, the wrong file. The parity test only
+   passes because it `monkeypatch.chdir`s first. Runtime use requires
+   `env.py` to accept a caller-supplied connection via
+   `config.attributes["connection"]`.
+5. **`env.py` builds its own engine**, so Alembic's connection would not
+   carry the store's `foreign_keys = ON`, `busy_timeout`, or
+   `synchronous = FULL` PRAGMAs (`sqlite.py:358-371`). With
+   `busy_timeout` at SQLite's default of 0, concurrent `initialize()`
+   calls would fail fast on `SQLITE_BUSY` rather than waiting.
+   Concurrent-stamp behaviour under Alembic's own transaction handling is
+   **untested and must be proven before any implementation**, not assumed
+   safe.
+6. **Alembic cannot serve state C at all.** `v19_consolidated` is a
+   single root revision with `down_revision = None`; its `upgrade()`
+   creates the full final schema. There is no incremental path from v1-18,
+   and running it against such a database collides on the first existing
+   table. So "Alembic is the runtime engine" today can only mean "Alembic
+   for fresh databases, bespoke for everything else" — dual engines, not
+   a cutover.
+
+##### The decision the user or next session must make
+
+Blocker 6 is the load-bearing one, and it forks into two coherent
+end-states. Both are legitimate; they cannot be blended safely.
+
+- **Option 1 — declare bespoke v19 the minimum supported schema.**
+  `initialize()` fails closed on any database below v19 with an
+  actionable message pointing at the documented upgrade-then-stamp
+  procedure. The bespoke runner is then deleted outright rather than kept
+  as a fallback, Alembic owns fresh creation and all future revisions,
+  and there is exactly one version authority. Clean, but it is a real
+  flag day and needs an answer to: **do any live workspaces sit below
+  v19?** If the answer is "only developer scratch databases", this is
+  cheap; the roadmap should not guess.
+- **Option 2 — author Alembic revisions covering 0001→0019 as a real
+  chain**, so `upgrade head` can carry a v12 database forward. No flag
+  day and every state gets one engine, but it discards increment 1's
+  single-baseline decision and means re-deriving and re-parity-proving 19
+  revisions.
+
+Either option additionally requires blockers 1-5 resolved: package the
+Alembic assets, promote the dependency with user sign-off, lazy-import,
+rework `env.py` to take an injected connection, and prove concurrent
+`initialize()` behaviour.
+
+One further item to settle before Alembic is runtime-wired and packaged:
+`v19_consolidated.downgrade()` drops all 39 domain tables. That is
+correct for a baseline revision, but it puts a one-command total-data-loss
+path inside the shipped package. Decide whether to guard it or accept it.
+
+**Recommendation: do not implement increment 2 until Option 1 or Option 2
+is chosen.** In the meantime the status quo is genuinely fine — the
+bespoke runner handles all four real-world states correctly today (rows
+A-D1 above), and increment 1's baseline retains its value as the
+parity-proven schema-of-record and the documented stamp target.
 
 ### Capability-lease design implementation
 Status: **APPROVED, implementation COMPLETE.** All 5 increments of
