@@ -99,15 +99,54 @@ The runtime still invokes only the bespoke runner. Increment 2 must
 switch that ownership explicitly; this baseline increment does not alter
 runtime initialization or migration dispatch.
 
-#### Increment 2 (runtime cutover) — INVESTIGATED, BLOCKED ON A USER DECISION
+#### Increment 2 (runtime cutover) — RATIFIED 2026-08-11: HOLD, WITH NAMED TRIGGERS
 
-Status: **investigated 2026-08-11, deliberately not implemented.** Same
-outcome shape as capability-lease increment 5: the investigation is the
-deliverable. No runtime code changed. The blocker is not "more work
-needed" — it is that every cutover design reachable from today's assets
-either does nothing or introduces a silent under-migration path, and
-choosing between the two real ways forward is a user decision about
-peerhub's dependency surface, not an implementation detail.
+Status: **investigated and dialectically ratified 2026-08-11. Decision:
+hold. No runtime code changed, none planned until a trigger fires.**
+
+Two independent peer reviewers (ag.deepthink, cx.deepthink) plus the
+original investigator (cc.deepthink) each formed an independent round-1
+position, then cross-critiqued a synthesis in round 2. Full convergence:
+all three agreed "do not implement Option 1 or Option 2 now." The
+decisive new fact, found while re-examining the investigation for round 1:
+a machine-wide census (`P:\`, `D:\Engram&Peerhub`, user home) found 212
+`peerhub.sqlite3` files total, **all of them test artifacts** (130 pytest
+tmpdir, 82 `.pytest_cache`) — **zero live, non-test peerhub databases
+exist anywhere on this machine today**, consistent with hub.py still
+being the primary system in daily use. That finding both zeroes out
+Option 1's "flag day" cost and removes the only real argument for paying
+Alembic's runtime cost now.
+
+**Ratified decision:**
+1. Keep the bespoke SQL runner as the sole runtime migration engine.
+2. Keep increment 1's `v19_consolidated` baseline as a **dev-only**
+   artifact — parity-proven schema-of-record and documented stamp target,
+   not imported at runtime.
+3. Revisit only when one of two named triggers fires:
+   - **(a)** peerhub adopts SQLAlchemy Core/ORM for its persistence layer
+     (makes Alembic's autogenerate value real; today's layer is
+     hand-written `sqlite3` with no declarative models, so Alembic's main
+     selling point is unused).
+   - **(b)** peerhub is about to become the primary dispatch path and
+     hold irreplaceable operational data — fire this **as a pre-cutover
+     gate, before** that data accumulates, not after (cx's refinement).
+4. If a trigger fires, **Option 1 (freeze the then-current schema as the
+   floor, delete the bespoke runner) is the default answer, not Option
+   2** — increment 1 proved baseline consolidation is mechanical and
+   repeatable at any future schema version, so there's no lock-in
+   pressure to act early. Re-run the machine-wide census immediately
+   before any flag day (cx's refinement: the "zero anywhere" finding
+   covers only scanned volumes/profiles on this machine, not other
+   hosts or network paths). Option 2 (a full incremental revision chain)
+   is justified only if that future census finds a supported below-head
+   database that cannot first be upgraded via the bespoke runner.
+5. A genuinely separate, smaller defect surfaced during the investigation
+   and belongs in its own future increment, **not bundled into this
+   decision**: the bespoke runner is atomic per-migration but not across
+   a sequence (a reproduced failure advanced `user_version` 12→13 then
+   died on 0014, leaving a durable stranded intermediate state with no
+   record a longer sequence was intended). Fix before peerhub becomes the
+   primary dispatch path.
 
 ##### Measured behaviour of `SqliteStateStore.initialize()` today
 
