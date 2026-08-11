@@ -129,12 +129,21 @@ Section 7.5's 5-increment plan are committed:
   (`peerhub/core/identity.py`) that fails closed if unresolvable, flows
   through the whole chain as an opaque object instead of being
   reconstructed at each layer, and has no CLI override flag.
-  **Explicitly still open within increment 4's own scope** (deferred,
-  not silently dropped): post-plan `InvocationEnforcementReceipt` +
-  `record_dispatch_intent*()` revalidation (errata 7.2's final
-  paragraph) and `plan_invocation()` receiving the
-  `ValidatedCapabilityLease`.
-- Increment 5 (adapter translation) not started.
+  Post-plan `InvocationEnforcementReceipt` + `record_dispatch_intent*()`
+  revalidation (`e8f7745` + test `c652513`) closes the errata 7.2 final-
+  paragraph gap: re-runs `validate_capability_binding()` +
+  `CapabilityPolicy.revalidate()` inside `record_dispatch_intent*()`'s
+  own write transaction, proven to reject a policy-revision change that
+  happens between the pre-plan gate and the dispatch-intent commit (the
+  actual TOCTOU window, not a re-test of the pre-plan gate).
+  **Increment 4 is now fully complete** -- every item in errata Section 7
+  is implemented and tested.
+- Increment 5 (adapter translation) not started: each real adapter
+  (`RealAgyAdapter`/`RealClaudeAdapter`/`RealCodexAdapter`) currently
+  contributes `InvocationEnforcementReceipt`s tagged `"unverified"`
+  (workflows.py, per `e8f7745`'s comment) rather than reporting an
+  actual measured enforcement vector -- this increment threads real
+  per-adapter evidence through, replacing the placeholder tags.
 
 Below is the design-history/ratification record (kept for context on
 *why* the design looks the way it does -- skip to "Status: APPROVED"
