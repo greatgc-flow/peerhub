@@ -1,0 +1,67 @@
+# Machine-checkable expected facts for the peer CLIs.
+#
+# Read by tools/peerhub_facts (see docs/design/FACT-REFRESH-PROCEDURE-R1.md).
+#
+# These are SEMANTIC expectations, never raw output snapshots: a list of
+# versions whose adapter behaviour has actually been verified, the help
+# tokens the adapter builds its argv from, and the output protocol its
+# decoder implements. Incidental wording or whitespace changes in vendor
+# help text are not drift and must never be encoded here.
+#
+# Nothing in this file is ever written by the routine. Every value is
+# changed by a human who has verified the adapter still works against it --
+# auto-updating would bless observed drift merely because it was observed.
+#
+# Do not confuse a peer's `adapter_version` (a static placeholder inside
+# PeerDescriptor, currently "1.0.0") with the external CLI version below.
+
+schema_version = "1"
+
+[test_counts]
+# A count is only meaningful paired with the commit it describes; the
+# procedure forbids maintaining a living "current test count" anywhere in
+# normative documentation. This pair is informational and is used solely to
+# render the Delta line -- a changed count on a green run is not drift.
+last_cited = "528/528"
+last_cited_sha = "c77ebbb"
+
+[peers.ag]
+cli_name = "agy.exe"
+output_protocol = "flat-json"
+# AgyOutputDecoder reads a flat top-level "response" key.
+required_output_fields = ["response"]
+# source_tag: empirical_probe, measured 2026-08-12 on this workstation.
+verified_versions = ["1.1.12"]
+version_argv = ["--version"]
+help_argv = ["--help"]
+# RealAgyAdapter.plan_invocation builds: agy.exe -p <prompt> --output-format json
+required_help_tokens = ["-p", "--output-format"]
+
+[peers.cc]
+cli_name = "claude.cmd"
+output_protocol = "claude-result-json"
+# ClaudeOutputDecoder reads "result", gated on "is_error", after slicing
+# between the first "{" and last "}" so a warning prefix is tolerated.
+required_output_fields = ["result", "is_error"]
+# source_tag: empirical_probe, measured 2026-08-12 on this workstation.
+verified_versions = ["2.1.222"]
+version_argv = ["--version"]
+help_argv = ["--help"]
+# RealClaudeAdapter.plan_invocation builds: claude.cmd -p <prompt> --output-format json
+required_help_tokens = ["-p", "--output-format"]
+
+[peers.cx]
+cli_name = "codex.cmd"
+output_protocol = "jsonl-events"
+# CodexOutputDecoder scans JSONL lines for type == "item.completed" whose
+# item.type == "agent_message", and reads item.text.
+required_output_fields = ["type", "item"]
+# source_tag: empirical_probe, measured 2026-08-12 on this workstation.
+verified_versions = ["0.147.0"]
+version_argv = ["--version"]
+# NOT ["--help"]: --json is a flag of the `exec` SUBCOMMAND and does not
+# appear in codex's top-level help. Probing top-level help reports --json
+# as missing -- a false drift. See peer-cli-observations.md, OBS-0005.
+help_argv = ["exec", "--help"]
+# RealCodexAdapter.plan_invocation builds: codex.cmd exec --json <prompt>
+required_help_tokens = ["exec", "--json"]
