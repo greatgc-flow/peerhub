@@ -345,6 +345,11 @@ class SqliteStateStore:
                 ("BEGIN IMMEDIATE;", script, "COMMIT;")
             )
         connection.executescript(script)
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError(
+                f"migration {version:04d} ({filename}) introduced foreign-key violations"
+            )
 
     @classmethod
     def _reject_unknown_migrations(
