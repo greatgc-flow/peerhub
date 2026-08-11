@@ -89,8 +89,9 @@ now-corrected guidance (Alembic explicitly frozen/unsupported until this
 lands, see that file).
 
 ### Capability-lease design implementation
-Status: **APPROVED, implementation IN PROGRESS.** Increments 1-4 of
-Section 7.5's 5-increment plan are committed:
+Status: **APPROVED, implementation COMPLETE.** All 5 increments of
+Section 7.5's plan are committed (increment 5 closed as a deliberate
+evidence audit, not new code -- see below):
 - Increment 1 (`c91cc0b`): `CapabilityTier`/`EnforcementLevel` enums,
   frozen `CapabilityLease`/`CapabilityGrantDecision` DTOs,
   `validate_capability_binding()`, `mandatory_enforcement_floor()`, 24
