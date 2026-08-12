@@ -172,7 +172,7 @@ transcribed from the decoder it exercises, not invented.
 
 | peer | protocol | how the response is found |
 | --- | --- | --- |
-| `ag` | flat JSON | top-level `response` key |
+| `ag` | flat JSON | top-level `response` key; top-level `conversation_id` field carries the ID [cli_live] |
 | `cc` | result JSON | `result`, gated on `is_error`, after `{`…`}` slicing |
 | `cx` | JSONL events | line with `type == "item.completed"` and `item.type == "agent_message"`, then `item.text` |
 

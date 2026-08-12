@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from peerhub.adapters.contract import (
     AdapterRequest,
+    Capability,
     DecodedOutput,
     DecoderEvent,
     DecoderEventKind,
@@ -17,6 +18,7 @@ from peerhub.adapters.contract import (
     ProfileDescriptor,
     ProtocolAssessment,
     PromptPolicy,
+    SessionAction,
     SessionHint,
 )
 from peerhub.core.protocol import ErrorCode
@@ -49,7 +51,7 @@ _AGY_DESCRIPTOR = PeerDescriptor(
     peer_kind="ag",
     profiles=(_AGY_PROFILE,),
     transports=frozenset({TransportKind.PIPE}),
-    capabilities=frozenset({}),
+    capabilities=frozenset({Capability.SESSION}),
     usage_provider_id=None,
     readiness_probe_id="agy-readiness",
 )
@@ -85,6 +87,16 @@ class AgyOutputDecoder:
                 decoded = raw_bytes.decode("utf-8")
                 # Attempt to parse as JSON
                 parsed = json.loads(decoded)
+
+                conv_id = parsed.get("conversation_id")
+                if conv_id and isinstance(conv_id, str):
+                    events.append(
+                        DecoderEvent(
+                            kind=DecoderEventKind.SESSION_IDENTITY,
+                            payload={"session_id": conv_id},
+                        )
+                    )
+
                 response_text = parsed.get("response", "")
                 canonical_text = response_text or decoded
                 if response_text:
@@ -146,7 +158,15 @@ class RealAgyAdapter:
         if prompt is None:
             raise ValueError("prompt_content is required")
 
-        argv = ("agy.exe", "-p", prompt, "--output-format", "json")
+        if request.requested_session_action == SessionAction.RESUME:
+            if session is None or session.external_session_id is None:
+                raise ValueError("external_session_id is required for RESUME")
+            argv = ("agy.exe", "-p", prompt, "--output-format", "json", "--conversation", session.external_session_id)
+            redacted_display = "agy.exe -p <redacted> --output-format json --conversation <redacted>"
+        else:
+            argv = ("agy.exe", "-p", prompt, "--output-format", "json")
+            redacted_display = "agy.exe -p <redacted> --output-format json"
+
         return InvocationPlan(
             argv=argv,
             cwd_reference=request.workspace_scope,
@@ -154,7 +174,7 @@ class RealAgyAdapter:
             transport=TransportKind.PIPE,
             stdin_payload=None,
             limits=limits,
-            redacted_display="agy.exe -p <redacted> --output-format json",
+            redacted_display=redacted_display,
             artifacts=(),
             session_action=request.requested_session_action,
         )
