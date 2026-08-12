@@ -86,16 +86,29 @@ class AgyOutputDecoder:
                 # Attempt to parse as JSON
                 parsed = json.loads(decoded)
                 response_text = parsed.get("response", "")
-                canonical_text = response_text
+                canonical_text = response_text or decoded
                 if response_text:
                     event = DecoderEvent(
                         kind=DecoderEventKind.ASSISTANT_TEXT,
                         payload={"text": response_text},
                     )
                     events.append(event)
+                if "error" in parsed:
+                    err_type = parsed["error"].get("type", "")
+                    if err_type == "session_not_found":
+                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "session_invalid", "evidence_source": "structured_vendor_output"}))
+                    elif err_type == "invalid_model":
+                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
+                    elif err_type == "rate_limit_exceeded":
+                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "rate_limited", "evidence_source": "structured_vendor_output"}))
+                    elif err_type == "network_error":
+                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "network_unavailable", "evidence_source": "structured_vendor_output"}))
         except Exception:
             # Not valid JSON or decoding error
             canonical_text = raw_bytes.decode("utf-8", errors="replace")
+
+        if "model_operand_invalid" in canonical_text and not any(e.kind == DecoderEventKind.VENDOR_ERROR for e in events):
+            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "known_terminal_pattern"}))
 
         return DecodedOutput(
             canonical_text=canonical_text,
@@ -156,15 +169,12 @@ class RealAgyAdapter:
         process: ProcessTerminalEvidence,
         raw_chunks: Sequence[bytes],
     ) -> ProtocolAssessment:
-        if process.exit_code != 0:
-            return ProtocolAssessment(
-                parsed=False,
-                response_present=False,
-                vendor_completion_marker=None,
-                suspected_truncation=False,
-                protocol_failure=ErrorCode.INTERNAL_ERROR,
-            )
-        
+        decoder = self.new_decoder(plan)
+        for chunk in raw_chunks:
+            decoder.feed(chunk, channel=OutputChannel.STDOUT)
+        decoded = decoder.finalize()
+        has_vendor_error = any(e.kind == DecoderEventKind.VENDOR_ERROR for e in decoded.events)
+
         raw_bytes = b"".join(raw_chunks)
         try:
             parsed = json.loads(raw_bytes.decode("utf-8"))
@@ -182,7 +192,7 @@ class RealAgyAdapter:
                     response_present=False,
                     vendor_completion_marker=None,
                     suspected_truncation=False,
-                    protocol_failure=ErrorCode.INTERNAL_ERROR,
+                    protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
                 )
         except Exception:
             return ProtocolAssessment(
@@ -190,5 +200,5 @@ class RealAgyAdapter:
                 response_present=False,
                 vendor_completion_marker=None,
                 suspected_truncation=False,
-                protocol_failure=ErrorCode.INTERNAL_ERROR,
+                protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
             )

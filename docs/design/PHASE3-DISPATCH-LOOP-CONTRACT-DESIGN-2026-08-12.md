@@ -448,6 +448,11 @@ The contract surface is shared; implementation remains staged:
    session and invalid invocation-plan evidence; the two new codes
    therefore have a production path from the first increment that
    defines them.
+   *(Note: The pattern-matching logic and central-mapper wiring are implemented
+   and unit-tested against synthetic fixtures. DIR-004-qualifying recorded-byte
+   evidence is deferred until a real vendor failure is captured live, which is
+   itself out of scope for this increment. Completeness is strictly bounded by
+   this synthetic evidence gap.)*
 2. **Session continuation:** add/thread the optional workflow parameter,
    add the workflow-owned typed capability gate, implement the three
    adapter-specific resume plans, extract final session IDs, and

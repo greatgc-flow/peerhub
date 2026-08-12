@@ -93,16 +93,33 @@ class ClaudeOutputDecoder:
                     
                     if not parsed.get("is_error", False):
                         response_text = parsed.get("result", "")
-                        canonical_text = response_text
+                        canonical_text = response_text or json_str
                         if response_text:
                             event = DecoderEvent(
                                 kind=DecoderEventKind.ASSISTANT_TEXT,
                                 payload={"text": response_text},
                             )
                             events.append(event)
+                    else:
+                        canonical_text = json_str
+                        err_type = parsed.get("error_type", "")
+                        if err_type == "invalid_session":
+                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "session_invalid", "evidence_source": "structured_vendor_output"}))
+                        elif err_type == "over_quota":
+                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "quota_exhausted", "evidence_source": "structured_vendor_output"}))
+                        elif err_type == "invalid_request_error":
+                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
+                        elif err_type == "provider_down":
+                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "provider_unavailable", "evidence_source": "structured_vendor_output"}))
         except Exception:
             # Not valid JSON or decoding error
+            pass
+
+        if not canonical_text:
             canonical_text = raw_bytes.decode("utf-8", errors="replace")
+
+        if "model_operand_invalid" in canonical_text and not any(e.kind == DecoderEventKind.VENDOR_ERROR for e in events):
+            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "known_terminal_pattern"}))
 
         return DecodedOutput(
             canonical_text=canonical_text,
@@ -163,15 +180,12 @@ class RealClaudeAdapter:
         process: ProcessTerminalEvidence,
         raw_chunks: Sequence[bytes],
     ) -> ProtocolAssessment:
-        if process.exit_code != 0:
-            return ProtocolAssessment(
-                parsed=False,
-                response_present=False,
-                vendor_completion_marker=None,
-                suspected_truncation=False,
-                protocol_failure=ErrorCode.INTERNAL_ERROR,
-            )
-        
+        decoder = self.new_decoder(plan)
+        for chunk in raw_chunks:
+            decoder.feed(chunk, channel=OutputChannel.STDOUT)
+        decoded_output = decoder.finalize()
+        has_vendor_error = any(e.kind == DecoderEventKind.VENDOR_ERROR for e in decoded_output.events)
+
         raw_bytes = b"".join(raw_chunks)
         try:
             decoded = raw_bytes.decode("utf-8")
@@ -194,7 +208,7 @@ class RealClaudeAdapter:
                 response_present=False,
                 vendor_completion_marker=None,
                 suspected_truncation=False,
-                protocol_failure=ErrorCode.INTERNAL_ERROR,
+                protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
             )
         except Exception:
             return ProtocolAssessment(
@@ -202,5 +216,5 @@ class RealClaudeAdapter:
                 response_present=False,
                 vendor_completion_marker=None,
                 suspected_truncation=False,
-                protocol_failure=ErrorCode.INTERNAL_ERROR,
+                protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
             )
