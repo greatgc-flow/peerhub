@@ -1,8 +1,8 @@
 # Phase 3 dispatch-loop shared contract surface (2026-08-12)
 
-Status: **draft 2, with round-1 findings applied; awaiting round-2
-ratification.** This document is the artifact a ratification round votes
-on, not an implementation plan already approved.
+Status: **draft 3, with all round-2 findings applied; ready for the
+closing independent ratification check.** This document is the artifact
+that check ratifies, not an implementation plan already approved.
 
 Scope: Phase 3's five coupled roadmap facets (adapter-wiring loop,
 session continuation, streaming decode, error-taxonomy mapping, and
@@ -12,9 +12,10 @@ against that surface.
 
 Evidence base: two split source investigations covered all five facets.
 The streaming investigation also ran a live Codex JSONL probe
-(`[cli_live]`). Round 1 then checked the synthesis against the concrete
-types and persistence codec. Section 6 records every finding and its
-disposition.
+(`[cli_live]`). Two review rounds then checked the synthesis against the
+concrete types, real decoders, workflow, and persistence codec. Section 6
+records every finding and its disposition; Section 7 records a small
+design-validation prototype.
 
 ---
 
@@ -200,11 +201,15 @@ It is called where `AskResult` is assembled. Adapters cannot supply
 `ProcessTerminalEvidence` and returns only `ProtocolAssessment`. This is
 a structural boundary, not a prose convention.
 
-The function derives an operational category only from normalized,
-invocation-correlated `VENDOR_ERROR` evidence in `decoded_output` (or
-leaves it `None`). It does not accept an adapter-declared category as an
-input, so a vendor adapter cannot promote its own assertion into a
-measured operational fact.
+The function derives an operational category only from an allowlisted,
+normalized `VENDOR_ERROR` payload in the current invocation's
+`decoded_output` (or leaves it `None`). Correlation comes from the
+workflow passing the output of the per-invocation decoder, not from a
+decoder-authored correlation flag. An adapter decoder does produce the
+payload, so this is normalization discipline enforced by the central
+classifier and cross-adapter fixtures, not a type boundary that makes a
+dishonest adapter assertion impossible. Arbitrary payload keys or
+unnormalized text are ignored.
 
 The total mechanical mapping is:
 
@@ -215,6 +220,15 @@ The total mechanical mapping is:
 | `PROCESS_TIMEOUT` | `PROCESS_TIMEOUT` | `POST_SPAWN` |
 | `EXIT_NON_ZERO` | `INTERNAL_ERROR` as the generic fallback; the terminal classification preserves the exact process fact | `POST_SPAWN` |
 | `OUTPUT_LIMIT_EXCEEDED` | `PROCESS_KILLED`; the terminal classification preserves the output-limit cause | `POST_SPAWN` |
+| `None` with non-null `protocol.protocol_failure` | That protocol `ErrorCode` | `ASSESSMENT` |
+| `None` with no protocol failure | Return `None` | n/a |
+
+The terminal-classification rows take precedence when a process failure
+and a protocol failure coexist. The two `None` rows make the function
+total over its declared input domain: an exit-zero empty, malformed, or
+otherwise protocol-failed response produces an assessment-phase
+classification, while an attempt with neither failure signal produces
+no failure classification.
 
 Recognized structured vendor evidence may refine the generic
 `EXIT_NON_ZERO` code inside this same function:
@@ -226,8 +240,25 @@ Recognized structured vendor evidence may refine the generic
 - measured auth/network/provider/rate/quota evidence -> keep the base
   code and set the matching existing `OperationalFailureCategory`.
 
-Absent corroborating evidence, the category remains `None`. No
-substring guess is promoted to a measured category.
+Absent corroborating evidence, the category remains `None`. No arbitrary
+substring is promoted to a measured category. Increment 1 makes the two
+refinement codes reachable: every real decoder must inspect both its
+structured vendor output and the existing invocation-owned
+`ProcessSupervisionOutcome.canonical_stream`, match only fixture-backed
+vendor error patterns, and emit `VENDOR_ERROR`. The canonical stream
+already contains both stdout and stderr bytes even though it does not yet
+preserve their channel; this reaches the plain-stderr
+`model_operand_invalid` case without pulling ordered channel plumbing out
+of the later streaming increment.
+
+The normalized payload has exactly two classifier-consumed keys:
+`normalized_kind` is one of `session_invalid`,
+`invocation_plan_rejected`, `auth_unavailable`, `network_unavailable`,
+`provider_unavailable`, `quota_exhausted`, or `rate_limited`; and
+`evidence_source` is `structured_vendor_output` or
+`known_terminal_pattern`. The central mapper, not the decoder, converts
+those allowlisted values to an `ErrorCode` or
+`OperationalFailureCategory`.
 
 `SESSION_INVALID` and `INVOCATION_PLAN_REJECTED` are the only new
 `ErrorCode` values in this design. Draft 1's proposed
@@ -245,10 +276,11 @@ not by itself a retry decision.
 `ProtocolAssessment` keeps its exact five-field shape and remains about
 framing/protocol evidence only. Each real adapter must stop setting
 `protocol_failure=INTERNAL_ERROR` merely because the process exited
-nonzero. A parseable vendor error is still parsed protocol; it can emit
-the already-existing `DecoderEventKind.VENDOR_ERROR`. Malformed,
-truncated, or empty protocol output remains expressible through the
-existing assessment booleans and an appropriate protocol failure.
+nonzero. A parseable vendor error is still parsed protocol; increment 1
+requires it to emit the already-existing
+`DecoderEventKind.VENDOR_ERROR`. Malformed, truncated, or empty protocol
+output remains expressible through the existing assessment booleans and
+an appropriate protocol failure.
 
 Persisted attempts will straddle both behaviors:
 
@@ -272,12 +304,18 @@ dispatch_and_execute(
 ) -> ExecutionWorkflowResult
 ```
 
-The workflow passes it unchanged to `PeerAdapter.plan_invocation()`.
-The later session increment changes each adapter's current rejection,
-threads the selected session from the outer loop/direct caller, and
-advertises `Capability.SESSION` only after the adapter supports its real
-resume mechanism. A non-null session must still be rejected when that
-capability is absent.
+The workflow owns the capability gate. Before calling
+`PeerAdapter.plan_invocation()`, it checks
+`Capability.SESSION in peer_adapter.descriptor.capabilities` whenever
+`session` is non-null. Absence raises a typed
+`UnsupportedCapabilityError`, added in `core/errors.py` as a
+`PeerHubError` mapped to `ErrorCode.INVALID_PARAMS`, carrying the adapter
+ID and requested capability; the adapter's current bare `ValueError` is
+not the contract. Only after that gate does the workflow pass `session`
+unchanged to `plan_invocation()`. The later session increment implements
+the three adapter-specific resume plans, threads the selected session
+from the outer loop/direct caller, and advertises `Capability.SESSION`
+only after an adapter supports its real resume mechanism.
 
 ### 2.6 Streaming and tool-call surface
 
@@ -308,11 +346,14 @@ invocation formats change and are measured.
 
 ## 3. Failure corpus and mapping scope
 
-Fresh recount at `2026-08-12T11:56:23+09:00` found **2,515 valid JSONL
-records and 318 failures** in `P:\.ai\ask_history.jsonl`, with zero
-malformed records (`[empirical_probe]`). The round-1 reviewer measured
-2,513/317 and `lease_expired=8`; two records, including one additional
-`lease_expired`, were appended before this recount.
+The ratification evidence is the failure distribution below, not the
+ever-growing absolute corpus size. A point-in-time recount at
+`2026-08-12T11:56:23+09:00` found 2,515 valid records, 318 failures, and
+zero malformed rows in `P:\.ai\ask_history.jsonl` (`[empirical_probe]`).
+The round-2 reviewer later observed 2,516 total records while confirming
+an exact match for the failure distribution, including the corrected
+`lease_expired=9` (`[empirical_probe:round-2-review]`). New ratification
+asks can change the absolute total without invalidating this snapshot.
 
 | Durable `failure_reason` | Count | Phase-3 disposition |
 |---|---:|---|
@@ -364,8 +405,9 @@ Fast compatibility tests required with the mapping increment:
 
 1. all `TerminalClassification` members round-trip through `AskResult`;
 2. every row in Section 2.3's central mapping is covered;
-3. legacy JSON without the new keys decodes under the documented
-   ambiguous/unknown behavior rather than being treated as retryable;
+3. legacy JSON without the new keys remains explicitly unknown and is
+   never interpreted as retry-safe, whether the implementation selects a
+   codec/version-presence marker or reconciliation plus fail-closed;
 4. fixture-based bytes for Agy, Claude, and Codex prove that nonzero exit
    no longer writes `INTERNAL_ERROR` into `ProtocolAssessment` solely due
    to the exit code, while malformed/empty protocol behavior remains
@@ -387,10 +429,16 @@ The contract surface is shared; implementation remains staged:
    `TerminalClassification`, add the retry-neutral DTO and `AskResult`
    fields, implement the sole central mapper, update the SQLite codec,
    and change all three adapters' protocol-failure behavior with fast
-   fixtures.
+   fixtures. In the same increment, all three real decoders add
+   `VENDOR_ERROR` emission from structured output and fixture-backed
+   patterns in the existing merged terminal stream, including invalid
+   session and invalid invocation-plan evidence; the two new codes
+   therefore have a production path from the first increment that
+   defines them.
 2. **Session continuation:** add/thread the optional workflow parameter,
-   implement the three adapter-specific resume plans, extract final
-   session IDs, and advertise `Capability.SESSION` only where proven.
+   add the workflow-owned typed capability gate, implement the three
+   adapter-specific resume plans, extract final session IDs, and
+   advertise `Capability.SESSION` only where proven.
 3. **Codex streaming:** add the ordered runner-to-decoder event path and
    implement incremental JSONL parsing with remainder buffering.
 4. **Tool-call capture:** add normalized `TOOL_CALL` events and measured
@@ -413,7 +461,9 @@ disposition before the outer-loop increment exists.
 
 ---
 
-## 6. Round-1 review record (draft 1 to draft 2)
+## 6. Review record
+
+### 6.1 Round 1 (draft 1 to draft 2)
 
 Reviewer: `cc.deepthink`. Direction approved; two type/signature defects
 were blocking. Both blockers were independently confirmed against the
@@ -423,11 +473,11 @@ source before revision.
 |---|---|---|
 | B | `AskResult.error_detail: ErrorDetail` would force the one-attempt layer to provide required `RetryDisposition` | **Fixed with option B(i).** `AttemptFailureClassification` has only code, phase, and operational category. Neither it nor `AskResult` can carry a disposition (Section 2.1) |
 | D | Proposed process codes duplicated centrally computed `TerminalClassification` and discarded existing evidence | **Fixed.** Surface the existing enum, relocate/re-export it to avoid a circular import, and define one central mapper. Withdraw both duplicate codes (Sections 2.2-2.3) |
-| A | Measured corpus count was incomplete and omitted 84 governance failures | **Fixed and freshly recounted.** Section 3 lists every category; current corpus is 2,515/318, with the reviewer-to-draft delta explained |
+| A | Measured corpus count was incomplete and omitted 84 governance failures | **Fixed and freshly recounted.** Section 3 lists every category and treats the absolute total as a point-in-time snapshot rather than a ratification invariant |
 | E-1 | Nonzero mapping changes current adapter behavior, so the design is not purely additive | **Fixed.** Section 1.4 and 2.4 explicitly require all three adapters to stop writing `INTERNAL_ERROR` as protocol failure solely for nonzero exit and record split-era persistence semantics |
 | E-2 | Session continuation omitted adapter rejection, the workflow's hardcoded `session=None`, public signature impact, and empty capabilities | **Fixed.** All four concrete gaps and the optional public workflow parameter are listed in Sections 1.2 and 2.5 |
 | F | Hand-written `AskResult` codec creates legacy-`None` ambiguity | **Recorded.** Section 4 names both codec directions, the ambiguity, and the fail-closed requirement before retry history is consumed |
-| Q2 | `model_operand_invalid` cannot be distinguished from a transient generic nonzero exit | **Fixed.** Add only `INVOCATION_PLAN_REJECTED` and `SESSION_INVALID`; identical-plan rejection semantics and evidence requirements are explicit (Sections 2.3 and 3) |
+| Q2 | `model_operand_invalid` cannot be distinguished from a transient generic nonzero exit | **Fixed.** Add only `INVOCATION_PLAN_REJECTED` and `SESSION_INVALID`; identical-plan rejection semantics, evidence requirements, and the increment-1 decoder path are explicit (Sections 2.3, 3, and 5) |
 | Q2 gap | `rate_or_session_limit` conflates distinct conditions | **Recorded as `TEST NEEDED`.** No specific category is assigned without invocation-correlated evidence (Section 3) |
 | Q5a | Deferring the loop contradicted making full `ErrorDetail` mandatory now | **Fixed by B(i).** The ratified surface is disposition-free, so the loop and its adjudication signature can remain a later increment (Sections 2.1 and 5) |
 | Q5b | All-adapter fixture coverage is required when adapter protocol behavior changes | **Adopted.** Fast recorded-byte tests for all three adapters are mandatory with classification plumbing; only slow live tests remain deferred (Section 4) |
@@ -439,23 +489,63 @@ that failure **classification** and retry **adjudication** are now
 different types produced in different increments. That separation is
 the central invariant draft 1 stated in prose but failed to encode.
 
+### 6.2 Round 2 (draft 2 to draft 3)
+
+Reviewer: `cc.deepthink`. Verdict: ready for ratification conditional on
+one blocking reachability correction, with four small non-blocking
+corrections. Source inspection independently confirmed that the three
+real decoders currently emit only `ASSISTANT_TEXT`.
+
+| ID | Finding | Disposition in draft 3 |
+|---|---|---|
+| B2 | `SESSION_INVALID` and `INVOCATION_PLAN_REJECTED` were unreachable because no ratified increment made a real decoder emit `VENDOR_ERROR` | **Fixed with option (a).** Classification increment 1 now includes `VENDOR_ERROR` emission from structured vendor output and fixture-backed patterns over the existing merged terminal stream in all three real decoders, explicitly including the stderr-originating `model_operand_invalid` bytes. The central mapper alone converts the normalized event to a stable code (Sections 2.3, 2.4, and 5) |
+| N1 | The mapper was total over the enum but not over its declared optional terminal-classification input | **Fixed.** `None` plus a protocol failure maps to that code at `ASSESSMENT`; `None` without a protocol failure returns `None`. Terminal rows take precedence when both signals exist (Section 2.3) |
+| N2 | The design overstated adapter isolation because free-form decoder payloads can steer classification | **Fixed.** The text now calls this central normalization discipline backed by allowlists and cross-adapter fixtures, not an impossible-to-forge type boundary (Section 2.3) |
+| N3 | Compatibility test 3 depended on one of two persistence alternatives that the design had not selected | **Fixed.** The test now asserts only their common safety property: legacy absence remains unknown and is never interpreted as retry-safe (Section 4) |
+| N4 | The non-null-session capability rejection had no assigned owner and current adapters raise bare `ValueError` | **Fixed.** The workflow checks `Capability.SESSION` before planning and raises typed `UnsupportedCapabilityError`; adapters receive a session only after the gate passes (Sections 2.5 and 5) |
+| C | The absolute ask-history count changes during ratification | **Fixed editorially.** Section 3 makes the failure distribution the evidence, retains the absolute count only as a timestamped snapshot, and records the round-2 exact-match recount |
+| P | A small classifier prototype was preferred over another paper-only round | **Completed.** Section 7 identifies the isolated validation module and focused tests; neither is part of the production increment |
+
+No round-2 finding was silently dropped. Option (a) is selected because
+Q2 exists specifically to distinguish a deterministic invalid invocation
+now; defining the codes as unreachable until later would preserve the
+defect while labeling it fixed.
+
 ---
 
-## 7. Round-2 verification gates
+## 7. Design-validation prototype
 
-Round 2 should verify these concrete questions rather than reopen the
-settled direction:
+`tools/phase3_failure_classifier_prototype.py` contains an isolated pure
+implementation of the ratified mapper shape using current production
+contracts plus a local enum for the two proposed codes. It is not
+imported by `peerhub/` and is not the classification-plumbing increment.
 
-1. Does the retry-neutral DTO make it impossible for
-   `dispatch_and_execute()` or an adapter to smuggle a
-   `RetryDisposition` into `AskResult`?
-2. Is relocating and re-exporting `TerminalClassification` sufficient to
-   preserve existing imports while avoiding the contract/process import
-   cycle?
-3. Is Section 2.3's mapping total over the existing enum, and are
-   `SESSION_INVALID`/`INVOCATION_PLAN_REJECTED` the only justified new
-   stable codes?
-4. Do the codec compatibility rule and all-adapter fixture obligations
-   close the split-era behavior introduced by E-1?
-5. Does the optional `session` workflow parameter accurately expose the
-   missing session seam without prematurely claiming adapter capability?
+`tests/unit/test_phase3_failure_classifier_prototype.py` covers all five
+terminal rows, both `None` branches, both new-code refinements, an
+operational-category refinement, and negative cases proving that
+assistant text or an unnormalized vendor payload cannot trigger a stable
+refinement. The evidence fixtures use the same allowlisted
+`normalized_kind` and `evidence_source` schema specified in Section 2.3.
+
+Focused execution produced **13 passed**, and focused Pyright validation
+produced **0 errors, 0 warnings** (`[empirical_probe]`).
+
+The prototype validates that the mapping is implementable and total and
+that normalized `VENDOR_ERROR` evidence reaches both proposed codes. It
+does not claim that the production decoders emit such evidence today;
+that production path is mandatory work inside increment 1.
+
+---
+
+## 8. Closing ratification assessment
+
+Draft 3 is ready for the closing independent ratification check. The one
+blocking contradiction is closed in the same increment that introduces
+the new codes; the mapper covers its full optional input domain; decoder
+trust is described at the level actually enforced; the legacy test has
+one implementation-independent safety assertion; and session capability
+rejection has a named workflow owner and typed failure.
+
+No round 4 is warranted on the present evidence. Remaining choices are
+implementation details already bounded by the increments above, not
+unresolved shared-contract defects.
