@@ -240,7 +240,7 @@ peer dispatch used this session):
   would be more durable than pinning, but that's a design decision
   beyond a mechanical fix.
 
-## Also observed: 2 load-sensitive flaky tests (Incident 5's shape, not separate bugs)
+## Also observed: 3 load-sensitive flaky tests (Incident 5's shape, not separate bugs)
 
 `tests/integration/application/test_bootstrap.py::test_build_direct_ask_admission_config`
 and `tests/unit/dispatch/test_tree_controller.py::test_soft_cancel_on_signal_ignoring_process`
@@ -251,6 +251,22 @@ process-timing-sensitive (the tree-controller one literally asserts a
 process is still `RUNNING` when it can race to `TERMINATED` under load).
 Not associated with any specific commit -- if either fails again, check
 system load before assuming a real regression, per Incident 5.
+
+**Third one added 2026-08-12**:
+`tests/unit/dispatch/test_pipe.py::TestPipeRunnerLimits::test_silence_timeout_fires`
+failed once during a T3 (broadcast coordinator) increment-2 fixup run,
+unrelated to the files that increment touched. Root cause: the test
+spawns a real child process, expects it to `print('hi')` and flush
+inside a 500ms `silence_timeout_ms` window; under this session's
+concurrent load, cold Python interpreter startup alone can exceed
+500ms, so the silence timer fires and kills the child before it writes
+anything -- `terminal_classification` correctly reads `SILENCE_TIMEOUT`,
+only the `b"hi" in canonical_stream` assertion fails. The observed
+`exit_code=3221225786` is `0xC000013A`
+(`STATUS_CONTROL_C_EXIT` -- the expected result of the cancellation
+ladder killing the child), **not** `0xC0000005` (`ACCESS_VIOLATION`,
+easy to misread at a glance -- worth double-checking the actual hex
+value before assuming a crash). 3/3 clean on isolated rerun.
 
 ## Summary for future readers
 
