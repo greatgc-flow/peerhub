@@ -732,6 +732,24 @@ Section 5 explains why it should not be built yet. This section specifies
 it anyway, so that a future increment starts from a ratifiable design and
 so Primitive A can be checked for foreclosure (it does not foreclose it).
 
+> **Drift note (2026-08-12 P:↔peerhub gap analysis).** This section's
+> hub.py citations (`hub.py:7711-7718` RED-voter filtering,
+> `hub.py:7748` mid-round gate-closure escalation) describe hub.py's
+> consensus behavior as of this document's original drafting. P:'s own
+> hub.py has since changed both: commit `b56da31` fixed an INV-03
+> violation so RED voters are no longer silently dropped from the
+> initial snapshot, and commit `f8467b3` introduced a frozen
+> `quorum_snapshot` captured at round start, with `_decide_consensus`
+> rewritten to rely exclusively on that snapshot -- **the mid-round live
+> health re-evaluation this section cites at `hub.py:7748` was removed
+> entirely**, not just changed. Section 4.1's own `consensus_round_voters`
+> table already independently arrives at a frozen-snapshot design (rows,
+> not a re-read), so the *intent* here already matches hub.py's current
+> behavior better than this section's stale citations suggest -- but
+> whoever picks up this increment must re-verify against hub.py's
+> *current* source before implementing, not against the line numbers
+> cited here.
+
 ### 4.1 Proposed durable state
 
 ```

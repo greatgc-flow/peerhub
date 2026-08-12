@@ -383,6 +383,19 @@ does not retain enough evidence to split the 24 rows. This remains
 `TEST NEEDED`; new PeerHub attempts set a specific category only from
 invocation-correlated evidence and otherwise record `None`.
 
+> **Drift note (2026-08-12 P:↔peerhub gap analysis).** This section
+> models hub.py's `_classify_ask_failure`/`_TRANSIENT_REASONS`
+> vocabulary as of this design's drafting. hub.py commit `b878450`
+> (landed after this draft) added `"timeout"` and `"lease_expired"`
+> to `_TRANSIENT_REASONS` explicitly, so exact provider-side phrases
+> now route to profile-scoped health instead of a peer-wide quarantine
+> -- a real, unincorporated behavior change. This doesn't invalidate the
+> mapping above (PeerHub's own `PROCESS_TIMEOUT`/`LEASE_EXPIRED` codes
+> already exist independently of hub.py's transient-set membership), but
+> whoever implements the classification-plumbing increment should
+> re-check hub.py's current `_TRANSIENT_REASONS` for any further
+> additions before treating this table as final.
+
 ---
 
 ## 4. Persistence and compatibility obligations
