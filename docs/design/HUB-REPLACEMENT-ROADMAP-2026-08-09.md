@@ -521,9 +521,9 @@ context/quota state, retry/failover on peer trouble).
   session_id`, `DecoderEventKind.TOOL_CALL`, an optional `session`
   parameter on `dispatch_and_execute()`) plus one hard invariant
   (adapter classification can never itself authorize a retry, enforced
-  by type shape). Validated by a real prototype
-  (`tools/phase3_failure_classifier_prototype.py`, 13 tests) outside the
-  production package. **The 5 implementation increments in the design
+  by type shape). Validated by a design-validation step that has since been
+  superseded by and folded into the production `classify_attempt_failure()`
+  mapper and `tests/unit/dispatch/test_model.py` (13 tests). **The 5 implementation increments in the design
   doc's Section 5 are separate, not-yet-started future work**; this
   entry covers the design phase only.
 - Wire the 3 real PeerAdapters (agy/claude/codex, landed Stage 3) into an

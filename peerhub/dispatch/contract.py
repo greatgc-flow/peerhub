@@ -23,11 +23,35 @@ from peerhub.core.protocol import (
     CommandEnvelope,
     CommandID,
     ErrorCode,
+    ErrorPhase,
+    OperationalFailureCategory,
     JsonValue,
     RevisionValue,
     freeze_json_mapping,
     require_text,
 )
+
+
+class TerminalClassification(str, Enum):
+    """Currently ratified process classifications used by Slice 5 tests.
+
+    This is intentionally not claimed to be the complete vocabulary. The
+    Phase 0 contract still lists full terminal-classification closure as an
+    open decision.
+    """
+
+    START_UNCERTAIN = "START_UNCERTAIN"
+    SILENCE_TIMEOUT = "SILENCE_TIMEOUT"
+    PROCESS_TIMEOUT = "PROCESS_TIMEOUT"
+    EXIT_NON_ZERO = "EXIT_NON_ZERO"
+    OUTPUT_LIMIT_EXCEEDED = "OUTPUT_LIMIT_EXCEEDED"
+
+
+@dataclass(frozen=True)
+class AttemptFailureClassification:
+    code: ErrorCode
+    phase: ErrorPhase
+    operational_failure_category: OperationalFailureCategory | None
 
 
 class RequestState(str, Enum):
@@ -355,6 +379,8 @@ class AskResult:
     protocol: ProtocolAssessment
     completion: CompletionAssessment
     policy_revision: RevisionValue
+    terminal_classification: TerminalClassification | None = None
+    failure_classification: AttemptFailureClassification | None = None
 
     def __post_init__(self) -> None:
         _validate_revision_value(

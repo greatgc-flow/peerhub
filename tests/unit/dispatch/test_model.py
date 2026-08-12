@@ -507,5 +507,159 @@ class TestSessionRotationKey(unittest.TestCase):
             )
 
 
+from peerhub.dispatch.contract import ExecutionOutcome
+from peerhub.core.execution import ExecutionCertainty
+
+class TestClassifyAttemptFailure(unittest.TestCase):
+    def _execution(self, exit_code: int | None = 1) -> ExecutionOutcome:
+        return ExecutionOutcome(
+            started=True,
+            exit_code=exit_code,
+            timed_out=False,
+            cancelled=False,
+            execution_certainty=ExecutionCertainty.TERMINAL,
+        )
+
+    def _protocol(self, failure: ErrorCode | None = None) -> ProtocolAssessment:
+        from peerhub.adapters.contract import ProtocolAssessment
+        return ProtocolAssessment(
+            parsed=failure is None,
+            response_present=failure is None,
+            vendor_completion_marker=None,
+            suspected_truncation=False,
+            protocol_failure=failure,
+        )
+
+    def _decoded_event(
+        self,
+        kind: str,
+        payload: dict[str, object],
+    ):
+        from peerhub.adapters.contract import DecodedOutput, DecoderEvent, DecoderEventKind
+        return DecodedOutput(
+            canonical_text="",
+            canonical_lines=(),
+            events=(DecoderEvent(kind=DecoderEventKind(kind), payload=payload),),
+        )
+
+    def test_all_five_terminal_rows_are_total(self) -> None:
+        from peerhub.dispatch.model import classify_attempt_failure
+        from peerhub.dispatch.contract import TerminalClassification
+        from peerhub.core.protocol import ErrorCode, ErrorPhase
+        cases = [
+            (TerminalClassification.START_UNCERTAIN, ErrorCode.START_UNCERTAIN),
+            (TerminalClassification.SILENCE_TIMEOUT, ErrorCode.SILENCE_TIMEOUT),
+            (TerminalClassification.PROCESS_TIMEOUT, ErrorCode.PROCESS_TIMEOUT),
+            (TerminalClassification.EXIT_NON_ZERO, ErrorCode.INTERNAL_ERROR),
+            (TerminalClassification.OUTPUT_LIMIT_EXCEEDED, ErrorCode.PROCESS_KILLED),
+        ]
+        for terminal, expected_code in cases:
+            with self.subTest(terminal=terminal):
+                result = classify_attempt_failure(
+                    terminal_classification=terminal,
+                    execution=self._execution(),
+                    protocol=self._protocol(),
+                    decoded_output=None,
+                )
+                self.assertIsNotNone(result)
+                self.assertIs(result.code, expected_code)
+                self.assertIs(result.phase, ErrorPhase.POST_SPAWN)
+                self.assertIsNone(result.operational_failure_category)
+
+    def test_none_with_protocol_failure_maps_to_assessment(self) -> None:
+        from peerhub.dispatch.model import classify_attempt_failure
+        from peerhub.core.protocol import ErrorCode, ErrorPhase
+        result = classify_attempt_failure(
+            terminal_classification=None,
+            execution=self._execution(exit_code=0),
+            protocol=self._protocol(ErrorCode.PROTOCOL_ASSESSMENT_FAILED),
+            decoded_output=None,
+        )
+        self.assertIsNotNone(result)
+        self.assertIs(result.code, ErrorCode.PROTOCOL_ASSESSMENT_FAILED)
+        self.assertIs(result.phase, ErrorPhase.ASSESSMENT)
+
+    def test_none_without_protocol_failure_returns_none(self) -> None:
+        from peerhub.dispatch.model import classify_attempt_failure
+        result = classify_attempt_failure(
+            terminal_classification=None,
+            execution=self._execution(exit_code=0),
+            protocol=self._protocol(),
+            decoded_output=None,
+        )
+        self.assertIsNone(result)
+
+    def test_normalized_vendor_error_reaches_proposed_codes(self) -> None:
+        from peerhub.dispatch.model import classify_attempt_failure
+        from peerhub.dispatch.contract import TerminalClassification
+        from peerhub.core.protocol import ErrorCode
+        cases = [
+            ("session_invalid", ErrorCode.SESSION_INVALID),
+            ("invocation_plan_rejected", ErrorCode.INVOCATION_PLAN_REJECTED),
+        ]
+        for kind, expected_code in cases:
+            with self.subTest(kind=kind):
+                decoded = self._decoded_event(
+                    "VENDOR_ERROR",
+                    {
+                        "normalized_kind": kind,
+                        "evidence_source": "known_terminal_pattern",
+                    },
+                )
+                result = classify_attempt_failure(
+                    terminal_classification=TerminalClassification.EXIT_NON_ZERO,
+                    execution=self._execution(),
+                    protocol=self._protocol(),
+                    decoded_output=decoded,
+                )
+                self.assertIsNotNone(result)
+                self.assertIs(result.code, expected_code)
+
+    def test_normalized_operational_error_refines_category_only(self) -> None:
+        from peerhub.dispatch.model import classify_attempt_failure
+        from peerhub.dispatch.contract import TerminalClassification
+        from peerhub.core.protocol import ErrorCode, OperationalFailureCategory
+        decoded = self._decoded_event(
+            "VENDOR_ERROR",
+            {
+                "normalized_kind": "auth_unavailable",
+                "evidence_source": "structured_vendor_output",
+            },
+        )
+        result = classify_attempt_failure(
+            terminal_classification=TerminalClassification.EXIT_NON_ZERO,
+            execution=self._execution(),
+            protocol=self._protocol(),
+            decoded_output=decoded,
+        )
+        self.assertIsNotNone(result)
+        self.assertIs(result.code, ErrorCode.INTERNAL_ERROR)
+        self.assertIs(
+            result.operational_failure_category,
+            OperationalFailureCategory.AUTH_UNAVAILABLE,
+        )
+
+    def test_unnormalized_text_cannot_trigger_stable_refinement(self) -> None:
+        from peerhub.dispatch.model import classify_attempt_failure
+        from peerhub.dispatch.contract import TerminalClassification
+        from peerhub.core.protocol import ErrorCode
+        cases = [
+            self._decoded_event("ASSISTANT_TEXT", {"text": "invalid model operand"}),
+            self._decoded_event("VENDOR_ERROR", {"text": "invalid model operand"}),
+            self._decoded_event("VENDOR_ERROR", {"normalized_kind": "invocation_plan_rejected"}),
+        ]
+        for decoded in cases:
+            with self.subTest(decoded=decoded):
+                result = classify_attempt_failure(
+                    terminal_classification=TerminalClassification.EXIT_NON_ZERO,
+                    execution=self._execution(),
+                    protocol=self._protocol(),
+                    decoded_output=decoded,
+                )
+                self.assertIsNotNone(result)
+                self.assertIs(result.code, ErrorCode.INTERNAL_ERROR)
+                self.assertIsNone(result.operational_failure_category)
+
+
 if __name__ == "__main__":
     unittest.main()

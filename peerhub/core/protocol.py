@@ -121,6 +121,9 @@ class ErrorCode(str, Enum):
     COMPLETION_INCOMPLETE = "COMPLETION_INCOMPLETE"
     COMPLETION_UNVERIFIED = "COMPLETION_UNVERIFIED"
 
+    SESSION_INVALID = "SESSION_INVALID"
+    INVOCATION_PLAN_REJECTED = "INVOCATION_PLAN_REJECTED"
+
 
 def require_text(value: str, name: str) -> str:
     """Validate and NFC-normalize a required protocol string."""

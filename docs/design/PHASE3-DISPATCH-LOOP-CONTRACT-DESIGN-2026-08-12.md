@@ -14,8 +14,8 @@ Evidence base: two split source investigations covered all five facets.
 The streaming investigation also ran a live Codex JSONL probe
 (`[cli_live]`). Two review rounds then checked the synthesis against the
 concrete types, real decoders, workflow, and persistence codec. Section 6
-records every finding and its disposition; Section 7 records a small
-design-validation prototype.
+records every finding and its disposition; Section 7 records a
+design-validation step folded into the production mapper.
 
 ---
 
@@ -517,7 +517,7 @@ real decoders currently emit only `ASSISTANT_TEXT`.
 | N3 | Compatibility test 3 depended on one of two persistence alternatives that the design had not selected | **Fixed.** The test now asserts only their common safety property: legacy absence remains unknown and is never interpreted as retry-safe (Section 4) |
 | N4 | The non-null-session capability rejection had no assigned owner and current adapters raise bare `ValueError` | **Fixed.** The workflow checks `Capability.SESSION` before planning and raises typed `UnsupportedCapabilityError`; adapters receive a session only after the gate passes (Sections 2.5 and 5) |
 | C | The absolute ask-history count changes during ratification | **Fixed editorially.** Section 3 makes the failure distribution the evidence, retains the absolute count only as a timestamped snapshot, and records the round-2 exact-match recount |
-| P | A small classifier prototype was preferred over another paper-only round | **Completed.** Section 7 identifies the isolated validation module and focused tests; neither is part of the production increment |
+| P | A small classifier prototype was preferred over another paper-only round | **Completed.** Section 7 identifies the design-validation step that has since been superseded by and folded into the production `classify_attempt_failure()` mapper and `tests/unit/dispatch/test_model.py` |
 
 No round-2 finding was silently dropped. Option (a) is selected because
 Q2 exists specifically to distinguish a deterministic invalid invocation
@@ -526,27 +526,29 @@ defect while labeling it fixed.
 
 ---
 
-## 7. Design-validation prototype
+## 7. Design-validation step
 
-`tools/phase3_failure_classifier_prototype.py` contains an isolated pure
-implementation of the ratified mapper shape using current production
-contracts plus a local enum for the two proposed codes. It is not
-imported by `peerhub/` and is not the classification-plumbing increment.
+This section records a design-validation step that has since been
+superseded by and folded into the production `classify_attempt_failure()`
+mapper and `tests/unit/dispatch/test_model.py`. Note that `classify_attempt_failure()`
+currently has zero production call sites (only test callers); this is expected
+at this stage of the increment. The historical record of
+what it validated (the empirical probe's conclusion) is preserved below.
 
-`tests/unit/test_phase3_failure_classifier_prototype.py` covers all five
-terminal rows, both `None` branches, both new-code refinements, an
-operational-category refinement, and negative cases proving that
+The deleted prototype module
+validated an isolated pure implementation of the ratified mapper shape using
+production contracts plus a local enum for the proposed codes. It verified
+all five terminal rows, both `None` branches, both new-code refinements,
+an operational-category refinement, and negative cases proving that
 assistant text or an unnormalized vendor payload cannot trigger a stable
-refinement. The evidence fixtures use the same allowlisted
+refinement. The evidence fixtures used the same allowlisted
 `normalized_kind` and `evidence_source` schema specified in Section 2.3.
 
 Focused execution produced **13 passed**, and focused Pyright validation
 produced **0 errors, 0 warnings** (`[empirical_probe]`).
 
-The prototype validates that the mapping is implementable and total and
-that normalized `VENDOR_ERROR` evidence reaches both proposed codes. It
-does not claim that the production decoders emit such evidence today;
-that production path is mandatory work inside increment 1.
+The validation step proved that the mapping is implementable and total and
+that normalized `VENDOR_ERROR` evidence reaches both proposed codes.
 
 ---
 

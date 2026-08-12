@@ -29,18 +29,27 @@ from peerhub.core.protocol import (
     CommandEnvelope,
     CommandID,
     ErrorCode,
+    ErrorPhase,
+    OperationalFailureCategory,
     RevisionValue,
     canonical_json_bytes,
+)
+from peerhub.adapters.contract import (
+    DecodedOutput,
+    DecoderEventKind,
+    ProtocolAssessment,
 )
 from .capability import CapabilityTier
 
 from .contract import (
     AdmissionReceipt,
     AskResult,
+    AttemptFailureClassification,
     AttemptSnapshot,
     ClientRequestBinding,
     CommandIdempotencyBinding,
     CompletionContract,
+    ExecutionOutcome,
     LeaseAttemptBindRequest,
     LeaseAuthorityCertainty,
     LeaseCloseRequest,
@@ -62,6 +71,7 @@ from .contract import (
     SessionBindingState,
     SessionResumeRequest,
     TERMINAL_REQUEST_STATES,
+    TerminalClassification,
     ValidatedSubmission,
 )
 
@@ -1349,3 +1359,70 @@ def mark_session_suspect(
         state=SessionBindingState.SUSPECT,
         updated_at=updated_at,
     )
+
+
+_TERMINAL_ROWS: dict[TerminalClassification, ErrorCode] = {
+    TerminalClassification.START_UNCERTAIN: ErrorCode.START_UNCERTAIN,
+    TerminalClassification.SILENCE_TIMEOUT: ErrorCode.SILENCE_TIMEOUT,
+    TerminalClassification.PROCESS_TIMEOUT: ErrorCode.PROCESS_TIMEOUT,
+    TerminalClassification.EXIT_NON_ZERO: ErrorCode.INTERNAL_ERROR,
+    TerminalClassification.OUTPUT_LIMIT_EXCEEDED: ErrorCode.PROCESS_KILLED,
+}
+
+_OPERATIONAL_KINDS: dict[str, OperationalFailureCategory] = {
+    "auth_unavailable": OperationalFailureCategory.AUTH_UNAVAILABLE,
+    "network_unavailable": OperationalFailureCategory.NETWORK_UNAVAILABLE,
+    "provider_unavailable": OperationalFailureCategory.PROVIDER_UNAVAILABLE,
+    "quota_exhausted": OperationalFailureCategory.QUOTA_EXHAUSTED,
+    "rate_limited": OperationalFailureCategory.RATE_LIMITED,
+}
+
+_EVIDENCE_SOURCES = {
+    "structured_vendor_output",
+    "known_terminal_pattern",
+}
+
+
+def _normalized_vendor_kind(decoded_output: DecodedOutput | None) -> str | None:
+    if decoded_output is None:
+        return None
+    for event in decoded_output.events:
+        if event.kind is not DecoderEventKind.VENDOR_ERROR:
+            continue
+        if event.payload.get("evidence_source") not in _EVIDENCE_SOURCES:
+            continue
+        kind = event.payload.get("normalized_kind")
+        if isinstance(kind, str):
+            return kind
+    return None
+
+
+def classify_attempt_failure(
+    *,
+    terminal_classification: TerminalClassification | None,
+    execution: ExecutionOutcome,
+    protocol: ProtocolAssessment,
+    decoded_output: DecodedOutput | None,
+) -> AttemptFailureClassification | None:
+    """Map one attempt's measured evidence without deciding retry policy."""
+
+    _ = execution  # Retained for signature fidelity and later correlation checks.
+    if terminal_classification is None:
+        if protocol.protocol_failure is None:
+            return None
+        return AttemptFailureClassification(
+            protocol.protocol_failure, ErrorPhase.ASSESSMENT, None
+        )
+
+    code: ErrorCode = _TERMINAL_ROWS[terminal_classification]
+    category = None
+    if terminal_classification is TerminalClassification.EXIT_NON_ZERO:
+        vendor_kind = _normalized_vendor_kind(decoded_output)
+        if vendor_kind == "session_invalid":
+            code = ErrorCode.SESSION_INVALID
+        elif vendor_kind == "invocation_plan_rejected":
+            code = ErrorCode.INVOCATION_PLAN_REJECTED
+        else:
+            category = _OPERATIONAL_KINDS.get(vendor_kind or "")
+
+    return AttemptFailureClassification(code, ErrorPhase.POST_SPAWN, category)

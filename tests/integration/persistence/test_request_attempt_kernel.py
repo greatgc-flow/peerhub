@@ -854,3 +854,63 @@ def test_complete_attempt_with_artifacts_and_lease_without_artifacts(
         closed_lease = unit.get_lease(lease.lease_id)
         assert closed_lease is not None
         assert closed_lease.state == LeaseState.RELEASED
+
+
+def test_ask_result_classification_round_trips() -> None:
+    from peerhub.persistence.sqlite_dispatch import _ask_result_data, _ask_result_from_raw
+    from peerhub.dispatch.contract import TerminalClassification, AttemptFailureClassification
+    from peerhub.core.protocol import ErrorCode, ErrorPhase, OperationalFailureCategory
+    import json
+
+    for tc in TerminalClassification:
+        result = replace(
+            _verified_result(),
+            terminal_classification=tc,
+            failure_classification=AttemptFailureClassification(
+                code=ErrorCode.INTERNAL_ERROR,
+                phase=ErrorPhase.POST_SPAWN,
+                operational_failure_category=OperationalFailureCategory.AUTH_UNAVAILABLE,
+            )
+        )
+
+        raw = json.dumps(_ask_result_data(result))
+        decoded = _ask_result_from_raw(raw)
+
+        assert decoded.terminal_classification == tc
+        assert decoded.failure_classification is not None
+        assert decoded.failure_classification.code == ErrorCode.INTERNAL_ERROR
+        assert decoded.failure_classification.phase == ErrorPhase.POST_SPAWN
+        assert decoded.failure_classification.operational_failure_category == OperationalFailureCategory.AUTH_UNAVAILABLE
+
+
+def test_legacy_ask_result_decodes_with_unset_classification() -> None:
+    from peerhub.persistence.sqlite_dispatch import _ask_result_from_raw
+    import json
+
+    legacy_json = json.dumps({
+        "execution": {
+            "started": True,
+            "exit_code": 0,
+            "timed_out": False,
+            "cancelled": False,
+            "execution_certainty": "TERMINAL"
+        },
+        "protocol": {
+            "parsed": True,
+            "response_present": True,
+            "vendor_completion_marker": True,
+            "suspected_truncation": False,
+            "protocol_failure": None
+        },
+        "completion": {
+            "state": "VERIFIED",
+            "contract_kind": "DELIVERY_ONLY",
+            "failed_requirements": [],
+            "evidence_refs": ["terminal-receipt-01"]
+        },
+        "policy_revision": 7
+    })
+
+    decoded = _ask_result_from_raw(legacy_json)
+    assert decoded.terminal_classification is None
+    assert decoded.failure_classification is None

@@ -14,6 +14,8 @@ from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import (
     CommandID,
     ErrorCode,
+    ErrorPhase,
+    OperationalFailureCategory,
 )
 from peerhub.dispatch.capability import (
     CapabilityLease,
@@ -27,6 +29,7 @@ from peerhub.dispatch.contract import (
     ArtifactRecoveryDigest,
     ArtifactState,
     AskResult,
+    AttemptFailureClassification,
     AttemptSnapshot,
     ClientRequestBinding,
     CommandIdempotencyBinding,
@@ -52,6 +55,7 @@ from peerhub.dispatch.contract import (
     SessionRotationState,
     SessionRotationKey,
     SessionRotationGenerationSnapshot,
+    TerminalClassification,
 )
 
 def _completion_contract_data(
@@ -132,11 +136,31 @@ def _ask_result_data(result: AskResult) -> Mapping[str, object]:
             "evidence_refs": result.completion.evidence_refs,
         },
         "policy_revision": result.policy_revision,
+        "terminal_classification": (
+            result.terminal_classification.value
+            if result.terminal_classification is not None
+            else None
+        ),
+        "failure_classification": (
+            {
+                "code": result.failure_classification.code.value,
+                "phase": result.failure_classification.phase.value,
+                "operational_failure_category": (
+                    result.failure_classification.operational_failure_category.value
+                    if result.failure_classification.operational_failure_category is not None
+                    else None
+                ),
+            }
+            if result.failure_classification is not None
+            else None
+        ),
     }
 
 
 def _ask_result_from_raw(raw: str) -> AskResult:
     value = _json_object(raw)
+
+    # Distinguishing explicit unknown vs explicit none is deferred to increment 5 (outer retry/resume loop)
     execution = value.get("execution")
     protocol = value.get("protocol")
     completion = value.get("completion")
@@ -211,6 +235,24 @@ def _ask_result_from_raw(raw: str) -> AskResult:
             ),
         ),
         policy_revision=policy_revision,
+        terminal_classification=(
+            TerminalClassification(str(value["terminal_classification"]))
+            if value.get("terminal_classification") is not None
+            else None
+        ),
+        failure_classification=(
+            AttemptFailureClassification(
+                code=ErrorCode(str(value["failure_classification"]["code"])),  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
+                phase=ErrorPhase(str(value["failure_classification"]["phase"])),  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
+                operational_failure_category=(
+                    OperationalFailureCategory(str(value["failure_classification"]["operational_failure_category"]))  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
+                    if value["failure_classification"].get("operational_failure_category") is not None  # pyright: ignore[reportUnknownArgumentType, reportUnknownMemberType]
+                    else None
+                ),
+            )
+            if value.get("failure_classification") is not None
+            else None
+        ),
     )
 
 

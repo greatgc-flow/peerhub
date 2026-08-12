@@ -15,22 +15,11 @@ from enum import Enum
 from peerhub.core.execution import CancellationGrace, ExecutionCertainty
 from peerhub.core.protocol import ErrorCode, require_text
 
-from .contract import ExecutionOutcome, ProcessBirthIdentity
-
-
-class TerminalClassification(str, Enum):
-    """Currently ratified process classifications used by Slice 5 tests.
-
-    This is intentionally not claimed to be the complete vocabulary. The
-    Phase 0 contract still lists full terminal-classification closure as an
-    open decision.
-    """
-
-    START_UNCERTAIN = "START_UNCERTAIN"
-    SILENCE_TIMEOUT = "SILENCE_TIMEOUT"
-    PROCESS_TIMEOUT = "PROCESS_TIMEOUT"
-    EXIT_NON_ZERO = "EXIT_NON_ZERO"
-    OUTPUT_LIMIT_EXCEEDED = "OUTPUT_LIMIT_EXCEEDED"
+from .contract import (
+    ExecutionOutcome,
+    ProcessBirthIdentity,
+    TerminalClassification,
+)
 
 
 class ObservationState(str, Enum):
