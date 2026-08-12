@@ -6,9 +6,49 @@ pending a real captured failure transcript from a live invocation.
 """
 import pytest
 from peerhub.adapters.codex_adapter import CodexOutputDecoder, RealCodexAdapter
-from peerhub.adapters.contract import DecoderEventKind, InvocationPlan, TransportKind, TransportLimits, SessionAction
+from peerhub.adapters.contract import (
+    AdapterRequest,
+    Capability,
+    DecoderEventKind,
+    InvocationPlan,
+    ProfileDescriptor,
+    SessionAction,
+    SessionHint,
+    TransportKind,
+    TransportLimits,
+)
 from peerhub.core.execution import ProcessTerminalEvidence
 from peerhub.core.protocol import ErrorCode
+
+
+class FakeCompletionContract:
+    @property
+    def contract_id(self) -> str:
+        return "fake-contract"
+
+
+def _request(session_action: SessionAction) -> AdapterRequest:
+    return AdapterRequest(
+        request_id="req-1",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cx.standard",
+        requested_session_action=session_action,
+        completion_contract=FakeCompletionContract(),
+    )
+
+
+def _profile() -> ProfileDescriptor:
+    return ProfileDescriptor(
+        profile_id="cx.standard",
+        profile_class="tier",
+        supports_reasoning_effort=False,
+    )
+
+
+def _limits() -> TransportLimits:
+    return TransportLimits(1, 1, 1)
 
 def test_codex_decoder_session_invalid():
     decoder = CodexOutputDecoder()
@@ -79,3 +119,105 @@ def test_codex_interpret_output_with_vendor_error_yields_no_protocol_failure():
     
     assessment = adapter.interpret_output(plan, process, chunks)
     assert assessment.protocol_failure is None
+
+
+def test_codex_plan_invocation_session_resume_uses_exact_argv():
+    adapter = RealCodexAdapter()
+    session = SessionHint(
+        external_session_id="019c1234-5678-7abc-8def-0123456789ab",
+        adapter_fingerprint=None,
+        session_generation=None,
+    )
+
+    plan = adapter.plan_invocation(
+        _request(SessionAction.RESUME), _profile(), session, _limits()
+    )
+
+    assert plan.argv == (
+        "codex.cmd",
+        "exec",
+        "resume",
+        "--json",
+        "019c1234-5678-7abc-8def-0123456789ab",
+        "Hello",
+    )
+    assert plan.redacted_display == (
+        "codex.cmd exec resume --json <session-id> <redacted>"
+    )
+    assert plan.session_action == SessionAction.RESUME
+
+
+@pytest.mark.parametrize(
+    "session",
+    [
+        None,
+        SessionHint(
+            external_session_id=None,
+            adapter_fingerprint=None,
+            session_generation=None,
+        ),
+    ],
+)
+def test_codex_plan_invocation_session_resume_requires_id(
+    session: SessionHint | None,
+):
+    adapter = RealCodexAdapter()
+
+    with pytest.raises(
+        ValueError, match="external_session_id is required for RESUME"
+    ):
+        adapter.plan_invocation(
+            _request(SessionAction.RESUME), _profile(), session, _limits()
+        )
+
+
+def test_codex_plan_invocation_session_none_is_unchanged():
+    adapter = RealCodexAdapter()
+
+    plan = adapter.plan_invocation(
+        _request(SessionAction.NONE), _profile(), None, _limits()
+    )
+
+    assert plan.argv == ("codex.cmd", "exec", "--json", "Hello")
+    assert plan.redacted_display == "codex.cmd exec --json <redacted>"
+    assert plan.session_action == SessionAction.NONE
+
+
+def test_codex_decoder_emits_session_identity_from_thread_started():
+    decoder = CodexOutputDecoder()
+    decoder.feed(
+        b'{"type":"thread.started","thread_id":"019c1234-5678-7abc-8def-0123456789ab"}\n'
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"done"}}\n'
+    )
+
+    decoded = decoder.finalize()
+    session_events = [
+        event
+        for event in decoded.events
+        if event.kind == DecoderEventKind.SESSION_IDENTITY
+    ]
+
+    assert len(session_events) == 1
+    assert dict(session_events[0].payload) == {
+        "session_id": "019c1234-5678-7abc-8def-0123456789ab"
+    }
+    assert decoded.canonical_text == "done"
+
+
+def test_codex_decoder_without_thread_started_is_unchanged():
+    decoder = CodexOutputDecoder()
+    decoder.feed(
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"done"}}\n'
+    )
+
+    decoded = decoder.finalize()
+
+    assert decoded.canonical_text == "done"
+    assert [event.kind for event in decoded.events] == [
+        DecoderEventKind.ASSISTANT_TEXT
+    ]
+    assert decoded.events[0].payload["text"] == "done"
+
+
+def test_codex_descriptor_advertises_session():
+    assert Capability.SESSION in RealCodexAdapter.descriptor.capabilities

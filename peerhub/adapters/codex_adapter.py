@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from peerhub.adapters.contract import (
     AdapterRequest,
+    Capability,
     DecodedOutput,
     DecoderEvent,
     DecoderEventKind,
@@ -17,6 +18,7 @@ from peerhub.adapters.contract import (
     ProfileDescriptor,
     ProtocolAssessment,
     PromptPolicy,
+    SessionAction,
     SessionHint,
 )
 from peerhub.core.protocol import ErrorCode
@@ -49,7 +51,7 @@ _CODEX_DESCRIPTOR = PeerDescriptor(
     peer_kind="cx",
     profiles=(_CODEX_PROFILE,),
     transports=frozenset({TransportKind.PIPE}),
-    capabilities=frozenset({}),
+    capabilities=frozenset({Capability.SESSION}),
     usage_provider_id=None,
     readiness_probe_id="codex-readiness",
 )
@@ -92,7 +94,18 @@ class CodexOutputDecoder:
                         
                     try:
                         parsed = json.loads(line)
-                        if parsed.get("type") == "item.completed":
+                        if parsed.get("type") == "thread.started":
+                            thread_id = parsed.get("thread_id")
+                            if isinstance(thread_id, str) and thread_id:
+                                # First SESSION_IDENTITY emitter: future adapters
+                                # should use this single-key payload shape too.
+                                events.append(
+                                    DecoderEvent(
+                                        kind=DecoderEventKind.SESSION_IDENTITY,
+                                        payload={"session_id": thread_id},
+                                    )
+                                )
+                        elif parsed.get("type") == "item.completed":
                             item = parsed.get("item", {})
                             if item.get("type") == "agent_message":
                                 response_text = item.get("text", "")
@@ -164,7 +177,24 @@ class RealCodexAdapter:
         if prompt is None:
             raise ValueError("prompt_content is required")
 
-        argv = ("codex.cmd", "exec", "--json", prompt)
+        if request.requested_session_action == SessionAction.RESUME:
+            if session is None or session.external_session_id is None:
+                raise ValueError("external_session_id is required for RESUME")
+            argv = (
+                "codex.cmd",
+                "exec",
+                "resume",
+                "--json",
+                session.external_session_id,
+                prompt,
+            )
+            redacted_display = (
+                "codex.cmd exec resume --json <session-id> <redacted>"
+            )
+        else:
+            argv = ("codex.cmd", "exec", "--json", prompt)
+            redacted_display = "codex.cmd exec --json <redacted>"
+
         return InvocationPlan(
             argv=argv,
             cwd_reference=request.workspace_scope,
@@ -172,7 +202,7 @@ class RealCodexAdapter:
             transport=TransportKind.PIPE,
             stdin_payload=None,
             limits=limits,
-            redacted_display="codex.cmd exec --json <redacted>",
+            redacted_display=redacted_display,
             artifacts=(),
             session_action=request.requested_session_action,
         )
