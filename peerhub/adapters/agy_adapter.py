@@ -138,8 +138,7 @@ class RealAgyAdapter:
         session: SessionHint | None,
         limits: TransportLimits,
     ) -> InvocationPlan:
-        if session is not None:
-            raise ValueError("session continuation is not supported")
+
         if profile.profile_id != _AGY_PROFILE.profile_id:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
 

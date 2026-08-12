@@ -13,9 +13,11 @@ import pytest
 from peerhub.adapters.contract import (
     AdapterRequest,
     ArtifactSpec,
+    Capability,
     PeerAdapter,
     ProfileDescriptor,
     SessionAction,
+    SessionHint,
 )
 from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.builtins.fake_adapter import (
@@ -25,7 +27,7 @@ from peerhub.builtins.fake_adapter import (
 )
 from peerhub.application import workflows as workflows_module
 from peerhub.application.workflows import ApplicationWorkflows
-from peerhub.core.errors import InvalidMutationError
+from peerhub.core.errors import InvalidMutationError, UnsupportedCapabilityError
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
 from peerhub.core.execution import TransportKind, TransportLimits
 from peerhub.core.identity import AuthenticatedSubject
@@ -692,6 +694,7 @@ class _RecordingFakePeerAdapter(FakePeerAdapter):
         super().__init__(**kwargs)  # pyright: ignore[reportArgumentType]
         self.descriptor = replace(_FAKE_DESCRIPTOR, peer_kind=peer_kind)
         self.plan_invocation_calls = 0
+        self.recorded_session = None
 
     def plan_invocation(
         self,
@@ -701,6 +704,7 @@ class _RecordingFakePeerAdapter(FakePeerAdapter):
         limits: TransportLimits,
     ):
         self.plan_invocation_calls += 1
+        self.recorded_session = session
         return super().plan_invocation(request, profile, session, limits)  # pyright: ignore[reportUnknownArgumentType]
 
 
@@ -1093,3 +1097,142 @@ def test_mutating_admission_to_an_unenforced_peer_never_mints_a_lease(
         "selected adapter has no measured enforcement evidence for the "
         "mandatory enforcement floor"
     )
+
+
+def test_dispatch_and_execute_rejects_session_without_capability(
+    tmp_path: Path, store: SqliteStateStore
+) -> None:
+    adapter = _RecordingFakePeerAdapter(peer_kind="ag")
+    workflows, dispatch = _workflows(
+        store,
+        peer_adapter=adapter,
+        enforcement_evidence=default_enforcement_evidence_provider(),
+    )
+
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+        required_capability_tier=CapabilityTier.READ_ONLY,
+    )
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    limits = TransportLimits(
+        process_timeout_ms=5000,
+        silence_timeout_ms=5000,
+        max_output_bytes=65536,
+    )
+
+    session_hint = SessionHint(
+        external_session_id="sess-123",
+        adapter_fingerprint="test-fingerprint",
+        session_generation=1,
+    )
+
+    with pytest.raises(UnsupportedCapabilityError) as exc_info:
+        workflows.dispatch_and_execute(
+            cmd_id,
+            capability_lease_id=cap_lease_id,
+            peer_instance_id=peer_instance,
+            current_policy_revision=7,
+            materializer=materializer,
+            adapter_request=adapter_req,
+            peer_adapter=adapter,
+            profile=_ROUTED_PROFILE,
+            limits=limits,
+            workspace_roots={"ws-1": workspace_root},
+            content_providers={},
+            completion_contract=contract,
+            heartbeat_timeout_ms=10000,
+            session=session_hint,
+        )
+
+    assert exc_info.value.adapter_id == "fake-peer"
+    assert exc_info.value.capability == Capability.SESSION
+    assert adapter.plan_invocation_calls == 0
+
+
+def test_dispatch_and_execute_accepts_session_with_capability(
+    tmp_path: Path, store: SqliteStateStore
+) -> None:
+    class CapableFakePeerAdapter(_RecordingFakePeerAdapter):
+        def __init__(self, *, peer_kind: str, **kwargs: object) -> None:
+            super().__init__(peer_kind=peer_kind, **kwargs)
+            self.descriptor = replace(self.descriptor, capabilities=frozenset({Capability.SESSION}))
+
+    adapter = CapableFakePeerAdapter(peer_kind="ag", stdout="mocked\n")
+    workflows, dispatch = _workflows(
+        store,
+        peer_adapter=adapter,
+        enforcement_evidence=default_enforcement_evidence_provider(),
+    )
+
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+        required_capability_tier=CapabilityTier.READ_ONLY,
+    )
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    limits = TransportLimits(
+        process_timeout_ms=5000,
+        silence_timeout_ms=5000,
+        max_output_bytes=65536,
+    )
+
+    session_hint = SessionHint(
+        external_session_id="sess-123",
+        adapter_fingerprint="test-fingerprint",
+        session_generation=1,
+    )
+
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        peer_adapter=adapter,
+        profile=_ROUTED_PROFILE,
+        limits=limits,
+        workspace_roots={"ws-1": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        heartbeat_timeout_ms=10000,
+        session=session_hint,
+    )
+
+    assert adapter.plan_invocation_calls == 1
+    assert adapter.recorded_session is session_hint
+    assert res.process_outcome is not None
+    assert res.process_outcome.execution_outcome.exit_code == 0

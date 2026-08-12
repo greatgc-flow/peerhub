@@ -22,6 +22,23 @@ class PeerHubError(Exception):
         self.details = dict(details or {})
 
 
+class UnsupportedCapabilityError(PeerHubError):
+    """A peer adapter does not support a requested capability."""
+
+    error_code = ErrorCode.INVALID_PARAMS
+
+    def __init__(self, adapter_id: str, capability: str) -> None:
+        self.adapter_id = adapter_id
+        self.capability = capability
+        super().__init__(
+            f"adapter {adapter_id!r} does not support capability {capability!r}",
+            details={
+                "adapter_id": adapter_id,
+                "capability": capability,
+            },
+        )
+
+
 class InvalidMutationError(PeerHubError):
     """A mutation violates a pure domain invariant."""
 

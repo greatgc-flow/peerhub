@@ -12,14 +12,17 @@ from typing import Protocol, TypeAlias
 
 from peerhub.adapters.contract import (
     AdapterRequest,
+    Capability,
     PeerAdapter,
     ProfileDescriptor,
     DecodedOutput,
     OutputChannel,
+    SessionHint,
 )
 from peerhub.core.errors import (
     InvalidMutationError,
     RecordNotFoundError,
+    UnsupportedCapabilityError,
 )
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
@@ -555,6 +558,7 @@ class ApplicationWorkflows:
         heartbeat_timeout_ms: int,
         transport: str = "pipe",
         service: DispatchService | None = None,
+        session: SessionHint | None = None,
     ) -> ExecutionWorkflowResult:
         """Dispatch and execute an admitted/prepared command through process supervision."""
 
@@ -577,11 +581,18 @@ class ApplicationWorkflows:
             profile=profile,
             current_policy_revision=current_policy_revision,
         )
+        if session is not None:
+            if Capability.SESSION not in selected_peer_adapter.descriptor.capabilities:
+                raise UnsupportedCapabilityError(
+                    adapter_id=selected_peer_adapter.descriptor.adapter_id,
+                    capability=Capability.SESSION,
+                )
+
 
         invocation_plan = selected_peer_adapter.plan_invocation(
             request=adapter_request,
             profile=profile,
-            session=None,
+            session=session,
             limits=limits,
         )
 
