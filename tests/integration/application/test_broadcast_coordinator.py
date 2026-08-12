@@ -281,3 +281,269 @@ def test_fan_out_completes_two_waves_through_real_admission_and_dispatch(
             connection.close()
     finally:
         runtime.close()
+
+
+def test_fan_out_partial_failure_disposition(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _target_with_exit_code(peer_kind: str, exit_code: int) -> ResolvedPeerTarget:
+        adapter = RecordingFakePeerAdapter()
+        adapter._exit_code = exit_code
+        adapter.descriptor = replace(adapter.descriptor, peer_kind=peer_kind)
+        return ResolvedPeerTarget(
+            cli_name=peer_kind,
+            peer_kind=peer_kind,
+            adapter=adapter,
+            profile=adapter.descriptor.profiles[0],
+            executable_path=Path(sys.executable),
+        )
+
+    targets = {
+        "ag": _target_with_exit_code("ag", 0),
+        "cx": _target_with_exit_code("cx", 1),
+        "cc": _target_with_exit_code("cc", 0),
+    }
+
+    def resolve_target(
+        name: str,
+        *,
+        profile_id: str | None = None,
+    ) -> ResolvedPeerTarget:
+        return targets[name]
+
+    monkeypatch.setattr(
+        "peerhub.application.broadcast.resolve_peer_target",
+        resolve_target,
+    )
+
+    admission_config = build_direct_ask_admission_config(
+        targets["ag"],
+        clock=clock,
+        ids=ids,
+    )
+    configured_members = tuple(
+        (target.peer_kind, target.profile.profile_id)
+        for target in targets.values()
+    )
+    configuration_digest = hashlib.sha256(
+        repr(configured_members).encode("utf-8")
+    ).hexdigest()
+    admission_config = replace(
+        admission_config,
+        configuration=replace(
+            admission_config.configuration,
+            digest=configuration_digest,
+        ),
+        membership=HealthScopeMembershipSnapshot(
+            configuration_revision=1,
+            configuration_digest=configuration_digest,
+            configured_members=configured_members,
+            bindings=(),
+        ),
+    )
+
+    paths = PathLayout.for_workspace(tmp_path)
+    runtime = create_runtime(
+        RuntimeContext(
+            workspace_home_id="cli",
+            paths=paths,
+            clock=clock,
+            ids=ids,
+        ),
+        admission_config=admission_config,
+    )
+    try:
+        for target in targets.values():
+            if target.peer_kind != "ag":
+                _persist_readiness(runtime, clock=clock, target=target)
+
+        coordinator = BroadcastCoordinator(runtime=runtime, clock=clock, ids=ids)
+        request = FanOutRequest(
+            workspace_root=tmp_path,
+            prompt="partial failure prompt",
+            targets=[("ag", None), ("cx", None), ("cc", None)],
+            required_capability_tier=CapabilityTier.READ_ONLY,
+            limits=TransportLimits(
+                process_timeout_ms=10000,
+                silence_timeout_ms=10000,
+                max_output_bytes=10000,
+            ),
+            authenticated_subject=AuthenticatedSubject(
+                "local-cli:test-user",
+                "test",
+            ),
+        )
+
+        result = coordinator.fan_out(request)
+
+        assert result.disposition == "partial"
+        assert len(result.legs) == 3
+
+        leg_states = {leg.target: leg.leg_state for leg in result.legs}
+        assert leg_states["ag/fake-standard"] == "completed"
+        assert leg_states["cx/fake-standard"] == "failed"
+        assert leg_states["cc/fake-standard"] == "completed"
+
+        connection = sqlite3.connect(paths.database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            round_row = connection.execute(
+                "SELECT status, disposition FROM broadcast_rounds WHERE broadcast_round_id = ?",
+                (result.round_id,)
+            ).fetchone()
+            assert round_row["status"] == "closed"
+            assert round_row["disposition"] == "partial"
+
+            leg_rows = connection.execute(
+                "SELECT leg_target, leg_state, terminal_at FROM broadcast_legs WHERE broadcast_round_id = ?",
+                (result.round_id,)
+            ).fetchall()
+            db_leg_states = {row["leg_target"]: row["leg_state"] for row in leg_rows}
+            db_terminals = {row["leg_target"]: row["terminal_at"] for row in leg_rows}
+
+            assert db_leg_states["ag/fake-standard"] == "completed"
+            assert db_leg_states["cx/fake-standard"] == "failed"
+            assert db_leg_states["cc/fake-standard"] == "completed"
+            
+            assert all(t is not None for t in db_terminals.values())
+        finally:
+            connection.close()
+
+    finally:
+        runtime.close()
+
+
+def test_fan_out_none_completed_disposition(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _target_with_exit_code(peer_kind: str, exit_code: int) -> ResolvedPeerTarget:
+        adapter = RecordingFakePeerAdapter()
+        adapter._exit_code = exit_code
+        adapter.descriptor = replace(adapter.descriptor, peer_kind=peer_kind)
+        return ResolvedPeerTarget(
+            cli_name=peer_kind,
+            peer_kind=peer_kind,
+            adapter=adapter,
+            profile=adapter.descriptor.profiles[0],
+            executable_path=Path(sys.executable),
+        )
+
+    targets = {
+        "ag": _target_with_exit_code("ag", 1),
+        "cx": _target_with_exit_code("cx", 2),
+        "cc": _target_with_exit_code("cc", 3),
+    }
+
+    def resolve_target(
+        name: str,
+        *,
+        profile_id: str | None = None,
+    ) -> ResolvedPeerTarget:
+        return targets[name]
+
+    monkeypatch.setattr(
+        "peerhub.application.broadcast.resolve_peer_target",
+        resolve_target,
+    )
+
+    admission_config = build_direct_ask_admission_config(
+        targets["ag"],
+        clock=clock,
+        ids=ids,
+    )
+    configured_members = tuple(
+        (target.peer_kind, target.profile.profile_id)
+        for target in targets.values()
+    )
+    configuration_digest = hashlib.sha256(
+        repr(configured_members).encode("utf-8")
+    ).hexdigest()
+    admission_config = replace(
+        admission_config,
+        configuration=replace(
+            admission_config.configuration,
+            digest=configuration_digest,
+        ),
+        membership=HealthScopeMembershipSnapshot(
+            configuration_revision=1,
+            configuration_digest=configuration_digest,
+            configured_members=configured_members,
+            bindings=(),
+        ),
+    )
+
+    paths = PathLayout.for_workspace(tmp_path)
+    runtime = create_runtime(
+        RuntimeContext(
+            workspace_home_id="cli",
+            paths=paths,
+            clock=clock,
+            ids=ids,
+        ),
+        admission_config=admission_config,
+    )
+    try:
+        for target in targets.values():
+            if target.peer_kind != "ag":
+                _persist_readiness(runtime, clock=clock, target=target)
+
+        coordinator = BroadcastCoordinator(runtime=runtime, clock=clock, ids=ids)
+        request = FanOutRequest(
+            workspace_root=tmp_path,
+            prompt="none completed prompt",
+            targets=[("ag", None), ("cx", None), ("cc", None)],
+            required_capability_tier=CapabilityTier.READ_ONLY,
+            limits=TransportLimits(
+                process_timeout_ms=10000,
+                silence_timeout_ms=10000,
+                max_output_bytes=10000,
+            ),
+            authenticated_subject=AuthenticatedSubject(
+                "local-cli:test-user",
+                "test",
+            ),
+        )
+
+        result = coordinator.fan_out(request)
+
+        assert result.disposition == "none_completed"
+        assert len(result.legs) == 3
+
+        leg_states = {leg.target: leg.leg_state for leg in result.legs}
+        assert leg_states["ag/fake-standard"] == "failed"
+        assert leg_states["cx/fake-standard"] == "failed"
+        assert leg_states["cc/fake-standard"] == "failed"
+
+        connection = sqlite3.connect(paths.database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            round_row = connection.execute(
+                "SELECT status, disposition FROM broadcast_rounds WHERE broadcast_round_id = ?",
+                (result.round_id,)
+            ).fetchone()
+            assert round_row["status"] == "closed"
+            assert round_row["disposition"] == "none_completed"
+
+            leg_rows = connection.execute(
+                "SELECT leg_target, leg_state, terminal_at FROM broadcast_legs WHERE broadcast_round_id = ?",
+                (result.round_id,)
+            ).fetchall()
+            db_leg_states = {row["leg_target"]: row["leg_state"] for row in leg_rows}
+            db_terminals = {row["leg_target"]: row["terminal_at"] for row in leg_rows}
+
+            assert db_leg_states["ag/fake-standard"] == "failed"
+            assert db_leg_states["cx/fake-standard"] == "failed"
+            assert db_leg_states["cc/fake-standard"] == "failed"
+            
+            assert all(t is not None for t in db_terminals.values())
+        finally:
+            connection.close()
+
+    finally:
+        runtime.close()

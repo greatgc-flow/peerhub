@@ -65,11 +65,16 @@ def _domain_hash(domain: str, round_id: str, leg_target: str) -> str:
 
 
 class BroadcastCoordinator:
-    """Run the increment-1 sequential, all-success broadcast workflow.
+    """Run the sequential broadcast workflow.
 
-    Failure classification and partial-round disposition are intentionally
-    deferred. A failed leg therefore raises from this method and leaves the
-    durable round open for the later recovery/disposition increment.
+    Failure classification and partial-round disposition are implemented.
+    A failed leg no longer raises, and the round is closed with a real disposition.
+    
+    Still deferred: timeout-specific handling, deadline-based closing, and 
+    crash-linkage/recovery. Exceptions raised inside `_dispatch_leg` itself 
+    (e.g., from `admit_request`, `prepare_for_dispatch`, or 
+    `dispatch_and_execute`) still abort the whole fan_out and leave the 
+    round open with a NULL disposition.
     """
 
     def __init__(self, runtime: Runtime, clock: Clock, ids: IdSource):
@@ -98,10 +103,21 @@ class BroadcastCoordinator:
             )
             for target in resolved_targets
         )
-        self._close_completed_round(round_id)
+        all_completed = all(leg.leg_state == "completed" for leg in leg_results)
+        # Note: In future increments, there will be states like `timed_out`.
+        # `not any` is robust to these future states, whereas `all(failed)` would misclassify them.
+        none_completed = not any(leg.leg_state == "completed" for leg in leg_results)
+        if all_completed:
+            disposition = "all_completed"
+        elif none_completed:
+            disposition = "none_completed"
+        else:
+            disposition = "partial"
+
+        self._close_completed_round(round_id, disposition)
         return FanOutResult(
             round_id=round_id,
-            disposition="all_completed",
+            disposition=disposition,
             legs=leg_results,
         )
 
@@ -288,9 +304,12 @@ class BroadcastCoordinator:
             heartbeat_timeout_ms=30000,
         )
         if execution_result.request.state not in _COMPLETED_REQUEST_STATES:
-            raise RuntimeError(
-                f"broadcast leg {leg_target} ended in "
-                f"{execution_result.request.state.value}"
+            self._fail_leg(round_id, leg_target)
+            return BroadcastLegResult(
+                target=leg_target,
+                leg_state="failed",
+                command_id=str(command_id),
+                response_text=None,
             )
 
         self._complete_leg(round_id, leg_target)
@@ -337,16 +356,29 @@ class BroadcastCoordinator:
             )
             uow.commit()
 
-    def _close_completed_round(self, round_id: str) -> None:
+    def _fail_leg(self, round_id: str, leg_target: str) -> None:
+        with self.runtime.state_store.unit_of_work() as uow:
+            db = uow._db()  # pyright: ignore[reportPrivateUsage]
+            db.execute(
+                """
+                UPDATE broadcast_legs
+                SET leg_state = 'failed', terminal_at = ?
+                WHERE broadcast_round_id = ? AND leg_target = ?
+                """,
+                (self.clock.now(), round_id, leg_target),
+            )
+            uow.commit()
+
+    def _close_completed_round(self, round_id: str, disposition: str) -> None:
         with self.runtime.state_store.unit_of_work() as uow:
             db = uow._db()  # pyright: ignore[reportPrivateUsage]
             db.execute(
                 """
                 UPDATE broadcast_rounds
                 SET status = 'closed', closed_at = ?,
-                    disposition = 'all_completed'
+                    disposition = ?
                 WHERE broadcast_round_id = ?
                 """,
-                (self.clock.now(), round_id),
+                (self.clock.now(), disposition, round_id),
             )
             uow.commit()
