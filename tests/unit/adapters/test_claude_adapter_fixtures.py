@@ -1,7 +1,7 @@
 """
-Note: The vendor-error byte patterns in these fixtures are synthetic, 
-best-effort constructions, as there is no real capture available. 
-They are marked TEST NEEDED for DIR-004 promotion to empirical_probe 
+Note: The vendor-error byte patterns in these fixtures are synthetic,
+best-effort constructions, as there is no real capture available.
+They are marked TEST NEEDED for DIR-004 promotion to empirical_probe
 pending a real captured failure transcript from a live invocation.
 """
 import pytest
@@ -58,12 +58,12 @@ def test_claude_interpret_output_nonzero_exit_not_internal_error():
         artifacts=(), session_action=SessionAction.NONE
     )
     process = ProcessTerminalEvidence(exit_code=1)
-    
+
     # Not empty or malformed
     chunks = [b'{"result": "ok"}']
     assessment = adapter.interpret_output(plan, process, chunks)
     assert assessment.protocol_failure is None
-    
+
     # Malformed JSON should still yield INTERNAL_ERROR
     chunks_malformed = [b'{"bad json']
     assessment_malformed = adapter.interpret_output(plan, process, chunks_malformed)
@@ -78,12 +78,80 @@ def test_claude_interpret_output_with_vendor_error_yields_no_protocol_failure():
     )
     process = ProcessTerminalEvidence(exit_code=1)
     chunks = [b'{"is_error": true, "error_type": "invalid_session"}']
-    
+
     decoder = adapter.new_decoder(plan)
     for chunk in chunks:
         decoder.feed(chunk)
     decoded = decoder.finalize()
     assert any(e.kind == DecoderEventKind.VENDOR_ERROR for e in decoded.events)
-    
+
     assessment = adapter.interpret_output(plan, process, chunks)
     assert assessment.protocol_failure is None
+
+class FakeCompletionContract:
+    @property
+    def contract_id(self) -> str:
+        return "fake-contract"
+
+def test_claude_plan_invocation_session_resume():
+    adapter = RealClaudeAdapter()
+    from peerhub.adapters.contract import ProfileDescriptor, AdapterRequest, SessionHint
+    profile = ProfileDescriptor(profile_id="cc.standard", profile_class="tier", supports_reasoning_effort=False)
+    request = AdapterRequest(
+        request_id="req-1",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cc.standard",
+        requested_session_action=SessionAction.RESUME,
+        completion_contract=FakeCompletionContract(),
+    )
+    session = SessionHint(external_session_id="session-123", adapter_fingerprint=None, session_generation=None)
+    limits = TransportLimits(1, 1, 1)
+
+    plan = adapter.plan_invocation(request, profile, session, limits)
+    assert plan.argv[-2:] == ("--resume", "session-123")
+    assert plan.redacted_display == "claude.cmd -p <redacted> --output-format json --resume <redacted>"
+    assert plan.session_action == SessionAction.RESUME
+
+def test_claude_plan_invocation_session_resume_missing_id():
+    adapter = RealClaudeAdapter()
+    from peerhub.adapters.contract import ProfileDescriptor, AdapterRequest, SessionHint
+    profile = ProfileDescriptor(profile_id="cc.standard", profile_class="tier", supports_reasoning_effort=False)
+    request = AdapterRequest(
+        request_id="req-1",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cc.standard",
+        requested_session_action=SessionAction.RESUME,
+        completion_contract=FakeCompletionContract(),
+    )
+    limits = TransportLimits(1, 1, 1)
+
+    with pytest.raises(ValueError, match="external_session_id is required for RESUME"):
+        adapter.plan_invocation(request, profile, None, limits)
+
+    session_no_id = SessionHint(external_session_id=None, adapter_fingerprint=None, session_generation=None)
+    with pytest.raises(ValueError, match="external_session_id is required for RESUME"):
+        adapter.plan_invocation(request, profile, session_no_id, limits)
+
+def test_claude_plan_invocation_session_none():
+    adapter = RealClaudeAdapter()
+    from peerhub.adapters.contract import ProfileDescriptor, AdapterRequest, SessionHint
+    profile = ProfileDescriptor(profile_id="cc.standard", profile_class="tier", supports_reasoning_effort=False)
+    request = AdapterRequest(
+        request_id="req-1",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cc.standard",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+    )
+    limits = TransportLimits(1, 1, 1)
+    session = SessionHint(external_session_id="session-123", adapter_fingerprint=None, session_generation=None)
+
+    plan = adapter.plan_invocation(request, profile, session, limits)
+    assert "--resume" not in plan.argv
+    assert plan.session_action == SessionAction.NONE

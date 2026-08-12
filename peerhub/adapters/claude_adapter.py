@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from peerhub.adapters.contract import (
     AdapterRequest,
+    Capability,
     DecodedOutput,
     DecoderEvent,
     DecoderEventKind,
@@ -17,6 +18,7 @@ from peerhub.adapters.contract import (
     ProfileDescriptor,
     ProtocolAssessment,
     PromptPolicy,
+    SessionAction,
     SessionHint,
 )
 from peerhub.core.protocol import ErrorCode
@@ -49,7 +51,7 @@ _CLAUDE_DESCRIPTOR = PeerDescriptor(
     peer_kind="cc",
     profiles=(_CLAUDE_PROFILE,),
     transports=frozenset({TransportKind.PIPE}),
-    capabilities=frozenset({}),
+    capabilities=frozenset({Capability.SESSION}),
     usage_provider_id=None,
     readiness_probe_id="claude-readiness",
 )
@@ -157,7 +159,21 @@ class RealClaudeAdapter:
         if prompt is None:
             raise ValueError("prompt_content is required")
 
-        argv = ("claude.cmd", "-p", prompt, "--output-format", "json")
+        if request.requested_session_action == SessionAction.RESUME:
+            if session is None or session.external_session_id is None:
+                raise ValueError("external_session_id is required for RESUME")
+            argv = ("claude.cmd", "-p", prompt, "--output-format", "json", "--resume", session.external_session_id)
+            redacted_display = "claude.cmd -p <redacted> --output-format json --resume <redacted>"
+        else:
+            # Note: DecoderEventKind.SESSION_IDENTITY exists and is unused; live Claude
+            # output already carries session_id [empirical_probe, 2026-08-12];
+            # CREATE-path ID capture is deferred to the increment that implements
+            # Section 2.6 (DecodedOutput.session_id + decoder emission), not because
+            # no surface exists, but because that surface isn't wired up by any decoder
+            # yet and this increment's scope (Section 2.5) is RESUME only.
+            argv = ("claude.cmd", "-p", prompt, "--output-format", "json")
+            redacted_display = "claude.cmd -p <redacted> --output-format json"
+
         return InvocationPlan(
             argv=argv,
             cwd_reference=request.workspace_scope,
@@ -165,7 +181,7 @@ class RealClaudeAdapter:
             transport=TransportKind.PIPE,
             stdin_payload=None,
             limits=limits,
-            redacted_display="claude.cmd -p <redacted> --output-format json",
+            redacted_display=redacted_display,
             artifacts=(),
             session_action=request.requested_session_action,
         )
