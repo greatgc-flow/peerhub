@@ -1103,6 +1103,14 @@ Two acceptance criteria that pin properties rather than behaviours:
 Acceptance discipline as with the capability lease: security-relevant
 behavior proved by mutation-tested tests, not by assertion.
 
+### 6.1 Deferred Addendum: Crash-Linkage Recovery (T3 Increment 4)
+
+**Investigated 2026-08-12**: True crash-linkage recovery (resuming an interrupted broadcast round after a coordinator crash) is deliberately deferred to a separate, properly-scoped T3 Increment 4. The current `fan_out()` design unconditionally mints a new `round_id` via `self.ids.new_id(...)` on every call. If a caller crashes and simply retries, it initiates an entirely new round with a new `round_id` and new legs, leaving the prior admitted commands permanently orphaned.
+
+Real crash-linkage requires a genuinely new capability, not just a test for existing behavior. `fan_out()` must either accept an optional existing `round_id` from the caller (which implies the caller must persist it across its own crash) or provide a distinct `resume_round(round_id)` entry point. The coordinator would then need to read the current state of `broadcast_legs` for that round, identify which legs are already admitted (have a `command_id`), which are pending/completed, and only dispatch the missing or failed ones, re-joining the existing idempotency scope.
+
+Because this fundamentally changes the orchestration flow — requiring read-before-write state reconciliation within the coordinator rather than an unconditional append-only fan-out — it requires its own design and implementation cycle. It remains deferred, mirroring the explicit scoping discipline used elsewhere in this design.
+
 ---
 
 ## Section 7 — Review record
