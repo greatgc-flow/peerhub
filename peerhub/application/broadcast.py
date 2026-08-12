@@ -38,13 +38,14 @@ class FanOutRequest:
     limits: TransportLimits
     authenticated_subject: AuthenticatedSubject
     wave_of: str | None = None
+    deadline_at: int | None = None
 
 
 @dataclass(frozen=True)
 class BroadcastLegResult:
     target: str
     leg_state: str
-    command_id: str
+    command_id: str | None
     response_text: str | None
 
 
@@ -92,17 +93,33 @@ class BroadcastCoordinator:
             wave_of=request.wave_of,
             prompt_digest=prompt_digest,
             targets=resolved_targets,
+            deadline_at=request.deadline_at,
         )
 
-        leg_results = tuple(
-            self._dispatch_leg(
-                request=request,
-                round_id=round_id,
-                prompt_digest=prompt_digest,
-                target=target,
+        leg_results_list: list[BroadcastLegResult] = []
+        for target in resolved_targets:
+            if request.deadline_at is not None and self.clock.now() > request.deadline_at:
+                leg_target = _canonical_leg_target(target)
+                self._timeout_leg(round_id, leg_target)
+                leg_results_list.append(
+                    BroadcastLegResult(
+                        target=leg_target,
+                        leg_state="timed_out",
+                        command_id=None,
+                        response_text=None,
+                    )
+                )
+                continue
+
+            leg_results_list.append(
+                self._dispatch_leg(
+                    request=request,
+                    round_id=round_id,
+                    prompt_digest=prompt_digest,
+                    target=target,
+                )
             )
-            for target in resolved_targets
-        )
+        leg_results = tuple(leg_results_list)
         all_completed = all(leg.leg_state == "completed" for leg in leg_results)
         # Note: In future increments, there will be states like `timed_out`.
         # `not any` is robust to these future states, whereas `all(failed)` would misclassify them.
@@ -142,6 +159,7 @@ class BroadcastCoordinator:
         wave_of: str | None,
         prompt_digest: str,
         targets: tuple[ResolvedPeerTarget, ...],
+        deadline_at: int | None,
     ) -> None:
         now = self.clock.now()
         leg_rows: list[tuple[str, str, str, str, None, str, None]] = []
@@ -172,9 +190,9 @@ class BroadcastCoordinator:
                     broadcast_round_id, wave_of, prompt_digest,
                     requested_targets, deadline_at, status, disposition,
                     created_at, closed_at
-                ) VALUES (?, ?, ?, ?, NULL, 'open', NULL, ?, NULL)
+                ) VALUES (?, ?, ?, ?, ?, 'open', NULL, ?, NULL)
                 """,
-                (round_id, wave_of, prompt_digest, len(targets), now),
+                (round_id, wave_of, prompt_digest, len(targets), deadline_at, now),
             )
             db.executemany(
                 """
@@ -363,6 +381,19 @@ class BroadcastCoordinator:
                 """
                 UPDATE broadcast_legs
                 SET leg_state = 'failed', terminal_at = ?
+                WHERE broadcast_round_id = ? AND leg_target = ?
+                """,
+                (self.clock.now(), round_id, leg_target),
+            )
+            uow.commit()
+
+    def _timeout_leg(self, round_id: str, leg_target: str) -> None:
+        with self.runtime.state_store.unit_of_work() as uow:
+            db = uow._db()  # pyright: ignore[reportPrivateUsage]
+            db.execute(
+                """
+                UPDATE broadcast_legs
+                SET leg_state = 'timed_out', terminal_at = ?
                 WHERE broadcast_round_id = ? AND leg_target = ?
                 """,
                 (self.clock.now(), round_id, leg_target),

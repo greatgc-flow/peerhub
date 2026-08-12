@@ -547,3 +547,139 @@ def test_fan_out_none_completed_disposition(
 
     finally:
         runtime.close()
+
+
+def test_fan_out_deadline_skips_remaining_legs(
+    tmp_path: Path,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ControllableClock(Clock):
+        def __init__(self, start: int):
+            self._now = start
+        def now(self) -> int:
+            return self._now
+        def advance(self, ms: int):
+            self._now += ms
+
+    clock = ControllableClock(1000)
+
+    def _target_that_advances_clock(peer_kind: str, ms: int) -> ResolvedPeerTarget:
+        adapter = RecordingFakePeerAdapter()
+        original_plan = adapter.plan_invocation
+        def advanced_plan(*args, **kwargs):
+            clock.advance(ms)
+            return original_plan(*args, **kwargs)
+        adapter.plan_invocation = advanced_plan
+        
+        adapter.descriptor = replace(adapter.descriptor, peer_kind=peer_kind)
+        return ResolvedPeerTarget(
+            cli_name=peer_kind,
+            peer_kind=peer_kind,
+            adapter=adapter,
+            profile=adapter.descriptor.profiles[0],
+            executable_path=Path(sys.executable),
+        )
+
+    targets = {
+        "ag": _target_that_advances_clock("ag", 2000), # Advances past deadline
+        "cx": _target_that_advances_clock("cx", 0),
+        "cc": _target_that_advances_clock("cc", 0),
+    }
+
+    def resolve_target(name: str, *, profile_id: str | None = None) -> ResolvedPeerTarget:
+        return targets[name]
+
+    monkeypatch.setattr("peerhub.application.broadcast.resolve_peer_target", resolve_target)
+
+    admission_config = build_direct_ask_admission_config(targets["ag"], clock=clock, ids=ids)
+    configured_members = tuple((t.peer_kind, t.profile.profile_id) for t in targets.values())
+    configuration_digest = hashlib.sha256(repr(configured_members).encode("utf-8")).hexdigest()
+    admission_config = replace(
+        admission_config,
+        configuration=replace(admission_config.configuration, digest=configuration_digest),
+        membership=HealthScopeMembershipSnapshot(
+            configuration_revision=1,
+            configuration_digest=configuration_digest,
+            configured_members=configured_members,
+            bindings=(),
+        ),
+    )
+
+    paths = PathLayout.for_workspace(tmp_path)
+    runtime = create_runtime(
+        RuntimeContext(workspace_home_id="cli", paths=paths, clock=clock, ids=ids),
+        admission_config=admission_config,
+    )
+    try:
+        for target in targets.values():
+            if target.peer_kind != "ag":
+                _persist_readiness(runtime, clock=clock, target=target)
+
+        coordinator = BroadcastCoordinator(runtime=runtime, clock=clock, ids=ids)
+        request = FanOutRequest(
+            workspace_root=tmp_path,
+            prompt="deadline test",
+            targets=[("ag", None), ("cx", None), ("cc", None)],
+            required_capability_tier=CapabilityTier.READ_ONLY,
+            limits=TransportLimits(
+                process_timeout_ms=10000,
+                silence_timeout_ms=10000,
+                max_output_bytes=10000,
+            ),
+            authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+            deadline_at=2000, # Starts at 1000, leg 1 advances to 3000
+        )
+
+        result = coordinator.fan_out(request)
+
+        # ag completed, cx and cc were timed_out. So disposition is partial.
+        assert result.disposition == "partial"
+        assert len(result.legs) == 3
+
+        leg_states = {leg.target: leg.leg_state for leg in result.legs}
+        assert leg_states["ag/fake-standard"] == "completed"
+        assert leg_states["cx/fake-standard"] == "timed_out"
+        assert leg_states["cc/fake-standard"] == "timed_out"
+
+        planned_requests = {
+            peer: cast(RecordingFakePeerAdapter, target.adapter).planned_requests
+            for peer, target in targets.items()
+        }
+        assert len(planned_requests["ag"]) == 1
+        assert len(planned_requests["cx"]) == 0
+        assert len(planned_requests["cc"]) == 0
+
+        connection = sqlite3.connect(paths.database_path)
+        connection.row_factory = sqlite3.Row
+        try:
+            round_row = connection.execute(
+                "SELECT status, disposition, deadline_at FROM broadcast_rounds WHERE broadcast_round_id = ?",
+                (result.round_id,)
+            ).fetchone()
+            assert round_row["status"] == "closed"
+            assert round_row["disposition"] == "partial"
+            assert round_row["deadline_at"] == 2000
+
+            leg_rows = connection.execute(
+                "SELECT leg_target, leg_state, terminal_at, command_id FROM broadcast_legs WHERE broadcast_round_id = ?",
+                (result.round_id,)
+            ).fetchall()
+            db_leg_states = {row["leg_target"]: row["leg_state"] for row in leg_rows}
+            db_terminals = {row["leg_target"]: row["terminal_at"] for row in leg_rows}
+            db_command_ids = {row["leg_target"]: row["command_id"] for row in leg_rows}
+
+            assert db_leg_states["ag/fake-standard"] == "completed"
+            assert db_leg_states["cx/fake-standard"] == "timed_out"
+            assert db_leg_states["cc/fake-standard"] == "timed_out"
+            
+            assert db_command_ids["cx/fake-standard"] is None
+            assert db_command_ids["cc/fake-standard"] is None
+            assert db_command_ids["ag/fake-standard"] is not None
+
+            assert all(t is not None for t in db_terminals.values())
+        finally:
+            connection.close()
+
+    finally:
+        runtime.close()
