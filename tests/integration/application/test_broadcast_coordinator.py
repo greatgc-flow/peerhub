@@ -32,8 +32,8 @@ from tests.integration.application.test_direct_ask import DummyClock, DummyIds
 
 
 class RecordingFakePeerAdapter(FakePeerAdapter):
-    def __init__(self) -> None:
-        super().__init__(stdout="success")
+    def __init__(self, *, stdout: str = "success") -> None:
+        super().__init__(stdout=stdout)
         self.planned_requests: list[AdapterRequest] = []
 
     def plan_invocation(
@@ -57,8 +57,8 @@ def ids() -> IdSource:
     return DummyIds()
 
 
-def _target(peer_kind: str) -> ResolvedPeerTarget:
-    adapter = RecordingFakePeerAdapter()
+def _target(peer_kind: str, *, stdout: str = "success") -> ResolvedPeerTarget:
+    adapter = RecordingFakePeerAdapter(stdout=stdout)
     adapter.descriptor = replace(adapter.descriptor, peer_kind=peer_kind)
     return ResolvedPeerTarget(
         cli_name=peer_kind,
@@ -277,6 +277,76 @@ def test_fan_out_completes_two_waves_through_real_admission_and_dispatch(
                 for row in legs
             )
             assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        finally:
+            connection.close()
+    finally:
+        runtime.close()
+
+
+def test_fan_out_does_not_persist_response_content_in_broadcast_tables(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    response_marker = "broadcast-response-tripwire-77a59f24-35e2-47c7-bfaa-35907dd143bc"
+    target = _target("ag", stdout=response_marker)
+
+    monkeypatch.setattr(
+        "peerhub.application.broadcast.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+
+    admission_config = build_direct_ask_admission_config(
+        target,
+        clock=clock,
+        ids=ids,
+    )
+    paths = PathLayout.for_workspace(tmp_path)
+    runtime = create_runtime(
+        RuntimeContext(
+            workspace_home_id="cli",
+            paths=paths,
+            clock=clock,
+            ids=ids,
+        ),
+        admission_config=admission_config,
+    )
+    try:
+        result = BroadcastCoordinator(runtime=runtime, clock=clock, ids=ids).fan_out(
+            FanOutRequest(
+                workspace_root=tmp_path,
+                prompt="response persistence boundary test",
+                targets=[("ag", None)],
+                required_capability_tier=CapabilityTier.READ_ONLY,
+                limits=TransportLimits(
+                    process_timeout_ms=10000,
+                    silence_timeout_ms=10000,
+                    max_output_bytes=10000,
+                ),
+                authenticated_subject=AuthenticatedSubject(
+                    "local-cli:test-user",
+                    "test",
+                ),
+            )
+        )
+
+        assert len(result.legs) == 1
+        assert result.legs[0].response_text == response_marker
+
+        connection = sqlite3.connect(paths.database_path)
+        try:
+            stored_rows = {
+                table: connection.execute(f"SELECT * FROM {table}").fetchall()
+                for table in ("broadcast_rounds", "broadcast_legs")
+            }
+            assert all(stored_rows.values())
+            assert all(
+                response_marker not in str(value)
+                for rows in stored_rows.values()
+                for row in rows
+                for value in row
+            )
         finally:
             connection.close()
     finally:
