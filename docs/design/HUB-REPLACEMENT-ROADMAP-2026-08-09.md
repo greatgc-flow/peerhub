@@ -555,10 +555,20 @@ context/quota state, retry/failover on peer trouble).
   with 7 passing tests
   (`tests/integration/persistence/test_broadcast_correlation_schema.py`);
   the design doc's Sections 7.3 and 8 record round 3 and the prototype
-  evidence. The `BroadcastCoordinator.fan_out()` implementation itself
-  (fan-out loop, disposition computation, deadline closing,
-  partial-failure semantics) is **not yet built** -- the prototype
-  validated the schema and the admission/idempotency identity path only.
+  evidence. **`BroadcastCoordinator.fan_out()` is now BUILT (T3
+  increments 1-3, commits `75dafcd`/`914def5`/`d5cc70e`/`d357b2d`)**:
+  happy-path sequential fan-out with `wave_of` two-wave threading,
+  partial-failure disposition (`all_completed`/`partial`/
+  `none_completed`, correct across a mix of completed/failed/timed_out
+  legs), deadline-based skipping of not-yet-dispatched legs (migration
+  `0021_broadcast_leg_timeout_state` widens the leg-state constraint),
+  and a tripwire test proving response content is never persisted in
+  the correlation tables. **Crash-linkage recovery (resuming an
+  interrupted round after a coordinator crash) is investigated and
+  deliberately deferred as its own increment 4** (commit `be26484`,
+  design doc Section 6.1) -- `fan_out()` has no resume entry point
+  today; real recovery needs a genuinely new read-before-write
+  reconciliation capability, not a quick addition.
   hub.py has real primitives for this
   that Phase 3's scope above doesn't mention: `ask-all`
   (parallel-broadcasts one query to every active peer, threaded, collects
