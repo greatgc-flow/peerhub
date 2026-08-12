@@ -505,6 +505,27 @@ Status: not started. **This is the critical path** -- nothing before this
 phase makes peerhub capable of doing what hub.py does today (dispatch a
 query to a peer CLI, get a structured response back, track session/
 context/quota state, retry/failover on peer trouble).
+- **Adapter wiring / session continuation / streaming decode /
+  error-taxonomy mapping / tool-call parsing -- DESIGN RATIFIED
+  2026-08-12, implementation not yet built.** These 5 bullets (kept
+  below for the original framing) were bundled into one design topic
+  and taken through 3 dialectical rounds -- see
+  `PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md` (commit
+  `d267750`). Corrected premise: most of the inner machinery already
+  existed (single-attempt dispatch, `authorize_retry()`,
+  `AdapterRequest.requested_session_action`, `OutputDecoder.feed()`'s
+  incremental shape, `ErrorCode`/`OperationalFailureCategory`) -- the
+  design ratifies an all-additive-except-2-real-behavior-changes
+  contract surface (retry-neutral `AttemptFailureClassification`,
+  `TerminalClassification` surfaced on `AskResult`, `DecodedOutput.
+  session_id`, `DecoderEventKind.TOOL_CALL`, an optional `session`
+  parameter on `dispatch_and_execute()`) plus one hard invariant
+  (adapter classification can never itself authorize a retry, enforced
+  by type shape). Validated by a real prototype
+  (`tools/phase3_failure_classifier_prototype.py`, 13 tests) outside the
+  production package. **The 5 implementation increments in the design
+  doc's Section 5 are separate, not-yet-started future work**; this
+  entry covers the design phase only.
 - Wire the 3 real PeerAdapters (agy/claude/codex, landed Stage 3) into an
   actual dispatch loop that: sends a query, decodes the peer's real
   output via the adapter, returns a structured result to the caller.
