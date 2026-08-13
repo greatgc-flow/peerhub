@@ -525,13 +525,12 @@ context/quota state, retry/failover on peer trouble).
   `classify_attempt_failure()` mapper and
   `tests/unit/dispatch/test_model.py`.
   **Of the design's Section 5 increments: 1 (classification plumbing),
-  2 (session continuation), and 3 (Codex streaming) are DONE; 4
-  (tool-call capture) and 5 (outer retry/resume/failover loop) are not
+  2 (session continuation), 3 (Codex streaming), and 4 (tool-call
+  capture) are DONE; 5 (outer retry/resume/failover loop) is not
   started.** Two surface items the design prescribed did NOT land as
   written: `DecodedOutput.session_id` was abandoned in favour of
   `DecoderEventKind.SESSION_IDENTITY` (which already existed), and
-  `DecoderEventKind.TOOL_CALL` still belongs to the not-started
-  increment 4.
+  `DecoderEventKind.TOOL_CALL` landed in increment 4.
   - **T1 increment 1a -- classification plumbing, data layer
     (`bfdd8b2`). DONE.** Relocates `TerminalClassification` to
     `dispatch/contract.py` (re-exported from `dispatch/process.py`),
@@ -579,6 +578,13 @@ context/quota state, retry/failover on peer trouble).
     remainder buffering in `CodexOutputDecoder`, and advertises
     `Capability.STREAM` for Codex only; Claude and Agy remain
     terminal-only.
+  - **T1 increment 4 -- tool-call capture (`9ff7813`). DONE.**
+    `DecoderEventKind.TOOL_CALL` added; Codex's decoder normalizes
+    `command_execution` items via `item.completed`, stripping conflated
+    result fields. Codex-only, same structural reason as increment 3's
+    streaming scope -- Claude/Agy don't expose tool calls in their
+    current `--output-format json` invocation mode, though they do via
+    unused `stream-json` mode.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
