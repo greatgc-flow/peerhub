@@ -19,8 +19,8 @@ Sections 6, 7, 9.1, 9.2, and 9.3.
 
 ## 1. Outcome and boundaries
 
-Increment 5B will add one atomic authorization boundary with two explicit
-entry points:
+Increment 5B will add one atomic authorization boundary with one explicit
+entry point and two tagged route intents:
 
 1. same-target retry: preserve the current route/target, rotate the session
    lease, and issue capability authority for the next durable attempt; and
@@ -28,12 +28,14 @@ entry points:
    update the request's route/target binding, rotate the session lease, and
    issue capability authority for the next durable attempt.
 
-Both entry points use the same private transaction kernel. They are separate
-public methods rather than one public method with loosely related optional
-arguments. This makes invalid combinations unrepresentable at the call site
-and allows same-target authorization to land and be verified independently
-before failover is added. The common kernel prevents the two paths from
-drifting on revision, attempt-bound, capability, or write-order rules.
+Both intents use the same private transaction kernel. A tagged union, rather
+than loosely related optional arguments or two public methods, makes invalid
+combinations unrepresentable at the call site. Unit 5B-2 can still land and
+verify same-target authorization independently by typing the method to accept
+only `SameTargetRoute`; Unit 5B-3 then expands that type to the full union and
+adds the exhaustively checked failover branch. The common kernel prevents the
+two paths from drifting on revision, attempt-bound, capability, or write-order
+rules.
 
 5B does not implement `dispatch_with_retries()`, DEFER scheduling/resume,
 adapter/profile materialization, or process execution. Those remain 5C. It
@@ -103,10 +105,43 @@ retry capability N (N > 1):
   admission_receipt.lease_id remains the immutable attempt-1 lease ID
 ```
 
-This is the minimum durable chain that permits the receipt to remain immutable
-without weakening retry authorization to "any new lease for this command."
-The previous capability rows remain immutable history and become unusable for
-dispatch as soon as `RequestSnapshot.lease_id` advances.
+Versioning follows ratified capability-lease precedent rather than inventing a
+new 5B invariant. `CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md` Sections
+7.1-7.2 establish that the durable lease has no caller-writable fields after
+issuance and that a new authority decision requires new command/admission
+identity rather than silent renewal. A retry is a new authority decision: it
+runs `CapabilityPolicy.decide()` again and may select a different instance,
+profile, or enforcement floor. Updating the prior capability row in place
+would therefore be exactly the in-place renewal that the errata forbids. 5B
+keeps the original command/admission receipt as immutable provenance while
+giving the new decision a fresh capability identity, session lease, and
+attempt scope.
+
+Versioning also preserves the current fail-closed default. Seam 9.1's measured
+failure occurs because stale authority retains its old lease binding and no
+longer matches the request. An UPDATE-in-place design would reverse that
+property and create a TOCTOU race: a runner could hold a
+`ValidatedCapabilityLease` for attempt 1/T1 after the read-only
+`require_dispatch_capability()` check while a concurrent failover
+authorization rewrites the same durable row to L2/T2. Dispatch-intent
+revalidation would then reread the same row ID, and the opaque token carries no
+lease or target with which to detect that substitution. Under versioning, the
+token continues to resolve the attempt-1 row and the existing authorized-
+attempt-number equality check rejects it.
+
+Finally, `add_capability_lease()` is currently the capability table's only
+mutation port and is insert-only. Versioning needs one bounded schema migration
+but preserves that surface. UPDATE-in-place would add the first permanent
+UPDATE path to a security-authority table.
+
+The resulting chain prevents retry authorization from degrading to "any new
+lease for this command." Previous capability rows remain unchanged and become
+unusable for dispatch as soon as `RequestSnapshot.lease_id` advances.
+`previous_attempt_id` remains explicit even though
+`UNIQUE(command_id, authorized_attempt_number)` makes it derivable: it keeps
+each row self-describing, lets `validate_capability_binding()` operate from a
+single record plus its referenced attempt, provides database-level referential
+integrity, and cross-checks two independently written fields.
 
 The actual `AttemptSnapshot` for attempt N is still created by the existing
 pre-spawn flow after `require_dispatch_capability()` succeeds. The capability
@@ -175,32 +210,28 @@ preparatory application work. The resulting immutable admission snapshot and
 route request are reloaded/validated against durable records inside the one
 authorization transaction before any authority record is written.
 
-### 2.5 Same-target and failover have separate public methods, one kernel
+### 2.5 One public method accepts a tagged-union route intent
 
 Planned public service surface:
 
 ```python
-DispatchService.authorize_same_target_retry(
-    command_id,
-    previous_attempt_id,
-    *,
-    route_decision_id,
-    current_route_request,
-    expected_request_revision,
-    expected_previous_attempt_revision,
-    expected_highest_attempt_number,
-    frozen_max_attempts,
-    current_policy_revision,
-    reconciliation_complete,
-    heartbeat_timeout_ms,
-) -> RetryAuthorizationBundle
+@dataclass(frozen=True)
+class SameTargetRoute:
+    route_decision_id: str
+    current_route_request: RouteRequest
 
-DispatchService.authorize_failover_retry(
+@dataclass(frozen=True)
+class FailoverRoute:
+    failed_route_decision_id: str
+    failover_route_request: RouteRequest  # must carry FAILED_TARGET_EXCLUDED_BY_RETRY marks
+
+RetryRouteIntent = SameTargetRoute | FailoverRoute
+
+DispatchService.authorize_retry(
     command_id,
     previous_attempt_id,
     *,
-    failed_route_decision_id,
-    failover_route_request,
+    route_intent: RetryRouteIntent,
     expected_request_revision,
     expected_previous_attempt_revision,
     expected_highest_attempt_number,
@@ -228,12 +259,11 @@ duplicate it. For same-target retry, `route_decision` is the existing immutable
 decision. For failover, it is the replacement decision inserted by this same
 transaction.
 
-The application layer exposes matching
-`ApplicationWorkflows.authorize_same_target_retry()` and
-`ApplicationWorkflows.authorize_failover_retry()` methods. Both project
-telemetry, freeze current health, compose the current route input, and call the
-corresponding atomic service method. They do not call the public routing
-service during authorization.
+The application layer exposes one matching
+`ApplicationWorkflows.authorize_retry()` method taking the same tagged route
+intent. It projects telemetry, freezes current health, composes the appropriate
+current or failover route input, and calls the atomic service method. It does
+not call the public routing service during authorization.
 
 ---
 
@@ -266,7 +296,7 @@ route or retry outcome.
 
 ---
 
-## 4. Preconditions common to both authorization paths
+## 4. Preconditions common to both route-intent branches
 
 Every item below is checked inside the single write `unit_of_work()` and before
 `allocate_fencing_token()`, repository insertion, or CAS update.
@@ -301,14 +331,20 @@ Every item below is checked inside the single write `unit_of_work()` and before
 11. Load the original admission receipt and the current session lease. Validate
     the existing active capability chain before replacing it; corrupted prior
     authority is not silently healed by issuing another capability.
-12. Prove the current request is bound to the supplied existing route decision
-    using client request ID, configuration revision, required tier, selected
-    instance/profile, and `canonical_route_decision_digest()`.
+12. Prove the current request is bound to the currently-bound route decision
+    supplied by the route intent (`route_decision_id` for `SameTargetRoute` or
+    `failed_route_decision_id` for `FailoverRoute`) using client request ID,
+    configuration revision, required tier, selected instance/profile, and
+    `canonical_route_decision_digest()`.
 13. Apply the action-specific route checks in Sections 6 and 7.
 14. Require `current_policy_revision == request.policy_revision`, resolve
     machine-owned enforcement evidence for the prospective target/profile,
     apply the mandatory floor, and obtain a fresh capability grant decision.
     A denial occurs before the first repository write.
+
+Steps 11, 12, and 14 are one read pass with many checks, not three reload
+passes. The kernel loads the request's authority, route, and policy context
+once and reuses those exact records throughout precondition validation.
 
 Only after all fourteen checks pass may the kernel allocate IDs/fencing state,
 construct the prospective records, write, and commit.
@@ -433,9 +469,11 @@ Change/add:
 
 - new `peerhub/dispatch/retry_authorization.py`
   - define `RetryAuthorizationBundle`;
+  - define `SameTargetRoute`;
   - define `RetryAuthorizationUnitOfWork`, composing the dispatch and routing
     persistence operations required by one transaction;
-  - add `RetryAuthorizationCoordinator.authorize_same_target_retry()`;
+  - add `RetryAuthorizationCoordinator.authorize_retry()` typed to accept
+    `SameTargetRoute` only in this unit;
   - add the private common precondition loader/checker and common write kernel;
 - `peerhub/dispatch/model.py`
   - tighten `authorize_retry()` so `CANCELLED`, `DELIVERED_UNVERIFIED`, and
@@ -451,13 +489,13 @@ Change/add:
 - `peerhub/dispatch/service.py`
   - construct the retry coordinator with the existing clock, ID source,
     capability policy, enforcement evidence, and fault injector;
-  - expose `authorize_same_target_retry()` with the exact expected-value
-    parameters in Section 2.5;
-  - retire the unsafe old `authorize_retry()` service method once its callers
-    and tests are migrated;
+  - replace the unsafe legacy implementation with atomic `authorize_retry()`,
+    typed in this unit with `route_intent: SameTargetRoute` and the exact
+    expected-value parameters in Section 2.5;
 - `peerhub/application/workflows.py`
-  - replace the old `authorize_retry()` application method with
-    `authorize_same_target_retry()`;
+  - replace the old non-capability-aware `authorize_retry()` implementation
+    with the atomic method taking `route_intent: SameTargetRoute` in this
+    unit;
   - keep telemetry projection/health freezing/route-request composition outside
     the authority transaction;
   - stop calling `_require_bound_route()` and public
@@ -485,7 +523,9 @@ Keep untouched in this unit:
 
 #### Same-target transaction boundary and exact order
 
-Within one `with store.unit_of_work() as unit:`:
+Within one
+`authorize_retry(..., route_intent: SameTargetRoute, ...)` call and one
+`with store.unit_of_work() as unit:`:
 
 1. Execute all common reads and preconditions in Section 4.
 2. Load the existing `RouteDecision` and selected candidate. Recompute its
@@ -558,14 +598,19 @@ route branch and closes seam 9.2. It does not duplicate the common transaction.
 Change:
 
 - `peerhub/dispatch/retry_authorization.py`
-  - add `authorize_failover_retry()` and its action-specific route preparation;
+  - add `FailoverRoute` and expand `RetryRouteIntent` to
+    `SameTargetRoute | FailoverRoute`;
+  - expand `RetryAuthorizationCoordinator.authorize_retry()` to accept the
+    union and add the `match`/`case` branch for `FailoverRoute`; the type
+    checker must flag this newly required branch until it is implemented;
   - use pure `routing.model.select_route()` inside the existing transaction;
   - insert the replacement route decision before the lease/capability/request
     writes, under the same commit;
 - `peerhub/dispatch/service.py`
-  - expose `authorize_failover_retry()`;
+  - expand `authorize_retry()`'s route-intent type to `RetryRouteIntent`;
 - `peerhub/application/workflows.py`
-  - add `authorize_failover_retry()`;
+  - expand `authorize_retry()` to accept `RetryRouteIntent` and prepare the
+    `FailoverRoute` variant;
   - build an immutable failover `RouteRequest` by retaining failed-target
     candidates in the audit but marking every candidate whose `instance_id`
     equals the failed selected instance as ineligible with the fixed policy
@@ -591,25 +636,22 @@ Keep untouched in this unit:
 
 After all common preconditions in Section 4:
 
-1. Load `failed_route_decision_id` and prove it is the decision currently bound
-   to the request.
-2. Capture the failed selected `instance_id` and profile from that immutable
-   decision; require they equal the request's current target fields.
-3. Validate the fresh failover route request's client request ID, required
+1. Validate the fresh failover route request's client request ID, required
    capability tier, persisted admission snapshot identity/content, and current
    configuration input.
-4. Require every candidate for the failed instance to be ineligible with
+2. Require every candidate for the failed instance captured from the
+   currently-bound route decision to be ineligible with
    `FAILED_TARGET_EXCLUDED_BY_RETRY`; merely removing the selected candidate ID
    or leaving another profile on the same failed instance eligible is invalid.
-5. Run pure `select_route()` with a fresh decision ID/timestamp. If it returns
+3. Run pure `select_route()` with a fresh decision ID/timestamp. If it returns
    `ROUTE_EXHAUSTED`, raise `RouteExhaustedError` before any route, fence, lease,
    capability, or request write.
-6. Resolve the selected candidate and require its instance differs from the
+4. Resolve the selected candidate and require its instance differs from the
    failed instance.
-7. Compute the replacement decision digest and prospective request route
+5. Compute the replacement decision digest and prospective request route
    binding: new configuration revision, selected instance, selected profile,
    and digest; required tier remains frozen and equal.
-8. Obtain a fresh capability grant for the replacement instance/profile before
+6. Obtain a fresh capability grant for the replacement instance/profile before
    the first repository write.
 
 #### Failover write order in the shared transaction
@@ -708,17 +750,19 @@ evidence.
 ### 6.2 Application preparation
 
 1. 5C will retain the adjudicated snapshot values `(R7, A4, 1, 3)`.
-2. `ApplicationWorkflows.authorize_same_target_retry()` projects pending
-   telemetry and freezes a fresh health admission snapshot.
+2. `ApplicationWorkflows.authorize_retry()` projects pending telemetry and
+   freezes a fresh health admission snapshot.
 3. The route request factory builds the current `RouteRequest` for Q.
 4. The application does not select a route and does not mutate dispatch state.
-5. It calls `DispatchService.authorize_same_target_retry()` with D1, the fresh
-   route request, current policy revision, and all four frozen values.
+5. It calls `DispatchService.authorize_retry()` with
+   `SameTargetRoute(route_decision_id=D1, current_route_request=fresh_request)`,
+   current policy revision, and all four frozen values.
 
 ### 6.3 Single authorization transaction
 
-1. `RetryAuthorizationCoordinator.authorize_same_target_retry()` enters one
-   write unit of work (`BEGIN IMMEDIATE` for SQLite).
+1. `RetryAuthorizationCoordinator.authorize_retry()` matches the
+   `SameTargetRoute` intent and enters one write unit of work (`BEGIN
+   IMMEDIATE` for SQLite).
 2. It reads Q, A1, all attempts, retry policy, AR1, L1, C1, D1, and the durable
    admission snapshot referenced by the fresh route request.
 3. It checks Q revision R7 and A1 revision A4.
@@ -783,22 +827,24 @@ shows T2/P2 eligible.
 
 ### 7.2 Application failover input
 
-1. `ApplicationWorkflows.authorize_failover_retry()` projects telemetry and
-   freezes current health.
+1. `ApplicationWorkflows.authorize_retry()` prepares the `FailoverRoute`
+   intent by projecting telemetry and freezing current health.
 2. Its route factory builds the current candidate input.
 3. The application creates an immutable copy that retains every T1 candidate
    but marks all candidates with `instance_id == T1` ineligible with
    `FAILED_TARGET_EXCLUDED_BY_RETRY`.
 4. It does not choose T2 and does not call `RoutingService.select_route()`.
-5. It calls `DispatchService.authorize_failover_retry()` with failed decision
-   D1, the exclusion-bearing route request, current policy revision, and
-   `(R7, A4, 1, 3)`.
+5. It calls `DispatchService.authorize_retry()` with
+   `FailoverRoute(failed_route_decision_id=D1,
+   failover_route_request=exclusion_bearing_request)`, current policy
+   revision, and `(R7, A4, 1, 3)`.
 
 ### 7.3 Single failover authorization transaction
 
-1. The coordinator enters one write unit of work and reads Q, A1, all attempts,
-   retry policy, AR1, L1, C1, D1, and the route request's persisted admission
-   snapshot.
+1. `RetryAuthorizationCoordinator.authorize_retry()` matches the
+   `FailoverRoute` intent, enters one write unit of work, and reads Q, A1, all
+   attempts, retry policy, AR1, L1, C1, D1, and the route request's persisted
+   admission snapshot.
 2. It performs the same revision, exact-history, frozen-policy, bound, state,
    safety, prior-authority, and current-route checks as Scenario 1.
 3. It proves every route candidate on T1 is explicitly excluded.
@@ -939,16 +985,17 @@ outcomes.
    dispatch gate and the old capability fails.
 3. Unit 5B-3 proves failover excludes the failed instance and atomically binds
    the replacement route, request, lease, and capability.
-4. The authoritative bound is checked inside both write paths before fence or
-   record allocation.
+4. The authoritative bound is checked inside both route-intent branches before
+   fence or record allocation.
 5. Request revision, previous-attempt revision, and highest-attempt number are
    all independently tested stale fences.
 6. Fault injection proves rollback after every prospective write point for both
    paths.
 7. A real two-caller SQLite test proves exactly one winner and one typed
    revision conflict.
-8. No test or source path calls the legacy non-capability-aware
-   `authorize_retry()` mutation.
+8. The single service/application `authorize_retry()` surface accepts only the
+   tagged route intent, and no test or source path calls the legacy
+   non-capability-aware implementation/signature.
 9. Admission receipt, prior route decisions, prior capabilities, prior leases,
    and completed attempt history remain immutable.
 10. No 5C loop, DEFER scheduler, session remediation, or process retry is
@@ -981,3 +1028,9 @@ therefore satisfied; 5B implementation may begin from this plan as written.
 No review item produced a required revision, so this plan's technical content
 (units, transaction steps, write orders, and scenarios) is ratified exactly as
 originally drafted.
+
+Post-ratification simplification pass (`cc.deepthink` audit + `ag.deepthink`
+contained review): 3 fixes applied -- corrected Section 2.1 rationale,
+consolidated duplicate Section 4/Section 7 checks, and collapsed Section 2.5 to
+one method with a tagged-union route intent. No transaction logic or safety
+property changed.
