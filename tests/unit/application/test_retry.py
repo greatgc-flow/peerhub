@@ -17,6 +17,7 @@ from peerhub.application.retry import (
     RetryDecision,
     RetryDecisionReason,
     RetryLoopStopReason,
+    adjudicate_retry,
     map_retry_disposition,
 )
 from peerhub.application.workflows import ExecutionWorkflowResult
@@ -438,3 +439,125 @@ def test_attempt_dispatch_plan_constructs_and_validates() -> None:
         values = {field_name: " "}
         with pytest.raises(ValueError, match=field_name):
             _attempt_plan(**values)
+
+
+def test_adjudicate_retry_real_snapshots_missing_terminal_code():
+    # L4: verify direct attribute access works on real instances when terminal_error_code is absent/None
+    exec_res = _execution_result()
+    # It has SUCCEEDED_VERIFIED initially, change state to FAILED_PRE_DISPATCH
+    # Both snapshots have terminal_error_code=None by default unless initialized otherwise
+    object.__setattr__(exec_res.request, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.request, "terminal_error_code", None)
+
+    object.__setattr__(exec_res.attempt, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.attempt, "execution_certainty", ExecutionCertainty.NOT_STARTED)
+    object.__setattr__(exec_res.attempt, "terminal_error_code", None)
+    object.__setattr__(exec_res.attempt, "result", None)
+
+    decision = adjudicate_retry(exec_res, durable_attempt_number=1, max_attempts=3, reconciliation_complete=False)
+
+    # Should fall through to UNSAFE -> RETRY_SAME_TARGET due to NOT_STARTED
+    assert decision.action == RetryAction.RETRY_SAME_TARGET
+    assert decision.reason == RetryDecisionReason.EXECUTION_NOT_STARTED
+
+
+def test_adjudicate_retry_conditional_unsatisfied():
+    exec_res = _execution_result()
+    object.__setattr__(exec_res.request, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.attempt, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.attempt, "execution_certainty", ExecutionCertainty.NOT_STARTED)
+
+    dummy_result = type("DummyAskResult", (), {
+        "failure_classification": AttemptFailureClassification(ErrorCode.SESSION_INVALID, ErrorPhase.POST_SPAWN, None),
+        "terminal_classification": TerminalClassification.EXIT_NON_ZERO
+    })()
+    object.__setattr__(exec_res.attempt, "result", dummy_result)
+
+    evidence = RetryConditionEvidence(
+        condition=RetryCondition.SESSION_REPLACED_OR_REMOVED,
+        satisfied=False,
+        evidence_source="test",
+        observed_at=100,
+        not_before=None,
+    )
+
+    decision = adjudicate_retry(
+        exec_res,
+        durable_attempt_number=1,
+        max_attempts=3,
+        reconciliation_complete=False,
+        condition_evidence=evidence,
+    )
+
+    assert decision.action == RetryAction.DEFER
+    assert decision.reason == RetryDecisionReason.CONDITION_UNMET
+    assert decision.required_conditions == (RetryCondition.SESSION_REPLACED_OR_REMOVED,)
+
+
+def test_adjudicate_retry_conditional_satisfied():
+    exec_res = _execution_result()
+    object.__setattr__(exec_res.request, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.attempt, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.attempt, "execution_certainty", ExecutionCertainty.NOT_STARTED)
+
+    dummy_result = type("DummyAskResult", (), {
+        "failure_classification": AttemptFailureClassification(ErrorCode.SESSION_INVALID, ErrorPhase.POST_SPAWN, None),
+        "terminal_classification": TerminalClassification.EXIT_NON_ZERO
+    })()
+    object.__setattr__(exec_res.attempt, "result", dummy_result)
+
+    evidence = RetryConditionEvidence(
+        condition=RetryCondition.SESSION_REPLACED_OR_REMOVED,
+        satisfied=True,
+        evidence_source="test",
+        observed_at=100,
+        not_before=None,
+    )
+
+    decision = adjudicate_retry(
+        exec_res,
+        durable_attempt_number=1,
+        max_attempts=3,
+        reconciliation_complete=False,
+        condition_evidence=evidence,
+    )
+
+    assert decision.action == RetryAction.RETRY_SAME_TARGET
+    assert decision.reason == RetryDecisionReason.CONDITION_MET
+    assert decision.required_conditions == (RetryCondition.SESSION_REPLACED_OR_REMOVED,)
+
+
+def test_adjudicate_retry_conditional_needs_safety_gate():
+    exec_res = _execution_result()
+    object.__setattr__(exec_res.request, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.attempt, "state", RequestState.FAILED_PRE_DISPATCH)
+    object.__setattr__(exec_res.attempt, "execution_certainty", ExecutionCertainty.MAY_HAVE_STARTED)
+
+    # ensure completion contract is not replay safe
+    # _COMPLETION_CONTRACT is already replay_safe=False as defined in the test file
+
+    dummy_result = type("DummyAskResult", (), {
+        "failure_classification": AttemptFailureClassification(ErrorCode.SESSION_INVALID, ErrorPhase.POST_SPAWN, None),
+        "terminal_classification": TerminalClassification.EXIT_NON_ZERO
+    })()
+    object.__setattr__(exec_res.attempt, "result", dummy_result)
+
+    evidence = RetryConditionEvidence(
+        condition=RetryCondition.SESSION_REPLACED_OR_REMOVED,
+        satisfied=True,
+        evidence_source="test",
+        observed_at=100,
+        not_before=None,
+    )
+
+    decision = adjudicate_retry(
+        exec_res,
+        durable_attempt_number=1,
+        max_attempts=3,
+        reconciliation_complete=False,
+        condition_evidence=evidence,
+    )
+
+    assert decision.action == RetryAction.STOP
+    assert decision.reason == RetryDecisionReason.UNSAFE_NO_EVIDENCE
+    assert decision.required_conditions == (RetryCondition.SESSION_REPLACED_OR_REMOVED,)

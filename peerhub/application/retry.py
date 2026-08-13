@@ -16,8 +16,10 @@ from peerhub.core.protocol import (
 )
 from peerhub.dispatch.contract import (
     AttemptFailureClassification,
+    RequestState,
     TerminalClassification,
 )
+from peerhub.core.execution import ExecutionCertainty
 
 if TYPE_CHECKING:
     from peerhub.adapters.contract import (
@@ -31,6 +33,7 @@ if TYPE_CHECKING:
         RetryWorkflowResult,
     )
     from peerhub.core.protocol import ErrorDetail
+    from peerhub.dispatch.contract import AttemptSnapshot
 
 
 class RetryAction(str, Enum):
@@ -294,3 +297,215 @@ def map_retry_disposition(
             return RetryDisposition.NEVER
         case _:
             raise ValueError(f"Unhandled failure combination: {key}")
+
+
+@dataclass(frozen=True)
+class RetryPolicyRecord:
+    command_id: CommandID
+    max_attempts: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "command_id",
+            CommandID(require_text(str(self.command_id), "command_id")),
+        )
+        if type(self.max_attempts) is not int or self.max_attempts < 1:
+            raise ValueError("max_attempts must be an integer >= 1")
+
+
+def validate_attempt_history(attempts: tuple[AttemptSnapshot, ...]) -> int:
+    """Validate monotonic numbering and return the highest attempt_number.
+
+    Gaps or duplicate numbers are invariant failures.
+    """
+    if not attempts:
+        raise ValueError("attempts must contain at least one attempt")
+
+    highest = 0
+    for i, attempt in enumerate(attempts, start=1):
+        if attempt.attempt_number != i:
+            raise ValueError(
+                f"Attempt history invalid: expected attempt_number {i}, "
+                f"got {attempt.attempt_number}"
+            )
+        highest = attempt.attempt_number
+    return highest
+
+
+def _map_condition(failure: AttemptFailureClassification) -> RetryCondition:
+    if failure.code == ErrorCode.SESSION_INVALID:
+        return RetryCondition.SESSION_REPLACED_OR_REMOVED
+    if failure.operational_failure_category == OperationalFailureCategory.AUTH_UNAVAILABLE:
+        return RetryCondition.AUTH_RESTORED
+    if failure.operational_failure_category == OperationalFailureCategory.NETWORK_UNAVAILABLE:
+        return RetryCondition.NETWORK_RECOVERED
+    if failure.operational_failure_category == OperationalFailureCategory.PROVIDER_UNAVAILABLE:
+        return RetryCondition.PROVIDER_RECOVERED
+    if failure.operational_failure_category == OperationalFailureCategory.QUOTA_EXHAUSTED:
+        return RetryCondition.QUOTA_AVAILABLE
+    if failure.operational_failure_category == OperationalFailureCategory.RATE_LIMITED:
+        return RetryCondition.RATE_LIMIT_BOUNDARY_ELAPSED
+    raise ValueError(f"No condition mapping for {failure}")
+
+
+def adjudicate_retry(
+    execution_result: ExecutionWorkflowResult,
+    *,
+    durable_attempt_number: int,
+    max_attempts: int,
+    reconciliation_complete: bool,
+    condition_evidence: RetryConditionEvidence | None = None,
+) -> RetryDecision:
+    """Adjudicate retry disposition and conditions to determine the next loop action.
+
+    `condition_evidence` may be None because not all failure dispositions require evidence
+    (e.g., UNSAFE, NEVER, and STOP decisions are processed entirely without evidence).
+    It is only an error to omit it if the failure maps to a CONDITIONAL disposition and
+    you expect it to be retried (otherwise it will safely DEFER).
+    """
+    req_state = execution_result.request.state
+    ask_result = execution_result.attempt.result
+
+    if req_state is RequestState.SUCCEEDED_VERIFIED:
+        return RetryDecision(
+            disposition=None,
+            action=RetryAction.STOP,
+            reason=RetryDecisionReason.VERIFIED_SUCCESS,
+            required_conditions=(),
+            not_before=None,
+        )
+    if req_state is RequestState.DELIVERED_UNVERIFIED:
+        return RetryDecision(
+            disposition=None,
+            action=RetryAction.STOP,
+            reason=RetryDecisionReason.DELIVERED_UNVERIFIED,
+            required_conditions=(),
+            not_before=None,
+        )
+    if req_state is RequestState.CANCELLED:
+        return RetryDecision(
+            disposition=None,
+            action=RetryAction.STOP,
+            reason=RetryDecisionReason.AUTHORITATIVE_CANCELLATION,
+            required_conditions=(),
+            not_before=None,
+        )
+
+    failure_classification = ask_result.failure_classification if ask_result else None
+    terminal_classification = ask_result.terminal_classification if ask_result else None
+
+    disposition = None
+    if failure_classification is not None:
+        disposition = map_retry_disposition(
+            failure_classification,
+            terminal_classification=terminal_classification,
+        )
+    else:
+        if req_state is RequestState.INCOMPLETE:
+            disposition = RetryDisposition.UNSAFE
+        elif req_state in (RequestState.FAILED_PRE_DISPATCH, RequestState.START_UNCERTAIN) and ask_result is None:
+            attempt_term = execution_result.attempt.terminal_error_code
+            req_term = execution_result.request.terminal_error_code
+            # Safe to fallback to request-level code ONLY if this attempt hasn't produced its own code.
+            # A request-level error might have blocked dispatch entirely (e.g. FAILED_PRE_DISPATCH),
+            # meaning the attempt inherits the request's fatal reason.
+            terminal_error_code = attempt_term or req_term
+
+            # Deterministic-under-replay -> NEVER. Retrying with identical input will deterministically re-fail.
+            if terminal_error_code in (
+                ErrorCode.INVOCATION_PLAN_REJECTED,
+                ErrorCode.ARTIFACT_IDENTITY_UNPROVABLE,
+                ErrorCode.ARTIFACT_RESERVATION_FAILED,
+                ErrorCode.IDEMPOTENCY_PAYLOAD_MISMATCH,
+                ErrorCode.ACTOR_UNAUTHORIZED,
+                ErrorCode.SCOPE_UNAUTHORIZED,
+                ErrorCode.INVALID_PARAMS,
+                ErrorCode.UNKNOWN_COMMAND,
+                ErrorCode.SCHEMA_VERSION_UNSUPPORTED,
+                ErrorCode.PROTOCOL_VERSION_MISMATCH,
+                ErrorCode.ROUTE_EXHAUSTED,
+                ErrorCode.WORKSPACE_IDENTITY_MISMATCH,
+            ):
+                disposition = RetryDisposition.NEVER
+            else:
+                disposition = RetryDisposition.UNSAFE
+        else:
+            return RetryDecision(
+                disposition=None,
+                action=RetryAction.STOP,
+                reason=RetryDecisionReason.LEGACY_CLASSIFICATION_UNKNOWN,
+                required_conditions=(),
+                not_before=None,
+            )
+
+    if disposition is RetryDisposition.NEVER:
+        return RetryDecision(
+            disposition=disposition,
+            action=RetryAction.STOP,
+            reason=RetryDecisionReason.NEVER_DISPOSITION,
+            required_conditions=(),
+            not_before=None,
+        )
+
+    if durable_attempt_number + 1 > max_attempts:
+        return RetryDecision(
+            disposition=None,
+            action=RetryAction.STOP,
+            reason=RetryDecisionReason.ATTEMPT_LIMIT_REACHED,
+            required_conditions=(),
+            not_before=None,
+        )
+    elif disposition is RetryDisposition.UNSAFE:
+        is_not_started = execution_result.attempt.execution_certainty is ExecutionCertainty.NOT_STARTED
+        is_replay_safe = execution_result.request.completion_contract.replay_safe
+        if not (is_not_started or reconciliation_complete or is_replay_safe):
+            return RetryDecision(
+                disposition=disposition,
+                action=RetryAction.STOP,
+                reason=RetryDecisionReason.UNSAFE_NO_EVIDENCE,
+                required_conditions=(),
+                not_before=None,
+            )
+        return RetryDecision(
+            disposition=disposition,
+            action=RetryAction.RETRY_SAME_TARGET,
+            reason=RetryDecisionReason.EXECUTION_NOT_STARTED if is_not_started else
+                   (RetryDecisionReason.RECONCILIATION_COMPLETE if reconciliation_complete else
+                    RetryDecisionReason.REPLAY_SAFE_COMPLETION_CONTRACT),
+            required_conditions=(),
+            not_before=None,
+        )
+    elif disposition is RetryDisposition.CONDITIONAL:
+        assert failure_classification is not None
+        condition = _map_condition(failure_classification)
+
+        is_not_started = execution_result.attempt.execution_certainty is ExecutionCertainty.NOT_STARTED
+        is_replay_safe = execution_result.request.completion_contract.replay_safe
+        if not (is_not_started or reconciliation_complete or is_replay_safe):
+            return RetryDecision(
+                disposition=disposition,
+                action=RetryAction.STOP,
+                reason=RetryDecisionReason.UNSAFE_NO_EVIDENCE,
+                required_conditions=(condition,),
+                not_before=None,
+            )
+
+        if condition_evidence and condition_evidence.condition == condition and condition_evidence.satisfied:
+            return RetryDecision(
+                disposition=disposition,
+                action=RetryAction.RETRY_SAME_TARGET,
+                reason=RetryDecisionReason.CONDITION_MET,
+                required_conditions=(condition,),
+                not_before=None,
+            )
+        else:
+            return RetryDecision(
+                disposition=disposition,
+                action=RetryAction.DEFER,
+                reason=RetryDecisionReason.CONDITION_UNMET,
+                required_conditions=(condition,),
+                not_before=condition_evidence.not_before if (condition_evidence and condition_evidence.condition == condition) else None,
+            )
+    else:
+        raise ValueError(f"Unhandled disposition: {disposition}")

@@ -50,9 +50,11 @@ def adjudicate_retry(
     durable_attempt_number: int,
     max_attempts: int,
     reconciliation_complete: bool,
-    condition_evidence: RetryConditionEvidence,
+    condition_evidence: RetryConditionEvidence | None = None,
 ) -> RetryDecision: ...
 ```
+
+*Amendment 2026-08-13 (L1): `condition_evidence` is optional (`| None = None`) to avoid forcing callers to construct a meaningless value for non-CONDITIONAL paths.*
 
 The first function is a pure policy mapping. The second is the outer-loop
 adjudicator and is the only layer allowed to decide whether another attempt
