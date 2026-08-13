@@ -505,39 +505,107 @@ Status: not started. **This is the critical path** -- nothing before this
 phase makes peerhub capable of doing what hub.py does today (dispatch a
 query to a peer CLI, get a structured response back, track session/
 context/quota state, retry/failover on peer trouble).
-- **Adapter wiring / session continuation / streaming decode /
-  error-taxonomy mapping / tool-call parsing -- DESIGN RATIFIED
-  2026-08-12, implementation not yet built.** These 5 bullets (kept
-  below for the original framing) were bundled into one design topic
-  and taken through 3 dialectical rounds -- see
-  `PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md` (commit
-  `d267750`). Corrected premise: most of the inner machinery already
-  existed (single-attempt dispatch, `authorize_retry()`,
+- **Dispatch-loop contract surface -- DESIGN RATIFIED 2026-08-12
+  (commit `d267750`); T1 increments 1 and 2 are now BUILT.** Adapter
+  wiring, session continuation, streaming decode, error-taxonomy
+  mapping, and tool-call parsing were bundled into one design topic and
+  taken through 3 dialectical rounds -- see
+  `PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md`. Corrected
+  premise: most of the inner machinery already existed (single-attempt
+  dispatch, `authorize_retry()`,
   `AdapterRequest.requested_session_action`, `OutputDecoder.feed()`'s
   incremental shape, `ErrorCode`/`OperationalFailureCategory`) -- the
   design ratifies an all-additive-except-2-real-behavior-changes
   contract surface (retry-neutral `AttemptFailureClassification`,
-  `TerminalClassification` surfaced on `AskResult`, `DecodedOutput.
-  session_id`, `DecoderEventKind.TOOL_CALL`, an optional `session`
-  parameter on `dispatch_and_execute()`) plus one hard invariant
-  (adapter classification can never itself authorize a retry, enforced
-  by type shape). Validated by a design-validation step that has since been
-  superseded by and folded into the production `classify_attempt_failure()`
-  mapper and `tests/unit/dispatch/test_model.py` (13 tests). **The 5 implementation increments in the design
-  doc's Section 5 are separate, not-yet-started future work**; this
-  entry covers the design phase only.
+  `TerminalClassification` surfaced on `AskResult`, an optional
+  `session` parameter on `dispatch_and_execute()`) plus one hard
+  invariant (adapter classification can never itself authorize a retry,
+  enforced by type shape). Validated by a design-validation step that
+  has since been superseded by and folded into the production
+  `classify_attempt_failure()` mapper and
+  `tests/unit/dispatch/test_model.py`.
+  **Of the design's Section 5 increments: 1 (classification plumbing)
+  and 2 (session continuation) are DONE; 3 (Codex streaming), 4
+  (tool-call capture), and 5 (outer retry/resume/failover loop) are not
+  started.** Two surface items the design prescribed did NOT land as
+  written: `DecodedOutput.session_id` was abandoned in favour of
+  `DecoderEventKind.SESSION_IDENTITY` (which already existed), and
+  `DecoderEventKind.TOOL_CALL` still belongs to the not-started
+  increment 4.
+  - **T1 increment 1a -- classification plumbing, data layer
+    (`bfdd8b2`). DONE.** Relocates `TerminalClassification` to
+    `dispatch/contract.py` (re-exported from `dispatch/process.py`),
+    adds the frozen `AttemptFailureClassification` DTO and the two
+    `AskResult` fields, adds `ErrorCode.SESSION_INVALID` and
+    `ErrorCode.INVOCATION_PLAN_REJECTED`, implements the central
+    `classify_attempt_failure()` mapper
+    (`peerhub/dispatch/model.py:1400-1428`), and round-trips both new
+    fields through the SQLite codec.
+  - **T1 increment 1b -- `VENDOR_ERROR` emission (`bf9f4ad`). DONE.**
+    All three real adapters stop writing
+    `ProtocolAssessment.protocol_failure=INTERNAL_ERROR` merely because
+    the process exited nonzero, and each decoder emits
+    `DecoderEventKind.VENDOR_ERROR` with a normalized
+    `{normalized_kind, evidence_source}` payload, giving the two new
+    codes a production path. Shipped with synthetic byte patterns,
+    marked `TEST NEEDED` per DIR-004 -- since corrected by `3b317f0`
+    below.
+  - **T1 increment 2a -- workflow-owned session capability gate
+    (`f516760`). DONE.** `dispatch_and_execute()` gains
+    `session: SessionHint | None = None`, checks
+    `Capability.SESSION` before planning, and raises the new typed
+    `UnsupportedCapabilityError` instead of the adapters' old bare
+    `ValueError` (`peerhub/application/workflows.py:562, 585-598`).
+  - **T1 increments 2b/2c/2d -- per-adapter session RESUME
+    (`dda4956` / `f4b2907` / `c3d6ceb`). DONE.** All three real
+    adapters now advertise `Capability.SESSION` and plan a real resume
+    invocation. The three CLIs are genuinely asymmetric, so the
+    adapters are too:
+
+    | adapter | RESUME invocation | session-ID capture | CREATE |
+    | --- | --- | --- | --- |
+    | `cc` / `claude.cmd` (`dda4956`) | `--resume <id>` | none, and none is needed -- the ID is caller-pregenerated via `--session-id <uuid>` before invocation | deferred |
+    | `cx` / `codex.cmd` (`f4b2907`) | `exec resume --json <id> <prompt>` | `SESSION_IDENTITY` from the `thread.started` line's `thread_id` | deferred |
+    | `ag` / `agy.exe` (`c3d6ceb`) | `--conversation <id>` | `SESSION_IDENTITY` from the top-level `conversation_id` field | deferred |
+
+    Claude's empty capture cell is a permanent architectural
+    asymmetry, not a gap: Codex and Agy mint a new ID server-side that
+    can only be read back out of the output, while Claude's is chosen
+    by the caller beforehand. `SessionAction.CREATE` is deferred for
+    all three; see the design doc's Section 5 for the gate defect that
+    deferral exposes.
+  - **Post-hoc correction: `classify_attempt_failure()` was never
+    wired into production (`858aec6`).** Increments 1a/1b shipped a
+    fully unit-tested classifier that the only production
+    `AskResult` construction site never called, so every real
+    dispatched attempt recorded `terminal_classification=None` and
+    `failure_classification=None` and both new codes were unreachable
+    in practice. Three prior independent-review rounds tested the
+    classifier and codec in isolation and missed the absent
+    integration call; a later source/test completeness check found it.
+    Now called at `peerhub/application/workflows.py:898-916`, with
+    three end-to-end tests through the real `dispatch_and_execute()`
+    entry point. This is a real gap 1a/1b shipped with, not a
+    refinement.
+  - **Post-hoc correction: 1b's vendor-error patterns were grounded in
+    real captures (`3b317f0`).** Live probes showed 1b's synthetic
+    fixtures did not match real failures: Agy's decoder assumed the
+    JSON `error` field is always an object (a real auth failure
+    returned a string) and broke when a stderr preamble preceded the
+    JSON; Codex's only recognised a nested `error.code` shape (a real
+    network failure emits a flat `{"type":"error","message":...}`) and
+    never handled `turn.failed`. New fixtures use `[cli_live]`
+    captures where a live failure was reproducible; the one case that
+    was not (Agy's string-error path) stays marked `TEST NEEDED`. The
+    work's own review rounds caught 2 further real bugs it had
+    introduced.
 - Wire the 3 real PeerAdapters (agy/claude/codex, landed Stage 3) into an
   actual dispatch loop that: sends a query, decodes the peer's real
   output via the adapter, returns a structured result to the caller.
-- Session continuation (currently explicitly out of scope per Stage 3 --
-  each adapter call is a fresh CLI invocation; hub.py's
-  --session-policy auto/reuse/fresh behavior has no peerhub equivalent
-  yet).
+  (Single-attempt dispatch works today; the missing piece is the outer
+  bounded retry/failover orchestrator -- design Section 5 increment 5.)
 - Streaming decode (codex.cmd emits JSONL events as they happen; current
   adapter only parses the full output after the process exits).
-- Detailed error-taxonomy mapping (hub.py distinguishes zombie/timeout/
-  quota-exhausted/malformed-output/etc.; peerhub adapters currently only
-  have a coarse success/failure split).
 - Tool-call parsing (peers that invoke their own tools mid-response --
   not yet handled at all).
 - Health/quota tracking equivalent to `diag.py` -- peerhub's CLI `status`
@@ -707,6 +775,10 @@ had never appeared in this roadmap.
   pyright clean (note: `tools/` and `tests/` are excluded from pyright's
   `include` scope machine-wide, same as all 6 sibling `tools/*`
   packages -- existing convention, not a gap introduced here).
+  **Scope limit:** it checks CLI/dependency/decoder/pytest drift only. It
+  does not check design-doc status headers or open-questions accuracy, so
+  a green run is never evidence that the docs are current -- see
+  `FACT-REFRESH-PROCEDURE-R1.md`, "What this routine does NOT check".
 - **Capability-lease enforcement-evidence prerequisites -- zero code,
   trigger-gated.** `CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md`
   Section 8 concluded that no real adapter can supply DIR-004-qualifying
@@ -742,6 +814,24 @@ had never appeared in this roadmap.
   actually run `git revert --no-commit` and re-verify the reverted tree
   matches the prior known-good state, not just that the revert applies
   cleanly.
+- **Doc accuracy is part of every increment, not a later cleanup pass.**
+  A design doc's own status header and open-questions/gaps section must
+  reflect actual implementation state at the time the increment lands --
+  update them in the same commit as the code, the way a schema change
+  updates its codec. Two concrete precedents on this project:
+  `PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md` carried a stale
+  "No code written" header and a stale Section 5.3 well after code
+  existed; and worse, across T1's first six increments (`bfdd8b2`,
+  `bf9f4ad`, `f516760`, `dda4956`, `f4b2907`, `c3d6ceb`) the status
+  claims in the two design docs being implemented were never updated at
+  all. Two of the six did touch a design doc, but only for narrow
+  local edits; the roadmap still read "implementation not yet built"
+  and the contract design's Section 1.2 still listed gaps that had been
+  closed several commits earlier. Four increments changed no design doc
+  whatsoever. Nothing in the normal per-commit discipline caught it; it
+  took a dedicated doc-completeness audit run after the fact. Assume a stale
+  status header will be believed by the next reader, including a future
+  peer with no session context.
 - Session-context rotation: once a peer/profile's dispatch session
   context exceeds ~75%, route the next dispatch through
   `--session-policy fresh`.

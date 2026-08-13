@@ -1,8 +1,8 @@
 # peerhub fact-refresh procedure (R1)
 
-Status: RATIFIED 2026-08-09 (procedure only — `tools/peerhub_facts/` itself
-is not yet implemented; this document is what a future implementation
-must satisfy). cx proposed, ag independently verified and required 2
+Status: RATIFIED 2026-08-09; **`tools/peerhub_facts/` was built to this
+procedure in `dd7e3f4`** and this document now describes a live tool, not
+a future one. cx proposed, ag independently verified and required 2
 corrections (incorporated below), cc synthesized. Scope: peerhub only.
 
 ## Why
@@ -91,7 +91,9 @@ reproducer, the observed behavior, which adapter symbol depends on it, a
 regression test covering it, and an `ACTIVE`/`SUPERSEDED` status. The
 literal-name/PATHEXT resolution behavior, the free/instant `--version`
 probes, Claude's warning-prefix handling, and Codex's JSONL event shape
-all belong here as the first entries once this is implemented.
+were the first entries (`OBS-0001`–`OBS-0006`, landed with `dd7e3f4`);
+per-CLI session-resume asymmetry and real vendor-failure output shapes
+followed as `OBS-0007`/`OBS-0008`.
 
 Explicitly **do not** extend the existing
 `tools/drift_report/generate_drift_report.py` — verified (both cx and
@@ -157,8 +159,34 @@ the commit SHA they describe. Living/normative docs should say "run
 
 ## Implementation status
 
-This document is the ratified procedure. `tools/peerhub_facts/` itself
-is **not yet built** — this is the next concrete implementation task,
-to be done with the same dispatch → independent-verification discipline
-as every other increment this session, not assumed complete just
-because the design converged.
+**Built in `dd7e3f4`**, to the same dispatch → independent-verification
+discipline as every other increment: a second peer re-ran the live
+probes itself (ag `1.1.12`, cc `2.1.222`, cx `0.147.0`) and confirmed
+the tool immediately found real drift on this machine (`torch 2.12.1`
+requires `setuptools<82`; `83.0.0` installed). The full verification
+record is the `tools/peerhub_facts/` entry under "Cross-cutting tracked
+items" in `HUB-REPLACEMENT-ROADMAP-2026-08-09.md`.
+
+## What this routine does NOT check
+
+A green `peerhub_facts` run is evidence that **the measured facts it
+knows to check** have not drifted. It is not evidence that the
+repository's documentation is accurate. Specifically, it checks CLI
+version/help surfaces, decoder output shapes, dependency versions and
+coherence, and the pytest baseline. It does **not** check:
+
+- whether a design doc's status header still matches implementation
+  state;
+- whether a design doc's open-questions/gaps section still lists gaps
+  that have since been closed;
+- whether commit-hash citations, line-number citations, or "not yet
+  built" claims anywhere in `docs/` are still true.
+
+This limitation is load-bearing, not theoretical. During T1, six
+increments landed while the roadmap still read "implementation not yet
+built" and the dispatch-loop design still listed closed gaps as open;
+`peerhub_facts` was green throughout and could not have been otherwise,
+because nothing in its checklist looks at prose. Doc-status accuracy is
+enforced by the per-increment discipline in the roadmap's "Working
+discipline for all phases", not by this tool. Do not cite a green run as
+though it covered both.

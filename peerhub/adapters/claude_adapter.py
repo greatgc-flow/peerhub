@@ -165,12 +165,12 @@ class RealClaudeAdapter:
             argv = ("claude.cmd", "-p", prompt, "--output-format", "json", "--resume", session.external_session_id)
             redacted_display = "claude.cmd -p <redacted> --output-format json --resume <redacted>"
         else:
-            # Note: DecoderEventKind.SESSION_IDENTITY exists and is unused; live Claude
-            # output already carries session_id [empirical_probe, 2026-08-12];
-            # CREATE-path ID capture is deferred to the increment that implements
-            # Section 2.6 (DecodedOutput.session_id + decoder emission), not because
-            # no surface exists, but because that surface isn't wired up by any decoder
-            # yet and this increment's scope (Section 2.5) is RESUME only.
+            # SESSION_IDENTITY is now emitted by 2 of 3 real adapters (Codex, Agy); Claude
+            # intentionally never emits it because Claude's session ID is caller-pregenerated
+            # via `--session-id <uuid>` before invocation (see this adapter's own RESUME handling),
+            # so there is nothing for Claude's decoder to capture post-hoc -- unlike Codex/Agy,
+            # which generate a new ID server-side that must be captured from output after the fact.
+            # This is a permanent architectural asymmetry, not a deferred gap.
             argv = ("claude.cmd", "-p", prompt, "--output-format", "json")
             redacted_display = "claude.cmd -p <redacted> --output-format json"
 

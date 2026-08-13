@@ -1,8 +1,22 @@
 # Phase 3 dispatch-loop shared contract surface (2026-08-12)
 
-Status: **draft 3, with all round-2 findings applied; ready for the
-closing independent ratification check.** This document is the artifact
-that check ratifies, not an implementation plan already approved.
+Status: **RATIFIED (draft 3, commit `d267750`). Section 5 increments 1
+and 2 are IMPLEMENTED; increments 3, 4, and 5 are not started.**
+Increment 1 shipped as `bfdd8b2` (1a, classification plumbing) and
+`bf9f4ad` (1b, `VENDOR_ERROR` emission); increment 2 shipped as
+`f516760` (2a, workflow capability gate), `dda4956` (2b, Claude
+RESUME), `f4b2907` (2c, Codex RESUME + ID capture), and `c3d6ceb`
+(2d, Agy RESUME + ID capture). Two post-hoc corrections then landed
+against that range: `858aec6` wired `classify_attempt_failure()` into
+production, which increments 1a/1b had never done, and `3b317f0`
+re-grounded 1b's vendor-error patterns in real `[cli_live]` captures.
+
+This document was originally the artifact a closing ratification check
+ratified, not an implementation plan already approved. It is now also
+the implementation record for increments 1 and 2; sections describing
+work that has since landed say so inline, and where the implementation
+deliberately diverged from what was ratified, the divergence is called
+out rather than quietly edited away (see Section 2.6).
 
 Scope: Phase 3's five coupled roadmap facets (adapter-wiring loop,
 session continuation, streaming decode, error-taxonomy mapping, and
@@ -30,13 +44,14 @@ missing work is at its boundaries.
 Single-attempt dispatch already resolves a real adapter, admits and
 prepares a request, plans and supervises a process, decodes output,
 assesses completion, and commits a terminal result
-(`application/direct_ask.py:139-288`,
-`application/workflows.py:540-926`). All three real adapters are in the
-runtime registry (`adapters/registry.py:42-48`).
+(`application/direct_ask.py:129-290`,
+`application/workflows.py:544-947`). All three real adapters are in the
+runtime registry (`adapters/registry.py:42-48`). Line citations
+throughout this document are as of commit `3b317f0`.
 
 The missing "loop" is an outer bounded orchestrator. The existing
-`authorize_retry()` workflow (`application/workflows.py:486-538`) is not
-called after a failed attempt. The future outer loop must consume the
+`authorize_retry()` workflow (`application/workflows.py:490-542`) is
+still not called after a failed attempt; increment 5 has not started. The future outer loop must consume the
 whole `ExecutionWorkflowResult`, because pre-dispatch and start-uncertain
 returns have an `AttemptSnapshot.terminal_error_code` but no `AskResult`.
 For a terminal executed attempt it additionally consumes the persisted
@@ -51,23 +66,44 @@ has produced a fresh lease and admitted the next attempt.
 Some session vocabulary already exists:
 `AdapterRequest.requested_session_action`, `SessionHint`, and
 `Capability.SESSION` are defined in `adapters/contract.py`. Enabling the
-feature still requires all of the following:
+feature still requires all of the following. **Gaps 1-3 were closed by
+increment 2 (`f516760`/`dda4956`/`f4b2907`/`c3d6ceb`); gap 4 is still
+open.** Line citations below are re-verified against the tree at
+`3b317f0`.
 
-1. Every real adapter currently rejects any non-null `SessionHint`
-   (`agy_adapter.py:128`, `claude_adapter.py:135`,
-   `codex_adapter.py:146`).
-2. `dispatch_and_execute()` hardcodes `session=None` when it invokes
-   `plan_invocation()` (`application/workflows.py:581-586`) and exposes no
-   parameter through which a caller can supply a session.
-3. No real adapter advertises `Capability.SESSION`; all three descriptor
-   capability sets are empty (`*_adapter.py:52`).
-4. `direct_ask.py` always constructs `AdapterRequest` with
-   `SessionAction.NONE` (`application/direct_ask.py:243-251`).
+1. ~~Every real adapter currently rejects any non-null `SessionHint`.~~
+   **RESOLVED (`f516760`).** The three `if session is not None: raise
+   ValueError(...)` stubs are gone; the workflow gate in gap 2 is now
+   the single rejection point. Each adapter instead raises `ValueError`
+   only when `SessionAction.RESUME` arrives without an
+   `external_session_id` (`agy_adapter.py:178-180`,
+   `claude_adapter.py:162-164`, `codex_adapter.py:202-204`).
+2. ~~`dispatch_and_execute()` hardcodes `session=None` when it invokes
+   `plan_invocation()` and exposes no parameter through which a caller
+   can supply a session.~~ **RESOLVED (`f516760`).** The public
+   signature takes `session: SessionHint | None = None`
+   (`application/workflows.py:562`), the capability gate runs at
+   `application/workflows.py:585-590`, and the hint is passed through
+   unchanged at `application/workflows.py:593-598`.
+3. ~~No real adapter advertises `Capability.SESSION`; all three
+   descriptor capability sets are empty.~~ **RESOLVED
+   (`dda4956`/`f4b2907`/`c3d6ceb`).** All three descriptors now carry
+   `capabilities=frozenset({Capability.SESSION})`
+   (`agy_adapter.py:54`, `claude_adapter.py:54`, `codex_adapter.py:54`),
+   each added only in the increment that gave that adapter a real
+   resume plan.
+4. **STILL OPEN.** `direct_ask.py` always constructs `AdapterRequest`
+   with `SessionAction.NONE` (`application/direct_ask.py:243-251`) and
+   never passes a `session` to `dispatch_and_execute()`. Nothing in the
+   product entry path can request continuation yet; increment 2 built
+   the mechanism, not a caller for it.
 
 The three verified CLI mechanisms remain vendor-specific behind the
 adapter boundary: Claude uses `--resume <id>`, Codex places
 `resume <id>` after `exec`, and Agy uses `--conversation <id>`
-(`[cli_live]`). General dispatch must not branch on peer identity.
+(`[cli_live]`). General dispatch must not branch on peer identity. All
+three are now implemented exactly this way; see Section 2.5 for the
+as-built per-adapter table.
 
 ### 1.3 Streaming is present as a protocol shape, not as behavior
 
@@ -76,7 +112,8 @@ incremental shape (`adapters/contract.py:583-597`). Every real decoder's
 `feed()` currently buffers and returns no events, while
 `dispatch_and_execute()` constructs the decoder only after
 `run_process()` has returned and feeds the full merged stream once
-(`application/workflows.py:857-874`).
+(`application/workflows.py:883-886`). Increment 2 did not change this;
+streaming remains increment 3's scope.
 
 The pipe runner already reads stdout and stderr concurrently for
 supervision (`dispatch/pipe.py:116-168`), but
@@ -99,16 +136,32 @@ PeerHub already has three distinct layers:
 `ProcessSupervisor` centrally computes `EXIT_NON_ZERO` and
 `OUTPUT_LIMIT_EXCEEDED`, as well as start uncertainty and both timeout
 kinds (`dispatch/process.py:21-33, 700-765`).
-`dispatch_and_execute()` has the resulting
+`dispatch_and_execute()` had the resulting
 `ProcessSupervisionOutcome.terminal_classification` in scope when it
-constructs `AskResult`, but drops it (`application/workflows.py:857-895`).
+constructed `AskResult`, but dropped it.
 
-Separately, all three adapters currently write
-`ErrorCode.INTERNAL_ERROR` into the protocol-only
-`ProtocolAssessment.protocol_failure` for a nonzero exit, malformed
-output, and empty response. That is not merely a missing additive field;
-the mapping increment must change existing adapter behavior so process
-failure is no longer mislabeled as protocol failure.
+> **RESOLVED, in two steps.** Increment 1a (`bfdd8b2`) added the
+> `AskResult` fields and the mapper, but did not call either from
+> production; the workflow still discarded the classification for
+> another six commits. `858aec6` closed that, computing
+> `terminal_classification` and `classify_attempt_failure()` immediately
+> before `AskResult` is constructed
+> (`application/workflows.py:898-916`). See Section 5 increment 1 for
+> why the intervening review rounds did not catch it.
+
+Separately, all three adapters wrote `ErrorCode.INTERNAL_ERROR` into the
+protocol-only `ProtocolAssessment.protocol_failure` for a nonzero exit,
+malformed output, and empty response. That was not merely a missing
+additive field; the mapping increment had to change existing adapter
+behavior so process failure is no longer mislabeled as protocol failure.
+
+> **RESOLVED (`bf9f4ad`).** Each adapter's `interpret_output()` now sets
+> `protocol_failure=None if has_vendor_error else
+> ErrorCode.INTERNAL_ERROR` (`agy_adapter.py:236, 244, 252`,
+> `claude_adapter.py:226, 234`, `codex_adapter.py:279, 287`), so a
+> parseable vendor error is treated as parsed protocol. Malformed and
+> empty output still yield `INTERNAL_ERROR`, which is the intended
+> remaining behavior, not residual drift.
 
 ### 1.5 Tool-call parsing is greenfield
 
@@ -312,20 +365,66 @@ The workflow owns the capability gate. Before calling
 `PeerHubError` mapped to `ErrorCode.INVALID_PARAMS`, carrying the adapter
 ID and requested capability; the adapter's current bare `ValueError` is
 not the contract. Only after that gate does the workflow pass `session`
-unchanged to `plan_invocation()`. The later session increment implements
-the three adapter-specific resume plans, threads the selected session
-from the outer loop/direct caller, and advertises `Capability.SESSION`
-only after an adapter supports its real resume mechanism.
+unchanged to `plan_invocation()`.
+
+**IMPLEMENTED (increment 2).** `f516760` (2a) added the optional
+keyword, the workflow-owned gate, and `UnsupportedCapabilityError`
+(`core/errors.py`), and deleted the three adapters' now-unreachable
+non-null-session `ValueError` stubs. `dda4956`/`f4b2907`/`c3d6ceb`
+(2b/2c/2d) then implemented the three adapter-specific resume plans and
+advertised `Capability.SESSION`, each only in the increment that gave
+that adapter a real resume mechanism:
+
+| adapter | RESUME invocation | session-ID capture | `Capability.SESSION` |
+| --- | --- | --- | --- |
+| `cc` / `claude.cmd` (`dda4956`) | `--resume <id>` appended to the `-p ... --output-format json` argv | none -- see Section 2.6 | `claude_adapter.py:54` |
+| `cx` / `codex.cmd` (`f4b2907`) | `exec resume --json <id> <prompt>` | `SESSION_IDENTITY` from `thread.started`'s `thread_id` (`codex_adapter.py:97-107`) | `codex_adapter.py:54` |
+| `ag` / `agy.exe` (`c3d6ceb`) | `--conversation <id>` appended (never `--continue`, which is ambient most-recent state and cannot be bound to a `SessionHint`) | `SESSION_IDENTITY` from the top-level `conversation_id` (`agy_adapter.py:95-102`) | `agy_adapter.py:54` |
+
+Two things did **not** land and are deliberately still open:
+
+- `SessionAction.CREATE` is unimplemented for all three adapters. Each
+  `plan_invocation()` branches only on `RESUME`, so `CREATE` falls
+  through the `else` and plans an ordinary no-session invocation.
+- The gate is **action-agnostic**. It tests only `session is not None`
+  (`application/workflows.py:585-590`) and never inspects
+  `request.requested_session_action`, so a `CREATE` request carrying a
+  non-null session passes the gate and silently produces a no-session
+  invocation instead of being rejected. This is a defect in 2a that
+  2b/2c/2d's CREATE-deferral choices surfaced; it is tracked in
+  Section 5 under increment 2.
+
+Threading a session from a real caller also remains open -- see
+Section 1.2 gap 4.
 
 ### 2.6 Streaming and tool-call surface
 
-`DecodedOutput` adds:
+> **Superseded as designed.** This section originally prescribed adding
+> a `session_id: str | None = None` field to `DecodedOutput`. That field
+> was never implemented and should not be. Increment 2c found that the
+> already-existing `DecoderEventKind.SESSION_IDENTITY` reaches the
+> caller through the existing `DecodedOutput.events` ->
+> `ExecutionWorkflowResult.decoded_output` path, so a second parallel
+> channel for the same fact would have been redundant. Codex and Agy
+> emit `SESSION_IDENTITY` with a single-key `{"session_id": <id>}`
+> payload (`f4b2907`, `c3d6ceb`); `DecodedOutput` keeps its three-field
+> shape (`adapters/contract.py:553-563`).
 
-```python
-session_id: str | None = None
-```
+**Why Claude never emits `SESSION_IDENTITY` -- permanent, not a gap.**
+Codex and Agy mint a session ID server-side during the run, so the only
+way to learn it is to capture it out of the output after the fact.
+Claude's is the opposite: `claude.cmd --session-id <uuid>` accepts a
+caller-chosen UUID for the conversation (`[cli_live]`, verified against
+`claude.cmd --help` 2026-08-13), so whenever `CREATE` is implemented for
+Claude the ID will already be known to the caller before the process
+starts. There is nothing for `ClaudeOutputDecoder` to discover. This is
+an architectural asymmetry between the vendors, not unfinished work --
+do not "complete" Claude's decoder by making it re-parse an ID the
+caller supplied.
 
-`DecoderEventKind` adds `TOOL_CALL`. The existing
+`DecoderEventKind` adds `TOOL_CALL`. **Not implemented**; it belongs to
+the not-started increment 4 and is absent from the enum today
+(`adapters/contract.py:526-534`). The existing
 `DecoderEvent.payload: Mapping[str, JsonValue]` can carry the vendor-
 normalized call name and arguments; execution semantics remain deferred.
 
@@ -448,22 +547,87 @@ The contract surface is shared; implementation remains staged:
    session and invalid invocation-plan evidence; the two new codes
    therefore have a production path from the first increment that
    defines them.
-   *(Note: The pattern-matching logic and central-mapper wiring are implemented
-   and unit-tested against synthetic fixtures. DIR-004-qualifying recorded-byte
-   evidence is deferred until a real vendor failure is captured live, which is
-   itself out of scope for this increment. Completeness is strictly bounded by
-   this synthetic evidence gap.)*
+   **DONE** -- `bfdd8b2` (1a, data layer) and `bf9f4ad` (1b,
+   `VENDOR_ERROR` emission), with two post-hoc corrections below.
+   *(Note: 1b's pattern-matching logic and the central mapper were
+   implemented and unit-tested against synthetic fixtures. That
+   synthetic-evidence gap is now partly closed: `3b317f0` replaced the
+   guessed shapes with real `[cli_live]` captures for Codex's flat
+   `type=="error"` and `turn.failed` cases and Agy's stderr-preamble
+   case. Agy's top-level string-`error` path could not be reproduced
+   live and remains marked `TEST NEEDED` per DIR-004.)*
+   *(Note: `classify_attempt_failure()` shipped in 1a with zero
+   production call sites and stayed that way through 1b and all of
+   increment 2 -- every real dispatched attempt recorded
+   `terminal_classification=None` and `failure_classification=None`, so
+   `SESSION_INVALID` and `INVOCATION_PLAN_REJECTED` were unreachable in
+   practice despite 1b having built their decoder path. Fixed in
+   `858aec6`. Three independent review rounds tested the mapper and the
+   codec in isolation and none checked the production call site; that
+   is the reusable lesson, not the one-line fix.)*
+   *(Open: an unrecognized-but-well-formed vendor `error_type` still
+   yields a generic `INTERNAL_ERROR`. All three adapters' vendor-error
+   handling is a closed `if/elif` chain with no `else`
+   (`claude_adapter.py:108-115`, `codex_adapter.py:128-153`,
+   `agy_adapter.py:120-129`), so a vendor error the chain does not
+   recognize emits no `VENDOR_ERROR` event at all and the mapper falls
+   back to `EXIT_NON_ZERO` -> `INTERNAL_ERROR`. Still true after
+   `3b317f0`, which added more branches but no fallback arm. Note that
+   a catch-all arm would need care: `_normalized_vendor_kind()` only
+   consumes allowlisted `normalized_kind` values, so an honest fallback
+   means an explicit "recognized as a vendor error, unclassifiable"
+   signal, not an invented category.)*
+   *(Open: Codex's two failure branches read the message from different
+   places. The `type=="error"` branch reads top-level
+   `parsed.get("message")` (`codex_adapter.py:126`) while the
+   `turn.failed` branch reads nested `parsed["error"]["message"]`
+   (`codex_adapter.py:143-145`). Both shapes are `[cli_live]`-observed
+   as written, but if Codex ever nests the message on the error branch
+   too, that branch's substring classification would silently see an
+   empty string and emit nothing. Found during `3b317f0`'s own final
+   verification; not reproduced live, no fix applied.)*
 2. **Session continuation:** add/thread the optional workflow parameter,
    add the workflow-owned typed capability gate, implement the three
    adapter-specific resume plans, extract final session IDs, and
    advertise `Capability.SESSION` only where proven.
+   **DONE** -- `f516760` (2a, gate), `dda4956` (2b, Claude),
+   `f4b2907` (2c, Codex), `c3d6ceb` (2d, Agy). See the as-built table
+   in Section 2.5.
+   *(Open: 2a's capability gate is action-agnostic. It checks only
+   `session is not None`, never `requested_session_action`
+   (`application/workflows.py:585-590`), so a `SessionAction.CREATE`
+   request with a non-null session now passes the gate and silently
+   constructs a no-session invocation instead of being rejected. The
+   hole is newly reachable rather than pre-existing: before 2a the
+   workflow hardcoded `session=None`, so no caller could express this
+   combination at all. This is a defect in 2a, surfaced by 2b/2c/2d each
+   choosing to defer CREATE. The natural fix lands with whatever
+   increment first implements CREATE for any adapter, since that is
+   when the gate has to distinguish the two actions anyway.)*
+   *(Open: no caller requests a session yet -- `direct_ask.py` still
+   hardcodes `SessionAction.NONE`; Section 1.2 gap 4.)*
+   *(Open, source comment: the explanatory comment on Claude's
+   non-RESUME branch (`claude_adapter.py:168-173`) was accurate when 2b
+   wrote it and has since gone stale in three ways. It says
+   `SESSION_IDENTITY` "exists and is unused" -- 2c and 2d now emit it;
+   it defers Claude's CREATE-path ID capture to "the increment that
+   implements Section 2.6 (`DecodedOutput.session_id` + decoder
+   emission)", but that field was abandoned (Section 2.6); and it frames
+   Claude's CREATE-path capture as deferred work when Claude needs no
+   post-hoc capture at any point, because `--session-id <uuid>` is
+   caller-supplied. The comment should be rewritten to state the
+   permanent asymmetry instead of a deferral. Not fixed here because
+   this pass is documentation-only.)*
 3. **Codex streaming:** add the ordered runner-to-decoder event path and
    implement incremental JSONL parsing with remainder buffering.
+   **NOT STARTED.**
 4. **Tool-call capture:** add normalized `TOOL_CALL` events and measured
    per-CLI fixtures; execution/approval semantics remain a later design.
+   **NOT STARTED** -- `DecoderEventKind.TOOL_CALL` does not exist yet.
 5. **Outer retry/resume/failover loop:** centrally adjudicate
    `RetryDisposition`, call the existing retry workflow, bound attempts,
-   and return a structured multi-attempt result.
+   and return a structured multi-attempt result. **NOT STARTED** --
+   `authorize_retry()` still has no caller after a failed attempt.
 
 The following are explicitly not ratified here:
 
@@ -535,10 +699,13 @@ defect while labeling it fixed.
 
 This section records a design-validation step that has since been
 superseded by and folded into the production `classify_attempt_failure()`
-mapper and `tests/unit/dispatch/test_model.py`. Note that `classify_attempt_failure()`
-currently has zero production call sites (only test callers); this is expected
-at this stage of the increment. The historical record of
-what it validated (the empirical probe's conclusion) is preserved below.
+mapper and `tests/unit/dispatch/test_model.py`. This section previously
+noted that `classify_attempt_failure()` had zero production call sites
+and called that expected at that stage of the increment. It was not
+expected -- it was the gap `858aec6` later fixed; the mapper is now
+called from `application/workflows.py:899-904`. The historical record of
+what the prototype validated (the empirical probe's conclusion) is
+preserved below.
 
 The deleted prototype module
 validated an isolated pure implementation of the ratified mapper shape using
@@ -559,13 +726,18 @@ that normalized `VENDOR_ERROR` evidence reaches both proposed codes.
 
 ## 8. Closing ratification assessment
 
-Draft 3 is ready for the closing independent ratification check. The one
-blocking contradiction is closed in the same increment that introduces
-the new codes; the mapper covers its full optional input domain; decoder
-trust is described at the level actually enforced; the legacy test has
-one implementation-independent safety assertion; and session capability
-rejection has a named workflow owner and typed failure.
+Draft 3 passed the closing independent ratification check and was
+ratified as `d267750`. The one blocking contradiction is closed in the
+same increment that introduces the new codes; the mapper covers its full
+optional input domain; decoder trust is described at the level actually
+enforced; the legacy test has one implementation-independent safety
+assertion; and session capability rejection has a named workflow owner
+and typed failure.
 
-No round 4 is warranted on the present evidence. Remaining choices are
-implementation details already bounded by the increments above, not
-unresolved shared-contract defects.
+No round 4 was warranted on the evidence available then, and none is
+warranted now: the surface held up in implementation. What implementation
+did expose is not shared-contract defects but integration and
+evidence-quality gaps that paper review structurally cannot find -- a
+mapper nobody called (`858aec6`) and vendor patterns that had never met a
+real failure (`3b317f0`). Both are recorded in Section 5's increment
+notes rather than smoothed over here.
