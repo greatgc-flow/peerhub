@@ -45,6 +45,7 @@ from peerhub.dispatch.contract import (
     CompletionContractKind,
     LeaseState,
     RequestState,
+    TerminalClassification,
 )
 from peerhub.dispatch.capability import (
     CapabilityLeaseViolation,
@@ -670,6 +671,127 @@ def test_dispatch_and_execute_nonzero_exit(tmp_path: Path, store: SqliteStateSto
     assert res.process_outcome.execution_outcome.exit_code == 1
     assert res.completion_assessment is not None
     assert res.completion_assessment.state is CompletionAssessmentState.NOT_APPLICABLE
+    assert res.attempt.result is not None
+    assert res.attempt.result.terminal_classification is TerminalClassification.EXIT_NON_ZERO
+    assert res.attempt.result.failure_classification is not None
+    assert res.attempt.result.failure_classification.code is ErrorCode.INTERNAL_ERROR
+
+
+def test_dispatch_and_execute_nonzero_exit_with_vendor_error(tmp_path: Path, store: SqliteStateStore) -> None:
+    """Trivial subprocess exiting nonzero with VENDOR_ERROR yields classified failure."""
+    from peerhub.adapters.contract import OutputDecoder, DecodedOutput, DecoderEvent, DecoderEventKind, InvocationPlan
+    from peerhub.builtins.fake_adapter import FakeOutputDecoder
+
+    class VendorErrorAdapter(FakePeerAdapter):
+        def new_decoder(self, plan: InvocationPlan) -> OutputDecoder:
+            class ErrorDecoder(FakeOutputDecoder):
+                def finalize(self) -> DecodedOutput:
+                    out = super().finalize()
+                    ev = DecoderEvent(
+                        kind=DecoderEventKind.VENDOR_ERROR,
+                        payload={"normalized_kind": "session_invalid", "evidence_source": "known_terminal_pattern"}
+                    )
+                    return DecodedOutput(
+                        canonical_text=out.canonical_text,
+                        canonical_lines=out.canonical_lines,
+                        events=out.events + (ev,)
+                    )
+            return ErrorDecoder()
+
+    workflows, dispatch = _workflows(store)
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    adapter = VendorErrorAdapter(exit_code=1)
+
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        peer_adapter=adapter,
+        profile=_ROUTED_PROFILE,
+        limits=limits,
+        workspace_roots={"ws-1": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        heartbeat_timeout_ms=10000,
+    )
+
+    assert res.process_outcome is not None
+    assert res.process_outcome.execution_outcome.exit_code == 1
+    assert res.attempt.result is not None
+    assert res.attempt.result.failure_classification is not None
+    assert res.attempt.result.failure_classification.code is ErrorCode.SESSION_INVALID
+
+
+def test_dispatch_and_execute_success_clears_classifications(tmp_path: Path, store: SqliteStateStore) -> None:
+    """Successful attempt results in None for both classifications."""
+    workflows, dispatch = _workflows(store)
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    adapter = FakePeerAdapter(exit_code=0)
+
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        peer_adapter=adapter,
+        profile=_ROUTED_PROFILE,
+        limits=limits,
+        workspace_roots={"ws-1": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        heartbeat_timeout_ms=10000,
+    )
+
+    assert res.process_outcome is not None
+    assert res.process_outcome.execution_outcome.exit_code == 0
+    assert res.attempt.result is not None
+    assert res.attempt.result.terminal_classification is None
+    assert res.attempt.result.failure_classification is None
 
 
 # --- Enforcement-gate security properties (errata 7.2 point 3 / 7.4) -------

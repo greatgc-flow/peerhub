@@ -74,6 +74,7 @@ from peerhub.dispatch.process import (
     ProcessSupervisionOutcome,
     ProcessSupervisor,
 )
+from peerhub.dispatch.model import classify_attempt_failure
 from peerhub.dispatch.service import DispatchService
 from peerhub.health.contract import AdmissionSnapshot
 from peerhub.health.service import HealthService
@@ -894,6 +895,13 @@ class ApplicationWorkflows:
         # Step 8: Terminalize attempt (complete + consume + close lease) if lease owned
         if lease_owned:
             started_at = dispatch_service.now()
+            terminal_classification = process_outcome.terminal_classification
+            failure_classification = classify_attempt_failure(
+                terminal_classification=terminal_classification,
+                execution=execution_outcome,
+                protocol=protocol_assessment,
+                decoded_output=decoded_output,
+            )
             updated_req, updated_att = (
                 dispatch_service.complete_attempt_with_artifacts_and_lease(
                     command_id,
@@ -903,6 +911,8 @@ class ApplicationWorkflows:
                         protocol=protocol_assessment,
                         completion=assessment,
                         policy_revision=req.policy_revision,
+                        terminal_classification=terminal_classification,
+                        failure_classification=failure_classification,
                     ),
                     transport=transport,
                     started_at=started_at,
