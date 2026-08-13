@@ -14,11 +14,15 @@ from peerhub.adapters.contract import (
     AdapterRequest,
     ArtifactSpec,
     Capability,
+    DecoderEvent,
+    DecoderEventKind,
+    InvocationPlan,
     PeerAdapter,
     ProfileDescriptor,
     SessionAction,
     SessionHint,
 )
+from peerhub.adapters.codex_adapter import RealCodexAdapter
 from peerhub.application.workflows import ApplicationWorkflows
 from peerhub.builtins.fake_adapter import (
     FakePeerAdapter,
@@ -425,6 +429,177 @@ def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: S
     assert res.process_outcome.execution_outcome.exit_code == 0
     assert res.completion_assessment is not None
     assert res.completion_assessment.state is CompletionAssessmentState.VERIFIED
+
+
+def test_dispatch_and_execute_streams_ordered_decoder_events(
+    tmp_path: Path,
+    store: SqliteStateStore,
+) -> None:
+    workflows, _dispatch = _workflows(store)
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(
+        workflows, _envelope()
+    )
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-stream-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    adapter = FakePeerAdapter(
+        chunks=("first", "second"),
+        chunk_delay=0.2,
+        stderr="diagnostic",
+    )
+    streamed_events: list[DecoderEvent] = []
+
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        peer_adapter=adapter,
+        profile=_ROUTED_PROFILE,
+        limits=TransportLimits(
+            process_timeout_ms=5000,
+            silence_timeout_ms=5000,
+            max_output_bytes=65536,
+        ),
+        workspace_roots={"ws-1": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        heartbeat_timeout_ms=10000,
+        event_sink=streamed_events.append,
+    )
+
+    assert res.decoded_output is not None
+    assert tuple(streamed_events) == res.decoded_output.events
+    assert "".join(
+        str(event.payload["text"])
+        for event in streamed_events
+        if event.payload["channel"] == "STDOUT"
+    ) == "firstsecond"
+    assert "".join(
+        str(event.payload["text"])
+        for event in streamed_events
+        if event.payload["channel"] == "STDERR"
+    ) == "diagnostic"
+
+
+def test_dispatch_and_execute_streams_codex_event_before_process_exit(
+    tmp_path: Path,
+    store: SqliteStateStore,
+) -> None:
+    workflows, _dispatch = _workflows(store)
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(
+        workflows, _envelope()
+    )
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    completion_marker = workspace_root / "process-finished"
+    first_line = '{"type":"thread.started","thread_id":"thread-1"}\n'
+    final_line = (
+        '{"type":"item.completed","item":'
+        '{"type":"agent_message","text":"done"}}\n'
+    )
+
+    class HermeticStreamingCodexAdapter(RealCodexAdapter):
+        descriptor = replace(
+            RealCodexAdapter.descriptor,
+            peer_kind="fake",
+            profiles=(_ROUTED_PROFILE,),
+        )
+
+        def plan_invocation(
+            self,
+            request: AdapterRequest,
+            profile: ProfileDescriptor,
+            session: SessionHint | None,
+            limits: TransportLimits,
+        ) -> InvocationPlan:
+            script = (
+                "import pathlib, sys, time; "
+                f"sys.stdout.write({first_line!r}); sys.stdout.flush(); "
+                "time.sleep(0.5); "
+                f"pathlib.Path({str(completion_marker)!r}).write_text('done'); "
+                f"sys.stdout.write({final_line!r}); sys.stdout.flush()"
+            )
+            return InvocationPlan(
+                argv=(sys.executable, "-c", script),
+                cwd_reference=request.workspace_scope,
+                environment_delta={},
+                transport=TransportKind.PIPE,
+                stdin_payload=None,
+                limits=limits,
+                redacted_display="python -c <redacted>",
+                artifacts=(),
+                session_action=request.requested_session_action,
+            )
+
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-stream-codex-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    streamed_events: list[DecoderEvent] = []
+    session_event_arrived_before_exit: list[bool] = []
+
+    def event_sink(event: DecoderEvent) -> None:
+        streamed_events.append(event)
+        if event.kind is DecoderEventKind.SESSION_IDENTITY:
+            session_event_arrived_before_exit.append(
+                not completion_marker.exists()
+            )
+
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        peer_adapter=HermeticStreamingCodexAdapter(),
+        profile=_ROUTED_PROFILE,
+        limits=TransportLimits(
+            process_timeout_ms=5000,
+            silence_timeout_ms=5000,
+            max_output_bytes=65536,
+        ),
+        workspace_roots={"ws-1": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        heartbeat_timeout_ms=10000,
+        event_sink=event_sink,
+    )
+
+    assert session_event_arrived_before_exit == [True]
+    assert res.decoded_output is not None
+    assert tuple(streamed_events) == res.decoded_output.events
+    assert [event.kind for event in streamed_events] == [
+        DecoderEventKind.SESSION_IDENTITY,
+        DecoderEventKind.ASSISTANT_TEXT,
+    ]
+    assert res.decoded_output.canonical_text == "done"
 
 
 def test_dispatch_and_execute_happy_path_with_artifact(tmp_path: Path, store: SqliteStateStore) -> None:

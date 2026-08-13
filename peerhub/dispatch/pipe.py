@@ -24,13 +24,15 @@ compatibility with a future peer type that genuinely needs a TTY.
 from __future__ import annotations
 from dataclasses import dataclass
 
+from enum import Enum
+from queue import Empty, Queue
 import subprocess
 import sys
 import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Callable, IO, Protocol
+from typing import Callable, IO, Protocol, runtime_checkable
 
 from peerhub.dispatch.contract import ProcessBirthIdentity
 from peerhub.dispatch.process import (
@@ -113,23 +115,69 @@ class PipeRunnerConfig:
     max_output_bytes: int | None = None
 
 
+class PipeOutputChannel(str, Enum):
+    """Runner-owned identity for the subprocess pipe that produced bytes."""
+
+    STDOUT = "STDOUT"
+    STDERR = "STDERR"
+
+
+@dataclass(frozen=True)  # pyright: ignore[reportUntypedClassDecorator]
+class PipeProcessChunk:
+    """One globally ordered subprocess-output observation.
+
+    Reader threads only enqueue raw observations.  ``run_process`` assigns
+    sequence and timestamp values while consuming that queue on its calling
+    thread, so callbacks always observe one total order and are never invoked
+    concurrently.
+    """
+
+    data: bytes
+    channel: PipeOutputChannel
+    sequence: int
+    timestamp_ms: int
+
+    def __post_init__(self) -> None:
+        if type(self.data) is not bytes:
+            raise ValueError("data must be bytes")
+        if not isinstance(self.channel, PipeOutputChannel):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("channel must be PipeOutputChannel")
+        if type(self.sequence) is not int or self.sequence < 0:
+            raise ValueError("sequence must be a nonnegative integer")
+        if type(self.timestamp_ms) is not int or self.timestamp_ms < 0:
+            raise ValueError("timestamp_ms must be a nonnegative integer")
+
+
+@dataclass(frozen=True)  # pyright: ignore[reportUntypedClassDecorator]
+class _ObservedPipeChunk:
+    data: bytes
+    channel: PipeOutputChannel
+
+
+@runtime_checkable
+class _Read1Stream(Protocol):
+    def read1(self, size: int = -1) -> bytes: ...
+
+
 class _StreamReader:
     """Background reader for a single subprocess pipe (stdout or stderr).
 
-    Each chunk read from the pipe is forwarded to the ``ProcessSupervisor``
-    via ``on_chunk``, preserving real wall-clock timestamps for the
-    stream-ordering contract.
+    Each chunk is tagged with its source channel and enqueued.  This reader
+    never calls the supervisor, decoder, or external callback; ``run_process``
+    owns that single-consumer serialization point.
     """
 
     def __init__(
         self,
         stream: IO[bytes],
-        supervisor: ProcessSupervisor,
+        channel: PipeOutputChannel,
+        chunk_queue: Queue[_ObservedPipeChunk],
         *,
         chunk_size: int = 4096,
     ) -> None:
         self._stream = stream
-        self._supervisor = supervisor
+        self._channel = channel
+        self._chunk_queue = chunk_queue
         self._chunk_size = chunk_size
         self._thread: threading.Thread | None = None
         self._error: BaseException | None = None
@@ -155,12 +203,17 @@ class _StreamReader:
     def _read_loop(self) -> None:
         try:
             while True:
-                chunk = self._stream.read(self._chunk_size)
+                # BufferedReader.read(n) may wait for n bytes or EOF.  read1(n)
+                # performs at most one raw read, making already-available JSONL
+                # visible before a long-running process exits.
+                if isinstance(self._stream, _Read1Stream):
+                    chunk = self._stream.read1(self._chunk_size)
+                else:
+                    chunk = self._stream.read(self._chunk_size)
                 if not chunk:
                     break
-                self._supervisor.on_chunk(
-                    chunk,
-                    timestamp_ms=_time_ms(),
+                self._chunk_queue.put(
+                    _ObservedPipeChunk(data=chunk, channel=self._channel)
                 )
         except BaseException as exc:
             with self._lock:
@@ -242,6 +295,7 @@ def run_process(
     *,
     clock_ms: type[int] | None = None,
     on_spawned: "Callable[[subprocess.Popen[bytes], ProcessBirthIdentity], None] | None" = None,
+    on_chunk: Callable[[PipeProcessChunk], None] | None = None,
     tree_controller: TreeController | None = None,
 ) -> ProcessSupervisionOutcome:
     """Spawn a process and drive ``supervisor`` with real subprocess data.
@@ -276,6 +330,10 @@ def run_process(
         ``ProcessBirthIdentity``.  Intended for callers (e.g.
         workflows.py) that need to record RUNNING durably and start
         a ``HeartbeatWorker`` while the process is still executing.
+    on_chunk:
+        Optional callback invoked for each stdout/stderr chunk on the
+        ``run_process`` calling thread.  Chunks carry a single global sequence,
+        timestamp, and channel; this callback is never invoked concurrently.
     tree_controller:
         Optional ``TreeController`` for process tree binding and cancellation support.
         If provided or if constructed, ``bind_spawn`` is called after spawn.
@@ -346,18 +404,56 @@ def run_process(
             except OSError:
                 pass
 
-    # Start background readers for stdout and stderr.
-    stdout_reader = _StreamReader(proc.stdout, supervisor)  # type: ignore[arg-type]
-    stderr_reader = _StreamReader(proc.stderr, supervisor)  # type: ignore[arg-type]
+    # Reader threads only enqueue bytes.  The calling thread below is the sole
+    # consumer and therefore the sole caller of supervisor/on_chunk callbacks.
+    if proc.stdout is None or proc.stderr is None:
+        raise RuntimeError("pipe subprocess did not expose stdout/stderr")
+    chunk_queue: Queue[_ObservedPipeChunk] = Queue()
+    stdout_reader = _StreamReader(
+        proc.stdout,
+        PipeOutputChannel.STDOUT,
+        chunk_queue,
+    )
+    stderr_reader = _StreamReader(
+        proc.stderr,
+        PipeOutputChannel.STDERR,
+        chunk_queue,
+    )
     stdout_reader.start()
     stderr_reader.start()
 
     start_time = get_time()
+    next_sequence = 0
+    last_chunk_timestamp_ms = 0
+
+    def _consume_available_chunks() -> None:
+        nonlocal next_sequence, last_chunk_timestamp_ms
+        while True:
+            try:
+                observed = chunk_queue.get_nowait()
+            except Empty:
+                return
+            timestamp_ms = max(get_time(), last_chunk_timestamp_ms)
+            process_chunk = PipeProcessChunk(
+                data=observed.data,
+                channel=observed.channel,
+                sequence=next_sequence,
+                timestamp_ms=timestamp_ms,
+            )
+            next_sequence += 1
+            last_chunk_timestamp_ms = timestamp_ms
+            supervisor.on_chunk(
+                process_chunk.data,
+                timestamp_ms=process_chunk.timestamp_ms,
+            )
+            if on_chunk is not None:
+                on_chunk(process_chunk)
 
     # Wait for the process to exit, driving the cancellation ladder from the
     # main thread when a cancellation is active (Decision A: synchronous
     # polling, no separate poller thread).
     while proc.poll() is None:
+        _consume_available_chunks()
         now = get_time()
         
         if not supervisor.cancellation_active:
@@ -399,6 +495,7 @@ def run_process(
     # Wait for readers to drain remaining buffered output.
     stdout_reader.join(timeout=10.0)
     stderr_reader.join(timeout=10.0)
+    _consume_available_chunks()
 
     # Record exit.
     if proc.returncode is not None:

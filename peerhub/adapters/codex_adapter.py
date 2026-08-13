@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from typing import cast
 
 from peerhub.adapters.contract import (
     AdapterRequest,
@@ -51,7 +52,7 @@ _CODEX_DESCRIPTOR = PeerDescriptor(
     peer_kind="cx",
     profiles=(_CODEX_PROFILE,),
     transports=frozenset({TransportKind.PIPE}),
-    capabilities=frozenset({Capability.SESSION}),
+    capabilities=frozenset({Capability.SESSION, Capability.STREAM}),
     usage_provider_id=None,
     readiness_probe_id="codex-readiness",
 )
@@ -62,111 +63,177 @@ class CodexOutputDecoder:
 
     def __init__(self) -> None:
         self._chunks: list[bytes] = []
+        self._stdout_remainder = b""
         self._finalized = False
         self._events: list[DecoderEvent] = []
+        self._assistant_texts: list[str] = []
 
     def feed(self, chunk: bytes, *, channel: OutputChannel = OutputChannel.STDOUT) -> tuple[DecoderEvent, ...]:
         if self._finalized:
             raise RuntimeError("feed called after finalize")
         if type(chunk) is not bytes:
             raise ValueError("chunk must be bytes")
+        if not isinstance(channel, OutputChannel):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("channel must be OutputChannel")
         self._chunks.append(chunk)
+
+        # codex --json emits JSONL on stdout.  Split at byte-level line
+        # boundaries so both UTF-8 code points and JSON objects may span
+        # arbitrary process-read chunks without data loss.
+        if channel not in (OutputChannel.STDOUT, OutputChannel.PTY):
+            return ()
+        buffered = self._stdout_remainder + chunk
+        lines = buffered.split(b"\n")
+        self._stdout_remainder = lines.pop()
+        emitted: list[DecoderEvent] = []
+        for line in lines:
+            emitted.extend(self._parse_json_line(line))
+        return tuple(emitted)
+
+    def _append_event(self, event: DecoderEvent) -> DecoderEvent:
+        self._events.append(event)
+        return event
+
+    def _vendor_error_event(
+        self,
+        normalized_kind: str,
+    ) -> DecoderEvent:
+        return self._append_event(
+            DecoderEvent(
+                kind=DecoderEventKind.VENDOR_ERROR,
+                payload={
+                    "normalized_kind": normalized_kind,
+                    "evidence_source": "structured_vendor_output",
+                },
+            )
+        )
+
+    def _event_from_message(self, message: str) -> DecoderEvent | None:
+        msg_lower = message.lower()
+        if "auth" in msg_lower or "unauthorized" in msg_lower:
+            return self._vendor_error_event("auth_unavailable")
+        if "invalid_request_error" in msg_lower or "invalid_model" in msg_lower:
+            return self._vendor_error_event("invocation_plan_rejected")
+        if any(
+            marker in msg_lower
+            for marker in ("network", "econnrefused", "enotfound", "connect")
+        ):
+            return self._vendor_error_event("network_unavailable")
+        return None
+
+    def _parse_json_line(self, raw_line: bytes) -> tuple[DecoderEvent, ...]:
+        try:
+            line = raw_line.decode("utf-8").strip()
+        except UnicodeDecodeError:
+            return ()
+        if not line or not line.startswith("{"):
+            return ()
+        try:
+            parsed_raw: object = json.loads(line)
+        except json.JSONDecodeError:
+            return ()
+        if not isinstance(parsed_raw, dict):
+            return ()
+        parsed = cast(dict[str, object], parsed_raw)
+
+        event_type = parsed.get("type")
+        if event_type == "thread.started":
+            thread_id = parsed.get("thread_id")
+            if isinstance(thread_id, str) and thread_id:
+                return (
+                    self._append_event(
+                        DecoderEvent(
+                            kind=DecoderEventKind.SESSION_IDENTITY,
+                            # First SESSION_IDENTITY emitter: future adapters
+                            # should use this single-key payload shape too.
+                            payload={"session_id": thread_id},
+                        )
+                    ),
+                )
+            return ()
+
+        if event_type == "item.completed":
+            item = parsed.get("item")
+            if not isinstance(item, dict):
+                return ()
+            item_mapping = cast(dict[str, object], item)
+            if item_mapping.get("type") != "agent_message":
+                return ()
+            response_text = item_mapping.get("text")
+            if not isinstance(response_text, str) or not response_text:
+                return ()
+            self._assistant_texts.append(response_text)
+            return (
+                self._append_event(
+                    DecoderEvent(
+                        kind=DecoderEventKind.ASSISTANT_TEXT,
+                        payload={"text": response_text},
+                    )
+                ),
+            )
+
+        if event_type == "error":
+            error_obj = parsed.get("error")
+            err_code = (
+                str(cast(dict[str, object], error_obj).get("code", ""))
+                if isinstance(error_obj, dict)
+                else ""
+            )
+            if err_code == "session_expired":
+                return (self._vendor_error_event("session_invalid"),)
+            if err_code == "invalid_model":
+                return (self._vendor_error_event("invocation_plan_rejected"),)
+            if err_code == "auth_unavailable":
+                return (self._vendor_error_event("auth_unavailable"),)
+            message = parsed.get("message")
+            if isinstance(message, str) and message:
+                event = self._event_from_message(message)
+                return (event,) if event is not None else ()
+            return ()
+
+        if event_type == "turn.failed":
+            error_obj = parsed.get("error")
+            message = (
+                cast(dict[str, object], error_obj).get("message")
+                if isinstance(error_obj, dict)
+                else None
+            )
+            if isinstance(message, str) and message:
+                event = self._event_from_message(message)
+                return (event,) if event is not None else ()
         return ()
 
     def finalize(self) -> DecodedOutput:
         if self._finalized:
             raise RuntimeError("finalize already called")
+        if self._stdout_remainder:
+            self._parse_json_line(self._stdout_remainder)
+            self._stdout_remainder = b""
         self._finalized = True
 
         raw_bytes = b"".join(self._chunks)
-        canonical_text = ""
-        events: list[DecoderEvent] = []
-
-        try:
-            if raw_bytes:
-                decoded = raw_bytes.decode("utf-8")
-                
-                # Parse JSONL event stream
-                for line in decoded.splitlines():
-                    line = line.strip()
-                    if not line or not line.startswith("{"):
-                        continue
-                        
-                    try:
-                        parsed = json.loads(line)
-                        if parsed.get("type") == "thread.started":
-                            thread_id = parsed.get("thread_id")
-                            if isinstance(thread_id, str) and thread_id:
-                                # First SESSION_IDENTITY emitter: future adapters
-                                # should use this single-key payload shape too.
-                                events.append(
-                                    DecoderEvent(
-                                        kind=DecoderEventKind.SESSION_IDENTITY,
-                                        payload={"session_id": thread_id},
-                                    )
-                                )
-                        elif parsed.get("type") == "item.completed":
-                            item = parsed.get("item", {})
-                            if item.get("type") == "agent_message":
-                                response_text = item.get("text", "")
-                                if response_text:
-                                    # Overwrite canonical_text (assume last agent_message is the final one, or append)
-                                    if canonical_text:
-                                        canonical_text += "\n" + response_text
-                                    else:
-                                        canonical_text = response_text
-                                        
-                                    event = DecoderEvent(
-                                        kind=DecoderEventKind.ASSISTANT_TEXT,
-                                        payload={"text": response_text},
-                                    )
-                                    events.append(event)
-                        elif parsed.get("type") == "error":
-                            err_code = str(parsed.get("error", {}).get("code", "")) if isinstance(parsed.get("error"), dict) else ""
-                            msg_raw = parsed.get("message", "")
-                            message = str(msg_raw) if msg_raw else ""
-                            if err_code == "session_expired":
-                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "session_invalid", "evidence_source": "structured_vendor_output"}))
-                            elif err_code == "invalid_model":
-                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
-                            elif err_code == "auth_unavailable":
-                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "auth_unavailable", "evidence_source": "structured_vendor_output"}))
-                            elif message:
-                                msg_lower = message.lower()
-                                if "auth" in msg_lower or "unauthorized" in msg_lower:
-                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "auth_unavailable", "evidence_source": "structured_vendor_output"}))
-                                elif "invalid_request_error" in msg_lower or "invalid_model" in msg_lower:
-                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
-                                elif "network" in msg_lower or "econnrefused" in msg_lower or "enotfound" in msg_lower or "connect" in msg_lower:
-                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "network_unavailable", "evidence_source": "structured_vendor_output"}))
-                        elif parsed.get("type") == "turn.failed":
-                            error_obj = parsed.get("error")
-                            msg_raw = error_obj.get("message", "") if isinstance(error_obj, dict) else ""  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
-                            message = str(msg_raw) if msg_raw else ""  # pyright: ignore[reportUnknownArgumentType]
-                            if message:
-                                msg_lower = message.lower()
-                                if "auth" in msg_lower or "unauthorized" in msg_lower:
-                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "auth_unavailable", "evidence_source": "structured_vendor_output"}))
-                                elif "invalid_request_error" in msg_lower or "invalid_model" in msg_lower:
-                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
-                                elif "network" in msg_lower or "econnrefused" in msg_lower or "enotfound" in msg_lower or "connect" in msg_lower:
-                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "network_unavailable", "evidence_source": "structured_vendor_output"}))
-                    except json.JSONDecodeError:
-                        pass
-        except Exception:
-            # Not valid decoding or other error
-            pass
+        canonical_text = "\n".join(self._assistant_texts)
 
         if not canonical_text:
             canonical_text = raw_bytes.decode("utf-8", errors="replace")
 
-        if "model_operand_invalid" in canonical_text and not any(e.kind == DecoderEventKind.VENDOR_ERROR for e in events):
-            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "known_terminal_pattern"}))
+        if "model_operand_invalid" in canonical_text and not any(
+            event.kind == DecoderEventKind.VENDOR_ERROR for event in self._events
+        ):
+            self._events.append(
+                DecoderEvent(
+                    kind=DecoderEventKind.VENDOR_ERROR,
+                    payload={
+                        "normalized_kind": "invocation_plan_rejected",
+                        "evidence_source": "known_terminal_pattern",
+                    },
+                )
+            )
 
         return DecodedOutput(
             canonical_text=canonical_text,
             canonical_lines=_split_canonical_lines(canonical_text),
-            events=tuple(events),
+            events=tuple(self._events),
         )
 
 

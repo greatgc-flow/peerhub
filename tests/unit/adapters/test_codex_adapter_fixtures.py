@@ -11,6 +11,7 @@ from peerhub.adapters.contract import (
     Capability,
     DecoderEventKind,
     InvocationPlan,
+    OutputChannel,
     ProfileDescriptor,
     SessionAction,
     SessionHint,
@@ -76,7 +77,10 @@ def test_codex_decoder_invocation_plan_rejected():
 
 def test_codex_decoder_stderr_model_operand_invalid():
     decoder = CodexOutputDecoder()
-    decoder.feed(b'model_operand_invalid\n')
+    decoder.feed(
+        b'model_operand_invalid\n',
+        channel=OutputChannel.STDERR,
+    )
     decoded = decoder.finalize()
     assert len(decoded.events) == 1
     assert decoded.events[0].kind == DecoderEventKind.VENDOR_ERROR
@@ -237,8 +241,30 @@ def test_codex_decoder_without_thread_started_is_unchanged():
     assert decoded.events[0].payload["text"] == "done"
 
 
+def test_codex_decoder_buffers_split_jsonl_until_line_is_complete():
+    decoder = CodexOutputDecoder()
+
+    first_events = decoder.feed(
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"hel'
+    )
+    second_events = decoder.feed(b'lo"}}\n')
+
+    assert first_events == ()
+    assert len(second_events) == 1
+    assert second_events[0].kind is DecoderEventKind.ASSISTANT_TEXT
+    assert dict(second_events[0].payload) == {"text": "hello"}
+
+    decoded = decoder.finalize()
+    assert decoded.canonical_text == "hello"
+    assert decoded.events == second_events
+
+
 def test_codex_descriptor_advertises_session():
     assert Capability.SESSION in RealCodexAdapter.descriptor.capabilities
+
+
+def test_codex_descriptor_advertises_stream():
+    assert Capability.STREAM in RealCodexAdapter.descriptor.capabilities
 
 
 def test_codex_decoder_auth_failure_takes_precedence_over_connect():

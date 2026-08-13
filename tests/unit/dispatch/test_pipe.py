@@ -7,11 +7,17 @@ hermetic and never depend on external peer CLIs or consume quota.
 from __future__ import annotations
 
 import sys
+import threading
 
 import pytest
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.contract import ProcessBirthIdentity
-from peerhub.dispatch.pipe import PipeRunnerConfig, run_process
+from peerhub.dispatch.pipe import (
+    PipeOutputChannel,
+    PipeProcessChunk,
+    PipeRunnerConfig,
+    run_process,
+)
 from peerhub.dispatch.process import (
     ProcessSupervisor,
     TerminalClassification,
@@ -119,6 +125,61 @@ class TestPipeRunnerChunks:
 
         assert b"OUT" in outcome.canonical_stream
         assert b"ERR" in outcome.canonical_stream
+
+    def test_chunk_callback_is_live_ordered_and_single_consumer(self):
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=[
+                sys.executable,
+                "-c",
+                (
+                    "import sys, time; "
+                    "sys.stdout.write('OUT\\n'); sys.stdout.flush(); "
+                    "time.sleep(0.5); "
+                    "sys.stderr.write('ERR\\n'); sys.stderr.flush()"
+                ),
+            ],
+        )
+        process = None
+        chunks: list[PipeProcessChunk] = []
+        callback_thread_ids: list[int] = []
+        process_was_live: list[bool] = []
+
+        def on_spawned(proc, _identity):
+            nonlocal process
+            process = proc
+
+        def on_chunk(chunk: PipeProcessChunk) -> None:
+            chunks.append(chunk)
+            callback_thread_ids.append(threading.get_ident())
+            if b"OUT" in chunk.data:
+                assert process is not None
+                process_was_live.append(process.poll() is None)
+
+        outcome = run_process(
+            config,
+            supervisor,
+            on_spawned=on_spawned,
+            on_chunk=on_chunk,
+        )
+
+        assert outcome.exit_code == 0
+        assert process_was_live == [True]
+        assert [chunk.sequence for chunk in chunks] == list(range(len(chunks)))
+        assert [chunk.timestamp_ms for chunk in chunks] == sorted(
+            chunk.timestamp_ms for chunk in chunks
+        )
+        assert len(set(callback_thread_ids)) == 1
+        assert b"OUT" in b"".join(
+            chunk.data
+            for chunk in chunks
+            if chunk.channel is PipeOutputChannel.STDOUT
+        )
+        assert b"ERR" in b"".join(
+            chunk.data
+            for chunk in chunks
+            if chunk.channel is PipeOutputChannel.STDERR
+        )
 
 
 class TestPipeRunnerExitCode:

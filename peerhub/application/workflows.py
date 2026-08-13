@@ -16,7 +16,9 @@ from peerhub.adapters.contract import (
     PeerAdapter,
     ProfileDescriptor,
     DecodedOutput,
+    DecoderEvent,
     OutputChannel,
+    OutputDecoder,
     SessionHint,
 )
 from peerhub.core.errors import (
@@ -69,7 +71,12 @@ from peerhub.dispatch.materializer import (
     MaterializationStatus,
     compute_manifest_digest,
 )
-from peerhub.dispatch.pipe import PipeRunnerConfig, run_process
+from peerhub.dispatch.pipe import (
+    PipeOutputChannel,
+    PipeProcessChunk,
+    PipeRunnerConfig,
+    run_process,
+)
 from peerhub.dispatch.process import (
     ProcessSupervisionOutcome,
     ProcessSupervisor,
@@ -560,6 +567,7 @@ class ApplicationWorkflows:
         transport: str = "pipe",
         service: DispatchService | None = None,
         session: SessionHint | None = None,
+        event_sink: Callable[[DecoderEvent], None] | None = None,
     ) -> ExecutionWorkflowResult:
         """Dispatch and execute an admitted/prepared command through process supervision."""
 
@@ -762,6 +770,26 @@ class ApplicationWorkflows:
         running_lease: LeaseSnapshot = lease
         on_spawned_called = False
         record_running_error: BaseException | None = None
+        streaming_enabled = (
+            Capability.STREAM in selected_peer_adapter.descriptor.capabilities
+        )
+        live_decoder: OutputDecoder | None = None
+        streamed_event_count = 0
+
+        def _on_process_chunk(chunk: PipeProcessChunk) -> None:
+            nonlocal streamed_event_count
+            if live_decoder is None:
+                return
+            channel = (
+                OutputChannel.STDOUT
+                if chunk.channel is PipeOutputChannel.STDOUT
+                else OutputChannel.STDERR
+            )
+            events = live_decoder.feed(chunk.data, channel=channel)
+            streamed_event_count += len(events)
+            if event_sink is not None:
+                for event in events:
+                    event_sink(event)
 
         def _on_spawned(
             proc: subprocess.Popen,  # pyright: ignore[reportMissingTypeArgument, reportUnknownParameterType]
@@ -815,10 +843,13 @@ class ApplicationWorkflows:
         process_outcome: ProcessSupervisionOutcome | None = None
 
         try:
+            if streaming_enabled:
+                live_decoder = selected_peer_adapter.new_decoder(invocation_plan)
             process_outcome = run_process(
                 config,
                 supervisor,
                 on_spawned=_on_spawned,  # pyright: ignore[reportUnknownArgumentType]
+                on_chunk=_on_process_chunk if streaming_enabled else None,
             )
         except Exception as exc:
             spawn_error = exc
@@ -880,10 +911,20 @@ class ApplicationWorkflows:
             raw_chunks,
         )
         
-        decoder = selected_peer_adapter.new_decoder(invocation_plan)
-        if process_outcome.canonical_stream:
-            decoder.feed(process_outcome.canonical_stream, channel=OutputChannel.STDOUT)
+        decoder = (
+            live_decoder
+            if live_decoder is not None
+            else selected_peer_adapter.new_decoder(invocation_plan)
+        )
+        if live_decoder is None and process_outcome.canonical_stream:
+            decoder.feed(
+                process_outcome.canonical_stream,
+                channel=OutputChannel.STDOUT,
+            )
         decoded_output = decoder.finalize()
+        if event_sink is not None:
+            for event in decoded_output.events[streamed_event_count:]:
+                event_sink(event)
         
         assessment = assess_completion(
             completion_contract,
