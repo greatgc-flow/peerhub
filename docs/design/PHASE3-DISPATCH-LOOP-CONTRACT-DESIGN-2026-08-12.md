@@ -422,11 +422,25 @@ an architectural asymmetry between the vendors, not unfinished work --
 do not "complete" Claude's decoder by making it re-parse an ID the
 caller supplied.
 
-`DecoderEventKind` adds `TOOL_CALL`. **Not implemented**; it belongs to
-the not-started increment 4 and is absent from the enum today
-(`adapters/contract.py:526-534`). The existing
-`DecoderEvent.payload: Mapping[str, JsonValue]` can carry the vendor-
+`DecoderEventKind` adds `TOOL_CALL`. **IMPLEMENTED (increment 4).** Added to
+`DecoderEventKind` and emitted by `CodexOutputDecoder`. The existing
+`DecoderEvent.payload: Mapping[str, JsonValue]` carries the vendor-
 normalized call name and arguments; execution semantics remain deferred.
+
+**Why Claude and Agy never emit `TOOL_CALL` -- until their invocation formats change and are measured.**
+Agy and Claude's `--output-format json` mode never exposes tool-call events at all
+(only the final response text and metadata), confirmed via live invocation with a
+tool-triggering prompt. They do expose tool calls via `stream-json` mode, but that
+is not the mode currently used. There is nothing to normalize for these two adapters
+in their current invocation mode. This increment is Codex-only until their invocation
+formats change and are measured.
+
+**Codex `item.completed` conflation.**
+Codex's `item.completed` event carries both the original call arguments AND the
+result data (`aggregated_output`, `exit_code`, `status`) in the same payload.
+The normalized `TOOL_CALL` event is constructed by stripping the result fields
+from `item.completed` (only `item.completed` is used to avoid emitting the
+same logical call twice) rather than re-emitting the whole `item` payload verbatim.
 
 **IMPLEMENTED (increment 3, `dfde073`).** No `OutputDecoder` or
 `PeerAdapter` signature change was needed. `dispatch_and_execute()` now
@@ -624,7 +638,11 @@ The contract surface is shared; implementation remains staged:
    `Capability.STREAM`, while Claude and Agy remain terminal-only.
 4. **Tool-call capture:** add normalized `TOOL_CALL` events and measured
    per-CLI fixtures; execution/approval semantics remain a later design.
-   **NOT STARTED** -- `DecoderEventKind.TOOL_CALL` does not exist yet.
+   **IMPLEMENTED** -- `TOOL_CALL` added and emitted by Codex. (Note: capture is
+   currently scoped to `command_execution` items; other Codex tool-call item types
+   like `file_change` are not yet normalized, a natural extension for a later pass).
+   Claude and Agy hide tool-call events until their invocation formats change and
+   are measured, so this is Codex-only.
 5. **Outer retry/resume/failover loop:** centrally adjudicate
    `RetryDisposition`, call the existing retry workflow, bound attempts,
    and return a structured multi-attempt result. **NOT STARTED** --

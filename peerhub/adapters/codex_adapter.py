@@ -22,7 +22,7 @@ from peerhub.adapters.contract import (
     SessionAction,
     SessionHint,
 )
-from peerhub.core.protocol import ErrorCode
+from peerhub.core.protocol import ErrorCode, JsonValue
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
     TransportKind,
@@ -157,6 +157,24 @@ class CodexOutputDecoder:
             if not isinstance(item, dict):
                 return ()
             item_mapping = cast(dict[str, object], item)
+            # We emit TOOL_CALL on item.completed to avoid duplicating the event
+            # across started and completed states. (Known limitation: a call that
+            # times out or is killed mid-flight emits item.started only, producing
+            # no TOOL_CALL event). We strip result fields to
+            # yield just the call shape.
+            if item_mapping.get("type") == "command_execution":
+                call_payload = {
+                    str(k): cast(JsonValue, v) for k, v in item_mapping.items()
+                    if k not in ("aggregated_output", "exit_code", "status")
+                }
+                return (
+                    self._append_event(
+                        DecoderEvent(
+                            kind=DecoderEventKind.TOOL_CALL,
+                            payload=call_payload,
+                        )
+                    ),
+                )
             if item_mapping.get("type") != "agent_message":
                 return ()
             response_text = item_mapping.get("text")

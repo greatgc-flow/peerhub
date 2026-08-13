@@ -532,6 +532,7 @@ class DecoderEventKind(str, Enum):
     USAGE_HINT = "USAGE_HINT"
     VENDOR_ERROR = "VENDOR_ERROR"
     COMPLETION_MARKER = "COMPLETION_MARKER"
+    TOOL_CALL = "TOOL_CALL"
 
 
 @dataclass(frozen=True)

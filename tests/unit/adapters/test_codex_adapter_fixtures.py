@@ -280,3 +280,31 @@ def test_codex_decoder_auth_failure_takes_precedence_over_connect():
     ]
     assert len(vendor_events) == 1
     assert vendor_events[0].payload["normalized_kind"] == "auth_unavailable"
+
+
+def test_codex_decoder_live_tool_call_emission():
+    # [cli_live] 2026-08-13
+    decoder = CodexOutputDecoder()
+    decoder.feed(
+        b'{"type":"thread.started","thread_id":"019c1234-5678-7abc-8def-0123456789ab"}\n'
+        b'{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"echo foo","aggregated_output":"foo\\n","exit_code":0,"status":"completed"}}\n'
+        b'{"type":"item.completed","item":{"type":"agent_message","text":"done"}}\n'
+    )
+    decoded = decoder.finalize()
+
+    assert len(decoded.events) == 3
+    assert decoded.events[0].kind == DecoderEventKind.SESSION_IDENTITY
+    assert dict(decoded.events[0].payload) == {"session_id": "019c1234-5678-7abc-8def-0123456789ab"}
+
+    assert decoded.events[1].kind == DecoderEventKind.TOOL_CALL
+    payload = dict(decoded.events[1].payload)
+    assert payload["id"] == "item_1"
+    assert payload["type"] == "command_execution"
+    assert payload["command"] == "echo foo"
+    assert "exit_code" not in payload
+    assert "aggregated_output" not in payload
+    assert "status" not in payload
+
+    assert decoded.events[2].kind == DecoderEventKind.ASSISTANT_TEXT
+    assert dict(decoded.events[2].payload) == {"text": "done"}
+    assert decoded.canonical_text == "done"
