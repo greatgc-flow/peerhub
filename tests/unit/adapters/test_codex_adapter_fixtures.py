@@ -82,6 +82,24 @@ def test_codex_decoder_stderr_model_operand_invalid():
     assert decoded.events[0].kind == DecoderEventKind.VENDOR_ERROR
     assert decoded.events[0].payload["normalized_kind"] == "invocation_plan_rejected"
 
+def test_codex_decoder_live_flat_error():
+    # [cli_live] 2026-08-13
+    decoder = CodexOutputDecoder()
+    decoder.feed(b'{"type":"error","message":"{\\"type\\":\\"error\\",\\"status\\":400,\\"error\\":{\\"type\\":\\"invalid_request_error\\",\\"message\\":\\"The \'invalid_model_name\' model is not supported when using Codex with a ChatGPT account.\\"}}"}\n')
+    decoded = decoder.finalize()
+    assert len(decoded.events) == 1
+    assert decoded.events[0].kind == DecoderEventKind.VENDOR_ERROR
+    assert decoded.events[0].payload["normalized_kind"] == "invocation_plan_rejected"
+
+def test_codex_decoder_live_turn_failed():
+    # [cli_live] 2026-08-13
+    decoder = CodexOutputDecoder()
+    decoder.feed(b'{"type":"turn.failed","error":{"message":"{\\"type\\":\\"error\\",\\"status\\":400,\\"error\\":{\\"type\\":\\"invalid_request_error\\",\\"message\\":\\"The \'invalid_model_name\' model is not supported when using Codex with a ChatGPT account.\\"}}"}}\n')
+    decoded = decoder.finalize()
+    assert len(decoded.events) == 1
+    assert decoded.events[0].kind == DecoderEventKind.VENDOR_ERROR
+    assert decoded.events[0].payload["normalized_kind"] == "invocation_plan_rejected"
+
 def test_codex_interpret_output_nonzero_exit_not_internal_error():
     adapter = RealCodexAdapter()
     plan = InvocationPlan(
@@ -221,3 +239,18 @@ def test_codex_decoder_without_thread_started_is_unchanged():
 
 def test_codex_descriptor_advertises_session():
     assert Capability.SESSION in RealCodexAdapter.descriptor.capabilities
+
+
+def test_codex_decoder_auth_failure_takes_precedence_over_connect():
+    decoder = CodexOutputDecoder()
+    decoder.feed(
+        b'{"type":"turn.failed","error":{"code":"internal_error","message":"401 Unauthorized while connecting to api"}}\n'
+    )
+
+    decoded = decoder.finalize()
+
+    vendor_events = [
+        event for event in decoded.events if event.kind == DecoderEventKind.VENDOR_ERROR
+    ]
+    assert len(vendor_events) == 1
+    assert vendor_events[0].payload["normalized_kind"] == "auth_unavailable"

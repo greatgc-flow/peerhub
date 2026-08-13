@@ -85,39 +85,56 @@ class AgyOutputDecoder:
         try:
             if raw_bytes:
                 decoded = raw_bytes.decode("utf-8")
-                # Attempt to parse as JSON
-                parsed = json.loads(decoded)
+                start_idx = decoded.find("{")
+                end_idx = decoded.rfind("}")
+                if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+                    json_str = decoded[start_idx:end_idx + 1]
+                    try:
+                        parsed = json.loads(json_str)
 
-                conv_id = parsed.get("conversation_id")
-                if conv_id and isinstance(conv_id, str):
-                    events.append(
-                        DecoderEvent(
-                            kind=DecoderEventKind.SESSION_IDENTITY,
-                            payload={"session_id": conv_id},
-                        )
-                    )
+                        conv_id = parsed.get("conversation_id")
+                        if conv_id and isinstance(conv_id, str):
+                            events.append(
+                                DecoderEvent(
+                                    kind=DecoderEventKind.SESSION_IDENTITY,
+                                    payload={"session_id": conv_id},
+                                )
+                            )
 
-                response_text = parsed.get("response", "")
-                canonical_text = response_text or decoded
-                if response_text:
-                    event = DecoderEvent(
-                        kind=DecoderEventKind.ASSISTANT_TEXT,
-                        payload={"text": response_text},
-                    )
-                    events.append(event)
-                if "error" in parsed:
-                    err_type = parsed["error"].get("type", "")
-                    if err_type == "session_not_found":
-                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "session_invalid", "evidence_source": "structured_vendor_output"}))
-                    elif err_type == "invalid_model":
-                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
-                    elif err_type == "rate_limit_exceeded":
-                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "rate_limited", "evidence_source": "structured_vendor_output"}))
-                    elif err_type == "network_error":
-                        events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "network_unavailable", "evidence_source": "structured_vendor_output"}))
+                        response_text = parsed.get("response", "")
+                        canonical_text = response_text or decoded
+                        if response_text:
+                            event = DecoderEvent(
+                                kind=DecoderEventKind.ASSISTANT_TEXT,
+                                payload={"text": response_text},
+                            )
+                            events.append(event)
+                        if "error" in parsed:
+                            error_val = parsed["error"]
+                            err_type = ""
+                            if isinstance(error_val, dict):
+                                err_type = str(error_val.get("type", ""))  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+                            elif isinstance(error_val, str):
+                                err_type = error_val
+
+                            if err_type == "session_not_found":
+                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "session_invalid", "evidence_source": "structured_vendor_output"}))
+                            elif err_type == "invalid_model":
+                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
+                            elif err_type == "rate_limit_exceeded":
+                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "rate_limited", "evidence_source": "structured_vendor_output"}))
+                            elif err_type == "network_error":
+                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "network_unavailable", "evidence_source": "structured_vendor_output"}))
+                            elif "auth" in err_type.lower() or "unauthorized" in err_type.lower():
+                                events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "auth_unavailable", "evidence_source": "structured_vendor_output"}))
+                    except Exception:
+                        canonical_text = decoded
+                else:
+                    canonical_text = decoded
         except Exception:
-            # Not valid JSON or decoding error
-            canonical_text = raw_bytes.decode("utf-8", errors="replace")
+            # Not valid decoding or other error
+            if not canonical_text:
+                canonical_text = raw_bytes.decode("utf-8", errors="replace")
 
         if "model_operand_invalid" in canonical_text and not any(e.kind == DecoderEventKind.VENDOR_ERROR for e in events):
             events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "known_terminal_pattern"}))
@@ -196,23 +213,36 @@ class RealAgyAdapter:
 
         raw_bytes = b"".join(raw_chunks)
         try:
-            parsed = json.loads(raw_bytes.decode("utf-8"))
-            if "response" in parsed:
-                return ProtocolAssessment(
-                    parsed=True,
-                    response_present=True,
-                    vendor_completion_marker=None,
-                    suspected_truncation=False,
-                    protocol_failure=None,
-                )
-            else:
-                return ProtocolAssessment(
-                    parsed=True,
-                    response_present=False,
-                    vendor_completion_marker=None,
-                    suspected_truncation=False,
-                    protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
-                )
+            decoded = raw_bytes.decode("utf-8")
+            start_idx = decoded.find("{")
+            end_idx = decoded.rfind("}")
+            if start_idx != -1 and end_idx != -1 and end_idx >= start_idx:
+                json_str = decoded[start_idx:end_idx + 1]
+                parsed = json.loads(json_str)
+                if "response" in parsed:
+                    return ProtocolAssessment(
+                        parsed=True,
+                        response_present=True,
+                        vendor_completion_marker=None,
+                        suspected_truncation=False,
+                        protocol_failure=None,
+                    )
+                else:
+                    return ProtocolAssessment(
+                        parsed=True,
+                        response_present=False,
+                        vendor_completion_marker=None,
+                        suspected_truncation=False,
+                        protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
+                    )
+
+            return ProtocolAssessment(
+                parsed=True,
+                response_present=False,
+                vendor_completion_marker=None,
+                suspected_truncation=False,
+                protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
+            )
         except Exception:
             return ProtocolAssessment(
                 parsed=False,

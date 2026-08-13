@@ -1,8 +1,8 @@
 """
-Note: The vendor-error byte patterns in these fixtures are synthetic, 
-best-effort constructions, as there is no real capture available. 
-They are marked TEST NEEDED for DIR-004 promotion to empirical_probe 
-pending a real captured failure transcript from a live invocation.
+Note: The vendor-error byte patterns in these fixtures contain a MIX
+of sources. Some are synthetic, best-effort constructions (marked TEST
+NEEDED for DIR-004 promotion pending a real capture), while others
+are based on real captured failure transcripts (marked with [cli_live]).
 """
 import pytest
 from peerhub.adapters.agy_adapter import AgyOutputDecoder, RealAgyAdapter
@@ -69,6 +69,26 @@ def test_agy_decoder_stderr_model_operand_invalid():
     assert event.kind == DecoderEventKind.VENDOR_ERROR
     assert event.payload["normalized_kind"] == "invocation_plan_rejected"
     assert event.payload["evidence_source"] == "known_terminal_pattern"
+
+def test_agy_decoder_live_preamble():
+    # [cli_live] 2026-08-13
+    decoder = AgyOutputDecoder()
+    decoder.feed(b'warning: conversation "unknown_conv" not found\n{"conversation_id":"cf049440-91bb-440c-9b7c-8a617f05cb7a","response":"Hello!"}')
+    decoded = decoder.finalize()
+    assert len(decoded.events) >= 1
+    assert any(e.kind == DecoderEventKind.SESSION_IDENTITY and e.payload["session_id"] == "cf049440-91bb-440c-9b7c-8a617f05cb7a" for e in decoded.events)
+    assert any(e.kind == DecoderEventKind.ASSISTANT_TEXT and e.payload["text"] == "Hello!" for e in decoded.events)
+
+def test_agy_decoder_string_error_auth():
+    # TEST NEEDED: synthetic fixture for top-level string error (could not reproduce live auth failure)
+    decoder = AgyOutputDecoder()
+    decoder.feed(b'{"error": "unauthorized request"}')
+    decoded = decoder.finalize()
+    assert len(decoded.events) == 1
+    event = decoded.events[0]
+    assert event.kind == DecoderEventKind.VENDOR_ERROR
+    assert event.payload["normalized_kind"] == "auth_unavailable"
+    assert event.payload["evidence_source"] == "structured_vendor_output"
 
 def test_agy_interpret_output_nonzero_exit_not_internal_error():
     adapter = RealAgyAdapter()
@@ -237,3 +257,16 @@ def test_agy_decoder_without_conversation_id_is_unchanged():
 
 def test_agy_descriptor_advertises_session():
     assert Capability.SESSION in RealAgyAdapter.descriptor.capabilities
+
+
+def test_agy_decoder_fallback_check_sees_merged_stderr_preamble():
+    decoder = AgyOutputDecoder()
+    decoder.feed(b'error: model_operand_invalid\n{"conversation_id":"x","response":""}')
+
+    decoded = decoder.finalize()
+
+    vendor_events = [
+        event for event in decoded.events if event.kind == DecoderEventKind.VENDOR_ERROR
+    ]
+    assert len(vendor_events) == 1
+    assert vendor_events[0].payload["normalized_kind"] == "invocation_plan_rejected"

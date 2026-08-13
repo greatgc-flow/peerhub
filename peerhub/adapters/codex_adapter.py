@@ -122,13 +122,35 @@ class CodexOutputDecoder:
                                     )
                                     events.append(event)
                         elif parsed.get("type") == "error":
-                            err_code = parsed.get("error", {}).get("code", "")
+                            err_code = str(parsed.get("error", {}).get("code", "")) if isinstance(parsed.get("error"), dict) else ""
+                            msg_raw = parsed.get("message", "")
+                            message = str(msg_raw) if msg_raw else ""
                             if err_code == "session_expired":
                                 events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "session_invalid", "evidence_source": "structured_vendor_output"}))
                             elif err_code == "invalid_model":
                                 events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
                             elif err_code == "auth_unavailable":
                                 events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "auth_unavailable", "evidence_source": "structured_vendor_output"}))
+                            elif message:
+                                msg_lower = message.lower()
+                                if "auth" in msg_lower or "unauthorized" in msg_lower:
+                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "auth_unavailable", "evidence_source": "structured_vendor_output"}))
+                                elif "invalid_request_error" in msg_lower or "invalid_model" in msg_lower:
+                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
+                                elif "network" in msg_lower or "econnrefused" in msg_lower or "enotfound" in msg_lower or "connect" in msg_lower:
+                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "network_unavailable", "evidence_source": "structured_vendor_output"}))
+                        elif parsed.get("type") == "turn.failed":
+                            error_obj = parsed.get("error")
+                            msg_raw = error_obj.get("message", "") if isinstance(error_obj, dict) else ""  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
+                            message = str(msg_raw) if msg_raw else ""  # pyright: ignore[reportUnknownArgumentType]
+                            if message:
+                                msg_lower = message.lower()
+                                if "auth" in msg_lower or "unauthorized" in msg_lower:
+                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "auth_unavailable", "evidence_source": "structured_vendor_output"}))
+                                elif "invalid_request_error" in msg_lower or "invalid_model" in msg_lower:
+                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
+                                elif "network" in msg_lower or "econnrefused" in msg_lower or "enotfound" in msg_lower or "connect" in msg_lower:
+                                    events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "network_unavailable", "evidence_source": "structured_vendor_output"}))
                     except json.JSONDecodeError:
                         pass
         except Exception:
