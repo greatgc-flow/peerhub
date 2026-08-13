@@ -5,7 +5,9 @@ blocking seams independently confirmed).**
 
 Date: 2026-08-13
 
-Implementation status: **NOT STARTED**
+Implementation status: **5A DONE (`a5556a2`/`24102f8`/`a6118a9`); 5B and 5C not started.**
+
+*Implementation Note: `adjudicate_retry()` required 4 fix rounds after adversarial review found real cross-branch policy bugs the original tests missed. This is worth recording as a genuine lesson on the necessity of adversarial probing over relying solely on original unit tests.*
 
 Source baseline rechecked for ratification: `cb8da37`
 

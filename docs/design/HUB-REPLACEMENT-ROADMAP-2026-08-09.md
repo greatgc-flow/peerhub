@@ -585,6 +585,8 @@ context/quota state, retry/failover on peer trouble).
     streaming scope -- Claude/Agy don't expose tool calls in their
     current `--output-format json` invocation mode, though they do via
     unused `stream-json` mode.
+  - **T1 increment 5A -- disposition mapper + DTOs + adjudicator implementing the Section 3 state-treatment table (`a5556a2`/`24102f8`/`a6118a9`). DONE.**
+    Increments 5B (fixes 2 empirically-confirmed blocking seams: lease-rotation/capability mismatch, no failover routing) and 5C (outer-loop integration) remain.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
