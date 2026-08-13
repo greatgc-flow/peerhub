@@ -506,7 +506,7 @@ phase makes peerhub capable of doing what hub.py does today (dispatch a
 query to a peer CLI, get a structured response back, track session/
 context/quota state, retry/failover on peer trouble).
 - **Dispatch-loop contract surface -- DESIGN RATIFIED 2026-08-12
-  (commit `d267750`); T1 increments 1 and 2 are now BUILT.** Adapter
+  (commit `d267750`); T1 increments 1, 2, and 3 are now BUILT.** Adapter
   wiring, session continuation, streaming decode, error-taxonomy
   mapping, and tool-call parsing were bundled into one design topic and
   taken through 3 dialectical rounds -- see
@@ -524,9 +524,9 @@ context/quota state, retry/failover on peer trouble).
   has since been superseded by and folded into the production
   `classify_attempt_failure()` mapper and
   `tests/unit/dispatch/test_model.py`.
-  **Of the design's Section 5 increments: 1 (classification plumbing)
-  and 2 (session continuation) are DONE; 3 (Codex streaming), 4
-  (tool-call capture), and 5 (outer retry/resume/failover loop) are not
+  **Of the design's Section 5 increments: 1 (classification plumbing),
+  2 (session continuation), and 3 (Codex streaming) are DONE; 4
+  (tool-call capture) and 5 (outer retry/resume/failover loop) are not
   started.** Two surface items the design prescribed did NOT land as
   written: `DecodedOutput.session_id` was abandoned in favour of
   `DecoderEventKind.SESSION_IDENTITY` (which already existed), and
@@ -574,6 +574,11 @@ context/quota state, retry/failover on peer trouble).
     by the caller beforehand. `SessionAction.CREATE` is deferred for
     all three; see the design doc's Section 5 for the gate defect that
     deferral exposes.
+  - **T1 increment 3 -- Codex streaming (`dfde073`). DONE.** Adds the
+    ordered runner-to-decoder event path in `pipe.py`, incremental JSONL
+    remainder buffering in `CodexOutputDecoder`, and advertises
+    `Capability.STREAM` for Codex only; Claude and Agy remain
+    terminal-only.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
@@ -604,8 +609,8 @@ context/quota state, retry/failover on peer trouble).
   output via the adapter, returns a structured result to the caller.
   (Single-attempt dispatch works today; the missing piece is the outer
   bounded retry/failover orchestrator -- design Section 5 increment 5.)
-- Streaming decode (codex.cmd emits JSONL events as they happen; current
-  adapter only parses the full output after the process exits).
+- Streaming decode is implemented for Codex in T1 increment 3
+  (`dfde073`); Claude and Agy remain terminal-only.
 - Tool-call parsing (peers that invoke their own tools mid-response --
   not yet handled at all).
 - Health/quota tracking equivalent to `diag.py` -- peerhub's CLI `status`

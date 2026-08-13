@@ -1,7 +1,7 @@
 # Phase 3 dispatch-loop shared contract surface (2026-08-12)
 
-Status: **RATIFIED (draft 3, commit `d267750`). Section 5 increments 1
-and 2 are IMPLEMENTED; increments 3, 4, and 5 are not started.**
+Status: **RATIFIED (draft 3, commit `d267750`). Section 5 increments 1,
+2, and 3 are IMPLEMENTED; increments 4 and 5 are not started.**
 Increment 1 shipped as `bfdd8b2` (1a, classification plumbing) and
 `bf9f4ad` (1b, `VENDOR_ERROR` emission); increment 2 shipped as
 `f516760` (2a, workflow capability gate), `dda4956` (2b, Claude
@@ -105,15 +105,14 @@ adapter boundary: Claude uses `--resume <id>`, Codex places
 three are now implemented exactly this way; see Section 2.5 for the
 as-built per-adapter table.
 
-### 1.3 Streaming is present as a protocol shape, not as behavior
+### 1.3 Streaming is implemented for Codex only
 
-`OutputDecoder.feed()` and `finalize()` already have the correct
-incremental shape (`adapters/contract.py:583-597`). Every real decoder's
-`feed()` currently buffers and returns no events, while
-`dispatch_and_execute()` constructs the decoder only after
-`run_process()` has returned and feeds the full merged stream once
-(`application/workflows.py:883-886`). Increment 2 did not change this;
-streaming remains increment 3's scope.
+`OutputDecoder.feed()` and `finalize()` already had the correct
+incremental shape (`adapters/contract.py:583-597`). Increment 3
+(`dfde073`) connected that shape to live execution for Codex: the pipe
+runner now serializes channel-tagged chunks through one ordered consumer,
+and `dispatch_and_execute()` feeds the invocation decoder and forwards
+its events to an optional sink before process exit.
 
 The pipe runner already reads stdout and stderr concurrently for
 supervision (`dispatch/pipe.py:116-168`), but
@@ -122,7 +121,8 @@ the channel (`dispatch/process.py:589-607`). A live Codex probe emitted
 pre-terminal JSONL such as `thread.started`, `turn.started`, vendor error
 events, `item.completed`, and `turn.failed` (`[cli_live]`). Claude and
 Agy are invoked in terminal-only JSON modes today, so only Codex is an
-immediate streaming implementation candidate.
+streaming implementation target. That Codex-only path is now implemented
+by `dfde073`; Claude and Agy remain terminal-only.
 
 ### 1.4 Failure information is computed and then discarded
 
@@ -428,17 +428,17 @@ the not-started increment 4 and is absent from the enum today
 `DecoderEvent.payload: Mapping[str, JsonValue]` can carry the vendor-
 normalized call name and arguments; execution semantics remain deferred.
 
-No `OutputDecoder` or `PeerAdapter` signature change is needed for
-streaming. Add an optional ordered event sink to
-`dispatch_and_execute()` and a channel/sequence/timestamp-tagged internal
-process-chunk DTO. The pipe runner serializes both reader threads through
-one consumer before calling the mutable decoder. The workflow maps the
-runner-owned channel value to the adapter's `OutputChannel` and never
-calls one decoder concurrently.
+**IMPLEMENTED (increment 3, `dfde073`).** No `OutputDecoder` or
+`PeerAdapter` signature change was needed. `dispatch_and_execute()` now
+accepts an optional ordered event sink and `pipe.py` carries
+channel/sequence/timestamp-tagged internal process chunks. The pipe runner
+serializes both reader threads through one consumer before the workflow
+calls the mutable decoder, maps the runner-owned channel to the adapter's
+`OutputChannel`, and never calls one decoder concurrently.
 
-`Capability.STREAM` is advertised only after an adapter emits events
-before process exit. The first implementation is Codex-only because the
-live CLI emits JSONL; Claude and Agy remain terminal-only until their
+Codex now parses JSONL incrementally with remainder buffering and emits
+events before process exit, so only its descriptor advertises
+`Capability.STREAM`. Claude and Agy remain terminal-only until their
 invocation formats change and are measured.
 
 ---
@@ -620,7 +620,8 @@ The contract surface is shared; implementation remains staged:
    this pass is documentation-only.)*
 3. **Codex streaming:** add the ordered runner-to-decoder event path and
    implement incremental JSONL parsing with remainder buffering.
-   **NOT STARTED.**
+   **IMPLEMENTED** -- `dfde073`; Codex alone advertises
+   `Capability.STREAM`, while Claude and Agy remain terminal-only.
 4. **Tool-call capture:** add normalized `TOOL_CALL` events and measured
    per-CLI fixtures; execution/approval semantics remain a later design.
    **NOT STARTED** -- `DecoderEventKind.TOOL_CALL` does not exist yet.
