@@ -562,6 +562,32 @@ class SqliteReadUnitOfWork:
             admission_receipt_id
         )
 
+    def get_capability_lease_by_session_lease_id(
+        self,
+        session_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return capability lease by session lease id."""
+        return self.dispatch.get_capability_lease_by_session_lease_id(
+            session_lease_id
+        )
+
+    def get_capability_lease_for_attempt(
+        self,
+        command_id: CommandID | str,
+        authorized_attempt_number: int,
+    ) -> CapabilityLease | None:
+        """Return capability lease by attempt number."""
+        return self.dispatch.get_capability_lease_for_attempt(
+            command_id, authorized_attempt_number
+        )
+
+    def get_retry_policy_max_attempts(
+        self,
+        command_id: CommandID | str,
+    ) -> int | None:
+        """Return the maximum attempts for a command."""
+        return self.dispatch.get_retry_policy_max_attempts(command_id)
+
     def get_target(self, target_id: str) -> TargetState | None:
         """Return the current target, if present."""
         return self.governance.get_target(target_id)
@@ -1107,6 +1133,40 @@ class SqliteUnitOfWork:
     def allocate_fencing_token(self) -> int:
         """Allocate one database-monotonic lease fencing token."""
         return self.dispatch.allocate_fencing_token()
+
+    def get_capability_lease_by_session_lease_id(
+        self,
+        session_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return capability lease by session lease id."""
+        return self.dispatch.get_capability_lease_by_session_lease_id(
+            session_lease_id
+        )
+
+    def get_capability_lease_for_attempt(
+        self,
+        command_id: CommandID | str,
+        authorized_attempt_number: int,
+    ) -> CapabilityLease | None:
+        """Return capability lease by attempt number."""
+        return self.dispatch.get_capability_lease_for_attempt(
+            command_id, authorized_attempt_number
+        )
+
+    def get_retry_policy_max_attempts(
+        self,
+        command_id: CommandID | str,
+    ) -> int | None:
+        """Return the maximum attempts for a command."""
+        return self.dispatch.get_retry_policy_max_attempts(command_id)
+
+    def add_retry_policy(
+        self,
+        command_id: CommandID | str,
+        max_attempts: int,
+    ) -> None:
+        """Insert a retry policy."""
+        return self.dispatch.add_retry_policy(command_id, max_attempts)
 
     def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
         """Return a lease snapshot by ID."""

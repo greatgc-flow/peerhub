@@ -490,9 +490,11 @@ class SqliteDispatchRepository:
                 policy_revision_json,
                 issuer_id,
                 issued_at,
-                expires_at
+                expires_at,
+                authorized_attempt_number,
+                previous_attempt_id
             ) VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """,
             (
@@ -512,6 +514,8 @@ class SqliteDispatchRepository:
                 lease.issuer_id,
                 lease.issued_at,
                 lease.expires_at,
+                1,
+                None,
             ),
         )
 
@@ -557,6 +561,7 @@ class SqliteDispatchRepository:
             "capability_lease_id",
             "command_id",
             "admission_receipt_id",
+            "session_lease_id",
         }:
             raise ValueError("unsupported capability lease lookup")
         row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
@@ -590,6 +595,90 @@ class SqliteDispatchRepository:
             issuer_id=row["issuer_id"],  # pyright: ignore[reportUnknownArgumentType]
             issued_at=row["issued_at"],  # pyright: ignore[reportUnknownArgumentType]
             expires_at=row["expires_at"],  # pyright: ignore[reportUnknownArgumentType]
+        )
+
+    def get_capability_lease_by_session_lease_id(
+        self,
+        session_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return capability lease by session lease id."""
+
+        return self._get_capability_lease(
+            "session_lease_id",
+            session_lease_id,
+        )
+
+    def get_capability_lease_for_attempt(
+        self,
+        command_id: CommandID | str,
+        authorized_attempt_number: int,
+    ) -> CapabilityLease | None:
+        """Return capability lease by attempt number."""
+
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            """
+            SELECT *
+            FROM capability_leases
+            WHERE command_id = ? AND authorized_attempt_number = ?
+            """,
+            (str(command_id), authorized_attempt_number),
+        ).fetchone()
+        if row is None:
+            return None
+        return CapabilityLease(
+            capability_lease_id=row["capability_lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            command_id=CommandID(row["command_id"]),  # pyright: ignore[reportUnknownArgumentType]
+            admission_receipt_id=row["admission_receipt_id"],  # pyright: ignore[reportUnknownArgumentType]
+            session_lease_id=row["session_lease_id"],  # pyright: ignore[reportUnknownArgumentType]
+            subject_principal_id=row["subject_principal_id"],  # pyright: ignore[reportUnknownArgumentType]
+            selected_peer_kind=row["selected_peer_kind"],  # pyright: ignore[reportUnknownArgumentType]
+            required_tier=CapabilityTier[row["required_tier"]],  # pyright: ignore[reportUnknownArgumentType]
+            authorized_tier=CapabilityTier[row["authorized_tier"]],  # pyright: ignore[reportUnknownArgumentType]
+            minimum_enforcement=EnforcementLevel[  # pyright: ignore[reportUnknownArgumentType]
+                row["minimum_enforcement"]
+            ],
+            selected_peer_instance_id=row["selected_peer_instance_id"],  # pyright: ignore[reportUnknownArgumentType]
+            selected_profile_id=row["selected_profile_id"],  # pyright: ignore[reportUnknownArgumentType]
+            route_decision_digest=row["route_decision_digest"],  # pyright: ignore[reportUnknownArgumentType]
+            policy_revision=_stored_revision(
+                row["policy_revision_json"]  # pyright: ignore[reportUnknownArgumentType]
+            ),
+            issuer_id=row["issuer_id"],  # pyright: ignore[reportUnknownArgumentType]
+            issued_at=row["issued_at"],  # pyright: ignore[reportUnknownArgumentType]
+            expires_at=row["expires_at"],  # pyright: ignore[reportUnknownArgumentType]
+        )
+
+    def get_retry_policy_max_attempts(
+        self,
+        command_id: CommandID | str,
+    ) -> int | None:
+        """Return the maximum attempts for a command."""
+
+        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            """
+            SELECT max_attempts
+            FROM retry_policies
+            WHERE command_id = ?
+            """,
+            (str(command_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        return int(row["max_attempts"])  # pyright: ignore[reportUnknownArgumentType]
+
+    def add_retry_policy(
+        self,
+        command_id: CommandID | str,
+        max_attempts: int,
+    ) -> None:
+        """Insert a retry policy."""
+
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
+            """
+            INSERT INTO retry_policies (command_id, max_attempts)
+            VALUES (?, ?)
+            """,
+            (str(command_id), max_attempts),
         )
 
     def add_request(self, request: RequestSnapshot) -> None:

@@ -195,7 +195,7 @@ def test_migrations_register_capability_tiers_without_implicit_grants(
     try:
         assert connection.execute(
             "PRAGMA user_version"
-        ).fetchone() == (21,)
+        ).fetchone() == (22,)
         assert connection.execute(
             "SELECT name FROM schema_migrations WHERE version = 18"
         ).fetchone() == ("0018_capability_leases",)
@@ -241,6 +241,7 @@ def test_migrations_register_capability_tiers_without_implicit_grants(
                 "admission_receipt_id",
             ),
             ("session_lease_id", "leases", "lease_id"),
+            ("previous_attempt_id", "dispatch_attempts", "attempt_id"),
         }
         unique_indexes = {
             tuple(
@@ -255,8 +256,7 @@ def test_migrations_register_capability_tiers_without_implicit_grants(
             if index_row[2] == 1
         }
         assert {
-            ("command_id",),
-            ("admission_receipt_id",),
+            ("command_id", "authorized_attempt_number"),
             ("session_lease_id",),
         }.issubset(unique_indexes)
         assert connection.execute(

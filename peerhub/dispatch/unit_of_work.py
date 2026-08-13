@@ -108,6 +108,31 @@ class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
 
         ...
 
+    def get_capability_lease_by_session_lease_id(
+        self,
+        session_lease_id: str,
+    ) -> CapabilityLease | None:
+        """Return capability lease by session lease id."""
+
+        ...
+
+    def get_capability_lease_for_attempt(
+        self,
+        command_id: CommandID | str,
+        authorized_attempt_number: int,
+    ) -> CapabilityLease | None:
+        """Return capability lease by attempt number."""
+
+        ...
+
+    def get_retry_policy_max_attempts(
+        self,
+        command_id: CommandID | str,
+    ) -> int | None:
+        """Return the maximum attempts for a command."""
+
+        ...
+
 
 class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
     """Persistence operations required by the dispatch service."""
@@ -170,6 +195,15 @@ class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
         lease: CapabilityLease,
     ) -> None:
         """Insert an immutable capability lease."""
+
+        ...
+
+    def add_retry_policy(
+        self,
+        command_id: CommandID | str,
+        max_attempts: int,
+    ) -> None:
+        """Insert a retry policy."""
 
         ...
 
