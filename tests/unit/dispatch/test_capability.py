@@ -34,7 +34,9 @@ from peerhub.dispatch.contract import (
     LeaseState,
     RequestSnapshot,
     RequestState,
+    AttemptSnapshot,
 )
+from peerhub.core.execution import ExecutionCertainty
 
 
 _COMMAND_ID = CommandID("command-01")
@@ -134,6 +136,8 @@ def _binding_records() -> _BindingRecords:
         issuer_id="capability-policy-01",
         issued_at=10,
         expires_at=100,
+        authorized_attempt_number=1,
+        previous_attempt_id=None,
     )
     return _BindingRecords(
         request=request,
@@ -200,6 +204,8 @@ def test_capability_lease_has_the_exact_ratified_field_set() -> None:
         "issuer_id",
         "issued_at",
         "expires_at",
+        "authorized_attempt_number",
+        "previous_attempt_id",
     )
 
 
@@ -740,3 +746,117 @@ def test_unmeasured_evidence_must_carry_the_absent_source_tag() -> None:
             enforcement_ceiling=None,
             source_tag="empirical_probe",
         )
+
+def test_capability_lease_rejects_invalid_attempt_number() -> None:
+    records = _binding_records()
+    with pytest.raises(ValueError, match="authorized_attempt_number must be >= 1"):
+        replace(records.capability_lease, authorized_attempt_number=0)
+
+def test_capability_lease_rejects_previous_attempt_id_for_attempt_1() -> None:
+    records = _binding_records()
+    with pytest.raises(ValueError, match="attempt 1 cannot have a previous_attempt_id"):
+        replace(records.capability_lease, authorized_attempt_number=1, previous_attempt_id="prev-01")
+
+def test_capability_lease_rejects_missing_previous_attempt_id_for_retry() -> None:
+    records = _binding_records()
+    with pytest.raises(ValueError, match="retry attempt requires a previous_attempt_id"):
+        replace(records.capability_lease, authorized_attempt_number=2, previous_attempt_id=None)
+
+def _attempt_snapshot() -> AttemptSnapshot:
+    return AttemptSnapshot(
+        attempt_id="prev-attempt-01",
+        command_id=_COMMAND_ID,
+        attempt_number=1,
+        lease_id="session-lease-01",
+        state=RequestState.FAILED,
+        execution_certainty=ExecutionCertainty.MAY_HAVE_STARTED,
+        revision=1,
+        created_at=10,
+        updated_at=10,
+        reconciliation_complete=False,
+        result=None,
+        terminal_error_code=None,
+    )
+
+def test_validate_capability_binding_rejects_previous_attempt_for_attempt_1() -> None:
+    records = _binding_records()
+    with pytest.raises(ValueError, match="attempt 1 cannot be passed a previous_attempt"):
+        validate_capability_binding(
+            records.request,
+            records.receipt,
+            records.session_lease,
+            records.capability_lease,
+            expected_peer_kind="cx",
+            previous_attempt=_attempt_snapshot(),
+        )
+
+def test_validate_capability_binding_rejects_missing_previous_attempt_for_retry() -> None:
+    records = _binding_records()
+    retry_lease = replace(records.capability_lease, authorized_attempt_number=2, previous_attempt_id="prev-attempt-01")
+    with pytest.raises(ValueError, match="retry attempt requires a previous_attempt"):
+        validate_capability_binding(
+            records.request,
+            records.receipt,
+            records.session_lease,
+            retry_lease,
+            expected_peer_kind="cx",
+        )
+
+def test_validate_capability_binding_succeeds_for_retry_attempt() -> None:
+    records = _binding_records()
+    mismatched_receipt = replace(records.receipt, lease_id="different-receipt-lease-id")
+    retry_lease = replace(records.capability_lease, authorized_attempt_number=2, previous_attempt_id="prev-attempt-01")
+    binding = validate_capability_binding(
+        records.request,
+        mismatched_receipt,
+        records.session_lease,
+        retry_lease,
+        expected_peer_kind="cx",
+        previous_attempt=_attempt_snapshot(),
+    )
+    assert binding.capability_lease is retry_lease
+
+def test_validate_capability_binding_rejects_retry_command_mismatch() -> None:
+    records = _binding_records()
+    retry_lease = replace(records.capability_lease, authorized_attempt_number=2, previous_attempt_id="prev-attempt-01")
+    prev_attempt = replace(_attempt_snapshot(), command_id=CommandID("different"))
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        validate_capability_binding(
+            records.request,
+            records.receipt,
+            records.session_lease,
+            retry_lease,
+            expected_peer_kind="cx",
+            previous_attempt=prev_attempt,
+        )
+    assert exc_info.value.invariant == "previous_attempt command_id must match capability command_id"
+
+def test_validate_capability_binding_rejects_retry_attempt_number_mismatch() -> None:
+    records = _binding_records()
+    retry_lease = replace(records.capability_lease, authorized_attempt_number=2, previous_attempt_id="prev-attempt-01")
+    prev_attempt = replace(_attempt_snapshot(), attempt_number=2)
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        validate_capability_binding(
+            records.request,
+            records.receipt,
+            records.session_lease,
+            retry_lease,
+            expected_peer_kind="cx",
+            previous_attempt=prev_attempt,
+        )
+    assert exc_info.value.invariant == "previous_attempt attempt_number + 1 must equal authorized_attempt_number"
+
+def test_validate_capability_binding_rejects_retry_previous_attempt_id_mismatch() -> None:
+    records = _binding_records()
+    retry_lease = replace(records.capability_lease, authorized_attempt_number=2, previous_attempt_id="prev-attempt-02")
+    prev_attempt = replace(_attempt_snapshot(), attempt_id="prev-attempt-01")
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        validate_capability_binding(
+            records.request,
+            records.receipt,
+            records.session_lease,
+            retry_lease,
+            expected_peer_kind="cx",
+            previous_attempt=prev_attempt,
+        )
+    assert exc_info.value.invariant == "capability previous_attempt_id must match previous_attempt attempt_id"

@@ -15,7 +15,7 @@ from peerhub.core.errors import InvalidMutationError
 from peerhub.core.protocol import CommandID, RevisionValue, require_text
 
 if TYPE_CHECKING:
-    from .contract import AdmissionReceipt, LeaseSnapshot, RequestSnapshot
+    from .contract import AdmissionReceipt, AttemptSnapshot, LeaseSnapshot, RequestSnapshot
 
 
 class CapabilityTier(IntEnum):
@@ -174,6 +174,8 @@ class CapabilityLease:
     issuer_id: str
     issued_at: int
     expires_at: int | None
+    authorized_attempt_number: int = 1
+    previous_attempt_id: str | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -229,6 +231,18 @@ class CapabilityLease:
             _require_nonnegative_int(self.expires_at, "expires_at")
             if self.expires_at < self.issued_at:
                 raise ValueError("expires_at cannot precede issued_at")
+        if type(self.authorized_attempt_number) is not int or self.authorized_attempt_number < 1:
+            raise ValueError("authorized_attempt_number must be >= 1")
+        if self.previous_attempt_id is not None:
+            object.__setattr__(
+                self,
+                "previous_attempt_id",
+                require_text(self.previous_attempt_id, "previous_attempt_id"),
+            )
+        if self.authorized_attempt_number == 1 and self.previous_attempt_id is not None:
+            raise ValueError("attempt 1 cannot have a previous_attempt_id")
+        if self.authorized_attempt_number > 1 and self.previous_attempt_id is None:
+            raise ValueError("retry attempt requires a previous_attempt_id")
 
 
 @dataclass(frozen=True)
@@ -253,6 +267,7 @@ def validate_capability_binding(
     capability_lease: CapabilityLease,
     *,
     expected_peer_kind: str,
+    previous_attempt: AttemptSnapshot | None = None,
 ) -> ValidatedCapabilityBinding:
     """Validate every immutable capability-to-admission equality.
 
@@ -286,10 +301,28 @@ def validate_capability_binding(
         capability_lease.session_lease_id == request.lease_id,
         "capability session_lease_id must match request lease_id",
     )
-    _require_binding(
-        capability_lease.session_lease_id == receipt.lease_id,
-        "capability session_lease_id must match receipt lease_id",
-    )
+    if capability_lease.authorized_attempt_number == 1:
+        if previous_attempt is not None:
+            raise ValueError("attempt 1 cannot be passed a previous_attempt")
+        _require_binding(
+            capability_lease.session_lease_id == receipt.lease_id,
+            "capability session_lease_id must match receipt lease_id",
+        )
+    else:
+        if previous_attempt is None:
+            raise ValueError("retry attempt requires a previous_attempt")
+        _require_binding(
+            previous_attempt.command_id == capability_lease.command_id,
+            "previous_attempt command_id must match capability command_id",
+        )
+        _require_binding(
+            previous_attempt.attempt_number + 1 == capability_lease.authorized_attempt_number,
+            "previous_attempt attempt_number + 1 must equal authorized_attempt_number",
+        )
+        _require_binding(
+            capability_lease.previous_attempt_id == previous_attempt.attempt_id,
+            "capability previous_attempt_id must match previous_attempt attempt_id",
+        )
     _require_binding(
         capability_lease.session_lease_id == session_lease.lease_id,
         "capability session_lease_id must match session lease_id",
@@ -489,6 +522,7 @@ class ValidatedCapabilityLease:
     minimum_enforcement: EnforcementLevel
     satisfied_floor: EnforcementLevel
     revalidated_policy_revision: RevisionValue
+    authorized_attempt_number: int = 1
 
 
 @dataclass(frozen=True)
