@@ -1,8 +1,43 @@
 import pytest
 
-from peerhub.application.retry import map_retry_disposition
-from peerhub.core.protocol import ErrorCode, ErrorPhase, OperationalFailureCategory, RetryDisposition
-from peerhub.dispatch.contract import AttemptFailureClassification, TerminalClassification
+from peerhub.adapters.codex_adapter import RealCodexAdapter
+from peerhub.adapters.contract import (
+    AdapterRequest,
+    ProfileDescriptor,
+    SessionAction,
+    SessionHint,
+)
+from peerhub.application.retry import (
+    AttemptDispatchPlan,
+    AttemptExecutionRecord,
+    MultiAttemptExecutionResult,
+    RetryAction,
+    RetryCondition,
+    RetryConditionEvidence,
+    RetryDecision,
+    RetryDecisionReason,
+    RetryLoopStopReason,
+    map_retry_disposition,
+)
+from peerhub.application.workflows import ExecutionWorkflowResult
+from peerhub.core.execution import ExecutionCertainty
+from peerhub.core.protocol import (
+    CommandID,
+    ErrorCode,
+    ErrorPhase,
+    OperationalFailureCategory,
+    RetryDisposition,
+)
+from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.contract import (
+    AttemptFailureClassification,
+    AttemptSnapshot,
+    CompletionContract,
+    CompletionContractKind,
+    RequestSnapshot,
+    RequestState,
+    TerminalClassification,
+)
 from peerhub.dispatch.model import _OPERATIONAL_KINDS, _TERMINAL_ROWS
 
 
@@ -145,3 +180,261 @@ def test_map_retry_disposition_invalid_inputs_raise() -> None:
             AttemptFailureClassification(ErrorCode.INTERNAL_ERROR, ErrorPhase.ASSESSMENT, None),
             terminal_classification=TerminalClassification.EXIT_NON_ZERO,
         )
+
+
+_COMPLETION_CONTRACT = CompletionContract(
+    contract_id="contract-1",
+    kind=CompletionContractKind.DELIVERY_ONLY,
+    requirements=(),
+    replay_safe=False,
+)
+
+
+def _execution_result() -> ExecutionWorkflowResult:
+    command_id = CommandID("command-1")
+    request = RequestSnapshot(
+        command_id=command_id,
+        client_id="client-1",
+        client_request_id="request-1",
+        correlation_id="correlation-1",
+        authenticated_principal="principal-1",
+        command_type="ask",
+        idempotency_key="idempotency-1",
+        payload_digest="a" * 64,
+        scope={},
+        params={},
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        policy_revision=1,
+        configuration_revision=1,
+        completion_contract=_COMPLETION_CONTRACT,
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        selected_peer_instance_id="peer-1",
+        selected_profile_id="cx.standard",
+        route_decision_digest="b" * 64,
+        lease_id="lease-1",
+        state=RequestState.SUCCEEDED_VERIFIED,
+        revision=1,
+        created_at=1,
+        updated_at=2,
+    )
+    attempt = AttemptSnapshot(
+        attempt_id="attempt-1",
+        command_id=command_id,
+        attempt_number=1,
+        lease_id="lease-1",
+        state=RequestState.SUCCEEDED_VERIFIED,
+        execution_certainty=ExecutionCertainty.TERMINAL,
+        revision=1,
+        created_at=1,
+        updated_at=2,
+    )
+    return ExecutionWorkflowResult(request=request, attempt=attempt)
+
+
+def _stop_decision() -> RetryDecision:
+    return RetryDecision(
+        disposition=None,
+        action=RetryAction.STOP,
+        reason=RetryDecisionReason.VERIFIED_SUCCESS,
+        required_conditions=(),
+        not_before=None,
+    )
+
+
+def _attempt_record() -> AttemptExecutionRecord:
+    return AttemptExecutionRecord(
+        execution=_execution_result(),
+        error_detail=None,
+        retry_decision=_stop_decision(),
+        retry_authorization=None,
+    )
+
+
+def _attempt_plan(
+    *,
+    route_decision_id: str = "route-1",
+    capability_lease_id: str = "capability-1",
+    peer_instance_id: str = "peer-1",
+) -> AttemptDispatchPlan:
+    return AttemptDispatchPlan(
+        route_decision_id=route_decision_id,
+        capability_lease_id=capability_lease_id,
+        peer_instance_id=peer_instance_id,
+        adapter_request=AdapterRequest(
+            request_id="request-1",
+            prompt_content="hello",
+            prompt_reference=None,
+            workspace_scope="workspace-1",
+            profile_id="cx.standard",
+            requested_session_action=SessionAction.RESUME,
+            completion_contract=_COMPLETION_CONTRACT,
+        ),
+        peer_adapter=RealCodexAdapter(),
+        profile=ProfileDescriptor(
+            profile_id="cx.standard",
+            profile_class="tier",
+            supports_reasoning_effort=False,
+        ),
+        session=SessionHint(
+            external_session_id="session-1",
+            adapter_fingerprint=None,
+            session_generation=1,
+        ),
+    )
+
+
+def test_retry_enum_vocabulary_covers_ratified_cases() -> None:
+    assert {action.value for action in RetryAction} == {
+        "STOP",
+        "RETRY_SAME_TARGET",
+        "FAILOVER",
+        "DEFER",
+    }
+    assert {
+        "VERIFIED_SUCCESS",
+        "DELIVERED_UNVERIFIED",
+        "UNSAFE_NO_EVIDENCE",
+        "NEVER_DISPOSITION",
+        "CONDITION_UNMET",
+        "ATTEMPT_LIMIT_REACHED",
+        "AUTHORITATIVE_CANCELLATION",
+        "CONCURRENT_TERMINAL_STATE",
+        "CONCURRENT_ATTEMPT_IN_PROGRESS",
+        "FAILOVER_UNAVAILABLE",
+        "LEGACY_CLASSIFICATION_UNKNOWN",
+        "EXECUTION_NOT_STARTED",
+        "RECONCILIATION_COMPLETE",
+        "REPLAY_SAFE_COMPLETION_CONTRACT",
+    } <= {reason.value for reason in RetryDecisionReason}
+    assert {condition.value for condition in RetryCondition} == {
+        "SESSION_REPLACED_OR_REMOVED",
+        "AUTH_RESTORED",
+        "NETWORK_RECOVERED",
+        "PROVIDER_RECOVERED",
+        "QUOTA_AVAILABLE",
+        "RATE_LIMIT_BOUNDARY_ELAPSED",
+    }
+    assert {
+        "VERIFIED_SUCCESS",
+        "DELIVERED_UNVERIFIED",
+        "AUTHORITATIVE_CANCELLATION",
+        "NEVER_DISPOSITION",
+        "UNSAFE_NO_EVIDENCE",
+        "CONDITION_DEFERRED",
+        "ATTEMPT_LIMIT_REACHED",
+        "ROUTE_EXHAUSTED",
+        "CONCURRENT_TERMINAL_STATE",
+        "CONCURRENT_ATTEMPT_IN_PROGRESS",
+        "FAILOVER_UNAVAILABLE",
+        "LEGACY_CLASSIFICATION_UNKNOWN",
+    } == {reason.value for reason in RetryLoopStopReason}
+
+
+def test_retry_condition_evidence_constructs_and_validates() -> None:
+    evidence = RetryConditionEvidence(
+        condition=RetryCondition.RATE_LIMIT_BOUNDARY_ELAPSED,
+        satisfied=False,
+        evidence_source="provider_retry_after",
+        observed_at=100,
+        not_before=200,
+    )
+    assert evidence.not_before == 200
+
+    with pytest.raises(ValueError, match="evidence_source"):
+        RetryConditionEvidence(
+            condition=RetryCondition.AUTH_RESTORED,
+            satisfied=True,
+            evidence_source=" ",
+            observed_at=100,
+            not_before=None,
+        )
+    with pytest.raises(ValueError, match="observed_at"):
+        RetryConditionEvidence(
+            condition=RetryCondition.AUTH_RESTORED,
+            satisfied=True,
+            evidence_source="auth_probe",
+            observed_at=-1,
+            not_before=None,
+        )
+
+
+def test_retry_decision_constructs_and_validates() -> None:
+    decision = RetryDecision(
+        disposition=RetryDisposition.CONDITIONAL,
+        action=RetryAction.DEFER,
+        reason=RetryDecisionReason.CONDITION_UNMET,
+        required_conditions=(RetryCondition.QUOTA_AVAILABLE,),
+        not_before=200,
+    )
+    assert decision.required_conditions == (RetryCondition.QUOTA_AVAILABLE,)
+
+    with pytest.raises(ValueError, match="required_conditions"):
+        RetryDecision(
+            disposition=RetryDisposition.UNSAFE,
+            action=RetryAction.STOP,
+            reason=RetryDecisionReason.UNSAFE_NO_EVIDENCE,
+            required_conditions=(RetryCondition.AUTH_RESTORED,),
+            not_before=None,
+        )
+    with pytest.raises(ValueError, match="at least one"):
+        RetryDecision(
+            disposition=RetryDisposition.CONDITIONAL,
+            action=RetryAction.DEFER,
+            reason=RetryDecisionReason.CONDITION_UNMET,
+            required_conditions=(),
+            not_before=None,
+        )
+    with pytest.raises(ValueError, match="DEFER"):
+        RetryDecision(
+            disposition=RetryDisposition.CONDITIONAL,
+            action=RetryAction.STOP,
+            reason=RetryDecisionReason.CONDITION_UNMET,
+            required_conditions=(RetryCondition.PROVIDER_RECOVERED,),
+            not_before=200,
+        )
+
+
+def test_attempt_execution_record_constructs() -> None:
+    record = _attempt_record()
+    assert record.execution.attempt.attempt_id == "attempt-1"
+    assert record.retry_authorization is None
+
+
+def test_multi_attempt_execution_result_constructs_and_validates() -> None:
+    record = _attempt_record()
+    result = MultiAttemptExecutionResult(
+        command_id=CommandID("command-1"),
+        attempts=(record,),
+        stop_reason=RetryLoopStopReason.VERIFIED_SUCCESS,
+    )
+    assert result.attempts[-1] is record
+
+    with pytest.raises(ValueError, match="attempts"):
+        MultiAttemptExecutionResult(
+            command_id=CommandID("command-1"),
+            attempts=(),
+            stop_reason=RetryLoopStopReason.ATTEMPT_LIMIT_REACHED,
+        )
+    with pytest.raises(ValueError, match="command_id"):
+        MultiAttemptExecutionResult(
+            command_id=CommandID(" "),
+            attempts=(record,),
+            stop_reason=RetryLoopStopReason.VERIFIED_SUCCESS,
+        )
+
+
+def test_attempt_dispatch_plan_constructs_and_validates() -> None:
+    plan = _attempt_plan()
+    assert plan.peer_adapter.descriptor.adapter_id == "codex-peer"
+    assert plan.session is not None
+    assert plan.session.external_session_id == "session-1"
+
+    for field_name in (
+        "route_decision_id",
+        "capability_lease_id",
+        "peer_instance_id",
+    ):
+        values = {field_name: " "}
+        with pytest.raises(ValueError, match=field_name):
+            _attempt_plan(**values)
