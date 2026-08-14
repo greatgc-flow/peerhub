@@ -636,8 +636,21 @@ context/quota state, retry/failover on peer trouble).
       test, independently re-reproduced by ag.deepthink before landing.
       Also consolidated the same-target/failover capability-grant gates
       (previously a ~78-line near-duplicate) into one shared helper. DONE.
-    5B is fully closed -- both seam 9.1 and seam 9.2 are resolved. Only 5C
-    (outer-loop integration) remains for increment 5.
+    5B is fully closed -- both seam 9.1 and seam 9.2 are resolved.
+  - **T1 increment 5C -- outer-loop integration and durable resume.**
+    Plan ratified (`60e8128`,
+    `PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md`) after a
+    source-grounded review found 4 real architectural gaps the parent
+    design doc didn't anticipate (B1: durable resume can't reconstruct an
+    exact historical `ExecutionWorkflowResult`; B2: request/capability only
+    store a route digest, not a decision ID, so resume can't recover the
+    current route; B3: 5B guarantees one durable attempt/spawn but not
+    literally one `dispatch_and_execute()` call entry; B4: no way to supply
+    fresh CONDITIONAL evidence or resolve a failover target's peer kind).
+    All 4 resolved without reopening 5B. Split into 5C-1 (durable read
+    model + route recovery + policy freeze), 5C-2 (single-run loop + plan
+    materialization), 5C-3 (durable resume + typed attempt claim +
+    concurrency). IN PROGRESS.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
