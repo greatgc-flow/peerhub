@@ -15,10 +15,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from peerhub.adapters.contract import ProtocolAssessment
 from peerhub.core.execution import ExecutionCertainty
-from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.capability import CapabilityLease, CapabilityTier
 from peerhub.core.protocol import (
     CommandEnvelope,
     CommandID,
@@ -30,6 +31,9 @@ from peerhub.core.protocol import (
     freeze_json_mapping,
     require_text,
 )
+
+if TYPE_CHECKING:
+    from peerhub.routing.contract import RouteDecision
 
 
 class TerminalClassification(str, Enum):
@@ -1382,3 +1386,15 @@ class ArtifactRecoveryDigest:
                     "every artifact must be an ArtifactMetadata instance"
                 )
         object.__setattr__(self, "artifacts", arts)
+
+
+@dataclass(frozen=True)
+class RetryLoopState:
+    """Read-model aggregation for a request and its outer loop bounds."""
+
+    request: RequestSnapshot
+    max_attempts: int | None
+    attempts: tuple[AttemptSnapshot, ...]
+    current_lease: LeaseSnapshot
+    current_capability: CapabilityLease
+    route_decision: RouteDecision

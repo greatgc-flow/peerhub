@@ -8,6 +8,7 @@ from peerhub.routing.contract import (
     RouteCandidateDecision,
     RouteDecision,
     RouteEligibility,
+    canonical_route_decision_digest,
 )
 
 from .sqlite_helpers import _json_text, _string_tuple  # pyright: ignore[reportPrivateUsage]
@@ -151,6 +152,33 @@ class SqliteRoutingRepository:
             selected_candidate_id=row["selected_candidate_id"],
             created_at=row["created_at"],
         )
+
+    def get_route_decision_by_binding(
+        self,
+        client_request_id: str,
+        route_decision_digest: str,
+    ) -> RouteDecision | None:
+        """Return exactly one digest-matching immutable decision by binding."""
+        rows = self._db().execute(
+            """
+            SELECT decision_id
+            FROM route_decisions
+            WHERE client_request_id = ?
+            """,
+            (client_request_id,),
+        ).fetchall()
+
+        matches: list[RouteDecision] = []
+        for row in rows:
+            decision = self.get_route_decision(row["decision_id"])
+            if (
+                decision is not None
+                and canonical_route_decision_digest(decision)
+                == route_decision_digest
+            ):
+                matches.append(decision)
+
+        return matches[0] if len(matches) == 1 else None
 
 
 def _required_capability_tier_from_stored(

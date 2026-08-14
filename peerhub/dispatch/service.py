@@ -12,7 +12,11 @@ from collections.abc import Sequence
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.execution import ExecutionCertainty
-from peerhub.core.errors import InvalidMutationError, RetryPolicyConflictError
+from peerhub.core.errors import (
+    InvalidMutationError,
+    RecordNotFoundError,
+    RetryPolicyConflictError,
+)
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.adapters.contract import ProfileDescriptor
 from peerhub.core.protocol import (
@@ -25,6 +29,10 @@ from peerhub.core.protocol import (
     require_text,
 )
 from peerhub.governance.contract import OutboxEvent
+from peerhub.routing.contract import (
+    RouteDecision,
+    canonical_route_decision_digest,
+)
 from peerhub.state.contract import StateStore
 
 from .contract import (
@@ -46,6 +54,7 @@ from .contract import (
     RecoveryTrigger,
     RequestSnapshot,
     RequestState,
+    RetryLoopState,
     SessionBindingKey,
     SessionBindingSnapshot,
     SessionResumeRequest,
@@ -161,6 +170,151 @@ from .unit_of_work import (
     _NoFaultInjector,  # pyright: ignore[reportPrivateUsage]
 )
 
+
+def _retry_loop_state_violation(message: str) -> InvalidMutationError:
+    return InvalidMutationError(
+        f"retry loop state invariant failed: {message}"
+    )
+
+
+def _validate_retry_loop_state(
+    *,
+    request: RequestSnapshot,
+    max_attempts: int | None,
+    attempts: tuple[AttemptSnapshot, ...],
+    lease: LeaseSnapshot,
+    capability: CapabilityLease,
+    route_decision: RouteDecision,
+) -> None:
+    for expected_number, attempt in enumerate(attempts, start=1):
+        if attempt.command_id != request.command_id:
+            raise _retry_loop_state_violation(
+                "attempt history contains a different command"
+            )
+        if attempt.attempt_number != expected_number:
+            raise _retry_loop_state_violation(
+                "attempt history expected attempt_number "
+                f"{expected_number}, got {attempt.attempt_number}"
+            )
+
+    if lease.lease_id != request.lease_id:
+        raise _retry_loop_state_violation(
+            "request lease_id does not match the loaded lease"
+        )
+    if lease.fence.command_id != request.command_id:
+        raise _retry_loop_state_violation(
+            "current lease belongs to a different command"
+        )
+    if capability.command_id != request.command_id:
+        raise _retry_loop_state_violation(
+            "current capability belongs to a different command"
+        )
+    if capability.session_lease_id != lease.lease_id:
+        raise _retry_loop_state_violation(
+            "current capability does not bind the request lease"
+        )
+    if (
+        capability.selected_peer_instance_id
+        != request.selected_peer_instance_id
+        or capability.selected_profile_id != request.selected_profile_id
+        or capability.route_decision_digest
+        != request.route_decision_digest
+        or capability.required_tier
+        is not request.required_capability_tier
+        or capability.policy_revision != request.policy_revision
+    ):
+        raise _retry_loop_state_violation(
+            "current capability does not match the request binding"
+        )
+
+    if not attempts:
+        if request.state not in {
+            RequestState.ADMITTED,
+            RequestState.PREPARED,
+        }:
+            raise _retry_loop_state_violation(
+                "empty attempt history is valid only before attempt 1"
+            )
+        if (
+            capability.authorized_attempt_number != 1
+            or capability.previous_attempt_id is not None
+        ):
+            raise _retry_loop_state_violation(
+                "empty attempt history requires attempt-1 authority"
+            )
+        highest_attempt_number = 0
+    else:
+        highest_attempt = attempts[-1]
+        highest_attempt_number = highest_attempt.attempt_number
+        authorized_number = capability.authorized_attempt_number
+        if authorized_number == highest_attempt_number:
+            if highest_attempt.lease_id != lease.lease_id:
+                raise _retry_loop_state_violation(
+                    "highest attempt does not bind the current lease"
+                )
+            if request.state is not highest_attempt.state:
+                raise _retry_loop_state_violation(
+                    "request state differs from the highest attempt"
+                )
+            expected_previous_attempt_id = (
+                attempts[-2].attempt_id
+                if highest_attempt_number > 1
+                else None
+            )
+        elif authorized_number == highest_attempt_number + 1:
+            if request.state is not RequestState.PREPARED:
+                raise _retry_loop_state_violation(
+                    "pending retry authority requires PREPARED request state"
+                )
+            expected_previous_attempt_id = highest_attempt.attempt_id
+        else:
+            raise _retry_loop_state_violation(
+                "capability authority is incompatible with attempt history"
+            )
+        if capability.previous_attempt_id != expected_previous_attempt_id:
+            raise _retry_loop_state_violation(
+                "capability previous_attempt_id is incompatible with attempt history"
+            )
+
+    if (
+        max_attempts is not None
+        and max_attempts
+        < max(highest_attempt_number, capability.authorized_attempt_number)
+    ):
+        raise _retry_loop_state_violation(
+            "retry policy is below durable attempt authority"
+        )
+
+    if (
+        route_decision.client_request_id != request.client_request_id
+        or canonical_route_decision_digest(route_decision)
+        != request.route_decision_digest
+        or route_decision.configuration.revision
+        != request.configuration_revision
+        or route_decision.required_capability_tier
+        is not request.required_capability_tier
+    ):
+        raise _retry_loop_state_violation(
+            "route decision does not match the request binding"
+        )
+    selected = tuple(
+        candidate
+        for candidate in route_decision.candidates
+        if candidate.candidate_id
+        == route_decision.selected_candidate_id
+    )
+    if (
+        len(selected) != 1
+        or selected[0].instance_id
+        != request.selected_peer_instance_id
+        or selected[0].representative_profile_id
+        != request.selected_profile_id
+    ):
+        raise _retry_loop_state_violation(
+            "selected route target does not match the request binding"
+        )
+
+
 class DispatchService:
     """Orchestrate Phase 1 dispatch state through one state store."""
 
@@ -264,6 +418,68 @@ class DispatchService:
             req = _require_request(unit, command_id)
             att = _require_attempt(unit, attempt_id)
             return req, att
+
+    def load_retry_loop_state(
+        self,
+        command_id: CommandID | str,
+    ) -> RetryLoopState:
+        """Read-model aggregation for outer loop bounding."""
+        with self._store.read_unit_of_work() as unit:
+            request = unit.get_request(command_id)
+            if request is None:
+                raise RecordNotFoundError("request", str(command_id))
+
+            max_attempts = unit.get_retry_policy_max_attempts(command_id)
+            attempts = unit.list_attempts(command_id)
+
+            lease = unit.get_lease(request.lease_id)
+            if lease is None:
+                raise RecordNotFoundError(
+                    "session lease",
+                    request.lease_id,
+                )
+
+            capability = (
+                unit.get_capability_lease_by_session_lease_id(
+                    lease.lease_id
+                )
+            )
+            if capability is None:
+                raise RecordNotFoundError(
+                    "capability lease for session lease",
+                    lease.lease_id,
+                )
+
+            route_decision = unit.get_route_decision_by_binding(
+                request.client_request_id,
+                request.route_decision_digest,
+            )
+            if route_decision is None:
+                raise RecordNotFoundError(
+                    "route decision binding",
+                    (
+                        f"{request.client_request_id}:"
+                        f"{request.route_decision_digest}"
+                    ),
+                )
+
+            _validate_retry_loop_state(
+                request=request,
+                max_attempts=max_attempts,
+                attempts=attempts,
+                lease=lease,
+                capability=capability,
+                route_decision=route_decision,
+            )
+
+            return RetryLoopState(
+                request=request,
+                max_attempts=max_attempts,
+                attempts=attempts,
+                current_lease=lease,
+                current_capability=capability,
+                route_decision=route_decision,
+            )
 
     def peek_idempotent_admission(
         self,

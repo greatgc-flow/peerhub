@@ -70,6 +70,14 @@ class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
 
         ...
 
+    def list_attempts(
+        self,
+        command_id: CommandID | str,
+    ) -> tuple[AttemptSnapshot, ...]:
+        """Return attempts in monotonic attempt-number order."""
+
+        ...
+
     def get_session_binding(
         self,
         key: SessionBindingKey,
@@ -124,6 +132,15 @@ class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
         command_id: CommandID | str,
     ) -> int | None:
         """Return the maximum attempts for a command."""
+
+        ...
+
+    def get_route_decision_by_binding(
+        self,
+        client_request_id: str,
+        route_decision_digest: str,
+    ) -> RouteDecision | None:
+        """Return exactly one digest-matching immutable decision by binding."""
 
         ...
 

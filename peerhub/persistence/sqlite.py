@@ -528,6 +528,13 @@ class SqliteReadUnitOfWork:
         """Return one attempt by ID."""
         return self.dispatch.get_attempt(attempt_id)
 
+    def list_attempts(
+        self,
+        command_id: CommandID | str,
+    ) -> tuple[AttemptSnapshot, ...]:
+        """Return command attempts in monotonic attempt order."""
+        return self.dispatch.list_attempts(command_id)
+
     def get_session_binding(self, key: SessionBindingKey) -> SessionBindingSnapshot | None:
         """Return one session binding by key."""
         return self.dispatch.get_session_binding(key)
@@ -625,6 +632,17 @@ class SqliteReadUnitOfWork:
     def get_route_decision(self, decision_id: str) -> RouteDecision | None:
         """Return one persisted route decision."""
         return self.routing.get_route_decision(decision_id)
+
+    def get_route_decision_by_binding(
+        self,
+        client_request_id: str,
+        route_decision_digest: str,
+    ) -> RouteDecision | None:
+        """Return exactly one digest-matching immutable decision by binding."""
+        return self.routing.get_route_decision_by_binding(
+            client_request_id,
+            route_decision_digest,
+        )
 
     def get_operational_projection(self, instance_id: str, profile_id: str) -> OperationalProjectionSnapshot | None:
         """Return one operational projection."""
@@ -1461,6 +1479,17 @@ class SqliteUnitOfWork:
     ) -> RouteDecision | None:
         """Return a full route decision audit including all candidate decisions."""
         return self.routing.get_route_decision(decision_id)
+
+    def get_route_decision_by_binding(
+        self,
+        client_request_id: str,
+        route_decision_digest: str,
+    ) -> RouteDecision | None:
+        """Return exactly one digest-matching immutable decision by binding."""
+        return self.routing.get_route_decision_by_binding(
+            client_request_id,
+            route_decision_digest,
+        )
 
     # ── Slice 5 Step 4: dispatch artifact metadata ──
 
