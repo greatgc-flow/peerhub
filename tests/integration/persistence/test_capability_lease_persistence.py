@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -14,9 +15,11 @@ from peerhub.core.protocol import (
     PROTOCOL_MINOR,
     SCHEMA_VERSION,
     CommandEnvelope,
+    ErrorCode,
 )
 from peerhub.dispatch.capability import (
     CapabilityLease,
+    CapabilityLeaseViolation,
     CapabilityTier,
     EnforcementLevel,
     PeerEnforcementEvidence,
@@ -33,6 +36,7 @@ from peerhub.dispatch.contract import (
 )
 from peerhub.dispatch.service import DispatchService
 from peerhub.persistence.sqlite import SqliteStateStore
+from peerhub.persistence.sqlite_dispatch import SqliteDispatchRepository
 from tests.fakes import DeterministicClock, SequentialIdSource, deterministic_uuid4
 
 
@@ -290,8 +294,8 @@ def test_capability_lease_write_rolls_back_on_fault_before_commit(
         assert unit.get_capability_lease(
             "capability-lease-1"
         ) is None
-        assert unit.get_capability_lease_by_command_id(
-            "command-1"
+        assert unit.get_capability_lease_by_session_lease_id(
+            "lease-1"
         ) is None
         assert unit.get_request("command-1") is None
 
@@ -307,21 +311,22 @@ def test_capability_lease_replay_returns_identical_durable_record(
     replay_store = _store(database_path)
     with replay_store.read_unit_of_work() as unit:
         by_id = unit.get_capability_lease(lease.capability_lease_id)
-        by_command = unit.get_capability_lease_by_command_id(
-            request.command_id
+        by_attempt = unit.get_capability_lease_for_attempt(
+            request.command_id,
+            1,
         )
         by_receipt = unit.get_capability_lease_by_admission_receipt_id(
             receipt.admission_receipt_id
         )
 
     assert by_id == lease
-    assert by_command == lease
+    assert by_attempt == lease
     assert by_receipt == lease
     assert request.authenticated_principal == "principal-capability"
     assert lease.subject_principal_id == "principal-capability"
     assert by_id is not lease
-    assert by_id is not by_command
-    assert by_command is not by_receipt
+    assert by_id is not by_attempt
+    assert by_attempt is not by_receipt
 
 
 def _count_capability_leases(database_path: Path) -> int:
@@ -359,6 +364,120 @@ def test_idempotent_admit_replay_returns_the_original_capability_lease(
     assert replayed == original
     assert "capability-lease" not in replay_ids.namespaces
     assert _count_capability_leases(database_path) == 1
+
+
+def test_idempotent_admit_replay_selects_capability_by_session_lease(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Replay remains bound to the receipt's session lease with many rows.
+
+    SQLite is free to return either attempt for an unordered command lookup.
+    Simulate it selecting a retry row and prove replay instead uses the
+    session-lease key, whose uniqueness survives migration 0022.
+    """
+
+    store = _store(tmp_path / "capability-session-replay.sqlite3")
+    _, _, original = _admit(store)
+    arbitrary_retry = replace(
+        original,
+        capability_lease_id="capability-lease-arbitrary-retry",
+        session_lease_id="lease-arbitrary-retry",
+        authorized_attempt_number=2,
+        previous_attempt_id="attempt-arbitrary-retry",
+    )
+    original_lookup = SqliteDispatchRepository._get_capability_lease  # pyright: ignore[reportPrivateUsage]
+
+    def _simulate_unordered_command_lookup(
+        repository: SqliteDispatchRepository,
+        column: str,
+        value: str,
+    ) -> CapabilityLease | None:
+        if column == "command_id":
+            return arbitrary_retry
+        return original_lookup(repository, column, value)
+
+    monkeypatch.setattr(
+        SqliteDispatchRepository,
+        "_get_capability_lease",
+        _simulate_unordered_command_lookup,
+    )
+
+    _, _, replayed = _admit(store, ids=_TaggedIdSource("session-replay"))
+
+    assert replayed == original
+
+
+def test_create_attempt_rejects_missing_capability_for_current_session_lease(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "missing-attempt-capability.sqlite3"
+    store = _store(database_path)
+    ids = SequentialIdSource()
+    request, _, capability_lease = _admit(store, ids=ids)
+    service = _service(store, ids=ids)
+    service.prepare_request(request.command_id)
+
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "DELETE FROM capability_leases WHERE capability_lease_id = ?",
+            (capability_lease.capability_lease_id,),
+        )
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        service.create_attempt(request.command_id)
+
+    assert exc_info.value.invariant == (
+        "attempt creation references a session lease with no capability"
+    )
+    with store.unit_of_work() as unit:
+        assert unit.list_attempts(request.command_id) == ()
+
+
+def test_create_attempt_rejects_capability_for_different_attempt_number(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "mismatched-attempt-capability.sqlite3"
+    store = _store(database_path)
+    ids = SequentialIdSource()
+    request, _, capability_lease = _admit(store, ids=ids)
+    service = _service(store, ids=ids)
+    service.prepare_request(request.command_id)
+    first_attempt = service.create_attempt(request.command_id)
+    failed_request, failed_attempt = service.fail_pre_dispatch(
+        request.command_id,
+        first_attempt.attempt_id,
+        error_code=ErrorCode.SPAWN_FAILED,
+        transport="pipe",
+    )
+    retried_request, _, retry_session_lease = service.authorize_retry(
+        failed_request.command_id,
+        failed_attempt.attempt_id,
+        reconciliation_complete=False,
+        heartbeat_timeout_ms=5_000,
+    )
+    mismatched_capability = replace(
+        capability_lease,
+        capability_lease_id="capability-lease-attempt-3",
+        session_lease_id=retry_session_lease.lease_id,
+        authorized_attempt_number=3,
+        previous_attempt_id=failed_attempt.attempt_id,
+    )
+    with store.unit_of_work() as unit:
+        unit.add_capability_lease(mismatched_capability)
+        unit.commit()
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        service.create_attempt(retried_request.command_id)
+
+    assert exc_info.value.invariant == (
+        "capability lease authorizes attempt 3, not next attempt 2"
+    )
+    with store.unit_of_work() as unit:
+        attempts = unit.list_attempts(request.command_id)
+    assert [attempt.attempt_id for attempt in attempts] == [
+        first_attempt.attempt_id
+    ]
 
 
 def test_peek_idempotent_admission_returns_the_original_capability_lease(

@@ -90,13 +90,32 @@ class AttemptLifecycleCoordinator:
                 unit,
                 request.lease_id,
             )
+            attempt_number = unit.next_attempt_number(
+                request.command_id
+            )
+            capability_lease = (
+                unit.get_capability_lease_by_session_lease_id(
+                    lease.lease_id
+                )
+            )
+            if capability_lease is None:
+                raise CapabilityLeaseViolation(
+                    "attempt creation references a session lease with no capability"
+                )
+            if (
+                capability_lease.authorized_attempt_number
+                != attempt_number
+            ):
+                raise CapabilityLeaseViolation(
+                    "capability lease authorizes attempt "
+                    f"{capability_lease.authorized_attempt_number}, not next "
+                    f"attempt {attempt_number}"
+                )
             attempt = reduce_create_attempt(
                 request,
                 lease,
                 attempt_id=self._ids.new_id("attempt"),
-                attempt_number=unit.next_attempt_number(
-                    request.command_id
-                ),
+                attempt_number=attempt_number,
                 created_at=self._clock.now(),
             )
             unit.add_attempt(attempt)
@@ -168,7 +187,7 @@ class AttemptLifecycleCoordinator:
 
     def _record_dispatch_intent_in_unit(
         self,
-        unit: UnitOfWork,
+        unit: DispatchUnitOfWork,
         command_id: CommandID | str,
         attempt_id: str,
         timestamp: int,
@@ -182,6 +201,7 @@ class AttemptLifecycleCoordinator:
         # CapabilityPolicy.revalidate() against a fresh policy read
         # inside this write transaction, closing the TOCTOU window
         # between the pre-plan gate and dispatch-intent commit.
+        attempt: AttemptSnapshot | None = None
         if validated_lease is not None and enforcement_receipt is not None:
             if self._capability_policy is None:
                 raise CapabilityLeaseViolation(
@@ -197,13 +217,28 @@ class AttemptLifecycleCoordinator:
                 raise CapabilityLeaseViolation(
                     "dispatch-intent re-validation references a missing request"
                 )
-            reval_cap_lease = unit.get_capability_lease_by_command_id(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
-                reval_request.command_id  # pyright: ignore[reportUnknownMemberType]
+            attempt = unit.get_attempt(attempt_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+            if attempt is None:
+                raise CapabilityLeaseViolation(
+                    "dispatch-intent re-validation references a missing attempt"
+                )
+            reval_cap_lease = unit.get_capability_lease_for_attempt(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+                reval_request.command_id,  # pyright: ignore[reportUnknownMemberType]
+                attempt.attempt_number,
             )
             if reval_cap_lease is None:
                 raise CapabilityLeaseViolation(
                     "dispatch-intent re-validation references a missing capability lease"
                 )
+            previous_attempt = None
+            if reval_cap_lease.previous_attempt_id is not None:
+                previous_attempt = unit.get_attempt(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
+                    reval_cap_lease.previous_attempt_id
+                )
+                if previous_attempt is None:
+                    raise CapabilityLeaseViolation(
+                        "dispatch-intent re-validation references a missing previous attempt"
+                    )
             reval_receipt = unit.get_admission_receipt(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
                 reval_cap_lease.admission_receipt_id  # pyright: ignore[reportUnknownMemberType]
             )
@@ -226,6 +261,7 @@ class AttemptLifecycleCoordinator:
                 reval_session_lease,  # pyright: ignore[reportUnknownArgumentType]
                 reval_cap_lease,  # pyright: ignore[reportUnknownArgumentType]
                 expected_peer_kind=reval_evidence.peer_kind,
+                previous_attempt=previous_attempt,  # pyright: ignore[reportUnknownArgumentType]
             )
             self._capability_policy.revalidate(
                 reval_binding,
@@ -234,7 +270,8 @@ class AttemptLifecycleCoordinator:
             )
 
         request = _require_request(unit, command_id)  # pyright: ignore[reportArgumentType]
-        attempt = _require_attempt(unit, attempt_id)  # pyright: ignore[reportArgumentType]
+        if attempt is None:
+            attempt = _require_attempt(unit, attempt_id)  # pyright: ignore[reportArgumentType]
         lease = _require_lease(
             unit,  # pyright: ignore[reportArgumentType]
             request.lease_id,

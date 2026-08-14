@@ -325,10 +325,10 @@ class DispatchService:
 
         Loads the authoritative records, reuses ``validate_capability_binding``
         and ``CapabilityPolicy.revalidate`` rather than restating their checks,
-        then adds the dispatch-time equalities: the caller-supplied lease ID
-        must match the durable one, the request must be dispatchable, the
-        selected target/profile must match the durable selection, the adapter's
-        own ``peer_kind`` must match the machine-resolved durable kind, and
+        then adds the dispatch-time equalities: the caller-supplied lease must
+        belong to the command, the request must be dispatchable, the selected
+        target/profile must match the durable selection, the adapter's own
+        ``peer_kind`` must match the machine-resolved durable kind, and
         machine-owned evidence must still prove the mandatory enforcement
         floor.  Raises ``CapabilityLeaseViolation`` on any failure, before the
         caller plans or spawns anything.
@@ -348,13 +348,24 @@ class DispatchService:
                 raise CapabilityLeaseViolation(
                     "dispatch references a missing request"
                 )
-            capability_lease = unit.get_capability_lease_by_command_id(
-                request.command_id
-            )
+            capability_lease = unit.get_capability_lease(supplied_lease_id)
             if capability_lease is None:
                 raise CapabilityLeaseViolation(
                     "dispatch references a missing capability lease"
                 )
+            if capability_lease.command_id != request.command_id:
+                raise CapabilityLeaseViolation(
+                    "capability lease command_id does not match request command_id"
+                )
+            previous_attempt = None
+            if capability_lease.previous_attempt_id is not None:
+                previous_attempt = unit.get_attempt(
+                    capability_lease.previous_attempt_id
+                )
+                if previous_attempt is None:
+                    raise CapabilityLeaseViolation(
+                        "capability lease references a missing previous attempt"
+                    )
             receipt = unit.get_admission_receipt(
                 capability_lease.admission_receipt_id
             )
@@ -368,10 +379,6 @@ class DispatchService:
                     "capability lease references a missing session lease"
                 )
 
-        if capability_lease.capability_lease_id != supplied_lease_id:
-            raise CapabilityLeaseViolation(
-                "supplied capability lease ID does not match the durable lease"
-            )
         if request.state is not RequestState.PREPARED:
             raise CapabilityLeaseViolation(
                 "request is not in a dispatchable state"
@@ -400,6 +407,7 @@ class DispatchService:
             session_lease,
             capability_lease,
             expected_peer_kind=evidence.peer_kind,
+            previous_attempt=previous_attempt,
         )
         self._capability_policy.revalidate(
             binding,
@@ -430,6 +438,9 @@ class DispatchService:
             minimum_enforcement=capability_lease.minimum_enforcement,
             satisfied_floor=satisfied_floor,
             revalidated_policy_revision=current_policy_revision,
+            authorized_attempt_number=(
+                capability_lease.authorized_attempt_number
+            ),
         )
 
     def get_request(

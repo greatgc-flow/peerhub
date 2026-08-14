@@ -92,14 +92,6 @@ class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
 
         ...
 
-    def get_capability_lease_by_command_id(
-        self,
-        command_id: CommandID | str,
-    ) -> CapabilityLease | None:
-        """Return the capability lease uniquely bound to a command."""
-
-        ...
-
     def get_capability_lease_by_admission_receipt_id(
         self,
         admission_receipt_id: str,

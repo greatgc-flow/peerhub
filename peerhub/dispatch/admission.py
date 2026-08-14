@@ -107,10 +107,12 @@ class AdmissionCoordinator:
         ):
             raise RuntimeError("stored admission records are internally inconsistent")
 
-        # Errata 7.1/7.2: replay loads the uniquely bound lease and revalidates
-        # the same immutable binding.  It never mints or accepts a replacement,
-        # and static binding corruption is fatal rather than repairable.
-        capability_lease = unit.get_capability_lease_by_command_id(command_id)
+        # Errata 7.1/7.2: replay follows the request's current session lease.
+        # It never mints or accepts a replacement, and static binding
+        # corruption is fatal rather than repairable.
+        capability_lease = unit.get_capability_lease_by_session_lease_id(
+            lease.lease_id
+        )
         if capability_lease is None:
             raise CapabilityLeaseViolation(
                 "admitted request has no durable capability lease"

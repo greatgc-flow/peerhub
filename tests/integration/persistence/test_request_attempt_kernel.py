@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -37,7 +36,10 @@ from peerhub.dispatch.contract import (
     ProtocolAssessment,
     RequestState,
 )
-from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.capability import (
+    CapabilityLeaseViolation,
+    CapabilityTier,
+)
 from peerhub.dispatch.model import (
     record_dispatch_intent as reduce_dispatch_intent,
 )
@@ -122,6 +124,27 @@ def _admit(service: DispatchService):
         heartbeat_timeout_ms=5_000,
         owner_peer_id="peer-01",
     )[:3]
+
+
+def _add_retry_capability(
+    store: SqliteStateStore,
+    command_id: str,
+    previous_attempt,
+    retry_session_lease,
+) -> None:
+    with store.unit_of_work() as unit:
+        original = unit.get_capability_lease_for_attempt(command_id, 1)
+        assert original is not None
+        unit.add_capability_lease(
+            replace(
+                original,
+                capability_lease_id="capability-lease-retry-2",
+                session_lease_id=retry_session_lease.lease_id,
+                authorized_attempt_number=2,
+                previous_attempt_id=previous_attempt.attempt_id,
+            )
+        )
+        unit.commit()
 
 
 def _verified_result() -> AskResult:
@@ -356,8 +379,11 @@ def test_active_attempt_uniqueness_and_monotonic_numbering(
         admitted.command_id
     )
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
         service.create_attempt(admitted.command_id)
+    assert exc_info.value.invariant == (
+        "capability lease authorizes attempt 1, not next attempt 2"
+    )
 
     failed_request, failed_attempt = (
         service.fail_pre_dispatch(
@@ -385,6 +411,12 @@ def test_active_attempt_uniqueness_and_monotonic_numbering(
     assert retried_request.lease_id == retry_lease.lease_id
     assert retry_lease.fence.attempt_id is None
 
+    _add_retry_capability(
+        store,
+        str(admitted.command_id),
+        failed_attempt,
+        retry_lease,
+    )
     second_attempt = service.create_attempt(
         admitted.command_id
     )
@@ -460,6 +492,12 @@ def test_reconciled_start_uncertain_retry_rotates_lease(
     assert retried_request.lease_id == retry_lease.lease_id
     assert retry_lease.fence.attempt_id is None
 
+    _add_retry_capability(
+        store,
+        str(admitted.command_id),
+        interrupted_attempt,
+        retry_lease,
+    )
     second_attempt = service.create_attempt(
         admitted.command_id
     )

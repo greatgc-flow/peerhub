@@ -52,6 +52,7 @@ from peerhub.dispatch.contract import (
     TerminalClassification,
 )
 from peerhub.dispatch.capability import (
+    CapabilityLease,
     CapabilityLeaseViolation,
     CapabilityPolicy,
     CapabilityTier,
@@ -80,6 +81,7 @@ from peerhub.health.contract import (
 )
 from peerhub.health.service import HealthService
 from peerhub.persistence.sqlite import SqliteStateStore
+from peerhub.persistence.sqlite_dispatch import SqliteDispatchRepository
 from peerhub.routing.contract import (
     ConfigurationSnapshot,
     RouteCandidateInput,
@@ -1173,6 +1175,198 @@ def test_dispatch_intent_post_plan_revalidation_happy_path(
     assert len(after_events) == len(before_events) + 1
     assert after_events[-1].event_kind == "DISPATCH_INTENT"
     assert policy.revalidation_calls == [7, 7]
+
+
+def test_dispatch_intent_revalidation_loads_capability_for_exact_attempt(
+    store: SqliteStateStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    policy = _MutableRevisionCapabilityPolicy()
+    workflows, dispatch = _workflows(
+        store,
+        capability_policy=policy,
+    )
+    command_id, capability_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+    )
+    validated = dispatch.require_dispatch_capability(
+        command_id,
+        capability_lease_id=capability_lease_id,
+        peer_instance_id=peer_instance,
+        adapter_peer_kind="fake",
+        profile=_ROUTED_PROFILE,
+        current_policy_revision=7,
+    )
+    receipt = _invocation_receipt(validated)
+    attempt = dispatch.create_attempt(command_id)
+    calls: list[tuple[str, int]] = []
+    original_lookup = SqliteDispatchRepository.get_capability_lease_for_attempt
+
+    def _record_attempt_lookup(
+        repository: SqliteDispatchRepository,
+        lookup_command_id: str,
+        attempt_number: int,
+    ) -> CapabilityLease | None:
+        calls.append((str(lookup_command_id), attempt_number))
+        return original_lookup(repository, lookup_command_id, attempt_number)
+
+    monkeypatch.setattr(
+        SqliteDispatchRepository,
+        "get_capability_lease_for_attempt",
+        _record_attempt_lookup,
+    )
+
+    dispatch.record_dispatch_intent(
+        command_id,
+        attempt.attempt_id,
+        validated_lease=validated,
+        enforcement_receipt=receipt,
+    )
+
+    assert calls == [(command_id, attempt.attempt_number)]
+
+
+def test_dispatch_intent_revalidation_rejects_missing_attempt(
+    store: SqliteStateStore,
+) -> None:
+    policy = _MutableRevisionCapabilityPolicy()
+    workflows, dispatch = _workflows(
+        store,
+        capability_policy=policy,
+    )
+    command_id, capability_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+    )
+    validated = dispatch.require_dispatch_capability(
+        command_id,
+        capability_lease_id=capability_lease_id,
+        peer_instance_id=peer_instance,
+        adapter_peer_kind="fake",
+        profile=_ROUTED_PROFILE,
+        current_policy_revision=7,
+    )
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        dispatch.record_dispatch_intent(
+            command_id,
+            "missing-attempt",
+            validated_lease=validated,
+            enforcement_receipt=_invocation_receipt(validated),
+        )
+
+    assert exc_info.value.invariant == (
+        "dispatch-intent re-validation references a missing attempt"
+    )
+
+
+def test_dispatch_capability_loads_supplied_id_then_checks_command_binding(
+    store: SqliteStateStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflows, dispatch = _workflows(store)
+    command_id, capability_lease_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+    )
+    with store.read_unit_of_work() as unit:
+        capability_lease = unit.get_capability_lease(capability_lease_id)
+    assert capability_lease is not None
+    foreign_capability = replace(
+        capability_lease,
+        capability_lease_id="capability-lease-foreign-command",
+        command_id="foreign-command",
+    )
+
+    def _return_foreign_capability(
+        repository: SqliteDispatchRepository,
+        supplied_id: str,
+    ) -> CapabilityLease | None:
+        assert supplied_id == foreign_capability.capability_lease_id
+        return foreign_capability
+
+    monkeypatch.setattr(
+        SqliteDispatchRepository,
+        "get_capability_lease",
+        _return_foreign_capability,
+    )
+
+    with pytest.raises(CapabilityLeaseViolation) as exc_info:
+        dispatch.require_dispatch_capability(
+            command_id,
+            capability_lease_id=foreign_capability.capability_lease_id,
+            peer_instance_id=peer_instance,
+            adapter_peer_kind="fake",
+            profile=_ROUTED_PROFILE,
+            current_policy_revision=7,
+        )
+
+    assert exc_info.value.invariant == (
+        "capability lease command_id does not match request command_id"
+    )
+
+
+def test_retry_capability_flows_through_gate_attempt_and_intent_revalidation(
+    store: SqliteStateStore,
+) -> None:
+    policy = _MutableRevisionCapabilityPolicy()
+    workflows, dispatch = _workflows(
+        store,
+        capability_policy=policy,
+    )
+    command_id, first_capability_id, peer_instance = _admit_and_prepare(
+        workflows,
+        _envelope(),
+    )
+    with store.read_unit_of_work() as unit:
+        first_capability = unit.get_capability_lease(first_capability_id)
+    assert first_capability is not None
+
+    first_attempt = dispatch.create_attempt(command_id)
+    failed_request, failed_attempt = dispatch.fail_pre_dispatch(
+        command_id,
+        first_attempt.attempt_id,
+        error_code=ErrorCode.SPAWN_FAILED,
+        transport="pipe",
+    )
+    retried_request, _, retry_session_lease = dispatch.authorize_retry(
+        failed_request.command_id,
+        failed_attempt.attempt_id,
+        reconciliation_complete=False,
+        heartbeat_timeout_ms=5_000,
+    )
+    retry_capability = replace(
+        first_capability,
+        capability_lease_id="capability-lease-retry-2",
+        session_lease_id=retry_session_lease.lease_id,
+        authorized_attempt_number=2,
+        previous_attempt_id=failed_attempt.attempt_id,
+    )
+    with store.unit_of_work() as unit:
+        unit.add_capability_lease(retry_capability)
+        unit.commit()
+
+    validated = dispatch.require_dispatch_capability(
+        retried_request.command_id,
+        capability_lease_id=retry_capability.capability_lease_id,
+        peer_instance_id=peer_instance,
+        adapter_peer_kind="fake",
+        profile=_ROUTED_PROFILE,
+        current_policy_revision=7,
+    )
+    assert validated.authorized_attempt_number == 2
+    second_attempt = dispatch.create_attempt(retried_request.command_id)
+    request, attempt, session_lease = dispatch.record_dispatch_intent(
+        retried_request.command_id,
+        second_attempt.attempt_id,
+        validated_lease=validated,
+        enforcement_receipt=_invocation_receipt(validated),
+    )
+
+    assert request.state is RequestState.DISPATCH_INTENT
+    assert attempt.attempt_number == 2
+    assert session_lease.lease_id == retry_session_lease.lease_id
 
 
 def _count_attempts(database_path: Path) -> int:

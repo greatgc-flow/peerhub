@@ -546,13 +546,6 @@ class SqliteReadUnitOfWork:
         """Return one capability lease by ID."""
         return self.dispatch.get_capability_lease(capability_lease_id)
 
-    def get_capability_lease_by_command_id(
-        self,
-        command_id: CommandID | str,
-    ) -> CapabilityLease | None:
-        """Return the capability lease uniquely bound to a command."""
-        return self.dispatch.get_capability_lease_by_command_id(command_id)
-
     def get_capability_lease_by_admission_receipt_id(
         self,
         admission_receipt_id: str,
@@ -1061,13 +1054,6 @@ class SqliteUnitOfWork:
     ) -> CapabilityLease | None:
         """Return one capability lease by ID."""
         return self.dispatch.get_capability_lease(capability_lease_id)
-
-    def get_capability_lease_by_command_id(
-        self,
-        command_id: CommandID | str,
-    ) -> CapabilityLease | None:
-        """Return the capability lease uniquely bound to a command."""
-        return self.dispatch.get_capability_lease_by_command_id(command_id)
 
     def get_capability_lease_by_admission_receipt_id(
         self,

@@ -223,6 +223,8 @@ def test_persistence_ports_round_trip(tmp_path: Path):
         cap_attempt2 = read_unit.get_capability_lease_for_attempt('cmd-1', 2)
         assert cap_attempt2 is not None
         assert cap_attempt2.capability_lease_id == 'cap-2'
+        assert cap_attempt2.authorized_attempt_number == 2
+        assert cap_attempt2.previous_attempt_id == 'att-1'
 
         assert read_unit.get_capability_lease_for_attempt('cmd-1', 3) is None
 

@@ -514,8 +514,8 @@ class SqliteDispatchRepository:
                 lease.issuer_id,
                 lease.issued_at,
                 lease.expires_at,
-                1,
-                None,
+                lease.authorized_attempt_number,
+                lease.previous_attempt_id,
             ),
         )
 
@@ -528,17 +528,6 @@ class SqliteDispatchRepository:
         return self._get_capability_lease(
             "capability_lease_id",
             capability_lease_id,
-        )
-
-    def get_capability_lease_by_command_id(
-        self,
-        command_id: CommandID | str,
-    ) -> CapabilityLease | None:
-        """Return the capability lease uniquely bound to a command."""
-
-        return self._get_capability_lease(
-            "command_id",
-            str(command_id),
         )
 
     def get_capability_lease_by_admission_receipt_id(
@@ -559,7 +548,6 @@ class SqliteDispatchRepository:
     ) -> CapabilityLease | None:
         if column not in {
             "capability_lease_id",
-            "command_id",
             "admission_receipt_id",
             "session_lease_id",
         }:
@@ -595,6 +583,8 @@ class SqliteDispatchRepository:
             issuer_id=row["issuer_id"],  # pyright: ignore[reportUnknownArgumentType]
             issued_at=row["issued_at"],  # pyright: ignore[reportUnknownArgumentType]
             expires_at=row["expires_at"],  # pyright: ignore[reportUnknownArgumentType]
+            authorized_attempt_number=row["authorized_attempt_number"],  # pyright: ignore[reportUnknownArgumentType]
+            previous_attempt_id=row["previous_attempt_id"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def get_capability_lease_by_session_lease_id(
@@ -646,6 +636,8 @@ class SqliteDispatchRepository:
             issuer_id=row["issuer_id"],  # pyright: ignore[reportUnknownArgumentType]
             issued_at=row["issued_at"],  # pyright: ignore[reportUnknownArgumentType]
             expires_at=row["expires_at"],  # pyright: ignore[reportUnknownArgumentType]
+            authorized_attempt_number=row["authorized_attempt_number"],  # pyright: ignore[reportUnknownArgumentType]
+            previous_attempt_id=row["previous_attempt_id"],  # pyright: ignore[reportUnknownArgumentType]
         )
 
     def get_retry_policy_max_attempts(
