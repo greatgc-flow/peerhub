@@ -586,7 +586,30 @@ context/quota state, retry/failover on peer trouble).
     current `--output-format json` invocation mode, though they do via
     unused `stream-json` mode.
   - **T1 increment 5A -- disposition mapper + DTOs + adjudicator implementing the Section 3 state-treatment table (`a5556a2`/`24102f8`/`a6118a9`). DONE.**
-    Increments 5B (fixes 2 empirically-confirmed blocking seams: lease-rotation/capability mismatch, no failover routing) and 5C (outer-loop integration) remain.
+  - **T1 increment 5B -- authorization plan ratified (`04250ff`, simplified `e5d9566`) and IN PROGRESS.**
+    Closes 2 empirically-confirmed blocking seams: 9.1 (retry rotates the
+    request lease but capability validation still checked the
+    pre-rotation lease) and 9.2 (no failover target-selection
+    mechanism). Sub-increments:
+    - 5B-1a (`7d12578`) -- migration `0022_retry_authority.sql`
+      (versions `capability_leases` by `authorized_attempt_number`/
+      `previous_attempt_id`; new `retry_policies` table) + persistence
+      ports. DONE.
+    - 5B-1b (`31f5794`) -- `CapabilityLease`/`ValidatedCapabilityLease`
+      gain the new fields with safe attempt-1 defaults;
+      `validate_capability_binding()` generalized to branch on
+      `authorized_attempt_number` (closes seam 9.1's validation half).
+      DONE.
+    - 5B-1c (`246fb8c`) -- rewired the 3 remaining
+      `get_capability_lease_by_command_id()` call sites (now removed
+      entirely) to unambiguous attempt/session-lease-keyed lookups
+      (`admission.py`, `attempt_lifecycle.py`, `service.py`); added the
+      missing authorization gate to `create_attempt()`, closing seam
+      9.1's enforcement half. DONE.
+    - 5B-2 (same-target atomic `authorize_retry()`, tagged-union
+      `SameTargetRoute`) and 5B-3 (failover route selection + atomic
+      rebinding, closes seam 9.2) remain.
+    5C (outer-loop integration) remains, blocked on 5B.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production

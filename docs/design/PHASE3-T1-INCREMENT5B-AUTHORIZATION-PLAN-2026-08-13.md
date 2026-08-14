@@ -8,8 +8,13 @@ Date: 2026-08-13
 Planning baseline: `59929ee` (Increment 5A commits `a5556a2`, `24102f8`,
 and `a6118a9` are present.)
 
-Implementation status: **PLANNING ONLY. No 5B source or tests are implemented
-by this document.**
+Implementation status: **5B-1 (durable retry authority, no mutation) DONE**
+-- 5B-1a migration + persistence ports (`7d12578`), 5B-1b `CapabilityLease`
+model + `validate_capability_binding()` generalization (`31f5794`), 5B-1c
+rewiring of the 3 stale `get_capability_lease_by_command_id()` call sites
+plus the `create_attempt()` authorization gate (`246fb8c`, closes seam 9.1
+in full). **5B-2 (same-target atomic `authorize_retry()`) and 5B-3
+(failover route selection) are NOT started.**
 
 Ratified parent contract:
 `PHASE3-T1-INCREMENT5-RETRY-LOOP-DESIGN-R1-2026-08-13.md`, especially
