@@ -2,10 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
+from peerhub.adapters.contract import SessionAction
+from peerhub.core.errors import (
+    AttemptLimitReachedError,
+    CapabilityAuthorizationDeniedError,
+    InvalidMutationError,
+    InvalidStateTransitionError,
+    PolicyStaleError,
+    RecordNotFoundError,
+    RetryPolicyConflictError,
+    RetryRouteUnavailableError,
+    RouteExhaustedError,
+    StaleRevisionError,
+)
 from peerhub.core.protocol import (
     CommandID,
     ErrorCode,
@@ -14,12 +27,15 @@ from peerhub.core.protocol import (
     RetryDisposition,
     require_text,
 )
+from peerhub.dispatch.capability import CapabilityLeaseViolation
 from peerhub.dispatch.contract import (
     AttemptFailureClassification,
     RequestState,
     TerminalClassification,
 )
+from peerhub.dispatch.retry_authorization import RetryAuthorizationBundle
 from peerhub.core.execution import ExecutionCertainty
+from peerhub.routing.contract import canonical_route_decision_digest
 
 if TYPE_CHECKING:
     from peerhub.adapters.contract import (
@@ -96,6 +112,14 @@ class RetryLoopStopReason(str, Enum):
     CONCURRENT_ATTEMPT_IN_PROGRESS = "CONCURRENT_ATTEMPT_IN_PROGRESS"
     FAILOVER_UNAVAILABLE = "FAILOVER_UNAVAILABLE"
     LEGACY_CLASSIFICATION_UNKNOWN = "LEGACY_CLASSIFICATION_UNKNOWN"
+    AUTHORIZATION_DENIED = "AUTHORIZATION_DENIED"
+
+
+class AuthorizationErrorSignal(str, Enum):
+    """Nonterminal control signals emitted by the 5B error boundary."""
+
+    RELOAD_DURABLE_STATE = "RELOAD_DURABLE_STATE"
+    PREPARE_FAILOVER = "PREPARE_FAILOVER"
 
 
 def _require_nonnegative_optional_int(value: int | None, name: str) -> None:
@@ -126,6 +150,26 @@ class RetryConditionEvidence:
         if type(self.observed_at) is not int or self.observed_at < 0:
             raise ValueError("observed_at must be a nonnegative integer")
         _require_nonnegative_optional_int(self.not_before, "not_before")
+
+
+class RetryConditionEvidenceProvider(Protocol):
+    """Fetch fresh authoritative condition evidence after a durable reload."""
+
+    def __call__(
+        self,
+        *,
+        latest_attempt: AttemptSnapshot,
+        condition: RetryCondition,
+    ) -> RetryConditionEvidence | None: ...
+
+
+@dataclass(frozen=True)
+class RetryConditionResolution:
+    """Whether fresh evidence permits adjudication or requires deferral."""
+
+    evidence_for_adjudication: RetryConditionEvidence | None
+    stop_reason: RetryLoopStopReason | None
+    not_before: int | None
 
 
 @dataclass(frozen=True)
@@ -229,6 +273,293 @@ class AttemptDispatchPlan:
                 name,
                 require_text(getattr(self, name), name),
             )
+        if self.adapter_request.profile_id != self.profile.profile_id:
+            raise ValueError(
+                "adapter request profile_id must match the dispatch profile"
+            )
+        session_action = self.adapter_request.requested_session_action
+        if session_action is SessionAction.RESUME and self.session is None:
+            raise ValueError("SessionAction.RESUME requires a session")
+        if session_action is not SessionAction.RESUME and self.session is not None:
+            raise ValueError("a session requires SessionAction.RESUME")
+
+
+@dataclass(frozen=True)
+class RetryRouteTransition:
+    """One bounded next step for retry-route authorization."""
+
+    decision: RetryDecision
+    next_action: RetryAction | None
+    reload_required: bool
+
+    def __post_init__(self) -> None:
+        if self.reload_required:
+            if self.next_action is not None:
+                raise ValueError(
+                    "a durable reload cannot also authorize a route action"
+                )
+        elif self.next_action not in {
+            RetryAction.RETRY_SAME_TARGET,
+            RetryAction.FAILOVER,
+        }:
+            raise ValueError(
+                "a route transition must choose same-target or failover"
+            )
+
+
+@dataclass(frozen=True)
+class ResolvedRetryTarget:
+    """Adapter and profile resolved from machine-owned failover identity."""
+
+    peer_adapter: PeerAdapter
+    profile: ProfileDescriptor
+
+
+class RetryTargetResolver(Protocol):
+    """Resolve one replacement target without assuming instance equals kind."""
+
+    def __call__(
+        self,
+        peer_kind: str,
+        instance_id: str,
+        profile_id: str,
+    ) -> ResolvedRetryTarget | None: ...
+
+
+def classify_authorization_error(
+    error: BaseException,
+) -> RetryLoopStopReason | AuthorizationErrorSignal:
+    """Classify only the ratified 5B control outcomes; propagate everything else."""
+
+    if isinstance(error, StaleRevisionError):
+        return AuthorizationErrorSignal.RELOAD_DURABLE_STATE
+    if isinstance(error, AttemptLimitReachedError):
+        return RetryLoopStopReason.ATTEMPT_LIMIT_REACHED
+    if isinstance(error, RouteExhaustedError):
+        return RetryLoopStopReason.ROUTE_EXHAUSTED
+    if isinstance(error, CapabilityAuthorizationDeniedError):
+        return RetryLoopStopReason.AUTHORIZATION_DENIED
+    if isinstance(error, RetryRouteUnavailableError):
+        return AuthorizationErrorSignal.PREPARE_FAILOVER
+    if isinstance(
+        error,
+        (
+            RetryPolicyConflictError,
+            PolicyStaleError,
+            RecordNotFoundError,
+            CapabilityLeaseViolation,
+            InvalidStateTransitionError,
+            InvalidMutationError,
+        ),
+    ):
+        raise error
+    raise error
+
+
+def transition_retry_route(
+    decision: RetryDecision,
+    *,
+    attempted_action: RetryAction | None = None,
+    error: BaseException | None = None,
+) -> RetryRouteTransition:
+    """Select same-target, one failover, or a durable reload without spinning."""
+
+    if attempted_action is None:
+        if error is not None:
+            raise InvalidMutationError(
+                "an initial retry route transition cannot carry an error"
+            )
+        if decision.action is not RetryAction.RETRY_SAME_TARGET:
+            raise InvalidMutationError(
+                "retry route authorization must begin with RETRY_SAME_TARGET"
+            )
+        return RetryRouteTransition(
+            decision=decision,
+            next_action=RetryAction.RETRY_SAME_TARGET,
+            reload_required=False,
+        )
+
+    if error is None:
+        raise InvalidMutationError(
+            "a completed route attempt requires an error transition"
+        )
+    if isinstance(error, StaleRevisionError):
+        return RetryRouteTransition(
+            decision=decision,
+            next_action=None,
+            reload_required=True,
+        )
+    if isinstance(error, RetryRouteUnavailableError):
+        if (
+            attempted_action is not RetryAction.RETRY_SAME_TARGET
+            or decision.action is not RetryAction.RETRY_SAME_TARGET
+        ):
+            raise InvalidMutationError(
+                "retry routing permits exactly one failover transition"
+            )
+        failover_decision = replace(
+            decision,
+            action=RetryAction.FAILOVER,
+        )
+        return RetryRouteTransition(
+            decision=failover_decision,
+            next_action=RetryAction.FAILOVER,
+            reload_required=False,
+        )
+    raise error
+
+
+def build_retry_dispatch_plan(
+    *,
+    bundle: RetryAuthorizationBundle,
+    route_action: RetryAction,
+    current_plan: AttemptDispatchPlan,
+    resolver: RetryTargetResolver,
+) -> AttemptDispatchPlan | RetryLoopStopReason:
+    """Build the next plan only from one cross-checked atomic authority bundle."""
+
+    request = bundle.request
+    capability = bundle.capability_lease
+    route_decision = bundle.route_decision
+    route_digest = canonical_route_decision_digest(route_decision)
+    selected = tuple(
+        candidate
+        for candidate in route_decision.candidates
+        if candidate.candidate_id == route_decision.selected_candidate_id
+    )
+    bundle_matches = (
+        len(selected) == 1
+        and request.command_id == capability.command_id
+        and request.lease_id == bundle.session_lease.lease_id
+        and capability.session_lease_id == bundle.session_lease.lease_id
+        and request.client_request_id == route_decision.client_request_id
+        and request.route_decision_digest == route_digest
+        and capability.route_decision_digest == route_digest
+        and request.selected_peer_instance_id == selected[0].instance_id
+        and capability.selected_peer_instance_id == selected[0].instance_id
+        and request.selected_profile_id
+        == selected[0].representative_profile_id
+        and capability.selected_profile_id
+        == selected[0].representative_profile_id
+    )
+    if not bundle_matches:
+        raise CapabilityLeaseViolation(
+            "retry authorization bundle target binding must agree"
+        )
+
+    if route_action is RetryAction.RETRY_SAME_TARGET:
+        if (
+            current_plan.peer_instance_id
+            != request.selected_peer_instance_id
+            or current_plan.profile.profile_id
+            != request.selected_profile_id
+            or current_plan.peer_adapter.descriptor.peer_kind
+            != capability.selected_peer_kind
+        ):
+            raise CapabilityLeaseViolation(
+                "same-target retry must retain the bound adapter target"
+            )
+        return AttemptDispatchPlan(
+            route_decision_id=route_decision.decision_id,
+            capability_lease_id=capability.capability_lease_id,
+            peer_instance_id=request.selected_peer_instance_id,
+            adapter_request=current_plan.adapter_request,
+            peer_adapter=current_plan.peer_adapter,
+            profile=current_plan.profile,
+            session=current_plan.session,
+        )
+
+    if route_action is not RetryAction.FAILOVER:
+        raise InvalidMutationError(
+            "retry plan construction requires same-target or failover"
+        )
+    if request.selected_peer_instance_id == current_plan.peer_instance_id:
+        raise CapabilityLeaseViolation(
+            "failover retry must select a replacement peer instance"
+        )
+
+    resolved = resolver(
+        capability.selected_peer_kind,
+        request.selected_peer_instance_id,
+        request.selected_profile_id,
+    )
+    if resolved is None:
+        return RetryLoopStopReason.FAILOVER_UNAVAILABLE
+    if (
+        resolved.peer_adapter.descriptor.peer_kind
+        != capability.selected_peer_kind
+        or resolved.profile.profile_id != request.selected_profile_id
+        or not any(
+            profile.profile_id == resolved.profile.profile_id
+            for profile in resolved.peer_adapter.descriptor.profiles
+        )
+    ):
+        raise CapabilityLeaseViolation(
+            "resolved failover target must match committed capability identity"
+        )
+
+    adapter_request = replace(
+        current_plan.adapter_request,
+        profile_id=resolved.profile.profile_id,
+        requested_session_action=SessionAction.NONE,
+    )
+    return AttemptDispatchPlan(
+        route_decision_id=route_decision.decision_id,
+        capability_lease_id=capability.capability_lease_id,
+        peer_instance_id=request.selected_peer_instance_id,
+        adapter_request=adapter_request,
+        peer_adapter=resolved.peer_adapter,
+        profile=resolved.profile,
+        session=None,
+    )
+
+
+def read_fresh_retry_condition_evidence(
+    provider: RetryConditionEvidenceProvider,
+    *,
+    latest_attempt: AttemptSnapshot,
+    condition: RetryCondition,
+) -> RetryConditionEvidence | None:
+    """Call the provider every time; callers must invoke this after each reload."""
+
+    return provider(
+        latest_attempt=latest_attempt,
+        condition=condition,
+    )
+
+
+def evaluate_retry_condition_evidence(
+    condition: RetryCondition,
+    evidence: RetryConditionEvidence | None,
+) -> RetryConditionResolution:
+    """Fail closed on absent evidence and on session remediation in 5C."""
+
+    if condition is RetryCondition.SESSION_REPLACED_OR_REMOVED:
+        return RetryConditionResolution(
+            evidence_for_adjudication=None,
+            stop_reason=RetryLoopStopReason.CONDITION_DEFERRED,
+            not_before=None,
+        )
+    if (
+        evidence is None
+        or evidence.condition is not condition
+        or not evidence.satisfied
+    ):
+        return RetryConditionResolution(
+            evidence_for_adjudication=None,
+            stop_reason=RetryLoopStopReason.CONDITION_DEFERRED,
+            not_before=(
+                evidence.not_before
+                if evidence is not None
+                and evidence.condition is condition
+                else None
+            ),
+        )
+    return RetryConditionResolution(
+        evidence_for_adjudication=evidence,
+        stop_reason=None,
+        not_before=None,
+    )
 
 
 def map_retry_disposition(

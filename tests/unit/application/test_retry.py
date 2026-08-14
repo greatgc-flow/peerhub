@@ -329,7 +329,19 @@ def test_retry_enum_vocabulary_covers_ratified_cases() -> None:
         "CONCURRENT_ATTEMPT_IN_PROGRESS",
         "FAILOVER_UNAVAILABLE",
         "LEGACY_CLASSIFICATION_UNKNOWN",
+        "AUTHORIZATION_DENIED",
     } == {reason.value for reason in RetryLoopStopReason}
+
+    record = _attempt_record()
+    reachable = {
+        MultiAttemptExecutionResult(
+            command_id=CommandID("command-1"),
+            attempts=(record,),
+            stop_reason=reason,
+        ).stop_reason
+        for reason in RetryLoopStopReason
+    }
+    assert reachable == set(RetryLoopStopReason)
 
 
 def test_retry_condition_evidence_constructs_and_validates() -> None:
