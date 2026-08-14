@@ -273,3 +273,112 @@ harness), but must gate any future proposal that would.
   given the specificity and primary-source grounding of Round 2's
   findings; a future async confirmation ping to ag/cx is optional, not
   required to act on this document.
+
+---
+
+## 9. Current-design compatibility audit (2026-08-15)
+
+Follow-up per explicit user request: this direction is a documented future
+possibility, not scheduled work. Before moving on, audit whether today's
+actual shipped design can accommodate it later without a destructive
+rewrite, and make small, safe, additive fixes now where a real gap is
+found -- without implementing the OSS strategy itself. Direct source
+reads (`peerhub/adapters/contract.py`, `peerhub/core/execution.py`,
+`peerhub/adapters/registry.py`, `peerhub/dispatch/capability.py`), not
+peer dispatch, since the terminal already held full context from Sections
+1-8's research.
+
+### 9.1 Transport layer (`InvocationPlan` / `TransportKind`) -- confirmed
+extensible, no patch needed now
+
+`InvocationPlan.__post_init__` hard-requires non-empty `argv` and process-
+shaped fields (`cwd_reference`, `environment_delta`, `stdin_payload`,
+`TransportLimits` with `process_timeout_ms`/`silence_timeout_ms`).
+`TransportKind` is `{PIPE, PTY}` today. This confirms Section 5's premise:
+the current shape is genuinely process-only, not something an `HttpInvocation`
+variant slots into by adding one enum value.
+
+The good news, found by reading rather than assumed: `PeerDescriptor.transports`
+is already `frozenset[TransportKind]` -- a *set*, not a single value --
+meaning the original design already anticipated one adapter supporting
+multiple transport kinds. Widening `TransportKind` with a new member and
+introducing a sibling `HttpInvocationPlan` behind a tagged union (exactly
+Section 5's proposal) is additive at the `PeerDescriptor`/registry level:
+existing adapters keep declaring `{PIPE}` or `{PTY}` and are structurally
+unaffected. The real touch points are the two `PeerAdapter` Protocol
+methods that currently pin to the process-specific types
+(`new_decoder(plan: InvocationPlan)`, `interpret_output(plan, process:
+ProcessTerminalEvidence, raw_chunks)`) -- widening their parameter types to
+a union is a real signature change requiring the same design-and-ratify
+rigor as any T1 increment (exhaustiveness checking via `match`/`assert_never`,
+per the pattern already proven in `retry_authorization.py`'s
+`FailoverRoute` branch). **No code change made here** -- this confirms the
+extension is well-shaped when its own ratified round happens (Section 7),
+not a currently-blocking gap.
+
+### 9.2 `peer_kind` as a collaboration dimension -- confirmed open, no
+patch needed
+
+Grepped the whole `peerhub/` production tree for hardcoded enumerations of
+the 3 current peer kinds (`cc`/`ag`/`cx`) as a closed set. Found exactly
+one: `mandatory_enforcement_floor()` special-cases `peer_kind == "ag"` for
+the `CONFINED` floor -- a legitimate *policy* choice (ag runs unsandboxed
+in the current environment), not a structural enumeration. Everywhere
+else `peer_kind` is compared for equality between two already-bound
+values (e.g. `capability_lease.selected_peer_kind == machine_peer_kind`),
+never enumerated against a closed list. No migration/schema `CHECK`
+constraint in production code pins the peer-kind set either (the only
+hits were Phase 0 prototype fixtures under `tools/phase0_fixture_runner/`,
+not the shipped kernel). Adding a 4th, 5th, Nth peer kind does not require
+touching a scattered enumeration across many files -- this is structurally
+unlike the exact drift problem found in P:'s hub.py (Sections outside this
+doc). No patch needed.
+
+### 9.3 Enforcement floor -- structurally extensible, semantic gap
+correctly deferred (not silently open)
+
+`require_enforcement_floor()`/`PeerEnforcementEvidence` already route
+through an injected `PeerEnforcementEvidenceProvider` Protocol producing an
+abstract `EnforcementLevel` ceiling -- not something hardwired to "did the
+process carry a sandbox flag." Adding a new peer_kind's floor policy is a
+one-line addition to `mandatory_enforcement_floor()`, and a new evidence
+provider can measure whatever confinement guarantee is meaningful for that
+peer kind. The mechanism is sound.
+
+The genuinely open question -- correctly identified already in Section 4.1
+and re-confirmed here, not newly discovered -- is the *policy content*: what
+does `ENFORCED`/`CONFINED` mean for a process-less HTTP peer, and what
+floor should it default to. This is a real design decision, not a code
+gap, and stays deferred to its own round per Section 7. Flagging again
+here only to confirm the audit didn't find a reason to resolve it
+prematurely.
+
+### 9.4 Adapter registration (`peerhub/adapters/registry.py`) -- real
+small gap found, patch proposed
+
+`_ADAPTER_FACTORIES` and `_CLI_ALIASES` are module-level `MappingProxyType`
+dict literals; adding any new adapter (a future OpenCode-routed peer, a
+local-model `HttpInvocation` peer, etc.) means directly editing this one
+file's dict literals. That's already far better than P:'s hub.py drift
+pattern (one contained file, not several), but for a package whose stated
+goal is collaboration -- more peers joining over time -- a closed
+module-level dict is the one place a small, purely additive improvement is
+worth making now: a public registration function
+(`register_adapter_factory(peer_kind, cli_aliases, factory)`) alongside
+the existing dict, so new adapters can self-register without editing this
+file's literals directly. Zero risk to the existing kernel (registry.py
+has no relationship to `retry_authorization.py`'s authority boundary) and
+directly serves "collaboration is the goal" by lowering the cost of a new
+peer joining. Proposed as a follow-up implementation (see task tracker),
+not applied inline by the terminal, to keep the same TDD +
+independent-verification discipline used for every other change this
+session.
+
+### 9.5 Summary
+
+| Area | Finding | Action |
+|---|---|---|
+| Transport (`InvocationPlan`) | Process-only today, additive extension confirmed feasible (`PeerDescriptor.transports` already a set) | None now; ratify+implement in its own round per Section 7 |
+| `peer_kind` | Already an open key, not a closed enumeration | None needed |
+| Enforcement floor | Mechanism (evidence-provider Protocol) already extensible | None now; the *policy* content for HTTP peers stays deferred per Section 4.1 |
+| Adapter registry | Real small gap: closed module-level dict | Small additive patch proposed (registration function), scheduled as its own small increment |
