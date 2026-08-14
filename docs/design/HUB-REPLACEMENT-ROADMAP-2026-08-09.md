@@ -606,10 +606,20 @@ context/quota state, retry/failover on peer trouble).
       (`admission.py`, `attempt_lifecycle.py`, `service.py`); added the
       missing authorization gate to `create_attempt()`, closing seam
       9.1's enforcement half. DONE.
-    - 5B-2 (same-target atomic `authorize_retry()`, tagged-union
-      `SameTargetRoute`) and 5B-3 (failover route selection + atomic
-      rebinding, closes seam 9.2) remain.
-    5C (outer-loop integration) remains, blocked on 5B.
+    - 5B-2 (`fab3352`) -- new `retry_authorization.py`
+      (`RetryAuthorizationCoordinator.authorize_retry()`, `SameTargetRoute`
+      only) replaces the legacy lease-only `authorize_retry()` chain across
+      `attempt_lifecycle.py`/`service.py`/`workflows.py` with one atomic
+      transaction enforcing the plan's 14-point precondition checklist,
+      closing seam 9.1 completely (route/capability/policy are all
+      re-validated and a fresh capability is minted before any write).
+      `dispatch/model.py`'s reducer tightened (CANCELLED/
+      DELIVERED_UNVERIFIED no longer retryable). `freeze_retry_policy()`
+      (nominally a 5B-1 item) landed here since 5B-2 needed it first. DONE.
+    - 5B-3 (failover route selection + atomic rebinding, expands
+      `SameTargetRoute` to `SameTargetRoute | FailoverRoute`, closes seam
+      9.2) remains.
+    5C (outer-loop integration) remains, blocked on 5B-3.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production

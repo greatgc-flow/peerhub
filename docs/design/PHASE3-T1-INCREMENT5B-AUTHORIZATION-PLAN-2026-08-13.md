@@ -12,9 +12,14 @@ Implementation status: **5B-1 (durable retry authority, no mutation) DONE**
 -- 5B-1a migration + persistence ports (`7d12578`), 5B-1b `CapabilityLease`
 model + `validate_capability_binding()` generalization (`31f5794`), 5B-1c
 rewiring of the 3 stale `get_capability_lease_by_command_id()` call sites
-plus the `create_attempt()` authorization gate (`246fb8c`, closes seam 9.1
-in full). **5B-2 (same-target atomic `authorize_retry()`) and 5B-3
-(failover route selection) are NOT started.**
+plus the `create_attempt()` authorization gate (`246fb8c`). **5B-2
+(same-target atomic `authorize_retry()`) DONE (`fab3352`) -- closes seam 9.1
+completely** via the new `retry_authorization.py` coordinator, replacing the
+legacy lease-only chain across `attempt_lifecycle.py`/`service.py`/
+`workflows.py`. `freeze_retry_policy()`, nominally scoped to 5B-1 above,
+actually landed with 5B-2 since that unit needed it first. **5B-3 (failover
+route selection, expands `SameTargetRoute` to
+`SameTargetRoute | FailoverRoute`, closes seam 9.2) is NOT started.**
 
 Ratified parent contract:
 `PHASE3-T1-INCREMENT5-RETRY-LOOP-DESIGN-R1-2026-08-13.md`, especially
