@@ -9,7 +9,7 @@ remain Phase 2 or later.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from peerhub.core.errors import (
     ConfigurationStaleError,
@@ -778,21 +778,81 @@ def complete_attempt(
     return (updated_request, updated_attempt)
 
 
-def authorize_retry(
+@dataclass(frozen=True)
+class ValidatedRetryRouteBinding:
+    """Route fields proven by the atomic retry authorization coordinator."""
+
+    configuration_revision: RevisionValue
+    selected_peer_instance_id: str
+    selected_profile_id: str
+    route_decision_digest: str
+
+
+def validate_retry_authorizable(
     request: RequestSnapshot,
     previous_attempt: AttemptSnapshot,
-    new_lease: LeaseSnapshot,
     *,
     reconciliation_complete: bool,
-    updated_at: int,
-) -> tuple[RequestSnapshot, AttemptSnapshot]:
-    """Authorize a new attempt only under a fresh RESERVED lease."""
+) -> None:
+    """Validate retry state and replay safety without allocating authority."""
 
     _require_same_command(request, previous_attempt)
     if previous_attempt.lease_id != request.lease_id:
         raise InvalidMutationError(
             "previous attempt does not use the request lease"
         )
+
+    retryable_states = {
+        RequestState.FAILED_PRE_DISPATCH,
+        RequestState.START_UNCERTAIN,
+        RequestState.INCOMPLETE,
+        RequestState.FAILED,
+        RequestState.INTERRUPTED,
+    }
+    if request.state not in retryable_states:
+        raise InvalidStateTransitionError(
+            "request",
+            str(request.command_id),
+            request.state.value,
+            RequestState.PREPARED.value,
+        )
+    if previous_attempt.state not in retryable_states:
+        raise InvalidStateTransitionError(
+            "attempt",
+            previous_attempt.attempt_id,
+            previous_attempt.state.value,
+            RequestState.PREPARED.value,
+        )
+
+    safe = (
+        previous_attempt.execution_certainty
+        is ExecutionCertainty.NOT_STARTED
+        or reconciliation_complete
+        or request.completion_contract.replay_safe
+    )
+    if not safe:
+        raise InvalidMutationError(
+            "retry requires NOT_STARTED evidence, reconciliation, "
+            "or an explicitly replay-safe completion contract"
+        )
+
+
+def authorize_retry(
+    request: RequestSnapshot,
+    previous_attempt: AttemptSnapshot,
+    new_lease: LeaseSnapshot,
+    *,
+    route_binding: ValidatedRetryRouteBinding,
+    reconciliation_complete: bool,
+    updated_at: int,
+) -> tuple[RequestSnapshot, AttemptSnapshot]:
+    """Authorize a new attempt only under a fresh RESERVED lease."""
+
+    validate_retry_authorizable(
+        request,
+        previous_attempt,
+        reconciliation_complete=reconciliation_complete,
+    )
     if new_lease.lease_id == request.lease_id:
         raise InvalidMutationError(
             "retry requires a freshly reserved lease"
@@ -812,40 +872,6 @@ def authorize_retry(
     if new_lease.fence.owner_process_birth_identity is not None:
         raise InvalidMutationError(
             "retry lease already has process identity"
-        )
-
-    if request.state is RequestState.SUCCEEDED_VERIFIED:
-        raise InvalidMutationError(
-            "verified successful requests cannot be retried"
-        )
-
-    retryable_states = {
-        RequestState.FAILED_PRE_DISPATCH,
-        RequestState.START_UNCERTAIN,
-        RequestState.DELIVERED_UNVERIFIED,
-        RequestState.INCOMPLETE,
-        RequestState.FAILED,
-        RequestState.INTERRUPTED,
-        RequestState.CANCELLED,
-    }
-    if request.state not in retryable_states:
-        raise InvalidStateTransitionError(
-            "request",
-            str(request.command_id),
-            request.state.value,
-            RequestState.PREPARED.value,
-        )
-
-    safe = (
-        previous_attempt.execution_certainty
-        is ExecutionCertainty.NOT_STARTED
-        or reconciliation_complete
-        or request.completion_contract.replay_safe
-    )
-    if not safe:
-        raise InvalidMutationError(
-            "retry requires NOT_STARTED evidence, reconciliation, "
-            "or an explicitly replay-safe completion contract"
         )
 
     updated_attempt = previous_attempt
@@ -878,6 +904,12 @@ def authorize_retry(
     updated_request = replace(
         request,
         lease_id=new_lease.lease_id,
+        configuration_revision=route_binding.configuration_revision,
+        selected_peer_instance_id=(
+            route_binding.selected_peer_instance_id
+        ),
+        selected_profile_id=route_binding.selected_profile_id,
+        route_decision_digest=route_binding.route_decision_digest,
         state=RequestState.PREPARED,
         revision=request.revision + 1,
         updated_at=updated_at,

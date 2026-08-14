@@ -75,6 +75,7 @@ class ErrorCode(str, Enum):
     ADMISSION_CLOSED = "ADMISSION_CLOSED"
     CONFIGURATION_STALE = "CONFIGURATION_STALE"
     POLICY_STALE = "POLICY_STALE"
+    ATTEMPT_LIMIT_REACHED = "ATTEMPT_LIMIT_REACHED"
 
     IDEMPOTENCY_HIT = "IDEMPOTENCY_HIT"
     IDEMPOTENCY_PAYLOAD_MISMATCH = (
@@ -813,6 +814,7 @@ def cli_exit_code(outcome: CommandOutcome[object]) -> int:
         ErrorCode.ADMISSION_CLOSED,
         ErrorCode.CONFIGURATION_STALE,
         ErrorCode.POLICY_STALE,
+        ErrorCode.ATTEMPT_LIMIT_REACHED,
     } or outcome.error.phase == ErrorPhase.ADMISSION:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
         return 4
 

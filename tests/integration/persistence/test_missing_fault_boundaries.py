@@ -42,6 +42,11 @@ from peerhub.dispatch.service import (
 )
 from peerhub.persistence.sqlite import SqliteStateStore
 from tests.fakes import DeterministicClock, SequentialIdSource
+from tests.integration.dispatch.test_retry_authorization import (
+    _TaggedIds,
+    _authorize as _authorize_retry_case,
+    _setup_retry_case,
+)
 
 class RaisingFaultInjector(FaultInjector):
     def __init__(self, target: str) -> None:
@@ -280,17 +285,25 @@ def test_complete_attempt_rollback(store: SqliteStateStore, ids: SequentialIdSou
 
 # 10. authorize_retry
 def test_authorize_retry_rollback(store: SqliteStateStore, ids: SequentialIdSource) -> None:
-    req_id, att_id = _setup_request_and_attempt(store, ids)
-    s0 = _service(store, clock_start=20, ids=ids)
-    s0.record_dispatch_intent(req_id, att_id)
-    s0.record_start_uncertain(req_id, att_id)
-
-    s = _service(store, fault_point=FaultPoint.AFTER_LEASE_WRITE, clock_start=100, ids=ids)
+    del ids
+    case = _setup_retry_case(store, start_uncertain=True)
+    s = DispatchService(
+        store,
+        clock=DeterministicClock(start=500),
+        ids=_TaggedIds("legacy-fault-test"),
+        fault_injector=RaisingFaultInjector(
+            FaultPoint.AFTER_RETRY_LEASE_WRITE
+        ),
+    )
     with pytest.raises(RuntimeError):
-        s.authorize_retry(req_id, att_id, reconciliation_complete=True, heartbeat_timeout_ms=1000)
+        _authorize_retry_case(
+            case,
+            s,
+            reconciliation_complete=True,
+            heartbeat_timeout_ms=1_000,
+        )
     with store.unit_of_work() as u:
-        r = u.get_request(req_id)
-        assert r.state.value != "PREPARED"
+        assert u.get_request(case.request.command_id) == case.request
 
 # 11. resume_session
 def test_resume_session_rollback(store: SqliteStateStore, ids: SequentialIdSource) -> None:

@@ -4,6 +4,8 @@ from typing import Protocol
 
 from peerhub.core.protocol import CommandID
 from peerhub.governance.contract import OutboxEvent
+from peerhub.health.contract import AdmissionSnapshot
+from peerhub.routing.contract import RouteDecision
 from peerhub.state.contract import ReadUnitOfWork, UnitOfWork
 
 from .capability import CapabilityLease
@@ -335,6 +337,26 @@ class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
         ...
 
 
+class RetryRoutingReadUnitOfWork(Protocol):
+    """Routing and health audit reads needed by retry authorization."""
+
+    def get_admission_snapshot(
+        self,
+        snapshot_id: str,
+    ) -> AdmissionSnapshot | None:
+        """Return one immutable admission snapshot."""
+
+        ...
+
+    def get_route_decision(
+        self,
+        decision_id: str,
+    ) -> RouteDecision | None:
+        """Return one immutable route decision audit."""
+
+        ...
+
+
 class FaultPoint(str):
     """Named transaction fault boundaries for deterministic tests."""
 
@@ -362,6 +384,15 @@ class FaultPoint(str):
     AFTER_RECOVERY_RECEIPT_WRITE = (
         "AFTER_RECOVERY_RECEIPT_WRITE"
     )
+    AFTER_RETRY_ROUTE_WRITE = "AFTER_RETRY_ROUTE_WRITE"
+    AFTER_RETRY_LEASE_WRITE = "AFTER_RETRY_LEASE_WRITE"
+    AFTER_RETRY_CAPABILITY_WRITE = (
+        "AFTER_RETRY_CAPABILITY_WRITE"
+    )
+    AFTER_RETRY_PREVIOUS_ATTEMPT_CAS = (
+        "AFTER_RETRY_PREVIOUS_ATTEMPT_CAS"
+    )
+    AFTER_RETRY_REQUEST_CAS = "AFTER_RETRY_REQUEST_CAS"
     BEFORE_COMMIT = "BEFORE_COMMIT"
     AFTER_COMMIT = "AFTER_COMMIT"
 

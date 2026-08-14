@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import unittest
+from dataclasses import replace
 
-from peerhub.core.errors import InvalidMutationError
+from peerhub.core.errors import InvalidMutationError, InvalidStateTransitionError
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.protocol import (
     PROTOCOL_MAJOR,
@@ -40,6 +41,7 @@ from peerhub.dispatch.model import (
     record_running,
     record_start_uncertain,
     reserve_lease,
+    ValidatedRetryRouteBinding,
     validate_submission,
 )
 
@@ -156,6 +158,15 @@ class TestRequestAttemptModel(unittest.TestCase):
             lease_id=lease_id,
             fencing_token=18,
             created_at=created_at,
+        )
+
+    @staticmethod
+    def _route_binding(request) -> ValidatedRetryRouteBinding:
+        return ValidatedRetryRouteBinding(
+            configuration_revision=request.configuration_revision,
+            selected_peer_instance_id=request.selected_peer_instance_id,
+            selected_profile_id=request.selected_profile_id,
+            route_decision_digest=request.route_decision_digest,
         )
 
     def test_prepare_and_create_attempt(self) -> None:
@@ -294,6 +305,7 @@ class TestRequestAttemptModel(unittest.TestCase):
                 request,
                 uncertain,
                 self._retry_lease(),
+                route_binding=self._route_binding(request),
                 reconciliation_complete=False,
                 updated_at=105,
             )
@@ -317,6 +329,7 @@ class TestRequestAttemptModel(unittest.TestCase):
             request,
             uncertain,
             self._retry_lease(),
+            route_binding=self._route_binding(request),
             reconciliation_complete=True,
             updated_at=105,
         )
@@ -388,12 +401,43 @@ class TestRequestAttemptModel(unittest.TestCase):
                 lease_id="lease-replay-02",
                 created_at=202,
             ),
+            route_binding=self._route_binding(uncertain_request),
             reconciliation_complete=False,
             updated_at=202,
         )
         self.assertEqual(retried.state, RequestState.PREPARED)
         self.assertEqual(retried.lease_id, "lease-replay-02")
         self.assertEqual(prior.state, RequestState.INTERRUPTED)
+
+    def test_retry_rejects_cancelled_unverified_and_verified_success(self) -> None:
+        prepared, attempt = self._prepared()
+        for state in (
+            RequestState.CANCELLED,
+            RequestState.DELIVERED_UNVERIFIED,
+            RequestState.SUCCEEDED_VERIFIED,
+        ):
+            with self.subTest(state=state):
+                request = replace(
+                    prepared,
+                    state=state,
+                    revision=prepared.revision + 1,
+                    updated_at=103,
+                )
+                previous = replace(
+                    attempt,
+                    state=state,
+                    revision=attempt.revision + 1,
+                    updated_at=103,
+                )
+                with self.assertRaises(InvalidStateTransitionError):
+                    authorize_retry(
+                        request,
+                        previous,
+                        self._retry_lease(),
+                        route_binding=self._route_binding(request),
+                        reconciliation_complete=True,
+                        updated_at=105,
+                    )
 
 
 if __name__ == "__main__":

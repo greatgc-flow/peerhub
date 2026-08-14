@@ -47,6 +47,10 @@ from peerhub.dispatch.service import DispatchService
 from peerhub.governance.contract import OutboxState
 from peerhub.persistence.sqlite import SqliteStateStore
 from tests.fakes import DeterministicClock, SequentialIdSource
+from tests.integration.dispatch.test_retry_authorization import (
+    _authorize as _authorize_retry_case,
+    _setup_retry_case,
+)
 
 
 @pytest.fixture
@@ -124,27 +128,6 @@ def _admit(service: DispatchService):
         heartbeat_timeout_ms=5_000,
         owner_peer_id="peer-01",
     )[:3]
-
-
-def _add_retry_capability(
-    store: SqliteStateStore,
-    command_id: str,
-    previous_attempt,
-    retry_session_lease,
-) -> None:
-    with store.unit_of_work() as unit:
-        original = unit.get_capability_lease_for_attempt(command_id, 1)
-        assert original is not None
-        unit.add_capability_lease(
-            replace(
-                original,
-                capability_lease_id="capability-lease-retry-2",
-                session_lease_id=retry_session_lease.lease_id,
-                authorized_attempt_number=2,
-                previous_attempt_id=previous_attempt.attempt_id,
-            )
-        )
-        unit.commit()
 
 
 def _verified_result() -> AskResult:
@@ -372,92 +355,35 @@ def test_request_attempt_and_lease_cas_reject_stale_snapshots(
 def test_active_attempt_uniqueness_and_monotonic_numbering(
     store: SqliteStateStore,
 ) -> None:
-    service = _service(store)
-    admitted, _, first_lease = _admit(service)
-    service.prepare_request(admitted.command_id)
-    first_attempt = service.create_attempt(
-        admitted.command_id
-    )
-
-    with pytest.raises(CapabilityLeaseViolation) as exc_info:
-        service.create_attempt(admitted.command_id)
-    assert exc_info.value.invariant == (
-        "capability lease authorizes attempt 1, not next attempt 2"
-    )
-
-    failed_request, failed_attempt = (
-        service.fail_pre_dispatch(
-            admitted.command_id,
-            first_attempt.attempt_id,
-            error_code=ErrorCode.SPAWN_FAILED,
-            transport="pipe",
-        )
-    )
-
-    (
-        retried_request,
-        retried_attempt,
-        retry_lease,
-    ) = service.authorize_retry(
-        failed_request.command_id,
-        failed_attempt.attempt_id,
-        reconciliation_complete=False,
-        heartbeat_timeout_ms=5_000,
-    )
-
-    assert retried_attempt == failed_attempt
-    assert retried_request.state is RequestState.PREPARED
-    assert retry_lease.lease_id != first_lease.lease_id
-    assert retried_request.lease_id == retry_lease.lease_id
-    assert retry_lease.fence.attempt_id is None
-
-    _add_retry_capability(
-        store,
-        str(admitted.command_id),
-        failed_attempt,
-        retry_lease,
-    )
-    second_attempt = service.create_attempt(
-        admitted.command_id
+    case = _setup_retry_case(store)
+    bundle = _authorize_retry_case(case)
+    second_attempt = case.dispatch.create_attempt(
+        case.request.command_id
     )
     assert second_attempt.attempt_number == 2
-    assert second_attempt.lease_id == retry_lease.lease_id
+    assert second_attempt.lease_id == bundle.session_lease.lease_id
 
     with store.unit_of_work() as unit:
-        attempts = unit.list_attempts(admitted.command_id)
+        attempts = unit.list_attempts(case.request.command_id)
         persisted_request = unit.get_request(
-            admitted.command_id
+            case.request.command_id
         )
         persisted_retry_lease = unit.get_lease(
-            retry_lease.lease_id
+            bundle.session_lease.lease_id
         )
 
     assert [item.attempt_number for item in attempts] == [1, 2]
-    assert persisted_request == retried_request
-    assert persisted_retry_lease == retry_lease
+    assert persisted_request == bundle.request
+    assert persisted_retry_lease == bundle.session_lease
 
 
 def test_reconciled_start_uncertain_retry_rotates_lease(
     store: SqliteStateStore,
 ) -> None:
-    service = _service(store)
-    admitted, _, original_lease = _admit(service)
-    service.prepare_request(admitted.command_id)
-    first_attempt = service.create_attempt(
-        admitted.command_id
-    )
-    _, _, bound_original_lease = (
-        service.record_dispatch_intent(
-            admitted.command_id,
-            first_attempt.attempt_id,
-        )
-    )
-    uncertain_request, uncertain_attempt = (
-        service.record_start_uncertain(
-            admitted.command_id,
-            first_attempt.attempt_id,
-        )
-    )
+    case = _setup_retry_case(store, start_uncertain=True)
+    with store.unit_of_work() as unit:
+        original_lease = unit.get_lease(case.request.lease_id)
+    assert original_lease is not None
 
     with store.unit_of_work() as unit:
         events = unit.list_outbox_events(
@@ -470,46 +396,34 @@ def test_reconciled_start_uncertain_retry_rotates_lease(
         "START_UNCERTAIN",
     ]
 
-    (
-        retried_request,
-        interrupted_attempt,
-        retry_lease,
-    ) = service.authorize_retry(
-        admitted.command_id,
-        first_attempt.attempt_id,
+    bundle = _authorize_retry_case(
+        case,
         reconciliation_complete=True,
-        heartbeat_timeout_ms=5_000,
     )
 
-    assert uncertain_request.state is RequestState.START_UNCERTAIN
-    assert retried_request.state is RequestState.PREPARED
-    assert interrupted_attempt.state is RequestState.INTERRUPTED
-    assert interrupted_attempt.reconciliation_complete
-    assert retry_lease.lease_id != original_lease.lease_id
-    assert retry_lease.fence.fencing_token > (
-        bound_original_lease.fence.fencing_token
+    assert case.request.state is RequestState.START_UNCERTAIN
+    assert bundle.request.state is RequestState.PREPARED
+    assert bundle.previous_attempt.state is RequestState.INTERRUPTED
+    assert bundle.previous_attempt.reconciliation_complete
+    assert bundle.session_lease.lease_id != original_lease.lease_id
+    assert bundle.session_lease.fence.fencing_token > (
+        original_lease.fence.fencing_token
     )
-    assert retried_request.lease_id == retry_lease.lease_id
-    assert retry_lease.fence.attempt_id is None
+    assert bundle.request.lease_id == bundle.session_lease.lease_id
+    assert bundle.session_lease.fence.attempt_id is None
 
-    _add_retry_capability(
-        store,
-        str(admitted.command_id),
-        interrupted_attempt,
-        retry_lease,
-    )
-    second_attempt = service.create_attempt(
-        admitted.command_id
+    second_attempt = case.dispatch.create_attempt(
+        case.request.command_id
     )
     assert second_attempt.attempt_number == 2
-    assert second_attempt.lease_id == retry_lease.lease_id
+    assert second_attempt.lease_id == bundle.session_lease.lease_id
 
     (
         second_intent_request,
         second_intent_attempt,
         second_intent_lease,
-    ) = service.record_dispatch_intent(
-        admitted.command_id,
+    ) = case.dispatch.record_dispatch_intent(
+        case.request.command_id,
         second_attempt.attempt_id,
     )
     assert (

@@ -38,6 +38,10 @@ from peerhub.dispatch.service import DispatchService
 from peerhub.persistence.sqlite import SqliteStateStore
 from peerhub.persistence.sqlite_dispatch import SqliteDispatchRepository
 from tests.fakes import DeterministicClock, SequentialIdSource, deterministic_uuid4
+from tests.integration.dispatch.test_retry_authorization import (
+    _authorize as _authorize_retry_case,
+    _setup_retry_case,
+)
 
 
 class _TaggedIdSource:
@@ -439,44 +443,34 @@ def test_create_attempt_rejects_capability_for_different_attempt_number(
 ) -> None:
     database_path = tmp_path / "mismatched-attempt-capability.sqlite3"
     store = _store(database_path)
-    ids = SequentialIdSource()
-    request, _, capability_lease = _admit(store, ids=ids)
-    service = _service(store, ids=ids)
-    service.prepare_request(request.command_id)
-    first_attempt = service.create_attempt(request.command_id)
-    failed_request, failed_attempt = service.fail_pre_dispatch(
-        request.command_id,
-        first_attempt.attempt_id,
-        error_code=ErrorCode.SPAWN_FAILED,
-        transport="pipe",
-    )
-    retried_request, _, retry_session_lease = service.authorize_retry(
-        failed_request.command_id,
-        failed_attempt.attempt_id,
-        reconciliation_complete=False,
-        heartbeat_timeout_ms=5_000,
-    )
+    case = _setup_retry_case(store)
+    bundle = _authorize_retry_case(case)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            "DELETE FROM capability_leases WHERE capability_lease_id = ?",
+            (bundle.capability_lease.capability_lease_id,),
+        )
     mismatched_capability = replace(
-        capability_lease,
+        case.original_capability,
         capability_lease_id="capability-lease-attempt-3",
-        session_lease_id=retry_session_lease.lease_id,
+        session_lease_id=bundle.session_lease.lease_id,
         authorized_attempt_number=3,
-        previous_attempt_id=failed_attempt.attempt_id,
+        previous_attempt_id=case.attempt.attempt_id,
     )
     with store.unit_of_work() as unit:
         unit.add_capability_lease(mismatched_capability)
         unit.commit()
 
     with pytest.raises(CapabilityLeaseViolation) as exc_info:
-        service.create_attempt(retried_request.command_id)
+        case.dispatch.create_attempt(bundle.request.command_id)
 
     assert exc_info.value.invariant == (
         "capability lease authorizes attempt 3, not next attempt 2"
     )
     with store.unit_of_work() as unit:
-        attempts = unit.list_attempts(request.command_id)
+        attempts = unit.list_attempts(case.request.command_id)
     assert [attempt.attempt_id for attempt in attempts] == [
-        first_attempt.attempt_id
+        case.attempt.attempt_id
     ]
 
 

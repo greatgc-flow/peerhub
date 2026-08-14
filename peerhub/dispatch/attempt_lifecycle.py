@@ -27,13 +27,11 @@ from .contract import (
     AttemptSnapshot,
     LeaseCloseRequest,
     LeaseFenceTuple,
-    LeaseReservationRequest,
     LeaseSnapshot,
     ProcessBirthIdentity,
     RequestSnapshot,
 )
 from .model import (
-    authorize_retry as reduce_authorize_retry,
     begin_assessment as reduce_begin_assessment,
     begin_cancellation as reduce_begin_cancellation,
     close_lease,
@@ -43,14 +41,11 @@ from .model import (
     record_dispatch_intent as reduce_dispatch_intent,
     record_running as reduce_running,
     record_start_uncertain as reduce_start_uncertain,
-    reserve_lease,
 )
 from .helpers import (
     attempt_terminal_event as _attempt_terminal_event,
     cas_request_attempt as _cas_request_attempt,
     dispatch_event as _dispatch_event,
-    raise_attempt_cas as _raise_attempt_cas,
-    raise_request_cas as _raise_request_cas,
     require_attempt as _require_attempt,
     require_lease as _require_lease,
     require_request as _require_request,
@@ -745,94 +740,3 @@ class AttemptLifecycleCoordinator:
 
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return (updated_request, updated_attempt)
-
-    def authorize_retry(
-        self,
-        command_id: CommandID | str,
-        previous_attempt_id: str,
-        *,
-        reconciliation_complete: bool,
-        heartbeat_timeout_ms: int,
-    ) -> tuple[
-        RequestSnapshot,
-        AttemptSnapshot,
-        LeaseSnapshot,
-    ]:
-        """Atomically rotate to a fresh RESERVED lease for a retry."""
-
-        with self._store.unit_of_work() as unit:
-            request = _require_request(unit, command_id)
-            previous_attempt = _require_attempt(
-                unit,
-                previous_attempt_id,
-            )
-            current_lease = _require_lease(
-                unit,
-                request.lease_id,
-            )
-            timestamp = self._clock.now()
-
-            new_lease = reserve_lease(
-                LeaseReservationRequest(
-                    session_id=current_lease.session_id,
-                    owner_principal_id=(
-                        current_lease.fence.owner_principal_id
-                    ),
-                    owner_instance_id=(
-                        current_lease.fence.owner_instance_id
-                    ),
-                    heartbeat_timeout_ms=heartbeat_timeout_ms,
-                    command_id=request.command_id,
-                    authority_epoch=(
-                        current_lease.fence.authority_epoch
-                    ),
-                    owner_peer_id=(
-                        current_lease.fence.owner_peer_id
-                    ),
-                ),
-                lease_id=self._ids.new_id("lease"),
-                fencing_token=unit.allocate_fencing_token(),
-                created_at=timestamp,
-            )
-            updated_request, updated_attempt = (
-                reduce_authorize_retry(
-                    request,
-                    previous_attempt,
-                    new_lease,
-                    reconciliation_complete=(
-                        reconciliation_complete
-                    ),
-                    updated_at=timestamp,
-                )
-            )
-
-            unit.add_lease(new_lease)
-            self._faults.hit(FaultPoint.AFTER_LEASE_WRITE)
-
-            if not unit.cas_update_request(
-                request,
-                updated_request,
-            ):
-                _raise_request_cas(unit, request)
-            self._faults.hit(FaultPoint.AFTER_REQUEST_CAS)
-
-            if updated_attempt != previous_attempt:
-                if not unit.cas_update_attempt(
-                    previous_attempt,
-                    updated_attempt,
-                ):
-                    _raise_attempt_cas(
-                        unit,
-                        previous_attempt,
-                    )
-                self._faults.hit(FaultPoint.AFTER_ATTEMPT_CAS)
-
-            self._faults.hit(FaultPoint.BEFORE_COMMIT)
-            unit.commit()
-
-        self._faults.hit(FaultPoint.AFTER_COMMIT)
-        return (
-            updated_request,
-            updated_attempt,
-            new_lease,
-        )

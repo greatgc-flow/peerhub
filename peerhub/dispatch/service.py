@@ -12,7 +12,7 @@ from collections.abc import Sequence
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.execution import ExecutionCertainty
-from peerhub.core.errors import InvalidMutationError
+from peerhub.core.errors import InvalidMutationError, RetryPolicyConflictError
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.adapters.contract import ProfileDescriptor
 from peerhub.core.protocol import (
@@ -143,6 +143,12 @@ def translate_outbox_to_journal(
 from .admission import AdmissionCoordinator
 from .artifact_coordination import ArtifactCoordinator
 from .attempt_lifecycle import AttemptLifecycleCoordinator
+from .retry_authorization import (
+    RetryAuthorizationBundle,
+    RetryAuthorizationCoordinator,
+    RetryAuthorizationUnitOfWork,
+    SameTargetRoute,
+)
 from .session_lease import SessionLeaseCoordinator
 from .helpers import (
     require_attempt as _require_attempt,
@@ -150,7 +156,6 @@ from .helpers import (
 )
 from .unit_of_work import (
     DispatchReadUnitOfWork,
-    DispatchUnitOfWork,
     FaultInjector,
     FaultPoint,  # pyright: ignore[reportUnusedImport]  # public re-export: tests import this name from here
     _NoFaultInjector,  # pyright: ignore[reportPrivateUsage]
@@ -161,7 +166,10 @@ class DispatchService:
 
     def __init__(
         self,
-        store: StateStore[DispatchUnitOfWork, DispatchReadUnitOfWork],
+        store: StateStore[
+            RetryAuthorizationUnitOfWork,
+            DispatchReadUnitOfWork,
+        ],
         *,
         clock: Clock,
         ids: IdSource,
@@ -201,6 +209,14 @@ class DispatchService:
             enforcement_evidence=self._enforcement_evidence,
         )
         self._sessions = SessionLeaseCoordinator(store=store, clock=clock, ids=ids, fault_injector=fault_injector)
+        self._retry_authorization = RetryAuthorizationCoordinator(
+            store=store,
+            clock=clock,
+            ids=ids,
+            fault_injector=fault_injector,
+            capability_policy=self._capability_policy,
+            enforcement_evidence=self._enforcement_evidence,
+        )
     def now(self) -> int:
         """Return the current timestamp from the configured clock."""
         return self._clock.now()
@@ -452,6 +468,33 @@ class DispatchService:
         with self._store.read_unit_of_work() as unit:
             return unit.get_request(command_id)
 
+    def freeze_retry_policy(
+        self,
+        command_id: CommandID | str,
+        max_attempts: int,
+    ) -> int:
+        """Persist one immutable retry budget, idempotently."""
+
+        if type(max_attempts) is not int or max_attempts < 1:
+            raise InvalidMutationError(
+                "max_attempts must be an integer greater than or equal to one"
+            )
+        with self._store.unit_of_work() as unit:
+            durable = unit.get_retry_policy_max_attempts(command_id)
+            if durable is not None:
+                if durable != max_attempts:
+                    raise RetryPolicyConflictError(
+                        str(command_id),
+                        max_attempts,
+                        durable,
+                    )
+                return durable
+            unit.add_retry_policy(command_id, max_attempts)
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return max_attempts
+
     def reject_policy(
         self,
         command_id: CommandID | str,
@@ -633,17 +676,29 @@ class DispatchService:
         command_id: CommandID | str,
         previous_attempt_id: str,
         *,
+        route_intent: SameTargetRoute,
+        expected_request_revision: int,
+        expected_previous_attempt_revision: int,
+        expected_highest_attempt_number: int,
+        frozen_max_attempts: int,
+        current_policy_revision: RevisionValue,
         reconciliation_complete: bool,
         heartbeat_timeout_ms: int,
-    ) -> tuple[
-        RequestSnapshot,
-        AttemptSnapshot,
-        LeaseSnapshot,
-    ]:
-        """Atomically rotate to a fresh RESERVED lease for a retry."""
-        return self._attempts.authorize_retry(
+    ) -> RetryAuthorizationBundle:
+        """Atomically authorize one same-target retry and its capability."""
+        return self._retry_authorization.authorize_retry(
             command_id,
             previous_attempt_id,
+            route_intent=route_intent,
+            expected_request_revision=expected_request_revision,
+            expected_previous_attempt_revision=(
+                expected_previous_attempt_revision
+            ),
+            expected_highest_attempt_number=(
+                expected_highest_attempt_number
+            ),
+            frozen_max_attempts=frozen_max_attempts,
+            current_policy_revision=current_policy_revision,
             reconciliation_complete=reconciliation_complete,
             heartbeat_timeout_ms=heartbeat_timeout_ms,
         )

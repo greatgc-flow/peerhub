@@ -10,7 +10,7 @@ import pytest
 
 from peerhub.application.api import ApplicationAPI
 from peerhub.application.workflows import ApplicationWorkflows
-from peerhub.core.errors import InvalidMutationError
+from peerhub.core.errors import InvalidMutationError, RetryRouteUnavailableError
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import (
@@ -570,6 +570,7 @@ def test_prepare_for_dispatch_rejects_and_replans_on_drift(
 
 def test_authorize_retry_rechecks_route_before_authorizing(
     store: SqliteStateStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _seed_health(store)
     workflows = _workflows(store)
@@ -586,11 +587,19 @@ def test_authorize_retry_rechecks_route_before_authorizing(
 
     prepared = dispatch.prepare_request(request.command_id)
     attempt = dispatch.create_attempt(prepared.command_id)
-    dispatch.fail_pre_dispatch(
+    failed_request, failed_attempt = dispatch.fail_pre_dispatch(
         prepared.command_id,
         attempt.attempt_id,
         error_code=ErrorCode.SPAWN_FAILED,
         transport="pipe",
+    )
+    dispatch.freeze_retry_policy(request.command_id, 3)
+    monkeypatch.setattr(
+        workflows._routing,  # pyright: ignore[reportPrivateUsage]
+        "validate_route_for_dispatch",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("retry must not open a routing-service transaction")
+        ),
     )
 
     outcome = workflows.authorize_retry(
@@ -601,13 +610,17 @@ def test_authorize_retry_rechecks_route_before_authorizing(
             client_request_id="client-request-01",
             configuration_revision=11,
         ),
+        expected_request_revision=failed_request.revision,
+        expected_previous_attempt_revision=failed_attempt.revision,
+        expected_highest_attempt_number=failed_attempt.attempt_number,
+        frozen_max_attempts=3,
+        current_policy_revision=failed_request.policy_revision,
         reconciliation_complete=False,
         heartbeat_timeout_ms=5_000,
     )
 
-    assert outcome.route_recheck.validation.dispatch_permitted
-    assert outcome.retry_admission is not None
-    assert outcome.retry_admission[0].state is RequestState.PREPARED
+    assert outcome.retry_admission.request.state is RequestState.PREPARED
+    assert outcome.retry_admission.capability_lease.authorized_attempt_number == 2
 
 
 def test_authorize_retry_refuses_on_drift(
@@ -636,12 +649,13 @@ def test_authorize_retry_refuses_on_drift(
 
     prepared = dispatch.prepare_request(request.command_id)
     attempt = dispatch.create_attempt(prepared.command_id)
-    dispatch.fail_pre_dispatch(
+    failed_request, failed_attempt = dispatch.fail_pre_dispatch(
         prepared.command_id,
         attempt.attempt_id,
         error_code=ErrorCode.SPAWN_FAILED,
         transport="pipe",
     )
+    dispatch.freeze_retry_policy(request.command_id, 3)
 
     drifted_workflows = _workflows(
         store,
@@ -651,21 +665,26 @@ def test_authorize_retry_refuses_on_drift(
         routing_ids=routing_ids,
         dispatch_ids=dispatch_ids,
     )
-    outcome = drifted_workflows.authorize_retry(
-        request.command_id,
-        attempt.attempt_id,
-        route_decision_id=admission.route.decision.decision_id,
-        route_request_factory=_route_request_factory(
-            client_request_id="client-request-01",
-            configuration_revision=12,
-        ),
-        reconciliation_complete=False,
-        heartbeat_timeout_ms=5_000,
-    )
+    with pytest.raises(RetryRouteUnavailableError) as exc_info:
+        drifted_workflows.authorize_retry(
+            request.command_id,
+            attempt.attempt_id,
+            route_decision_id=admission.route.decision.decision_id,
+            route_request_factory=_route_request_factory(
+                client_request_id="client-request-01",
+                configuration_revision=12,
+            ),
+            expected_request_revision=failed_request.revision,
+            expected_previous_attempt_revision=failed_attempt.revision,
+            expected_highest_attempt_number=failed_attempt.attempt_number,
+            frozen_max_attempts=3,
+            current_policy_revision=failed_request.policy_revision,
+            reconciliation_complete=False,
+            heartbeat_timeout_ms=5_000,
+        )
 
-    assert not outcome.route_recheck.validation.dispatch_permitted
-    assert outcome.retry_admission is None
-    assert outcome.request.state is RequestState.FAILED_PRE_DISPATCH
+    assert exc_info.value.error_code is ErrorCode.CONFIGURATION_STALE
+    assert dispatch.get_request(request.command_id) == failed_request
 
 
 def test_require_bound_route_rejects_mismatched_decision(

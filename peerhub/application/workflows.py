@@ -83,6 +83,10 @@ from peerhub.dispatch.process import (
 )
 from peerhub.dispatch.model import classify_attempt_failure
 from peerhub.dispatch.service import DispatchService
+from peerhub.dispatch.retry_authorization import (
+    RetryAuthorizationBundle,
+    SameTargetRoute,
+)
 from peerhub.health.contract import AdmissionSnapshot
 from peerhub.health.service import HealthService
 from peerhub.routing.contract import (
@@ -116,11 +120,7 @@ DispatchAdmission: TypeAlias = tuple[
     LeaseSnapshot,
     CapabilityLease,
 ]
-RetryAdmission: TypeAlias = tuple[
-    RequestSnapshot,
-    AttemptSnapshot,
-    LeaseSnapshot,
-]
+RetryAdmission: TypeAlias = RetryAuthorizationBundle
 
 
 class RouteRequestFactory(Protocol):
@@ -167,13 +167,12 @@ class PreDispatchWorkflowResult:
 
 @dataclass(frozen=True)
 class RetryWorkflowResult:
-    """Result of validating a route before authorizing one retry."""
+    """Result of preparatory projection and atomic retry authorization."""
 
     projected_terminal_events: int
     admission_snapshot: AdmissionSnapshot
-    route_recheck: RoutePreDispatchResult
     request: RequestSnapshot
-    retry_admission: RetryAdmission | None
+    retry_admission: RetryAdmission
 
 
 class ApplicationWorkflows:
@@ -501,16 +500,23 @@ class ApplicationWorkflows:
         *,
         route_decision_id: str,
         route_request_factory: RouteRequestFactory,
+        expected_request_revision: int,
+        expected_previous_attempt_revision: int,
+        expected_highest_attempt_number: int,
+        frozen_max_attempts: int,
+        current_policy_revision: RevisionValue,
         reconciliation_complete: bool,
         heartbeat_timeout_ms: int,
         telemetry_limit: int = 100,
     ) -> RetryWorkflowResult:
-        """Apply RT-06 before moving a retry directly to PREPARED."""
+        """Prepare fresh route facts, then call the atomic authority boundary."""
 
-        current, _, _ = self._require_bound_route(
-            command_id,
-            route_decision_id,
-        )
+        current = self._dispatch.get_request(command_id)
+        if current is None:
+            raise RecordNotFoundError(
+                "dispatch_request",
+                str(command_id),
+            )
         (
             projected,
             admission_snapshot,
@@ -520,31 +526,29 @@ class ApplicationWorkflows:
             route_request_factory=route_request_factory,
             telemetry_limit=telemetry_limit,
         )
-        recheck = self._routing.validate_route_for_dispatch(
-            route_decision_id,
-            current_request=current_route_request,
-        )
-
-        if not recheck.validation.dispatch_permitted:
-            return RetryWorkflowResult(
-                projected_terminal_events=projected,
-                admission_snapshot=admission_snapshot,
-                route_recheck=recheck,
-                request=current,
-                retry_admission=None,
-            )
-
         retry_admission = self._dispatch.authorize_retry(
             command_id,
             previous_attempt_id,
+            route_intent=SameTargetRoute(
+                route_decision_id=route_decision_id,
+                current_route_request=current_route_request,
+            ),
+            expected_request_revision=expected_request_revision,
+            expected_previous_attempt_revision=(
+                expected_previous_attempt_revision
+            ),
+            expected_highest_attempt_number=(
+                expected_highest_attempt_number
+            ),
+            frozen_max_attempts=frozen_max_attempts,
+            current_policy_revision=current_policy_revision,
             reconciliation_complete=reconciliation_complete,
             heartbeat_timeout_ms=heartbeat_timeout_ms,
         )
         return RetryWorkflowResult(
             projected_terminal_events=projected,
             admission_snapshot=admission_snapshot,
-            route_recheck=recheck,
-            request=retry_admission[0],
+            request=retry_admission.request,
             retry_admission=retry_admission,
         )
 

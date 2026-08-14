@@ -174,6 +174,97 @@ class PolicyStaleError(PeerHubError):
         )
 
 
+class AttemptLimitReachedError(PeerHubError):
+    """A retry would exceed the command's frozen attempt budget."""
+
+    error_code = ErrorCode.ATTEMPT_LIMIT_REACHED
+
+    def __init__(
+        self,
+        command_id: str,
+        highest_attempt_number: int,
+        max_attempts: int,
+    ) -> None:
+        super().__init__(
+            f"command {command_id!r} has reached its attempt limit",
+            details={
+                "command_id": command_id,
+                "highest_attempt_number": highest_attempt_number,
+                "max_attempts": max_attempts,
+            },
+        )
+
+
+class RetryPolicyConflictError(PeerHubError):
+    """A caller tried to change an already-frozen retry budget."""
+
+    error_code = ErrorCode.INVALID_PARAMS
+
+    def __init__(
+        self,
+        command_id: str,
+        supplied_max_attempts: int,
+        durable_max_attempts: int,
+    ) -> None:
+        super().__init__(
+            f"retry policy for command {command_id!r} conflicts with its frozen value",
+            details={
+                "command_id": command_id,
+                "supplied_max_attempts": supplied_max_attempts,
+                "durable_max_attempts": durable_max_attempts,
+            },
+        )
+
+
+class RetryRouteUnavailableError(PeerHubError):
+    """The currently bound route cannot authorize a same-target retry."""
+
+    def __init__(
+        self,
+        command_id: str,
+        error_code: ErrorCode,
+        reason: str,
+    ) -> None:
+        if error_code not in {
+            ErrorCode.CONFIGURATION_STALE,
+            ErrorCode.PEER_UNAVAILABLE,
+            ErrorCode.PROFILE_UNAVAILABLE,
+        }:
+            raise ValueError("retry route unavailability has an invalid error code")
+        self.error_code = error_code
+        super().__init__(
+            reason,
+            details={
+                "command_id": command_id,
+                "route_error_code": error_code.value,
+            },
+        )
+
+
+class RouteExhaustedError(PeerHubError):
+    """No eligible route remains for an authorized failover."""
+
+    error_code = ErrorCode.ROUTE_EXHAUSTED
+
+    def __init__(self, command_id: str) -> None:
+        super().__init__(
+            f"no eligible retry route remains for command {command_id!r}",
+            details={"command_id": command_id},
+        )
+
+
+class CapabilityAuthorizationDeniedError(PeerHubError):
+    """A fresh capability decision denied retry authority."""
+
+    error_code = ErrorCode.SCOPE_UNAUTHORIZED
+
+    def __init__(self, command_id: str, reason: str) -> None:
+        super().__init__(
+            f"retry capability authorization denied for command {command_id!r}: {reason}",
+            details={"command_id": command_id, "reason": reason},
+        )
+
+
 class StaleRevisionError(PeerHubError):
     """A mutation's expected revision is not current."""
 

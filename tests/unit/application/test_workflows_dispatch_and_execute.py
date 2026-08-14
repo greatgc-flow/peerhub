@@ -73,6 +73,7 @@ from peerhub.dispatch.materializer import (
     MaterializationStatus,
 )
 from peerhub.dispatch.service import DispatchService
+from peerhub.dispatch.retry_authorization import SameTargetRoute
 from peerhub.governance.contract import OutboxEvent
 from peerhub.health.contract import (
     AdmissionSnapshot,
@@ -1330,22 +1331,39 @@ def test_retry_capability_flows_through_gate_attempt_and_intent_revalidation(
         error_code=ErrorCode.SPAWN_FAILED,
         transport="pipe",
     )
-    retried_request, _, retry_session_lease = dispatch.authorize_retry(
+    with sqlite3.connect(store.database_path) as connection:
+        row = connection.execute(
+            "SELECT decision_id FROM route_decisions WHERE client_request_id = ?",
+            (_envelope().client_request_id,),
+        ).fetchone()
+    assert row is not None
+    route_decision_id = str(row[0])
+    with store.unit_of_work() as unit:
+        decision = unit.get_route_decision(route_decision_id)
+        assert decision is not None
+        snapshot = unit.get_admission_snapshot(decision.admission_snapshot_id)
+        assert snapshot is not None
+    dispatch.freeze_retry_policy(failed_request.command_id, 3)
+    retry_bundle = dispatch.authorize_retry(
         failed_request.command_id,
         failed_attempt.attempt_id,
+        route_intent=SameTargetRoute(
+            route_decision_id=route_decision_id,
+            current_route_request=_route_request_factory(
+                client_request_id=failed_request.client_request_id,
+            )(snapshot),
+        ),
+        expected_request_revision=failed_request.revision,
+        expected_previous_attempt_revision=failed_attempt.revision,
+        expected_highest_attempt_number=failed_attempt.attempt_number,
+        frozen_max_attempts=3,
+        current_policy_revision=failed_request.policy_revision,
         reconciliation_complete=False,
         heartbeat_timeout_ms=5_000,
     )
-    retry_capability = replace(
-        first_capability,
-        capability_lease_id="capability-lease-retry-2",
-        session_lease_id=retry_session_lease.lease_id,
-        authorized_attempt_number=2,
-        previous_attempt_id=failed_attempt.attempt_id,
-    )
-    with store.unit_of_work() as unit:
-        unit.add_capability_lease(retry_capability)
-        unit.commit()
+    retried_request = retry_bundle.request
+    retry_session_lease = retry_bundle.session_lease
+    retry_capability = retry_bundle.capability_lease
 
     validated = dispatch.require_dispatch_capability(
         retried_request.command_id,

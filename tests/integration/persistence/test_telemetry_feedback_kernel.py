@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -34,6 +33,10 @@ from peerhub.governance.contract import OutboxState
 from peerhub.persistence.sqlite import SqliteStateStore
 from peerhub.telemetry.projections import TelemetryProjector
 from tests.fakes import DeterministicClock, SequentialIdSource
+from tests.integration.dispatch.test_retry_authorization import (
+    _authorize as _authorize_retry_case,
+    _setup_retry_case,
+)
 
 
 @pytest.fixture
@@ -115,27 +118,6 @@ def _admit(service: DispatchService, envelope: CommandEnvelope):
         heartbeat_timeout_ms=5_000,
         owner_peer_id="peer-01",
     )[:3]
-
-
-def _add_retry_capability(
-    store: SqliteStateStore,
-    command_id: str,
-    previous_attempt,
-    retry_session_lease,
-) -> None:
-    with store.unit_of_work() as unit:
-        original = unit.get_capability_lease_for_attempt(command_id, 1)
-        assert original is not None
-        unit.add_capability_lease(
-            replace(
-                original,
-                capability_lease_id="capability-lease-retry-2",
-                session_lease_id=retry_session_lease.lease_id,
-                authorized_attempt_number=2,
-                previous_attempt_id=previous_attempt.attempt_id,
-            )
-        )
-        unit.commit()
 
 
 def _verified_result() -> AskResult:
@@ -247,19 +229,13 @@ def test_projector_advances_checkpoint_over_unrelated_events(
 def test_projector_increments_and_resets_failure_streak(
     store: SqliteStateStore,
 ) -> None:
-    service = _service(store)
-    admitted, _, _ = _admit(service, _envelope())
-    service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
-    service.fail_pre_dispatch(
-        admitted.command_id,
-        attempt.attempt_id,
-        error_code=ErrorCode.SPAWN_FAILED,
-        transport="pipe",
+    case = _setup_retry_case(
+        store,
         operational_failure_category=(
             OperationalFailureCategory.EXECUTABLE_UNAVAILABLE
         ),
     )
+    service = case.dispatch
 
     projector = TelemetryProjector(
         store,
@@ -274,27 +250,16 @@ def test_projector_increments_and_resets_failure_streak(
         is OperationalFailureCategory.EXECUTABLE_UNAVAILABLE
     )
 
-    retried_request, _, retry_lease = service.authorize_retry(
-        admitted.command_id,
-        attempt.attempt_id,
-        reconciliation_complete=False,
-        heartbeat_timeout_ms=5_000,
-    )
-    _add_retry_capability(
-        store,
-        str(admitted.command_id),
-        attempt,
-        retry_lease,
-    )
+    bundle = _authorize_retry_case(case)
     second_attempt = service.create_attempt(
-        admitted.command_id
+        case.request.command_id
     )
     service.record_dispatch_intent(
-        admitted.command_id,
+        case.request.command_id,
         second_attempt.attempt_id,
     )
     _, running_attempt, _ = service.record_running(
-        admitted.command_id,
+        case.request.command_id,
         second_attempt.attempt_id,
         process_identity=ProcessBirthIdentity(
             pid=2,
@@ -302,11 +267,11 @@ def test_projector_increments_and_resets_failure_streak(
         ),
     )
     service.begin_assessment(
-        admitted.command_id,
+        case.request.command_id,
         second_attempt.attempt_id,
     )
     service.complete_attempt(
-        admitted.command_id,
+        case.request.command_id,
         second_attempt.attempt_id,
         result=_verified_result(),
         transport="pipe",
