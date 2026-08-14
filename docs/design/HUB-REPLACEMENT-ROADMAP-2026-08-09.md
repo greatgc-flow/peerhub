@@ -650,7 +650,22 @@ context/quota state, retry/failover on peer trouble).
     All 4 resolved without reopening 5B. Split into 5C-1 (durable read
     model + route recovery + policy freeze), 5C-2 (single-run loop + plan
     materialization), 5C-3 (durable resume + typed attempt claim +
-    concurrency). IN PROGRESS.
+    concurrency).
+    - 5C-1 (`56b2b65`) -- `DispatchService.load_retry_loop_state()` (one
+      read snapshot, 5-state classification, fails closed) and
+      `get_route_decision_by_binding()` (B2, fails closed on zero/multiple
+      digest matches). Application-layer wiring and B1's durable-aggregate
+      DTO deferred to 5C-2. **First implementation attempt (ag.deepthink)
+      shipped a real regression** -- an editing mishap silently deleted 4
+      write methods from `SqliteUnitOfWork` that already-shipped 5B code
+      calls directly (would have crashed admission/retry authorization at
+      runtime), and the completion report included zero test evidence.
+      Caught by direct diff inspection before verification was even
+      dispatched; cx.deepthink fixed it and found 3 further latent defects
+      from the same incident; independently re-verified by cc.deepthink via
+      AST-level diffing against HEAD (zero removed/altered definitions) plus
+      real-SQLite empirical probing of all 5 loader states. DONE.
+    - 5C-2 and 5C-3 remain.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
