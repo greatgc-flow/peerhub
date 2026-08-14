@@ -39,13 +39,19 @@ class ResolvedPeerTarget:
 
 AdapterFactory: TypeAlias = Callable[[], PeerAdapter]
 
+# The backing dicts are mutable so ``register_adapter_factory()`` can add a
+# kind after import; the ``_ADAPTER_FACTORIES``/``_CLI_ALIASES`` proxies below
+# are live read-only views over them, so every other reader keeps the original
+# frozen-mapping guarantee.
+_adapter_factories: dict[str, AdapterFactory] = {
+    "fake": FakePeerAdapter,
+    "ag": RealAgyAdapter,
+    "cc": RealClaudeAdapter,
+    "cx": RealCodexAdapter,
+}
+
 _ADAPTER_FACTORIES: Mapping[str, AdapterFactory] = MappingProxyType(
-    {
-        "fake": FakePeerAdapter,
-        "ag": RealAgyAdapter,
-        "cc": RealClaudeAdapter,
-        "cx": RealCodexAdapter,
-    }
+    _adapter_factories
 )
 
 
@@ -63,16 +69,61 @@ def resolve_peer_adapter(peer_kind: str) -> PeerAdapter:
         ) from error
     return factory()
 
-_CLI_ALIASES: Mapping[str, str] = MappingProxyType(
-    {
-        "agy": "ag",
-        "ag": "ag",
-        "claude": "cc",
-        "cc": "cc",
-        "codex": "cx",
-        "cx": "cx",
-    }
-)
+_cli_aliases: dict[str, str] = {
+    "agy": "ag",
+    "ag": "ag",
+    "claude": "cc",
+    "cc": "cc",
+    "codex": "cx",
+    "cx": "cx",
+}
+
+_CLI_ALIASES: Mapping[str, str] = MappingProxyType(_cli_aliases)
+
+
+def register_adapter_factory(
+    peer_kind: str,
+    cli_aliases: tuple[str, ...],
+    factory: AdapterFactory,
+) -> None:
+    """Register a new adapter factory and its CLI aliases at runtime.
+
+    Intended for an adapter package to call at its own import time, so a new
+    peer kind does not require editing this module. Registration is validated
+    completely before anything is written: a rejected call leaves both the
+    factory table and the alias table exactly as they were.
+
+    Raises ``ValueError`` if ``peer_kind`` is already registered, or if any
+    alias is already owned by a different peer kind. Existing registrations
+    are never silently replaced or rerouted.
+
+    No lock is taken. Module-level registries in this package are otherwise
+    immutable after import, and this call is expected during import or test
+    setup, which the interpreter already serializes; adding a lock here would
+    introduce a convention this package does not use elsewhere.
+    """
+
+    normalized_kind = require_text(peer_kind, "peer_kind")
+    if normalized_kind in _adapter_factories:
+        raise ValueError(
+            f"peer_kind {normalized_kind!r} is already registered"
+        )
+
+    normalized_aliases: list[str] = []
+    for index, alias in enumerate(cli_aliases):
+        normalized_alias = require_text(alias, f"cli_aliases[{index}]")
+        owner = _cli_aliases.get(normalized_alias)
+        if owner is not None and owner != normalized_kind:
+            raise ValueError(
+                f"cli alias {normalized_alias!r} is already registered "
+                f"for peer_kind {owner!r}"
+            )
+        normalized_aliases.append(normalized_alias)
+
+    _adapter_factories[normalized_kind] = factory
+    for normalized_alias in normalized_aliases:
+        _cli_aliases[normalized_alias] = normalized_kind
+
 
 def _resolve_executable_path(executable_name: str) -> Path:
     # Do not use shutil.which directly as it is vulnerable to cwd-hijacking on Windows
