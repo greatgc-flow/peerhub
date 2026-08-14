@@ -36,6 +36,11 @@ from peerhub.dispatch.capability_policy import (
     StaticPeerEnforcementEvidenceProvider,
 )
 from peerhub.dispatch.service import DispatchService
+from peerhub.dispatch.retry_authorization import (
+    FAILED_TARGET_EXCLUDED_BY_RETRY,
+    FailoverRoute,
+    SameTargetRoute,
+)
 from peerhub.health.contract import (
     AdmissionSnapshot,
     HealthPolicy,
@@ -82,11 +87,14 @@ def _policy() -> HealthPolicy:
 def _membership(
     *,
     configuration_revision: int = 11,
+    configured_members: tuple[tuple[str, str], ...] = (
+        ("ag", "ag.deepthink"),
+    ),
 ) -> HealthScopeMembershipSnapshot:
     return HealthScopeMembershipSnapshot(
         configuration_revision=configuration_revision,
         configuration_digest="e" * 64,
-        configured_members=(("ag", "ag.deepthink"),),
+        configured_members=configured_members,
         bindings=(),
     )
 
@@ -95,11 +103,13 @@ def _readiness(
     observation_id: str,
     *,
     observed_at: int = 100,
+    instance_id: str = "ag",
+    profile_id: str = "ag.deepthink",
 ) -> ReadinessObserved:
     return ReadinessObserved(
         observation_id=observation_id,
-        instance_id="ag",
-        profile_id="ag.deepthink",
+        instance_id=instance_id,
+        profile_id=profile_id,
         evidence=EvidenceValue(
             state=EvidenceState.MEASURED,
             source_tag="empirical_probe",
@@ -133,11 +143,17 @@ def _absent_usage() -> EvidenceValue:
     )
 
 
-def _candidate(eligible: bool = True) -> RouteCandidateInput:
+def _candidate(
+    eligible: bool = True,
+    *,
+    candidate_id: str = "ag.deepthink",
+    instance_id: str = "ag",
+    profile_id: str = "ag.deepthink",
+) -> RouteCandidateInput:
     return RouteCandidateInput(
-        candidate_id="ag.deepthink",
-        instance_id="ag",
-        representative_profile_id="ag.deepthink",
+        candidate_id=candidate_id,
+        instance_id=instance_id,
+        representative_profile_id=profile_id,
         eligible=eligible,
         exclusion_reason=(
             None if eligible else "ROLE_EXCLUDED"
@@ -154,6 +170,7 @@ def _route_request_factory(
     configuration_revision: int,
     required_capability_tier: CapabilityTier = CapabilityTier.READ_ONLY,
     eligible: bool = True,
+    candidates: tuple[RouteCandidateInput, ...] | None = None,
 ):
     def factory(
         admission_snapshot: AdmissionSnapshot,
@@ -169,7 +186,11 @@ def _route_request_factory(
             requested_capabilities=(),
             profile_constraints={},
             required_readiness_binding=None,
-            candidates=(_candidate(eligible=eligible),),
+            candidates=(
+                (_candidate(eligible=eligible),)
+                if candidates is None
+                else candidates
+            ),
             routing_policy_id="v1-routing-default-r1",
             routing_policy_revision=1,
         )
@@ -221,6 +242,9 @@ def _workflows(
     routing_ids: SequentialIdSource | None = None,
     dispatch_ids: SequentialIdSource | None = None,
     enforcement_evidence: PeerEnforcementEvidenceProvider | None = None,
+    configured_members: tuple[tuple[str, str], ...] = (
+        ("ag", "ag.deepthink"),
+    ),
 ) -> ApplicationWorkflows:
     telemetry = TelemetryProjector(
         store,
@@ -232,7 +256,8 @@ def _workflows(
         telemetry=telemetry,
         policy=_policy(),
         membership=_membership(
-            configuration_revision=configuration_revision
+            configuration_revision=configuration_revision,
+            configured_members=configured_members,
         ),
         clock=DeterministicClock(start=start),
         ids=health_ids if health_ids is not None else SequentialIdSource(),
@@ -256,7 +281,13 @@ def _workflows(
     )
 
 
-def _seed_health(store: SqliteStateStore) -> None:
+def _seed_health(
+    store: SqliteStateStore,
+    *,
+    configured_members: tuple[tuple[str, str], ...] = (
+        ("ag", "ag.deepthink"),
+    ),
+) -> None:
     with store.unit_of_work() as unit:
         unit.add_health_policy_revision(_policy())
         unit.commit()
@@ -270,15 +301,23 @@ def _seed_health(store: SqliteStateStore) -> None:
         store,
         telemetry=telemetry,
         policy=_policy(),
-        membership=_membership(),
+        membership=_membership(configured_members=configured_members),
         clock=DeterministicClock(start=100),
         ids=SequentialIdSource(),
     )
-    health.evaluate_and_persist_readiness(
-        _readiness("readiness-01"),
-        sealed_runtime_revision="runtime-r17",
-        adapter_declares_probe_safe=True,
-    )
+    for index, (instance_id, profile_id) in enumerate(
+        configured_members,
+        start=1,
+    ):
+        health.evaluate_and_persist_readiness(
+            _readiness(
+                f"readiness-{index:02d}",
+                instance_id=instance_id,
+                profile_id=profile_id,
+            ),
+            sealed_runtime_revision="runtime-r17",
+            adapter_declares_probe_safe=True,
+        )
 
 
 def _admission_kwargs() -> dict:
@@ -605,7 +644,13 @@ def test_authorize_retry_rechecks_route_before_authorizing(
     outcome = workflows.authorize_retry(
         request.command_id,
         attempt.attempt_id,
-        route_decision_id=admission.route.decision.decision_id,
+        route_intent=SameTargetRoute(
+            route_decision_id=admission.route.decision.decision_id,
+            current_route_request=_route_request_factory(
+                client_request_id="client-request-01",
+                configuration_revision=11,
+            )(admission.admission_snapshot),
+        ),
         route_request_factory=_route_request_factory(
             client_request_id="client-request-01",
             configuration_revision=11,
@@ -621,6 +666,102 @@ def test_authorize_retry_rechecks_route_before_authorizing(
 
     assert outcome.retry_admission.request.state is RequestState.PREPARED
     assert outcome.retry_admission.capability_lease.authorized_attempt_number == 2
+
+
+def test_authorize_retry_prepares_failover_exclusion_and_atomic_rebind(
+    store: SqliteStateStore,
+) -> None:
+    members = (("ag", "ag.deepthink"), ("cx", "cx.deepthink"))
+    _seed_health(store, configured_members=members)
+    shared_ids = SequentialIdSource()
+    health_ids = SequentialIdSource()
+    workflows = _workflows(
+        store,
+        health_ids=health_ids,
+        routing_ids=shared_ids,
+        dispatch_ids=shared_ids,
+        configured_members=members,
+    )
+    failed_candidate = _candidate()
+    replacement_candidate = _candidate(
+        candidate_id="cx.deepthink",
+        instance_id="cx",
+        profile_id="cx.deepthink",
+    )
+    admission_kwargs = _admission_kwargs()
+    admission_kwargs["owner_instance_id"] = "cli-instance"
+    admission = workflows.admit_request(
+        _envelope(),
+        route_request_factory=_route_request_factory(
+            client_request_id="client-request-01",
+            configuration_revision=11,
+            candidates=(failed_candidate,),
+        ),
+        **admission_kwargs,
+    )
+    assert admission.dispatch_admission is not None
+    assert admission.admission_snapshot is not None
+    assert admission.route is not None
+    request, _, _, _ = admission.dispatch_admission
+    dispatch = workflows._dispatch  # pyright: ignore[reportPrivateUsage]
+    prepared = dispatch.prepare_request(request.command_id)
+    attempt = dispatch.create_attempt(prepared.command_id)
+    failed_request, failed_attempt = dispatch.fail_pre_dispatch(
+        prepared.command_id,
+        attempt.attempt_id,
+        error_code=ErrorCode.SPAWN_FAILED,
+        transport="pipe",
+    )
+    dispatch.freeze_retry_policy(request.command_id, 3)
+    raw_failover_request = _route_request_factory(
+        client_request_id="client-request-01",
+        configuration_revision=11,
+        candidates=(failed_candidate, replacement_candidate),
+    )(admission.admission_snapshot)
+    retry_workflows = _workflows(
+        store,
+        start=1_000,
+        configuration_revision=12,
+        health_ids=health_ids,
+        routing_ids=shared_ids,
+        dispatch_ids=shared_ids,
+        configured_members=members,
+    )
+
+    outcome = retry_workflows.authorize_retry(
+        request.command_id,
+        attempt.attempt_id,
+        route_intent=FailoverRoute(
+            failed_route_decision_id=admission.route.decision.decision_id,
+            failover_route_request=raw_failover_request,
+        ),
+        route_request_factory=_route_request_factory(
+            client_request_id="client-request-01",
+            configuration_revision=12,
+            candidates=(failed_candidate, replacement_candidate),
+        ),
+        expected_request_revision=failed_request.revision,
+        expected_previous_attempt_revision=failed_attempt.revision,
+        expected_highest_attempt_number=failed_attempt.attempt_number,
+        frozen_max_attempts=3,
+        current_policy_revision=failed_request.policy_revision,
+        reconciliation_complete=False,
+        heartbeat_timeout_ms=5_000,
+    )
+
+    assert outcome.request.selected_peer_instance_id == "cx"
+    assert outcome.request.selected_profile_id == "cx.deepthink"
+    assert outcome.request.configuration_revision == 12
+    failed_audits = tuple(
+        candidate
+        for candidate in outcome.retry_admission.route_decision.candidates
+        if candidate.instance_id == "ag"
+    )
+    assert failed_audits
+    assert all(
+        candidate.exclusion_reason == FAILED_TARGET_EXCLUDED_BY_RETRY
+        for candidate in failed_audits
+    )
 
 
 def test_authorize_retry_refuses_on_drift(
@@ -669,7 +810,13 @@ def test_authorize_retry_refuses_on_drift(
         drifted_workflows.authorize_retry(
             request.command_id,
             attempt.attempt_id,
-            route_decision_id=admission.route.decision.decision_id,
+            route_intent=SameTargetRoute(
+                route_decision_id=admission.route.decision.decision_id,
+                current_route_request=_route_request_factory(
+                    client_request_id="client-request-01",
+                    configuration_revision=11,
+                )(admission.admission_snapshot),
+            ),
             route_request_factory=_route_request_factory(
                 client_request_id="client-request-01",
                 configuration_revision=12,

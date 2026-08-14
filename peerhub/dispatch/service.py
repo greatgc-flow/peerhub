@@ -147,7 +147,7 @@ from .retry_authorization import (
     RetryAuthorizationBundle,
     RetryAuthorizationCoordinator,
     RetryAuthorizationUnitOfWork,
-    SameTargetRoute,
+    RetryRouteIntent,
 )
 from .session_lease import SessionLeaseCoordinator
 from .helpers import (
@@ -676,7 +676,7 @@ class DispatchService:
         command_id: CommandID | str,
         previous_attempt_id: str,
         *,
-        route_intent: SameTargetRoute,
+        route_intent: RetryRouteIntent,
         expected_request_revision: int,
         expected_previous_attempt_revision: int,
         expected_highest_attempt_number: int,
@@ -685,7 +685,7 @@ class DispatchService:
         reconciliation_complete: bool,
         heartbeat_timeout_ms: int,
     ) -> RetryAuthorizationBundle:
-        """Atomically authorize one same-target retry and its capability."""
+        """Atomically authorize one retry and its route-bound capability."""
         return self._retry_authorization.authorize_retry(
             command_id,
             previous_attempt_id,

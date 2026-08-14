@@ -14,10 +14,12 @@ from peerhub.adapters.contract import ProfileDescriptor
 from peerhub.core.errors import (
     AttemptLimitReachedError,
     CapabilityAuthorizationDeniedError,
+    InvalidMutationError,
     PolicyStaleError,
     RecordNotFoundError,
     RetryPolicyConflictError,
     RetryRouteUnavailableError,
+    RouteExhaustedError,
     StaleRevisionError,
 )
 from peerhub.core.protocol import ErrorCode, OperationalFailureCategory, RevisionValue
@@ -37,18 +39,24 @@ from peerhub.dispatch.capability_policy import (
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
     AttemptSnapshot,
+    LeaseSnapshot,
     RequestSnapshot,
 )
 from peerhub.dispatch.retry_authorization import (
+    FAILED_TARGET_EXCLUDED_BY_RETRY,
+    FailoverRoute,
     RetryAuthorizationBundle,
     SameTargetRoute,
 )
 from peerhub.dispatch.service import DispatchService
 from peerhub.dispatch.unit_of_work import FaultInjector, FaultPoint
 from peerhub.persistence.sqlite import SqliteStateStore
+from peerhub.routing.contract import RouteDecision, RouteEligibility
+from peerhub.routing.model import select_equal_weight_candidate, select_route
 from tests.fakes import DeterministicClock, SequentialIdSource
 from tests.integration.application.test_workflows_kernel import (
     _admission_kwargs,
+    _candidate,
     _envelope,
     _route_request_factory,
     _seed_health,
@@ -119,7 +127,9 @@ class _RetryCase:
     request: RequestSnapshot
     attempt: AttemptSnapshot
     original_receipt: AdmissionReceipt
+    original_lease: LeaseSnapshot
     original_capability: CapabilityLease
+    original_route_decision: RouteDecision
     route_intent: SameTargetRoute
 
 
@@ -142,15 +152,27 @@ def _setup_retry_case(
     required_capability_tier: CapabilityTier = CapabilityTier.READ_ONLY,
     enforcement_evidence: PeerEnforcementEvidenceProvider | None = None,
     fail_attempt: bool = True,
+    failover_ready: bool = False,
 ) -> _RetryCase:
-    _seed_health(store)
+    configured_members = (
+        (("ag", "ag.deepthink"), ("cx", "cx.deepthink"))
+        if failover_ready
+        else (("ag", "ag.deepthink"),)
+    )
+    _seed_health(store, configured_members=configured_members)
     dispatch_ids = SequentialIdSource()
+    if failover_ready:
+        # Routing and dispatch use independent deterministic sources in this
+        # fixture; reserve the ID already used by initial route admission.
+        assert dispatch_ids.new_id("route-decision") == "route-decision-1"
     workflows = _workflows(
         store,
         dispatch_ids=dispatch_ids,
         enforcement_evidence=enforcement_evidence,
+        configured_members=configured_members,
     )
     admission_kwargs = _admission_kwargs()
+    admission_kwargs["owner_instance_id"] = "cli-instance"
     admission_kwargs["required_capability_tier"] = required_capability_tier
     admission = workflows.admit_request(
         _envelope(),
@@ -163,7 +185,7 @@ def _setup_retry_case(
     )
     assert admission.dispatch_admission is not None
     assert admission.route is not None
-    request, receipt, _, capability = admission.dispatch_admission
+    request, receipt, original_lease, capability = admission.dispatch_admission
     dispatch = workflows._dispatch  # pyright: ignore[reportPrivateUsage]
     if max_attempts is not None:
         dispatch.freeze_retry_policy(request.command_id, max_attempts)
@@ -188,10 +210,23 @@ def _setup_retry_case(
             transport="pipe",
             operational_failure_category=operational_failure_category,
         )
+    current_candidates = (
+        (
+            _candidate(),
+            _candidate(
+                candidate_id="cx.deepthink",
+                instance_id="cx",
+                profile_id="cx.deepthink",
+            ),
+        )
+        if failover_ready
+        else None
+    )
     current_route_request = _route_request_factory(
         client_request_id=request.client_request_id,
         configuration_revision=11,
         required_capability_tier=required_capability_tier,
+        candidates=current_candidates,
     )(admission.admission_snapshot)
     return _RetryCase(
         store=store,
@@ -199,7 +234,9 @@ def _setup_retry_case(
         request=failed_request,
         attempt=failed_attempt,
         original_receipt=receipt,
+        original_lease=original_lease,
         original_capability=capability,
+        original_route_decision=admission.route.decision,
         route_intent=SameTargetRoute(
             route_decision_id=admission.route.decision.decision_id,
             current_route_request=current_route_request,
@@ -240,6 +277,84 @@ def _row_counts(store: SqliteStateStore) -> tuple[int, int]:
             "SELECT COUNT(*) FROM capability_leases"
         ).fetchone()[0]
     return int(lease_count), int(capability_count)
+
+
+def _failover_row_counts(
+    store: SqliteStateStore,
+) -> tuple[int, int, int, int]:
+    with sqlite3.connect(store.database_path) as connection:
+        return tuple(
+            int(
+                connection.execute(
+                    f"SELECT COUNT(*) FROM {table}"
+                ).fetchone()[0]
+            )
+            for table in (
+                "route_decisions",
+                "route_candidate_decisions",
+                "leases",
+                "capability_leases",
+            )
+        )  # pyright: ignore[reportReturnType]
+
+
+def _failover_intent(
+    case: _RetryCase,
+    *,
+    exclude_failed: bool = True,
+    exhaust_replacements: bool = False,
+    replacement_candidate_id: str | None = None,
+) -> FailoverRoute:
+    selected_id = case.original_route_decision.selected_candidate_id
+    failed_instance = next(
+        candidate.instance_id
+        for candidate in case.original_route_decision.candidates
+        if candidate.candidate_id == selected_id
+    )
+    candidates = tuple(
+        replace(
+            candidate,
+            candidate_id=(
+                replacement_candidate_id
+                if (
+                    replacement_candidate_id is not None
+                    and candidate.instance_id != failed_instance
+                )
+                else candidate.candidate_id
+            ),
+            eligible=(
+                False
+                if (
+                    (exclude_failed and candidate.instance_id == failed_instance)
+                    or (
+                        exhaust_replacements
+                        and candidate.instance_id != failed_instance
+                    )
+                )
+                else candidate.eligible
+            ),
+            exclusion_reason=(
+                FAILED_TARGET_EXCLUDED_BY_RETRY
+                if exclude_failed and candidate.instance_id == failed_instance
+                else (
+                    "NO_REPLACEMENT_AVAILABLE"
+                    if (
+                        exhaust_replacements
+                        and candidate.instance_id != failed_instance
+                    )
+                    else candidate.exclusion_reason
+                )
+            ),
+        )
+        for candidate in case.route_intent.current_route_request.candidates
+    )
+    return FailoverRoute(
+        failed_route_decision_id=case.route_intent.route_decision_id,
+        failover_route_request=replace(
+            case.route_intent.current_route_request,
+            candidates=candidates,
+        ),
+    )
 
 
 @pytest.mark.parametrize(
@@ -511,6 +626,36 @@ def test_same_target_retry_preserves_route_target_and_digest(
     )
 
 
+@pytest.mark.parametrize("failover", (False, True), ids=("same-target", "failover"))
+def test_retry_preserves_full_fence_owner_identity(
+    store: SqliteStateStore,
+    failover: bool,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=failover)
+    original_owner = (
+        case.original_lease.fence.owner_principal_id,
+        case.original_lease.fence.owner_instance_id,
+        case.original_lease.fence.authority_epoch,
+        case.original_lease.fence.owner_peer_id,
+    )
+    assert case.original_lease.fence.owner_instance_id == "cli-instance"
+
+    bundle = _authorize(
+        case,
+        route_intent=_failover_intent(case) if failover else case.route_intent,
+    )
+
+    with store.unit_of_work() as unit:
+        persisted_lease = unit.get_lease(bundle.session_lease.lease_id)
+    assert persisted_lease is not None
+    assert (
+        persisted_lease.fence.owner_principal_id,
+        persisted_lease.fence.owner_instance_id,
+        persisted_lease.fence.authority_epoch,
+        persisted_lease.fence.owner_peer_id,
+    ) == original_owner
+
+
 def test_retry_keeps_original_receipt_and_capability_immutable(
     store: SqliteStateStore,
 ) -> None:
@@ -609,3 +754,354 @@ def test_two_sqlite_callers_have_one_bundle_and_one_typed_stale_result(
     assert sum(isinstance(item, StaleRevisionError) for item in results) == 1
     after = _row_counts(store)
     assert after == (before[0] + 1, before[1] + 1)
+
+
+def test_failover_audit_keeps_failed_instance_explicitly_excluded(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+
+    bundle = _authorize(case, route_intent=_failover_intent(case))
+
+    failed_audits = tuple(
+        candidate
+        for candidate in bundle.route_decision.candidates
+        if candidate.instance_id == case.request.selected_peer_instance_id
+    )
+    assert failed_audits
+    assert all(
+        candidate.eligibility is RouteEligibility.EXCLUDED
+        and candidate.exclusion_reason == FAILED_TARGET_EXCLUDED_BY_RETRY
+        for candidate in failed_audits
+    )
+
+
+def test_failover_selects_an_instance_other_than_the_failed_instance(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+
+    bundle = _authorize(case, route_intent=_failover_intent(case))
+
+    assert bundle.request.selected_peer_instance_id == "cx"
+    assert (
+        bundle.request.selected_peer_instance_id
+        != case.request.selected_peer_instance_id
+    )
+    assert bundle.request.selected_profile_id == "cx.deepthink"
+
+
+@pytest.mark.parametrize("failure", ("route-exhausted", "capability-denied"))
+def test_failover_exhaustion_and_denial_write_nothing(
+    store: SqliteStateStore,
+    failure: str,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+    ids = _TaggedIds(failure)
+    service = DispatchService(
+        store,
+        clock=DeterministicClock(start=500),
+        ids=ids,
+        capability_policy=(
+            StaticCapabilityPolicy(
+                denied_tiers=frozenset({CapabilityTier.READ_ONLY})
+            )
+            if failure == "capability-denied"
+            else None
+        ),
+    )
+    before = _failover_row_counts(store)
+    expected_error = (
+        RouteExhaustedError
+        if failure == "route-exhausted"
+        else CapabilityAuthorizationDeniedError
+    )
+
+    with pytest.raises(expected_error):
+        _authorize(
+            case,
+            service,
+            route_intent=_failover_intent(
+                case,
+                exhaust_replacements=(failure == "route-exhausted"),
+            ),
+        )
+
+    assert _failover_row_counts(store) == before
+    assert "lease" not in ids.namespaces
+    assert "capability-lease" not in ids.namespaces
+
+
+def test_failover_route_request_lease_and_capability_commit_together(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+    before = _failover_row_counts(store)
+
+    bundle = _authorize(case, route_intent=_failover_intent(case))
+
+    assert _failover_row_counts(store) == (
+        before[0] + 1,
+        before[1] + 2,
+        before[2] + 1,
+        before[3] + 1,
+    )
+    with store.unit_of_work() as unit:
+        assert (
+            unit.get_route_decision(bundle.route_decision.decision_id)
+            == bundle.route_decision
+        )
+        assert unit.get_request(bundle.request.command_id) == bundle.request
+        assert unit.get_lease(bundle.session_lease.lease_id) == bundle.session_lease
+        assert (
+            unit.get_capability_lease(
+                bundle.capability_lease.capability_lease_id
+            )
+            == bundle.capability_lease
+        )
+    assert (
+        bundle.request.route_decision_digest
+        == bundle.capability_lease.route_decision_digest
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("selected_peer_instance_id", "tampered-instance"),
+        ("selected_profile_id", "tampered-profile"),
+        ("route_decision_digest", "f" * 64),
+    ),
+)
+def test_failover_rejects_current_route_binding_tampering(
+    store: SqliteStateStore,
+    field: str,
+    value: str,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+    tampered = replace(
+        case.request,
+        **{field: value},
+        revision=case.request.revision + 1,
+    )
+    with store.unit_of_work() as unit:
+        assert unit.cas_update_request(case.request, tampered)
+        unit.commit()
+    case = replace(case, request=tampered)
+    before = _failover_row_counts(store)
+
+    with pytest.raises((CapabilityLeaseViolation, InvalidMutationError)):
+        _authorize(case, route_intent=_failover_intent(case))
+
+    assert _failover_row_counts(store) == before
+
+
+@pytest.mark.parametrize(
+    "fault_point",
+    (
+        FaultPoint.AFTER_RETRY_ROUTE_WRITE,
+        FaultPoint.AFTER_RETRY_LEASE_WRITE,
+        FaultPoint.AFTER_RETRY_CAPABILITY_WRITE,
+        FaultPoint.AFTER_RETRY_PREVIOUS_ATTEMPT_CAS,
+        FaultPoint.AFTER_RETRY_REQUEST_CAS,
+        FaultPoint.BEFORE_COMMIT,
+    ),
+)
+def test_failover_faults_roll_back_route_and_authority_writes(
+    store: SqliteStateStore,
+    fault_point: str,
+) -> None:
+    case = _setup_retry_case(
+        store,
+        failover_ready=True,
+        start_uncertain=True,
+    )
+    ids = _TaggedIds(fault_point)
+    service = DispatchService(
+        store,
+        clock=DeterministicClock(start=500),
+        ids=ids,
+        fault_injector=_RaisingFaults(fault_point),
+    )
+    before = _failover_row_counts(store)
+
+    with pytest.raises(RuntimeError, match="injected fault"):
+        _authorize(
+            case,
+            service,
+            route_intent=_failover_intent(case),
+            reconciliation_complete=True,
+        )
+
+    assert _failover_row_counts(store) == before
+    with store.unit_of_work() as unit:
+        assert unit.get_request(case.request.command_id) == case.request
+        assert unit.get_attempt(case.attempt.attempt_id) == case.attempt
+        route_ids = tuple(
+            namespace for namespace in ids.namespaces
+            if namespace == "route-decision"
+        )
+        assert route_ids == ("route-decision",)
+        assert (
+            unit.get_route_decision(
+                f"route-decision-{fault_point}-1"
+            )
+            is None
+        )
+
+
+def test_failover_preserves_all_original_authority_and_route_records(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+
+    _authorize(case, route_intent=_failover_intent(case))
+
+    with store.unit_of_work() as unit:
+        assert (
+            unit.get_route_decision(case.original_route_decision.decision_id)
+            == case.original_route_decision
+        )
+        assert (
+            unit.get_admission_receipt(
+                case.original_receipt.admission_receipt_id
+            )
+            == case.original_receipt
+        )
+        assert (
+            unit.get_capability_lease(
+                case.original_capability.capability_lease_id
+            )
+            == case.original_capability
+        )
+        assert unit.get_lease(case.original_lease.lease_id) == case.original_lease
+        assert unit.list_attempts(case.request.command_id) == (case.attempt,)
+
+
+def test_failover_dispatch_gate_accepts_new_and_rejects_old_authority(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+    bundle = _authorize(case, route_intent=_failover_intent(case))
+    replacement_profile = ProfileDescriptor(
+        profile_id=bundle.request.selected_profile_id,
+        profile_class="test",
+        supports_reasoning_effort=True,
+    )
+
+    validated = case.dispatch.require_dispatch_capability(
+        bundle.request.command_id,
+        capability_lease_id=bundle.capability_lease.capability_lease_id,
+        peer_instance_id=bundle.request.selected_peer_instance_id,
+        adapter_peer_kind="cx",
+        profile=replacement_profile,
+        current_policy_revision=bundle.request.policy_revision,
+    )
+    assert validated.capability_lease_id == (
+        bundle.capability_lease.capability_lease_id
+    )
+    with pytest.raises(CapabilityLeaseViolation):
+        case.dispatch.require_dispatch_capability(
+            bundle.request.command_id,
+            capability_lease_id=case.original_capability.capability_lease_id,
+            peer_instance_id=case.request.selected_peer_instance_id,
+            adapter_peer_kind="ag",
+            profile=ProfileDescriptor(
+                profile_id=case.request.selected_profile_id,
+                profile_class="test",
+                supports_reasoning_effort=True,
+            ),
+            current_policy_revision=bundle.request.policy_revision,
+        )
+
+
+def test_failover_next_attempt_uses_replacement_request_lease(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+    bundle = _authorize(case, route_intent=_failover_intent(case))
+
+    next_attempt = case.dispatch.create_attempt(bundle.request.command_id)
+
+    assert next_attempt.attempt_number == case.attempt.attempt_number + 1
+    assert next_attempt.lease_id == bundle.request.lease_id
+    assert next_attempt.lease_id == bundle.session_lease.lease_id
+
+
+def test_two_sqlite_failover_callers_have_exactly_one_winner(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+    before = _failover_row_counts(store)
+    barrier = threading.Barrier(2)
+
+    def call(tag: str) -> RetryAuthorizationBundle | StaleRevisionError:
+        independently_built_intent = _failover_intent(case)
+        service = DispatchService(
+            store,
+            clock=DeterministicClock(start=500),
+            ids=_TaggedIds(tag),
+        )
+        barrier.wait()
+        try:
+            return _authorize(
+                case,
+                service,
+                route_intent=independently_built_intent,
+            )
+        except StaleRevisionError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(call, ("one", "two")))
+
+    assert sum(
+        isinstance(item, RetryAuthorizationBundle) for item in results
+    ) == 1
+    assert sum(isinstance(item, StaleRevisionError) for item in results) == 1
+    after = _failover_row_counts(store)
+    assert after == (
+        before[0] + 1,
+        before[1] + 2,
+        before[2] + 1,
+        before[3] + 1,
+    )
+
+
+def test_failed_instance_exclusion_guard_is_independent_of_selection_guard(
+    store: SqliteStateStore,
+) -> None:
+    case = _setup_retry_case(store, failover_ready=True)
+    request = case.route_intent.current_route_request
+    default_selection = select_equal_weight_candidate(
+        client_request_id=request.client_request_id,
+        snapshot_digest=request.admission_snapshot.digest,
+        candidate_ids=("ag.deepthink", "cx.deepthink"),
+    )
+    replacement_id = (
+        "cx.deepthink"
+        if default_selection.selected_candidate == "cx.deepthink"
+        else "0-cx.deepthink"
+    )
+    unexcluded = _failover_intent(
+        case,
+        exclude_failed=False,
+        replacement_candidate_id=replacement_id,
+    )
+    prospective = select_route(
+        unexcluded.failover_route_request,
+        decision_id="route-decision-mutation-probe",
+        created_at=500,
+    ).decision
+    selected = next(
+        candidate
+        for candidate in prospective.candidates
+        if candidate.candidate_id == prospective.selected_candidate_id
+    )
+    assert selected.instance_id == "cx"
+
+    with pytest.raises(
+        InvalidMutationError,
+        match="failed route instance candidates must remain explicitly excluded",
+    ):
+        _authorize(case, route_intent=unexcluded)

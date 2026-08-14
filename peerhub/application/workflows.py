@@ -5,10 +5,10 @@ from __future__ import annotations
 
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import subprocess
-from typing import Protocol, TypeAlias
+from typing import Protocol, TypeAlias, assert_never
 
 from peerhub.adapters.contract import (
     AdapterRequest,
@@ -84,7 +84,10 @@ from peerhub.dispatch.process import (
 from peerhub.dispatch.model import classify_attempt_failure
 from peerhub.dispatch.service import DispatchService
 from peerhub.dispatch.retry_authorization import (
+    FAILED_TARGET_EXCLUDED_BY_RETRY,
+    FailoverRoute,
     RetryAuthorizationBundle,
+    RetryRouteIntent,
     SameTargetRoute,
 )
 from peerhub.health.contract import AdmissionSnapshot
@@ -498,7 +501,7 @@ class ApplicationWorkflows:
         command_id: CommandID | str,
         previous_attempt_id: str,
         *,
-        route_decision_id: str,
+        route_intent: RetryRouteIntent,
         route_request_factory: RouteRequestFactory,
         expected_request_revision: int,
         expected_previous_attempt_revision: int,
@@ -526,13 +529,40 @@ class ApplicationWorkflows:
             route_request_factory=route_request_factory,
             telemetry_limit=telemetry_limit,
         )
+        match route_intent:
+            case SameTargetRoute():
+                prepared_route_intent: RetryRouteIntent = SameTargetRoute(
+                    route_decision_id=route_intent.route_decision_id,
+                    current_route_request=current_route_request,
+                )
+            case FailoverRoute():
+                failed_instance_id = current.selected_peer_instance_id
+                failover_candidates = tuple(
+                    replace(
+                        candidate,
+                        eligible=False,
+                        exclusion_reason=FAILED_TARGET_EXCLUDED_BY_RETRY,
+                    )
+                    if candidate.instance_id == failed_instance_id
+                    else candidate
+                    for candidate in current_route_request.candidates
+                )
+                prepared_route_intent = FailoverRoute(
+                    failed_route_decision_id=(
+                        route_intent.failed_route_decision_id
+                    ),
+                    failover_route_request=replace(
+                        current_route_request,
+                        candidates=failover_candidates,
+                    ),
+                )
+            case _ as unreachable:
+                assert_never(unreachable)
+
         retry_admission = self._dispatch.authorize_retry(
             command_id,
             previous_attempt_id,
-            route_intent=SameTargetRoute(
-                route_decision_id=route_decision_id,
-                current_route_request=current_route_request,
-            ),
+            route_intent=prepared_route_intent,
             expected_request_revision=expected_request_revision,
             expected_previous_attempt_revision=(
                 expected_previous_attempt_revision

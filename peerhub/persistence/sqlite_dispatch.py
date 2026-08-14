@@ -742,6 +742,10 @@ class SqliteDispatchRepository:
             UPDATE dispatch_requests
             SET
                 lease_id = ?,
+                configuration_revision_json = ?,
+                selected_peer_instance_id = ?,
+                selected_profile_id = ?,
+                route_decision_digest = ?,
                 state = ?,
                 revision = ?,
                 updated_at = ?,
@@ -750,6 +754,10 @@ class SqliteDispatchRepository:
             """,
             (
                 updated.lease_id,
+                _json_text(updated.configuration_revision),
+                updated.selected_peer_instance_id,
+                updated.selected_profile_id,
+                updated.route_decision_digest,
                 updated.state.value,
                 updated.revision,
                 updated.updated_at,

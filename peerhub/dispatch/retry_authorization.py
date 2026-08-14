@@ -1,9 +1,9 @@
-"""Atomic same-target retry authority coordination."""
+"""Atomic same-target and failover retry authority coordination."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Protocol, TypeAlias, assert_never
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -14,6 +14,7 @@ from peerhub.core.errors import (
     RecordNotFoundError,
     RetryPolicyConflictError,
     RetryRouteUnavailableError,
+    RouteExhaustedError,
     StaleRevisionError,
 )
 from peerhub.core.protocol import CommandID, ErrorCode, RevisionValue, require_text
@@ -23,7 +24,7 @@ from peerhub.routing.contract import (
     RouteRequest,
     canonical_route_decision_digest,
 )
-from peerhub.routing.model import validate_route_for_dispatch
+from peerhub.routing.model import select_route, validate_route_for_dispatch
 from peerhub.state.contract import StateStore
 
 from .capability import (
@@ -66,6 +67,9 @@ from .unit_of_work import (
 )
 
 
+FAILED_TARGET_EXCLUDED_BY_RETRY = "FAILED_TARGET_EXCLUDED_BY_RETRY"
+
+
 @dataclass(frozen=True)
 class SameTargetRoute:
     """Fresh route facts used to reauthorize the currently selected target."""
@@ -81,6 +85,29 @@ class SameTargetRoute:
         )
         if not isinstance(self.current_route_request, RouteRequest):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("current_route_request must be RouteRequest")
+
+
+@dataclass(frozen=True)
+class FailoverRoute:
+    """Fresh route facts used to replace a failed selected instance."""
+
+    failed_route_decision_id: str
+    failover_route_request: RouteRequest
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "failed_route_decision_id",
+            require_text(
+                self.failed_route_decision_id,
+                "failed_route_decision_id",
+            ),
+        )
+        if not isinstance(self.failover_route_request, RouteRequest):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("failover_route_request must be RouteRequest")
+
+
+RetryRouteIntent: TypeAlias = SameTargetRoute | FailoverRoute
 
 
 @dataclass(frozen=True)
@@ -101,6 +128,11 @@ class RetryAuthorizationUnitOfWork(
 ):
     """One transaction spanning dispatch authority and routing audit reads."""
 
+    def add_route_decision(self, decision: RouteDecision) -> None:
+        """Insert one immutable replacement route and its candidate audit."""
+
+        ...
+
 
 @dataclass(frozen=True)
 class _LoadedRetryContext:
@@ -114,7 +146,7 @@ class _LoadedRetryContext:
 
 
 class RetryAuthorizationCoordinator:
-    """Authorize one same-target retry without a partial durable state."""
+    """Authorize one retry without a partial durable authority or route."""
 
     def __init__(
         self,
@@ -388,10 +420,190 @@ class RetryAuthorizationCoordinator:
             )
         return decision, selected
 
+    @staticmethod
+    def _require_failed_instance_excluded(
+        failed_decision: RouteDecision,
+        failover_request: RouteRequest,
+        *,
+        failed_instance_id: str,
+    ) -> None:
+        """Require complete, explicit exclusion of the failed instance."""
+
+        failed_audits = tuple(
+            candidate
+            for candidate in failed_decision.candidates
+            if candidate.instance_id == failed_instance_id
+        )
+        current_by_id = {
+            candidate.candidate_id: candidate
+            for candidate in failover_request.candidates
+        }
+        prior_candidates_are_excluded = all(
+            (
+                current := current_by_id.get(candidate.candidate_id)
+            )
+            is not None
+            and current.instance_id == candidate.instance_id
+            and (
+                current.representative_profile_id
+                == candidate.representative_profile_id
+            )
+            and not current.eligible
+            and (
+                current.exclusion_reason
+                == FAILED_TARGET_EXCLUDED_BY_RETRY
+            )
+            for candidate in failed_audits
+        )
+        every_failed_instance_candidate_is_excluded = all(
+            not candidate.eligible
+            and (
+                candidate.exclusion_reason
+                == FAILED_TARGET_EXCLUDED_BY_RETRY
+            )
+            for candidate in failover_request.candidates
+            if candidate.instance_id == failed_instance_id
+        )
+        if (
+            not failed_audits
+            or not prior_candidates_are_excluded
+            or not every_failed_instance_candidate_is_excluded
+        ):
+            raise InvalidMutationError(
+                "failed route instance candidates must remain explicitly excluded "
+                f"with {FAILED_TARGET_EXCLUDED_BY_RETRY}"
+            )
+
+    @classmethod
+    def _validate_failover_route(
+        cls,
+        unit: RetryAuthorizationUnitOfWork,
+        context: _LoadedRetryContext,
+        route_intent: FailoverRoute,
+        *,
+        decision_id: str,
+        created_at: int,
+    ) -> tuple[
+        RouteDecision,
+        RouteCandidateDecision,
+        ValidatedRetryRouteBinding,
+    ]:
+        """Validate failover input and select a replacement without writes."""
+
+        request = context.request
+        failed_decision = unit.get_route_decision(
+            route_intent.failed_route_decision_id
+        )
+        if failed_decision is None:
+            raise RecordNotFoundError(
+                "route_decision",
+                route_intent.failed_route_decision_id,
+            )
+        failed_selected = cls._selected_candidate(failed_decision)
+        failed_digest = canonical_route_decision_digest(failed_decision)
+        expected_binding = (
+            failed_decision.client_request_id,
+            failed_decision.configuration.revision,
+            failed_decision.required_capability_tier,
+            failed_selected.instance_id,
+            failed_selected.representative_profile_id,
+            failed_digest,
+        )
+        actual_binding = (
+            request.client_request_id,
+            request.configuration_revision,
+            request.required_capability_tier,
+            request.selected_peer_instance_id,
+            request.selected_profile_id,
+            request.route_decision_digest,
+        )
+        if actual_binding != expected_binding:
+            raise InvalidMutationError(
+                "dispatch request is not bound to the supplied failed route decision"
+            )
+
+        failover_request = route_intent.failover_route_request
+        if failover_request.client_request_id != request.client_request_id:
+            raise InvalidMutationError(
+                "failover route request belongs to a different client request"
+            )
+        if (
+            failover_request.required_capability_tier
+            is not request.required_capability_tier
+        ):
+            raise InvalidMutationError(
+                "failover route request changes the frozen capability tier"
+            )
+        persisted_snapshot = unit.get_admission_snapshot(
+            failover_request.admission_snapshot.snapshot_id
+        )
+        if persisted_snapshot is None:
+            raise RecordNotFoundError(
+                "admission_snapshot",
+                failover_request.admission_snapshot.snapshot_id,
+            )
+        if persisted_snapshot != failover_request.admission_snapshot:
+            raise InvalidMutationError(
+                "failover route request admission snapshot differs from its durable audit"
+            )
+        if (
+            failover_request.configuration.revision
+            != persisted_snapshot.configuration_revision
+            or failover_request.configuration.digest
+            != persisted_snapshot.configuration_digest
+        ):
+            raise InvalidMutationError(
+                "failover route request configuration differs from its admission snapshot"
+            )
+        snapshot_targets = {
+            (entry.instance_id, entry.profile_id)
+            for entry in persisted_snapshot.entries
+        }
+        if any(
+            (
+                candidate.instance_id,
+                candidate.representative_profile_id,
+            )
+            not in snapshot_targets
+            for candidate in failover_request.candidates
+        ):
+            raise InvalidMutationError(
+                "failover route candidate target/profile is absent from the durable admission snapshot"
+            )
+
+        cls._require_failed_instance_excluded(
+            failed_decision,
+            failover_request,
+            failed_instance_id=failed_selected.instance_id,
+        )
+        result = select_route(
+            failover_request,
+            decision_id=decision_id,
+            created_at=created_at,
+        )
+        if result.error_code is ErrorCode.ROUTE_EXHAUSTED:
+            raise RouteExhaustedError(str(request.command_id))
+        replacement = cls._selected_candidate(result.decision)
+        if replacement.instance_id == failed_selected.instance_id:
+            raise InvalidMutationError(
+                "failover route selected the failed peer instance"
+            )
+        replacement_digest = canonical_route_decision_digest(result.decision)
+        route_binding = ValidatedRetryRouteBinding(
+            configuration_revision=result.decision.configuration.revision,
+            selected_peer_instance_id=replacement.instance_id,
+            selected_profile_id=replacement.representative_profile_id,
+            route_decision_digest=replacement_digest,
+        )
+        return result.decision, replacement, route_binding
+
     def _fresh_grant(
         self,
         context: _LoadedRetryContext,
         *,
+        selected_peer_instance_id: str,
+        selected_profile_id: str,
+        expected_current_peer_kind: str | None,
         current_policy_revision: RevisionValue,
     ) -> tuple[str, CapabilityTier, EnforcementLevel, str]:
         request = context.request
@@ -401,15 +613,18 @@ class RetryAuthorizationCoordinator:
                 current_policy_revision,
             )
         evidence = self._enforcement_evidence.resolve(
-            peer_instance_id=request.selected_peer_instance_id,
-            profile_id=request.selected_profile_id,
+            peer_instance_id=selected_peer_instance_id,
+            profile_id=selected_profile_id,
         )
-        if evidence.peer_instance_id != request.selected_peer_instance_id:
+        if evidence.peer_instance_id != selected_peer_instance_id:
             raise CapabilityAuthorizationDeniedError(
                 str(request.command_id),
                 "machine-owned enforcement evidence belongs to a different instance",
             )
-        if context.current_capability.selected_peer_kind != evidence.peer_kind:
+        if (
+            expected_current_peer_kind is not None
+            and expected_current_peer_kind != evidence.peer_kind
+        ):
             raise CapabilityLeaseViolation(
                 "active capability peer kind differs from machine-owned evidence"
             )
@@ -426,8 +641,8 @@ class RetryAuthorizationCoordinator:
         decision = self._capability_policy.decide(
             subject_principal_id=request.authenticated_principal,
             selected_peer_kind=evidence.peer_kind,
-            selected_peer_instance_id=request.selected_peer_instance_id,
-            selected_profile_id=request.selected_profile_id,
+            selected_peer_instance_id=selected_peer_instance_id,
+            selected_profile_id=selected_profile_id,
             policy_revision=request.policy_revision,
             required_tier=request.required_capability_tier,
             minimum_enforcement=floor,
@@ -435,8 +650,8 @@ class RetryAuthorizationCoordinator:
         expected_decision_binding = (
             request.authenticated_principal,
             evidence.peer_kind,
-            request.selected_peer_instance_id,
-            request.selected_profile_id,
+            selected_peer_instance_id,
+            selected_profile_id,
             request.required_capability_tier,
             request.policy_revision,
         )
@@ -476,7 +691,7 @@ class RetryAuthorizationCoordinator:
         command_id: CommandID | str,
         previous_attempt_id: str,
         *,
-        route_intent: SameTargetRoute,
+        route_intent: RetryRouteIntent,
         expected_request_revision: int,
         expected_previous_attempt_revision: int,
         expected_highest_attempt_number: int,
@@ -485,7 +700,7 @@ class RetryAuthorizationCoordinator:
         reconciliation_complete: bool,
         heartbeat_timeout_ms: int,
     ) -> RetryAuthorizationBundle:
-        """Authorize and persist a same-target retry in one transaction."""
+        """Authorize and persist one same-target or failover retry."""
 
         with self._store.unit_of_work() as unit:
             context = self._load_common_context(
@@ -502,22 +717,78 @@ class RetryAuthorizationCoordinator:
                 frozen_max_attempts=frozen_max_attempts,
                 reconciliation_complete=reconciliation_complete,
             )
-            route_decision, _ = self._validate_same_target_route(
-                unit,
-                context,
-                route_intent,
-            )
-            (
-                peer_kind,
-                authorized_tier,
-                minimum_enforcement,
-                issuer_id,
-            ) = self._fresh_grant(
-                context,
-                current_policy_revision=current_policy_revision,
-            )
+            persist_replacement_route = False
+            match route_intent:
+                case SameTargetRoute():
+                    route_decision, _ = self._validate_same_target_route(
+                        unit,
+                        context,
+                        route_intent,
+                    )
+                    (
+                        peer_kind,
+                        authorized_tier,
+                        minimum_enforcement,
+                        issuer_id,
+                    ) = self._fresh_grant(
+                        context,
+                        selected_peer_instance_id=(
+                            context.request.selected_peer_instance_id
+                        ),
+                        selected_profile_id=(
+                            context.request.selected_profile_id
+                        ),
+                        expected_current_peer_kind=(
+                            context.current_capability.selected_peer_kind
+                        ),
+                        current_policy_revision=current_policy_revision,
+                    )
+                    timestamp = self._clock.now()
+                    route_binding = ValidatedRetryRouteBinding(
+                        configuration_revision=(
+                            context.request.configuration_revision
+                        ),
+                        selected_peer_instance_id=(
+                            context.request.selected_peer_instance_id
+                        ),
+                        selected_profile_id=(
+                            context.request.selected_profile_id
+                        ),
+                        route_decision_digest=(
+                            context.request.route_decision_digest
+                        ),
+                    )
+                case FailoverRoute():
+                    timestamp = self._clock.now()
+                    (
+                        route_decision,
+                        replacement,
+                        route_binding,
+                    ) = self._validate_failover_route(
+                        unit,
+                        context,
+                        route_intent,
+                        decision_id=self._ids.new_id("route-decision"),
+                        created_at=timestamp,
+                    )
+                    (
+                        peer_kind,
+                        authorized_tier,
+                        minimum_enforcement,
+                        issuer_id,
+                    ) = self._fresh_grant(
+                        context,
+                        selected_peer_instance_id=replacement.instance_id,
+                        selected_profile_id=(
+                            replacement.representative_profile_id
+                        ),
+                        expected_current_peer_kind=None,
+                        current_policy_revision=current_policy_revision,
+                    )
+                    persist_replacement_route = True
+                case _ as unreachable:
+                    assert_never(unreachable)
 
-            timestamp = self._clock.now()
             fencing_token = unit.allocate_fencing_token()
             lease_id = self._ids.new_id("lease")
             new_lease = reserve_lease(
@@ -539,14 +810,6 @@ class RetryAuthorizationCoordinator:
                 lease_id=lease_id,
                 fencing_token=fencing_token,
                 created_at=timestamp,
-            )
-            route_binding = ValidatedRetryRouteBinding(
-                configuration_revision=context.request.configuration_revision,
-                selected_peer_instance_id=(
-                    context.request.selected_peer_instance_id
-                ),
-                selected_profile_id=context.request.selected_profile_id,
-                route_decision_digest=context.request.route_decision_digest,
             )
             updated_request, updated_attempt = reduce_authorize_retry(
                 context.request,
@@ -589,6 +852,9 @@ class RetryAuthorizationCoordinator:
                 previous_attempt=context.previous_attempt,
             )
 
+            if persist_replacement_route:
+                unit.add_route_decision(route_decision)
+                self._faults.hit(FaultPoint.AFTER_RETRY_ROUTE_WRITE)
             unit.add_lease(new_lease)
             self._faults.hit(FaultPoint.AFTER_RETRY_LEASE_WRITE)
             unit.add_capability_lease(capability)
@@ -622,8 +888,11 @@ class RetryAuthorizationCoordinator:
 
 
 __all__ = [
+    "FAILED_TARGET_EXCLUDED_BY_RETRY",
+    "FailoverRoute",
     "RetryAuthorizationBundle",
     "RetryAuthorizationCoordinator",
     "RetryAuthorizationUnitOfWork",
+    "RetryRouteIntent",
     "SameTargetRoute",
 ]
