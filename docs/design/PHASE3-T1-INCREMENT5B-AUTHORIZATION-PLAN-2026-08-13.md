@@ -8,18 +8,22 @@ Date: 2026-08-13
 Planning baseline: `59929ee` (Increment 5A commits `a5556a2`, `24102f8`,
 and `a6118a9` are present.)
 
-Implementation status: **5B-1 (durable retry authority, no mutation) DONE**
--- 5B-1a migration + persistence ports (`7d12578`), 5B-1b `CapabilityLease`
-model + `validate_capability_binding()` generalization (`31f5794`), 5B-1c
-rewiring of the 3 stale `get_capability_lease_by_command_id()` call sites
-plus the `create_attempt()` authorization gate (`246fb8c`). **5B-2
-(same-target atomic `authorize_retry()`) DONE (`fab3352`) -- closes seam 9.1
-completely** via the new `retry_authorization.py` coordinator, replacing the
+Implementation status: **5B is DONE IN FULL.** 5B-1 (durable retry
+authority, no mutation): migration + persistence ports (`7d12578`),
+`CapabilityLease` model + `validate_capability_binding()` generalization
+(`31f5794`), rewiring of the 3 stale `get_capability_lease_by_command_id()`
+call sites plus the `create_attempt()` authorization gate (`246fb8c`). 5B-2
+(`fab3352`) -- same-target atomic `authorize_retry()`, closes seam 9.1
+completely via the new `retry_authorization.py` coordinator, replacing the
 legacy lease-only chain across `attempt_lifecycle.py`/`service.py`/
 `workflows.py`. `freeze_retry_policy()`, nominally scoped to 5B-1 above,
-actually landed with 5B-2 since that unit needed it first. **5B-3 (failover
-route selection, expands `SameTargetRoute` to
-`SameTargetRoute | FailoverRoute`, closes seam 9.2) is NOT started.**
+actually landed with 5B-2 since that unit needed it first. 5B-3 (`51b2f7d`)
+-- failover route selection, expands `SameTargetRoute` to
+`SameTargetRoute | FailoverRoute`, closes seam 9.2 completely; independent
+review caught and blocked on a real security bug (failover was rewriting
+the lease's authoritative `owner_instance_id`) before it landed. **Only 5C
+(outer-loop integration, `dispatch_with_retries()`, DEFER/resume) remains
+for increment 5.**
 
 Ratified parent contract:
 `PHASE3-T1-INCREMENT5-RETRY-LOOP-DESIGN-R1-2026-08-13.md`, especially

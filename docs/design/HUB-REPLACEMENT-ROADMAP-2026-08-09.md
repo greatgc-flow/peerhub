@@ -586,7 +586,7 @@ context/quota state, retry/failover on peer trouble).
     current `--output-format json` invocation mode, though they do via
     unused `stream-json` mode.
   - **T1 increment 5A -- disposition mapper + DTOs + adjudicator implementing the Section 3 state-treatment table (`a5556a2`/`24102f8`/`a6118a9`). DONE.**
-  - **T1 increment 5B -- authorization plan ratified (`04250ff`, simplified `e5d9566`) and IN PROGRESS.**
+  - **T1 increment 5B -- authorization plan ratified (`04250ff`, simplified `e5d9566`). DONE in full.**
     Closes 2 empirically-confirmed blocking seams: 9.1 (retry rotates the
     request lease but capability validation still checked the
     pre-rotation lease) and 9.2 (no failover target-selection
@@ -616,10 +616,28 @@ context/quota state, retry/failover on peer trouble).
       `dispatch/model.py`'s reducer tightened (CANCELLED/
       DELIVERED_UNVERIFIED no longer retryable). `freeze_retry_policy()`
       (nominally a 5B-1 item) landed here since 5B-2 needed it first. DONE.
-    - 5B-3 (failover route selection + atomic rebinding, expands
-      `SameTargetRoute` to `SameTargetRoute | FailoverRoute`, closes seam
-      9.2) remains.
-    5C (outer-loop integration) remains, blocked on 5B-3.
+    - 5B-3 (`51b2f7d`) -- expands `RetryRouteIntent` to
+      `SameTargetRoute | FailoverRoute` (exhaustively checked; dropping the
+      arm is a pyright error). Failover requires every candidate on the
+      failed instance to be explicitly excluded with
+      `FAILED_TARGET_EXCLUDED_BY_RETRY`, runs pure
+      `routing.model.select_route()` (exhaustion -> `RouteExhaustedError`
+      before any write), and atomically writes the replacement
+      `RouteDecision` + candidate audits together with the new
+      lease/capability/request rebind -- closes seam 9.2 completely.
+      `sqlite_dispatch.py`'s request CAS widened to persist route/target
+      fields (not in the original plan's file list, proven necessary: the
+      replacement route was otherwise only in-memory while SQLite kept the
+      failed target). **Independent review (cc.deepthink) found and
+      blocked on a real security bug before commit**: the failover branch
+      was rewriting the lease's security-authoritative `owner_instance_id`
+      to the replacement peer's instance instead of preserving the
+      original authenticated owner -- fixed with a real-SQLite regression
+      test, independently re-reproduced by ag.deepthink before landing.
+      Also consolidated the same-target/failover capability-grant gates
+      (previously a ~78-line near-duplicate) into one shared helper. DONE.
+    5B is fully closed -- both seam 9.1 and seam 9.2 are resolved. Only 5C
+    (outer-loop integration) remains for increment 5.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
