@@ -926,6 +926,37 @@ had never appeared in this roadmap.
   corroborate `controls_description`, `evidence_source_tag`, or
   `plan_digest`). Until then, changing a receipt would fabricate evidence
   and violate DIR-004.
+- **Candidate backlog items from source-paper review, 2026-08-15 --
+  AWAITING-USER-DECISION, zero code.** The user's linked Google Doc
+  ("Deep Analysis of Multi-AI Collaboration and Heterogeneous LLMs
+  Integration Projects") was cross-referenced by ag.deepthink against
+  `P:\_sys\docs-v2\ops\multi-ai-collaboration-accord-2026-08-15.md`'s 15
+  already-ratified clauses and its two peerhub-targeted backlog items.
+  Citations independently re-verified against the doc's actual exported
+  text (not trusted from the peer report alone, per
+  `feedback_verify_peer_citations`). Two items are genuinely additive,
+  not already subsumed by the accord:
+  1. **Inter-agent message monitoring (doc's "MAPLE-Guard" pattern,
+     Section 6.3).** peerhub's dispatch bus carries peer-to-peer traffic;
+     the Immutable Authority Kernel (accord clause 15) protects the
+     outer execution boundary but does not inspect message content for
+     collusion/sabotage-coordination or injected payloads between peers.
+     Doc cites a Multi-agent Defense Success Rate improvement from 42.5%
+     to 99.8% with a dedicated monitoring layer. Sized as a medium
+     additive feature (a filter/middleware on the existing dispatch bus,
+     not a kernel change) if pursued.
+  2. **Adaptive/structural loop termination vs. string-based stop
+     signals (Section 4.2).** The doc found string-matching termination
+     signals brittle in long-context collaborative loops; recommends
+     state-metadata-driven termination instead. Relevant if any peerhub
+     or peer-side loop (e.g. completion/session-continuation detection)
+     relies on text-matching rather than structural state. Not yet
+     investigated whether peerhub actually has this exposure -- sized as
+     an architecture-level question pending that investigation, not a
+     confirmed gap.
+  Both require an explicit user decision on whether/when to schedule --
+  not ratified or scheduled by this entry, just tracked so they are not
+  silently dropped.
 
 ## Working discipline for all phases (carried forward from tonight)
 - Small, independently-verifiable increments -- no single dispatch
