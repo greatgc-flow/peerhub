@@ -665,7 +665,24 @@ context/quota state, retry/failover on peer trouble).
       from the same incident; independently re-verified by cc.deepthink via
       AST-level diffing against HEAD (zero removed/altered definitions) plus
       real-SQLite empirical probing of all 5 loader states. DONE.
-    - 5C-2 and 5C-3 remain.
+    - 5C-2a (`cd80d20`) -- `RetryLoopStopReason.AUTHORIZATION_DENIED`,
+      `transition_retry_route()` (bounded same-target-to-failover
+      sequence), `build_retry_dispatch_plan()` + `RetryTargetResolver`,
+      `RetryConditionEvidenceProvider` + SESSION_INVALID handling,
+      `classify_authorization_error()` (complete typed-error mapping).
+      Independent review found 3 guards with no test that would catch
+      their removal; a small follow-up round added exactly those 3
+      tests. DONE.
+    - 5C-2b (`7b1ab81`) -- `ApplicationWorkflows.dispatch_with_retries()`
+      itself, wiring 5A+5B+5C-1+5C-2a together for parent steps 1-11, 13,
+      14 (no-concurrent-mutation case; step 12 deferred to 5C-3). Survived
+      5 consecutive infrastructure interruptions across 3 peers (diagnosed
+      as session-wide memory pressure, not a code problem) before landing;
+      final verification split into a read-only structural assessment plus
+      a separate empirical full-suite dispatch per explicit user direction
+      to keep dispatches small. 949 passed, pyright clean. DONE.
+    - 5C-3 (durable resume + typed attempt claim + concurrency) remains --
+      the last piece of T1 increment 5.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
