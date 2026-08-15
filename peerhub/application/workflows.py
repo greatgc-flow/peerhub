@@ -90,6 +90,25 @@ from peerhub.dispatch.retry_authorization import (
     RetryRouteIntent,
     SameTargetRoute,
 )
+from peerhub.application.retry import (
+    AttemptDispatchPlan,
+    AttemptExecutionRecord,
+    AuthorizationErrorSignal,
+    MultiAttemptExecutionResult,
+    RetryAction,
+    RetryConditionEvidenceProvider,
+    RetryDecision,
+    RetryDecisionReason,
+    RetryLoopStopReason,
+    RetryTargetResolver,
+    ResolvedRetryTarget,
+    adjudicate_retry,
+    build_retry_dispatch_plan,
+    classify_authorization_error,
+    evaluate_retry_condition_evidence,
+    read_fresh_retry_condition_evidence,
+    transition_retry_route,
+)
 from peerhub.health.contract import AdmissionSnapshot
 from peerhub.health.service import HealthService
 from peerhub.routing.contract import (
@@ -1020,3 +1039,375 @@ class ApplicationWorkflows:
             completion_assessment=assessment,
             decoded_output=decoded_output,
         )
+
+    # -- T1 increment 5C-2b: bounded outer retry loop --
+
+    def _adjudicate_with_fresh_evidence(
+        self,
+        execution: ExecutionWorkflowResult,
+        *,
+        durable_attempt_number: int,
+        frozen_max_attempts: int,
+        reconciliation_complete: bool,
+        condition_evidence_provider: RetryConditionEvidenceProvider | None,
+    ) -> tuple[RetryDecision, RetryLoopStopReason | None]:
+        """Parent steps 5-8: adjudicate, sourcing CONDITIONAL evidence fresh.
+
+        The first adjudication deliberately carries no evidence, because that
+        is how the pure 5A policy reports *which* condition it needs. Only
+        then is fresh evidence read and evaluated, and only a satisfied
+        non-session condition is re-adjudicated. Evidence is never cached.
+        """
+
+        decision = adjudicate_retry(
+            execution,
+            durable_attempt_number=durable_attempt_number,
+            max_attempts=frozen_max_attempts,
+            reconciliation_complete=reconciliation_complete,
+        )
+        if (
+            decision.action is not RetryAction.DEFER
+            or not decision.required_conditions
+        ):
+            return decision, None
+
+        condition = decision.required_conditions[0]
+        evidence = (
+            None
+            if condition_evidence_provider is None
+            else read_fresh_retry_condition_evidence(
+                condition_evidence_provider,
+                latest_attempt=execution.attempt,
+                condition=condition,
+            )
+        )
+        resolution = evaluate_retry_condition_evidence(condition, evidence)
+        if resolution.stop_reason is not None:
+            return decision, resolution.stop_reason
+
+        decision = adjudicate_retry(
+            execution,
+            durable_attempt_number=durable_attempt_number,
+            max_attempts=frozen_max_attempts,
+            reconciliation_complete=reconciliation_complete,
+            condition_evidence=resolution.evidence_for_adjudication,
+        )
+        if decision.action is RetryAction.DEFER:
+            return decision, RetryLoopStopReason.CONDITION_DEFERRED
+        return decision, None
+
+    def dispatch_with_retries(
+        self,
+        command_id: CommandID | str,
+        *,
+        initial_attempt: AttemptDispatchPlan,
+        route_request_factory: RouteRequestFactory,
+        current_policy_revision: RevisionValue,
+        materializer: ArtifactMaterializer,
+        limits: TransportLimits,
+        workspace_roots: Mapping[str, Path],
+        content_providers: Mapping[str, Callable[[], bytes]],
+        completion_contract: CompletionContract,
+        heartbeat_timeout_ms: int,
+        max_attempts: int,
+        condition_evidence_provider: RetryConditionEvidenceProvider | None = None,
+        retry_target_resolver: RetryTargetResolver | None = None,
+        transport: str = "pipe",
+        service: DispatchService | None = None,
+        event_sink: Callable[[DecoderEvent], None] | None = None,
+    ) -> MultiAttemptExecutionResult:
+        """Run the bounded outer retry loop for one command.
+
+        Implements parent steps 1-11, 13, and 14 for the
+        no-concurrent-mutation case. Step 12 belongs to 5C-3: a
+        ``StaleRevisionError`` raised by the authorization boundary is
+        re-raised unchanged rather than translated into a concurrency
+        outcome.
+        """
+
+        dispatch_service = service if service is not None else self._dispatch
+
+        # Step 2: freeze the command-global bound before attempt 1. This is
+        # idempotent, and rejects a conflicting caller value by raising
+        # RetryPolicyConflictError, which propagates per Section 2.2.
+        frozen_max_attempts = dispatch_service.freeze_retry_policy(
+            command_id,
+            max_attempts,
+        )
+
+        # Step 1: one consistent durable snapshot with validated history.
+        state = dispatch_service.load_retry_loop_state(command_id)
+
+        current_plan = initial_attempt
+        records: list[AttemptExecutionRecord] = []
+        placeholder_route_request: RouteRequest | None = None
+
+        if state.attempts:
+            # Step 3 (resume): a durable attempt already represents the
+            # initial plan, so it is adjudicated from durable facts instead
+            # of being executed again. Only durably recoverable fields are
+            # populated; no process/decoder detail is fabricated.
+            execution = ExecutionWorkflowResult(
+                request=state.request,
+                attempt=state.attempts[-1],
+                lease=state.current_lease,
+            )
+        else:
+            # Step 3 (fresh) plus step 13 for attempt 1.
+            execution = self.dispatch_and_execute(
+                command_id,
+                capability_lease_id=current_plan.capability_lease_id,
+                peer_instance_id=current_plan.peer_instance_id,
+                current_policy_revision=current_policy_revision,
+                materializer=materializer,
+                adapter_request=current_plan.adapter_request,
+                peer_adapter=current_plan.peer_adapter,
+                profile=current_plan.profile,
+                limits=limits,
+                workspace_roots=workspace_roots,
+                content_providers=content_providers,
+                completion_contract=completion_contract,
+                heartbeat_timeout_ms=heartbeat_timeout_ms,
+                transport=transport,
+                service=service,
+                session=current_plan.session,
+                event_sink=event_sink,
+            )
+
+        while True:
+            # Step 1 (per iteration) and step 14: re-read one consistent
+            # durable snapshot so the route binding and history match the
+            # attempt that was just observed, never a pre-execution copy.
+            state = dispatch_service.load_retry_loop_state(command_id)
+            attempt = execution.attempt
+            reconciliation_complete = attempt.reconciliation_complete
+
+            # Steps 5 through 8.
+            (
+                decision,
+                condition_stop,
+            ) = self._adjudicate_with_fresh_evidence(
+                execution,
+                durable_attempt_number=attempt.attempt_number,
+                frozen_max_attempts=frozen_max_attempts,
+                reconciliation_complete=reconciliation_complete,
+                condition_evidence_provider=condition_evidence_provider,
+            )
+
+            # Step 4: every observed attempt joins the aggregate exactly once.
+            def _finish(
+                reason: RetryLoopStopReason,
+                *,
+                authorization: RetryWorkflowResult | None = None,
+                observed: ExecutionWorkflowResult = execution,
+                observed_decision: RetryDecision = decision,
+            ) -> MultiAttemptExecutionResult:
+                records.append(
+                    AttemptExecutionRecord(
+                        execution=observed,
+                        error_detail=None,
+                        retry_decision=observed_decision,
+                        retry_authorization=authorization,
+                    )
+                )
+                return MultiAttemptExecutionResult(
+                    command_id=CommandID(str(command_id)),
+                    attempts=tuple(records),
+                    stop_reason=reason,
+                )
+
+            if condition_stop is not None:
+                # Step 8: a potentially satisfiable condition is unproven.
+                # No wait is guessed and nothing is replayed.
+                return _finish(condition_stop)
+            if decision.action is RetryAction.STOP:
+                # Step 6.
+                return _finish(_stop_reason_for(decision))
+            if decision.action is RetryAction.DEFER:
+                return _finish(RetryLoopStopReason.CONDITION_DEFERRED)
+
+            # Step 9: the bounded same-target-then-one-failover sequence.
+            transition = transition_retry_route(decision)
+            route_decision_id = state.route_decision.decision_id
+            if placeholder_route_request is None:
+                # authorize_retry() composes and marks the authoritative
+                # route request from its own health freeze and only reads the
+                # decision ID off this intent. One placeholder is built lazily
+                # and reused so the loop never freezes health twice per retry.
+                (
+                    _projected,
+                    _snapshot,
+                    placeholder_route_request,
+                ) = self._project_freeze_and_build(
+                    client_request_id=state.request.client_request_id,
+                    route_request_factory=route_request_factory,
+                    telemetry_limit=100,
+                )
+
+            authorization: RetryWorkflowResult | None = None
+            stop_reason: RetryLoopStopReason | None = None
+            while authorization is None:
+                next_action = transition.next_action
+                if next_action is RetryAction.RETRY_SAME_TARGET:
+                    route_intent: RetryRouteIntent = SameTargetRoute(
+                        route_decision_id=route_decision_id,
+                        current_route_request=placeholder_route_request,
+                    )
+                elif next_action is RetryAction.FAILOVER:
+                    route_intent = FailoverRoute(
+                        failed_route_decision_id=route_decision_id,
+                        failover_route_request=placeholder_route_request,
+                    )
+                else:
+                    raise InvalidMutationError(
+                        "retry route transition produced no route action"
+                    )
+
+                try:
+                    # Steps 10 and 11: the atomic 5B authority boundary.
+                    authorization = self.authorize_retry(
+                        command_id,
+                        attempt.attempt_id,
+                        route_intent=route_intent,
+                        route_request_factory=route_request_factory,
+                        expected_request_revision=(
+                            execution.request.revision
+                        ),
+                        expected_previous_attempt_revision=attempt.revision,
+                        expected_highest_attempt_number=attempt.attempt_number,
+                        frozen_max_attempts=frozen_max_attempts,
+                        current_policy_revision=current_policy_revision,
+                        reconciliation_complete=reconciliation_complete,
+                        heartbeat_timeout_ms=heartbeat_timeout_ms,
+                    )
+                except Exception as error:
+                    # Only the ratified typed outcomes are translated. Every
+                    # other exception is re-raised by the classifier itself,
+                    # so nothing arbitrary is ever treated as retryable.
+                    outcome = classify_authorization_error(error)
+                    if outcome is AuthorizationErrorSignal.RELOAD_DURABLE_STATE:
+                        # Step 12 belongs to 5C-3; propagate untranslated.
+                        raise
+                    if outcome is AuthorizationErrorSignal.PREPARE_FAILOVER:
+                        # At most one failover: transition_retry_route()
+                        # raises if a second one is ever requested.
+                        transition = transition_retry_route(
+                            transition.decision,
+                            attempted_action=next_action,
+                            error=error,
+                        )
+                        continue
+                    stop_reason = outcome
+                    break
+
+            if authorization is None:
+                if stop_reason is None:
+                    raise InvalidMutationError(
+                        "retry authorization produced no outcome"
+                    )
+                return _finish(
+                    stop_reason,
+                    observed_decision=transition.decision,
+                )
+
+            # Step 11 (materialization): build the next plan only from the
+            # committed bundle's own machine-owned binding.
+            next_plan = build_retry_dispatch_plan(
+                bundle=authorization.retry_admission,
+                route_action=transition.decision.action,
+                current_plan=current_plan,
+                resolver=(
+                    retry_target_resolver
+                    if retry_target_resolver is not None
+                    else _unresolvable_retry_target
+                ),
+            )
+            if isinstance(next_plan, RetryLoopStopReason):
+                return _finish(
+                    next_plan,
+                    authorization=authorization,
+                    observed_decision=transition.decision,
+                )
+
+            records.append(
+                AttemptExecutionRecord(
+                    execution=execution,
+                    error_detail=None,
+                    retry_decision=transition.decision,
+                    retry_authorization=authorization,
+                )
+            )
+
+            # Step 13: exactly one execution per authorized attempt.
+            current_plan = next_plan
+            execution = self.dispatch_and_execute(
+                command_id,
+                capability_lease_id=current_plan.capability_lease_id,
+                peer_instance_id=current_plan.peer_instance_id,
+                current_policy_revision=current_policy_revision,
+                materializer=materializer,
+                adapter_request=current_plan.adapter_request,
+                peer_adapter=current_plan.peer_adapter,
+                profile=current_plan.profile,
+                limits=limits,
+                workspace_roots=workspace_roots,
+                content_providers=content_providers,
+                completion_contract=completion_contract,
+                heartbeat_timeout_ms=heartbeat_timeout_ms,
+                transport=transport,
+                service=service,
+                session=current_plan.session,
+                event_sink=event_sink,
+            )
+
+            # Step 14: iterate; the next pass re-reads durable state.
+
+
+_STOP_REASON_BY_DECISION: Mapping[
+    RetryDecisionReason,
+    RetryLoopStopReason,
+] = {
+    RetryDecisionReason.VERIFIED_SUCCESS: (
+        RetryLoopStopReason.VERIFIED_SUCCESS
+    ),
+    RetryDecisionReason.DELIVERED_UNVERIFIED: (
+        RetryLoopStopReason.DELIVERED_UNVERIFIED
+    ),
+    RetryDecisionReason.AUTHORITATIVE_CANCELLATION: (
+        RetryLoopStopReason.AUTHORITATIVE_CANCELLATION
+    ),
+    RetryDecisionReason.NEVER_DISPOSITION: (
+        RetryLoopStopReason.NEVER_DISPOSITION
+    ),
+    RetryDecisionReason.UNSAFE_NO_EVIDENCE: (
+        RetryLoopStopReason.UNSAFE_NO_EVIDENCE
+    ),
+    RetryDecisionReason.ATTEMPT_LIMIT_REACHED: (
+        RetryLoopStopReason.ATTEMPT_LIMIT_REACHED
+    ),
+    RetryDecisionReason.LEGACY_CLASSIFICATION_UNKNOWN: (
+        RetryLoopStopReason.LEGACY_CLASSIFICATION_UNKNOWN
+    ),
+}
+
+
+def _stop_reason_for(decision: RetryDecision) -> RetryLoopStopReason:
+    """Map one STOP decision onto the exact ratified aggregate reason."""
+
+    mapped = _STOP_REASON_BY_DECISION.get(decision.reason)
+    if mapped is None:
+        raise InvalidMutationError(
+            "retry loop cannot map decision reason "
+            f"{decision.reason.value!r} to a stop reason"
+        )
+    return mapped
+
+
+def _unresolvable_retry_target(
+    peer_kind: str,
+    instance_id: str,
+    profile_id: str,
+) -> ResolvedRetryTarget | None:
+    """Fail closed when no replacement-target resolver was injected."""
+
+    return None
