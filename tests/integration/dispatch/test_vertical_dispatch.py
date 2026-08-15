@@ -485,7 +485,7 @@ def test_dp06_post_intent_recovery_translation_and_reducer(
     cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
 
     # Step 1: Create attempt
-    attempt = dispatch.create_attempt(cmd_id)
+    attempt = dispatch.create_attempt(cmd_id, expected_authorized_attempt_number=1)
 
     # Step 2: Simulate crash immediately after DISPATCH_INTENT outbox write
     req_snap, att_snap, lease_snap = dispatch.record_dispatch_intent(

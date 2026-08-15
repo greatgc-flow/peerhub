@@ -220,7 +220,7 @@ def test_dispatch_bundle_fault_rolls_back_request_attempt_and_lease(
     clean = _service(store)
     admitted, _, reserved = _admit(clean)
     prepared = clean.prepare_request(admitted.command_id)
-    attempt = clean.create_attempt(admitted.command_id)
+    attempt = clean.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     faulting = _service(
         store,
@@ -258,7 +258,7 @@ def test_terminal_outbox_fault_rolls_back_terminal_state(
     clean = _service(store, ids=shared_ids)
     admitted, _, _ = _admit(clean)
     prepared = clean.prepare_request(admitted.command_id)
-    attempt = clean.create_attempt(admitted.command_id)
+    attempt = clean.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     faulting = _service(
         store,

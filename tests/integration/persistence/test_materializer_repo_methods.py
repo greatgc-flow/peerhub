@@ -97,7 +97,7 @@ def _seed_attempt(store: SqliteStateStore) -> str:
         owner_peer_id="peer-01",
     )
     service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
     return attempt.attempt_id
 
 

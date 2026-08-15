@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
+    ConcurrentAttemptClaimError,
     InvalidMutationError,
     RecordNotFoundError,
 )
@@ -76,6 +77,8 @@ class AttemptLifecycleCoordinator:
     def create_attempt(
         self,
         command_id: CommandID | str,
+        *,
+        expected_authorized_attempt_number: int,
     ) -> AttemptSnapshot:
         """Create the next monotonic attempt under PREPARED."""
 
@@ -101,6 +104,16 @@ class AttemptLifecycleCoordinator:
                 capability_lease.authorized_attempt_number
                 != attempt_number
             ):
+                if (
+                    capability_lease.authorized_attempt_number == expected_authorized_attempt_number
+                    and attempt_number == capability_lease.authorized_attempt_number + 1
+                ):
+                    raise ConcurrentAttemptClaimError(
+                        command_id=command_id,
+                        expected_attempt_number=expected_authorized_attempt_number,
+                        authorized_attempt_number=capability_lease.authorized_attempt_number,
+                        next_attempt_number=attempt_number,
+                    )
                 raise CapabilityLeaseViolation(
                     "capability lease authorizes attempt "
                     f"{capability_lease.authorized_attempt_number}, not next "

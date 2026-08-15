@@ -671,7 +671,10 @@ class ApplicationWorkflows:
         )
 
         # Step 1: Create attempt under PREPARED request
-        attempt = dispatch_service.create_attempt(command_id)
+        attempt = dispatch_service.create_attempt(
+            command_id,
+            expected_authorized_attempt_number=_validated_capability.authorized_attempt_number,
+        )
 
         # Step 2: Resolve workspace paths and generate manifest
         workspace = resolve_workspace_paths(

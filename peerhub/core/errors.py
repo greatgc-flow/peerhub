@@ -293,6 +293,38 @@ class StaleRevisionError(PeerHubError):
         )
 
 
+class ConcurrentAttemptClaimError(PeerHubError):
+    """Another caller won the capability lease race for an expected attempt number."""
+
+    error_code = ErrorCode.REVISION_CONFLICT
+
+    def __init__(
+        self,
+        command_id: str,
+        expected_attempt_number: int,
+        authorized_attempt_number: int,
+        next_attempt_number: int,
+    ) -> None:
+        self.command_id = command_id
+        self.expected_attempt_number = expected_attempt_number
+        self.authorized_attempt_number = authorized_attempt_number
+        self.next_attempt_number = next_attempt_number
+        super().__init__(
+            (
+                f"concurrent claim for {command_id!r}: caller expected "
+                f"attempt {expected_attempt_number}, but capability authorizes "
+                f"{authorized_attempt_number} and durable next attempt is "
+                f"{next_attempt_number}"
+            ),
+            details={
+                "command_id": command_id,
+                "expected_attempt_number": expected_attempt_number,
+                "authorized_attempt_number": authorized_attempt_number,
+                "next_attempt_number": next_attempt_number,
+            },
+        )
+
+
 class DuplicateClientRequestError(PeerHubError):
     """A caller request ID was reused for different intent."""
 

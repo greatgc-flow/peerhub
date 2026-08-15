@@ -111,7 +111,7 @@ def _setup_request_and_attempt(store: SqliteStateStore, ids: SequentialIdSource)
         owner_principal_id="op", owner_instance_id="oi", authority_epoch=1, heartbeat_timeout_ms=5000,
     )
     s.prepare_request(req.command_id)
-    att = s.create_attempt(req.command_id)
+    att = s.create_attempt(req.command_id, expected_authorized_attempt_number=1)
     return req.command_id, att.attempt_id
 
 def _manifest(att_id: str) -> ArtifactManifestRecord:

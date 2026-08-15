@@ -169,7 +169,7 @@ def test_full_request_attempt_lifecycle_round_trips(
     assert receipt.command_id == admitted.command_id
 
     prepared = service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
     intent_request, intent_attempt, intent_lease = (
         service.record_dispatch_intent(
             admitted.command_id,
@@ -271,7 +271,7 @@ def test_request_attempt_and_lease_cas_reject_stale_snapshots(
     service = _service(store)
     admitted, _, reserved = _admit(service)
     prepared = service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     with store.unit_of_work() as unit:
         current_request = unit.get_request(admitted.command_id)
@@ -359,7 +359,7 @@ def test_active_attempt_uniqueness_and_monotonic_numbering(
     bundle = _authorize_retry_case(case)
     second_attempt = case.dispatch.create_attempt(
         case.request.command_id
-    )
+    , expected_authorized_attempt_number=1)
     assert second_attempt.attempt_number == 2
     assert second_attempt.lease_id == bundle.session_lease.lease_id
 
@@ -414,7 +414,7 @@ def test_reconciled_start_uncertain_retry_rotates_lease(
 
     second_attempt = case.dispatch.create_attempt(
         case.request.command_id
-    )
+    , expected_authorized_attempt_number=1)
     assert second_attempt.attempt_number == 2
     assert second_attempt.lease_id == bundle.session_lease.lease_id
 
@@ -446,7 +446,7 @@ def test_dispatch_bundle_cas_rejects_null_attempt_id(
     service = _service(store)
     admitted, _, reserved = _admit(service)
     prepared = service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     (
         intent_request,
@@ -492,7 +492,7 @@ def test_outbox_checkpoint_uses_revision_guarded_cas(
     service = _service(store)
     admitted, _, _ = _admit(service)
     service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
     service.fail_pre_dispatch(
         admitted.command_id,
         attempt.attempt_id,
@@ -595,7 +595,7 @@ def test_record_dispatch_intent_and_reserve_artifacts_happy_path(
     service = _service(store)
     admitted, _, lease = _admit(service)
     service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     manifest, artifacts = _make_manifest_and_artifacts(attempt.attempt_id)
     with store.unit_of_work() as unit:
@@ -632,7 +632,7 @@ def test_record_dispatch_intent_and_reserve_artifacts_failure_rolls_back(
     service = _service(store)
     admitted, _, lease = _admit(service)
     service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     # art2 is STAGED, not VERIFIED -- reservation must fail
     manifest, artifacts = _make_manifest_and_artifacts(
@@ -672,7 +672,7 @@ def test_complete_attempt_with_artifacts_and_lease_happy_path(
     service = _service(store)
     admitted, _, lease = _admit(service)
     service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     manifest, artifacts = _make_manifest_and_artifacts(attempt.attempt_id)
     with store.unit_of_work() as unit:
@@ -757,7 +757,7 @@ def test_complete_attempt_with_artifacts_and_lease_without_artifacts(
     service = _service(store)
     admitted, _, lease = _admit(service)
     service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
     req_snap, att_snap, lease_snap = service.record_dispatch_intent(
         admitted.command_id,
         attempt.attempt_id,

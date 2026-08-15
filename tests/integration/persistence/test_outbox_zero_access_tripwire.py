@@ -197,7 +197,7 @@ def test_zero_access_tripwire_across_full_governance_and_dispatch_pipeline(
         owner_peer_id="peer-01",
     )
     dispatch.prepare_request(admitted.command_id)
-    attempt = dispatch.create_attempt(admitted.command_id)
+    attempt = dispatch.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     # 3. Artifact management and recovery digest
     manifest = ArtifactManifestRecord(

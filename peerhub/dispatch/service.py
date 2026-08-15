@@ -731,9 +731,14 @@ class DispatchService:
     def create_attempt(
         self,
         command_id: CommandID | str,
+        *,
+        expected_authorized_attempt_number: int,
     ) -> AttemptSnapshot:
         """Create the next monotonic attempt under PREPARED."""
-        return self._attempts.create_attempt(command_id)
+        return self._attempts.create_attempt(
+            command_id,
+            expected_authorized_attempt_number=expected_authorized_attempt_number,
+        )
 
     def fail_pre_dispatch(
         self,

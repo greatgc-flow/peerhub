@@ -169,7 +169,7 @@ class TestRequestAttemptModel(unittest.TestCase):
             route_decision_digest=request.route_decision_digest,
         )
 
-    def test_prepare_and_create_attempt(self) -> None:
+    def test_prepare_and_create_attempt(self, expected_authorized_attempt_number=1) -> None:
         prepared, attempt = self._prepared()
         self.assertEqual(prepared.state, RequestState.PREPARED)
         self.assertEqual(attempt.state, RequestState.PREPARED)

@@ -153,7 +153,7 @@ def _run_to_completion(
 ) -> None:
     admitted, _, _ = _admit(service, envelope)
     service.prepare_request(admitted.command_id)
-    attempt = service.create_attempt(admitted.command_id)
+    attempt = service.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
     service.record_dispatch_intent(
         admitted.command_id,
         attempt.attempt_id,
@@ -253,7 +253,7 @@ def test_projector_increments_and_resets_failure_streak(
     bundle = _authorize_retry_case(case)
     second_attempt = service.create_attempt(
         case.request.command_id
-    )
+    , expected_authorized_attempt_number=1)
     service.record_dispatch_intent(
         case.request.command_id,
         second_attempt.attempt_id,

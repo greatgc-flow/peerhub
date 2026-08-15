@@ -1097,7 +1097,7 @@ def test_dispatch_intent_revalidates_policy_after_pre_plan_gate(
         current_policy_revision=7,
     )
     receipt = _invocation_receipt(validated)
-    attempt = dispatch.create_attempt(command_id)
+    attempt = dispatch.create_attempt(command_id, expected_authorized_attempt_number=1)
     before_request, before_attempt = dispatch.get_request_and_attempt(
         command_id,
         attempt.attempt_id,
@@ -1159,7 +1159,7 @@ def test_dispatch_intent_post_plan_revalidation_happy_path(
         current_policy_revision=7,
     )
     receipt = _invocation_receipt(validated)
-    attempt = dispatch.create_attempt(command_id)
+    attempt = dispatch.create_attempt(command_id, expected_authorized_attempt_number=1)
     before_events = _command_events(store, str(command_id))
 
     request, persisted_attempt, lease = dispatch.record_dispatch_intent(
@@ -1200,7 +1200,7 @@ def test_dispatch_intent_revalidation_loads_capability_for_exact_attempt(
         current_policy_revision=7,
     )
     receipt = _invocation_receipt(validated)
-    attempt = dispatch.create_attempt(command_id)
+    attempt = dispatch.create_attempt(command_id, expected_authorized_attempt_number=1)
     calls: list[tuple[str, int]] = []
     original_lookup = SqliteDispatchRepository.get_capability_lease_for_attempt
 
@@ -1324,7 +1324,7 @@ def test_retry_capability_flows_through_gate_attempt_and_intent_revalidation(
         first_capability = unit.get_capability_lease(first_capability_id)
     assert first_capability is not None
 
-    first_attempt = dispatch.create_attempt(command_id)
+    first_attempt = dispatch.create_attempt(command_id, expected_authorized_attempt_number=1)
     failed_request, failed_attempt = dispatch.fail_pre_dispatch(
         command_id,
         first_attempt.attempt_id,
@@ -1374,7 +1374,7 @@ def test_retry_capability_flows_through_gate_attempt_and_intent_revalidation(
         current_policy_revision=7,
     )
     assert validated.authorized_attempt_number == 2
-    second_attempt = dispatch.create_attempt(retried_request.command_id)
+    second_attempt = dispatch.create_attempt(retried_request.command_id, expected_authorized_attempt_number=2)
     request, attempt, session_lease = dispatch.record_dispatch_intent(
         retried_request.command_id,
         second_attempt.attempt_id,

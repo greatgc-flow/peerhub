@@ -31,6 +31,7 @@ from peerhub.dispatch.capability import CapabilityLeaseViolation
 from peerhub.dispatch.contract import (
     AttemptFailureClassification,
     RequestState,
+    TERMINAL_REQUEST_STATES,
     TerminalClassification,
 )
 from peerhub.dispatch.retry_authorization import RetryAuthorizationBundle
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
         RetryWorkflowResult,
     )
     from peerhub.core.protocol import ErrorDetail
-    from peerhub.dispatch.contract import AttemptSnapshot
+    from peerhub.dispatch.contract import AttemptSnapshot, RetryLoopState
 
 
 class RetryAction(str, Enum):
@@ -113,6 +114,33 @@ class RetryLoopStopReason(str, Enum):
     FAILOVER_UNAVAILABLE = "FAILOVER_UNAVAILABLE"
     LEGACY_CLASSIFICATION_UNKNOWN = "LEGACY_CLASSIFICATION_UNKNOWN"
     AUTHORIZATION_DENIED = "AUTHORIZATION_DENIED"
+
+
+class ConcurrentClaimOutcome(str, Enum):
+    """Outcomes from the pure concurrent claim classifier."""
+    
+    TERMINAL_STATE = "CONCURRENT_TERMINAL_STATE"
+    ATTEMPT_IN_PROGRESS = "CONCURRENT_ATTEMPT_IN_PROGRESS"
+    ATTEMPT_TERMINAL_REBUILD = "CONCURRENT_ATTEMPT_TERMINAL_REBUILD"
+    NO_ADVANCEMENT_READJUDICATE = "CONCURRENT_NO_ADVANCEMENT_READJUDICATE"
+
+
+MAX_CONCURRENT_READJUDICATE_SPIN_LIMIT = 3
+
+
+@dataclass(frozen=True)
+class ConcurrentClaimResolution:
+    """Resolution of a concurrent attempt claim or stale revision."""
+
+    outcome: ConcurrentClaimOutcome
+    rebuild_attempt_number: int | None = None
+    readjudicate_retry_limit: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.outcome is ConcurrentClaimOutcome.ATTEMPT_TERMINAL_REBUILD and self.rebuild_attempt_number is None:
+            raise ValueError("ATTEMPT_TERMINAL_REBUILD requires rebuild_attempt_number")
+        if self.outcome is ConcurrentClaimOutcome.NO_ADVANCEMENT_READJUDICATE and self.readjudicate_retry_limit is None:
+            raise ValueError("NO_ADVANCEMENT_READJUDICATE requires readjudicate_retry_limit")
 
 
 class AuthorizationErrorSignal(str, Enum):
@@ -840,3 +868,42 @@ def adjudicate_retry(
             )
     else:
         raise ValueError(f"Unhandled disposition: {disposition}")
+
+
+def classify_concurrent_claim(
+    fresh_state: RetryLoopState,
+    target_attempt_number: int,
+) -> ConcurrentClaimResolution:
+    """Classify the outcome of a concurrent claim or stale revision error."""
+
+    # TODO(5C-3b): REJECTED_VALIDATION, REJECTED_POLICY, and FAILED_PRE_DISPATCH
+    # are also non-retryable terminals that currently fall through incorrectly to
+    # the "no advancement, re-adjudicate" branch. This gap needs resolving when
+    # the classifier is actually wired into the outer loop.
+    if fresh_state.request.state in (
+        RequestState.CANCELLED,
+        RequestState.SUCCEEDED_VERIFIED,
+        RequestState.DELIVERED_UNVERIFIED,
+    ):
+        return ConcurrentClaimResolution(ConcurrentClaimOutcome.TERMINAL_STATE)
+
+    highest_durable = validate_attempt_history(fresh_state.attempts) if fresh_state.attempts else 0
+    authorized = fresh_state.current_capability.authorized_attempt_number
+
+    if authorized == target_attempt_number and highest_durable < target_attempt_number:
+        return ConcurrentClaimResolution(ConcurrentClaimOutcome.ATTEMPT_IN_PROGRESS)
+
+    if highest_durable >= target_attempt_number:
+        attempt = next(a for a in fresh_state.attempts if a.attempt_number == target_attempt_number)
+        if attempt.state not in TERMINAL_REQUEST_STATES:
+            return ConcurrentClaimResolution(ConcurrentClaimOutcome.ATTEMPT_IN_PROGRESS)
+        else:
+            return ConcurrentClaimResolution(
+                outcome=ConcurrentClaimOutcome.ATTEMPT_TERMINAL_REBUILD,
+                rebuild_attempt_number=target_attempt_number,
+            )
+
+    return ConcurrentClaimResolution(
+        outcome=ConcurrentClaimOutcome.NO_ADVANCEMENT_READJUDICATE,
+        readjudicate_retry_limit=MAX_CONCURRENT_READJUDICATE_SPIN_LIMIT,
+    )

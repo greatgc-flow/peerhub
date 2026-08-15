@@ -256,7 +256,7 @@ def test_dispatch_domain_read_methods_use_read_unit_of_work(
         owner_peer_id="peer-read-uow-dispatch",
     )
     prepared = dispatch.prepare_request(admitted.command_id)
-    attempt = dispatch.create_attempt(admitted.command_id)
+    attempt = dispatch.create_attempt(admitted.command_id, expected_authorized_attempt_number=1)
 
     write_uow_calls = 0
     read_uow_calls = 0

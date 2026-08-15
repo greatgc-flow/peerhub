@@ -429,7 +429,7 @@ def test_create_attempt_rejects_missing_capability_for_current_session_lease(
         )
 
     with pytest.raises(CapabilityLeaseViolation) as exc_info:
-        service.create_attempt(request.command_id)
+        service.create_attempt(request.command_id, expected_authorized_attempt_number=1)
 
     assert exc_info.value.invariant == (
         "attempt creation references a session lease with no capability"
@@ -462,7 +462,7 @@ def test_create_attempt_rejects_capability_for_different_attempt_number(
         unit.commit()
 
     with pytest.raises(CapabilityLeaseViolation) as exc_info:
-        case.dispatch.create_attempt(bundle.request.command_id)
+        case.dispatch.create_attempt(bundle.request.command_id, expected_authorized_attempt_number=1)
 
     assert exc_info.value.invariant == (
         "capability lease authorizes attempt 3, not next attempt 2"

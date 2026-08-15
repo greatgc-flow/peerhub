@@ -108,7 +108,7 @@ def test_retry_loop_state_loads_one_through_n_and_rejects_gap_or_duplicate(
 ) -> None:
     case = _setup_retry_case(store)
     _authorize(case)
-    second = case.dispatch.create_attempt(case.request.command_id)
+    second = case.dispatch.create_attempt(case.request.command_id, expected_authorized_attempt_number=2)
 
     state = case.dispatch.load_retry_loop_state(case.request.command_id)
 

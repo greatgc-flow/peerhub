@@ -190,7 +190,7 @@ def _setup_retry_case(
     if max_attempts is not None:
         dispatch.freeze_retry_policy(request.command_id, max_attempts)
     prepared = dispatch.prepare_request(request.command_id)
-    attempt = dispatch.create_attempt(request.command_id)
+    attempt = dispatch.create_attempt(request.command_id, expected_authorized_attempt_number=1)
     if not fail_attempt:
         failed_request, failed_attempt = prepared, attempt
     elif start_uncertain:
@@ -468,7 +468,7 @@ def test_second_attempt_under_attempt_one_capability_is_rejected(
     case = _setup_retry_case(store, fail_attempt=False)
 
     with pytest.raises(CapabilityLeaseViolation) as exc_info:
-        case.dispatch.create_attempt(case.request.command_id)
+        case.dispatch.create_attempt(case.request.command_id, expected_authorized_attempt_number=2)
 
     assert exc_info.value.invariant == (
         "capability lease authorizes attempt 1, not next attempt 2"
@@ -720,7 +720,7 @@ def test_create_attempt_consumes_exactly_next_authority(
     case = _setup_retry_case(store)
     bundle = _authorize(case)
 
-    next_attempt = case.dispatch.create_attempt(bundle.request.command_id)
+    next_attempt = case.dispatch.create_attempt(bundle.request.command_id, expected_authorized_attempt_number=2)
 
     assert next_attempt.attempt_number == case.attempt.attempt_number + 1
     assert next_attempt.lease_id == bundle.session_lease.lease_id
@@ -1021,7 +1021,7 @@ def test_failover_next_attempt_uses_replacement_request_lease(
     case = _setup_retry_case(store, failover_ready=True)
     bundle = _authorize(case, route_intent=_failover_intent(case))
 
-    next_attempt = case.dispatch.create_attempt(bundle.request.command_id)
+    next_attempt = case.dispatch.create_attempt(bundle.request.command_id, expected_authorized_attempt_number=2)
 
     assert next_attempt.attempt_number == case.attempt.attempt_number + 1
     assert next_attempt.lease_id == bundle.request.lease_id

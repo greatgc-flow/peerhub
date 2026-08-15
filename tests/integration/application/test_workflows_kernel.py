@@ -625,7 +625,7 @@ def test_authorize_retry_rechecks_route_before_authorizing(
     dispatch = workflows._dispatch  # noqa: SLF001 - direct service access for test setup only
 
     prepared = dispatch.prepare_request(request.command_id)
-    attempt = dispatch.create_attempt(prepared.command_id)
+    attempt = dispatch.create_attempt(prepared.command_id, expected_authorized_attempt_number=1)
     failed_request, failed_attempt = dispatch.fail_pre_dispatch(
         prepared.command_id,
         attempt.attempt_id,
@@ -705,7 +705,7 @@ def test_authorize_retry_prepares_failover_exclusion_and_atomic_rebind(
     request, _, _, _ = admission.dispatch_admission
     dispatch = workflows._dispatch  # pyright: ignore[reportPrivateUsage]
     prepared = dispatch.prepare_request(request.command_id)
-    attempt = dispatch.create_attempt(prepared.command_id)
+    attempt = dispatch.create_attempt(prepared.command_id, expected_authorized_attempt_number=1)
     failed_request, failed_attempt = dispatch.fail_pre_dispatch(
         prepared.command_id,
         attempt.attempt_id,
@@ -789,7 +789,7 @@ def test_authorize_retry_refuses_on_drift(
     dispatch = workflows._dispatch  # noqa: SLF001 - direct service access for test setup only
 
     prepared = dispatch.prepare_request(request.command_id)
-    attempt = dispatch.create_attempt(prepared.command_id)
+    attempt = dispatch.create_attempt(prepared.command_id, expected_authorized_attempt_number=1)
     failed_request, failed_attempt = dispatch.fail_pre_dispatch(
         prepared.command_id,
         attempt.attempt_id,
