@@ -681,8 +681,25 @@ context/quota state, retry/failover on peer trouble).
       final verification split into a read-only structural assessment plus
       a separate empirical full-suite dispatch per explicit user direction
       to keep dispatches small. 949 passed, pyright clean. DONE.
-    - 5C-3 (durable resume + typed attempt claim + concurrency) remains --
-      the last piece of T1 increment 5.
+    - 5C-3a (`7225025`) -- typed `ConcurrentAttemptClaimError` distinct
+      from `CapabilityLeaseViolation` at the `create_attempt()` seam
+      (closes B3), plus `classify_concurrent_claim()`, the pure 5-branch
+      concurrency-outcome classifier from plan Section 2.5 (not yet wired
+      into the outer loop -- that's 5C-3b). Needed 6 dispatch attempts
+      across infrastructure interruptions before landing (session-wide
+      memory pressure). Independent review caught a real security gap
+      the first pass missed -- the race-detection predicate didn't check
+      contiguity, so a multi-step authority divergence could have been
+      misclassified as a benign single-step race -- fixed with a
+      verified-compatible contiguity check plus a regression test, and 4
+      smaller hygiene fixes (a false "real fixtures" claim, a
+      pyright-invisible import-scope bug, debug commentary, stray
+      files). `classify_concurrent_claim()`'s branch (a) has a noted
+      TODO(5C-3b) gap (3 more non-retryable terminal states belong there)
+      deliberately left for the wiring increment. DONE.
+    - 5C-3b (wiring the classifier + typed error into
+      `dispatch_with_retries()`, real concurrent-caller integration
+      tests) remains -- the last piece of T1 increment 5.
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
