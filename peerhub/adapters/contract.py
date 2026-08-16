@@ -293,6 +293,23 @@ class SessionHint:
 
 
 @dataclass(frozen=True)
+class EvidencePayload:
+    """An intercepted evidence payload intended for prompt inclusion."""
+
+    source_tool_name: str
+    content_bytes: bytes
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "source_tool_name",
+            require_text(self.source_tool_name, "source_tool_name"),
+        )
+        if type(self.content_bytes) is not bytes:
+            raise ValueError("content_bytes must be bytes")
+
+
+@dataclass(frozen=True)
 class AdapterRequest:
     """The already-authorized request an adapter plans an invocation for.
 
@@ -307,6 +324,7 @@ class AdapterRequest:
     profile_id: str
     requested_session_action: SessionAction
     completion_contract: CompletionContractView
+    evidence_payloads: tuple[EvidencePayload, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -351,6 +369,12 @@ class AdapterRequest:
                 "prompt_reference",
                 require_text(self.prompt_reference, "prompt_reference"),  # pyright: ignore[reportArgumentType]
             )
+
+        evidence_payloads = tuple(self.evidence_payloads)
+        for payload in evidence_payloads:
+            if not isinstance(payload, EvidencePayload):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise ValueError("every evidence payload must be an EvidencePayload")
+        object.__setattr__(self, "evidence_payloads", evidence_payloads)
 
 
 @dataclass(frozen=True)

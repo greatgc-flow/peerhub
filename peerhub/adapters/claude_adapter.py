@@ -7,6 +7,7 @@ from collections.abc import Sequence
 
 from peerhub.adapters.contract import (
     AdapterRequest,
+    ArtifactSpec,
     Capability,
     DecodedOutput,
     DecoderEvent,
@@ -159,6 +160,35 @@ class RealClaudeAdapter:
         if prompt is None:
             raise ValueError("prompt_content is required")
 
+        policy = self.prompt_policy(profile)
+        artifacts: list[ArtifactSpec] = []
+
+        if request.evidence_payloads:
+            import uuid
+            import hashlib
+            for payload in request.evidence_payloads:
+                if len(payload.content_bytes) > policy.max_inline_utf8_bytes:
+                    ev_id = f"evidence://ev_{uuid.uuid4().hex}"
+                    sha = hashlib.sha256(payload.content_bytes).hexdigest()
+                    spec = ArtifactSpec(
+                        artifact_id=ev_id,
+                        placeholder=ev_id,
+                        content_bytes=payload.content_bytes,
+                        content_reference=None,
+                        sha256_hex=sha,
+                        expected_length=len(payload.content_bytes),
+                        access_mode="evidence",
+                        lifecycle="ephemeral",
+                    )
+                    artifacts.append(spec)
+                    content_str = payload.content_bytes.decode("utf-8", errors="replace")
+                    summary_clean = content_str[:200].replace("\n", " ").strip()
+                    summary = f"{summary_clean}..." if len(content_str) > 200 else summary_clean
+                    prompt += f"\n<large output was {len(payload.content_bytes)} bytes, offloaded to {ev_id}, summary: {summary}>"
+                else:
+                    content_str = payload.content_bytes.decode("utf-8", errors="replace")
+                    prompt += f"\n{content_str}"
+
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
                 raise ValueError("external_session_id is required for RESUME")
@@ -182,7 +212,7 @@ class RealClaudeAdapter:
             stdin_payload=None,
             limits=limits,
             redacted_display=redacted_display,
-            artifacts=(),
+            artifacts=tuple(artifacts),
             session_action=request.requested_session_action,
         )
 
