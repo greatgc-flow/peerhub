@@ -4,6 +4,7 @@ import argparse
 import json
 import sqlite3
 import sys
+import threading
 import time
 import uuid
 from importlib.metadata import version
@@ -31,6 +32,7 @@ from peerhub.core.identity import (
 )
 from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.process import ProcessSupervisor
 from peerhub.runtime import create_runtime
 
 class SystemClock(Clock):
@@ -114,6 +116,15 @@ def _run_ask(
     *,
     caller_identity_provider: CallerIdentityProvider | None = None,
 ) -> int:
+    class _AskState:
+        supervisor: ProcessSupervisor | None = None
+        result: DirectAskResult | None = None
+        error: BaseException | None = None
+
+    state = _AskState()
+    done = threading.Event()
+    thread_started = False
+
     try:
         authenticated_subject = require_caller_identity(
             caller_identity_provider
@@ -136,25 +147,53 @@ def _run_ask(
                 max_output_bytes=parsed.max_output_bytes,
             ),
         )
-        result = execute_direct_ask(
-            request,
-            clock=SystemClock(),
-            ids=UuidSource(),
-            authenticated_subject=authenticated_subject,
-        )
+
+        def _cancellation_hook(sup: ProcessSupervisor) -> None:
+            state.supervisor = sup
+
+        def _run_ask_thread() -> None:
+            try:
+                state.result = execute_direct_ask(
+                    request,
+                    clock=SystemClock(),
+                    ids=UuidSource(),
+                    authenticated_subject=authenticated_subject,
+                    cancellation_hook=_cancellation_hook,
+                )
+            except BaseException as e:
+                state.error = e
+            finally:
+                done.set()
+
+        t = threading.Thread(target=_run_ask_thread, name="PeerhubDirectAsk")
+        thread_started = True
+        t.start()
+
+        # Wait on the main thread so that KeyboardInterrupt can be raised cleanly here
+        while not done.wait(0.1):
+            pass
+
+        if state.error is not None:
+            raise state.error
+
+        result = state.result
+        assert result is not None
     except KeyboardInterrupt:
-        # TODO(Phase 3 increment 5): dispatch_and_execute() constructs its
-        # ProcessSupervisor internally (peerhub/application/workflows.py:748),
-        # so the CLI has no live cancellation handle. Add a
-        # supervisor/cancellation hook there,
-        # then route Ctrl-C through ProcessSupervisor.begin_cancellation() and
-        # its SOFT_CANCEL -> TERMINATE_TREE -> KILL_TREE cleanup ladder.
         print(
-            "peerhub ask: interrupt received; the in-flight process may "
-            "still be running because cancellation-ladder wiring is not "
-            "yet implemented",
+            "\npeerhub ask: interrupt received; cancelling in-flight process...",
             file=sys.stderr,
         )
+        if thread_started:
+            # Poll for a short window to see if supervisor becomes available
+            # (in case the interrupt hit before the thread fully started the dispatch)
+            for _ in range(20):
+                if state.supervisor is not None:
+                    break
+                time.sleep(0.05)
+            
+            if state.supervisor is not None:
+                state.supervisor.begin_cancellation()
+            done.wait()
         return 130
     except (
         ValueError,

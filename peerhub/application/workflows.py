@@ -625,6 +625,7 @@ class ApplicationWorkflows:
         service: DispatchService | None = None,
         session: SessionHint | None = None,
         event_sink: Callable[[DecoderEvent], None] | None = None,
+        cancellation_hook: Callable[["ProcessSupervisor"], None] | None = None,
     ) -> ExecutionWorkflowResult:
         """Dispatch and execute an admitted/prepared command through process supervision."""
 
@@ -826,6 +827,8 @@ class ApplicationWorkflows:
 
         # Step 5: Spawn process and drive supervisor + heartbeat
         supervisor = ProcessSupervisor()
+        if cancellation_hook is not None:
+            cancellation_hook(supervisor)
         heartbeat_worker: HeartbeatWorker | None = None
         running_lease: LeaseSnapshot = lease
         on_spawned_called = False

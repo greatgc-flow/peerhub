@@ -416,10 +416,17 @@ def test_cli_ask_maps_returned_failure_states(
     assert captured.err == f"peerhub ask: {result.error_code.value}\n"
 
 
-def test_cli_ask_keyboard_interrupt_is_honest(
+def test_cli_ask_keyboard_interrupt_cancels(
     tmp_path: Path,
     capsys,
 ) -> None:
+    """KeyboardInterrupt now triggers the real cancellation ladder (T4),
+    not just an honest "not implemented" message. `execute_direct_ask`
+    raises inside the background dispatch thread here, so no live
+    ProcessSupervisor ever reaches the cancellation hook -- the CLI must
+    still exit 130 cleanly rather than hang waiting for one.
+    """
+
     with patch(
         "peerhub.cli.execute_direct_ask",
         side_effect=KeyboardInterrupt,
@@ -439,8 +446,7 @@ def test_cli_ask_keyboard_interrupt_is_honest(
     captured = capsys.readouterr()
     assert exit_code == 130
     assert captured.out == ""
-    assert "in-flight process may still be running" in captured.err
-    assert "cancellation-ladder wiring is not yet implemented" in captured.err
+    assert "cancelling in-flight process" in captured.err
 
 
 @pytest.mark.slow

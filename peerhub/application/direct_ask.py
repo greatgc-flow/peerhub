@@ -2,6 +2,10 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from peerhub.dispatch.process import ProcessSupervisor
 
 from peerhub.adapters.registry import resolve_peer_target, ResolvedPeerTarget
 from peerhub.adapters.contract import AdapterRequest, SessionAction
@@ -132,6 +136,7 @@ def execute_direct_ask(
     clock: Clock,
     ids: IdSource,
     authenticated_subject: AuthenticatedSubject,
+    cancellation_hook: "Callable[[ProcessSupervisor], None] | None" = None,
 ) -> DirectAskResult:
     """Execute a single peerhub ask command pipeline."""
     
@@ -270,6 +275,7 @@ def execute_direct_ask(
             content_providers={}, 
             completion_contract=completion_contract,
             heartbeat_timeout_ms=30000,
+            cancellation_hook=cancellation_hook,
         )
 
         response_text = None
