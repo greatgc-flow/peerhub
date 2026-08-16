@@ -697,9 +697,37 @@ context/quota state, retry/failover on peer trouble).
       files). `classify_concurrent_claim()`'s branch (a) has a noted
       TODO(5C-3b) gap (3 more non-retryable terminal states belong there)
       deliberately left for the wiring increment. DONE.
-    - 5C-3b (wiring the classifier + typed error into
-      `dispatch_with_retries()`, real concurrent-caller integration
-      tests) remains -- the last piece of T1 increment 5.
+    - 5C-3b (`e31aca0`) -- wires `classify_concurrent_claim()` and
+      `ConcurrentAttemptClaimError` into `dispatch_with_retries()` (step
+      12): both the attempt-creation boundary and the `authorize_retry()`
+      `StaleRevisionError` boundary route through one shared
+      `_resolve_concurrent_conflict()` helper, so same-target and
+      failover races share identical loser semantics. Adds real
+      concurrent-SQLite-caller integration tests exercising the actual
+      outer loop. Survived 4 consecutive infrastructure interruptions
+      (2 cc.effort timeouts, 2 ag.deepthink kills; diagnosed as sustained
+      system-wide memory pressure -- confirmed no orphaned peer
+      processes, just ordinary desktop load -- not a code or peer-quality
+      problem) before landing; per explicit user direction the terminal
+      ran `pytest`/`pyright` directly as a one-time exception once the
+      implementation was already sitting complete and uncommitted.
+      **That direct run caught a real regression**: resolving
+      5C-3a's own `TODO(5C-3b)` comment literally (adding
+      `REJECTED_VALIDATION`/`REJECTED_POLICY`/`FAILED_PRE_DISPATCH` to
+      the unconditional `TERMINAL_STATE` branch) broke retry
+      continuation for those states -- they are not unconditionally
+      terminal at the request level (`adjudicate_retry()` computes a
+      NEVER-vs-UNSAFE disposition for them from `terminal_error_code`,
+      and UNSAFE is retryable), and the existing
+      `ATTEMPT_TERMINAL_REBUILD` branch already handled them correctly.
+      A real concurrent-rebuild integration test caught it; a precisely
+      scoped 3-fix dispatch (the TODO revert plus 2 test bugs: a test
+      fixture's UUID-validation gap, and a pre-existing 5C-2b test that
+      had locked in an intentionally temporary placeholder behavior)
+      landed cleanly. Independently re-run by the terminal: 960 passed,
+      0 unexpected failures, pyright clean. DONE.
+
+  **T1 increment 5 (5A through 5C-3b) is now closed in full.**
   - **Post-hoc correction: `classify_attempt_failure()` was never
     wired into production (`858aec6`).** Increments 1a/1b shipped a
     fully unit-tested classifier that the only production
