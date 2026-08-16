@@ -22,6 +22,7 @@ from peerhub.adapters.contract import (
     SessionHint,
 )
 from peerhub.core.errors import (
+    ConcurrentAttemptClaimError,
     InvalidMutationError,
     RecordNotFoundError,
     UnsupportedCapabilityError,
@@ -60,6 +61,7 @@ from peerhub.dispatch.contract import (
     ProcessBirthIdentity,
     RequestSnapshot,
     RequestState,
+    RetryLoopState,
     SessionBindingKey,
 )
 from peerhub.dispatch.heartbeat import HeartbeatWorker, HeartbeatFailure
@@ -94,6 +96,7 @@ from peerhub.application.retry import (
     AttemptDispatchPlan,
     AttemptExecutionRecord,
     AuthorizationErrorSignal,
+    ConcurrentClaimOutcome,
     MultiAttemptExecutionResult,
     RetryAction,
     RetryConditionEvidenceProvider,
@@ -105,6 +108,7 @@ from peerhub.application.retry import (
     adjudicate_retry,
     build_retry_dispatch_plan,
     classify_authorization_error,
+    classify_concurrent_claim,
     evaluate_retry_condition_evidence,
     read_fresh_retry_condition_evidence,
     transition_retry_route,
@@ -1099,6 +1103,127 @@ class ApplicationWorkflows:
             return decision, RetryLoopStopReason.CONDITION_DEFERRED
         return decision, None
 
+    def _concurrency_stop_result(
+        self,
+        command_id: CommandID | str,
+        fresh_state: RetryLoopState,
+        *,
+        stop_reason: RetryLoopStopReason,
+        decision_reason: RetryDecisionReason,
+        records: list[AttemptExecutionRecord],
+    ) -> MultiAttemptExecutionResult:
+        """Build the terminal aggregate for a concurrency-derived stop.
+
+        Only durably reconstructable facts from ``fresh_state`` are used;
+        nothing about the outcome is guessed. The decision itself is
+        synthesized (there was no adjudication for this observation) using
+        the reason vocabulary reserved for concurrency outcomes.
+        """
+
+        observed = ExecutionWorkflowResult(
+            request=fresh_state.request,
+            attempt=fresh_state.attempts[-1],
+            lease=fresh_state.current_lease,
+        )
+        decision = RetryDecision(
+            disposition=None,
+            action=RetryAction.STOP,
+            reason=decision_reason,
+            required_conditions=(),
+            not_before=None,
+        )
+        records.append(
+            AttemptExecutionRecord(
+                execution=observed,
+                error_detail=None,
+                retry_decision=decision,
+                retry_authorization=None,
+            )
+        )
+        return MultiAttemptExecutionResult(
+            command_id=CommandID(str(command_id)),
+            attempts=tuple(records),
+            stop_reason=stop_reason,
+        )
+
+    def _resolve_concurrent_conflict(
+        self,
+        dispatch_service: DispatchService,
+        command_id: CommandID | str,
+        *,
+        target_attempt_number: int,
+        records: list[AttemptExecutionRecord],
+    ) -> MultiAttemptExecutionResult | ExecutionWorkflowResult:
+        """Step 12: translate a typed concurrency conflict into an outcome.
+
+        Both the ``StaleRevisionError`` boundary (authorization) and the
+        ``ConcurrentAttemptClaimError`` boundary (attempt creation) route
+        through this one classify-and-branch implementation, so same-target
+        and failover races share identical loser semantics.
+
+        Returns a terminal ``MultiAttemptExecutionResult`` when the loop
+        must stop, or a durably rebuilt ``ExecutionWorkflowResult`` when the
+        caller should resume ordinary adjudication using that rebuilt
+        execution instead of re-executing.
+        """
+
+        spins_used = 0
+        while True:
+            fresh_state = dispatch_service.load_retry_loop_state(command_id)
+            resolution = classify_concurrent_claim(
+                fresh_state,
+                target_attempt_number,
+            )
+
+            if resolution.outcome is ConcurrentClaimOutcome.TERMINAL_STATE:
+                return self._concurrency_stop_result(
+                    command_id,
+                    fresh_state,
+                    stop_reason=RetryLoopStopReason.CONCURRENT_TERMINAL_STATE,
+                    decision_reason=RetryDecisionReason.CONCURRENT_TERMINAL_STATE,
+                    records=records,
+                )
+
+            if resolution.outcome is ConcurrentClaimOutcome.ATTEMPT_IN_PROGRESS:
+                return self._concurrency_stop_result(
+                    command_id,
+                    fresh_state,
+                    stop_reason=RetryLoopStopReason.CONCURRENT_ATTEMPT_IN_PROGRESS,
+                    decision_reason=RetryDecisionReason.CONCURRENT_ATTEMPT_IN_PROGRESS,
+                    records=records,
+                )
+
+            if resolution.outcome is ConcurrentClaimOutcome.ATTEMPT_TERMINAL_REBUILD:
+                rebuild_attempt_number = resolution.rebuild_attempt_number
+                rebuilt_attempt = next(
+                    a
+                    for a in fresh_state.attempts
+                    if a.attempt_number == rebuild_attempt_number
+                )
+                return ExecutionWorkflowResult(
+                    request=fresh_state.request,
+                    attempt=rebuilt_attempt,
+                    lease=fresh_state.current_lease,
+                )
+
+            # ConcurrentClaimOutcome.NO_ADVANCEMENT_READJUDICATE: bounded
+            # reload-and-reclassify so repeated conflicts cannot spin
+            # forever (verification target item 9). There is no dedicated
+            # stop-reason for spin exhaustion; failing closed to
+            # CONCURRENT_ATTEMPT_IN_PROGRESS reports that authoritative
+            # advancement could not be observed rather than guessing
+            # further.
+            assert resolution.readjudicate_retry_limit is not None
+            spins_used += 1
+            if spins_used >= resolution.readjudicate_retry_limit:
+                return self._concurrency_stop_result(
+                    command_id,
+                    fresh_state,
+                    stop_reason=RetryLoopStopReason.CONCURRENT_ATTEMPT_IN_PROGRESS,
+                    decision_reason=RetryDecisionReason.CONCURRENT_ATTEMPT_IN_PROGRESS,
+                    records=records,
+                )
+
     def dispatch_with_retries(
         self,
         command_id: CommandID | str,
@@ -1121,11 +1246,11 @@ class ApplicationWorkflows:
     ) -> MultiAttemptExecutionResult:
         """Run the bounded outer retry loop for one command.
 
-        Implements parent steps 1-11, 13, and 14 for the
-        no-concurrent-mutation case. Step 12 belongs to 5C-3: a
-        ``StaleRevisionError`` raised by the authorization boundary is
-        re-raised unchanged rather than translated into a concurrency
-        outcome.
+        Implements all 14 parent steps. Step 12 (typed conflict reload and
+        concurrency outcome) is handled by ``_resolve_concurrent_conflict``,
+        invoked from both the ``StaleRevisionError`` authorization boundary
+        and the ``ConcurrentAttemptClaimError`` attempt-creation boundary so
+        same-target and failover races share identical loser semantics.
         """
 
         dispatch_service = service if service is not None else self._dispatch
@@ -1157,25 +1282,38 @@ class ApplicationWorkflows:
             )
         else:
             # Step 3 (fresh) plus step 13 for attempt 1.
-            execution = self.dispatch_and_execute(
-                command_id,
-                capability_lease_id=current_plan.capability_lease_id,
-                peer_instance_id=current_plan.peer_instance_id,
-                current_policy_revision=current_policy_revision,
-                materializer=materializer,
-                adapter_request=current_plan.adapter_request,
-                peer_adapter=current_plan.peer_adapter,
-                profile=current_plan.profile,
-                limits=limits,
-                workspace_roots=workspace_roots,
-                content_providers=content_providers,
-                completion_contract=completion_contract,
-                heartbeat_timeout_ms=heartbeat_timeout_ms,
-                transport=transport,
-                service=service,
-                session=current_plan.session,
-                event_sink=event_sink,
-            )
+            try:
+                execution = self.dispatch_and_execute(
+                    command_id,
+                    capability_lease_id=current_plan.capability_lease_id,
+                    peer_instance_id=current_plan.peer_instance_id,
+                    current_policy_revision=current_policy_revision,
+                    materializer=materializer,
+                    adapter_request=current_plan.adapter_request,
+                    peer_adapter=current_plan.peer_adapter,
+                    profile=current_plan.profile,
+                    limits=limits,
+                    workspace_roots=workspace_roots,
+                    content_providers=content_providers,
+                    completion_contract=completion_contract,
+                    heartbeat_timeout_ms=heartbeat_timeout_ms,
+                    transport=transport,
+                    service=service,
+                    session=current_plan.session,
+                    event_sink=event_sink,
+                )
+            except ConcurrentAttemptClaimError as error:
+                # Step 12 (attempt-creation boundary): another caller already
+                # won the durable claim for the attempt this caller expected.
+                conflict_result = self._resolve_concurrent_conflict(
+                    dispatch_service,
+                    command_id,
+                    target_attempt_number=error.expected_attempt_number,
+                    records=records,
+                )
+                if isinstance(conflict_result, MultiAttemptExecutionResult):
+                    return conflict_result
+                execution = conflict_result
 
         while True:
             # Step 1 (per iteration) and step 14: re-read one consistent
@@ -1249,6 +1387,7 @@ class ApplicationWorkflows:
 
             authorization: RetryWorkflowResult | None = None
             stop_reason: RetryLoopStopReason | None = None
+            rebuilt_execution: ExecutionWorkflowResult | None = None
             while authorization is None:
                 next_action = transition.next_action
                 if next_action is RetryAction.RETRY_SAME_TARGET:
@@ -1289,8 +1428,19 @@ class ApplicationWorkflows:
                     # so nothing arbitrary is ever treated as retryable.
                     outcome = classify_authorization_error(error)
                     if outcome is AuthorizationErrorSignal.RELOAD_DURABLE_STATE:
-                        # Step 12 belongs to 5C-3; propagate untranslated.
-                        raise
+                        # Step 12 (authorization boundary): a stale decision
+                        # is never resubmitted. Reload and classify the
+                        # authoritative outcome instead.
+                        conflict_result = self._resolve_concurrent_conflict(
+                            dispatch_service,
+                            command_id,
+                            target_attempt_number=attempt.attempt_number + 1,
+                            records=records,
+                        )
+                        if isinstance(conflict_result, MultiAttemptExecutionResult):
+                            return conflict_result
+                        rebuilt_execution = conflict_result
+                        break
                     if outcome is AuthorizationErrorSignal.PREPARE_FAILOVER:
                         # At most one failover: transition_retry_route()
                         # raises if a second one is ever requested.
@@ -1302,6 +1452,13 @@ class ApplicationWorkflows:
                         continue
                     stop_reason = outcome
                     break
+
+            if rebuilt_execution is not None:
+                # Resume ordinary adjudication from the durably rebuilt
+                # attempt instead of re-executing; never fabricate a
+                # decision directly.
+                execution = rebuilt_execution
+                continue
 
             if authorization is None:
                 if stop_reason is None:
@@ -1343,25 +1500,38 @@ class ApplicationWorkflows:
 
             # Step 13: exactly one execution per authorized attempt.
             current_plan = next_plan
-            execution = self.dispatch_and_execute(
-                command_id,
-                capability_lease_id=current_plan.capability_lease_id,
-                peer_instance_id=current_plan.peer_instance_id,
-                current_policy_revision=current_policy_revision,
-                materializer=materializer,
-                adapter_request=current_plan.adapter_request,
-                peer_adapter=current_plan.peer_adapter,
-                profile=current_plan.profile,
-                limits=limits,
-                workspace_roots=workspace_roots,
-                content_providers=content_providers,
-                completion_contract=completion_contract,
-                heartbeat_timeout_ms=heartbeat_timeout_ms,
-                transport=transport,
-                service=service,
-                session=current_plan.session,
-                event_sink=event_sink,
-            )
+            try:
+                execution = self.dispatch_and_execute(
+                    command_id,
+                    capability_lease_id=current_plan.capability_lease_id,
+                    peer_instance_id=current_plan.peer_instance_id,
+                    current_policy_revision=current_policy_revision,
+                    materializer=materializer,
+                    adapter_request=current_plan.adapter_request,
+                    peer_adapter=current_plan.peer_adapter,
+                    profile=current_plan.profile,
+                    limits=limits,
+                    workspace_roots=workspace_roots,
+                    content_providers=content_providers,
+                    completion_contract=completion_contract,
+                    heartbeat_timeout_ms=heartbeat_timeout_ms,
+                    transport=transport,
+                    service=service,
+                    session=current_plan.session,
+                    event_sink=event_sink,
+                )
+            except ConcurrentAttemptClaimError as error:
+                # Step 12 (attempt-creation boundary): another caller already
+                # won the durable claim for the attempt this caller expected.
+                conflict_result = self._resolve_concurrent_conflict(
+                    dispatch_service,
+                    command_id,
+                    target_attempt_number=error.expected_attempt_number,
+                    records=records,
+                )
+                if isinstance(conflict_result, MultiAttemptExecutionResult):
+                    return conflict_result
+                execution = conflict_result
 
             # Step 14: iterate; the next pass re-reads durable state.
 

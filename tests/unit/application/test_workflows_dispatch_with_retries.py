@@ -878,7 +878,7 @@ def test_conflicting_max_attempts_propagates_policy_conflict(
         )
 
 
-def test_stale_revision_error_is_not_caught_by_the_loop(
+def test_repeated_stale_revision_error_bounds_and_stops_cleanly(
     tmp_path: Path,
     store: SqliteStateStore,
     monkeypatch: pytest.MonkeyPatch,
@@ -897,17 +897,16 @@ def test_stale_revision_error_is_not_caught_by_the_loop(
 
     monkeypatch.setattr(workflows, "authorize_retry", _raise_stale)
 
-    with pytest.raises(StaleRevisionError) as exc_info:
-        _run(
-            workflows,
-            command_id,
-            plan,
-            tmp_path=tmp_path,
-            store=store,
-            contract=contract,
-        )
+    result = _run(
+        workflows,
+        command_id,
+        plan,
+        tmp_path=tmp_path,
+        store=store,
+        contract=contract,
+    )
 
-    assert exc_info.value is stale
+    assert result.stop_reason is RetryLoopStopReason.CONCURRENT_ATTEMPT_IN_PROGRESS
 
 
 def test_capability_binding_violation_propagates_unchanged(

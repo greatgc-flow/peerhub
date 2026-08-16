@@ -876,10 +876,8 @@ def classify_concurrent_claim(
 ) -> ConcurrentClaimResolution:
     """Classify the outcome of a concurrent claim or stale revision error."""
 
-    # TODO(5C-3b): REJECTED_VALIDATION, REJECTED_POLICY, and FAILED_PRE_DISPATCH
-    # are also non-retryable terminals that currently fall through incorrectly to
-    # the "no advancement, re-adjudicate" branch. This gap needs resolving when
-    # the classifier is actually wired into the outer loop.
+    # retryability depends on map_retry_disposition()'s NEVER/UNSAFE split,
+    # already handled correctly by the ATTEMPT_TERMINAL_REBUILD branch below
     if fresh_state.request.state in (
         RequestState.CANCELLED,
         RequestState.SUCCEEDED_VERIFIED,
