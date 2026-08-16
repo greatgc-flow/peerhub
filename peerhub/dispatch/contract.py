@@ -1231,6 +1231,40 @@ class ArtifactManifestRecord:
 
 
 @dataclass(frozen=True)
+class EvidenceArtifact:
+    """Canonical record of an offloaded piece of evidence."""
+
+    artifact_id: str
+    source_tool_name: str
+    content_length: int
+    sha256_hex: str
+    created_at: int
+    expires_at: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "artifact_id",
+            require_text(self.artifact_id, "artifact_id"),
+        )
+        object.__setattr__(
+            self,
+            "source_tool_name",
+            require_text(self.source_tool_name, "source_tool_name"),
+        )
+        _require_nonnegative_int(self.content_length, "content_length")
+        object.__setattr__(
+            self,
+            "sha256_hex",
+            _require_sha256_hex(self.sha256_hex, "sha256_hex"),
+        )
+        _require_nonnegative_int(self.created_at, "created_at")
+        _require_nonnegative_int(self.expires_at, "expires_at")
+        if self.expires_at < self.created_at:
+            raise ValueError("expires_at cannot precede created_at")
+
+
+@dataclass(frozen=True)
 class ArtifactMetadata:
     """Durable lifecycle/identity/digest metadata for a single artifact item."""
 
