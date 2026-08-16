@@ -37,7 +37,7 @@ The second command must report `v19_consolidated (head)`. Stamping does not swit
 When adding new schema changes:
 
 1. **Create a new SQL file**:
-   Add `peerhub/persistence/migrations/NNNN_<descriptive_name>.sql` with the next sequential integer prefix (currently `0021` — `0020_broadcast_correlation.sql` landed in commit `8650314`).
+   Add `peerhub/persistence/migrations/NNNN_<descriptive_name>.sql` with the next sequential integer prefix (currently `0023` — `0022_retry_authority.sql` landed recently).
 
 2. **Follow the mandatory fail-closed migration template**:
    For any table recreation or foreign key modification, always use SQLite's 12-step table recreation pattern with an **in-transaction `PRAGMA foreign_key_check;` before `COMMIT;`**:
