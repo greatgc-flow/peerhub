@@ -18,7 +18,7 @@ bottom for what changed from the first pass and why.
 - CLI Ctrl-C cancellation-ladder wiring (T4) - `dispatch_and_execute()`/`dispatch_with_retries()` construct `ProcessSupervisor` internally, so the CLI has no live cancellation handle; needs a supervisor/cancellation hook routed through `ProcessSupervisor.begin_cancellation()`'s SOFT_CANCEL -> TERMINATE_TREE -> KILL_TREE ladder. Design already fully specified in the TODO comment itself -- no ambiguity left. **Confirmed present via direct TODO grep, was missing from the roadmap doc's own text entirely.** [Source: `peerhub/cli.py:146-151` TODO(Phase 3 increment 5) comment; the `workflows.py:748` line reference inside it predates 5C-3b's line-count changes and should be re-verified before implementation, not assumed accurate] [Size: small]
 - 2 broken real-agy adapter integration tests - `test_real_agy_adapter_shells_out` and `test_real_agy_adapter_via_pipe` both fail with `TypeError: ApplicationWorkflows.dispatch_and_execute() missing 3 required keyword-only arguments: 'capability_lease_id', 'peer_instance_id', and 'current_policy_revision'` -- stale call sites from before the capability-lease increment 4 signature change. **Re-run and confirmed still failing today (2026-08-16), not a stale note.** [Source: `tests/integration/adapters/test_real_agy_adapter.py`, `tests/integration/adapters/test_real_agy_adapter_via_pipe.py`, both `@pytest.mark.slow`] [Size: hygiene fix]
 - Tool-call parsing (peers that invoke their own tools mid-response) - Not yet handled. [Source: HUB-REPLACEMENT-ROADMAP Phase 3] [Size: small]
-- Health/quota tracking equivalent to diag.py (T2) - Needs its own design pass. [Source: HUB-REPLACEMENT-ROADMAP Phase 3] [Size: architecture]
+- ~~Health/quota tracking equivalent to diag.py (T2)~~ - **DESIGN RATIFIED 2026-08-16**, moved to Implementation-Ready-Pending-Canary below.
 - Crash-linkage recovery (resuming an interrupted round after a coordinator crash) - Deferred as increment 4. [Source: HUB-REPLACEMENT-ROADMAP Phase 3 Broadcast] [Size: architecture]
 - Phase 4 shadow-by-ownership-cluster validation - Not started. [Source: HUB-REPLACEMENT-ROADMAP Phase 4] [Size: architecture]
 - Phase 4 same-revision comparison + rollback proof - Not started. [Source: HUB-REPLACEMENT-ROADMAP Phase 4] [Size: architecture]
@@ -28,9 +28,13 @@ bottom for what changed from the first pass and why.
 - ConsensusRound / Primitive B - Blocked gate; must be built before first R:10 decision is routed to peerhub, and blocked on durable response transcripts. [Source: HUB-REPLACEMENT-ROADMAP Phase 4] [Size: architecture]
 
 ## Items Not in Peerhub's Own Roadmap
-- **Implement 3-Tier Context Partitioning (`EvidenceArtifact`)** - Mid-term (P2) backlog item targeting `peerhub/`. [Source: multi-ai-collaboration-accord-2026-08-15.md] [Size: architecture]
+- ~~Implement 3-Tier Context Partitioning (`EvidenceArtifact`)~~ - **DESIGN RATIFIED 2026-08-16**, moved to Implementation-Ready-Pending-Canary below.
 - **Deploy Windows-native Brokered Read-Only Reducers** - Mid-term (P2) backlog item targeting `peerhub/adapters/`. [Source: multi-ai-collaboration-accord-2026-08-15.md] [Size: architecture]
 - **CLI Ctrl-C cancellation-ladder wiring** - genuinely absent from the roadmap doc's own text (confirmed by direct grep for "ctrl-c"/"cancellation-ladder" -- zero matches); the underlying TODO exists only in `peerhub/cli.py`. Now added above under UNSCHEDULED-READY.
+
+## Implementation-Ready (design ratified, 2026-08-16 sequential detailing pass)
+- **Health/quota tracking (T2)** - `HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md`. Gated on an explicit empirical canary (proving CLI polling works identically from inside peerhub's own process) before implementation starts. Migration `0023_telemetry_quota_tracking`.
+- **EvidenceArtifact / 3-Tier Context Partitioning** - `EVIDENCE-ARTIFACT-DESIGN-2026-08-16.md`. No canary needed -- rebuilt in round 3 around a one-way caller-side offload (accord clause 11) after round 2 found the original live bidirectional design depended on tool-call interception peerhub doesn't have. Ready to implement directly. Migration `0024_evidence_artifacts.sql`.
 
 ## Terminal corrections (2026-08-16, after independent verification)
 The first pass (ag.deepthink) miscategorized the Alembic cutover as
