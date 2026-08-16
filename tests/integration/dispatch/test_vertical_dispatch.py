@@ -138,11 +138,11 @@ def _absent_usage() -> EvidenceValue:
     )
 
 
-def _candidate(eligible: bool = True) -> RouteCandidateInput:
+def _candidate(eligible: bool = True, profile_id: str = "ag.deepthink") -> RouteCandidateInput:
     return RouteCandidateInput(
-        candidate_id="ag.deepthink",
+        candidate_id=profile_id,
         instance_id="ag",
-        representative_profile_id="ag.deepthink",
+        representative_profile_id=profile_id,
         eligible=eligible,
         exclusion_reason=None if eligible else "ROLE_EXCLUDED",
         usage_evidence=_absent_usage(),
@@ -155,6 +155,7 @@ def _route_request_factory(
     client_request_id: str = "client-request-01",
     configuration_revision: int = 11,
     eligible: bool = True,
+    profile_id: str = "ag.deepthink",
 ):
     def factory(admission_snapshot: AdmissionSnapshot) -> RouteRequest:
         return RouteRequest(
@@ -168,7 +169,7 @@ def _route_request_factory(
             requested_capabilities=(),
             profile_constraints={},
             required_readiness_binding=None,
-            candidates=(_candidate(eligible=eligible),),
+            candidates=(_candidate(eligible=eligible, profile_id=profile_id),),
             routing_policy_id="v1-routing-default-r1",
             routing_policy_revision=1,
         )
@@ -243,6 +244,7 @@ def _workflows(
     store: SqliteStateStore,
     *,
     start: int = 200,
+    peer_kind: str = "fake",
 ) -> tuple[ApplicationWorkflows, DispatchService]:
     telemetry = TelemetryProjector(
         store,
@@ -262,11 +264,23 @@ def _workflows(
         ids=SequentialIdSource(),
         clock=DeterministicClock(start=start + 10),
     )
+    
+    evidence_provider = StaticPeerEnforcementEvidenceProvider(
+        {
+            "ag": PeerEnforcementEvidence(
+                peer_instance_id="ag",
+                peer_kind=peer_kind,
+                enforcement_ceiling=None,
+                source_tag="absent",
+            )
+        }
+    )
+    
     dispatch = DispatchService(
         store,
         ids=SequentialIdSource(),
         clock=DeterministicClock(start=start + 20),
-        enforcement_evidence=_CONTROLLED_FAKE_EVIDENCE,
+        enforcement_evidence=evidence_provider,
     )
     workflows = ApplicationWorkflows(
         telemetry=telemetry,
@@ -280,9 +294,13 @@ def _workflows(
 def _admit_and_prepare(
     workflows: ApplicationWorkflows,
     envelope: CommandEnvelope,
+    profile_id: str = "ag.deepthink",
 ) -> tuple[str, str, str]:
     """Admit and prepare, returning (command_id, capability_lease_id, instance)."""
-    factory = _route_request_factory(client_request_id=envelope.client_request_id)
+    factory = _route_request_factory(
+        client_request_id=envelope.client_request_id,
+        profile_id=profile_id,
+    )
     contract = _completion_contract()
     adm = workflows.admit_request(
         envelope,

@@ -70,6 +70,9 @@ def test_real_agy_adapter_shells_out():
     decoder.feed(proc.stdout)
     decoded = decoder.finalize()
     assert decoded.canonical_text
-    assert len(decoded.events) == 1
-    assert decoded.events[0].kind.value == "ASSISTANT_TEXT"
+    assert len(decoded.events) == 2
+    assert decoded.events[0].kind.value == "SESSION_IDENTITY"
+    assert "session_id" in decoded.events[0].payload
+    assert decoded.events[1].kind.value == "ASSISTANT_TEXT"
+    assert decoded.events[1].payload.get("text") == decoded.canonical_text
     

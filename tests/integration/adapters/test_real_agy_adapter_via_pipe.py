@@ -35,8 +35,10 @@ def test_real_agy_adapter_via_pipe(
     store: SqliteStateStore,
 ) -> None:
     """Prove a real PeerAdapter survives peerhub's full supervised dispatch pipeline."""
-    workflows, dispatch = _workflows(store)
-    cmd_id = _admit_and_prepare(workflows, _envelope())
+    workflows, dispatch = _workflows(store, peer_kind="ag")
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(
+        workflows, _envelope(), profile_id="ag.standard"
+    )
 
     workspace_root = tmp_path / "ws"
     workspace_root.mkdir()
@@ -66,6 +68,9 @@ def test_real_agy_adapter_via_pipe(
 
     res = workflows.dispatch_and_execute(
         cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
         materializer=materializer,
         adapter_request=adapter_req,
         peer_adapter=adapter,
