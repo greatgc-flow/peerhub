@@ -29,12 +29,13 @@ bottom for what changed from the first pass and why.
 
 ## Items Not in Peerhub's Own Roadmap
 - ~~Implement 3-Tier Context Partitioning (`EvidenceArtifact`)~~ - **DESIGN RATIFIED 2026-08-16**, moved to Implementation-Ready-Pending-Canary below.
-- **Deploy Windows-native Brokered Read-Only Reducers** - Mid-term (P2) backlog item targeting `peerhub/adapters/`. [Source: multi-ai-collaboration-accord-2026-08-15.md] [Size: architecture]
+- ~~Deploy Windows-native Brokered Read-Only Reducers~~ - **DESIGN RATIFIED 2026-08-16**, moved to Implementation-Ready-Pending-Canary below.
 - **CLI Ctrl-C cancellation-ladder wiring** - genuinely absent from the roadmap doc's own text (confirmed by direct grep for "ctrl-c"/"cancellation-ladder" -- zero matches); the underlying TODO exists only in `peerhub/cli.py`. Now added above under UNSCHEDULED-READY.
 
 ## Implementation-Ready (design ratified, 2026-08-16 sequential detailing pass)
 - **Health/quota tracking (T2)** - `HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md`. Gated on an explicit empirical canary (proving CLI polling works identically from inside peerhub's own process) before implementation starts. Migration `0023_telemetry_quota_tracking`.
 - **EvidenceArtifact / 3-Tier Context Partitioning** - `EVIDENCE-ARTIFACT-DESIGN-2026-08-16.md`. No canary needed -- rebuilt in round 3 around a one-way caller-side offload (accord clause 11) after round 2 found the original live bidirectional design depended on tool-call interception peerhub doesn't have. Ready to implement directly. Migration `0024_evidence_artifacts.sql`.
+- **Windows-native Brokered Read-Only Reducers** - `WINDOWS-BROKERED-REDUCERS-DESIGN-2026-08-16.md`. Gated on 3 empirical preconditions before implementation: process-spawn privilege availability, `agy.exe`'s real write footprint (Low IL is system-wide, not worktree-scoped -- an unresolved risk of breaking `agy` outright), and a network-egress policy decision. Would close 3 of the 4 capability-lease errata Section 8 prerequisites for `READ_ONLY` tier if the preconditions check out.
 
 ## Terminal corrections (2026-08-16, after independent verification)
 The first pass (ag.deepthink) miscategorized the Alembic cutover as
