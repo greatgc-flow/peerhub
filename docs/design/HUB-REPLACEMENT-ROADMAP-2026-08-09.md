@@ -762,13 +762,14 @@ context/quota state, retry/failover on peer trouble).
   (`dfde073`); Claude and Agy remain terminal-only.
 - Tool-call parsing (peers that invoke their own tools mid-response --
   not yet handled at all).
-- Health/quota tracking equivalent to `diag.py` -- peerhub's CLI `status`
-  command currently only reports migration count + active lease count,
-  nothing like diag's EXH/context/pool breakdown. Needs its own design
-  pass on where that data would even come from for peerhub-native
-  dispatches (hub.py's diag reads CLI-native stat files per peer; a
-  peerhub-orchestrated dispatch would need to either read the same files
-  or maintain its own).
+- **Health/quota tracking equivalent to `diag.py` -- DESIGN RATIFIED
+  2026-08-16.** See `HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md`: a
+  background `TelemetryWorker` polls the same CLI-native sources
+  `diag.py` uses (with peerhub's own env/cwd/process-safety bindings
+  replicated, not assumed), projecting into new migration
+  `0023_telemetry_quota_tracking`. 3-round process caught and closed 2
+  real gaps via independent critique. Implementation gated on an
+  explicit empirical canary (Section 2.0), not yet started.
 - **Multi-peer broadcast/consensus -- gap identified 2026-08-11; designed,
   revised through three dialectical review rounds, and closed by a
   validated prototype the same day (commit `8650314`). See
