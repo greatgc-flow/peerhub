@@ -43,7 +43,7 @@ For per-dispatch context occupancy, the adapters (`claude_adapter.py`, `codex_ad
 PeerHub will durably project these observations so that CLI queries are fast and do not block on heavy subprocess polls.
 
 *   **Existing Schema:** `session_context_observations` and `session_context_projections` already exist (landed in `0010_session_context_telemetry`).
-*   **New Schema:** We will introduce a new migration, **`0023_telemetry_quota_tracking`** (following the existing sequence ending at `0022_retry_authority`), adding:
+*   **New Schema:** We will introduce a new migration, **`0024_telemetry_quota_tracking`** (updated 2026-08-16: `0023` was claimed first by the EvidenceArtifact increment, per this design's own canary gate leaving it unimplemented while EvidenceArtifact had no such gate -- re-verify the actual next-free number against `docs/migrations.md`/the migrations directory before implementation, don't trust this number in isolation), adding:
     *   `usage_observations` and `usage_projections` (mapping to `UsageMeasurement` in `telemetry/contract.py`). The projection's primary key MUST include `quota_pool_scope` because real Claude `/usage` outputs multiple concurrent pools (e.g., session/5h, week-all-models/168h, week-fable/168h); a single-valued PK would silently clobber rows.
     *   `readiness_observations` and `readiness_projections` (mapping to `ReadinessMeasurement`).
 
