@@ -87,6 +87,7 @@ def test_soft_cancel_on_signal_ignoring_process(controller: RealTreeController) 
         "signal.signal(signal.SIGINT, signal.SIG_IGN) if hasattr(signal, 'SIGINT') else None; "
         "handler = ctypes.WINFUNCTYPE(ctypes.c_int, ctypes.c_uint32)(lambda ctrl: 1) if sys.platform == 'win32' else None; "
         "ctypes.windll.kernel32.SetConsoleCtrlHandler(handler, True) if sys.platform == 'win32' else None; "
+        "print('READY'); sys.stdout.flush(); "
         "time.sleep(10)"
     )
     cmd = [sys.executable, "-c", script]
@@ -97,8 +98,22 @@ def test_soft_cancel_on_signal_ignoring_process(controller: RealTreeController) 
         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
     )
     try:
-        # Give process time to register handler
-        time.sleep(0.2)
+        import threading
+        import queue
+        
+        q = queue.Queue()
+        def _read_stdout():
+            if proc.stdout:
+                q.put(proc.stdout.readline())
+                
+        t = threading.Thread(target=_read_stdout, daemon=True)
+        t.start()
+        try:
+            line = q.get(timeout=5.0)
+            assert line.decode('utf-8', errors='ignore').strip() == 'READY'
+        except queue.Empty:
+            pytest.fail("Child process did not become READY within 5s")
+
         creation_time = _get_process_creation_time_ms(proc.pid)
         identity = ProcessBirthIdentity(pid=proc.pid, process_creation_time=creation_time)
         handle = controller.bind_spawn(process=proc, root=identity)
