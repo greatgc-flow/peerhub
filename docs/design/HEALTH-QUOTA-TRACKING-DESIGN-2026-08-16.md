@@ -16,15 +16,16 @@ This document outlines the design for PeerHub's native health, quota, and contex
 
 PeerHub adapters invoke the real underlying CLIs. To maintain an accurate picture of out-of-band usage (e.g. usage from other terminals not orchestrated by this PeerHub instance) without guessing, PeerHub will continue to rely on the CLI-native sources of truth via periodic polling rather than trying to perfectly intercept and accumulate tokens in the adapters.
 
-### 2.0 Empirical Canary Precondition
+### 2.0 Empirical Canary Precondition -- PASSED 2026-08-17
 Before implementation begins, a concrete empirical canary (a real, once-run probe) MUST pass to prove that:
-*   `claude.cmd /usage` correctly reads the credential/session store when invoked with PeerHub's specific environment (`CLAUDE_CONFIG_DIR`) and working directory (`cwd`).
-*   `codex app-server` populates correctly under the same constraints.
-*   Antigravity's log path actually populates correctly when invoked via PeerHub's `agy_adapter.py` dispatch path.
-Implementation will not proceed until this canary validates the data sources in a real orchestrated context.
+*   `claude.cmd /usage` correctly reads the credential/session store when invoked with PeerHub's specific environment (`CLAUDE_CONFIG_DIR`) and working directory (`cwd`). **PASS, with a required implementation detail**: under any non-TTY subprocess context (which peerhub always is -- it never runs attached to an interactive terminal the way P:'s hub.py does), `claude.exe` waits ~3s for piped stdin before proceeding ("Warning: no stdin data received in 3s, proceeding without it"). Combined with the real API call's own ~9.4s latency, this reliably exceeds a 12s deadline. Root-caused empirically (4 real probes: full-env copy, minimal-env, direct import from `P:\peerhub`, direct import from `P:\_sys\core` -- all failed identically; explicitly passing `stdin=subprocess.DEVNULL` succeeded in 9.39s). **Peerhub's real `TelemetryWorker` implementation MUST pass `stdin=subprocess.DEVNULL` explicitly on every `claude.cmd /usage` invocation, and should budget a deadline of at least 15s (not 12s) given ~9.4s of that is real network latency with little margin.**
+*   `codex app-server` populates correctly under the same constraints. **PASS** -- real rate-limit JSON returned from a peerhub-context subprocess (JSONRPC handshake, background reader thread, deadline handling all worked as-is).
+*   Antigravity's log path actually populates correctly when invoked via PeerHub's `agy_adapter.py` dispatch path. **PASS** -- a real dispatch through `RealAgyAdapter` was run from a peerhub context; `ag_statusline_stdin.log`'s mtime and content were directly confirmed to change (before/after diff), containing genuine quota-fraction data.
+
+All 3 items empirically confirmed. Implementation may now proceed, with the `stdin=DEVNULL` + 15s-deadline requirement above carried into the Claude polling implementation.
 
 ### 2.1 Claude (`cc`)
-*   **Quota/Headroom:** Sourced by executing `claude.cmd /usage` via a background telemetry worker, parsing the stdout for current session and weekly used percentages and reset times. To ensure it reads the correct credential/session store, the invocation MUST explicitly replicate `_sys/core/snapshot.py`'s binding of `env["CLAUDE_CONFIG_DIR"]` and `cwd=str(PORTABLE_ROOT)`. Furthermore, the telemetry worker must resolve the real binary instead of any heavy CLI wrapper that shadows it on PATH.
+*   **Quota/Headroom:** Sourced by executing `claude.cmd /usage` via a background telemetry worker, parsing the stdout for current session and weekly used percentages and reset times. To ensure it reads the correct credential/session store, the invocation MUST explicitly replicate `_sys/core/snapshot.py`'s binding of `env["CLAUDE_CONFIG_DIR"]` and `cwd=str(PORTABLE_ROOT)`. Furthermore, the telemetry worker must resolve the real binary instead of any heavy CLI wrapper that shadows it on PATH. **Canary-confirmed 2026-08-17: the subprocess call MUST also pass `stdin=subprocess.DEVNULL` explicitly** -- peerhub always runs non-TTY, and without this, `claude.exe` adds a ~3s stdin-wait on top of the real ~9.4s API latency, reliably blowing a 12s deadline. Use a 15s+ deadline for this specific probe, not the general-purpose 12s default.
 *   **Context:** Sourced from `claude.cmd` session telemetry or computed directly in `claude_adapter.py` upon `AttemptTerminalObserved` via `UsageObserved` events.
 
 ### 2.2 Codex (`cx`)
