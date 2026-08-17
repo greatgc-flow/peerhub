@@ -31,7 +31,9 @@ output_protocol = "flat-json"
 # AgyOutputDecoder reads a flat top-level "response" key.
 required_output_fields = ["response"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
-verified_versions = ["1.1.12"]
+# 1.1.13 added 2026-08-17: --live adapter conformance re-run green
+# (4 passed, 3 deselected) after agy.exe moved to 1.1.13 on this workstation.
+verified_versions = ["1.1.12", "1.1.13"]
 version_argv = ["--version"]
 help_argv = ["--help"]
 # RealAgyAdapter.plan_invocation builds: agy.exe -p <prompt> --output-format json
