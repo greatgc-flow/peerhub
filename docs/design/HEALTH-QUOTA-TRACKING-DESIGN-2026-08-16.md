@@ -37,6 +37,40 @@ All 3 items empirically confirmed. Implementation may now proceed, with the `std
 
 ### 2.4 When and Where to Record
 A background `TelemetryWorker` (or a scheduled saga) will poll these CLI-native sources based on the `telemetry-config.json` TTLs (e.g. 60 seconds). It will emit `UsageObserved` and `ReadinessObserved` events to the dispatcher.
+
+**Open architectural gap, found 2026-08-17 while implementing this
+increment (all others, Sections 2.1-2.3 and 4, are done -- see
+`docs/design/BACKLOG-CONSOLIDATED-2026-08-16.md`)**: this section never
+specifies WHAT PROCESS actually hosts the "background" worker.
+`peerhub` today has no persistent daemon/server concept at all --
+`peerhub ask` and `peerhub status` are each a fresh, short-lived CLI
+invocation with no long-running process for a periodic 60s-cadence
+poller to live inside. Concrete options, none chosen yet (needs a
+design decision, not a unilateral implementation choice, since it has
+real operational implications):
+1. **Poll-on-demand instead of scheduled**: `peerhub status --peer/--all`
+   itself triggers a fresh poll (with its own TTL-based caching check
+   against the existing projection's `updated_at`) rather than reading
+   possibly-stale data written by a worker that was never running. Zero
+   new process-lifetime concerns, but loses the "always fresh, ambient"
+   telemetry the accord's/`diag.py`'s own always-on model provides.
+2. **A genuinely new `peerhub daemon`/`peerhub serve` subcommand** that
+   runs a persistent process (the worker loop lives here). Real new
+   surface area: process supervision, start/stop lifecycle, likely a
+   PID file or similar, cross-platform service-manager integration
+   questions on top of everything already Windows-specific in this
+   design.
+3. **Piggyback on whatever process is already long-running** (e.g. if a
+   future `dispatch_with_retries()`-driven session stays alive across
+   multiple commands, or if peerhub gains some other persistent
+   component) -- speculative, no such component exists today.
+Recommend option 1 as the default unless there's a concrete reason
+telemetry needs to be ambient rather than poll-on-demand -- it requires
+no new process model and the existing `record_usage_observations()`
+(already committed) plus each poll function's own `freshness_ttl`
+parameter already provide exactly the staleness-aware building blocks
+option 1 needs. Not implemented; flagged for the user's decision before
+proceeding.
 For per-dispatch context occupancy, the adapters (`claude_adapter.py`, `codex_adapter.py`, `agy_adapter.py`) will emit `SessionContextObserved` at the completion of a dispatch (`AttemptTerminalObserved`).
 
 ## 3. Data Model & Durability
