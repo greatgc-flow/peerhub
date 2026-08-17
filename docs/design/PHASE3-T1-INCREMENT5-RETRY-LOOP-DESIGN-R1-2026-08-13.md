@@ -6,6 +6,12 @@ blocking seams independently confirmed).**
 Date: 2026-08-13
 
 Implementation status: **5A DONE (`a5556a2`/`24102f8`/`a6118a9`); 5B and 5C not started.**
+**Update 2026-08-17 (found by an audit pass): stale.** 5B and 5C have
+since both landed in full -- see
+`PHASE3-T1-INCREMENT5B-AUTHORIZATION-PLAN-2026-08-13.md` (5B) and
+`PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md` (5C) for their own
+implementation records, and `HUB-REPLACEMENT-ROADMAP-2026-08-09.md`'s
+5B/5C-* entries for the full commit history.
 
 *Implementation Note: `adjudicate_retry()` required 4 fix rounds after adversarial review found real cross-branch policy bugs the original tests missed. This is worth recording as a genuine lesson on the necessity of adversarial probing over relying solely on original unit tests.*
 

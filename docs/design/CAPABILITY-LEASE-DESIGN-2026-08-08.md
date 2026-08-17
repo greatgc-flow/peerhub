@@ -1,6 +1,13 @@
 # Capability/Mutation-Lease Design — Roadmap Proposal (2026-08-08)
 
 **Status: proposed, NOT implemented. Targeted for Stage 3+ (real adapter conformance), not a blocker for current Tier-1/Tier-2 work.**
+**Update 2026-08-17 (found by an audit pass): stale.** This design has
+long since been implemented and committed (`CapabilityLease`,
+`validate_capability_binding()`, migration `0018_capability_leases.sql`,
+generalized further by T1 increment 5B-1b, commit `31f5794`). See
+`CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md` for the corrective design
+pass and `HUB-REPLACEMENT-ROADMAP-2026-08-09.md` for the full
+implementation history. Left below as the original proposal record.
 
 ## Why this exists
 

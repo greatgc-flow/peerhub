@@ -2,6 +2,14 @@
 
 Status: **RATIFIED (draft 3, commit `d267750`). Section 5 increments 1,
 2, and 3 are IMPLEMENTED; increments 4 and 5 are not started.**
+**Update 2026-08-17 (found by an audit pass): stale.** All 5 increments
+are now implemented -- increment 4 (tool-call capture) was already
+marked IMPLEMENTED in Section 5's own item 4 below, this header line
+just wasn't updated to match; increment 5 (outer retry/resume/failover
+loop) landed as T1 increment 5C, `dispatch_with_retries()`
+(`peerhub/application/workflows.py:1230`, commit `7b1ab81`) -- Section
+5's item 5 below still says "NOT STARTED -- `authorize_retry()` still
+has no caller," which is also now false.
 Increment 1 shipped as `bfdd8b2` (1a, classification plumbing) and
 `bf9f4ad` (1b, `VENDOR_ERROR` emission); increment 2 shipped as
 `f516760` (2a, workflow capability gate), `dda4956` (2b, Claude
