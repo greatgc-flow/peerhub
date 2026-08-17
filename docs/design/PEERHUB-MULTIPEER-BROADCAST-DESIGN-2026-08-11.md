@@ -377,6 +377,15 @@ without a command to point at. Draft 2's second `CHECK` — the one tying
 the columns it guarded, and Section 3.3 explains why it was never doing
 the job it appeared to do.
 
+> **Update 2026-08-17 (found by an audit pass).** The `CHECK (leg_state
+> = 'admitting' OR command_id IS NOT NULL)` line above is now stale.
+> Migration `0021_broadcast_leg_timeout_state.sql` widened it to
+> `CHECK (leg_state IN ('admitting', 'timed_out') OR command_id IS NOT
+> NULL)`, so deadline-based skipping of not-yet-dispatched legs (T3
+> increment 3, see Section 6's 2026-08-17 update) can mark a leg
+> `timed_out` without ever having a `command_id` to point at. Not
+> documented here until now.
+
 #### 3.2.1 Crash-safe linkage between admission and the leg row
 
 > **Round-1 finding (cx).** Admission mints the `CommandID` internally, so
@@ -1026,6 +1035,23 @@ not decisions.
 > migration `0020`, the sketch has become the sequence: **steps 1-2 are
 > done, steps 3-6 are the remaining work**, and Section 5.3 records that
 > no design question gates them.
+>
+> **Update 2026-08-17 (superseded by implementation, found by an
+> audit pass -- see `HUB-REPLACEMENT-ROADMAP-2026-08-09.md` line 781):**
+> the "steps 3-6 are the remaining work" framing above, and Section 5.3's
+> "`fan_out()` is ready to implement," are now stale. `fan_out()` is
+> BUILT (`peerhub/application/broadcast.py`, `BroadcastCoordinator.fan_out()`,
+> T3 increments 1-3, commits `75dafcd`/`914def5`/`d5cc70e`/`d357b2d`):
+> happy-path sequential fan-out with `wave_of` two-wave threading,
+> partial-failure disposition, deadline-based skipping of not-yet-dispatched
+> legs, and a response-content-never-persisted tripwire test. Only step 5
+> (crash-linkage recovery) remains unbuilt, and it is *deliberately*
+> deferred as its own increment 4 (commit `be26484`, Section 6.1 below),
+> not merely unstarted. Also stale: this doc's DTO sketch below names
+> `BroadcastRound`/`BroadcastLeg`; the real implementation's types are
+> `FanOutRequest`/`FanOutResult`/`BroadcastLegResult`
+> (`BroadcastCoordinator` for the coordinator itself) -- cosmetic, but
+> worth knowing before grepping for the wrong name.
 
 Draft 3's descope removed draft 2's response-durability step entirely and
 shrank step 3.
@@ -1244,4 +1270,9 @@ Migration `0020` does not retroactively change the already-generated
 Alembic v19 baseline. Its parity test now explicitly applies bespoke
 migrations 1 through 19, preserving the exact comparison the frozen
 baseline claims to make; current-head persistence tests separately assert
-`PRAGMA user_version = 20`.
+`PRAGMA user_version = 20`. **Historical statement, not current** (found
+by an audit pass, 2026-08-17): true when `0020` was head; the migration
+ladder has since advanced to `0024` (`0021` broadcast-leg-timeout-state,
+`0022` retry-authority, `0023` evidence-artifacts, `0024`
+telemetry-quota-tracking) and current-head tests assert `user_version =
+24`, not `20`.

@@ -23,7 +23,12 @@ actually landed with 5B-2 since that unit needed it first. 5B-3 (`51b2f7d`)
 review caught and blocked on a real security bug (failover was rewriting
 the lease's authoritative `owner_instance_id`) before it landed. **Only 5C
 (outer-loop integration, `dispatch_with_retries()`, DEFER/resume) remains
-for increment 5.**
+for increment 5.** [Update 2026-08-17, found by an audit pass: 5C has
+since landed in full -- see `HUB-REPLACEMENT-ROADMAP-2026-08-09.md`
+5C-1/5C-2a/5C-2b/5C-3a/5C-3b entries; `dispatch_with_retries()` exists
+and is tested. This plan document is left as-written below since it
+accurately describes 5B's own scope boundary at the time it was
+written, not a claim about current implementation state.]
 
 Ratified parent contract:
 `PHASE3-T1-INCREMENT5-RETRY-LOOP-DESIGN-R1-2026-08-13.md`, especially
