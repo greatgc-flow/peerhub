@@ -176,6 +176,10 @@ def _fail_closed(
         source_tag = "codex_app_server"
         provider_id = "peerhub.telemetry.cx"
         evidence_ref = EvidenceRef("probe:cx:app-server")
+    elif peer == "ag":
+        source_tag = "agy_statusline"
+        provider_id = "peerhub.telemetry.ag"
+        evidence_ref = EvidenceRef("probe:ag:statusline")
     else:
         source_tag = "claude_cli_usage"
         provider_id = "peerhub.telemetry.cc"
@@ -496,3 +500,114 @@ def poll_codex_usage(
                         pass
             except Exception:
                 pass
+
+def poll_agy_usage(
+    ids: IdSource,
+    instance_id: str,
+    profile_id: str,
+    clock: Optional[Callable[[], float]] = None,
+    freshness_ttl: int = 60,
+    log_path: Optional[str | Path] = None,
+) -> Sequence[UsageObserved]:
+    """Poll agy statusline log and return observations for each quota pool."""
+    import json
+    
+    clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
+    observed_at_now = int(clock_fn())
+    
+    _AG_QUOTA_LABELS = {
+        "gemini-5h": "G-5H", "gemini-weekly": "G-7D",
+        "3p-5h": "3P-5H", "3p-weekly": "3P-7D",
+    }
+    
+    path = Path(log_path) if log_path is not None else (SYS_DIR / "data" / "temp" / "ag_statusline_stdin.log")
+    
+    try:
+        st = path.stat()
+        mtime = int(st.st_mtime)
+    except OSError:
+        # A richer stale-cache-aware version could read ag_last_good_quota.json as a future improvement.
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at_now, freshness_ttl, peer="ag"),)
+        
+    if observed_at_now - mtime > freshness_ttl:
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.STALE, mtime, freshness_ttl, peer="ag"),)
+        
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
+        
+    quota_dict = data.get("quota")
+    if not isinstance(quota_dict, dict):
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
+        
+    results: list[UsageObserved] = []
+    quota_dict_typed = cast(dict[str, Any], quota_dict)
+    for key, label in _AG_QUOTA_LABELS.items():
+        q_raw = quota_dict_typed.get(key)
+        if not isinstance(q_raw, dict):
+            continue
+        q = cast(dict[str, Any], q_raw)
+            
+        rem = q.get("remaining_fraction")
+        if not isinstance(rem, (int, float)):
+            continue
+            
+        used_frac = max(0.0, min(1.0, 1.0 - float(rem)))
+        remaining_frac = max(0.0, 1.0 - used_frac)
+        
+        window_hours = 5.0 if "5H" in label else 168.0
+        window_sec = int(window_hours * 3600)
+        
+        reset_sec = q.get("reset_in_seconds")
+        resets_at_iso = q.get("reset_time")
+
+        
+        reset_at_ts = None
+        if isinstance(reset_sec, (int, float)):
+            reset_at_ts = mtime + int(reset_sec)
+        elif isinstance(resets_at_iso, str):
+            try:
+                dt = datetime.fromisoformat(resets_at_iso.replace("Z", "+00:00"))
+                reset_at_ts = int(dt.timestamp())
+            except Exception:
+                pass
+                
+        if reset_at_ts is None:
+            continue
+            
+        window_started_at = reset_at_ts - window_sec
+        
+        measurement = UsageMeasurement(
+            quota_pool_scope=label,
+            used_fraction=float(used_frac),
+            remaining_fraction=float(remaining_frac),
+            window_started_at=window_started_at,
+            resets_at=reset_at_ts,
+        )
+        
+        evidence = EvidenceValue[UsageMeasurement](
+            state=EvidenceState.MEASURED,
+            source_tag="agy_statusline",
+            provider_id="peerhub.telemetry.ag",
+            provider_version="1.0",
+            observed_at=mtime,
+            captured_at=observed_at_now,
+            freshness_ttl=freshness_ttl,
+            evidence_ref=EvidenceRef("probe:ag:statusline"),
+            value=measurement,
+        )
+        
+        results.append(
+            UsageObserved(
+                observation_id=ids.new_id("usage-observation"),
+                instance_id=instance_id,
+                profile_id=profile_id,
+                evidence=evidence,
+            )
+        )
+        
+    if not results:
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
+        
+    return tuple(results)

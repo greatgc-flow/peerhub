@@ -129,3 +129,65 @@ def test_poll_codex_usage_malformed_response(monkeypatch):
     obs = res[0]
     assert obs.evidence.state == EvidenceState.ERROR
     assert obs.evidence.value is None
+
+import json
+from peerhub.telemetry.quota_polling import poll_agy_usage
+
+def test_poll_agy_usage_missing_file(tmp_path):
+    ids = DummyIdSource()
+    res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=tmp_path / "nonexistent.json")
+    assert len(res) == 1
+    assert res[0].evidence.state == EvidenceState.ABSENT
+
+def test_poll_agy_usage_stale_file(tmp_path, monkeypatch):
+    import time
+    log_file = tmp_path / "ag.json"
+    log_file.write_text('{"quota": {}}', encoding="utf-8")
+    
+    # fake clock to be far in the future
+    clock = lambda: time.time() + 1000
+    
+    ids = DummyIdSource()
+    res = poll_agy_usage(ids, "inst-1", "prof-1", clock=clock, freshness_ttl=60, log_path=log_file)
+    assert len(res) == 1
+    assert res[0].evidence.state == EvidenceState.STALE
+
+def test_poll_agy_usage_malformed_json(tmp_path):
+    log_file = tmp_path / "ag.json"
+    log_file.write_text('{not valid json', encoding="utf-8")
+    
+    ids = DummyIdSource()
+    res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=log_file)
+    assert len(res) == 1
+    assert res[0].evidence.state == EvidenceState.ERROR
+
+def test_poll_agy_usage_success(tmp_path):
+    log_file = tmp_path / "ag.json"
+    log_file.write_text(json.dumps({
+        "quota": {
+            "gemini-5h": {
+                "remaining_fraction": 0.2,
+                "reset_in_seconds": 3600
+            },
+            "3p-weekly": {
+                "remaining_fraction": 0.8,
+                "reset_time": "2026-08-18T12:00:00Z"
+            }
+        }
+    }), encoding="utf-8")
+    
+    ids = DummyIdSource()
+    res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=log_file)
+    assert len(res) == 2
+    
+    scopes = {obs.evidence.value.quota_pool_scope: obs for obs in res}
+    
+    assert "G-5H" in scopes
+    obs_g = scopes["G-5H"]
+    assert obs_g.evidence.state == EvidenceState.MEASURED
+    assert obs_g.evidence.value.used_fraction == pytest.approx(0.8)
+    
+    assert "3P-7D" in scopes
+    obs_3p = scopes["3P-7D"]
+    assert obs_3p.evidence.state == EvidenceState.MEASURED
+    assert obs_3p.evidence.value.used_fraction == pytest.approx(0.2)
