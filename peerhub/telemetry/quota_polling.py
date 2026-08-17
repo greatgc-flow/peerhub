@@ -8,7 +8,7 @@ from typing import Sequence, Optional, TypedDict, Callable, cast, Any
 
 from peerhub.core.context import IdSource
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
-from peerhub.telemetry.contract import UsageObserved, UsageMeasurement
+from peerhub.telemetry.contract import UsageObserved, UsageMeasurement, UsageProjectionSnapshot
 
 PORTABLE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 SYS_DIR = PORTABLE_ROOT / "_sys"
@@ -611,3 +611,51 @@ def poll_agy_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
         
     return tuple(results)
+
+def record_usage_observations(
+    uow: Any,
+    ids: IdSource,
+    observations: Sequence[UsageObserved],
+) -> None:
+    """Record usage observations and maintain quota projections.
+    
+    Persists each observation append-only.
+    If the observation is MEASURED, CAS-updates or creates the projection.
+    """
+    for obs in observations:
+        uow.add_usage_observation(obs)
+        
+        if obs.evidence.state == EvidenceState.MEASURED and obs.evidence.value is not None:
+            val = obs.evidence.value
+            quota_pool_scope = val.quota_pool_scope
+            
+            for _ in range(3):
+                current = uow.get_usage_projection(
+                    instance_id=obs.instance_id,
+                    profile_id=obs.profile_id,
+                    quota_pool_scope=quota_pool_scope,
+                )
+                
+                updated = UsageProjectionSnapshot(
+                    projection_id=(current.projection_id if current is not None else ids.new_id("usage-projection")),
+                    instance_id=obs.instance_id,
+                    profile_id=obs.profile_id,
+                    quota_pool_scope=quota_pool_scope,
+                    used_fraction=val.used_fraction,
+                    remaining_fraction=val.remaining_fraction,
+                    window_started_at=val.window_started_at,
+                    resets_at=val.resets_at,
+                    revision=(1 if current is None else current.revision + 1),
+                    updated_at=obs.evidence.captured_at,
+                )
+                
+                if current is None:
+                    uow.add_usage_projection(updated)
+                    break
+                else:
+                    if uow.cas_update_usage_projection(current, updated):
+                        break
+            else:
+                raise RuntimeError(
+                    f"Failed to cas_update usage projection for pool {quota_pool_scope} after 3 attempts"
+                )
