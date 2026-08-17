@@ -81,6 +81,8 @@ from peerhub.telemetry.contract import (
     SessionBindingKey,
     SessionContextObserved,
     SessionContextProjectionSnapshot,
+    UsageObserved,
+    UsageProjectionSnapshot,
 )
 
 
@@ -1353,6 +1355,44 @@ class SqliteUnitOfWork:
     ) -> bool:
         """CAS-update a session context projection snapshot."""
         return self.telemetry.cas_update_session_context_projection(current, updated)
+
+    def add_usage_observation(
+        self,
+        observation: UsageObserved,
+    ) -> None:
+        """Insert an immutable usage observation."""
+        return self.telemetry.add_usage_observation(observation)  # pyright: ignore[reportUnknownMemberType]
+
+    def get_usage_observation(
+        self,
+        observation_id: str,
+    ) -> UsageObserved | None:
+        """Return one canonical usage observation."""
+        return self.telemetry.get_usage_observation(observation_id)
+
+    def add_usage_projection(
+        self,
+        projection: UsageProjectionSnapshot,
+    ) -> None:
+        """Insert a revision-one usage projection snapshot."""
+        return self.telemetry.add_usage_projection(projection)
+
+    def get_usage_projection(
+        self,
+        instance_id: str,
+        profile_id: str,
+        quota_pool_scope: str,
+    ) -> UsageProjectionSnapshot | None:
+        """Return a usage projection snapshot."""
+        return self.telemetry.get_usage_projection(instance_id, profile_id, quota_pool_scope)
+
+    def cas_update_usage_projection(
+        self,
+        current: UsageProjectionSnapshot,
+        updated: UsageProjectionSnapshot,
+    ) -> bool:
+        """CAS-update a usage projection snapshot."""
+        return self.telemetry.cas_update_usage_projection(current, updated)
 
     def add_health_projection(
         self,

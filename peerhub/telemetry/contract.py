@@ -371,3 +371,84 @@ class SessionContextProjectionSnapshot:
         _require_nonnegative(self.observed_at, "observed_at")
         _require_positive(self.revision, "revision")
         _require_nonnegative(self.updated_at, "updated_at")
+
+
+@dataclass(frozen=True)
+class ReadinessProjectionSnapshot:
+    """Idempotent projection of readiness state."""
+
+    projection_id: str
+    instance_id: str
+    profile_id: str
+    runtime_revision: str
+    issued_at: int
+    valid_until: int
+    integrity_verified: bool
+    revision: int
+    updated_at: int
+
+    def __post_init__(self) -> None:
+        for name in (
+            "projection_id",
+            "instance_id",
+            "profile_id",
+            "runtime_revision",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                require_text(getattr(self, name), name),
+            )
+        _require_nonnegative(self.issued_at, "issued_at")
+        _require_nonnegative(self.valid_until, "valid_until")
+        if self.valid_until < self.issued_at:
+            raise ValueError("valid_until cannot precede issued_at")
+        if type(self.integrity_verified) is not bool:
+            raise ValueError("integrity_verified must be a boolean")
+        _require_positive(self.revision, "revision")
+        _require_nonnegative(self.updated_at, "updated_at")
+
+
+@dataclass(frozen=True)
+class UsageProjectionSnapshot:
+    """Idempotent projection of quota usage."""
+
+    projection_id: str
+    instance_id: str
+    profile_id: str
+    quota_pool_scope: str
+    used_fraction: float
+    remaining_fraction: float
+    window_started_at: int
+    resets_at: int
+    revision: int
+    updated_at: int
+
+    def __post_init__(self) -> None:
+        for name in (
+            "projection_id",
+            "instance_id",
+            "profile_id",
+            "quota_pool_scope",
+        ):
+            object.__setattr__(
+                self,
+                name,
+                require_text(getattr(self, name), name),
+            )
+        
+        for name in (
+            "used_fraction",
+            "remaining_fraction",
+        ):
+            value = getattr(self, name)
+            if type(value) is not float or not math.isfinite(value) or value < 0.0 or value > 1.0:
+                raise ValueError(f"{name} must be a finite fraction")
+                
+        _require_nonnegative(self.window_started_at, "window_started_at")
+        _require_nonnegative(self.resets_at, "resets_at")
+        if self.resets_at < self.window_started_at:
+            raise ValueError("resets_at cannot precede window_started_at")
+            
+        _require_positive(self.revision, "revision")
+        _require_nonnegative(self.updated_at, "updated_at")

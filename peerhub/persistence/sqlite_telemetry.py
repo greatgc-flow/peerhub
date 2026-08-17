@@ -16,6 +16,8 @@ from peerhub.telemetry.contract import (
     SessionContextProjectionSnapshot,
     UsageMeasurement,
     SessionContextObserved,
+    UsageObserved,
+    UsageProjectionSnapshot,
 )
 from peerhub.dispatch.contract import SessionBindingKey
 from .sqlite_helpers import (
@@ -610,6 +612,209 @@ class SqliteTelemetryRepository:
                 updated.window_tokens,
                 updated.source,
                 updated.observed_at,
+                updated.revision,
+                updated.updated_at,
+                current.projection_id,
+                current.revision,
+            ),
+        )
+        return cursor.rowcount == 1
+
+    # ── Slice 4: usage observations ──
+
+    def _usage_observation_from_row(
+        self,
+        row: sqlite3.Row,
+    ) -> UsageObserved:
+        measurement = None
+        if row["quota_pool_scope"] is not None:
+            measurement = UsageMeasurement(
+                quota_pool_scope=row["quota_pool_scope"],
+                used_fraction=float(row["used_fraction"]),
+                remaining_fraction=float(row["remaining_fraction"]),
+                window_started_at=row["window_started_at"],
+                resets_at=row["resets_at"],
+            )
+        evidence = EvidenceValue(
+            state=EvidenceState(row["evidence_state"]),
+            source_tag=row["source_tag"],
+            provider_id=row["provider_id"],
+            provider_version=row["provider_version"],
+            observed_at=row["observed_at"],
+            captured_at=row["captured_at"],
+            freshness_ttl=row["freshness_ttl"],
+            evidence_ref=EvidenceRef(row["evidence_ref"]),
+            value=measurement,
+        )
+        return UsageObserved(
+            observation_id=row["observation_id"],
+            instance_id=row["instance_id"],
+            profile_id=row["profile_id"],
+            evidence=evidence,
+        )
+
+    def add_usage_observation(
+        self,
+        observed: UsageObserved,
+    ) -> None:
+        """Insert an immutable usage observation."""
+        ev = observed.evidence
+        val = ev.value
+        self._db().execute(
+            """
+            INSERT INTO usage_observations (
+                observation_id,
+                instance_id,
+                profile_id,
+                evidence_state,
+                source_tag,
+                provider_id,
+                provider_version,
+                observed_at,
+                captured_at,
+                freshness_ttl,
+                evidence_ref,
+                quota_pool_scope,
+                used_fraction,
+                remaining_fraction,
+                window_started_at,
+                resets_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                observed.observation_id,
+                observed.instance_id,
+                observed.profile_id,
+                ev.state.value,
+                ev.source_tag,
+                ev.provider_id,
+                ev.provider_version,
+                ev.observed_at,
+                ev.captured_at,
+                ev.freshness_ttl,
+                str(ev.evidence_ref),
+                val.quota_pool_scope if val is not None else None,
+                val.used_fraction if val is not None else None,
+                val.remaining_fraction if val is not None else None,
+                val.window_started_at if val is not None else None,
+                val.resets_at if val is not None else None,
+            ),
+        )
+
+    def get_usage_observation(
+        self,
+        observation_id: str,
+    ) -> UsageObserved | None:
+        """Return a usage observation by observation ID."""
+        row = self._db().execute(
+            """
+            SELECT *
+            FROM usage_observations
+            WHERE observation_id = ?
+            """,
+            (observation_id,),
+        ).fetchone()
+        return None if row is None else self._usage_observation_from_row(row)
+
+    # ── Slice 4: usage projections ──
+
+    def _usage_projection_from_row(
+        self,
+        row: sqlite3.Row,
+    ) -> UsageProjectionSnapshot:
+        return UsageProjectionSnapshot(
+            projection_id=row["projection_id"],
+            instance_id=row["instance_id"],
+            profile_id=row["profile_id"],
+            quota_pool_scope=row["quota_pool_scope"],
+            used_fraction=float(row["used_fraction"]),
+            remaining_fraction=float(row["remaining_fraction"]),
+            window_started_at=row["window_started_at"],
+            resets_at=row["resets_at"],
+            revision=row["revision"],
+            updated_at=row["updated_at"],
+        )
+
+    def add_usage_projection(
+        self,
+        projection: UsageProjectionSnapshot,
+    ) -> None:
+        """Insert a revision-one usage projection."""
+        self._db().execute(
+            """
+            INSERT INTO usage_projections (
+                projection_id,
+                instance_id,
+                profile_id,
+                quota_pool_scope,
+                used_fraction,
+                remaining_fraction,
+                window_started_at,
+                resets_at,
+                revision,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                projection.projection_id,
+                projection.instance_id,
+                projection.profile_id,
+                projection.quota_pool_scope,
+                projection.used_fraction,
+                projection.remaining_fraction,
+                projection.window_started_at,
+                projection.resets_at,
+                projection.revision,
+                projection.updated_at,
+            ),
+        )
+
+    def get_usage_projection(
+        self,
+        instance_id: str,
+        profile_id: str,
+        quota_pool_scope: str,
+    ) -> UsageProjectionSnapshot | None:
+        """Return the current usage projection for a pool."""
+        row = self._db().execute(
+            """
+            SELECT *
+            FROM usage_projections
+            WHERE instance_id = ? 
+              AND profile_id = ? 
+              AND quota_pool_scope = ?
+            """,
+            (instance_id, profile_id, quota_pool_scope),
+        ).fetchone()
+        return None if row is None else self._usage_projection_from_row(row)
+
+    def cas_update_usage_projection(
+        self,
+        current: UsageProjectionSnapshot,
+        updated: UsageProjectionSnapshot,
+    ) -> bool:
+        """CAS-update a usage projection snapshot."""
+        if current.projection_id != updated.projection_id:
+            raise ValueError("projection IDs do not match")
+        cursor = self._db().execute(
+            """
+            UPDATE usage_projections
+            SET
+                used_fraction = ?,
+                remaining_fraction = ?,
+                window_started_at = ?,
+                resets_at = ?,
+                revision = ?,
+                updated_at = ?
+            WHERE
+                projection_id = ?
+                AND revision = ?
+            """,
+            (
+                updated.used_fraction,
+                updated.remaining_fraction,
+                updated.window_started_at,
+                updated.resets_at,
                 updated.revision,
                 updated.updated_at,
                 current.projection_id,
