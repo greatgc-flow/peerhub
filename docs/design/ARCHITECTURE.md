@@ -23,6 +23,17 @@
 > code, tests, or scaffolding exist yet. A future, separately-authorized
 > round starts TDD implementation against this document, beginning with
 > Phase 0 below.
+>
+> **Update 2026-08-17 (found by an audit pass): badly stale.** This
+> header describes the state as of the 2026-07-27 debate, before any
+> implementation. TDD implementation was separately authorized and has
+> since progressed all the way through Phase 3 (core dispatch loop with
+> retry/resume/failover, T1) plus a working broadcast primitive (T3) and
+> substantial Phase 1/2 work -- the repository now contains a populated
+> `peerhub/` source tree (e.g. `peerhub/core/context.py`) and 104 test
+> files. See `HUB-REPLACEMENT-ROADMAP-2026-08-09.md` for the full,
+> currently-accurate implementation history. Left below as the original
+> pre-implementation architecture record.
 
 ## 1. Mission
 
