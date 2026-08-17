@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sqlite3
 import sys
 import threading
@@ -18,10 +19,13 @@ if TYPE_CHECKING:
 from peerhub.adapters.registry import (
     ExecutableNotFoundError,
     ProfileNotFoundError,
+    resolve_peer_target,
 )
 from peerhub.application.bootstrap import (
     HealthPolicyConflictError,
     ReadinessProbeFailedError,
+    build_broadcast_admission_config,
+    build_direct_ask_admission_config,
 )
 from peerhub.application.direct_ask import (
     DirectAskRequest,
@@ -238,6 +242,100 @@ def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:
         resets_str = datetime.fromtimestamp(p.resets_at, tz=timezone.utc).isoformat() if p.resets_at else "N/A"
         print(f"{p.instance_id:<10} {p.quota_pool_scope:<30} {p.used_fraction * 100:>5.1f}%    {p.remaining_fraction * 100:>9.1f}%      {resets_str}")
 
+def _run_diag(parsed: argparse.Namespace) -> int:
+    from peerhub.telemetry.presenter import TelemetryPresenter
+    workspace_root = Path(parsed.workspace).resolve()
+    presenter = TelemetryPresenter(
+        use_color=False if parsed.no_color else None,
+        workspace_root=workspace_root,
+    )
+    if parsed.live:
+        try:
+            while True:
+                os.system("cls" if os.name == "nt" else "clear")
+                snapshot = presenter.collect_live_snapshot()
+                if parsed.json:
+                    print(json.dumps(snapshot, indent=2))
+                else:
+                    print(presenter.render(snapshot))
+                time.sleep(2)
+        except KeyboardInterrupt:
+            return 0
+    else:
+        snapshot = presenter.collect_live_snapshot()
+        if parsed.json:
+            print(json.dumps(snapshot, indent=2))
+        else:
+            print(presenter.render(snapshot))
+        return 0
+
+
+def _run_broadcast(parsed: argparse.Namespace) -> int:
+    from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
+    from peerhub.dispatch.capability import CapabilityTier
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    
+    context = RuntimeContext(
+        workspace_home_id=workspace_root.name or "cli",
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    
+    peers_list = [p.strip() for p in parsed.peers.split(",") if p.strip()]
+    targets = [(p, None) for p in peers_list]
+    resolved_targets = tuple(
+        resolve_peer_target(p, profile_id=pid) for p, pid in targets
+    )
+    adm_cfg = build_broadcast_admission_config(
+        resolved_targets,
+        clock=context.clock,
+        ids=context.ids,
+    )
+    with create_runtime(context, admission_config=adm_cfg) as runtime:
+        coordinator = BroadcastCoordinator(runtime=runtime, clock=context.clock, ids=context.ids)
+        caller = require_caller_identity(LocalProcessCallerIdentityProvider())
+        req = FanOutRequest(
+            workspace_root=workspace_root,
+            prompt=parsed.prompt,
+            targets=targets,
+            required_capability_tier=CapabilityTier[parsed.capability_tier],
+            limits=TransportLimits(
+                process_timeout_ms=parsed.timeout_seconds * 1000,
+                silence_timeout_ms=parsed.silence_timeout_seconds * 1000,
+                max_output_bytes=parsed.max_output_bytes,
+            ),
+            authenticated_subject=caller,
+        )
+        
+        result = coordinator.fan_out(req)
+        
+        if parsed.json:
+            out_obj = {
+                "round_id": result.round_id,
+                "disposition": result.disposition,
+                "legs": [
+                    {
+                        "target": leg.target,
+                        "leg_state": leg.leg_state,
+                        "response_text": leg.response_text,
+                    }
+                    for leg in result.legs
+                ]
+            }
+            print(json.dumps(out_obj, indent=2))
+        else:
+            print(f"Broadcast Round: {result.round_id} (Disposition: {result.disposition})")
+            for leg in result.legs:
+                status_icon = "✓" if leg.leg_state == "completed" else "✗"
+                print(f"[{status_icon}] {leg.target}: {leg.leg_state}")
+                if leg.response_text:
+                    print(f"    {leg.response_text.strip()}\n")
+                    
+        return 0 if result.disposition == "all_completed" else 1
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -252,6 +350,30 @@ def main(args: list[str] | None = None) -> int:
     status_group = status_parser.add_mutually_exclusive_group()
     status_group.add_argument("--peer", help="Show quota data for a specific peer")
     status_group.add_argument("--all", action="store_true", help="Show quota data for all peers")
+
+    # Diag subcommand
+    diag_parser = subparsers.add_parser("diag", help="Show live peer diagnostics and quota telemetry")
+    diag_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    diag_parser.add_argument("--live", action="store_true", help="Run in continuous monitoring loop")
+    diag_parser.add_argument("--fresh", action="store_true", help="Bypass telemetry cache")
+    diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
+    diag_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    # Broadcast subcommand
+    broadcast_parser = subparsers.add_parser("broadcast", help="Broadcast one prompt to multiple peers")
+    broadcast_parser.add_argument("prompt", help="Prompt text to broadcast")
+    broadcast_parser.add_argument("--peers", default="ag,cx", help="Comma-separated list of peers (default: ag,cx)")
+    broadcast_parser.add_argument(
+        "--capability-tier",
+        default="READ_ONLY",
+        choices=tuple(tier.name for tier in CapabilityTier),
+        help="Required downstream capability tier",
+    )
+    broadcast_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    broadcast_parser.add_argument("--timeout-seconds", type=int, default=60)
+    broadcast_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
+    broadcast_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
+    broadcast_parser.add_argument("--json", action="store_true", help="Emit JSON")
 
     ask_parser = subparsers.add_parser(
         "ask",
@@ -301,6 +423,12 @@ def main(args: list[str] | None = None) -> int:
     
     parsed = parser.parse_args(args)
     
+    if parsed.command == "diag":
+        return _run_diag(parsed)
+
+    if parsed.command == "broadcast":
+        return _run_broadcast(parsed)
+
     if parsed.command == "status":
         workspace_root = Path(parsed.workspace).resolve()
         paths = PathLayout.for_workspace(workspace_root)
@@ -313,7 +441,7 @@ def main(args: list[str] | None = None) -> int:
             return 0
             
         context = RuntimeContext(
-            workspace_home_id=workspace_root.name,
+            workspace_home_id=workspace_root.name or "cli",
             paths=paths,
             clock=SystemClock(),
             ids=UuidSource(),

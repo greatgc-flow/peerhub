@@ -72,7 +72,7 @@ class SqliteTelemetryRepository:
         val = ev.value
         self._db().execute(
             """
-            INSERT INTO readiness_observations (
+            INSERT OR REPLACE INTO readiness_observations (
                 observation_id,
                 instance_id,
                 profile_id,

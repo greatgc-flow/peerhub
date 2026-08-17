@@ -112,6 +112,11 @@ def create_runtime(
             readiness_observation_threshold=1,
             administrative_recovery_probe_limit=1,
         )
+        with state_store.unit_of_work() as uow:
+            existing = uow.get_health_policy_revision(policy.policy_id, policy.revision)
+            if existing is None:
+                uow.add_health_policy_revision(policy)
+                uow.commit()
         membership = HealthScopeMembershipSnapshot(
             configuration_revision=1,
             configuration_digest="0" * 64,
@@ -129,12 +134,17 @@ def create_runtime(
     )
 
     if admission_config is not None:
-        health_service.evaluate_and_persist_readiness(
-            admission_config.readiness,
-            # sealed_runtime_revision must match the raw hex digest, NOT the prefixed evidence_ref
-            sealed_runtime_revision=admission_config.readiness.evidence.value.runtime_revision,  # type: ignore[reportOptionalMemberAccess]
-            adapter_declares_probe_safe=True,
+        readiness_items = (
+            admission_config.readiness_list
+            if admission_config.readiness_list
+            else (admission_config.readiness,)
         )
+        for r in readiness_items:
+            health_service.evaluate_and_persist_readiness(
+                r,
+                sealed_runtime_revision=r.evidence.value.runtime_revision,  # type: ignore[reportOptionalMemberAccess]
+                adapter_declares_probe_safe=True,
+            )
 
     # ── Routing ──
     routing_service = RoutingService(
