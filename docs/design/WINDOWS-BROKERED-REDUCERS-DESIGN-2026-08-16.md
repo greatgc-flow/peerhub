@@ -2,7 +2,12 @@
 
 **Date:** 2026-08-16
 **Target Subsystem:** `peerhub/adapters/`
-**Status:** RATIFIED WITH IMPLEMENTATION GATES (round 1 ag.deepthink
+**Status:** BLOCKED 2026-08-17 -- precondition 1 empirically FAILED, needs
+a policy decision or a redesign before this can proceed. See "2026-08-17
+Precondition Investigation Results" at the end of this document before
+reading anything above it as still-current.
+
+**Original ratification status (superseded below):** RATIFIED WITH IMPLEMENTATION GATES (round 1 ag.deepthink
 draft; round 2 cc.effort independent critique found the design NOT
 READY -- an asserted-not-demonstrated Prerequisite-4 timing claim, an
 undisclosed `pywin32` dependency, an undisclosed process-spawn privilege
@@ -87,3 +92,56 @@ The following are strictly excluded from this increment:
 
 1. **`agy.exe` Write Footprint (System-Wide Low IL Constraints):** Windows Mandatory Integrity Control has no concept of a "worktree". A Low-IL token blocks writes to EVERY Medium-IL-or-higher object system-wide. If `agy.exe` needs to write to Medium IL paths outside the worktree (e.g., session/cache state, logs, temp files) for normal operation, a blanket Low-IL token will break `agy` outright, not just confine it. Because `agy`'s write footprint cannot currently be determined from available information, this is an open empirical question that MUST be answered before implementation. We must either investigate and design an explicit allow-list of paths to relabel for the process's own operation, or prove it does not need to write outside the worktree.
 2. **Network Egress at Low IL:** While Low IL blocks Medium IL file writes, its effect on network sockets is less strict. If `READ_ONLY` must also mean "no network egress", Low IL alone may not suffice without Windows Firewall rules or dropping network SIDs. We need to decide if `READ_ONLY` strictly prohibits network calls for `agy`.
+
+## 2026-08-17 Precondition Investigation Results
+
+Both empirically-testable preconditions (of the 3 named in the
+ratification: spawn-privilege availability, `agy.exe`'s write footprint,
+network-egress policy -- the third is a product decision, not
+investigated here) were run for real. Method: `ctypes` calls to
+`advapi32.dll`/`kernel32.dll` (`OpenProcessToken` +
+`GetTokenInformation(TokenPrivileges)`) for precondition 1, avoiding
+`whoami /priv` due to this environment's known terminal-wrapper-
+shadowing risk; a real supervised `agy` dispatch (mirroring
+`tests/integration/adapters/test_real_agy_adapter_via_pipe.py`, which
+passes today) with before/after mtime tracking for precondition 2.
+
+**Precondition 1 (spawn-privilege availability): FAIL.** The current
+non-elevated dev/CI account's process token was checked directly. All 3
+required privileges are **entirely absent** (not merely disabled --
+absent from the token's privilege list at all):
+`SeIncreaseQuotaPrivilege`, `SeAssignPrimaryTokenPrivilege`,
+`SeImpersonatePrivilege`. Neither `CreateProcessAsUser` nor
+`CreateProcessWithTokenW` -- the two spawn primitives this design's core
+mechanism depends on -- can be used as-is in this environment.
+
+**This is a harder blocker than the design's own Section 3/8 anticipated.**
+The design already flagged this as `TEST NEEDED` (correctly anticipating
+it might fail), but a failure here isn't a parameter to tune -- it means
+the ratified core mechanism (Low-IL token + one of these two spawn
+calls) cannot be implemented in this environment without either (a)
+running peerhub with elevated privileges (a real security/operational
+posture change, not a peerhub-internal decision), or (b) finding a
+different Windows-native primitive that doesn't require these specific
+privileges. **Neither option is a peer-ratifiable technical choice --
+this needs the user's own decision** on whether elevation is acceptable,
+or whether to commission a redesign search for an alternative mechanism
+(e.g. job objects with `JOB_OBJECT_LIMIT_*` restrictions, which have
+different privilege requirements and were not evaluated in the original
+design rounds).
+
+**Precondition 2 (`agy.exe` write footprint): FAIL** (in the sense that
+real out-of-worktree writes were confirmed, meaning the "prove it
+doesn't write outside the worktree" branch of Section 8's open question
+is closed in the negative -- the allow-list branch is now the confirmed
+path forward). A real dispatch mutated exactly 3 files, all under
+`P:\_sys\data\temp\`, none inside `P:\peerhub`:
+`ag_last_good_quota.json`, `ag_session_context.json`,
+`ag_statusline_stdin.log`. This precondition is tractable on its own
+(an explicit `icacls`-relabeled allow-list covering `P:\_sys\data\temp\`
+or these 3 specific files would resolve it) but is moot until
+precondition 1's harder blocker is resolved.
+
+**Status:** this design cannot proceed to implementation until the user
+decides how to handle precondition 1. Not scheduled further pending
+that decision.
