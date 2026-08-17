@@ -151,7 +151,7 @@ def _resolve_executable_path(executable_name: str) -> Path:
             
         candidate = p / executable_name
         if candidate.is_file():
-            return candidate.resolve()
+            return candidate.absolute()
             
         if not has_recognized_ext:
             for ext in extensions:
@@ -159,7 +159,7 @@ def _resolve_executable_path(executable_name: str) -> Path:
                     continue
                 candidate_ext = p / f"{executable_name}{ext}"
                 if candidate_ext.is_file():
-                    return candidate_ext.resolve()
+                    return candidate_ext.absolute()
 
     raise ExecutableNotFoundError(f"executable {executable_name!r} not found in PATH")
 
