@@ -650,6 +650,10 @@ class SqliteReadUnitOfWork:
         """Return one operational projection."""
         return self.telemetry.get_operational_projection(instance_id, profile_id)
 
+    def list_usage_projections(self, instance_id: str | None = None) -> Sequence[UsageProjectionSnapshot]:
+        """Return usage projections optionally filtered by instance."""
+        return self.telemetry.list_usage_projections(instance_id)
+
     def get_health_circuit(self, scope: PolicyScope, subject: str) -> HealthCircuitSnapshot | None:
         """Return one health circuit snapshot."""
         return self.health.get_health_circuit(scope, subject)
@@ -1385,6 +1389,13 @@ class SqliteUnitOfWork:
     ) -> UsageProjectionSnapshot | None:
         """Return a usage projection snapshot."""
         return self.telemetry.get_usage_projection(instance_id, profile_id, quota_pool_scope)
+
+    def list_usage_projections(
+        self,
+        instance_id: str | None = None,
+    ) -> Sequence[UsageProjectionSnapshot]:
+        """Return usage projections optionally filtered by instance."""
+        return self.telemetry.list_usage_projections(instance_id)
 
     def cas_update_usage_projection(
         self,

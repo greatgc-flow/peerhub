@@ -183,3 +183,66 @@ def test_usage_projection_concurrent_pools_do_not_clobber(store: SqliteStateStor
         assert retrieved_week is not None
         assert retrieved_week.quota_pool_scope == "week-all-models"
         assert retrieved_week.used_fraction == 0.8
+
+def test_usage_projection_list(store: SqliteStateStore) -> None:
+    session_proj1 = UsageProjectionSnapshot(
+        projection_id="proj-1",
+        instance_id="inst-1",
+        profile_id="prof-1",
+        quota_pool_scope="session",
+        used_fraction=0.1,
+        remaining_fraction=0.9,
+        window_started_at=100,
+        resets_at=200,
+        revision=1,
+        updated_at=150,
+    )
+    week_proj1 = UsageProjectionSnapshot(
+        projection_id="proj-2",
+        instance_id="inst-1",
+        profile_id="prof-1",
+        quota_pool_scope="week-all-models",
+        used_fraction=0.8,
+        remaining_fraction=0.2,
+        window_started_at=100,
+        resets_at=800,
+        revision=1,
+        updated_at=150,
+    )
+    session_proj2 = UsageProjectionSnapshot(
+        projection_id="proj-3",
+        instance_id="inst-2",
+        profile_id="prof-2",
+        quota_pool_scope="session",
+        used_fraction=0.5,
+        remaining_fraction=0.5,
+        window_started_at=100,
+        resets_at=200,
+        revision=1,
+        updated_at=150,
+    )
+
+    with store.unit_of_work() as unit:
+        unit.add_usage_projection(session_proj1)
+        unit.add_usage_projection(week_proj1)
+        unit.add_usage_projection(session_proj2)
+        unit.commit()
+
+    with store.unit_of_work() as unit:
+        all_projections = unit.list_usage_projections()
+        assert len(all_projections) == 3
+        
+        assert all_projections[0].instance_id == "inst-1"
+        assert all_projections[0].quota_pool_scope == "session"
+        assert all_projections[1].instance_id == "inst-1"
+        assert all_projections[1].quota_pool_scope == "week-all-models"
+        assert all_projections[2].instance_id == "inst-2"
+        assert all_projections[2].quota_pool_scope == "session"
+
+        filtered = unit.list_usage_projections("inst-1")
+        assert len(filtered) == 2
+        assert filtered[0].instance_id == "inst-1"
+        assert filtered[1].instance_id == "inst-1"
+
+        filtered2 = unit.list_usage_projections("unknown")
+        assert len(filtered2) == 0

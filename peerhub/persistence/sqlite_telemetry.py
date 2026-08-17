@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
 from peerhub.core.execution import ExecutionCertainty
@@ -787,6 +787,29 @@ class SqliteTelemetryRepository:
             (instance_id, profile_id, quota_pool_scope),
         ).fetchone()
         return None if row is None else self._usage_projection_from_row(row)
+
+    def list_usage_projections(
+        self,
+        instance_id: str | None = None,
+    ) -> Sequence[UsageProjectionSnapshot]:
+        """Return usage projections optionally filtered by instance."""
+        if instance_id is None:
+            rows = self._db().execute(
+                """
+                SELECT *
+                FROM usage_projections
+                """
+            ).fetchall()
+        else:
+            rows = self._db().execute(
+                """
+                SELECT *
+                FROM usage_projections
+                WHERE instance_id = ?
+                """,
+                (instance_id,),
+            ).fetchall()
+        return tuple(self._usage_projection_from_row(r) for r in rows)
 
     def cas_update_usage_projection(
         self,

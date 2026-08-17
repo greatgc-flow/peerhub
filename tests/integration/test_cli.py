@@ -155,6 +155,67 @@ def test_cli_version(capsys):
     captured = capsys.readouterr()
     assert "0.1.0" in captured.out
 
+def test_cli_status_quota_table(tmp_path: Path, capsys) -> None:
+    from peerhub.cli import main, SystemClock, UuidSource
+    from peerhub.core.context import RuntimeContext, PathLayout
+    from peerhub.runtime import create_runtime
+    from peerhub.telemetry.contract import UsageProjectionSnapshot
+    import sys
+    from unittest.mock import patch
+    
+    paths = PathLayout.for_workspace(tmp_path)
+    context = RuntimeContext(
+        workspace_home_id=tmp_path.name,
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    
+    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime.state_store.initialize()
+        
+        proj = UsageProjectionSnapshot(
+            projection_id="proj-1",
+            instance_id="peer-1",
+            profile_id="prof-1",
+            quota_pool_scope="session",
+            used_fraction=0.25,
+            remaining_fraction=0.75,
+            window_started_at=100,
+            resets_at=2000,
+            revision=1,
+            updated_at=150,
+        )
+        with runtime.state_store.unit_of_work() as uow:
+            uow.add_usage_projection(proj)
+            uow.commit()
+    
+    # Test --all
+    with patch.object(sys, "argv", ["peerhub", "status", "--workspace", str(tmp_path), "--all"]):
+        main()
+        
+    captured = capsys.readouterr()
+    stdout = captured.out
+    
+    assert "PEER" in stdout
+    assert "POOL" in stdout
+    assert "USED%" in stdout
+    assert "REMAINING%" in stdout
+    assert "peer-1" in stdout
+    assert "session" in stdout
+    assert "25.0%" in stdout
+    assert "75.0%" in stdout
+
+    # Test --peer
+    with patch.object(sys, "argv", ["peerhub", "status", "--workspace", str(tmp_path), "--peer", "unknown"]):
+        main()
+        
+    captured = capsys.readouterr()
+    stdout = captured.out
+    
+    assert "No quota data recorded yet" in stdout
+
+
 
 def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
     subject = AuthenticatedSubject(

@@ -7,8 +7,13 @@ import sys
 import threading
 import time
 import uuid
+from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from peerhub.persistence.sqlite import SqliteReadUnitOfWork
 
 from peerhub.adapters.registry import (
     ExecutableNotFoundError,
@@ -222,6 +227,17 @@ def _run_ask(
         print(f"peerhub ask: {_enum_value(detail)}", file=sys.stderr)
     return exit_code
 
+def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:
+    projections = uow.list_usage_projections(peer)
+    if not projections:
+        print("No quota data recorded yet")
+        return
+
+    print(f"\n{'PEER':<10} {'POOL':<30} {'USED%':<10} {'REMAINING%':<15} {'RESETS_AT'}")
+    for p in projections:
+        resets_str = datetime.fromtimestamp(p.resets_at, tz=timezone.utc).isoformat() if p.resets_at else "N/A"
+        print(f"{p.instance_id:<10} {p.quota_pool_scope:<30} {p.used_fraction * 100:>5.1f}%    {p.remaining_fraction * 100:>9.1f}%      {resets_str}")
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -233,6 +249,9 @@ def main(args: list[str] | None = None) -> int:
         default=".", 
         help="Path to the workspace root (default: current directory)"
     )
+    status_group = status_parser.add_mutually_exclusive_group()
+    status_group.add_argument("--peer", help="Show quota data for a specific peer")
+    status_group.add_argument("--all", action="store_true", help="Show quota data for all peers")
 
     ask_parser = subparsers.add_parser(
         "ask",
@@ -319,6 +338,10 @@ def main(args: list[str] | None = None) -> int:
             active_leases = runtime.dispatch_service.count_active_leases()
             print(f"Active Leases: {active_leases}")
             print("Status: OK")
+
+            if getattr(parsed, "all", False) or getattr(parsed, "peer", None) is not None:
+                with runtime.state_store.read_unit_of_work() as uow:
+                    _print_quota_table(uow, parsed.peer)
 
     if parsed.command == "ask":
         return _run_ask(parsed)
