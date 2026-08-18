@@ -43,18 +43,30 @@ The target architecture was designed and converged through a 9-round adversarial
 
 ## Install
 
+### Option A: Install via Pip from GitHub Release (Recommended)
+
 ```bash
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.1.1"
+```
+
+### Option B: Local Editable Development Install
+
+```bash
+git clone https://github.com/greatgc-flow/peerhub.git
 cd peerhub
 pip install -e .          # runtime only
 pip install -e .[dev]     # + pytest, pyright, hypothesis, alembic (needed to run tests/type-check locally)
 ```
 
-Requires Python >= 3.11. This installs the `peerhub` package and registers a `peerhub` command on your PATH.
+Requires Python >= 3.11. This installs the `peerhub` package and registers `peerhub` and `hub` entrypoints on your PATH.
 
 ## Try it
 
 ```bash
 peerhub --version
+
+# Real-time multi-peer quota telemetry, headroom matrix, and active failover routing targets
+peerhub diag
 
 # Check a workspace (read-only; reports "uninitialized" if no database yet)
 peerhub status --workspace ./my-workspace
@@ -63,6 +75,9 @@ peerhub status --workspace ./my-workspace
 peerhub ask ag "say hello in exactly three words" --capability-tier READ_ONLY
 peerhub ask cc "..." --capability-tier READ_ONLY --profile <profile-id>   # claude, if you have more than one profile configured
 peerhub ask cx "..." --capability-tier WORKTREE_WRITE --json              # structured output instead of plain text
+
+# Multi-peer broadcast coordination across peers with unified consensus
+peerhub broadcast "reply with exactly: pong" --peers ag,cx --capability-tier READ_ONLY
 ```
 
 `ask` accepts `--capability-tier` (required: READ_ONLY, WORKTREE_WRITE, GIT_MUTATE, REMOTE_MUTATE),
