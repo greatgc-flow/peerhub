@@ -447,6 +447,7 @@ class TelemetryPresenter:
         is_expanded_height = rows >= 32
 
         # 1. HEADER & STATUS BAR
+        from peerhub import __version__
         room_info = snapshot.get("room", {})
         room_id = room_info.get("room", "room-efde")
         leader = room_info.get("leader", "AG (Gemini)")
@@ -454,7 +455,7 @@ class TelemetryPresenter:
         failover_hr = snapshot.get("failover_headroom", "7%")
 
         lines.append(sep)
-        lines.append(f" 🌐 {self._c('PeerHub Multi-Peer Dashboard', 'bold', 'cyan')} {self._c('(v0.1.6)', 'dim')}")
+        lines.append(f" 🌐 {self._c('PeerHub Multi-Peer Dashboard', 'bold', 'cyan')} {self._c(f'(v{__version__})', 'dim')}")
         lines.append(sep)
         lines.append(f" 📌 Room: {room_id}  👑 Leader: {leader}  🎯 Failover: {self._c(failover_target, 'green', 'bold')} ({failover_hr} Headroom)")
 
