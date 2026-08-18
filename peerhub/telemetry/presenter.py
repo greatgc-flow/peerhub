@@ -71,6 +71,36 @@ def parse_source_msg_reset(msg: str, now: Optional[datetime] = None) -> Optional
     return None
 
 
+def _get_cx_context(sys_dir: Path) -> Tuple[int, int, float]:
+    """Dynamically read newest Codex thread rollout token_count from SQLite."""
+    db_path = sys_dir / "codex" / "config" / "state_5.sqlite"
+    if not db_path.exists():
+        return (15000, 258400, 5.8)
+    try:
+        import sqlite3
+        conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        row = conn.execute("SELECT rollout_path FROM threads ORDER BY updated_at DESC LIMIT 1").fetchone()
+        conn.close()
+        if row and row[0]:
+            rollout_path = Path(row[0])
+            if rollout_path.exists():
+                for line in rollout_path.read_text(encoding="utf-8").splitlines():
+                    try:
+                        obj = json.loads(line)
+                    except Exception:
+                        continue
+                    payload = obj.get("payload", {})
+                    if isinstance(payload, dict) and payload.get("type") == "token_count":
+                        info = payload.get("info", {})
+                        win = info.get("model_context_window")
+                        used = (info.get("last_token_usage") or {}).get("total_tokens")
+                        if isinstance(used, (int, float)) and isinstance(win, (int, float)) and win > 0:
+                            return (int(used), int(win), (float(used) / float(win)) * 100.0)
+    except Exception:
+        pass
+    return (15000, 258400, 5.8)
+
+
 def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
     """Compute exact human countdown string from a target timestamp or ISO string."""
     if target is None:
@@ -206,17 +236,18 @@ class TelemetryPresenter:
                 except Exception:
                     pass
 
+        ag_pct = 0.0
         if raw_ag:
             ctx = raw_ag.get("context_window", {})
-            used_tokens = ctx.get("total_input_tokens", 0) + ctx.get("total_output_tokens", 0)
-            size = ctx.get("context_window_size", 1048576)
-            pct = ctx.get("used_percentage", 0.0)
+            used_tokens = ctx.get("total_input_tokens", 0)
             if used_tokens == 0 and "current_usage" in ctx:
                 cur = ctx["current_usage"]
-                used_tokens = cur.get("input_tokens", 0) + cur.get("output_tokens", 0)
+                used_tokens = cur.get("input_tokens", 0) + cur.get("cache_read_input_tokens", 0)
+            size = ctx.get("context_window_size", 1048576)
+            ag_pct = float(ctx.get("used_percentage", (used_tokens / size * 100.0) if size else 0.0))
             used_k = int(used_tokens / 1000)
             size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
-            ag_data["context_str"] = f"{used_k}k / {size_m} ({pct:.0f}%)"
+            ag_data["context_str"] = f"{used_k}k / {size_m} ({ag_pct:.0f}%)"
 
             quotas = raw_ag.get("quota", {})
             # 3P-pool (Claude / Codex through AG)
@@ -285,17 +316,21 @@ class TelemetryPresenter:
             except Exception:
                 pass
 
+        cc_pct = 0.0
         if raw_cc:
             cost = raw_cc.get("cost", {}).get("total_cost_usd")
             if cost is not None:
                 cc_data["cost_str"] = f"${cost:.2f}"
             ctx = raw_cc.get("context_window", {})
-            used_tokens = ctx.get("total_input_tokens", 0) + ctx.get("total_output_tokens", 0)
+            used_tokens = ctx.get("total_input_tokens", 0)
+            if used_tokens == 0 and "current_usage" in ctx:
+                cur = ctx["current_usage"]
+                used_tokens = cur.get("input_tokens", 0) + cur.get("cache_read_input_tokens", 0)
             size = ctx.get("context_window_size", 1000000)
-            pct = ctx.get("used_percentage", 0.0)
+            cc_pct = float(ctx.get("used_percentage", (used_tokens / size * 100.0) if size else 0.0))
             used_k = int(used_tokens / 1000)
             size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
-            cc_data["context_str"] = f"{used_k}k / {size_m} ({pct:.0f}%)"
+            cc_data["context_str"] = f"{used_k}k / {size_m} ({cc_pct:.0f}%)"
 
             r_limits = raw_cc.get("rate_limits", {})
             five_h = r_limits.get("five_hour", {})
@@ -324,10 +359,13 @@ class TelemetryPresenter:
                 "remaining_fraction": max(0.0, (100.0 - max(c_5h_used, c_7d_used)) / 100.0),
             })
 
-        # 4. CX Telemetry
+        # 4. CX Telemetry (Dynamic SQLite Extraction)
+        cx_used, cx_win, cx_pct = _get_cx_context(sys_dir)
+        cx_used_k = int(cx_used / 1000)
+        cx_win_k = f"{int(cx_win / 1000)}k" if cx_win < 1000000 else f"{int(cx_win / 1000000)}M"
         cx_data: Dict[str, Any] = {
             "state": "OPEN",
-            "context_str": "15k / 258k (6%)",
+            "context_str": f"{cx_used_k}k / {cx_win_k} ({cx_pct:.0f}%)",
             "cost_str": "--",
             "src": "APP",
             "pools": [
@@ -362,19 +400,23 @@ class TelemetryPresenter:
         cc_rem = cc_data["pools"][0]["remaining_fraction"] if cc_data["pools"] else 0.0
         cx_rem = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else 0.07
 
-        ag_headroom = round(min(g_rem, 0.81) * 100.0)
-        cx_headroom = round(min(cx_rem, 0.94) * 100.0)
-        cc_headroom = round(min(cc_rem, 1.00) * 100.0)
+        ag_ctx_headroom = max(0, min(100, round(100.0 - ag_pct)))
+        cx_ctx_headroom = max(0, min(100, round(100.0 - cx_pct)))
+        cc_ctx_headroom = max(0, min(100, round(100.0 - cc_pct)))
+
+        ag_headroom = round(min(g_rem, ag_ctx_headroom / 100.0) * 100.0)
+        cx_headroom = round(min(cx_rem, cx_ctx_headroom / 100.0) * 100.0)
+        cc_headroom = round(min(cc_rem, cc_ctx_headroom / 100.0) * 100.0)
         opus_quota = round(p3_rem * 100.0)
 
         best_target = "cx.deepthink" if cx_headroom >= ag_headroom else "ag.deepthink"
         best_hr = f"{max(cx_headroom, ag_headroom)}%"
 
         routing_rows = [
-            {"profile": "cx.deepthink", "display_name": "cx.deepthink (Codex)", "state": "eligible", "headroom": f"{cx_headroom}%", "quota": f"{cx_rem*100:.0f}%", "ctx": "94%", "effort": "xhigh", "notes": "Active Failover Target", "is_active": best_target == "cx.deepthink"},
-            {"profile": "ag.deepthink", "display_name": "ag.deepthink (Gemini)", "state": "eligible", "headroom": f"{ag_headroom}%", "quota": f"{g_rem*100:.0f}%", "ctx": "81%", "effort": "high", "notes": "Secondary Tier", "is_active": best_target == "ag.deepthink"},
+            {"profile": "cx.deepthink", "display_name": "cx.deepthink (Codex)", "state": "eligible", "headroom": f"{cx_headroom}%", "quota": f"{cx_rem*100:.0f}%", "ctx": f"{cx_ctx_headroom}%", "effort": "xhigh", "notes": "Active Failover Target", "is_active": best_target == "cx.deepthink"},
+            {"profile": "ag.deepthink", "display_name": "ag.deepthink (Gemini)", "state": "eligible", "headroom": f"{ag_headroom}%", "quota": f"{g_rem*100:.0f}%", "ctx": f"{ag_ctx_headroom}%", "effort": "high", "notes": "Secondary Tier", "is_active": best_target == "ag.deepthink"},
             {"profile": "ag.opus", "display_name": "ag.opus (Claude 3.7)", "state": "manual_only", "headroom": "--", "quota": f"{opus_quota}%", "ctx": "--", "effort": "high", "notes": "Manual On-Demand Only", "is_active": False},
-            {"profile": "cc.effort", "display_name": "cc.effort (Claude)", "state": "eligible", "headroom": f"{cc_headroom}%", "quota": f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0 else f"{cc_rem*100:.0f}%", "ctx": "100%", "effort": "high", "notes": "Weekly Limit Hit" if cc_rem == 0 else "Active", "is_active": False},
+            {"profile": "cc.effort", "display_name": "cc.effort (Claude)", "state": "eligible", "headroom": f"{cc_headroom}%", "quota": f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0 else f"{cc_rem*100:.0f}%", "ctx": f"{cc_ctx_headroom}%", "effort": "high", "notes": "Weekly Limit Hit" if cc_rem == 0 else "Active", "is_active": False},
         ]
 
         return {

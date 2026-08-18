@@ -45,20 +45,20 @@ def format_statusline_ag(stdin_data: str) -> str:
     if effort and effort.lower() not in model_name.lower():
         model_name = f"{model_name} ({effort.capitalize()})"
 
-    # 2. Context Window
+    # 2. Context Window (Active Loaded Context Occupancy)
     ctx = data.get("context_window", {})
     if ctx:
-        used_tokens = ctx.get("total_input_tokens", 0) + ctx.get("total_output_tokens", 0)
+        used_tokens = ctx.get("total_input_tokens", 0)
         if used_tokens == 0 and "current_usage" in ctx:
             cur = ctx["current_usage"]
-            used_tokens = cur.get("input_tokens", 0) + cur.get("output_tokens", 0)
+            used_tokens = cur.get("input_tokens", 0) + cur.get("cache_read_input_tokens", 0)
         total_tokens = ctx.get("context_window_size", 1048576)
-        pct = ctx.get("used_percentage", 0.0)
+        pct = ctx.get("used_percentage", (used_tokens / total_tokens * 100.0) if total_tokens else 0.0)
         ctx_str = f"ctx:{int(used_tokens / 1000)}k/{int(total_tokens / 1000)}k ({pct:.0f}%)"
     elif "context_used_tokens" in data:
         used_tokens = data["context_used_tokens"]
         total_tokens = data.get("context_total_tokens", 1048576)
-        pct = data.get("context_used_pct", 0.0)
+        pct = data.get("context_used_pct", (used_tokens / total_tokens * 100.0) if total_tokens else 0.0)
         ctx_str = f"ctx:{int(used_tokens / 1000)}k/{int(total_tokens / 1000)}k ({pct:.0f}%)"
     else:
         ctx_str = "ctx:ok"
