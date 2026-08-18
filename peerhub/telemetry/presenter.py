@@ -74,7 +74,7 @@ def parse_source_msg_reset(msg: str, now: Optional[datetime] = None) -> Optional
 def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
     """Compute exact human countdown string from a target timestamp or ISO string."""
     if target is None:
-        return "resets soon"
+        return "soon"
     if now is None:
         now = datetime.now(timezone.utc)
 
@@ -83,14 +83,14 @@ def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
         try:
             target_dt = datetime.fromtimestamp(float(target), tz=timezone.utc)
         except Exception:
-            return "resets soon"
+            return "soon"
     elif isinstance(target, str):
         target_str = target.strip()
         if re.match(r"^\d+(\.\d+)?$", target_str):
             try:
                 target_dt = datetime.fromtimestamp(float(target_str), tz=timezone.utc)
             except Exception:
-                return "resets soon"
+                return "soon"
         else:
             try:
                 clean_iso = target_str.replace("Z", "+00:00")
@@ -103,11 +103,11 @@ def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
         target_dt = target if target.tzinfo is not None else target.replace(tzinfo=timezone.utc)
 
     if target_dt is None:
-        return "resets soon"
+        return "soon"
 
     diff = (target_dt - now).total_seconds()
     if diff <= 0:
-        return "resets now"
+        return "now"
 
     days = int(diff // 86400)
     hours = int((diff % 86400) // 3600)
@@ -115,12 +115,12 @@ def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
     secs = int(diff % 60)
 
     if days > 0:
-        return f"resets in {days}d {hours}h"
+        return f"in {days}d {hours}h"
     if hours > 0:
-        return f"resets in {hours}h {mins}m"
+        return f"in {hours}h {mins}m"
     if mins > 0:
-        return f"resets in {mins}m {secs}s"
-    return f"resets in {secs}s"
+        return f"in {mins}m {secs}s"
+    return f"in {secs}s"
 
 
 def _calculate_pacing(used_frac: float, remaining_sec: Optional[float], window_hours: float) -> Tuple[float, str, str]:
@@ -187,8 +187,8 @@ class TelemetryPresenter:
         # 2. AG Telemetry (Prioritize active live stdin log)
         ag_data: Dict[str, Any] = {
             "state": "OPEN",
-            "context_str": "absent",
-            "cost_str": "absent",
+            "context_str": "--",
+            "cost_str": "--",
             "src": "STAT",
             "pools": [],
         }
@@ -216,7 +216,7 @@ class TelemetryPresenter:
                 used_tokens = cur.get("input_tokens", 0) + cur.get("output_tokens", 0)
             used_k = int(used_tokens / 1000)
             size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
-            ag_data["context_str"] = f"{used_k}k/{size_m} {pct:.0f}%"
+            ag_data["context_str"] = f"{used_k}k / {size_m} ({pct:.0f}%)"
 
             quotas = raw_ag.get("quota", {})
             # 3P-pool (Claude / Codex through AG)
@@ -238,7 +238,7 @@ class TelemetryPresenter:
                 "status_icon": p3_wk_ind,
                 "exh_str": f"{max(p3_5h_ratio, p3_wk_ratio):.2f}x",
                 "five_h": f"{p3_5h_used_frac*100:.0f}% ({p3_5h_ratio:.2f}x)",
-                "seven_d": f"|▸{p3_wk_used_frac*100:.0f}% ({p3_wk_ratio:.2f}x)",
+                "seven_d": f"{p3_wk_used_frac*100:.0f}% ({p3_wk_ratio:.2f}x)",
                 "reset_in": _format_countdown(p3_reset, now),
                 "is_crit": p3_crit,
                 "remaining_fraction": min(p3_5h_rem, p3_wk_rem),
@@ -262,8 +262,8 @@ class TelemetryPresenter:
                 "name": "G-pool",
                 "status_icon": g_wk_ind,
                 "exh_str": f"{max(g_5h_ratio, g_wk_ratio):.2f}x",
-                "five_h": f"▸{g_5h_used_frac*100:.0f}% ({g_5h_ratio:.2f}x)",
-                "seven_d": f"| {g_wk_used_frac*100:.0f}% ({g_wk_ratio:.2f}x)",
+                "five_h": f"{g_5h_used_frac*100:.0f}% ({g_5h_ratio:.2f}x)",
+                "seven_d": f"{g_wk_used_frac*100:.0f}% ({g_wk_ratio:.2f}x)",
                 "reset_in": _format_countdown(g_reset, now),
                 "is_crit": g_crit,
                 "remaining_fraction": min(g_5h_rem, g_wk_rem),
@@ -272,8 +272,8 @@ class TelemetryPresenter:
         # 3. CC Telemetry (with source_msg parser)
         cc_data: Dict[str, Any] = {
             "state": "OPEN",
-            "context_str": "0k/1M 0%",
-            "cost_str": "absent",
+            "context_str": "0k / 1M (0%)",
+            "cost_str": "--",
             "src": "STAT",
             "pools": [],
         }
@@ -288,14 +288,14 @@ class TelemetryPresenter:
         if raw_cc:
             cost = raw_cc.get("cost", {}).get("total_cost_usd")
             if cost is not None:
-                cc_data["cost_str"] = f"${cost:.4f}"
+                cc_data["cost_str"] = f"${cost:.2f}"
             ctx = raw_cc.get("context_window", {})
             used_tokens = ctx.get("total_input_tokens", 0) + ctx.get("total_output_tokens", 0)
             size = ctx.get("context_window_size", 1000000)
             pct = ctx.get("used_percentage", 0.0)
             used_k = int(used_tokens / 1000)
             size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
-            cc_data["context_str"] = f"{used_k}k/{size_m} {pct:.0f}%"
+            cc_data["context_str"] = f"{used_k}k / {size_m} ({pct:.0f}%)"
 
             r_limits = raw_cc.get("rate_limits", {})
             five_h = r_limits.get("five_hour", {})
@@ -317,8 +317,8 @@ class TelemetryPresenter:
                 "name": "C-pool",
                 "status_icon": c_icon,
                 "exh_str": "1.00x" if c_7d_used >= 90.0 else "0.00x",
-                "five_h": f"0% (0.00x)" if c_5h_used == 0 else f"▸{c_5h_used:.0f}%",
-                "seven_d": f"|▸{c_7d_used:.0f}% (1.00x)",
+                "five_h": f"0% (0.00x)" if c_5h_used == 0 else f"{c_5h_used:.0f}%",
+                "seven_d": f"{c_7d_used:.0f}% (1.00x)",
                 "reset_in": c_reset_in,
                 "is_crit": c_crit,
                 "remaining_fraction": max(0.0, (100.0 - max(c_5h_used, c_7d_used)) / 100.0),
@@ -327,8 +327,8 @@ class TelemetryPresenter:
         # 4. CX Telemetry
         cx_data: Dict[str, Any] = {
             "state": "OPEN",
-            "context_str": "15k/258k 6%",
-            "cost_str": "absent",
+            "context_str": "15k / 258k (6%)",
+            "cost_str": "--",
             "src": "APP",
             "pools": [
                 {
@@ -336,25 +336,25 @@ class TelemetryPresenter:
                     "status_icon": "🔴",
                     "exh_str": "1.29x",
                     "five_h": "--",
-                    "seven_d": "|▸93% (1.29x)",
-                    "reset_in": "resets in 1d 22h",
+                    "seven_d": "93% (1.29x)",
+                    "reset_in": "in 1d 22h",
                     "is_crit": True,
                     "remaining_fraction": 0.07,
                 }
             ],
         }
 
-        # 5. Dynamic Alerts
-        alerts = []
-        for peer_name, p_dict in (("ag", ag_data), ("cc", cc_data), ("cx", cx_data)):
+        # 5. Dynamic Alerts (Badges)
+        alert_badges = []
+        for peer_name, p_dict in (("AG", ag_data), ("CC", cc_data), ("CX", cx_data)):
             for pool in p_dict.get("pools", []):
                 pname = pool.get("name", "pool")
                 rem = pool.get("remaining_fraction", 1.0)
                 used_pct = (1.0 - rem) * 100.0
                 if used_pct >= 90.0:
-                    alerts.append({"level": "CRIT", "message": f"{peer_name}: QUOTA_CRITICAL ({pname}) quota {used_pct:.0f}% used"})
+                    alert_badges.append(f"[{peer_name} {pname} {used_pct:.0f}% 🔴]")
                 elif used_pct >= 75.0:
-                    alerts.append({"level": "WARN", "message": f"{peer_name}: QUOTA_WARN ({pname}) quota {used_pct:.0f}% used"})
+                    alert_badges.append(f"[{peer_name} {pname} {used_pct:.0f}% 🟡]")
 
         # 6. Dynamic Routing & Headroom Calculation
         g_rem = ag_data["pools"][1]["remaining_fraction"] if len(ag_data["pools"]) > 1 else 0.05
@@ -367,24 +367,21 @@ class TelemetryPresenter:
         cc_headroom = round(min(cc_rem, 1.00) * 100.0)
         opus_quota = round(p3_rem * 100.0)
 
-        routing_rows = [
-            {"profile": "cx.deepthink", "state": "eligible", "headroom": f"{cx_headroom}%", "quota": f"{cx_rem*100:.0f}%", "ctx": "94%", "effort": "xhigh", "source": "c:APP q:APP"},
-            {"profile": "ag.deepthink", "state": "eligible", "headroom": f"{ag_headroom}%", "quota": f"{g_rem*100:.0f}%", "ctx": "81%", "effort": "high", "source": "c:STAT q:STAT"},
-            {"profile": "cc.effort", "state": "eligible", "headroom": f"{cc_headroom}%", "quota": f"{cc_rem*100:.0f}%", "ctx": "100%", "effort": "high", "source": "c:STAT q:STAT"},
-            {"profile": "ag.effort", "state": "eligible", "headroom": "absent", "quota": f"{g_rem*100:.0f}%", "ctx": "absent", "effort": "high", "source": "c:DECL q:STAT"},
-            {"profile": "ag.standard", "state": "eligible", "headroom": "absent", "quota": f"{g_rem*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:STAT"},
-            {"profile": "cx.standard", "state": "eligible", "headroom": "absent", "quota": f"{cx_rem*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:APP"},
-            {"profile": "cc.standard", "state": "eligible", "headroom": "absent", "quota": f"{cc_rem*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:STAT"},
-            {"profile": "ag.opus", "state": "manual_only", "headroom": "absent", "quota": f"{opus_quota}%", "ctx": "absent", "effort": "high", "source": "c:DECL q:STAT"},
-        ]
-
         best_target = "cx.deepthink" if cx_headroom >= ag_headroom else "ag.deepthink"
         best_hr = f"{max(cx_headroom, ag_headroom)}%"
 
+        routing_rows = [
+            {"profile": "cx.deepthink", "display_name": "cx.deepthink (Codex)", "state": "eligible", "headroom": f"{cx_headroom}%", "quota": f"{cx_rem*100:.0f}%", "ctx": "94%", "effort": "xhigh", "notes": "Active Failover Target", "is_active": best_target == "cx.deepthink"},
+            {"profile": "ag.deepthink", "display_name": "ag.deepthink (Gemini)", "state": "eligible", "headroom": f"{ag_headroom}%", "quota": f"{g_rem*100:.0f}%", "ctx": "81%", "effort": "high", "notes": "Secondary Tier", "is_active": best_target == "ag.deepthink"},
+            {"profile": "ag.opus", "display_name": "ag.opus (Claude 3.7)", "state": "manual_only", "headroom": "--", "quota": f"{opus_quota}%", "ctx": "--", "effort": "high", "notes": "Manual On-Demand Only", "is_active": False},
+            {"profile": "cc.effort", "display_name": "cc.effort (Claude)", "state": "eligible", "headroom": f"{cc_headroom}%", "quota": f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0 else f"{cc_rem*100:.0f}%", "ctx": "100%", "effort": "high", "notes": "Weekly Limit Hit" if cc_rem == 0 else "Active", "is_active": False},
+        ]
+
         return {
-            "room": {"room": "room-efde", "leader": "ag", "coordinator": "absent"},
-            "alerts": alerts,
-            "failover_target": best_target,
+            "room": {"room": "room-efde", "leader": "AG (Gemini)", "coordinator": "Active Failover"},
+            "alert_badges": alert_badges,
+            "failover_target": "CX (Codex)",
+            "failover_profile": best_target,
             "failover_headroom": best_hr,
             "peers": {
                 "cc": cc_data,
@@ -397,7 +394,7 @@ class TelemetryPresenter:
     def render(self, snapshot: Dict[str, Any]) -> str:
         """Render the complete diagnostic screen adapted to terminal width and height."""
         cols, rows = shutil.get_terminal_size((80, 24))
-        divider_len = max(50, min(cols - 1, 90))
+        divider_len = max(50, min(cols - 1, 88))
         sep = "=" * divider_len
 
         lines: List[str] = []
@@ -407,98 +404,78 @@ class TelemetryPresenter:
         is_standard_height = 22 <= rows < 32
         is_expanded_height = rows >= 32
 
-        # 1. ROOM / COORDINATOR & HEADER
-        if is_compact_height:
-            room_info = snapshot.get("room", {})
-            room_id = room_info.get("room", "room-efde")
-            leader = room_info.get("leader", "ag")
-            lines.append(f"=== {self._c('PeerHub Multi-Peer Diagnostics', 'bold', 'cyan')} [{room_id}|{leader}] ===")
+        # 1. HEADER & STATUS BAR
+        room_info = snapshot.get("room", {})
+        room_id = room_info.get("room", "room-efde")
+        leader = room_info.get("leader", "AG (Gemini)")
+        failover_target = snapshot.get("failover_target", "CX (Codex)")
+        failover_hr = snapshot.get("failover_headroom", "7%")
+
+        lines.append(sep)
+        lines.append(f" 🌐 {self._c('PeerHub Multi-Peer Dashboard', 'bold', 'cyan')} {self._c('(v0.1.6)', 'dim')}")
+        lines.append(sep)
+        lines.append(f" 📌 Room: {room_id}  👑 Leader: {leader}  🎯 Failover: {self._c(failover_target, 'green', 'bold')} ({failover_hr} Headroom)")
+
+        badges = snapshot.get("alert_badges", [])
+        if badges:
+            badge_str = " ".join(badges)
+            lines.append(f" ⚠️  Quota Status: {badge_str}")
         else:
-            lines.append(sep)
-            lines.append(self._c(" PeerHub Multi-Peer Diagnostics", "bold", "cyan"))
-            lines.append(sep)
-            room_info = snapshot.get("room", {})
-            room_id = room_info.get("room", "room-efde")
-            leader = room_info.get("leader", "ag")
-            coordinator = room_info.get("coordinator", "absent")
-            lines.append(f"ROOM room={room_id} leader={leader} coordinator={coordinator}")
+            lines.append(f" 🟢 Quota Status: All peer quotas healthy")
 
-        # 2. ATTENTION & FAILOVER
-        alerts = snapshot.get("alerts", [])
-        failover = snapshot.get("failover_target", "cx.deepthink")
-        headroom = snapshot.get("failover_headroom", "7%")
-
-        if alerts:
-            alert_items = []
-            for alert in alerts[:3]:
-                level = alert.get("level", "INFO")
-                msg = alert.get("message", "")
-                tag = f"[{self._c('CRIT' if level == 'CRIT' else 'WARN', 'red' if level == 'CRIT' else 'yellow')}] {msg}"
-                alert_items.append(tag)
-            if is_compact_height:
-                lines.append(" | ".join(alert_items))
-            else:
-                for item in alert_items:
-                    lines.append(item)
-
-        lines.append(f"NEXT FAILOVER TARGET: {self._c(failover, 'green', 'bold')} (headroom {headroom})")
-
-        # 3. SUMMARY TABLE (MANDATORY & GUARANTEED VISIBLE)
-        lines.append(f"{sep[:3]} {self._c('SUMMARY', 'bold', 'cyan')} {sep[:divider_len - 14]}")
-        lines.append("PEER  STATE       CONTEXT(used/win %) TOTAL COST SRC")
-        lines.append("      POOL          EXH   5H (PACE)     7D (PACE)      RESET")
+        # 2. SUMMARY TABLE (GUARANTEED VISIBLE)
+        lines.append(f"\n{sep[:3]} {self._c('📊 PEER STATUS & QUOTA SUMMARY', 'bold', 'cyan')} {sep[:divider_len - 35]}")
+        lines.append("PEER  STATUS   CONTEXT USAGE        COST      POOL        PACE    5H USED     7D USED     RESET")
 
         peers = snapshot.get("peers", {})
         for peer_id, pdata in peers.items():
             state = pdata.get("state", "OPEN")
-            ctx_str = pdata.get("context_str", "0/1M 0%")
-            cost_str = pdata.get("cost_str", "absent")
-            src_str = pdata.get("src", "STAT")
-            state_colored = self._c(state, "green" if state == "OPEN" else "red")
-            lines.append(f"{peer_id.upper():<5} {_pad(state_colored, 11)} {_pad(ctx_str, 19)} {_pad(cost_str, 10)} {src_str}")
+            ctx_str = pdata.get("context_str", "--")
+            cost_str = pdata.get("cost_str", "--")
+            state_colored = self._c(f"🟢 {state}", "green" if state == "OPEN" else "red")
 
-            for pool in pdata.get("pools", []):
-                pool_name = pool.get("name", "pool")
-                status_icon = pool.get("status_icon", "🟢")
-                exh_str = pool.get("exh_str", "1.00x")
-                five_h = pool.get("five_h", "--")
-                seven_d = pool.get("seven_d", "--")
-                reset_in = pool.get("reset_in", "resets soon")
-                pool_crit = pool.get("is_crit", False)
-                tag = f"[{'CRIT' if pool_crit else 'OK'}] {pool_name}"
-                tag_col = self._c(tag, "red" if pool_crit else "green")
-                lines.append(f"  ↳ {_pad(tag_col, 15)} {status_icon} {_pad(exh_str, 6)} {_pad(five_h, 13)} {_pad(seven_d, 14)} {reset_in}")
+            first_pool = pdata.get("pools", [{}])[0] if pdata.get("pools") else {}
+            p_name = first_pool.get("name", "pool")
+            p_icon = first_pool.get("status_icon", "🟢")
+            exh = first_pool.get("exh_str", "1.00x")
+            f5 = first_pool.get("five_h", "--")
+            s7 = first_pool.get("seven_d", "--")
+            rst = first_pool.get("reset_in", "soon")
+            pool_tag = f"↳ {p_name} {p_icon}"
 
-        # 4. ROUTING & HEADROOM (Adaptive Line Budget)
+            lines.append(f"{peer_id.upper():<5} {_pad(state_colored, 9)} {_pad(ctx_str, 20)} {_pad(cost_str, 9)} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
+
+            # Additional pools for AG
+            for pool in pdata.get("pools", [])[1:]:
+                p_name = pool.get("name", "pool")
+                p_icon = pool.get("status_icon", "🟢")
+                exh = pool.get("exh_str", "1.00x")
+                f5 = pool.get("five_h", "--")
+                s7 = pool.get("seven_d", "--")
+                rst = pool.get("reset_in", "soon")
+                pool_tag = f"↳ {p_name} {p_icon}"
+                lines.append(f"{'':<5} {'':<9} {'':<20} {'':<9} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
+
+        # 3. ROUTING & RECOMMENDED PROFILES
         routing_rows = snapshot.get("routing_rows", [])
-        if is_expanded_height:
-            lines.append(f"\n{sep[:3]} {self._c('ROUTING & HEADROOM', 'bold', 'cyan')} {sep[:divider_len - 23]}")
-            lines.append("PROFILE                STATE       HEADROOM QUOTA    CTX      EFFORT   SOURCE")
+        if is_expanded_height or is_standard_height:
+            lines.append(f"\n{sep[:3]} {self._c('🚦 ROUTING & RECOMMENDED PROFILES', 'bold', 'cyan')} {sep[:divider_len - 38]}")
+            lines.append("PROFILE                   HEADROOM  QUOTA LEFT  CTX HEADROOM  EFFORT   NOTES")
             for row in routing_rows:
-                prof = row.get("profile", "")
-                r_state = row.get("state", "eligible")
+                p_name = row.get("display_name", row.get("profile", ""))
+                is_star = row.get("is_active", False)
+                star = "★ " if is_star else "  "
+                prof_str = f"{star}{p_name}"
+                if is_star:
+                    prof_str = self._c(prof_str, "green", "bold")
                 headroom_val = row.get("headroom", "-")
                 quota_val = row.get("quota", "-")
                 ctx_val = row.get("ctx", "-")
                 effort_val = row.get("effort", "high")
-                src_val = row.get("source", "c:STAT q:STAT")
-                lines.append(f"{prof:<22} {r_state:<11} {headroom_val:<8} {quota_val:<8} {ctx_val:<8} {effort_val:<8} {src_val}")
-        elif is_standard_height:
-            lines.append(f"{sep[:3]} {self._c('TOP ROUTING TARGETS', 'bold', 'cyan')} {sep[:divider_len - 24]}")
-            lines.append("PROFILE                HEADROOM QUOTA    CTX      EFFORT")
-            key_profiles = [r for r in routing_rows if r.get("profile") in ("cx.deepthink", "ag.deepthink", "cc.effort", "ag.opus")]
-            for row in key_profiles[:4]:
-                prof = row.get("profile", "")
-                headroom_val = row.get("headroom", "-")
-                quota_val = row.get("quota", "-")
-                ctx_val = row.get("ctx", "-")
-                effort_val = row.get("effort", "high")
-                lines.append(f"{prof:<22} {headroom_val:<8} {quota_val:<8} {ctx_val:<8} {effort_val}")
+                notes_val = row.get("notes", "")
+                lines.append(f"{_pad(prof_str, 25)} {_pad(headroom_val, 9)} {_pad(quota_val, 11)} {_pad(ctx_val, 13)} {_pad(effort_val, 8)} {notes_val}")
 
-        # 5. FOOTER
-        if not is_compact_height and rows >= 28:
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            lines.append(f"\n{self._c('FRAME', 'dim')} {now_str} (PeerHub Unified Presenter v1.5)")
+        lines.append(sep)
 
         # Truncate lines only if extreme narrow terminal (< 60)
         fitted_lines = []
