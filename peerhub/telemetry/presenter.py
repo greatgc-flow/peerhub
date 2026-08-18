@@ -397,49 +397,54 @@ class TelemetryPresenter:
     def render(self, snapshot: Dict[str, Any]) -> str:
         """Render the complete diagnostic screen adapted to terminal width and height."""
         cols, rows = shutil.get_terminal_size((80, 24))
-        divider_len = max(60, min(cols - 1, 90))
+        divider_len = max(50, min(cols - 1, 90))
         sep = "=" * divider_len
 
         lines: List[str] = []
-        lines.append(sep)
-        lines.append(self._c(" PeerHub Multi-Peer Diagnostics", "bold", "cyan"))
-        lines.append(sep)
-        lines.append(" Reset times shown in local time. Set NO_COLOR=1 to disable color.\n")
 
-        # 1. ROOM / COORDINATOR
-        room_info = snapshot.get("room", {})
-        room_id = room_info.get("room", "room-efde")
-        leader = room_info.get("leader", "ag")
-        coordinator = room_info.get("coordinator", "absent")
-        lines.append(self._c("[ROOM]", "bold"))
-        lines.append(f"ROOM room={room_id} leader={leader} coordinator={coordinator} mission=none phase=none blocked=none\n")
+        # Viewport height tiers
+        is_compact_height = rows < 22
+        is_standard_height = 22 <= rows < 32
+        is_expanded_height = rows >= 32
 
-        # 2. ATTENTION
-        lines.append(sep)
-        lines.append(self._c(" ATTENTION", "bold", "yellow"))
-        lines.append(sep)
-        alerts = snapshot.get("alerts", [])
-        if not alerts:
-            lines.append("  (all peers healthy; no active alerts)")
+        # 1. ROOM / COORDINATOR & HEADER
+        if is_compact_height:
+            room_info = snapshot.get("room", {})
+            room_id = room_info.get("room", "room-efde")
+            leader = room_info.get("leader", "ag")
+            lines.append(f"=== {self._c('PeerHub Multi-Peer Diagnostics', 'bold', 'cyan')} [{room_id}|{leader}] ===")
         else:
-            for alert in alerts:
-                level = alert.get("level", "INFO")
-                msg = alert.get("message", "")
-                if level == "CRIT":
-                    lines.append(f"[{self._c('CRIT', 'red', 'bold')}] {msg}")
-                elif level == "WARN":
-                    lines.append(f"[{self._c('WARN', 'yellow')}] {msg}")
-                else:
-                    lines.append(f"[{self._c('INFO', 'cyan')}] {msg}")
+            lines.append(sep)
+            lines.append(self._c(" PeerHub Multi-Peer Diagnostics", "bold", "cyan"))
+            lines.append(sep)
+            room_info = snapshot.get("room", {})
+            room_id = room_info.get("room", "room-efde")
+            leader = room_info.get("leader", "ag")
+            coordinator = room_info.get("coordinator", "absent")
+            lines.append(f"ROOM room={room_id} leader={leader} coordinator={coordinator}")
 
+        # 2. ATTENTION & FAILOVER
+        alerts = snapshot.get("alerts", [])
         failover = snapshot.get("failover_target", "cx.deepthink")
         headroom = snapshot.get("failover_headroom", "7%")
-        lines.append(f"NEXT FAILOVER TARGET: {self._c(failover, 'green', 'bold')} headroom {headroom} TIER RISK\n")
 
-        # 3. SUMMARY TABLE (Guaranteed Visible & Compact)
-        lines.append(sep)
-        lines.append(self._c(" SUMMARY", "bold", "cyan"))
-        lines.append(sep)
+        if alerts:
+            alert_items = []
+            for alert in alerts[:3]:
+                level = alert.get("level", "INFO")
+                msg = alert.get("message", "")
+                tag = f"[{self._c('CRIT' if level == 'CRIT' else 'WARN', 'red' if level == 'CRIT' else 'yellow')}] {msg}"
+                alert_items.append(tag)
+            if is_compact_height:
+                lines.append(" | ".join(alert_items))
+            else:
+                for item in alert_items:
+                    lines.append(item)
+
+        lines.append(f"NEXT FAILOVER TARGET: {self._c(failover, 'green', 'bold')} (headroom {headroom})")
+
+        # 3. SUMMARY TABLE (MANDATORY & GUARANTEED VISIBLE)
+        lines.append(f"{sep[:3]} {self._c('SUMMARY', 'bold', 'cyan')} {sep[:divider_len - 14]}")
         lines.append("PEER  STATE       CONTEXT(used/win %) TOTAL COST SRC")
         lines.append("      POOL          EXH   5H (PACE)     7D (PACE)      RESET")
 
@@ -464,29 +469,36 @@ class TelemetryPresenter:
                 tag_col = self._c(tag, "red" if pool_crit else "green")
                 lines.append(f"  ↳ {_pad(tag_col, 15)} {status_icon} {_pad(exh_str, 6)} {_pad(five_h, 13)} {_pad(seven_d, 14)} {reset_in}")
 
-        lines.append("SRC LEGEND: CLI=cli_live APP=app_server STAT=statusline PROBE=empirical_probe DECL=declared\n")
+        # 4. ROUTING & HEADROOM (Adaptive Line Budget)
+        routing_rows = snapshot.get("routing_rows", [])
+        if is_expanded_height:
+            lines.append(f"\n{sep[:3]} {self._c('ROUTING & HEADROOM', 'bold', 'cyan')} {sep[:divider_len - 23]}")
+            lines.append("PROFILE                STATE       HEADROOM QUOTA    CTX      EFFORT   SOURCE")
+            for row in routing_rows:
+                prof = row.get("profile", "")
+                r_state = row.get("state", "eligible")
+                headroom_val = row.get("headroom", "-")
+                quota_val = row.get("quota", "-")
+                ctx_val = row.get("ctx", "-")
+                effort_val = row.get("effort", "high")
+                src_val = row.get("source", "c:STAT q:STAT")
+                lines.append(f"{prof:<22} {r_state:<11} {headroom_val:<8} {quota_val:<8} {ctx_val:<8} {effort_val:<8} {src_val}")
+        elif is_standard_height:
+            lines.append(f"{sep[:3]} {self._c('TOP ROUTING TARGETS', 'bold', 'cyan')} {sep[:divider_len - 24]}")
+            lines.append("PROFILE                HEADROOM QUOTA    CTX      EFFORT")
+            key_profiles = [r for r in routing_rows if r.get("profile") in ("cx.deepthink", "ag.deepthink", "cc.effort", "ag.opus")]
+            for row in key_profiles[:4]:
+                prof = row.get("profile", "")
+                headroom_val = row.get("headroom", "-")
+                quota_val = row.get("quota", "-")
+                ctx_val = row.get("ctx", "-")
+                effort_val = row.get("effort", "high")
+                lines.append(f"{prof:<22} {headroom_val:<8} {quota_val:<8} {ctx_val:<8} {effort_val}")
 
-        # 4. ROUTING & HEADROOM
-        lines.append(sep)
-        lines.append(self._c(" ROUTING & HEADROOM", "bold", "cyan"))
-        lines.append(sep)
-        lines.append("PROFILE                STATE       HEADROOM QUOTA    CTX      EFFORT   SOURCE")
-        for row in snapshot.get("routing_rows", []):
-            prof = row.get("profile", "")
-            r_state = row.get("state", "eligible")
-            headroom_val = row.get("headroom", "-")
-            quota_val = row.get("quota", "-")
-            ctx_val = row.get("ctx", "-")
-            effort_val = row.get("effort", "high")
-            src_val = row.get("source", "c:STAT q:STAT")
-            lines.append(f"{prof:<22} {r_state:<11} {headroom_val:<8} {quota_val:<8} {ctx_val:<8} {effort_val:<8} {src_val}")
-
-        lines.append("\n" + sep)
-        lines.append(self._c(" FRAME", "bold"))
-        lines.append(sep)
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        lines.append(f"RENDERED {now_str} (PeerHub Unified Presenter v1.4)")
-        lines.append("IPC staged files: 0")
+        # 5. FOOTER
+        if not is_compact_height and rows >= 28:
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            lines.append(f"\n{self._c('FRAME', 'dim')} {now_str} (PeerHub Unified Presenter v1.5)")
 
         # Truncate lines only if extreme narrow terminal (< 60)
         fitted_lines = []
