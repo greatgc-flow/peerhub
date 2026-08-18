@@ -251,16 +251,41 @@ def _run_diag(parsed: argparse.Namespace) -> int:
     )
     if parsed.live:
         try:
+            import msvcrt
+            has_msvcrt = True
+        except ImportError:
+            has_msvcrt = False
+
+        try:
             while True:
-                os.system("cls" if os.name == "nt" else "clear")
+                if os.name == "nt":
+                    os.system("cls")
+                else:
+                    sys.stdout.write("\033[2J\033[H")
+                    sys.stdout.flush()
+
                 snapshot = presenter.collect_live_snapshot()
                 if parsed.json:
                     print(json.dumps(snapshot, indent=2))
                 else:
-                    print(presenter.render(snapshot))
-                time.sleep(2)
+                    rendered = presenter.render(snapshot)
+                    print(rendered)
+                    print(presenter._c(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
+
+                # Poll for key hit in 0.05s steps (total 2.0s refresh interval)
+                total_interval = 2.0
+                step = 0.05
+                elapsed = 0.0
+                while elapsed < total_interval:
+                    if has_msvcrt and msvcrt.kbhit():
+                        ch = msvcrt.getch()
+                        if ch in (b"\x1b", b"q", b"Q", b"\x03"):  # ESC, q, Q, Ctrl+C
+                            return 0
+                    time.sleep(step)
+                    elapsed += step
         except KeyboardInterrupt:
             return 0
+        return 0
     else:
         snapshot = presenter.collect_live_snapshot()
         if parsed.json:
