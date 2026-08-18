@@ -231,68 +231,7 @@ def build_direct_ask_admission_config(
     )
 
 
-def build_broadcast_admission_config(
-    targets: tuple[ResolvedPeerTarget, ...],
-    *,
-    clock: Clock,
-    ids: IdSource,
-) -> DirectAskAdmissionConfig:
-    """Build unified multi-target admission config for broadcast fan-out."""
-    members = []
-    hasher = hashlib.sha256()
-    hasher.update(b"peerhub.broadcast/v1")
-    
-    for target in targets:
-        members.append((target.peer_kind, target.profile.profile_id))
-        hasher.update(target.peer_kind.encode("utf-8"))
-        hasher.update(target.profile.profile_id.encode("utf-8"))
-        
-    config_digest = hasher.hexdigest()
-    policy = HealthPolicy(
-        policy_id="peerhub.direct-ask/v1",
-        revision=1,
-        readiness_freshness_seconds=86400,
-        recovery_backoff_seconds=(1,),
-        recovery_jitter_fraction=0.0,
-        readiness_observation_threshold=1,
-        administrative_recovery_probe_limit=1,
-    )
-    configuration = ConfigurationSnapshot(revision=1, digest=config_digest)
-    membership = HealthScopeMembershipSnapshot(
-        configuration_revision=1,
-        configuration_digest=config_digest,
-        configured_members=tuple(members),
-        bindings=(),
-    )
-    now = clock.now()
-    first_t = targets[0]
-    readiness = ReadinessObserved(
-        observation_id=ids.new_id("readiness-obs"),
-        instance_id=first_t.peer_kind,
-        profile_id=first_t.profile.profile_id,
-        evidence=EvidenceValue(
-            state=EvidenceState.MEASURED,
-            source_tag="cli_live",
-            provider_id="cli-probe",
-            provider_version="1",
-            observed_at=now,
-            captured_at=now,
-            freshness_ttl=86400,
-            evidence_ref=EvidenceRef(f"sha256:{config_digest}"),
-            value=ReadinessMeasurement(
-                runtime_revision=config_digest,
-                issued_at=now,
-                valid_until=now + 86400000,
-                integrity_verified=True,
-            ),
-        ),
-    )
-    return DirectAskAdmissionConfig(
-        configuration=configuration,
-        health_policy=policy,
-        membership=membership,
-        readiness=readiness,
-    )
+
 
 
 def persist_direct_ask_admission(
