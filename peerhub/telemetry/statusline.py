@@ -16,12 +16,12 @@ from typing import Any, Dict, Optional
 def format_statusline_ag(stdin_data: str) -> str:
     """Format unified statusline for Antigravity (AG)."""
     if not stdin_data or not stdin_data.strip():
-        return "ag:Gemini | ctx:ok | hub:idle [room-efde]"
+        return "ag:Gemini | ctx:ok | hub:idle"
 
     try:
         data = json.loads(stdin_data)
     except Exception:
-        return "ag:Gemini | ctx:ok | hub:idle [room-efde]"
+        return "ag:Gemini | ctx:ok | hub:idle"
 
     # 1. Model & Effort
     m = data.get("model")
@@ -96,6 +96,8 @@ def format_statusline_ag(stdin_data: str) -> str:
                 buckets.append(f"{label}:{used_pct}%")
     q_str = " ".join(buckets) if buckets else "quota:N/A"
 
-    # 5. Hub / Room Status
-    room_id = "room-efde"
-    return f"ag:{model_name} | {ctx_str} | {loc_str} | {q_str} | hub:idle [{room_id}]"
+    # 5. Hub Status
+    # No room-ID here: peerhub has no leader-election/room concept of its own
+    # (that was an Engram-specific governance layer, intentionally not ported --
+    # see engram_peerhub_separation_proposal.md row 6.5).
+    return f"ag:{model_name} | {ctx_str} | {loc_str} | {q_str} | hub:idle"

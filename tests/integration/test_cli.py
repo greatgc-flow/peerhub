@@ -145,15 +145,19 @@ def test_cli_status_with_lease(tmp_path, capsys):
 
 def test_cli_version(capsys):
     """Test 'peerhub --version'."""
+    from importlib.metadata import version as installed_version
+
     with patch.object(sys, 'argv', ['peerhub', '--version']):
         try:
             # argparse's --version calls sys.exit()
             main()
         except SystemExit as e:
             assert e.code == 0
-            
+
     captured = capsys.readouterr()
-    assert "0.1.0" in captured.out
+    # Compare against the actually-installed package version rather than a
+    # hardcoded string, so this test doesn't go stale on every release.
+    assert installed_version("peerhub") in captured.out
 
 def test_cli_status_quota_table(tmp_path: Path, capsys) -> None:
     from peerhub.cli import main, SystemClock, UuidSource
@@ -545,3 +549,25 @@ def test_cli_ask_real_agy_end_to_end(
     assert exit_code == 0
     assert captured.out.strip()
     assert captured.err == ""
+
+
+def test_cli_statusline_log_path_is_peerhub_owned(tmp_path: Path, capsys, monkeypatch):
+    """'peerhub statusline' writes its log under .peerhub/, not a hardcoded Engram _sys/ path."""
+    import io
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO('{"model": "Gemini 3.1 Pro"}'))
+
+    exit_code = main(
+        [
+            "statusline",
+            "--peer",
+            "ag",
+            "--workspace",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 0
+    log_path = tmp_path / ".peerhub" / "statusline" / "ag_statusline_stdin.log"
+    assert log_path.exists()
+    assert not (tmp_path / "_sys").exists()

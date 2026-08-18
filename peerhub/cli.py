@@ -322,9 +322,12 @@ def _run_statusline(parsed: argparse.Namespace) -> int:
         except Exception:
             pass
 
-    # Save to status log if sys_dir exists
+    # Save to status log under peerhub's own workspace-relative state dir
+    # (not a hardcoded Engram "_sys" layout -- see
+    # engram_peerhub_separation_proposal.md row 3.6).
     workspace_root = Path(parsed.workspace).resolve()
-    log_dest = workspace_root / "_sys" / "data" / "temp" / "ag_statusline_stdin.log"
+    paths = PathLayout.for_workspace(workspace_root)
+    log_dest = paths.workspace_home / "statusline" / "ag_statusline_stdin.log"
     if stdin_data:
         try:
             log_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -339,7 +342,7 @@ def _run_statusline(parsed: argparse.Namespace) -> int:
         else:
             print(format_statusline_ag(stdin_data), end="")
     except Exception:
-        print("ag:Gemini | ctx:ok | hub:idle [room-efde]", end="")
+        print("ag:Gemini | ctx:ok | hub:idle", end="")
     return 0
 
 

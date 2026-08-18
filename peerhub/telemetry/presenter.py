@@ -503,10 +503,10 @@ class TelemetryPresenter:
             {"profile": "cc.effort", "display_name": "cc.effort (Claude)", "state": "eligible", "headroom": f"{cc_headroom}%", "quota": f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0 else f"{cc_rem*100:.0f}%", "ctx": f"{cc_ctx_headroom}%", "effort": "high", "notes": "Weekly Limit Hit" if cc_rem == 0 else "Active", "is_active": False},
         ]
 
+        _failover_display_names = {"cx.deepthink": "CX (Codex)", "ag.deepthink": "AG (Gemini)"}
         return {
-            "room": {"room": "room-efde", "leader": "AG (Gemini)", "coordinator": "Active Failover"},
             "alert_badges": alert_badges,
-            "failover_target": "CX (Codex)",
+            "failover_target": _failover_display_names.get(best_target, best_target),
             "failover_profile": best_target,
             "failover_headroom": best_hr,
             "peers": {
@@ -532,16 +532,16 @@ class TelemetryPresenter:
 
         # 1. HEADER & STATUS BAR
         from peerhub import __version__
-        room_info = snapshot.get("room", {})
-        room_id = room_info.get("room", "room-efde")
-        leader = room_info.get("leader", "AG (Gemini)")
-        failover_target = snapshot.get("failover_target", "CX (Codex)")
-        failover_hr = snapshot.get("failover_headroom", "7%")
+        failover_target = snapshot.get("failover_target", "unknown")
+        failover_hr = snapshot.get("failover_headroom", "unknown")
 
         lines.append(sep)
         lines.append(f" 🌐 {self._c('PeerHub Multi-Peer Dashboard', 'bold', 'cyan')} {self._c(f'(v{__version__})', 'dim')}")
         lines.append(sep)
-        lines.append(f" 📌 Room: {room_id}  👑 Leader: {leader}  🎯 Failover: {self._c(failover_target, 'green', 'bold')} ({failover_hr} Headroom)")
+        # No "Room"/"Leader" line: peerhub has no leader-election/room concept of
+        # its own (that was an Engram-specific governance layer, intentionally not
+        # ported -- see engram_peerhub_separation_proposal.md row 6.5).
+        lines.append(f" 🎯 Failover: {self._c(failover_target, 'green', 'bold')} ({failover_hr} Headroom)")
 
         badges = snapshot.get("alert_badges", [])
         if badges:

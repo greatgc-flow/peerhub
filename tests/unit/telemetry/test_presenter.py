@@ -249,6 +249,33 @@ class TestNoHardcodedPaths:
             + "\n".join(violations)
         )
 
+    def test_no_hardcoded_room_id_in_package_source(self):
+        """Grep-based test: no fabricated 'room-efde' room-ID literal anywhere in package code.
+
+        peerhub has no leader-election/room concept of its own (that was an
+        Engram-specific governance layer, intentionally not ported -- see
+        engram_peerhub_separation_proposal.md row 6.5). A hardcoded room ID
+        would be a fabricated value, not measured state.
+        """
+        package_root = Path(__file__).resolve().parent.parent.parent.parent / "peerhub"
+        assert package_root.is_dir(), f"Package root not found: {package_root}"
+
+        violations = []
+        for py_file in package_root.rglob("*.py"):
+            if "__pycache__" in str(py_file):
+                continue
+            content = py_file.read_text(encoding="utf-8", errors="replace")
+            if "room-efde" in content:
+                for i, line in enumerate(content.splitlines(), 1):
+                    if "room-efde" in line:
+                        rel = py_file.relative_to(package_root)
+                        violations.append(f"  {rel}:{i}: {line.strip()}")
+
+        assert violations == [], (
+            "Package source contains a hardcoded room-ID literal:\n"
+            + "\n".join(violations)
+        )
+
 
 class TestFindSysDir:
     """Test that _find_sys_dir uses no hardcoded paths."""
