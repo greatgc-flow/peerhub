@@ -15,7 +15,9 @@ import sys
 import unicodedata
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+from peerhub.telemetry.contract import UsageProjectionSnapshot
 
 
 def _dw(s: str) -> int:
@@ -166,6 +168,76 @@ def _calculate_pacing(used_frac: float, remaining_sec: Optional[float], window_h
     return ratio, status, indicator
 
 
+def _build_pool_pair_from_projections(
+    projections: Sequence[UsageProjectionSnapshot],
+    short_label: str,
+    five_h_scope: str,
+    seven_d_scope: str,
+    pool_name: str,
+    now: datetime,
+) -> Optional[Dict[str, Any]]:
+    """Build a pool display dict from a 5H/7D projection pair.
+
+    Returns None if no matching projections exist (honestly absent data).
+    """
+    proj_5h: Optional[UsageProjectionSnapshot] = None
+    proj_7d: Optional[UsageProjectionSnapshot] = None
+
+    for p in projections:
+        if p.quota_pool_scope == five_h_scope:
+            proj_5h = p
+        elif p.quota_pool_scope == seven_d_scope:
+            proj_7d = p
+
+    if proj_5h is None and proj_7d is None:
+        return None
+
+    now_ts = now.timestamp()
+
+    # 5H values
+    if proj_5h is not None:
+        fh_used_frac = proj_5h.used_fraction
+        fh_remaining_frac = proj_5h.remaining_fraction
+        fh_remaining_sec: Optional[float] = max(0.0, float(proj_5h.resets_at) - now_ts) if proj_5h.resets_at > 0 else None
+        fh_ratio, _, _ = _calculate_pacing(fh_used_frac, fh_remaining_sec, 5.0)
+        fh_str = f"{fh_used_frac*100:.0f}% ({fh_ratio:.2f}x)"
+    else:
+        fh_used_frac = 0.0
+        fh_remaining_frac = 1.0
+        fh_ratio = 0.0
+        fh_str = "--"
+
+    # 7D values
+    if proj_7d is not None:
+        sd_used_frac = proj_7d.used_fraction
+        sd_remaining_frac = proj_7d.remaining_fraction
+        sd_remaining_sec: Optional[float] = max(0.0, float(proj_7d.resets_at) - now_ts) if proj_7d.resets_at > 0 else None
+        sd_ratio, _, sd_ind = _calculate_pacing(sd_used_frac, sd_remaining_sec, 168.0)
+        sd_str = f"{sd_used_frac*100:.0f}% ({sd_ratio:.2f}x)"
+        reset_ts = proj_7d.resets_at
+    else:
+        sd_used_frac = 0.0
+        sd_remaining_frac = 1.0
+        sd_ratio = 0.0
+        sd_ind = "🟢"
+        sd_str = "--"
+        reset_ts = proj_5h.resets_at if proj_5h is not None else 0
+
+    is_crit = sd_used_frac >= 0.90 or fh_used_frac >= 0.90
+    max_ratio = max(fh_ratio, sd_ratio)
+
+    return {
+        "name": pool_name,
+        "status_icon": sd_ind,
+        "exh_str": f"{max_ratio:.2f}x",
+        "five_h": fh_str,
+        "seven_d": sd_str,
+        "reset_in": _format_countdown(reset_ts, now),
+        "is_crit": is_crit,
+        "remaining_fraction": min(fh_remaining_frac, sd_remaining_frac),
+    }
+
+
 class TelemetryPresenter:
     """Formats and prints live peer diagnostics."""
 
@@ -175,12 +247,18 @@ class TelemetryPresenter:
         "cyan": "\033[36m", "magenta": "\033[35m",
     }
 
-    def __init__(self, use_color: Optional[bool] = None, workspace_root: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        use_color: Optional[bool] = None,
+        workspace_root: Optional[Path] = None,
+        usage_projections: Optional[Sequence[UsageProjectionSnapshot]] = None,
+    ) -> None:
         if use_color is None:
             self.use_color = sys.stdout.isatty() and os.environ.get("NO_COLOR") is None
         else:
             self.use_color = use_color
         self.workspace_root = workspace_root or Path.cwd()
+        self._usage_projections = usage_projections
 
     def _c(self, text: str, *codes: str) -> str:
         if not self.use_color or not codes:
@@ -189,15 +267,25 @@ class TelemetryPresenter:
         return f"{prefix}{text}{self.ANSI_CODES['reset']}"
 
     def _find_sys_dir(self) -> Path:
-        candidates = [
-            self.workspace_root / "_sys",
-            Path("P:/_sys"),
-            Path("D:/Engram&Peerhub/PortableDev (v2.1)/_sys"),
-        ]
-        for c in candidates:
-            if c.exists() and c.is_dir():
-                return c
-        return self.workspace_root / "_sys"
+        """Resolve _sys directory using only workspace-relative paths.
+
+        No hard-coded drive letters or Engram-specific paths.
+        Falls back to PEERHUB_SYS_DIR environment variable if the
+        workspace-relative path does not exist.
+        """
+        workspace_sys = self.workspace_root / "_sys"
+        if workspace_sys.exists() and workspace_sys.is_dir():
+            return workspace_sys
+
+        env_sys = os.environ.get("PEERHUB_SYS_DIR")
+        if env_sys:
+            env_path = Path(env_sys)
+            if env_path.exists() and env_path.is_dir():
+                return env_path
+
+        # Return workspace-relative default even if it doesn't exist;
+        # callers handle missing files gracefully.
+        return workspace_sys
 
     def collect_live_snapshot(self) -> Dict[str, Any]:
         """Collect live telemetry data across all active peers and configuration files."""
@@ -214,6 +302,12 @@ class TelemetryPresenter:
             except Exception:
                 pass
 
+        # Collect usage projections (injected or empty)
+        projections = list(self._usage_projections) if self._usage_projections else []
+
+        # Partition projections by peer instance
+        cc_projections = [p for p in projections if p.instance_id == "cc"]
+        cx_projections = [p for p in projections if p.instance_id == "cx"]
         # 2. AG Telemetry (Prioritize active live stdin log)
         ag_data: Dict[str, Any] = {
             "state": "OPEN",
@@ -300,7 +394,7 @@ class TelemetryPresenter:
                 "remaining_fraction": min(g_5h_rem, g_wk_rem),
             })
 
-        # 3. CC Telemetry (with source_msg parser)
+        # 3. CC Telemetry — uses real polled projection data from the telemetry pipeline
         cc_data: Dict[str, Any] = {
             "state": "OPEN",
             "context_str": "0k / 1M (0%)",
@@ -308,6 +402,9 @@ class TelemetryPresenter:
             "src": "STAT",
             "pools": [],
         }
+
+        cc_pct = 0.0
+        # Context window: still read from status file (live session data, not quota)
         cc_path = sys_dir / "claude" / "config" / "status_input.log"
         raw_cc = {}
         if cc_path.exists():
@@ -316,7 +413,6 @@ class TelemetryPresenter:
             except Exception:
                 pass
 
-        cc_pct = 0.0
         if raw_cc:
             cost = raw_cc.get("cost", {}).get("total_cost_usd")
             if cost is not None:
@@ -332,34 +428,20 @@ class TelemetryPresenter:
             size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
             cc_data["context_str"] = f"{used_k}k / {size_m} ({cc_pct:.0f}%)"
 
-            r_limits = raw_cc.get("rate_limits", {})
-            five_h = r_limits.get("five_hour", {})
-            seven_d = r_limits.get("seven_day", {})
-            c_5h_used = float(five_h.get("used_percentage", 0.0))
-            c_7d_used = float(seven_d.get("used_percentage", 100.0))
-            c_reset = seven_d.get("resets_at") or five_h.get("resets_at")
-            c_crit = c_7d_used >= 90.0 or c_5h_used >= 90.0
-            c_icon = "🔴" if c_crit else "🟢"
+        # CC quota: use real polled projection data from telemetry pipeline
+        cc_pool = _build_pool_pair_from_projections(
+            cc_projections,
+            short_label="C",
+            five_h_scope="C-5H",
+            seven_d_scope="C-7D",
+            pool_name="C-pool",
+            now=now,
+        )
+        if cc_pool is not None:
+            cc_data["pools"].append(cc_pool)
+        # else: no CC quota data — pools stays empty (honestly absent)
 
-            c_msg = seven_d.get("source_msg") or five_h.get("source_msg") or ""
-            c_target = parse_source_msg_reset(c_msg, now.astimezone())
-            if c_target is not None:
-                c_reset_in = _format_countdown(c_target, now.astimezone())
-            else:
-                c_reset_in = _format_countdown(c_reset, now)
-
-            cc_data["pools"].append({
-                "name": "C-pool",
-                "status_icon": c_icon,
-                "exh_str": "1.00x" if c_7d_used >= 90.0 else "0.00x",
-                "five_h": f"0% (0.00x)" if c_5h_used == 0 else f"{c_5h_used:.0f}%",
-                "seven_d": f"{c_7d_used:.0f}% (1.00x)",
-                "reset_in": c_reset_in,
-                "is_crit": c_crit,
-                "remaining_fraction": max(0.0, (100.0 - max(c_5h_used, c_7d_used)) / 100.0),
-            })
-
-        # 4. CX Telemetry (Dynamic SQLite Extraction)
+        # 4. CX Telemetry — uses real polled projection data from the telemetry pipeline
         cx_used, cx_win, cx_pct = _get_cx_context(sys_dir)
         cx_used_k = int(cx_used / 1000)
         cx_win_k = f"{int(cx_win / 1000)}k" if cx_win < 1000000 else f"{int(cx_win / 1000000)}M"
@@ -368,19 +450,21 @@ class TelemetryPresenter:
             "context_str": f"{cx_used_k}k / {cx_win_k} ({cx_pct:.0f}%)",
             "cost_str": "--",
             "src": "APP",
-            "pools": [
-                {
-                    "name": "X-pool",
-                    "status_icon": "🔴",
-                    "exh_str": "1.29x",
-                    "five_h": "--",
-                    "seven_d": "93% (1.29x)",
-                    "reset_in": "in 1d 22h",
-                    "is_crit": True,
-                    "remaining_fraction": 0.07,
-                }
-            ],
+            "pools": [],
         }
+
+        # CX quota: use real polled projection data from telemetry pipeline
+        cx_pool = _build_pool_pair_from_projections(
+            cx_projections,
+            short_label="X",
+            five_h_scope="X-5H",
+            seven_d_scope="X-7D",
+            pool_name="X-pool",
+            now=now,
+        )
+        if cx_pool is not None:
+            cx_data["pools"].append(cx_pool)
+        # else: no CX quota data — pools stays empty (honestly absent)
 
         # 5. Dynamic Alerts (Badges)
         alert_badges = []
@@ -398,7 +482,7 @@ class TelemetryPresenter:
         g_rem = ag_data["pools"][1]["remaining_fraction"] if len(ag_data["pools"]) > 1 else 0.05
         p3_rem = ag_data["pools"][0]["remaining_fraction"] if ag_data["pools"] else 0.83
         cc_rem = cc_data["pools"][0]["remaining_fraction"] if cc_data["pools"] else 0.0
-        cx_rem = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else 0.07
+        cx_rem = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else 0.0
 
         ag_ctx_headroom = max(0, min(100, round(100.0 - ag_pct)))
         cx_ctx_headroom = max(0, min(100, round(100.0 - cx_pct)))
@@ -480,11 +564,11 @@ class TelemetryPresenter:
             first_pool = pdata.get("pools", [{}])[0] if pdata.get("pools") else {}
             p_name = first_pool.get("name", "pool")
             p_icon = first_pool.get("status_icon", "🟢")
-            exh = first_pool.get("exh_str", "1.00x")
+            exh = first_pool.get("exh_str", "--")
             f5 = first_pool.get("five_h", "--")
             s7 = first_pool.get("seven_d", "--")
-            rst = first_pool.get("reset_in", "soon")
-            pool_tag = f"↳ {p_name} {p_icon}"
+            rst = first_pool.get("reset_in", "--")
+            pool_tag = f"↳ {p_name} {p_icon}" if first_pool else "↳ -- 🟢"
 
             lines.append(f"{peer_id.upper():<5} {_pad(state_colored, 9)} {_pad(ctx_str, 20)} {_pad(cost_str, 9)} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
 
@@ -492,12 +576,12 @@ class TelemetryPresenter:
             for pool in pdata.get("pools", [])[1:]:
                 p_name = pool.get("name", "pool")
                 p_icon = pool.get("status_icon", "🟢")
-                exh = pool.get("exh_str", "1.00x")
+                exh = pool.get("exh_str", "--")
                 f5 = pool.get("five_h", "--")
                 s7 = pool.get("seven_d", "--")
-                rst = pool.get("reset_in", "soon")
+                rst = pool.get("reset_in", "--")
                 pool_tag = f"↳ {p_name} {p_icon}"
-                lines.append(f"{'':<5} {'':<9} {'':<20} {'':<9} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
+                lines.append(f"{'':>5} {'':>9} {'':>20} {'':>9} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
 
         # 3. ROUTING & RECOMMENDED PROFILES
         routing_rows = snapshot.get("routing_rows", [])
@@ -529,4 +613,3 @@ class TelemetryPresenter:
                 fitted_lines.append(line)
 
         return "\n".join(fitted_lines)
-

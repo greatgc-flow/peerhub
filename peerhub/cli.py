@@ -295,40 +295,8 @@ def _run_diag(parsed: argparse.Namespace) -> int:
         return 0
 
 
-def _run_statusline(parsed: argparse.Namespace) -> int:
-    from peerhub.telemetry.statusline import format_statusline_ag
-    stdin_data = ""
-    if not sys.stdin.isatty():
-        try:
-            stdin_data = sys.stdin.read()
-        except Exception:
-            pass
-
-    # Save to status log if sys_dir exists
-    workspace_root = Path(parsed.workspace).resolve()
-    candidates = [
-        workspace_root / "_sys" / "data" / "temp" / "ag_statusline_stdin.log",
-        Path("P:/_sys/data/temp/ag_statusline_stdin.log"),
-        Path("D:/Engram&Peerhub/PortableDev (v2.1)/_sys/data/temp/ag_statusline_stdin.log"),
-    ]
-    if stdin_data:
-        for c in candidates:
-            try:
-                c.parent.mkdir(parents=True, exist_ok=True)
-                c.write_text(stdin_data, encoding="utf-8")
-                break
-            except OSError:
-                pass
-
-    peer = getattr(parsed, "peer", "ag")
-    try:
-        if peer == "ag":
-            print(format_statusline_ag(stdin_data), end="")
-        else:
-            print(format_statusline_ag(stdin_data), end="")
-    except Exception:
-        print("ag:Gemini | ctx:ok | hub:idle [room-efde]", end="")
-    return 0
+def _detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
+    """Read the persisted workspace identity, falling back to the directory name."""
     if database_path.exists():
         try:
             conn = sqlite3.connect(str(database_path))
@@ -340,9 +308,39 @@ def _run_statusline(parsed: argparse.Namespace) -> int:
                     return str(row[0])
             finally:
                 conn.close()
-        except Exception:
+        except sqlite3.Error:
             pass
     return fallback_name or "cli"
+
+
+def _run_statusline(parsed: argparse.Namespace) -> int:
+    from peerhub.telemetry.statusline import format_statusline_ag
+    stdin_data = ""
+    if not sys.stdin.isatty():
+        try:
+            stdin_data = sys.stdin.read()
+        except Exception:
+            pass
+
+    # Save to status log if sys_dir exists
+    workspace_root = Path(parsed.workspace).resolve()
+    log_dest = workspace_root / "_sys" / "data" / "temp" / "ag_statusline_stdin.log"
+    if stdin_data:
+        try:
+            log_dest.parent.mkdir(parents=True, exist_ok=True)
+            log_dest.write_text(stdin_data, encoding="utf-8")
+        except OSError:
+            pass
+
+    peer = getattr(parsed, "peer", "ag")
+    try:
+        if peer == "ag":
+            print(format_statusline_ag(stdin_data), end="")
+        else:
+            print(format_statusline_ag(stdin_data), end="")
+    except Exception:
+        print("ag:Gemini | ctx:ok | hub:idle [room-efde]", end="")
+    return 0
 
 
 def _run_broadcast(parsed: argparse.Namespace) -> int:

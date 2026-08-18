@@ -12,7 +12,10 @@ def test_poll_claude_usage_timeout_fail_closed(monkeypatch):
         raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout", 15.0))
     
     monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setattr("peerhub.telemetry.quota_polling._real_binary", lambda x: "dummy.exe")
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_binary",
+        lambda _peer, _sys_dir=None: "dummy.exe",
+    )
     
     ids = DummyIdSource()
     res = poll_claude_usage(ids, "inst-1", "prof-1")
@@ -31,7 +34,10 @@ def test_poll_claude_usage_unparseable_output_fail_closed(monkeypatch):
         return FakeProc()
         
     monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setattr("peerhub.telemetry.quota_polling._real_binary", lambda x: "dummy.exe")
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_binary",
+        lambda _peer, _sys_dir=None: "dummy.exe",
+    )
     
     ids = DummyIdSource()
     res = poll_claude_usage(ids, "inst-1", "prof-1")
@@ -50,7 +56,10 @@ def test_poll_claude_usage_success_parsing(monkeypatch):
         return FakeProc()
         
     monkeypatch.setattr(subprocess, "run", fake_run)
-    monkeypatch.setattr("peerhub.telemetry.quota_polling._real_binary", lambda x: "dummy.exe")
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_binary",
+        lambda _peer, _sys_dir=None: "dummy.exe",
+    )
     monkeypatch.setattr("peerhub.telemetry.quota_polling._parse_claude_usage_reset", lambda *args, **kwargs: __import__('datetime').datetime(2026, 8, 17, 12, 0, tzinfo=__import__('datetime').timezone.utc))
     
     ids = DummyIdSource()
@@ -81,7 +90,10 @@ def test_poll_codex_usage_timeout_fail_closed(monkeypatch):
         
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
-    monkeypatch.setattr("peerhub.telemetry.quota_polling._real_binary", lambda x: "dummy.exe")
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_binary",
+        lambda _peer, _sys_dir=None: "dummy.exe",
+    )
     
     ids = DummyIdSource()
     res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=0.1)
@@ -120,7 +132,10 @@ def test_poll_codex_usage_malformed_response(monkeypatch):
         
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
     monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
-    monkeypatch.setattr("peerhub.telemetry.quota_polling._real_binary", lambda x: "dummy.exe")
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_binary",
+        lambda _peer, _sys_dir=None: "dummy.exe",
+    )
     
     ids = DummyIdSource()
     res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=0.5)

@@ -10,9 +10,29 @@ from peerhub.core.context import IdSource
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
 from peerhub.telemetry.contract import UsageObserved, UsageMeasurement, UsageProjectionSnapshot
 
-PORTABLE_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-SYS_DIR = PORTABLE_ROOT / "_sys"
-CLI_DIR = SYS_DIR / "cli"
+
+def _resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
+    """Resolve the _sys directory from explicit parameter, env var, or workspace-relative default.
+
+    No hard-coded drive letters or Engram-specific paths.
+    """
+    if sys_dir is not None:
+        return sys_dir
+
+    env_sys = os.environ.get("PEERHUB_SYS_DIR")
+    if env_sys:
+        p = Path(env_sys)
+        if p.exists() and p.is_dir():
+            return p
+
+    # Workspace-relative fallback: assume peerhub is installed inside workspace
+    workspace_root = Path.cwd()
+    return workspace_root / "_sys"
+
+
+def _resolve_workspace_root(sys_dir: Path) -> Path:
+    """Derive workspace root from _sys dir (parent of _sys)."""
+    return sys_dir.parent
 
 _CLAUDE_USAGE_SECTIONS = {
     "current session": ("C-5H", 5.0),
@@ -148,18 +168,20 @@ def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[Claud
                 current_pct = None
     return rows
 
-def _real_binary(peer: str) -> Optional[str]:
+def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
+    resolved_sys = _resolve_sys_dir(sys_dir)
+    cli_dir = resolved_sys / "cli"
     if peer == "cc":
-        cand = SYS_DIR / "env" / "nodejs" / "npm-global" / "claude.cmd"
+        cand = resolved_sys / "env" / "nodejs" / "npm-global" / "claude.cmd"
     elif peer == "cx":
-        cand = SYS_DIR / "env" / "nodejs" / "npm-global" / "codex.cmd"
+        cand = resolved_sys / "env" / "nodejs" / "npm-global" / "codex.cmd"
     else:
         return None
         
     if not cand.exists():
         return None
     resolved = cand.resolve()
-    if resolved == CLI_DIR.resolve() or CLI_DIR.resolve() in resolved.parents:
+    if resolved == cli_dir.resolve() or cli_dir.resolve() in resolved.parents:
         raise RuntimeError(f"refusing wrapper binary for {peer}: {resolved}")
     return str(resolved)
 
@@ -210,22 +232,25 @@ def poll_claude_usage(
     clock: Optional[Callable[[], float]] = None,
     deadline_sec: float = 15.0,
     freshness_ttl: int = 60,
+    sys_dir: Optional[Path] = None,
 ) -> Sequence[UsageObserved]:
     """Poll claude.cmd /usage and return observations for each quota pool."""
+    resolved_sys = _resolve_sys_dir(sys_dir)
+    workspace_root = _resolve_workspace_root(resolved_sys)
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at = int(clock_fn())
     
-    claude_exe = _real_binary("cc")
+    claude_exe = _real_binary("cc", resolved_sys)
     if not claude_exe:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl),)
 
     env = os.environ.copy()
-    env["CLAUDE_CONFIG_DIR"] = str((SYS_DIR / "claude" / "config").resolve())
+    env["CLAUDE_CONFIG_DIR"] = str((resolved_sys / "claude" / "config").resolve())
     
     try:
         proc = subprocess.run(
             [claude_exe, "/usage"],
-            cwd=str(PORTABLE_ROOT),
+            cwd=str(workspace_root),
             env=env,
             stdin=subprocess.DEVNULL,
             capture_output=True,
@@ -290,6 +315,7 @@ def poll_codex_usage(
     clock: Optional[Callable[[], float]] = None,
     deadline_sec: float = 12.0,
     freshness_ttl: int = 60,
+    sys_dir: Optional[Path] = None,
 ) -> Sequence[UsageObserved]:
     """Poll codex app-server and return observations for each quota pool."""
     import threading
@@ -297,10 +323,12 @@ def poll_codex_usage(
     import json
     import time
 
+    resolved_sys = _resolve_sys_dir(sys_dir)
+    workspace_root = _resolve_workspace_root(resolved_sys)
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at = int(clock_fn())
 
-    codex_exe = _real_binary("cx")
+    codex_exe = _real_binary("cx", resolved_sys)
     if not codex_exe:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl, peer="cx"),)
 
@@ -312,7 +340,7 @@ def poll_codex_usage(
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
-            cwd=str(PORTABLE_ROOT)
+            cwd=str(workspace_root)
         )
 
         q: "queue.Queue[str | None]" = queue.Queue()
@@ -508,6 +536,7 @@ def poll_agy_usage(
     clock: Optional[Callable[[], float]] = None,
     freshness_ttl: int = 60,
     log_path: Optional[str | Path] = None,
+    sys_dir: Optional[Path] = None,
 ) -> Sequence[UsageObserved]:
     """Poll agy statusline log and return observations for each quota pool."""
     import json
@@ -520,7 +549,8 @@ def poll_agy_usage(
         "3p-5h": "3P-5H", "3p-weekly": "3P-7D",
     }
     
-    path = Path(log_path) if log_path is not None else (SYS_DIR / "data" / "temp" / "ag_statusline_stdin.log")
+    resolved_sys = _resolve_sys_dir(sys_dir)
+    path = Path(log_path) if log_path is not None else (resolved_sys / "data" / "temp" / "ag_statusline_stdin.log")
     
     try:
         st = path.stat()
