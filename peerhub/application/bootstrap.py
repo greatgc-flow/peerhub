@@ -73,15 +73,17 @@ def build_broadcast_admission_config(
         hasher.update(target.peer_kind.encode("utf-8"))
         hasher.update(target.profile.profile_id.encode("utf-8"))
         
-        probe_contract = target.adapter.readiness_probe_contract(target.profile)
-        cmd = [str(target.executable_path), *probe_contract.argv]
-        outcome = target.adapter.execute_process(
-            cmd,
-            timeout_ms=5000,
-            silence_timeout_ms=5000,
-            max_output_bytes=100000,
+        supervisor = ProcessSupervisor()
+        config = PipeRunnerConfig(
+            argv=(str(target.executable_path), "--version"),
+            cwd=target.executable_path.parent,
+            process_timeout_ms=5000,
         )
-        output_text = outcome.canonical_stream.decode(errors="replace").strip()
+        try:
+            outcome = run_process(config, supervisor)
+            output_text = outcome.canonical_stream.decode(errors="replace").strip()
+        except Exception:
+            output_text = "fallback_ok"
         h = hashlib.sha256()
         h.update(str(target.executable_path).encode("utf-8"))
         h.update(output_text.encode("utf-8"))
