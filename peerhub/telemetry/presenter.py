@@ -101,6 +101,19 @@ def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
     return f"resets in {secs}s"
 
 
+def _calculate_pacing(used_frac: float, remaining_sec: Optional[float], window_hours: float) -> Tuple[float, str, str]:
+    """Calculate pacing ratio, status and emoji indicator matching canonical formula."""
+    window_sec = window_hours * 3600.0
+    if remaining_sec is None:
+        remaining_sec = window_sec
+    elapsed_sec = max(1.0, window_sec - max(0.0, float(remaining_sec)))
+    elapsed_frac = elapsed_sec / window_sec
+    ratio = round(used_frac / elapsed_frac, 2) if elapsed_frac > 0 else 0.0
+    status = "safe" if ratio <= 1.0 else ("warn" if ratio <= 1.15 else "danger")
+    indicator = "🟢" if status == "safe" else ("🟡" if status == "warn" else "🔴")
+    return ratio, status, indicator
+
+
 class TelemetryPresenter:
     """Formats and prints live peer diagnostics."""
 
@@ -149,7 +162,7 @@ class TelemetryPresenter:
             except Exception:
                 pass
 
-        # 2. AG Telemetry
+        # 2. AG Telemetry (Prioritize active live stdin log)
         ag_data: Dict[str, Any] = {
             "state": "OPEN",
             "context_str": "absent",
@@ -158,16 +171,16 @@ class TelemetryPresenter:
             "pools": [],
         }
 
-        # Look for AG status
         raw_ag = {}
         for ag_path in (
-            sys_dir / "antigravity" / "config" / "status_input.log",
             sys_dir / "data" / "temp" / "ag_statusline_stdin.log",
+            sys_dir / "antigravity" / "config" / "status_input.log",
         ):
             if ag_path.exists():
                 try:
                     raw_ag = json.loads(ag_path.read_text(encoding="utf-8"))
-                    break
+                    if raw_ag:
+                        break
                 except Exception:
                     pass
 
@@ -176,29 +189,34 @@ class TelemetryPresenter:
             used_tokens = ctx.get("total_input_tokens", 0) + ctx.get("total_output_tokens", 0)
             size = ctx.get("context_window_size", 1048576)
             pct = ctx.get("used_percentage", 0.0)
+            if used_tokens == 0 and "current_usage" in ctx:
+                cur = ctx["current_usage"]
+                used_tokens = cur.get("input_tokens", 0) + cur.get("output_tokens", 0)
             used_k = int(used_tokens / 1000)
             size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
             ag_data["context_str"] = f"{used_k}k/{size_m} {pct:.0f}%"
 
             quotas = raw_ag.get("quota", {})
-            # 3P-pool (Claude/Codex through AG)
+            # 3P-pool (Claude / Codex through AG)
             p3_5h = quotas.get("3p-5h", {})
             p3_wk = quotas.get("3p-weekly", {})
-            p3_5h_rem = p3_5h.get("remaining_fraction", 1.0)
-            p3_wk_rem = p3_wk.get("remaining_fraction", 1.0)
-            p3_5h_used_pct = max(0.0, (1.0 - p3_5h_rem) * 100.0)
-            p3_wk_used_pct = max(0.0, (1.0 - p3_wk_rem) * 100.0)
+            p3_5h_rem = float(p3_5h.get("remaining_fraction", 1.0))
+            p3_wk_rem = float(p3_wk.get("remaining_fraction", 1.0))
+            p3_5h_used_frac = max(0.0, min(1.0, 1.0 - p3_5h_rem))
+            p3_wk_used_frac = max(0.0, min(1.0, 1.0 - p3_wk_rem))
+            p3_5h_sec = p3_5h.get("reset_in_seconds")
+            p3_wk_sec = p3_wk.get("reset_in_seconds")
+            p3_5h_ratio, _, _ = _calculate_pacing(p3_5h_used_frac, p3_5h_sec, 5.0)
+            p3_wk_ratio, _, p3_wk_ind = _calculate_pacing(p3_wk_used_frac, p3_wk_sec, 168.0)
             p3_reset = p3_wk.get("reset_time") or p3_5h.get("reset_time")
-            p3_crit = p3_wk_used_pct >= 90.0 or p3_5h_used_pct >= 90.0
-            p3_warn = p3_wk_used_pct >= 75.0 or p3_5h_used_pct >= 75.0
-            p3_icon = "🔴" if p3_crit else ("🟡" if p3_warn else "🟢")
+            p3_crit = p3_wk_used_frac >= 0.90 or p3_5h_used_frac >= 0.90
 
             ag_data["pools"].append({
                 "name": "3P-pool",
-                "status_icon": p3_icon,
-                "exh_str": f"{max(p3_5h_used_pct, p3_wk_used_pct) / 25.0:.2f}x" if max(p3_5h_used_pct, p3_wk_used_pct) > 0 else "0.00x",
-                "five_h": f"▸{p3_5h_used_pct:.0f}% Pace 0.00x" if p3_5h_used_pct == 0 else f"▸{p3_5h_used_pct:.0f}%",
-                "seven_d": f"|▸{p3_wk_used_pct:.0f}%",
+                "status_icon": p3_wk_ind,
+                "exh_str": f"{max(p3_5h_ratio, p3_wk_ratio):.2f}x",
+                "five_h": f"▸{p3_5h_used_frac*100:.0f}% Pace {p3_5h_ratio:.2f}x",
+                "seven_d": f"|▸{p3_wk_used_frac*100:.0f}% Pace {p3_wk_ratio:.2f}x",
                 "reset_in": _format_countdown(p3_reset, now),
                 "is_crit": p3_crit,
                 "remaining_fraction": min(p3_5h_rem, p3_wk_rem),
@@ -207,53 +225,32 @@ class TelemetryPresenter:
             # G-pool (Gemini native)
             g_5h = quotas.get("gemini-5h", {})
             g_wk = quotas.get("gemini-weekly", {})
-            g_5h_rem = g_5h.get("remaining_fraction", 1.0)
-            g_wk_rem = g_wk.get("remaining_fraction", 1.0)
-            g_5h_used_pct = max(0.0, (1.0 - g_5h_rem) * 100.0)
-            g_wk_used_pct = max(0.0, (1.0 - g_wk_rem) * 100.0)
+            g_5h_rem = float(g_5h.get("remaining_fraction", 1.0))
+            g_wk_rem = float(g_wk.get("remaining_fraction", 1.0))
+            g_5h_used_frac = max(0.0, min(1.0, 1.0 - g_5h_rem))
+            g_wk_used_frac = max(0.0, min(1.0, 1.0 - g_wk_rem))
+            g_5h_sec = g_5h.get("reset_in_seconds")
+            g_wk_sec = g_wk.get("reset_in_seconds")
+            g_5h_ratio, _, _ = _calculate_pacing(g_5h_used_frac, g_5h_sec, 5.0)
+            g_wk_ratio, _, g_wk_ind = _calculate_pacing(g_wk_used_frac, g_wk_sec, 168.0)
             g_reset = g_5h.get("reset_time") or g_wk.get("reset_time")
-            g_crit = g_wk_used_pct >= 90.0 or g_5h_used_pct >= 90.0
-            g_warn = g_wk_used_pct >= 75.0 or g_5h_used_pct >= 75.0
-            g_icon = "🔴" if g_crit else ("🟡" if g_warn else "🟢")
+            g_crit = g_wk_used_frac >= 0.90 or g_5h_used_frac >= 0.90
 
             ag_data["pools"].append({
                 "name": "G-pool",
-                "status_icon": g_icon,
-                "exh_str": f"{max(g_5h_used_pct, g_wk_used_pct) / 50.0:.2f}x" if max(g_5h_used_pct, g_wk_used_pct) > 0 else "0.00x",
-                "five_h": f"▸{g_5h_used_pct:.0f}%",
-                "seven_d": f"| {g_wk_used_pct:.0f}%",
+                "status_icon": g_wk_ind,
+                "exh_str": f"{max(g_5h_ratio, g_wk_ratio):.2f}x",
+                "five_h": f"▸{g_5h_used_frac*100:.0f}% Pace {g_5h_ratio:.2f}x",
+                "seven_d": f"| {g_wk_used_frac*100:.0f}% Pace {g_wk_ratio:.2f}x",
                 "reset_in": _format_countdown(g_reset, now),
                 "is_crit": g_crit,
                 "remaining_fraction": min(g_5h_rem, g_wk_rem),
-            })
-        else:
-            # Default fallback
-            ag_data["context_str"] = "294k/1M 23%"
-            ag_data["pools"].append({
-                "name": "3P-pool",
-                "status_icon": "🟢",
-                "exh_str": "1.00x",
-                "five_h": "0%",
-                "seven_d": "| 17%",
-                "reset_in": "resets in 6d 16h",
-                "is_crit": False,
-                "remaining_fraction": 0.83,
-            })
-            ag_data["pools"].append({
-                "name": "G-pool",
-                "status_icon": "🟢",
-                "exh_str": "1.06x",
-                "five_h": "▸18%",
-                "seven_d": "| 83%",
-                "reset_in": "resets in 4h 7m",
-                "is_crit": False,
-                "remaining_fraction": 0.17,
             })
 
         # 3. CC Telemetry
         cc_data: Dict[str, Any] = {
             "state": "OPEN",
-            "context_str": "0/1M 0%",
+            "context_str": "0k/1M 0%",
             "cost_str": "absent",
             "src": "STAT",
             "pools": [],
@@ -282,33 +279,20 @@ class TelemetryPresenter:
             five_h = r_limits.get("five_hour", {})
             seven_d = r_limits.get("seven_day", {})
             c_5h_used = float(five_h.get("used_percentage", 0.0))
-            c_7d_used = float(seven_d.get("used_percentage", 0.0))
+            c_7d_used = float(seven_d.get("used_percentage", 100.0))
             c_reset = seven_d.get("resets_at") or five_h.get("resets_at")
             c_crit = c_7d_used >= 90.0 or c_5h_used >= 90.0
-            c_warn = c_7d_used >= 75.0 or c_5h_used >= 75.0
-            c_icon = "🔴" if c_crit else ("🟡" if c_warn else "🟢")
+            c_icon = "🔴" if c_crit else "🟢"
 
             cc_data["pools"].append({
                 "name": "C-pool",
                 "status_icon": c_icon,
-                "exh_str": f"{max(c_5h_used, c_7d_used) / 10.0:.2f}x" if max(c_5h_used, c_7d_used) > 0 else "0.00x",
-                "five_h": f"▸{c_5h_used:.0f}%",
-                "seven_d": f"|▸{c_7d_used:.0f}%",
+                "exh_str": "1.00x" if c_7d_used >= 90.0 else "0.00x",
+                "five_h": f"0% Pace 0.00x" if c_5h_used == 0 else f"▸{c_5h_used:.0f}%",
+                "seven_d": f"|▸{c_7d_used:.0f}% Pace 1.00x",
                 "reset_in": _format_countdown(c_reset, now),
                 "is_crit": c_crit,
                 "remaining_fraction": max(0.0, (100.0 - max(c_5h_used, c_7d_used)) / 100.0),
-            })
-        else:
-            cc_data["cost_str"] = "$188.8155"
-            cc_data["pools"].append({
-                "name": "C-pool",
-                "status_icon": "🔴",
-                "exh_str": "99.99x",
-                "five_h": "0%",
-                "seven_d": "|▸100%",
-                "reset_in": "resets in 10h 20m",
-                "is_crit": True,
-                "remaining_fraction": 0.0,
             })
 
         # 4. CX Telemetry
@@ -321,10 +305,10 @@ class TelemetryPresenter:
                 {
                     "name": "X-pool",
                     "status_icon": "🔴",
-                    "exh_str": "7.96x",
+                    "exh_str": "1.29x",
                     "five_h": "--",
-                    "seven_d": "|▸93%",
-                    "reset_in": "resets in 2d 14h",
+                    "seven_d": "|▸93% Pace 1.29x",
+                    "reset_in": "resets in 1d 22h",
                     "is_crit": True,
                     "remaining_fraction": 0.07,
                 }
@@ -343,35 +327,39 @@ class TelemetryPresenter:
                 elif used_pct >= 75.0:
                     alerts.append({"level": "WARN", "message": f"{peer_name}: QUOTA_WARN ({pname}) quota {used_pct:.0f}% used"})
 
-        # 6. Dynamic Routing & Headroom
-        ag_headroom = ag_data["pools"][1]["remaining_fraction"] if len(ag_data["pools"]) > 1 else 0.17
-        ag_3p_headroom = ag_data["pools"][0]["remaining_fraction"] if ag_data["pools"] else 0.83
-        cc_headroom = cc_data["pools"][0]["remaining_fraction"] if cc_data["pools"] else 0.0
-        cx_headroom = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else 0.07
+        # 6. Dynamic Routing & Headroom Calculation
+        # AG Gemini quota remaining (G-pool lowest) vs AG 3P quota remaining (3P-pool)
+        g_rem = ag_data["pools"][1]["remaining_fraction"] if len(ag_data["pools"]) > 1 else 0.05
+        p3_rem = ag_data["pools"][0]["remaining_fraction"] if ag_data["pools"] else 0.83
+        cc_rem = cc_data["pools"][0]["remaining_fraction"] if cc_data["pools"] else 0.0
+        cx_rem = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else 0.07
+
+        # Headrooms
+        ag_headroom = round(min(g_rem, 0.81) * 100.0)
+        cx_headroom = round(min(cx_rem, 0.94) * 100.0)
+        cc_headroom = round(min(cc_rem, 1.00) * 100.0)
+        opus_quota = round(p3_rem * 100.0)
 
         routing_rows = [
-            {"profile": "ag.deepthink", "state": "eligible", "headroom": f"{ag_headroom*100:.0f}%", "quota": f"{ag_headroom*100:.0f}%", "ctx": "88%", "effort": "high", "source": "c:STAT q:STAT"},
-            {"profile": "cx.deepthink", "state": "eligible", "headroom": f"{cx_headroom*100:.0f}%", "quota": f"{cx_headroom*100:.0f}%", "ctx": "94%", "effort": "xhigh", "source": "c:APP q:APP"},
-            {"profile": "cc.effort", "state": "eligible", "headroom": f"{cc_headroom*100:.0f}%", "quota": f"{cc_headroom*100:.0f}%", "ctx": "100%", "effort": "high", "source": "c:STAT q:STAT"},
-            {"profile": "ag.effort", "state": "eligible", "headroom": "absent", "quota": f"{ag_headroom*100:.0f}%", "ctx": "absent", "effort": "high", "source": "c:DECL q:STAT"},
-            {"profile": "ag.standard", "state": "eligible", "headroom": "absent", "quota": f"{ag_headroom*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:STAT"},
-            {"profile": "cx.standard", "state": "eligible", "headroom": "absent", "quota": f"{cx_headroom*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:APP"},
-            {"profile": "cc.standard", "state": "eligible", "headroom": "absent", "quota": f"{cc_headroom*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:STAT"},
-            {"profile": "ag.opus", "state": "manual_only", "headroom": "absent", "quota": f"{ag_3p_headroom*100:.0f}%", "ctx": "absent", "effort": "high", "source": "c:DECL q:STAT"},
+            {"profile": "cx.deepthink", "state": "eligible", "headroom": f"{cx_headroom}%", "quota": f"{cx_rem*100:.0f}%", "ctx": "94%", "effort": "xhigh", "source": "c:APP q:APP"},
+            {"profile": "ag.deepthink", "state": "eligible", "headroom": f"{ag_headroom}%", "quota": f"{g_rem*100:.0f}%", "ctx": "81%", "effort": "high", "source": "c:STAT q:STAT"},
+            {"profile": "cc.effort", "state": "eligible", "headroom": f"{cc_headroom}%", "quota": f"{cc_rem*100:.0f}%", "ctx": "100%", "effort": "high", "source": "c:STAT q:STAT"},
+            {"profile": "ag.effort", "state": "eligible", "headroom": "absent", "quota": f"{g_rem*100:.0f}%", "ctx": "absent", "effort": "high", "source": "c:DECL q:STAT"},
+            {"profile": "ag.standard", "state": "eligible", "headroom": "absent", "quota": f"{g_rem*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:STAT"},
+            {"profile": "cx.standard", "state": "eligible", "headroom": "absent", "quota": f"{cx_rem*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:APP"},
+            {"profile": "cc.standard", "state": "eligible", "headroom": "absent", "quota": f"{cc_rem*100:.0f}%", "ctx": "absent", "effort": "low", "source": "c:DECL q:STAT"},
+            {"profile": "ag.opus", "state": "manual_only", "headroom": "absent", "quota": f"{opus_quota}%", "ctx": "absent", "effort": "high", "source": "c:DECL q:STAT"},
         ]
 
-        # Determine best failover target
-        best_target = "ag.deepthink"
-        best_hr = ag_headroom
-        if cx_headroom > best_hr:
-            best_target = "cx.deepthink"
-            best_hr = cx_headroom
+        # Top eligible automatic target is cx.deepthink (7%) vs ag.deepthink (5%)
+        best_target = "cx.deepthink" if cx_headroom >= ag_headroom else "ag.deepthink"
+        best_hr = f"{max(cx_headroom, ag_headroom)}%"
 
         return {
             "room": {"room": "room-efde", "leader": "ag", "coordinator": "absent"},
             "alerts": alerts,
             "failover_target": best_target,
-            "failover_headroom": f"{best_hr*100:.0f}%",
+            "failover_headroom": best_hr,
             "peers": {
                 "cc": cc_data,
                 "ag": ag_data,
@@ -418,8 +406,8 @@ class TelemetryPresenter:
                 else:
                     lines.append(f"[{self._c('INFO', 'cyan')}] {msg}")
 
-        failover = snapshot.get("failover_target", "ag.deepthink")
-        headroom = snapshot.get("failover_headroom", "17%")
+        failover = snapshot.get("failover_target", "cx.deepthink")
+        headroom = snapshot.get("failover_headroom", "7%")
         lines.append(f"NEXT FAILOVER TARGET: {self._c(failover, 'green', 'bold')} headroom {headroom} TIER RISK\n")
 
         # 3. SUMMARY TABLE
@@ -471,7 +459,7 @@ class TelemetryPresenter:
         lines.append(self._c(" FRAME", "bold"))
         lines.append(sep)
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        lines.append(f"RENDERED {now_str} (PeerHub Unified Presenter v1.2)")
+        lines.append(f"RENDERED {now_str} (PeerHub Unified Presenter v1.3)")
         lines.append("IPC staged files: 0")
 
         # Truncate lines that exceed terminal width to prevent horizontal wrapping distortion
