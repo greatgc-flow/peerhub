@@ -270,14 +270,34 @@ def _run_diag(parsed: argparse.Namespace) -> int:
         return 0
 
 
+def _detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
+    if database_path.exists():
+        try:
+            conn = sqlite3.connect(str(database_path))
+            try:
+                row = conn.execute(
+                    "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"
+                ).fetchone()
+                if row and row[0]:
+                    return str(row[0])
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    return fallback_name or "cli"
+
+
 def _run_broadcast(parsed: argparse.Namespace) -> int:
     from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
     from peerhub.dispatch.capability import CapabilityTier
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
     
+    workspace_home_id = _detect_workspace_home_id(
+        paths.database_path, workspace_root.name
+    )
     context = RuntimeContext(
-        workspace_home_id=workspace_root.name or "cli",
+        workspace_home_id=workspace_home_id,
         paths=paths,
         clock=SystemClock(),
         ids=UuidSource(),
@@ -440,8 +460,11 @@ def main(args: list[str] | None = None) -> int:
             print("Status: Workspace uninitialized (no database found)")
             return 0
             
+        workspace_home_id = _detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        )
         context = RuntimeContext(
-            workspace_home_id=workspace_root.name or "cli",
+            workspace_home_id=workspace_home_id,
             paths=paths,
             clock=SystemClock(),
             ids=UuidSource(),
