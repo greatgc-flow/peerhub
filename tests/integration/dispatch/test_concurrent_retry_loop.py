@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 from typing import Iterator
 
@@ -17,6 +17,8 @@ import pytest
 
 from peerhub.adapters.contract import (
     AdapterRequest,
+    InvocationPlan,
+    OutputDecoder,
     ProfileDescriptor,
     SessionHint,
 )
@@ -86,7 +88,19 @@ def test_two_real_callers_race_at_attempt_creation_one_loses_cleanly(
     tmp_path: Path,
     store: SqliteStateStore,
 ) -> None:
-    adapter = FakePeerAdapter(stdout="ok\n")
+    class _BlockingAdapter(FakePeerAdapter):
+        def __init__(self) -> None:
+            super().__init__(stdout="ok\n")
+            self.loser_done = threading.Event()
+
+        def new_decoder(self, plan: InvocationPlan) -> OutputDecoder:
+            # The winner pauses here (after create_attempt and record_dispatch_intent,
+            # while attempt 1 is durably recorded and in-progress in SQLite) until
+            # the loser has cleanly observed CONCURRENT_ATTEMPT_IN_PROGRESS.
+            self.loser_done.wait(timeout=10.0)
+            return super().new_decoder(plan)
+
+    adapter = _BlockingAdapter()
     workflows, command_id, plan, contract = _setup(
         store,
         tmp_path,
@@ -117,7 +131,15 @@ def test_two_real_callers_race_at_attempt_creation_one_loses_cleanly(
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_one = executor.submit(call, "one")
         future_two = executor.submit(call, "two")
-        results = [future_one.result(), future_two.result()]
+
+        # The winner claims attempt 1 and pauses in new_decoder.
+        # The loser fails at create_attempt and completes immediately.
+        done, not_done = wait(
+            [future_one, future_two], return_when=FIRST_COMPLETED, timeout=10.0
+        )
+        adapter.loser_done.set()
+
+        results = [f.result() for f in list(done) + list(not_done)]
 
     winners = [
         r for r in results if r.stop_reason is RetryLoopStopReason.VERIFIED_SUCCESS
