@@ -183,7 +183,15 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     resolved = cand.resolve()
     if resolved == cli_dir.resolve() or cli_dir.resolve() in resolved.parents:
         raise RuntimeError(f"refusing wrapper binary for {peer}: {resolved}")
-    return str(resolved)
+    # Return the literal (unresolved) path, not `resolved`: on this portable
+    # install, `env/nodejs/npm-global` is a junction, and .resolve() follows
+    # it to a physical path containing "&" (a cmd.exe command separator).
+    # `.cmd`/`.bat` files are always invoked through cmd.exe, so passing that
+    # resolved path as argv[0] makes cmd.exe misparse its own invocation and
+    # the child exits immediately -- confirmed by reproducing both the
+    # literal and resolved forms directly. The `resolved` form is still used
+    # above for the wrapper-directory safety check only.
+    return str(cand)
 
 def _fail_closed(
     ids: IdSource,
@@ -246,24 +254,56 @@ def poll_claude_usage(
 
     env = os.environ.copy()
     env["CLAUDE_CONFIG_DIR"] = str((resolved_sys / "claude" / "config").resolve())
-    
+
+    # `claude.cmd` is a cmd.exe wrapper that spawns claude.exe as a
+    # grandchild. On Windows, subprocess.run(timeout=...) only kills the
+    # direct child (cmd.exe); the orphaned claude.exe keeps the stdout/
+    # stderr pipes open, so subprocess.run's own timeout-cleanup can block
+    # far past deadline_sec waiting for EOF that never comes (reproduced
+    # directly: a killed-on-timeout call still hung until the orphaned
+    # claude.exe was killed by hand). Popen + explicit taskkill /T mirrors
+    # poll_codex_usage's proven cleanup so the deadline is actually honored.
+    proc = None
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [claude_exe, "/usage"],
             cwd=str(workspace_root),
             env=env,
             stdin=subprocess.DEVNULL,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=deadline_sec,
             errors="replace",
         )
-    except subprocess.TimeoutExpired:
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl),)
+        try:
+            stdout, stderr = proc.communicate(timeout=deadline_sec)
+        except subprocess.TimeoutExpired:
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl),)
     except Exception:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl),)
-        
-    text = "\n".join(str(part) for part in (proc.stdout, proc.stderr) if part)
+    finally:
+        if proc is not None:
+            try:
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                capture_output=True, timeout=10)
+            except Exception:
+                pass
+            try:
+                import psutil
+                for p in psutil.process_iter(['pid', 'name', 'create_time']):
+                    try:
+                        name = p.info.get('name')
+                        if name and name.lower() in ('node.exe', 'claude.exe'):
+                            c_time = p.info.get('create_time', 0)
+                            if c_time >= observed_at - 5:
+                                subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.info['pid'])],
+                                               capture_output=True, timeout=5)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+    text = "\n".join(str(part) for part in (stdout, stderr) if part)
     dt_now = datetime.fromtimestamp(observed_at, tz=timezone.utc).astimezone()
     quotas = _parse_claude_usage(text, now=dt_now)
     
@@ -400,9 +440,19 @@ def poll_codex_usage(
         }) + "\n")
         proc.stdin.flush()
 
-        rate_limits = _wait_for_id(1)
-        if rate_limits is None:
+        rate_limits_envelope = _wait_for_id(1)
+        if rate_limits_envelope is None:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
+
+        # account/rateLimits/read nests primary/secondary one level under
+        # "rateLimits" (plus a duplicate under "rateLimitsByLimitId"); this
+        # code previously read them off the envelope directly, so it always
+        # found neither key and silently returned ERROR (confirmed against
+        # a live response: correct rate-limit data was present, just nested).
+        rate_limits_raw = rate_limits_envelope.get("rateLimits")
+        if not isinstance(rate_limits_raw, dict):
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
+        rate_limits = cast(dict[str, Any], rate_limits_raw)
 
         results: list[UsageObserved] = []
         legacy_windows = {
