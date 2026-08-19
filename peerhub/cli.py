@@ -231,6 +231,48 @@ def _run_ask(
         print(f"peerhub ask: {_enum_value(detail)}", file=sys.stderr)
     return exit_code
 
+def _sync_quota_if_needed(runtime: Any, force_fresh: bool) -> None:
+    from peerhub.telemetry.quota_polling import (
+        poll_claude_usage, poll_codex_usage, poll_agy_usage, record_usage_observations
+    )
+    
+    to_poll = set()
+    if force_fresh:
+        to_poll = {"cc", "cx", "ag"}
+    else:
+        with runtime.state_store.read_unit_of_work() as uow:
+            now = runtime.context.clock.now()
+            for peer in ["cc", "cx", "ag"]:
+                projs = uow.list_usage_projections(peer)
+                if not projs:
+                    to_poll.add(peer)
+                else:
+                    for p in projs:
+                        if now - p.updated_at > 60:
+                            to_poll.add(peer)
+                            break
+
+    if not to_poll:
+        return
+
+    observations = []
+    ids = runtime.context.ids
+    sys_dir = runtime.context.paths.workspace_root / "_sys"
+    
+    if "cc" in to_poll:
+        obs = poll_claude_usage(ids, "cc", "cc.effort", clock=runtime.context.clock.now, sys_dir=sys_dir)
+        print(f"DEBUG: cc obs: {obs}", file=sys.stderr)
+        observations.extend(obs)
+    if "cx" in to_poll:
+        observations.extend(poll_codex_usage(ids, "cx", "cx.deepthink", clock=runtime.context.clock.now, sys_dir=sys_dir))
+    if "ag" in to_poll:
+        observations.extend(poll_agy_usage(ids, "ag", "ag.deepthink", clock=runtime.context.clock.now, sys_dir=sys_dir))
+        
+    with runtime.state_store.unit_of_work() as uow:
+        record_usage_observations(uow, ids, observations)
+        uow.commit()
+
+
 def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:
     projections = uow.list_usage_projections(peer)
     if not projections:
@@ -245,54 +287,85 @@ def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:
 def _run_diag(parsed: argparse.Namespace) -> int:
     from peerhub.telemetry.presenter import TelemetryPresenter
     workspace_root = Path(parsed.workspace).resolve()
-    presenter = TelemetryPresenter(
-        use_color=False if parsed.no_color else None,
-        workspace_root=workspace_root,
+    paths = PathLayout.for_workspace(workspace_root)
+    workspace_home_id = _detect_workspace_home_id(paths.database_path, workspace_root.name)
+    context = RuntimeContext(
+        workspace_home_id=workspace_home_id,
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
     )
-    if parsed.live:
-        try:
-            import msvcrt
-            has_msvcrt = True
-        except ImportError:
-            has_msvcrt = False
+    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        _sync_quota_if_needed(runtime, force_fresh=getattr(parsed, "fresh", False))
+        
+        with runtime.state_store.read_unit_of_work() as uow:
+            projs = []
+            for peer in ["cc", "cx", "ag"]:
+                projs.extend(uow.list_usage_projections(peer))
 
-        try:
-            while True:
-                if os.name == "nt":
-                    os.system("cls")
-                else:
-                    sys.stdout.write("\033[2J\033[H")
-                    sys.stdout.flush()
+        presenter = TelemetryPresenter(
+            use_color=False if parsed.no_color else None,
+            workspace_root=workspace_root,
+            usage_projections=projs,
+        )
 
-                snapshot = presenter.collect_live_snapshot()
-                if parsed.json:
-                    print(json.dumps(snapshot, indent=2))
-                else:
-                    rendered = presenter.render(snapshot)
-                    print(rendered)
-                    print(presenter._c(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
+        if parsed.live:
+            try:
+                import msvcrt
+                has_msvcrt = True
+            except ImportError:
+                has_msvcrt = False
 
-                # Poll for key hit in 0.05s steps (total 2.0s refresh interval)
-                total_interval = 2.0
-                step = 0.05
-                elapsed = 0.0
-                while elapsed < total_interval:
-                    if has_msvcrt and msvcrt.kbhit():
-                        ch = msvcrt.getch()
-                        if ch in (b"\x1b", b"q", b"Q", b"\x03"):  # ESC, q, Q, Ctrl+C
-                            return 0
-                    time.sleep(step)
-                    elapsed += step
-        except KeyboardInterrupt:
+            last_poll_ts = runtime.context.clock.now()
+
+            try:
+                while True:
+                    if os.name == "nt":
+                        os.system("cls")
+                    else:
+                        sys.stdout.write("\033[2J\033[H")
+                        sys.stdout.flush()
+
+                    now_ts = runtime.context.clock.now()
+                    if now_ts - last_poll_ts >= 60:
+                        _sync_quota_if_needed(runtime, force_fresh=False)
+                        last_poll_ts = now_ts
+                        with runtime.state_store.read_unit_of_work() as uow:
+                            new_projs = []
+                            for peer in ["cc", "cx", "ag"]:
+                                new_projs.extend(uow.list_usage_projections(peer))
+                        presenter._usage_projections = new_projs
+
+                    snapshot = presenter.collect_live_snapshot()
+                    if parsed.json:
+                        print(json.dumps(snapshot, indent=2))
+                    else:
+                        rendered = presenter.render(snapshot)
+                        print(rendered)
+                        print(presenter._c(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
+
+                    # Poll for key hit in 0.05s steps (total 2.0s refresh interval)
+                    total_interval = 2.0
+                    step = 0.05
+                    elapsed = 0.0
+                    while elapsed < total_interval:
+                        if has_msvcrt and msvcrt.kbhit():
+                            ch = msvcrt.getch()
+                            if ch in (b"\x1b", b"q", b"Q", b"\x03"):  # ESC, q, Q, Ctrl+C
+                                return 0
+                        time.sleep(step)
+                        elapsed += step
+            except KeyboardInterrupt:
+                return 0
             return 0
-        return 0
-    else:
-        snapshot = presenter.collect_live_snapshot()
-        if parsed.json:
-            print(json.dumps(snapshot, indent=2))
         else:
-            print(presenter.render(snapshot))
-        return 0
+            snapshot = presenter.collect_live_snapshot()
+            if parsed.json:
+                print(json.dumps(snapshot, indent=2))
+            else:
+                print(presenter.render(snapshot))
+            return 0
+
 
 
 def _detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
@@ -569,6 +642,7 @@ def main(args: list[str] | None = None) -> int:
             print("Status: OK")
 
             if getattr(parsed, "all", False) or getattr(parsed, "peer", None) is not None:
+                _sync_quota_if_needed(runtime, force_fresh=False)
                 with runtime.state_store.read_unit_of_work() as uow:
                     _print_quota_table(uow, parsed.peer)
 

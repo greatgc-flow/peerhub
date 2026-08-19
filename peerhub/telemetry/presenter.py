@@ -193,6 +193,26 @@ def _build_pool_pair_from_projections(
         return None
 
     now_ts = now.timestamp()
+    age_sec: Optional[float] = None
+    if proj_5h and proj_7d:
+        age_sec = now_ts - max(proj_5h.updated_at, proj_7d.updated_at)
+    elif proj_5h:
+        age_sec = now_ts - proj_5h.updated_at
+    elif proj_7d:
+        age_sec = now_ts - proj_7d.updated_at
+
+    is_stale = age_sec is not None and age_sec > 120
+
+    def _format_stale(used_frac: float, ratio: float) -> str:
+        if not is_stale or age_sec is None:
+            return f"{used_frac*100:.0f}% ({ratio:.2f}x)"
+        if age_sec > 86400:
+            stale_marker = f"[{int(age_sec / 86400)}d]"
+        elif age_sec > 3600:
+            stale_marker = f"[{int(age_sec / 3600)}h]"
+        else:
+            stale_marker = f"[{int(age_sec / 60)}m]"
+        return f"{used_frac*100:.0f}% {stale_marker}"
 
     # 5H values
     if proj_5h is not None:
@@ -200,7 +220,7 @@ def _build_pool_pair_from_projections(
         fh_remaining_frac = proj_5h.remaining_fraction
         fh_remaining_sec: Optional[float] = max(0.0, float(proj_5h.resets_at) - now_ts) if proj_5h.resets_at > 0 else None
         fh_ratio, _, _ = _calculate_pacing(fh_used_frac, fh_remaining_sec, 5.0)
-        fh_str = f"{fh_used_frac*100:.0f}% ({fh_ratio:.2f}x)"
+        fh_str = _format_stale(fh_used_frac, fh_ratio)
     else:
         fh_used_frac = 0.0
         fh_remaining_frac = 1.0
@@ -213,7 +233,7 @@ def _build_pool_pair_from_projections(
         sd_remaining_frac = proj_7d.remaining_fraction
         sd_remaining_sec: Optional[float] = max(0.0, float(proj_7d.resets_at) - now_ts) if proj_7d.resets_at > 0 else None
         sd_ratio, _, sd_ind = _calculate_pacing(sd_used_frac, sd_remaining_sec, 168.0)
-        sd_str = f"{sd_used_frac*100:.0f}% ({sd_ratio:.2f}x)"
+        sd_str = _format_stale(sd_used_frac, sd_ratio)
         reset_ts = proj_7d.resets_at
     else:
         sd_used_frac = 0.0
@@ -225,6 +245,7 @@ def _build_pool_pair_from_projections(
 
     is_crit = sd_used_frac >= 0.90 or fh_used_frac >= 0.90
     max_ratio = max(fh_ratio, sd_ratio)
+
 
     return {
         "name": pool_name,
