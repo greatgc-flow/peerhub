@@ -47,6 +47,13 @@ class ProcessTreeHandle:
     win_job_handle: int | None = None
     posix_pgid: int | None = None
 
+    def __del__(self) -> None:
+        if sys.platform == "win32" and self.win_job_handle is not None:
+            try:
+                kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+                kernel32.CloseHandle(self.win_job_handle)
+            except Exception:
+                pass
 
 if sys.platform == "win32":
 
@@ -55,6 +62,39 @@ if sys.platform == "win32":
             ("NumberOfAssignedProcesses", ctypes.c_uint32),
             ("NumberOfProcessIdsInList", ctypes.c_uint32),
             ("ProcessIdList", ctypes.c_size_t * 1024),
+        ]
+
+    class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", ctypes.c_uint32),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", ctypes.c_uint32),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", ctypes.c_uint32),
+            ("SchedulingClass", ctypes.c_uint32),
+        ]
+
+    class IO_COUNTERS(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
         ]
 
 
@@ -188,6 +228,17 @@ class RealTreeController:
                 kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
                 job = kernel32.CreateJobObjectW(None, None)
                 if job:
+                    # Set JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000) so children
+                    # die automatically if the parent process abruptly exits
+                    info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+                    info.BasicLimitInformation.LimitFlags = 0x2000
+                    kernel32.SetInformationJobObject(
+                        job,
+                        9,  # JobObjectExtendedLimitInformation
+                        ctypes.byref(info),
+                        ctypes.sizeof(info),
+                    )
+
                     proc_handle = getattr(process, "_handle", None)
                     if proc_handle:
                         res = kernel32.AssignProcessToJobObject(job, proc_handle)

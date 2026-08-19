@@ -189,3 +189,85 @@ def test_identity_verification_mismatched_creation_time(controller: RealTreeCont
     finally:
         proc.kill()
         proc.wait()
+
+
+def test_windows_job_object_kill_on_close_orphaned_child() -> None:
+    """Regression test for orphaned child processes on Windows abrupt termination."""
+    if sys.platform != "win32":
+        pytest.skip("Test requires Windows Job Objects")
+
+    import textwrap
+    import ctypes
+
+    # We spawn a parent script. The parent script spawns a child script using RealTreeController.
+    # The child script sleeps indefinitely. The parent script prints "READY <child_pid>" and waits.
+    # The test kills the parent script abruptly using TerminateProcess.
+    # We then verify the child process is dead.
+
+    parent_script = textwrap.dedent("""
+        import sys
+        import time
+        import subprocess
+        from peerhub.dispatch.tree_controller import RealTreeController, _get_process_creation_time_ms
+        from peerhub.dispatch.contract import ProcessBirthIdentity
+
+        child_cmd = [sys.executable, "-c", "import time; time.sleep(100)"]
+        proc = subprocess.Popen(child_cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        
+        creation_time = _get_process_creation_time_ms(proc.pid)
+        identity = ProcessBirthIdentity(pid=proc.pid, process_creation_time=creation_time)
+        
+        controller = RealTreeController()
+        handle = controller.bind_spawn(process=proc, root=identity)
+        
+        # Let the test know we are ready and give it the child PID
+        print(f"READY {proc.pid}")
+        sys.stdout.flush()
+        
+        time.sleep(100)
+    """)
+
+    parent_proc = subprocess.Popen(
+        [sys.executable, "-c", parent_script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    
+    try:
+        child_pid = -1
+        if parent_proc.stdout:
+            line = parent_proc.stdout.readline().decode('utf-8').strip()
+            assert line.startswith("READY"), f"Unexpected output: {line}"
+            child_pid = int(line.split(" ")[1])
+            
+        assert child_pid > 0
+
+        # Terminate parent abruptly using TerminateProcess (equivalent to taskkill /F)
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        h_proc = kernel32.OpenProcess(0x0001, False, parent_proc.pid)
+        if h_proc:
+            kernel32.TerminateProcess(h_proc, 1)
+            kernel32.CloseHandle(h_proc)
+        
+        parent_proc.wait(timeout=5)
+        
+        # Check if child process is still alive. It should be automatically terminated by Job Object.
+        time.sleep(1.0) # Wait a moment for OS cleanup
+        
+        h_child = kernel32.OpenProcess(0x1000, False, child_pid) # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h_child:
+            h_child = kernel32.OpenProcess(0x0400, False, child_pid) # PROCESS_QUERY_INFORMATION
+            
+        if h_child:
+            exit_code = ctypes.c_uint32()
+            res = kernel32.GetExitCodeProcess(h_child, ctypes.byref(exit_code))
+            kernel32.CloseHandle(h_child)
+            if res:
+                # 259 is STILL_ACTIVE
+                assert exit_code.value != 259, f"Child process {child_pid} is still running (orphaned)!"
+        
+    finally:
+        if parent_proc.poll() is None:
+            parent_proc.kill()
+            parent_proc.wait()
+
