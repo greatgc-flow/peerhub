@@ -350,3 +350,48 @@ class TestQuotaWiringFixed:
         assert len(cc_fresh) > 0, (
             "FIXED: --fresh should actively poll and show CC quota data"
         )
+
+
+class TestSysDirDerivedFromWorkspaceNotCwd:
+    """`_refresh_usage_projections` must derive sys_dir from `--workspace`,
+    not from the process's current working directory.
+
+    Regression guard for a real bug found 2026-08-19: the pollers were
+    called without an explicit `sys_dir`, so each one fell back to
+    `_resolve_sys_dir(None)` -- which resolves via `PEERHUB_SYS_DIR` (unset
+    in production) or `Path.cwd() / "_sys"`. `diag --workspace X` only
+    worked when the caller's cwd happened to already be `X`; from any other
+    cwd, CC/CX quota silently came back empty with no error. This test
+    deliberately runs from a *different* directory than the workspace and
+    with `PEERHUB_SYS_DIR` unset -- both `isolated_workspace` (used by every
+    other test in this file) sets, which is exactly why they never caught
+    this class of bug.
+    """
+
+    def test_diag_finds_cc_quota_from_an_unrelated_cwd(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
+
+        ws = tmp_path / "ws"
+        (ws / ".peerhub").mkdir(parents=True)
+        sys_dir = ws / "_sys"
+        (sys_dir / "data" / "temp").mkdir(parents=True)
+        _fake_claude_binary_returning_usage(sys_dir)
+
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+
+        main(["diag", "--json", "--fresh", "--workspace", str(ws)])
+        out = capsys.readouterr().out
+        snap = json.loads(out)
+
+        cc_pools = snap["peers"]["cc"]["pools"]
+        assert len(cc_pools) > 0, (
+            "BUG: CC quota came back empty because sys_dir resolution fell "
+            "back to cwd instead of the explicit --workspace argument"
+        )

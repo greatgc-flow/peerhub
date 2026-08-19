@@ -300,12 +300,19 @@ def _refresh_usage_projections(
                 ("ag", poll_agy_usage),
             )
             observations = []
+            poll_sys_dir = workspace_root / "_sys"
             for instance_id, poll in pollers:
                 if instance_id in fresh_instances:
                     continue
                 try:
                     observations.extend(
-                        poll(ids, instance_id, "standard", freshness_ttl=freshness_ttl)
+                        poll(
+                            ids,
+                            instance_id,
+                            "standard",
+                            freshness_ttl=freshness_ttl,
+                            sys_dir=poll_sys_dir,
+                        )
                     )
                 except Exception:
                     # Fail closed for this peer only; absent beats fabricated.
