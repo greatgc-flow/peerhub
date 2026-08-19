@@ -334,7 +334,7 @@ class TelemetryPresenter:
         if raw_ag:
             ctx = raw_ag.get("context_window", {})
             used_tokens = ctx.get("total_input_tokens", 0)
-            if used_tokens == 0 and "current_usage" in ctx:
+            if used_tokens == 0 and isinstance(ctx.get("current_usage"), dict):
                 cur = ctx["current_usage"]
                 used_tokens = cur.get("input_tokens", 0) + cur.get("cache_read_input_tokens", 0)
             size = ctx.get("context_window_size", 1048576)
@@ -419,7 +419,7 @@ class TelemetryPresenter:
                 cc_data["cost_str"] = f"${cost:.2f}"
             ctx = raw_cc.get("context_window", {})
             used_tokens = ctx.get("total_input_tokens", 0)
-            if used_tokens == 0 and "current_usage" in ctx:
+            if used_tokens == 0 and isinstance(ctx.get("current_usage"), dict):
                 cur = ctx["current_usage"]
                 used_tokens = cur.get("input_tokens", 0) + cur.get("cache_read_input_tokens", 0)
             size = ctx.get("context_window_size", 1000000)

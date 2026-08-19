@@ -25,6 +25,15 @@ DEFAULT_OUTPUT_PATH = gen_mod.DEFAULT_OUTPUT_PATH
 DEFAULT_SYS_DIR = gen_mod.DEFAULT_SYS_DIR
 
 
+@pytest.mark.skipif(
+    not (DEFAULT_SYS_DIR / "core" / "hub.py").exists(),
+    reason=(
+        "Legacy hub.py was removed by the 2026-08-19 Engram/peerhub separation. "
+        "This generator exists to map hub.py's surface during migration; with "
+        "the migration complete it has no target. Retire the tool or repoint it "
+        "at peerhub's own CLI surface."
+    ),
+)
 def test_generator_runs_and_produces_valid_manifest(tmp_path: Path) -> None:
     temp_output = tmp_path / "test-surface-manifest.json"
     manifest = generate_manifest(sys_dir=DEFAULT_SYS_DIR, output_path=temp_output)

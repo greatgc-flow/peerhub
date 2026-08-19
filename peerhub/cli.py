@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from peerhub.persistence.sqlite import SqliteReadUnitOfWork
+    from peerhub.telemetry.contract import UsageProjectionSnapshot
 
 from peerhub.adapters.registry import (
     ExecutableNotFoundError,
@@ -242,12 +243,98 @@ def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:
         resets_str = datetime.fromtimestamp(p.resets_at, tz=timezone.utc).isoformat() if p.resets_at else "N/A"
         print(f"{p.instance_id:<10} {p.quota_pool_scope:<30} {p.used_fraction * 100:>5.1f}%    {p.remaining_fraction * 100:>9.1f}%      {resets_str}")
 
+def _refresh_usage_projections(
+    workspace_root: Path,
+    *,
+    force: bool,
+    freshness_ttl: int = 60,
+) -> list["UsageProjectionSnapshot"]:
+    """Poll the real quota sources, persist them, and return current projections.
+
+    This is the seam that was missing: `quota_polling`'s pollers and
+    `record_usage_observations()` were fully built and tested but had no
+    caller, so CC/CX quota was always empty in a real run.
+
+    `force` (i.e. `--fresh`) polls unconditionally. Otherwise a projection
+    that is still inside `freshness_ttl` is reused as-is and no provider is
+    contacted; only stale or absent data triggers a poll.
+
+    Never raises: telemetry must not be able to take down `diag`/`status`.
+    A provider that fails simply leaves its pool honestly absent.
+    """
+    from peerhub.core.context import PathLayout, RuntimeContext
+    from peerhub.runtime import create_runtime
+    from peerhub.telemetry.quota_polling import (
+        poll_agy_usage,
+        poll_claude_usage,
+        poll_codex_usage,
+        record_usage_observations,
+    )
+
+    paths = PathLayout.for_workspace(workspace_root)
+    try:
+        context = RuntimeContext(
+            workspace_home_id=_detect_workspace_home_id(
+                paths.database_path, workspace_root.name
+            ),
+            paths=paths,
+            clock=SystemClock(),
+            ids=UuidSource(),
+        )
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            ids = context.ids
+            now = int(context.clock.now())
+
+            with runtime.state_store.read_unit_of_work() as uow:
+                existing = list(uow.list_usage_projections(None))
+
+            fresh_instances = set()
+            if not force:
+                for proj in existing:
+                    if now - proj.updated_at <= freshness_ttl:
+                        fresh_instances.add(proj.instance_id)
+
+            pollers = (
+                ("cc", poll_claude_usage),
+                ("cx", poll_codex_usage),
+                ("ag", poll_agy_usage),
+            )
+            observations = []
+            for instance_id, poll in pollers:
+                if instance_id in fresh_instances:
+                    continue
+                try:
+                    observations.extend(
+                        poll(ids, instance_id, "standard", freshness_ttl=freshness_ttl)
+                    )
+                except Exception:
+                    # Fail closed for this peer only; absent beats fabricated.
+                    continue
+
+            if observations:
+                with runtime.state_store.unit_of_work() as uow:
+                    record_usage_observations(uow, ids, observations)
+                    # SqliteUnitOfWork rolls back on exit unless committed
+                    # explicitly; without this the projections are written
+                    # inside the transaction and then discarded.
+                    uow.commit()
+
+            with runtime.state_store.read_unit_of_work() as uow:
+                return list(uow.list_usage_projections(None))
+    except Exception:
+        return []
+
+
 def _run_diag(parsed: argparse.Namespace) -> int:
     from peerhub.telemetry.presenter import TelemetryPresenter
     workspace_root = Path(parsed.workspace).resolve()
+    projections = _refresh_usage_projections(
+        workspace_root, force=bool(getattr(parsed, "fresh", False))
+    )
     presenter = TelemetryPresenter(
         use_color=False if parsed.no_color else None,
         workspace_root=workspace_root,
+        usage_projections=projections,
     )
     if parsed.live:
         try:
@@ -569,6 +656,10 @@ def main(args: list[str] | None = None) -> int:
             print("Status: OK")
 
             if getattr(parsed, "all", False) or getattr(parsed, "peer", None) is not None:
+                # Poll-on-demand: without this the projections table is only
+                # ever read, never written, so the quota table is permanently
+                # empty in a real deployment.
+                _refresh_usage_projections(workspace_root, force=False)
                 with runtime.state_store.read_unit_of_work() as uow:
                     _print_quota_table(uow, parsed.peer)
 
