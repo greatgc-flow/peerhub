@@ -1006,16 +1006,21 @@ class SqliteDispatchRepository:
             ),
         )
 
-    def count_active_leases(self) -> int:
+    def count_active_leases(self, now_ms: int | None = None) -> int:
         """Return the number of active leases."""
 
-        row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            """
+        query = """
             SELECT COUNT(*) AS active_count
             FROM leases
             WHERE state IN ('RESERVED', 'ACTIVE', 'RENEWED')
-            """
-        ).fetchone()
+        """
+        params: tuple[object, ...] = ()
+
+        if now_ms is not None:
+            query += " AND heartbeat_expires_at >= ?"
+            params = (now_ms,)
+
+        row = self._db().execute(query, params).fetchone()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         return int(row["active_count"]) if row else 0  # pyright: ignore[reportUnknownArgumentType]
 
     def cas_update_lease(

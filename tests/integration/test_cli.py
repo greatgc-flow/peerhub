@@ -103,6 +103,8 @@ def test_cli_status_with_lease(tmp_path, capsys):
         from peerhub.dispatch.contract import LeaseSnapshot, LeaseState, LeaseFenceTuple, ProcessBirthIdentity
         from peerhub.core.protocol import CommandID
         
+        now = context.clock.now()
+        
         fence = LeaseFenceTuple(
             session_id="sess-1",
             lease_id="lease-123",
@@ -112,7 +114,7 @@ def test_cli_status_with_lease(tmp_path, capsys):
             owner_instance_id="instance-1",
             owner_process_birth_identity=ProcessBirthIdentity(
                 pid=9999,
-                process_creation_time=1000,
+                process_creation_time=now - 1000,
             ),
             command_id=CommandID("cmd-123"),
             authority_epoch=1,
@@ -124,9 +126,9 @@ def test_cli_status_with_lease(tmp_path, capsys):
             session_id="sess-1",
             fence=fence,
             state=LeaseState.ACTIVE,
-            heartbeat_expires_at=2000,
-            created_at=1000,
-            updated_at=1500,
+            heartbeat_expires_at=now + 60000,
+            created_at=now - 1000,
+            updated_at=now - 500,
         )
         with runtime.state_store.unit_of_work() as uow:
             uow.add_lease(lease)

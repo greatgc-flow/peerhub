@@ -497,9 +497,9 @@ class SqliteReadUnitOfWork:
                 self._connection = None
                 self._finished = True
 
-    def count_active_leases(self) -> int:
+    def count_active_leases(self, now_ms: int | None = None) -> int:
         """Return the count of active leases."""
-        return self.dispatch.count_active_leases()
+        return self.dispatch.count_active_leases(now_ms)
 
     def get_client_request_binding(
         self,
@@ -1016,9 +1016,9 @@ class SqliteUnitOfWork:
         """Return an outbox event's immutable terminal receipt."""
         return self.governance.get_effect_receipt(outbox_event_id)
 
-    def count_active_leases(self) -> int:
+    def count_active_leases(self, now_ms: int | None = None) -> int:
         """Return the number of active leases."""
-        return self.dispatch.count_active_leases()
+        return self.dispatch.count_active_leases(now_ms)
 
     def get_client_request_binding(
         self,

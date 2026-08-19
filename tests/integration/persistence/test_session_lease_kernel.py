@@ -176,5 +176,60 @@ class TestSessionLeaseKernel(unittest.TestCase):
         )
 
 
+    def test_expired_lease_does_not_block_new_session(self) -> None:
+        key = SessionBindingKey(
+            workspace_scope_id="ws1",
+            instance_id="inst1",
+            profile_id="prof1",
+            conversation_scope="conv1",
+        )
+        
+        # 1. Create the first session
+        self.service.create_session_and_lease(
+            key,
+            LeaseCreateRequest(
+                session_id="session1",
+                owner_principal_id="user1",
+                owner_instance_id="inst1",
+                command_id=CommandID("cmd1"),
+                authority_epoch=1,
+                owner_process_birth_identity=self.process_identity,
+                heartbeat_timeout_ms=30000,
+                attempt_id="att1",
+            ),
+            adapter_fingerprint="fingerprint1",
+            readiness_binding="binding1",
+        )
+        
+        # 2. Verify active leases is 1
+        self.assertEqual(self.service.count_active_leases(), 1)
+        
+        # 3. Fast-forward clock past heartbeat_expires_at (default is +30s)
+        self.service._clock._next += 60_000
+        
+        # 4. Verify active leases is now 0 due to expiry check
+        self.assertEqual(self.service.count_active_leases(), 0)
+        
+        # 5. Create a new session with the SAME key. This should NOT throw InvalidMutationError.
+        binding, lease = self.service.create_session_and_lease(
+            key,
+            LeaseCreateRequest(
+                session_id="session2",
+                owner_principal_id="user1",
+                owner_instance_id="inst1",
+                command_id=CommandID("cmd2"),
+                authority_epoch=1,
+                owner_process_birth_identity=self.process_identity,
+                heartbeat_timeout_ms=30000,
+                attempt_id="att2",
+            ),
+            adapter_fingerprint="fingerprint2",
+            readiness_binding="binding2",
+        )
+        
+        self.assertEqual(binding.session_id, "session2")
+        self.assertEqual(lease.session_id, "session2")
+        self.assertEqual(self.service.count_active_leases(), 1)
+
 if __name__ == "__main__":
     unittest.main()

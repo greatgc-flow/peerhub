@@ -25,7 +25,7 @@ from .contract import (
 class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
     """Read-only persistence operations required by the dispatch service."""
 
-    def count_active_leases(self) -> int:
+    def count_active_leases(self, now_ms: int | None = None) -> int:
         """Return the number of active leases."""
 
         ...

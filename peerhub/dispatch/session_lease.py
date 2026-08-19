@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import replace
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -70,9 +71,15 @@ class SessionLeaseCoordinator:
         with self._store.unit_of_work() as unit:
             existing = unit.get_session_binding(key)
             if existing is not None:
-                raise InvalidMutationError(
-                    "session binding already exists for key"
-                )
+                expired = False
+                if existing.current_lease_id is not None:
+                    existing_lease = unit.get_lease(existing.current_lease_id)
+                    if existing_lease is not None and existing_lease.heartbeat_expires_at < timestamp:
+                        expired = True
+                if not expired:
+                    raise InvalidMutationError(
+                        "session binding already exists for key"
+                    )
 
             lease = create_lease(
                 lease_request,
@@ -93,7 +100,13 @@ class SessionLeaseCoordinator:
             unit.add_lease(lease)
             self._faults.hit(FaultPoint.AFTER_LEASE_WRITE)
 
-            unit.add_session_binding(binding)
+            if existing is not None:
+                binding = replace(binding, revision=existing.revision + 1)
+                if not unit.cas_update_session_binding(existing, binding):
+                    raise InvalidMutationError("CAS failure overwriting expired session binding")
+            else:
+                unit.add_session_binding(binding)
+
             self._faults.hit(
                 FaultPoint.AFTER_SESSION_BINDING_WRITE
             )

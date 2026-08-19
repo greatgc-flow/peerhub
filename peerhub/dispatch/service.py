@@ -405,8 +405,9 @@ class DispatchService:
 
     def count_active_leases(self) -> int:
         """Return the number of active leases."""
+        now_ms = self._clock.now()
         with self._store.read_unit_of_work() as unit:
-            return unit.count_active_leases()
+            return unit.count_active_leases(now_ms)
 
     def get_request_and_attempt(
         self,
