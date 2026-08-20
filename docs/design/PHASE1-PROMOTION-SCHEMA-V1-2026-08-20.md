@@ -160,6 +160,7 @@ Freshness is not just a timestamp; it is a deterministic function comparing the 
 
 ```python
 MAX_AGE_SECONDS = 86400 * 7 # 7 days maximum age for any evidence
+MAX_ALLOWED_CLOCK_SKEW_SECONDS = 3600 # 1 hour maximum allowed future clock skew
 
 def determine_evidence_state(cell, current_env) -> str:
     """
@@ -173,8 +174,22 @@ def determine_evidence_state(cell, current_env) -> str:
     if cell.attempt_outcome == "ENVIRONMENT_UNAVAILABLE":
         return "ERROR"
         
-    # Check formal age validation
-    age = current_env.current_time_utc - cell.provenance.timestamp_utc
+    # Check formal age validation and future skew bounds
+    # Both timestamps are guaranteed to be timezone-aware datetime objects in UTC
+    env_time = current_env.current_time_utc
+    cell_time = cell.provenance.timestamp_utc
+
+    # Defensive timezone alignment if necessary
+    if env_time.tzinfo is None and cell_time.tzinfo is not None:
+        env_time = env_time.replace(tzinfo=timezone.utc)
+    elif env_time.tzinfo is not None and cell_time.tzinfo is None:
+        cell_time = cell_time.replace(tzinfo=timezone.utc)
+
+    skew = (cell_time - env_time).total_seconds()
+    if skew > MAX_ALLOWED_CLOCK_SKEW_SECONDS:
+        return "ERROR"
+
+    age = env_time - cell_time
     if age.total_seconds() > MAX_AGE_SECONDS:
         return "STALE"
          
@@ -191,7 +206,7 @@ To ground the requirement rules in concrete, typed contracts matching `PHASE1-MA
 from __future__ import annotations
 from dataclasses import dataclass
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import ClassVar
 import hashlib
@@ -637,6 +652,12 @@ Promotion is a deterministic boolean rollup over the requirement states and evid
 class ProvenanceSnapshot:
     timestamp_utc: datetime
 
+    def __post_init__(self):
+        if not isinstance(self.timestamp_utc, datetime):
+            raise TypeError("provenance must carry a real timestamp_utc of the real datetime type")
+        if self.timestamp_utc.tzinfo is None or self.timestamp_utc.tzinfo.utcoffset(self.timestamp_utc) is None:
+            raise ValueError("timestamp_utc must be a timezone-aware datetime (e.g. timezone.utc)")
+
 @dataclass(frozen=True, slots=True)
 class EvidenceSnapshot:
     """Immutable snapshot descriptor for an admitted evidence cell."""
@@ -686,6 +707,8 @@ def _build_evidence_registry():
                 raise ValueError("cell_obj must have a real provenance object")
             if not isinstance(snapshot.provenance.timestamp_utc, datetime):
                 raise ValueError("provenance must carry a real timestamp_utc of the real datetime type")
+            if snapshot.provenance.timestamp_utc.tzinfo is None or snapshot.provenance.timestamp_utc.tzinfo.utcoffset(snapshot.provenance.timestamp_utc) is None:
+                raise ValueError("provenance.timestamp_utc must be a timezone-aware datetime (offset-naive datetimes are rejected)")
 
         @classmethod
         def admit(cls, cell_data: dict, max_retries: int = 10) -> str:
@@ -1187,12 +1210,12 @@ from dataclasses import field
 
 @dataclass(frozen=True)
 class MockProvenance:
-    timestamp_utc: datetime = datetime(2026, 8, 20, 22, 0, 0)
+    timestamp_utc: datetime = datetime(2026, 8, 20, 22, 0, 0, tzinfo=timezone.utc)
 
 @dataclass
 class MockEnv:
     missing_dependencies: bool = False
-    current_time_utc: datetime = datetime(2026, 8, 20, 22, 30, 0)
+    current_time_utc: datetime = datetime(2026, 8, 20, 22, 30, 0, tzinfo=timezone.utc)
 
 @dataclass
 class MockCell:
@@ -1411,8 +1434,8 @@ except Exception as e:
 
 print("\n--- 14. Freshness & Staleness Invalidation (8-Day-Old Evidence Evaluates to STALE) ---")
 # Evidence captured 8 days ago (exceeding MAX_AGE_SECONDS = 7 days)
-fresh_timestamp = datetime(2026, 8, 20, 22, 0, 0)
-stale_8d_timestamp = datetime(2026, 8, 12, 22, 0, 0)  # 8 days before evaluation time 2026-08-20T22:30:00
+fresh_timestamp = datetime(2026, 8, 20, 22, 0, 0, tzinfo=timezone.utc)
+stale_8d_timestamp = datetime(2026, 8, 12, 22, 0, 0, tzinfo=timezone.utc)  # 8 days before evaluation time 2026-08-20T22:30:00+00:00
 
 fresh_cell = MockCell(
     cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
@@ -1732,7 +1755,7 @@ non_datetime_cell = MockCell(
 try:
     EvidenceRegistry.admit({"cell_obj": non_datetime_cell})
     print("FAILED: EvidenceRegistry.admit accepted a non-datetime timestamp!")
-except ValueError as e:
+except (TypeError, ValueError) as e:
     print(f"NON-DATETIME TIMESTAMP BLOCKED: {type(e).__name__}: {e}")
 
 # C. Post-admission Mutation
@@ -1806,6 +1829,65 @@ genuine_r42_receipts = [
 promotion_r42_result = can_promote(genuine_r42_receipts, mock_env, claude_manifest_obj)
 print(f"GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: {promotion_r42_result}")
 
+print("\n--- 22. Round 42 Item 2: Timezone-Aware UTC Enforcement & Future Skew Bounds ---")
+
+# 1. Offset-naive datetime timestamp is rejected at validate_snapshot() / admit()
+naive_ts_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=datetime(2026, 8, 20, 22, 0, 0)) # naive!
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": naive_ts_cell})
+    print("FAILED: EvidenceRegistry.admit accepted an offset-naive datetime timestamp!")
+except ValueError as e:
+    print(f"OFFSET-NAIVE DATETIME BLOCKED: {type(e).__name__}: {e}")
+
+# 2. Ten-years-in-the-future timestamp evaluated to ERROR (not treated as fresh MEASURED)
+future_10y_ts = datetime(2036, 8, 20, 22, 0, 0, tzinfo=timezone.utc)
+future_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=future_10y_ts)
+)
+
+future_state = determine_evidence_state(future_cell, mock_env)
+future_receipt = EvidenceRegistry.admit({"cell_obj": future_cell})
+future_rollup = [future_receipt] + [
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))})
+]
+future_promotion = can_promote(future_rollup, mock_env, claude_manifest_obj)
+
+print(f"Ten-years-in-future cell evidence_state: {future_state}")
+print(f"FUTURE TIMESTAMP SKEW REJECTED: determine_evidence_state returned ERROR: {future_state == 'ERROR'}")
+print(f"FUTURE TIMESTAMP PROMOTION BLOCKED: can_promote returned False: {future_promotion is False}")
+
+# 3. Genuine timezone-aware recent timestamp does not crash subtraction and promotes correctly
+recent_ts = datetime(2026, 8, 20, 22, 15, 0, tzinfo=timezone.utc)
+recent_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=recent_ts)
+)
+
+recent_state = determine_evidence_state(recent_cell, mock_env)
+recent_receipt = EvidenceRegistry.admit({"cell_obj": recent_cell})
+recent_rollup = [recent_receipt] + [
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=recent_ts))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"), provenance=MockProvenance(timestamp_utc=recent_ts))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=recent_ts))})
+]
+recent_promotion = can_promote(recent_rollup, mock_env, claude_manifest_obj)
+
+print(f"Timezone-aware recent cell evidence_state: {recent_state}")
+print(f"TIMEZONE-AWARE NO CRASH: determine_evidence_state evaluated cleanly without TypeError: {recent_state == 'MEASURED'}")
+print(f"GENUINE TIMEZONE-AWARE PROMOTION SUCCESS: can_promote returned True: {recent_promotion is True}")
 ```
 
 **Output:**
@@ -1827,11 +1909,11 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_fec2eba4395fda9729ebb56712524c9a
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_1abe1da63a1f5056b7c559ad48f43d20
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_b3c19bfde9348b4faec32ae0b1c9af30
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_cda4d26b5ba183297e831668a925db02
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
 --- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---
@@ -1847,7 +1929,7 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (rcpt_b3c19bfde9348b4faec32ae0b1c9af30) digest preserved intact: True
+Earlier receipt ID (rcpt_cda4d26b5ba183297e831668a925db02) digest preserved intact: True
 Second admission detected collision and retried to fresh ID: rcpt_abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
@@ -1902,25 +1984,34 @@ GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuin
 ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
 ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
 FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
-GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: rcpt_c5b48a69e416a1d22806cbe1c0590a84
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: rcpt_e49cbbb3239f61eea6d1dd4a9defde1d
 GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
 
 --- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---
 SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must expose a real cell_key of the real CellKey type
-SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'NOT_REQUESTED', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'ENVIRONMENT_UNAVAILABLE'}
-GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_f0ad847ba92197330abbe49b5c0a9a5c
+SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'EXECUTED_PASS', 'QUOTA_BLOCKED', 'ENVIRONMENT_UNAVAILABLE', 'PRODUCT_FAILURE', 'NOT_REQUESTED'}
+GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_11f950947fa88104afcf21f7d9f97742
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
 
 --- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---
 TYPE-NAME SPOOF BLOCKED: TypeError: cell_obj must expose a real cell_key of the real CellKey type
-NON-DATETIME TIMESTAMP BLOCKED: ValueError: provenance must carry a real timestamp_utc of the real datetime type
-Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_4b872eaf9241210ba6f1b12d44cf053a
+NON-DATETIME TIMESTAMP BLOCKED: TypeError: provenance must carry a real timestamp_utc of the real datetime type
+Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_2f064869ec92b108de1e9b1f0c2c181e
 Promotion with PRODUCT_FAILURE returned: False
 Attacker mutated original cell object to EXECUTED_PASS.
 Promotion after post-admission mutation returned: False
 POST-ADMISSION MUTATION BLOCKED: Promotion result remained False despite mutation of original object.
 
 --- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---
-TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'NOT_REQUESTED', 'EXECUTED_PASS', 'QUOTA_BLOCKED', 'PRODUCT_FAILURE', 'ENVIRONMENT_UNAVAILABLE'}
+TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'NOT_REQUESTED', 'PRODUCT_FAILURE', 'QUOTA_BLOCKED', 'ENVIRONMENT_UNAVAILABLE', 'EXECUTED_PASS'}
 GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: True
+
+--- 22. Round 42 Item 2: Timezone-Aware UTC Enforcement & Future Skew Bounds ---
+OFFSET-NAIVE DATETIME BLOCKED: ValueError: timestamp_utc must be a timezone-aware datetime (e.g. timezone.utc)
+Ten-years-in-future cell evidence_state: ERROR
+FUTURE TIMESTAMP SKEW REJECTED: determine_evidence_state returned ERROR: True
+FUTURE TIMESTAMP PROMOTION BLOCKED: can_promote returned False: True
+Timezone-aware recent cell evidence_state: MEASURED
+TIMEZONE-AWARE NO CRASH: determine_evidence_state evaluated cleanly without TypeError: True
+GENUINE TIMEZONE-AWARE PROMOTION SUCCESS: can_promote returned True: True
 ```
