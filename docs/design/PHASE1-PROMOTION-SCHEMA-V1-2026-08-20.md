@@ -646,6 +646,14 @@ def determine_requirement_state(cell_key: CellKey, adapter_manifest: AdapterMani
 
 Promotion is a deterministic boolean rollup over the requirement states and evidence states of all cells. It explicitly keys requirements on the **full composite `CellKey`** (coverage case, peer binding, platform, transport, and proof kind) rather than a coarse case ID alone, ensuring that omitting one genuinely required `proof_kind` for an otherwise-covered coverage case is strictly rejected.
 
+### 7.1 EvidenceSnapshot Schema Scope & Field Projection
+
+`EvidenceSnapshot` is intentionally a **smaller, named promotion-specific projection** of the full `PromotionLedgerCell` schema defined in Section 1.1:
+
+- **Captured Fields:** It captures exactly the minimal subset of attributes required for deterministic evaluation of `can_promote()`: `cell_key` (`coverage_case_id`, `peer_binding`, `platform`, `transport`, `proof_kind`), `attempt_outcome`, `evidence_state`, and `provenance.timestamp_utc` (used for freshness, skew, and lifecycle validation in `determine_evidence_state()`).
+- **Deliberately Omitted Fields:** It omits `requirement_state` (which is computed dynamically by the promotion gate against the authoritative `AdapterManifest`), `raw_capture_protection`, `serialization_policy`, and execution-level provenance metadata (`isolation_root`, `provider_home`, `session_id`, `lease_id`, `source_tags`, `redacted_receipt_hash`).
+- **Enforcement of Omitted Fields:** These omitted evidence-integrity and execution-context fields are not evaluated during the in-memory boolean rollup; they are enforced at the ingestion and ledger-storage layers during raw receipt generation, cryptographic hashing, and persistence serialization prior to admission into the promotion evaluation pipeline.
+
 ```python
 
 @dataclass(frozen=True, slots=True)
@@ -660,7 +668,13 @@ class ProvenanceSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class EvidenceSnapshot:
-    """Immutable snapshot descriptor for an admitted evidence cell."""
+    """Immutable promotion-specific projection descriptor for an admitted evidence cell.
+    
+    Captures only the fields required for promotion rollup (cell_key, attempt_outcome,
+    evidence_state, provenance.timestamp_utc), deliberately omitting ledger-integrity
+    fields (raw_capture_protection, serialization_policy, extended provenance) which are
+    enforced at receipt ingestion and persistence layers.
+    """
     cell_key: CellKey
     attempt_outcome: str
     evidence_state: str
@@ -677,8 +691,8 @@ def _build_evidence_registry():
         malformed evidence, consistent with the threat model section's honest framing.
         It does NOT provide unforgeable provenance binding or absolute security guarantees
         against deliberate same-process tampering. It constructs a genuinely independent,
-        immutable snapshot of the cell's real data at admission time, ensuring that
-        admitted evidence strictly conforms to the schema and cannot be retroactively altered.
+        immutable promotion-specific snapshot of the cell's evaluation data at admission time,
+        validating its required projection fields so admitted evidence cannot be retroactively altered.
         """
         
         @classmethod
