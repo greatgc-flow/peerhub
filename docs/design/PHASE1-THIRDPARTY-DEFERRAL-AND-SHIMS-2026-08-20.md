@@ -114,12 +114,13 @@ def serialize_cmd_argument(arg: str) -> str:
     return '"' + ''.join(result) + '"'
 ```
 
-#### 2.5.2. Standard Shim Script Generation Template
-Generated Windows batch shims use strict environment isolation and variable assignment syntax:
-- **`@echo off`**: Suppresses command echoing to keep stdout clean for IPC/piping.
-- **`setlocal EnableExtensions DisableDelayedExpansion`**: Prevents exclamation marks `!` from triggering delayed variable expansion vulnerabilities.
-- **`set "VAR=VAL"`**: Quoting the variable assignment ensures no trailing whitespace is inadvertently appended to path variables and protects against `&` characters in paths.
-- **`%*` Argument Propagation**: Raw caller arguments are forwarded directly to the target executable.
+#### 2.5.2. Standard Shim Script Generation Template & Clean Two-Layer Quoting Separation
+Generated Windows batch shims maintain a strict separation between **batch-level variable assignment quoting** and **command-invocation quoting** to prevent syntax errors on paths containing spaces and ampersands (e.g. `D:\Engram&Peerhub\PortableDev (v2.1)`):
+
+- **Layer 1 (Batch Assignment: `set "PEERHUB_EXE=..."`)**: The assignment uses outer quotes `set "VAR=VAL"` to safely protect delimiter and control characters (`&`, `(`, `)`, spaces) during batch script evaluation, while storing the clean **unquoted** path in the variable. `serialize_cmd_argument()` (which adds argv-level enclosing quotes) must NOT be used inside `set "VAR=VAL"`, as doing so would create nested `""` that prematurely closes quotes and splits commands on `&`.
+- **Layer 2 (Command Invocation: `"%PEERHUB_EXE%"`)**: When invoking the target binary, `%PEERHUB_EXE%` is wrapped in exactly one pair of double quotes on the execution line. This ensures `cmd.exe` passes the complete, uncorrupted executable path to the OS loader.
+- **`@echo off` & `setlocal`**: Suppresses command echo and disables delayed expansion to prevent exclamation marks `!` from corrupting argument strings.
+- **`%*` Argument Propagation**: Forward caller arguments directly to the invocation line.
 
 **Canonical Generated `.bat` Shim Template:**
 ```cmd
@@ -127,7 +128,7 @@ Generated Windows batch shims use strict environment isolation and variable assi
 :: PeerHub Managed Shim - DO NOT EDIT MANUALLY
 :: Shim ID: {shim_name} | Admission Receipt: {admission_receipt_id}
 setlocal EnableExtensions DisableDelayedExpansion
-set "PEERHUB_EXE={serialized_target_exe_path}"
+set "PEERHUB_EXE={unquoted_target_exe_path}"
 "%PEERHUB_EXE%" run --profile "{profile_name}" %*
 exit /b %ERRORLEVEL%
 ```

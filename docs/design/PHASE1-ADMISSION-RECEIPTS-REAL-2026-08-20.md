@@ -195,7 +195,8 @@ When a manifest declares an entrypoint (e.g. `claude.cmd`, `codex.cmd`, `agy.exe
    * `sha256`: Uppercase hexadecimal SHA-256 digest.
    * `is_reparse_point`: Boolean check against `FILE_ATTRIBUTE_REPARSE_POINT`.
 3. **Aggregate Chain Digest Computation**:
-   To ensure deterministic binding of the complete execution closure, the `aggregate_chain_digest` is computed by sorting entries canonically by `(role, canonical_path)`, formatting `"Role:Path:SHA256\n"`, and hashing the concatenated UTF-8 payload with SHA-256.
+   To ensure deterministic binding of the complete execution closure, the `aggregate_chain_digest` is computed by sorting entries canonically by `(role, canonical_path)`, formatting each line as `"Role:Path:SHA256\n"`, and hashing the concatenated UTF-8 payload with SHA-256 (64-character uppercase hex string).
+   - **Scope Policy on Companion Binaries**: Direct runtime execution depends strictly on the core transitive execution chain (`ENTRYPOINT_WRAPPER`, `INTERPRETER`, `SCRIPT`, `NATIVE_BINARY`). The published `aggregate_chain_digest` canonically binds this direct `transitive_executable_chain` (excluding companion binaries). Auxiliary vendor binaries are recorded under `companion_binaries` as informational audit metadata (and their combined 8-file closure digest is also explicitly documented).
 4. **Pre-Spawn Revalidation**:
    Immediately before invoking `subprocess.Popen`:
    * The manifest's canonical JSON AST digest is checked.
@@ -302,7 +303,7 @@ A collision is triggered if:
       "is_reparse_point": false
     }
   ],
-  "aggregate_chain_digest": "93668EE6131CC1A26B3F245501E5687C484ACA4D49B7E96F9B2BCCE552E57339",
+  "aggregate_chain_digest": "2B34333A2864B03B029A8F414C16E2C271442C3E1D9C7334734AE6F3C2728313",
   "profiles_admitted": ["cc.standard"],
   "revalidation_policy": {
     "on_prespawn": [
@@ -422,7 +423,7 @@ A collision is triggered if:
       "sha256": "CCE5D63A096EEFB8FF4624E65F00F11553735A01D7F2789A8869E72BCF74DBA3"
     }
   ],
-  "aggregate_chain_digest": "1FBC1D7501CDCBED0036760045A39131BC329BF76EBCC59AFC825D09BF212756",
+  "aggregate_chain_digest": "5F88C287CA360A93B547CA8645BEB836CD8F322895E56CE480F1BB925F47F1AE",
   "profiles_admitted": ["cx.standard"],
   "revalidation_policy": {
     "on_prespawn": [
@@ -492,7 +493,7 @@ A collision is triggered if:
       "is_reparse_point": false
     }
   ],
-  "aggregate_chain_digest": "5F19BA6A19803C140C6F8571A4455731B32DA475D2FECACB0907E810DFA200AF",
+  "aggregate_chain_digest": "FC2F8714EE97285C06432F1287FD080ABA958C67909B68760A86F6B7BE0DE1A5",
   "profiles_admitted": ["ag.standard"],
   "revalidation_policy": {
     "on_prespawn": [

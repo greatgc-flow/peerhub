@@ -156,11 +156,11 @@ class LegacyLeaseRecord:
     ask_id: str
     peer_id: str
     pid: int
-    room_id: str
+    room_id: str | None
     started_at: str
     expires_at: str
     heartbeat_at: str | None
-    status: str  # "active", "closed", "timeout", "expired"
+    status: str  # "open", "active", "closed", "timeout", "failed", "expired"
     ask_query_file: str | None
 
 @dataclass(frozen=True, slots=True)
@@ -172,11 +172,11 @@ class MutationLeasesPayload:
 class LegacyMailboxMessage:
     """Exact model of message objects in .ai/mailbox.json."""
     id: int
-    uuid: str
+    _uuid: str
     thread_id: str
     type: str  # "MSG", "BROADCAST", "ACK"
-    sender: str
-    recipient: str
+    from_: str # mapped from "from" in JSON
+    to: str    # mapped from "to" in JSON
     cc: tuple[str, ...]
     content: str
     status: str  # "unread", "read", "archived"
@@ -290,8 +290,8 @@ class PeerHubTranslatedState:
     leases: tuple[PeerHubLeaseState, ...]
     messages: tuple[PeerHubMessageRecord, ...]
     coordinator_peer: str
-    leader_peer: str
     authority_epoch: int
+    leader_peer: str | None = None  # Intentionally unsourced; legacy leader role deprecated
 ```
 
 ---
@@ -405,11 +405,11 @@ Modeled directly on `_sys/ai/user-directives.md` (standing rules `DIR-001` throu
 
 ```python
 class DirectiveStatus(str, Enum):
-    ACTIVE = "ACTIVE"
-    SUSPENDED = "SUSPENDED"
-    RESOLVED = "RESOLVED"
-    EXPIRED = "EXPIRED"
-    REVOKED = "REVOKED"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    RESOLVED = "resolved"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
 
 @dataclass(frozen=True, slots=True)
 class UserDirectiveRecord:
@@ -417,7 +417,7 @@ class UserDirectiveRecord:
     directive_id: str                          # e.g. "DIR-001", "DIR-002"
     title: str                                 # e.g. "Minimum Non-Interactive Permissions for All Peers"
     effective_date: str                        # e.g. "2026-06-13"
-    status: DirectiveStatus                    # DirectiveStatus.ACTIVE
+    status: DirectiveStatus                    # DirectiveStatus.ACTIVE ("active")
     scope_peers: tuple[str, ...]               # e.g. ("cc", "gc", "cx", "ag")
     rule_body: str                             # Full verbatim normative rule text
     enforcement_mechanism: str | None          # e.g. "check_cli_reality.py", "AgyAdapter requires_pty"
@@ -436,9 +436,10 @@ class RuntimeDirectiveRecord:
     ttl_hours: int                             # e.g. 6
     trigger_count: int
     clear_condition: str                       # e.g. "first_success"
-    status: DirectiveStatus                    # DirectiveStatus.ACTIVE or RESOLVED
+    status: DirectiveStatus                    # DirectiveStatus.ACTIVE or RESOLVED ("active" / "resolved")
     target_peers: tuple[str, ...]              # e.g. ("cc",)
     resolved_at: str | None = None
+    last_triggered_at: str | None = None       # Recorded when recurring directive re-triggers
 
 @dataclass(frozen=True, slots=True)
 class EffectiveDirectiveRule:

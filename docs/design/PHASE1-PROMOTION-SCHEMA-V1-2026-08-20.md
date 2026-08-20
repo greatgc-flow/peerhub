@@ -23,7 +23,7 @@ The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell
         "coverage_case_id": { "type": "string", "description": "e.g., 'action.hub.ask' or 'action.hub.credit-consume'" },
         "peer_binding": { "type": "string", "description": "e.g., 'profile:cc.standard', 'profile:cx.standard', 'profile:ag.standard'" },
         "platform": { "type": "string", "description": "e.g., 'win32-x64'" },
-        "transport": { "type": "string", "description": "e.g., 'stdio' or 'pty'" },
+        "transport": { "type": "string", "enum": ["PIPE", "PTY"], "description": "e.g., 'PIPE' or 'PTY'" },
         "proof_kind": { "type": "string", "enum": ["deterministic contract or integration", "controlled real-OS executable", "live provider exact-profile", "legacy-parity evidence"] }
       },
       "required": ["coverage_case_id", "peer_binding", "platform", "transport", "proof_kind"],
@@ -80,7 +80,7 @@ The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell
 
 A Rollup groups all cells sharing the same `(coverage_case_id, peer_binding, platform, transport)` but differing in `proof_kind`. 
 
-**Contradiction Rule:** A rollup is `CONTRADICTORY` if and only if two sibling cells within the rollup have divergent deterministic `attempt_outcome`s (e.g., `proof_kind: integration` is `PASS`, but `proof_kind: dry_run` is `FAIL`), AND both have `evidence_state: MEASURED`. 
+**Contradiction Rule:** A rollup is `CONTRADICTORY` if and only if two sibling cells within the rollup have divergent deterministic `attempt_outcome`s (e.g., `proof_kind: "deterministic contract or integration"` is `PASS`, but `proof_kind: "controlled real-OS executable"` is `FAIL`), AND both have `evidence_state: MEASURED`. 
 Contradictions halt promotion and require manual resolution.
 
 ## 3. Classifier Algorithm (5-State Attempt Outcome)
@@ -124,11 +124,11 @@ Freshness is not just a timestamp; it is a deterministic function comparing the 
 ```python
 MAX_AGE_SECONDS = 86400 * 7 # 7 days maximum age for any evidence
 
-def determine_evidence_state(cell, current_env, raw_evidence) -> str:
+def determine_evidence_state(cell, current_env) -> str:
     """
     Returns one of: ["MEASURED", "ABSENT", "UNAVAILABLE", "ERROR", "STALE"]
     """
-    if cell is None or raw_evidence is None:
+    if cell is None:
         if current_env.missing_dependencies:
             return "UNAVAILABLE" # Cannot run test due to environment constraints
         return "ABSENT"          # We just haven't run it yet
@@ -141,27 +141,42 @@ def determine_evidence_state(cell, current_env, raw_evidence) -> str:
     if age.total_seconds() > MAX_AGE_SECONDS:
         return "STALE"
          
-    return "MEASURED"
+    return cell.evidence_state
 ```
 
 ## 5. Promotion Rollup Rule (`can_promote`)
 
-Promotion is a deterministic boolean rollup over the requirement states and evidence states of all cells.
+Promotion is a deterministic boolean rollup over the requirement states and evidence states of all cells. It explicitly enumerates required coverage cases and verifies that every required cell is present, measured, and passing.
 
 ```python
-def can_promote(rollup_cells: list, current_env, adapter_manifest) -> bool:
+def can_promote(rollup_cells: list, current_env, adapter_manifest, required_coverage_cases: list[str] | None = None) -> bool:
     """
-    Returns True if the rollup meets all requirements for promotion.
+    Returns True if and only if:
+    1. rollup_cells is non-empty and every required coverage case is present.
+    2. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome PASS.
+    3. Returns False if any required cell is missing, stale, unavailable, or failed.
     """
+    if not rollup_cells:
+        return False
+        
+    # Enumerate required coverage cases
+    req_cases = set(required_coverage_cases or getattr(adapter_manifest, "core_parity_requirements", []))
+    if not req_cases:
+        return False
+        
+    covered_cases: set[str] = set()
     for cell in rollup_cells:
         req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
         if req_state == "REQUIRED":
-            ev_state = determine_evidence_state(cell, current_env, cell.raw_evidence)
+            ev_state = determine_evidence_state(cell, current_env)
             if ev_state != "MEASURED":
                 return False
             if cell.attempt_outcome != "PASS":
                 return False
-    return True
+            covered_cases.add(cell.cell_key.coverage_case_id)
+            
+    # Verify completeness: 100% of required cases must be covered
+    return req_cases.issubset(covered_cases)
 ```
 
 ## 5. Cell Requirement Rules
@@ -199,28 +214,28 @@ def determine_requirement_state(cell_key, adapter_manifest) -> str:
 This maps representative actions from the 90-action Parity Ledger (`docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` through `BATCH5-2026-08-20.md`) and the three real peer adapters (`claude-peer`, `codex-peer`, `agy-peer` from `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`) into concrete `coverage_case_id`s.
 
 The table illustrates six genuinely distinct architectural situations across the parity ledger:
-1. **Core Adapter Manifest Dispatch (`ask`)**: Main prompt dispatch executing the real `claude.cmd` stdio template (`cc.standard`) and validating the JSON response envelope.
+1. **Core Adapter Manifest Dispatch (`ask`)**: Main prompt dispatch executing the real `claude.cmd` PIPE template (`cc.standard`) and validating the JSON response envelope.
 2. **Simple Read-Only Query (`credit-status`)**: Pure read-only inspection of rate-limit reset credit quota via `CodexAccountClient().read_rate_limits()`, strictly idempotent with no side effects.
 3. **Non-Idempotent / Irreversible Mutation (`credit-consume`)**: Irreversible upstream quota consumption requiring human terminal origin (`origin="terminal"`), `--confirm` flag, and UUID idempotency correlation through a 3-stage preflight/audit/verify pipeline.
 4. **Real Concurrency Race Condition (`thread-new`)**: Unlocked check-then-act defect (`path.exists()` before `path.open("a")`) verified to produce duplicate `THREAD_CREATE` headers when two peers invoke simultaneously.
 5. **Smart-Model Final Arbiter Governance (`arbiter-review`)**: DIR-005 governance action invoking `cc.fable` on split consensus rounds, strictly budget-guarded (5 reviews per 5h window).
-6. **STDIO Transport Session (`init-session`)**: Agent lifecycle initialization on stdio transport (`ag.standard`), exercising the `builtin:json-agy-v1` stream parser.
+6. **PIPE Transport Session (`init-session`)**: Agent lifecycle initialization on PIPE transport (`ag.standard`), exercising the `builtin:json-agy-v1` stream parser.
 
 | Adapter | Parity Ledger Row (Action) | Batch Citation | `coverage_case_id` | Core Parity Req? | Behavioral Scenario & Finding |
 |---|---|---|---|---|---|
-| `claude-peer` (`cc`) | `ask` (`action_ask`) | Batch 1, Action 12 | `action.hub.ask` | YES | Standard stdio peer prompt invocation (`cc.standard`); validates stdout JSON envelope and exit code. |
+| `claude-peer` (`cc`) | `ask` (`action_ask`) | Batch 1, Action 12 | `action.hub.ask` | YES | Standard PIPE peer prompt invocation (`cc.standard`); validates stdout JSON envelope and exit code. |
 | `codex-peer` (`cx`) | `credit-status` (`action_credit_status`) | Batch 5, Action 17 | `action.hub.credit-status` | YES | Pure read-only, idempotent app-server query via `CodexAccountClient`; never modifies state. |
 | `codex-peer` (`cx`) | `credit-consume` (`action_credit_consume`) | Batch 5, Action 18 | `action.hub.credit-consume` | YES | Irreversible mutation requiring human `--confirm` + canonical UUID; multi-stage preflight/audit/verify lifecycle. |
 | `claude-peer` (`cc`) / `codex-peer` (`cx`) | `thread-new` (`action_thread_new`) | Batch 5, Action 4 | `action.hub.thread-new` | YES | Check-then-act race condition (`fix-thread-new-conc-01`); concurrent creation produces duplicate `THREAD_CREATE` headers. |
 | `claude-peer` (`cc` Arbiter) | `arbiter-review` (`run_arbiter_on_round`) | Batch 5, Action 16 | `action.hub.arbiter-review` | NO (Optional) | DIR-005 smart-model final arbiter for dissenting rounds; strictly budget-limited (5/5h window). |
-| `agy-peer` (`ag`) | `init-session` (`action_init_session`) | Batch 1, Action 1 | `action.hub.init-session` | YES | Session lifecycle initialization, agent registration in `state.json`, and `_log_p2p` JOIN emission via STDIO transport (`ag.standard`). |
+| `agy-peer` (`ag`) | `init-session` (`action_init_session`) | Batch 1, Action 1 | `action.hub.init-session` | YES | Session lifecycle initialization, agent registration in `state.json`, and `_log_p2p` JOIN emission via PIPE transport (`ag.standard`). |
 
 ## 7. Worked Examples (Concrete JSON)
 
 Every worked example below uses Peerhub's real adapters, real paths from empirical host discovery (`PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20.md`), real profiles, and verified behavior from the 90-action parity ledger.
 
 ### 7.1 PASSING State: `action.hub.ask` via `claude-peer`
-Captures successful integration execution of `hub.py ask` delegating to `claude-peer` (`cc.standard`) via stdio transport.
+Captures successful integration execution of `hub.py ask` delegating to `claude-peer` (`cc.standard`) via PIPE transport.
 
 ```json
 {
@@ -228,8 +243,8 @@ Captures successful integration execution of `hub.py ask` delegating to `claude-
     "coverage_case_id": "action.hub.ask",
     "peer_binding": "profile:cc.standard",
     "platform": "win32-x64",
-    "transport": "stdio",
-    "proof_kind": "integration"
+    "transport": "PIPE",
+    "proof_kind": "deterministic contract or integration"
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "MEASURED",
@@ -257,8 +272,8 @@ Captures the execution of concurrency test fixture `fix-thread-new-conc-01` (Par
     "coverage_case_id": "action.hub.thread-new",
     "peer_binding": "profile:cc.standard",
     "platform": "win32-x64",
-    "transport": "stdio",
-    "proof_kind": "integration"
+    "transport": "PIPE",
+    "proof_kind": "deterministic contract or integration"
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "MEASURED",
@@ -286,8 +301,8 @@ Captures historical evidence for rate-limit reset credit consumption on `codex-p
     "coverage_case_id": "action.hub.credit-consume",
     "peer_binding": "profile:cx.standard",
     "platform": "win32-x64",
-    "transport": "stdio",
-    "proof_kind": "integration"
+    "transport": "PIPE",
+    "proof_kind": "deterministic contract or integration"
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "STALE",
@@ -315,8 +330,8 @@ Captures execution on a host where the target executable (`agy.exe`) is absent f
     "coverage_case_id": "action.hub.init-session",
     "peer_binding": "profile:ag.standard",
     "platform": "win32-x64",
-    "transport": "stdio",
-    "proof_kind": "integration"
+    "transport": "PIPE",
+    "proof_kind": "deterministic contract or integration"
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "UNAVAILABLE",
@@ -338,18 +353,18 @@ Captures execution on a host where the target executable (`agy.exe`) is absent f
 ### 7.5 CONTRADICTORY State: Rollup Example on `action.hub.credit-status`
 While an individual promotion cell cannot be contradictory (as `proof_kind` is an immutable part of the `cell_key`), a **Coverage Case Rollup** evaluates sibling cells for the same `(coverage_case_id, peer_binding, platform, transport)`.
 
-If the following two cells exist simultaneously for `action.hub.credit-status` (`profile:cx.standard`, `win32-x64`, `stdio`):
+If the following two cells exist simultaneously for `action.hub.credit-status` (`profile:cx.standard`, `win32-x64`, `PIPE`):
 
-**Cell A (`proof_kind: "integration"` - PASS)**
-* `proof_kind`: "integration"
+**Cell A (`proof_kind: "deterministic contract or integration"` - PASS)**
+* `proof_kind`: "deterministic contract or integration"
 * `attempt_outcome`: "PASS"
 * `evidence_state`: "MEASURED"
 *(Integration test against live app-server successfully queries rate limit quota and returns exit code 0)*
 
-**Cell B (`proof_kind: "dry_run"` - FAIL)**
-* `proof_kind`: "dry_run"
+**Cell B (`proof_kind: "controlled real-OS executable"` - FAIL)**
+* `proof_kind`: "controlled real-OS executable"
 * `attempt_outcome`: "FAIL"
 * `evidence_state`: "MEASURED"
-*(Static dry-run assertion failed because mock capability declaration in local harness config omitted `supports_reset_credits`)*
+*(Executable test assertion failed because mock capability declaration in local harness config omitted `supports_reset_credits`)*
 
-The overall rollup for `action.hub.credit-status` on `(profile:cx.standard, win32-x64, stdio)` resolves to **`CONTRADICTORY`**, halting promotion until the discrepancy between the dry-run simulation and live integration execution is investigated and resolved.
+The overall rollup for `action.hub.credit-status` on `(profile:cx.standard, win32-x64, PIPE)` resolves to **`CONTRADICTORY`**, halting promotion until the discrepancy between the executable simulation and live integration execution is investigated and resolved.

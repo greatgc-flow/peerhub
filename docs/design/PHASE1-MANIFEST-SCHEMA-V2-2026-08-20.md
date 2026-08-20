@@ -57,6 +57,10 @@ The `execution.templates` block now directly models the inputs required to build
         "adapter_id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
         "adapter_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
         "peer_kind": { "type": "string", "pattern": "^[a-z]+$" },
+        "aliases": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
         "capabilities": {
           "type": "array",
           "items": { "enum": ["SESSION", "STREAM", "GRACEFUL_CANCEL"] }
@@ -82,6 +86,10 @@ The `execution.templates` block now directly models the inputs required to build
             "resolution_rule": { "enum": ["absolute", "sibling", "path"] },
             "target": { "type": "string" }
           }
+        },
+        "shim_names": {
+          "type": "array",
+          "items": { "type": "string" }
         },
         "templates": {
           "type": "object",
@@ -118,23 +126,29 @@ The `execution.templates` block now directly models the inputs required to build
           "oneOf": [
             {
               "title": "Builtin CLI Regex Options",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["success_regex"],
               "properties": { 
                 "success_regex": { "type": "string" },
                 "error_regex": { "type": "string" }
-              },
-              "additionalProperties": false
+              }
             },
             {
               "title": "Builtin SSE Options",
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["enforce_strict_json"],
               "properties": { 
                 "enforce_strict_json": { "type": "boolean" } 
-              },
-              "additionalProperties": false
+              }
             },
             {
               "title": "Empty Options",
-              "properties": {},
-              "additionalProperties": false
+              "type": "object",
+              "additionalProperties": false,
+              "maxProperties": 0,
+              "properties": {}
             }
           ]
         }
