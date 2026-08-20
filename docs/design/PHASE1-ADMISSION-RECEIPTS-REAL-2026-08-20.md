@@ -196,7 +196,7 @@ When a manifest declares an entrypoint (e.g. `claude.cmd`, `codex.cmd`, `agy.exe
    * `is_reparse_point`: Boolean check against `FILE_ATTRIBUTE_REPARSE_POINT`.
 3. **Aggregate Chain Digest Computation**:
    To ensure deterministic binding of the complete execution closure, the `aggregate_chain_digest` is computed by sorting entries canonically by `(role, canonical_path)`, formatting each line as `"Role:Path:SHA256\n"`, and hashing the concatenated UTF-8 payload with SHA-256 (64-character uppercase hex string).
-   - **Scope Policy on Companion Binaries**: Direct runtime execution depends strictly on the core transitive execution chain (`ENTRYPOINT_WRAPPER`, `INTERPRETER`, `SCRIPT`, `NATIVE_BINARY`). The published `aggregate_chain_digest` canonically binds this direct `transitive_executable_chain` (excluding companion binaries). Auxiliary vendor binaries are recorded under `companion_binaries` as informational audit metadata (and their combined 8-file closure digest is also explicitly documented).
+   - **Scope Policy on Companion Binaries**: Direct runtime execution depends strictly on the core transitive execution chain (`ENTRYPOINT_WRAPPER`, `INTERPRETER`, `SCRIPT`, `NATIVE_BINARY`). The published `aggregate_chain_digest` canonically binds this direct `transitive_executable_chain` (excluding companion binaries). Auxiliary vendor binaries are recorded under `companion_binaries` for informational audit purposes only and are not bound to any pre-spawn revalidation guarantee.
 4. **Pre-Spawn Revalidation**:
    Immediately before invoking `subprocess.Popen`:
    * The manifest's canonical JSON AST digest is checked.

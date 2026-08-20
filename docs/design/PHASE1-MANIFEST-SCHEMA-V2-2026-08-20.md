@@ -119,40 +119,91 @@ The `execution.templates` block now directly models the inputs required to build
       "additionalProperties": false,
       "required": ["engine_id", "options"],
       "properties": {
-        "engine_id": { "type": "string", "enum": ["builtin:json-claude-v1", "builtin:jsonl-codex-v1", "builtin:json-agy-v1", "builtin:pty-legacy-v1"] },
+        "engine_id": {
+          "type": "string",
+          "enum": [
+            "builtin:json-claude-v1",
+            "builtin:jsonl-codex-v1",
+            "builtin:json-agy-v1",
+            "builtin:pty-legacy-v1"
+          ]
+        },
         "options": {
           "type": "object",
-          "description": "Explicit finite typed options per engine.",
-          "oneOf": [
-            {
-              "title": "Builtin CLI Regex Options",
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["success_regex"],
-              "properties": { 
-                "success_regex": { "type": "string" },
-                "error_regex": { "type": "string" }
-              }
-            },
-            {
-              "title": "Builtin SSE Options",
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["enforce_strict_json"],
-              "properties": { 
-                "enforce_strict_json": { "type": "boolean" } 
-              }
-            },
-            {
-              "title": "Empty Options",
-              "type": "object",
-              "additionalProperties": false,
-              "maxProperties": 0,
-              "properties": {}
-            }
-          ]
+          "description": "Explicit finite typed options per engine."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "engine_id": { "const": "builtin:json-claude-v1" } }
+          },
+          "then": {
+            "properties": {
+              "options": {
+                "title": "Builtin SSE Options",
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["enforce_strict_json"],
+                "properties": {
+                  "enforce_strict_json": { "type": "boolean" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "engine_id": { "const": "builtin:jsonl-codex-v1" } }
+          },
+          "then": {
+            "properties": {
+              "options": {
+                "title": "Empty Options",
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0,
+                "properties": {}
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "engine_id": { "const": "builtin:json-agy-v1" } }
+          },
+          "then": {
+            "properties": {
+              "options": {
+                "title": "Empty Options",
+                "type": "object",
+                "additionalProperties": false,
+                "maxProperties": 0,
+                "properties": {}
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "engine_id": { "const": "builtin:pty-legacy-v1" } }
+          },
+          "then": {
+            "properties": {
+              "options": {
+                "title": "Builtin CLI Regex Options",
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["success_regex"],
+                "properties": {
+                  "success_regex": { "type": "string" },
+                  "error_regex": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      ]
     },
     "profiles": {
       "type": "array",

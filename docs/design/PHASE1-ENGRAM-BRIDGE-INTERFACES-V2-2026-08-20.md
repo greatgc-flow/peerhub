@@ -132,10 +132,17 @@ class LegacyComponent(str, Enum):
 
 ### 3.2. Concrete Typed Legacy Payload Models
 
-These models reflect the **exact data shapes** discovered in live `.ai/state.json`, `.ai/leases.json`, and `.ai/mailbox.json`:
+These models reflect the **exact data shapes** discovered in live `.ai/state.json`, `.ai/leases.json`, `.ai/mailbox.json`, and `.ai/task_registry.json`:
 
 ```python
 from typing import Mapping, Sequence
+
+@dataclass(frozen=True, slots=True)
+class LegacyRoleAssignment:
+    """Exact model of individual role entries in .ai/state.json role_assignments."""
+    peer: str
+    status: str = "ACTIVE"
+    assigned_at: str | None = None
 
 @dataclass(frozen=True, slots=True)
 class CoordinationStatePayload:
@@ -147,7 +154,7 @@ class CoordinationStatePayload:
     phase: str | None
     active_coordinator: str | None
     human_interface_peer: str | None
-    role_assignments: dict[str, str]
+    role_assignments: dict[str, LegacyRoleAssignment]
     updated_at: str | None
 
 @dataclass(frozen=True, slots=True)
@@ -191,14 +198,21 @@ class MailboxPayload:
     unread_count: int
 
 @dataclass(frozen=True, slots=True)
+class LegacyTaskCheckpoint:
+    """Exact model of checkpoint entries in .ai/task_registry.json."""
+    peer: str
+    note: str
+    at: str
+
+@dataclass(frozen=True, slots=True)
 class LegacyTaskRecord:
+    """Exact model of individual task entries in .ai/task_registry.json."""
     task_id: str
-    title: str
-    status: str
-    assigned_peer: str | None
+    status: str  # "ACTIVE", "BLOCKED", "DONE", "TRANSFERRED"
     created_at: str
-    updated_at: str
-    checkpoint_ref: str | None
+    owner: str | None = None
+    updated_at: str | None = None
+    checkpoints: tuple[LegacyTaskCheckpoint, ...] = ()
 
 @dataclass(frozen=True, slots=True)
 class TaskRegistryPayload:

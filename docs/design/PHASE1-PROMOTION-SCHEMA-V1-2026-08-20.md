@@ -144,47 +144,92 @@ def determine_evidence_state(cell, current_env) -> str:
     return cell.evidence_state
 ```
 
-## 5. Promotion Rollup Rule (`can_promote`)
+## 5. Adapter Manifest Evaluation Context & Type Definitions
 
-Promotion is a deterministic boolean rollup over the requirement states and evidence states of all cells. It explicitly enumerates required coverage cases and verifies that every required cell is present, measured, and passing.
+To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines the `CellKey` and `AdapterManifest` structures:
 
 ```python
-def can_promote(rollup_cells: list, current_env, adapter_manifest, required_coverage_cases: list[str] | None = None) -> bool:
-    """
-    Returns True if and only if:
-    1. rollup_cells is non-empty and every required coverage case is present.
-    2. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome PASS.
-    3. Returns False if any required cell is missing, stale, unavailable, or failed.
-    """
-    if not rollup_cells:
-        return False
-        
-    # Enumerate required coverage cases
-    req_cases = set(required_coverage_cases or getattr(adapter_manifest, "core_parity_requirements", []))
-    if not req_cases:
-        return False
-        
-    covered_cases: set[str] = set()
-    for cell in rollup_cells:
-        req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
-        if req_state == "REQUIRED":
-            ev_state = determine_evidence_state(cell, current_env)
-            if ev_state != "MEASURED":
-                return False
-            if cell.attempt_outcome != "PASS":
-                return False
-            covered_cases.add(cell.cell_key.coverage_case_id)
-            
-    # Verify completeness: 100% of required cases must be covered
-    return req_cases.issubset(covered_cases)
+from __future__ import annotations
+from dataclasses import dataclass
+from datetime import datetime
+
+@dataclass(frozen=True, slots=True)
+class CellKey:
+    """The composite primary key uniquely identifying an evidence context."""
+    coverage_case_id: str
+    peer_binding: str
+    platform: str
+    transport: str  # "PIPE" | "PTY"
+    proof_kind: str  # "deterministic contract or integration" | "controlled real-OS executable" | "live provider exact-profile" | "legacy-parity evidence"
+
+    def as_tuple(self) -> tuple[str, str, str, str, str]:
+        return (
+            self.coverage_case_id,
+            self.peer_binding,
+            self.platform,
+            self.transport,
+            self.proof_kind,
+        )
+
+@dataclass(frozen=True, slots=True)
+class AdapterManifest:
+    """Documented contract of an admitted adapter manifest used during promotion evaluation."""
+    adapter_id: str
+    peer_kind: str
+    capabilities: tuple[str, ...]                   # e.g. ("SESSION", "STREAM")
+    supported_platforms: tuple[str, ...]            # e.g. ("win32-x64",)
+    supported_transports: tuple[str, ...]           # e.g. ("PIPE", "PTY")
+    core_parity_requirements: tuple[str, ...]       # e.g. ("action.hub.ask", "action.hub.thread-new")
+    required_proof_kinds: tuple[str, ...] = (
+        "deterministic contract or integration",
+        "controlled real-OS executable",
+    )
+    requires_snapshots: bool = False
+
+    def declares_capability(self, coverage_case_id: str) -> bool:
+        """Verifies whether the adapter declares capability for the given case or general actions."""
+        if "session" in coverage_case_id:
+            return "SESSION" in self.capabilities
+        if "stream" in coverage_case_id:
+            return "STREAM" in self.capabilities
+        return coverage_case_id in self.core_parity_requirements or len(self.capabilities) > 0
+
+    def supports_platform(self, platform: str) -> bool:
+        """Verifies if the target OS/architecture platform is supported."""
+        return platform in self.supported_platforms
+
+    def supports_transport(self, transport: str) -> bool:
+        """Verifies if the execution transport is supported."""
+        return transport in self.supported_transports
+
+    def get_expected_required_cell_keys(
+        self,
+        peer_binding: str,
+        platform: str = "win32-x64",
+        transport: str = "PIPE",
+    ) -> set[CellKey]:
+        """Enumerates the full composite CellKey set required for promotion."""
+        keys: set[CellKey] = set()
+        for case_id in self.core_parity_requirements:
+            for proof in self.required_proof_kinds:
+                key = CellKey(
+                    coverage_case_id=case_id,
+                    peer_binding=peer_binding,
+                    platform=platform,
+                    transport=transport,
+                    proof_kind=proof,
+                )
+                if determine_requirement_state(key, self) == "REQUIRED":
+                    keys.add(key)
+        return keys
 ```
 
-## 5. Cell Requirement Rules
+## 6. Cell Requirement Rules
 
 Determines if a cell must be tested to permit promotion.
 
 ```python
-def determine_requirement_state(cell_key, adapter_manifest) -> str:
+def determine_requirement_state(cell_key: CellKey, adapter_manifest: AdapterManifest) -> str:
     """
     Returns one of: ["REQUIRED", "OPTIONAL", "NOT_APPLICABLE"]
     """
@@ -198,18 +243,66 @@ def determine_requirement_state(cell_key, adapter_manifest) -> str:
         
     # 2. Requirement Check
     # If the coverage case is defined as a 'Core Parity Requirement' for the adapter's domain
+    # and the proof_kind is in the manifest's required proof kinds
     if cell_key.coverage_case_id in adapter_manifest.core_parity_requirements:
-        return "REQUIRED"
+        if cell_key.proof_kind in adapter_manifest.required_proof_kinds:
+            return "REQUIRED"
+        return "OPTIONAL"
         
-    # If the proof_kind is integration, it is required for core capabilities, 
-    # but snapshot might be optional.
-    if cell_key.proof_kind == "snapshot" and not adapter_manifest.requires_snapshots:
+    # Legacy-parity snapshot evidence check
+    if cell_key.proof_kind == "legacy-parity evidence" and not adapter_manifest.requires_snapshots:
         return "OPTIONAL"
         
     return "OPTIONAL"
 ```
 
-## 6. Coverage Cases and Parity Ledger Mapping
+## 7. Promotion Rollup Rule (`can_promote`)
+
+Promotion is a deterministic boolean rollup over the requirement states and evidence states of all cells. It explicitly keys requirements on the **full composite `CellKey`** (coverage case, peer binding, platform, transport, and proof kind) rather than a coarse case ID alone, ensuring that omitting one genuinely required `proof_kind` for an otherwise-covered coverage case is strictly rejected.
+
+```python
+def can_promote(
+    rollup_cells: list,
+    current_env,
+    adapter_manifest: AdapterManifest,
+    required_cell_keys: set[CellKey] | None = None,
+) -> bool:
+    """
+    Returns True if and only if:
+    1. rollup_cells is non-empty and every required composite CellKey is covered.
+    2. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome PASS.
+    3. Returns False if any required cell is missing, stale, unavailable, failed, or omitted.
+    """
+    if not rollup_cells:
+        return False
+        
+    # Enumerate full required composite CellKeys
+    expected_required: set[CellKey] = set(required_cell_keys) if required_cell_keys is not None else set()
+    if not expected_required:
+        bindings = {c.cell_key.peer_binding for c in rollup_cells}
+        for b in bindings:
+            expected_required.update(adapter_manifest.get_expected_required_cell_keys(peer_binding=b))
+            
+    if not expected_required:
+        return False
+        
+    covered_cell_keys: set[CellKey] = set()
+    for cell in rollup_cells:
+        req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
+        if req_state == "REQUIRED":
+            ev_state = determine_evidence_state(cell, current_env)
+            if ev_state != "MEASURED":
+                return False
+            if cell.attempt_outcome != "PASS":
+                return False
+            covered_cell_keys.add(cell.cell_key)
+            
+    # Verify completeness: 100% of required composite CellKeys must be covered
+    # If any required proof_kind for any coverage case is omitted, issubset returns False.
+    return expected_required.issubset(covered_cell_keys)
+```
+
+## 8. Coverage Cases and Parity Ledger Mapping
 
 This maps representative actions from the 90-action Parity Ledger (`docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` through `BATCH5-2026-08-20.md`) and the three real peer adapters (`claude-peer`, `codex-peer`, `agy-peer` from `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`) into concrete `coverage_case_id`s.
 
@@ -230,7 +323,7 @@ The table illustrates six genuinely distinct architectural situations across the
 | `claude-peer` (`cc` Arbiter) | `arbiter-review` (`run_arbiter_on_round`) | Batch 5, Action 16 | `action.hub.arbiter-review` | NO (Optional) | DIR-005 smart-model final arbiter for dissenting rounds; strictly budget-limited (5/5h window). |
 | `agy-peer` (`ag`) | `init-session` (`action_init_session`) | Batch 1, Action 1 | `action.hub.init-session` | YES | Session lifecycle initialization, agent registration in `state.json`, and `_log_p2p` JOIN emission via PIPE transport (`ag.standard`). |
 
-## 7. Worked Examples (Concrete JSON)
+## 9. Worked Examples (Concrete JSON)
 
 Every worked example below uses Peerhub's real adapters, real paths from empirical host discovery (`PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20.md`), real profiles, and verified behavior from the 90-action parity ledger.
 
