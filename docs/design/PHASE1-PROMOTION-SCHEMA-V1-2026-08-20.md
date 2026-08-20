@@ -20,7 +20,7 @@ The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "PromotionLedgerCell",
-  "description": "A single, immutable record of an evidence capture for a specific capability context.",
+  "description": "A genuinely independent, immutable snapshot of an evidence capture for a specific capability context.",
   "type": "object",
   "properties": {
     "cell_key": {
@@ -633,6 +633,18 @@ Promotion is a deterministic boolean rollup over the requirement states and evid
 
 ```python
 
+@dataclass(frozen=True, slots=True)
+class ProvenanceSnapshot:
+    timestamp_utc: datetime
+
+@dataclass(frozen=True, slots=True)
+class EvidenceSnapshot:
+    """Immutable snapshot descriptor for an admitted evidence cell."""
+    cell_key: CellKey
+    attempt_outcome: str
+    evidence_state: str
+    provenance: ProvenanceSnapshot
+
 def _build_evidence_registry():
     _store: dict[str, dict] = {}  # receipt_id -> cell dict
     _lock: threading.Lock = threading.Lock()
@@ -643,8 +655,9 @@ def _build_evidence_registry():
         This registry performs real shape and type validation against accidental or 
         malformed evidence, consistent with the threat model section's honest framing.
         It does NOT provide unforgeable provenance binding or absolute security guarantees
-        against deliberate same-process tampering. It merely ensures that admitted
-        evidence strictly conforms to the required cell schema before issuing a receipt.
+        against deliberate same-process tampering. It constructs a genuinely independent,
+        immutable snapshot of the cell's real data at admission time, ensuring that
+        admitted evidence strictly conforms to the schema and cannot be retroactively altered.
         """
         
         @classmethod
@@ -657,7 +670,7 @@ def _build_evidence_registry():
                 
             cell = cell_data["cell_obj"]
             
-            if not hasattr(cell, "cell_key") or type(cell.cell_key).__name__ != "CellKey":
+            if not hasattr(cell, "cell_key") or not isinstance(cell.cell_key, CellKey):
                 raise TypeError("cell_obj must expose a real cell_key of the real CellKey type")
                 
             ck = cell.cell_key
@@ -675,18 +688,30 @@ def _build_evidence_registry():
                 
             if not hasattr(cell, "provenance") or cell.provenance is None:
                 raise ValueError("cell_obj must have a real provenance object")
-            if not hasattr(cell.provenance, "timestamp_utc"):
-                raise ValueError("provenance must carry a real timestamp_utc")
+            if not hasattr(cell.provenance, "timestamp_utc") or not isinstance(cell.provenance.timestamp_utc, datetime):
+                raise ValueError("provenance must carry a real timestamp_utc of the real datetime type")
 
         @classmethod
         def admit(cls, cell_data: dict, max_retries: int = 10) -> str:
             cls.validate_cell(cell_data)
+            
+            # Deep snapshot: capture values into a fresh frozen EvidenceSnapshot instance.
+            cell = cell_data["cell_obj"]
+            snapshot = EvidenceSnapshot(
+                cell_key=cell.cell_key,
+                attempt_outcome=str(cell.attempt_outcome),
+                evidence_state=str(cell.evidence_state),
+                provenance=ProvenanceSnapshot(
+                    timestamp_utc=cell.provenance.timestamp_utc
+                )
+            )
+            
             # Atomic issue
             for attempt in range(max_retries):
                 candidate_id = f"ev_{secrets.token_hex(16)}"
                 with _lock:
                     if candidate_id not in _store:
-                        _store[candidate_id] = dict(cell_data)
+                        _store[candidate_id] = {"cell_obj": snapshot}
                         return candidate_id
             raise RuntimeError("Unable to generate a unique evidence receipt ID.")
             
@@ -1626,6 +1651,79 @@ genuine_receipts = [
 ]
 promotion_genuine_test = can_promote(genuine_receipts, mock_env, claude_manifest_obj)
 print(f"GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: {promotion_genuine_test}")
+
+print("\n--- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---")
+
+# A. Type-name Spoofing
+class FakeCellKeyClass:
+    def __init__(self):
+        self.coverage_case_id = "action.hub.ask"
+        self.peer_binding = "profile:cc.standard"
+        self.platform = "win32-x64"
+        self.transport = "PIPE"
+        self.proof_kind = "deterministic contract or integration"
+FakeCellKeyClass.__name__ = "CellKey"
+
+spoofed_key = FakeCellKeyClass()
+spoofed_cell = MockCell(
+    cell_key=spoofed_key, # Fake class spoofing the name "CellKey"
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": spoofed_cell})
+    print("FAILED: EvidenceRegistry.admit accepted a cell with a spoofed cell_key type!")
+except TypeError as e:
+    print(f"TYPE-NAME SPOOF BLOCKED: {type(e).__name__}: {e}")
+
+# B. Non-datetime Timestamp
+non_datetime_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc="not-a-datetime") # type: ignore
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": non_datetime_cell})
+    print("FAILED: EvidenceRegistry.admit accepted a non-datetime timestamp!")
+except ValueError as e:
+    print(f"NON-DATETIME TIMESTAMP BLOCKED: {type(e).__name__}: {e}")
+
+# C. Post-admission Mutation
+class MutableCell:
+    def __init__(self, key, outcome, state, prov):
+        self.cell_key = key
+        self.attempt_outcome = outcome
+        self.evidence_state = state
+        self.provenance = prov
+
+mutable_cell = MutableCell(
+    key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    outcome="PRODUCT_FAILURE",
+    state="MEASURED",
+    prov=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+receipt_id = EvidenceRegistry.admit({"cell_obj": mutable_cell})
+print(f"Admitted mutable cell as PRODUCT_FAILURE, got receipt: {receipt_id}")
+
+# Attempt promotion - should fail because it's PRODUCT_FAILURE
+fail_receipts = [receipt_id] + [EvidenceRegistry.admit({"cell_obj": c}) for c in genuine_cells[1:]]
+promotion_before = can_promote(fail_receipts, mock_env, claude_manifest_obj)
+print(f"Promotion with PRODUCT_FAILURE returned: {promotion_before}")
+
+# Attacker mutates the object after admission
+mutable_cell.attempt_outcome = "EXECUTED_PASS"
+print("Attacker mutated original cell object to EXECUTED_PASS.")
+
+# Attempt promotion again - should STILL fail because the registry took an immutable snapshot
+promotion_after = can_promote(fail_receipts, mock_env, claude_manifest_obj)
+print(f"Promotion after post-admission mutation returned: {promotion_after}")
+print(f"POST-ADMISSION MUTATION BLOCKED: Promotion result remained {promotion_after} despite mutation of original object.")
+
 ```
 
 **Output:**
@@ -1730,6 +1828,4 @@ SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must exp
 SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'NOT_REQUESTED', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'ENVIRONMENT_UNAVAILABLE'}
 GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_f0ad847ba92197330abbe49b5c0a9a5c
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
-``n
-``n
-`
+```
