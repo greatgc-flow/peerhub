@@ -661,7 +661,34 @@ def _build_evidence_registry():
         """
         
         @classmethod
-        def validate_cell(cls, cell_data: dict) -> None:
+        def validate_snapshot(cls, snapshot: EvidenceSnapshot) -> None:
+            if not isinstance(snapshot, EvidenceSnapshot):
+                raise TypeError("Candidate snapshot must be an EvidenceSnapshot instance")
+                
+            if not isinstance(snapshot.cell_key, CellKey):
+                raise TypeError("cell_obj must expose a real cell_key of the real CellKey type")
+                
+            ck = snapshot.cell_key
+            for field_name in ["coverage_case_id", "peer_binding", "platform", "transport", "proof_kind"]:
+                val = getattr(ck, field_name, None)
+                if not isinstance(val, str):
+                    raise TypeError(f"cell_key.{field_name} must be a string")
+                    
+            valid_outcomes = {"EXECUTED_PASS", "PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE", "NOT_REQUESTED"}
+            if snapshot.attempt_outcome not in valid_outcomes:
+                raise ValueError(f"cell_obj.attempt_outcome must be one of {valid_outcomes}")
+                
+            valid_evidence_states = {"MEASURED", "ABSENT", "UNAVAILABLE", "ERROR", "STALE"}
+            if snapshot.evidence_state not in valid_evidence_states:
+                raise ValueError(f"cell_obj.evidence_state must be one of {valid_evidence_states}")
+                
+            if snapshot.provenance is None:
+                raise ValueError("cell_obj must have a real provenance object")
+            if not isinstance(snapshot.provenance.timestamp_utc, datetime):
+                raise ValueError("provenance must carry a real timestamp_utc of the real datetime type")
+
+        @classmethod
+        def admit(cls, cell_data: dict, max_retries: int = 10) -> str:
             if not isinstance(cell_data, dict):
                 raise TypeError("cell_data must be a dictionary")
             
@@ -670,48 +697,64 @@ def _build_evidence_registry():
                 
             cell = cell_data["cell_obj"]
             
-            if not hasattr(cell, "cell_key") or not isinstance(cell.cell_key, CellKey):
+            # Read each required value off the caller's cell object exactly once
+            raw_ck = getattr(cell, "cell_key", None)
+            if raw_ck is None or not isinstance(raw_ck, CellKey):
                 raise TypeError("cell_obj must expose a real cell_key of the real CellKey type")
-                
-            ck = cell.cell_key
-            for field_name in ["coverage_case_id", "peer_binding", "platform", "transport", "proof_kind"]:
-                if not hasattr(ck, field_name) or not isinstance(getattr(ck, field_name), str):
-                    raise TypeError(f"cell_key.{field_name} must be a string")
-                    
-            valid_outcomes = {"EXECUTED_PASS", "PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE", "NOT_REQUESTED"}
-            if not hasattr(cell, "attempt_outcome") or cell.attempt_outcome not in valid_outcomes:
-                raise ValueError(f"cell_obj.attempt_outcome must be one of {valid_outcomes}")
-                
-            valid_evidence_states = {"MEASURED", "ABSENT", "UNAVAILABLE", "ERROR", "STALE"}
-            if not hasattr(cell, "evidence_state") or cell.evidence_state not in valid_evidence_states:
-                raise ValueError(f"cell_obj.evidence_state must be one of {valid_evidence_states}")
-                
-            if not hasattr(cell, "provenance") or cell.provenance is None:
-                raise ValueError("cell_obj must have a real provenance object")
-            if not hasattr(cell.provenance, "timestamp_utc") or not isinstance(cell.provenance.timestamp_utc, datetime):
-                raise ValueError("provenance must carry a real timestamp_utc of the real datetime type")
 
-        @classmethod
-        def admit(cls, cell_data: dict, max_retries: int = 10) -> str:
-            cls.validate_cell(cell_data)
-            
-            # Deep snapshot: capture values into a fresh frozen EvidenceSnapshot instance.
-            cell = cell_data["cell_obj"]
-            snapshot = EvidenceSnapshot(
-                cell_key=cell.cell_key,
-                attempt_outcome=str(cell.attempt_outcome),
-                evidence_state=str(cell.evidence_state),
-                provenance=ProvenanceSnapshot(
-                    timestamp_utc=cell.provenance.timestamp_utc
-                )
+            # Capture individual key attributes exactly once into fresh string values
+            coverage_case_id = getattr(raw_ck, "coverage_case_id", None)
+            peer_binding = getattr(raw_ck, "peer_binding", None)
+            platform = getattr(raw_ck, "platform", None)
+            transport = getattr(raw_ck, "transport", None)
+            proof_kind = getattr(raw_ck, "proof_kind", None)
+
+            for field_name, field_val in [
+                ("coverage_case_id", coverage_case_id),
+                ("peer_binding", peer_binding),
+                ("platform", platform),
+                ("transport", transport),
+                ("proof_kind", proof_kind),
+            ]:
+                if not isinstance(field_val, str):
+                    raise TypeError(f"cell_key.{field_name} must be a string")
+
+            # Reconstruct fresh CellKey from captured strings for full independence
+            fresh_cell_key = CellKey(
+                coverage_case_id=coverage_case_id,
+                peer_binding=peer_binding,
+                platform=platform,
+                transport=transport,
+                proof_kind=proof_kind,
             )
-            
+
+            raw_outcome = getattr(cell, "attempt_outcome", None)
+            raw_state = getattr(cell, "evidence_state", None)
+            raw_prov = getattr(cell, "provenance", None)
+
+            if raw_prov is None:
+                raise ValueError("cell_obj must have a real provenance object")
+            raw_ts = getattr(raw_prov, "timestamp_utc", None)
+
+            # Build candidate EvidenceSnapshot from single reads immediately
+            candidate_snapshot = EvidenceSnapshot(
+                cell_key=fresh_cell_key,
+                attempt_outcome=raw_outcome,
+                evidence_state=raw_state,
+                provenance=ProvenanceSnapshot(
+                    timestamp_utc=raw_ts
+                ),
+            )
+
+            # Run validation strictly against the already-constructed candidate snapshot
+            cls.validate_snapshot(candidate_snapshot)
+
             # Atomic issue
             for attempt in range(max_retries):
                 candidate_id = f"ev_{secrets.token_hex(16)}"
                 with _lock:
                     if candidate_id not in _store:
-                        _store[candidate_id] = {"cell_obj": snapshot}
+                        _store[candidate_id] = {"cell_obj": candidate_snapshot}
                         return candidate_id
             raise RuntimeError("Unable to generate a unique evidence receipt ID.")
             
@@ -1724,6 +1767,45 @@ promotion_after = can_promote(fail_receipts, mock_env, claude_manifest_obj)
 print(f"Promotion after post-admission mutation returned: {promotion_after}")
 print(f"POST-ADMISSION MUTATION BLOCKED: Promotion result remained {promotion_after} despite mutation of original object.")
 
+print("\n--- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---")
+
+class TOCTOUMutatingCell:
+    """Simulates a caller object whose getter returns an invalid value on first read
+    but would flip to a valid passing outcome on second read."""
+    def __init__(self, key, prov):
+        self.cell_key = key
+        self.evidence_state = "MEASURED"
+        self.provenance = prov
+        self._access_count = 0
+
+    @property
+    def attempt_outcome(self) -> str:
+        self._access_count += 1
+        if self._access_count == 1:
+            return "INVALID_MUTATED_OUTCOME"
+        return "EXECUTED_PASS"
+
+toctou_cell = TOCTOUMutatingCell(
+    key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    prov=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": toctou_cell})
+    print("FAILED: TOCTOU mutating getter cell was admitted!")
+except ValueError as e:
+    print(f"TOCTOU CHANGING GETTER BLOCKED: {type(e).__name__}: {e}")
+
+# Verify genuine properly-shaped cell still admits and promotes correctly
+genuine_r42_receipts = [
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))})
+]
+promotion_r42_result = can_promote(genuine_r42_receipts, mock_env, claude_manifest_obj)
+print(f"GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: {promotion_r42_result}")
+
 ```
 
 **Output:**
@@ -1828,4 +1910,17 @@ SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must exp
 SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'NOT_REQUESTED', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'ENVIRONMENT_UNAVAILABLE'}
 GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_f0ad847ba92197330abbe49b5c0a9a5c
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
+
+--- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---
+TYPE-NAME SPOOF BLOCKED: TypeError: cell_obj must expose a real cell_key of the real CellKey type
+NON-DATETIME TIMESTAMP BLOCKED: ValueError: provenance must carry a real timestamp_utc of the real datetime type
+Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_4b872eaf9241210ba6f1b12d44cf053a
+Promotion with PRODUCT_FAILURE returned: False
+Attacker mutated original cell object to EXECUTED_PASS.
+Promotion after post-admission mutation returned: False
+POST-ADMISSION MUTATION BLOCKED: Promotion result remained False despite mutation of original object.
+
+--- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---
+TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'NOT_REQUESTED', 'EXECUTED_PASS', 'QUOTA_BLOCKED', 'PRODUCT_FAILURE', 'ENVIRONMENT_UNAVAILABLE'}
+GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: True
 ```
