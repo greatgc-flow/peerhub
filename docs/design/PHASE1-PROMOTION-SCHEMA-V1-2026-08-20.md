@@ -189,11 +189,36 @@ import secrets
 
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
 
-@dataclass(frozen=True, slots=True)
-class AdmissionReceiptRef:
-    """Reference to an admitted receipt carrying the authenticated manifest content digest."""
-    receipt_id: str
-    manifest_canonical_sha256: str
+class AdmissionRegistry:
+    """Minimal trusted registry for admitted manifests.
+    
+    Populated exclusively during a real admission event. It computes and stores 
+    the canonical digest of a validated manifest under a newly issued, opaque 
+    receipt ID. The registry is the only trusted source for linking a receipt ID 
+    to a digest, preventing callers from supplying their own digests as proof.
+    """
+    _store: dict[str, str] = {}  # receipt_id -> canonical_sha256
+
+    @classmethod
+    def admit(cls, raw_manifest: dict) -> str:
+        """Admission lifecycle: Validates manifest, computes canonical digest over FULL document, issues receipt ID."""
+        if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest:
+            raise ValueError("Invalid manifest structure for admission.")
+        
+        digest = AdapterManifest.canonical_digest(raw_manifest)
+        receipt_id = f"rcpt_{secrets.token_hex(8)}"
+        cls._store[receipt_id] = digest
+        return receipt_id
+
+    @classmethod
+    def get_trusted_digest(cls, receipt_id: str) -> str:
+        """Promotion lifecycle: Looks up the trusted digest by registry-issued receipt ID."""
+        if not isinstance(receipt_id, str):
+            raise TypeError("receipt_id must be a string")
+        digest = cls._store.get(receipt_id)
+        if digest is None:
+            raise ValueError(f"Unknown admission receipt ID: {receipt_id}")
+        return digest
 
 @dataclass(frozen=True, slots=True)
 class CellKey:
@@ -246,21 +271,19 @@ class AdapterManifest:
             )
 
     @staticmethod
-    def canonical_digest(manifest_dict_or_adapter_block: dict) -> str:
+    def canonical_digest(raw_manifest: dict) -> str:
         """Computes the unambiguous, deterministic SHA-256 hex digest over canonical JSON.
 
-        Canonicalization rule:
-        1. If the input contains an 'adapter' key, canonicalize the 'adapter' block dictionary.
-           Otherwise canonicalize the given dictionary directly.
-        2. Serialize to UTF-8 encoded JSON with sorted keys (sort_keys=True) and compact delimiters
-           separators=(',', ':') with ensure_ascii=False.
-        3. Compute SHA-256 over the UTF-8 bytes and return uppercase hexadecimal string.
+        Canonicalization rule (Full Manifest Scope):
+        1. Serialize the full manifest document to UTF-8 encoded JSON with sorted keys
+           (sort_keys=True) and compact delimiters separators=(',', ':') with ensure_ascii=False.
+        2. Compute SHA-256 over the UTF-8 bytes and return uppercase hexadecimal string.
         """
-        if not isinstance(manifest_dict_or_adapter_block, dict):
-            raise TypeError(f"Payload must be a dict, got {type(manifest_dict_or_adapter_block).__name__}.")
-        target = manifest_dict_or_adapter_block.get("adapter", manifest_dict_or_adapter_block)
+        if not isinstance(raw_manifest, dict):
+            raise TypeError(f"Payload must be a dict, got {type(raw_manifest).__name__}.")
+        
         canonical_bytes = json.dumps(
-            target,
+            raw_manifest,
             sort_keys=True,
             separators=(",", ":"),
             ensure_ascii=False,
@@ -271,34 +294,25 @@ class AdapterManifest:
     def from_manifest(
         cls,
         raw_manifest: dict,
-        admission_receipt: dict | AdmissionReceiptRef | str,
+        admission_receipt_id: str,
     ) -> AdapterManifest:
         """Constructs this contract strictly by validating schema shape, verifying canonical
-        digest authenticity against a real admission receipt reference, and reading fields."""
+        digest authenticity via the trusted AdmissionRegistry, and reading fields.
+        
+        The caller MUST provide a valid, registry-issued admission_receipt_id.
+        The registry itself provides the expected digest, closing the forgery gap.
+        """
         if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest:
             raise ValueError("raw_manifest must be an admitted manifest dict containing an 'adapter' block.")
 
-        # 1. Resolve expected manifest digest from admission receipt reference
-        if isinstance(admission_receipt, str):
-            expected_digest = admission_receipt.strip().upper()
-        elif isinstance(admission_receipt, AdmissionReceiptRef):
-            expected_digest = admission_receipt.manifest_canonical_sha256.strip().upper()
-        elif isinstance(admission_receipt, dict):
-            if "manifest_binding" in admission_receipt and isinstance(admission_receipt["manifest_binding"], dict):
-                expected_digest = admission_receipt["manifest_binding"].get("manifest_canonical_sha256")
-            else:
-                expected_digest = admission_receipt.get("manifest_canonical_sha256")
-            if not expected_digest or not isinstance(expected_digest, str):
-                raise ValueError("admission_receipt dict must contain 'manifest_binding.manifest_canonical_sha256' or 'manifest_canonical_sha256'.")
-            expected_digest = expected_digest.strip().upper()
-        else:
-            raise TypeError(f"admission_receipt must be a dict, AdmissionReceiptRef, or hex string digest, got {type(admission_receipt).__name__}.")
+        # 1. Look up trusted digest from the registry using the opaque ID
+        expected_digest = AdmissionRegistry.get_trusted_digest(admission_receipt_id)
 
-        # 2. Recompute canonical digest over given manifest content and verify provenance / authenticity
+        # 2. Recompute canonical digest over FULL manifest content and verify authenticity
         recomputed_digest = cls.canonical_digest(raw_manifest)
         if recomputed_digest != expected_digest:
             raise ValueError(
-                f"Manifest admission digest mismatch! Receipt vouches for digest '{expected_digest}', "
+                f"Manifest admission digest mismatch! Registry expects digest '{expected_digest}', "
                 f"but recomputed canonical digest over provided manifest is '{recomputed_digest}'. "
                 "Manifest is either unadmitted, forged, or tampered with."
             )
@@ -657,3 +671,159 @@ If the following two cells exist simultaneously for `action.hub.credit-status` (
 *(Executable test assertion failed because mock capability declaration in local harness config omitted `supports_reset_credits`)*
 
 The overall rollup for `action.hub.credit-status` on `(profile:cx.standard, win32-x64, PIPE)` resolves to **`CONTRADICTORY`**, halting promotion until the discrepancy between the executable simulation and live integration execution is investigated and resolved.
+
+
+## 10. Round 23 Execution Trace (Registry Provenance)
+
+```python
+import json
+import hashlib
+import secrets
+from dataclasses import dataclass
+from contextvars import ContextVar
+from typing import ClassVar
+
+_active_manifest_token: ContextVar[str | None] = ContextVar('_active_manifest_token', default=None)
+
+class AdmissionRegistry:
+    _store: dict[str, str] = {}
+
+    @classmethod
+    def admit(cls, raw_manifest: dict) -> str:
+        if not isinstance(raw_manifest, dict) or 'adapter' not in raw_manifest:
+            raise ValueError('Invalid manifest structure for admission.')
+        digest = AdapterManifest.canonical_digest(raw_manifest)
+        receipt_id = f'rcpt_{secrets.token_hex(8)}'
+        cls._store[receipt_id] = digest
+        return receipt_id
+
+    @classmethod
+    def get_trusted_digest(cls, receipt_id: str) -> str:
+        if not isinstance(receipt_id, str):
+            raise TypeError('receipt_id must be a string')
+        digest = cls._store.get(receipt_id)
+        if digest is None:
+            raise ValueError(f'Unknown admission receipt ID: {receipt_id}')
+        return digest
+
+@dataclass(frozen=True, slots=True)
+class AdapterManifest:
+    adapter_id: str
+    peer_kind: str
+    capabilities: tuple[str, ...]
+    supported_platforms: tuple[str, ...]
+    supported_transports: tuple[str, ...]
+    core_parity_requirements: tuple[str, ...]
+    required_proof_kinds: tuple[str, ...]
+    requires_snapshots: bool
+    _token: str | None = None
+
+    def __post_init__(self):
+        active_token = _active_manifest_token.get()
+        if self._token is None or active_token is None or self._token != active_token:
+            raise TypeError('Direct construction prohibited.')
+
+    @staticmethod
+    def canonical_digest(raw_manifest: dict) -> str:
+        if not isinstance(raw_manifest, dict):
+            raise TypeError(f'Payload must be a dict, got {type(raw_manifest).__name__}.')
+        canonical_bytes = json.dumps(
+            raw_manifest, sort_keys=True, separators=(',', ':'), ensure_ascii=False
+        ).encode('utf-8')
+        return hashlib.sha256(canonical_bytes).hexdigest().upper()
+
+    @classmethod
+    def from_manifest(cls, raw_manifest: dict, admission_receipt_id: str) -> 'AdapterManifest':
+        if not isinstance(raw_manifest, dict) or 'adapter' not in raw_manifest:
+            raise ValueError('raw_manifest must be an admitted manifest dict containing an \'adapter\' block.')
+        expected_digest = AdmissionRegistry.get_trusted_digest(admission_receipt_id)
+        recomputed_digest = cls.canonical_digest(raw_manifest)
+        if recomputed_digest != expected_digest:
+            raise ValueError(f'Manifest admission digest mismatch! Registry expects digest {expected_digest}, but recomputed is {recomputed_digest}.')
+
+        adapter = raw_manifest['adapter']
+        token = secrets.token_hex(32)
+        reset_token = _active_manifest_token.set(token)
+        try:
+            return cls(
+                adapter_id=adapter['adapter_id'],
+                peer_kind=adapter['peer_kind'],
+                capabilities=tuple(adapter['capabilities']),
+                supported_platforms=tuple(adapter['supported_platforms']),
+                supported_transports=tuple(adapter['supported_transports']),
+                core_parity_requirements=tuple(adapter['core_parity_requirements']),
+                required_proof_kinds=tuple(adapter['required_proof_kinds']),
+                requires_snapshots=adapter['requires_snapshots'],
+                _token=token,
+            )
+        finally:
+            _active_manifest_token.reset(reset_token)
+
+print('--- 1. Genuine admission and promotion ---')
+valid_manifest = {
+    'adapter': {
+        'adapter_id': 'test-adapter',
+        'peer_kind': 'test',
+        'capabilities': ['STREAM'],
+        'supported_platforms': ['win32-x64'],
+        'supported_transports': ['PIPE'],
+        'core_parity_requirements': ['action.hub.ask'],
+        'required_proof_kinds': ['integration'],
+        'requires_snapshots': False
+    },
+    'version': '1.0'
+}
+# Admission
+receipt_id = AdmissionRegistry.admit(valid_manifest)
+print(f'Admitted manifest, got receipt: {receipt_id}')
+# Promotion
+try:
+    manifest_obj = AdapterManifest.from_manifest(valid_manifest, receipt_id)
+    print(f'SUCCESS: Constructed {manifest_obj.adapter_id} with genuine receipt.')
+except Exception as e:
+    print(f'ERROR: {e}')
+
+print('\n--- 2. Forgery attempt (supplying own digest as receipt ID) ---')
+forged_manifest = {
+    'adapter': {
+        'adapter_id': 'forged-adapter',
+        'peer_kind': 'forged',
+        'capabilities': [],
+        'supported_platforms': [],
+        'supported_transports': [],
+        'core_parity_requirements': [],
+        'required_proof_kinds': [],
+        'requires_snapshots': False
+    }
+}
+# Attacker computes digest themselves
+forged_digest = AdapterManifest.canonical_digest(forged_manifest)
+try:
+    AdapterManifest.from_manifest(forged_manifest, forged_digest)
+    print('SUCCESS: Forgery worked! (This should not happen)')
+except Exception as e:
+    print(f'BLOCKED: {type(e).__name__}: {e}')
+
+print('\n--- 3. Syntactically well-formed but unknown receipt ID ---')
+unknown_receipt_id = 'rcpt_0000000000000000'
+try:
+    AdapterManifest.from_manifest(valid_manifest, unknown_receipt_id)
+    print('SUCCESS: Unknown receipt worked! (This should not happen)')
+except Exception as e:
+    print(f'BLOCKED: {type(e).__name__}: {e}')
+
+```
+
+**Output:**
+
+```
+--- 1. Genuine admission and promotion ---
+Admitted manifest, got receipt: rcpt_dab1e28f6ed7b3c9
+SUCCESS: Constructed test-adapter with genuine receipt.
+
+--- 2. Forgery attempt (supplying own digest as receipt ID) ---
+BLOCKED: ValueError: Unknown admission receipt ID: 7BBD89AD087F28EB04800F69722765616821F61806534C5E7A0FF7A870D4ED04
+
+--- 3. Syntactically well-formed but unknown receipt ID ---
+BLOCKED: ValueError: Unknown admission receipt ID: rcpt_0000000000000000
+```
