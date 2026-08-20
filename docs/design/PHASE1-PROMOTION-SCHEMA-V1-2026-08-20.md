@@ -3,6 +3,13 @@
 
 This document defines the machine-readable schema, enumeration rules, state transitions, and deterministic algorithms for the Peerhub Promotion Ledger. This replaces the previous descriptive prose with a concrete, computable model.
 
+
+## 0. Scope and Threat Model
+
+This document specifies the machine-readable schema, enumeration rules, state transitions, and deterministic algorithms for the Peerhub Promotion Ledger. The mechanisms described herein (such as the construction-guard token, the admission registry's closure-scoped storage, and the evidence registry) exist solely to prevent accidental, careless, or naive misuse by legitimate code operating in good faith. 
+
+They do **not** provide a real security boundary against an adversary who already has arbitrary code execution capabilities inside the same Python interpreter. No purely in-process Python mechanism can ever provide a genuine absolute security boundary against a fully compromised or deliberately hostile process already running inside the same interpreter. Achieving real protection against that specific threat would require moving trust enforcement outside the Python process entirely (e.g., using OS-level process separation), which this document does not attempt and should not claim to achieve.
+
 ## 1. Machine-Readable Schema
 
 The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell uniquely identifies a test execution context and its outcome. 
@@ -233,7 +240,7 @@ def _build_admission_registry():
         of a fully validated manifest under a newly issued, collision-safe receipt ID 
         (128-bit random token with atomic concurrency lock and uniqueness retry checks).
         The registry is the only trusted source for linking a receipt ID to a digest,
-        preventing callers from supplying their own digests as proof.
+        discouraging callers from accidentally supplying their own digests as proof.
 
         The backing store and lock are encapsulated inside a closure rather than exposed
         as public or mutable class attributes. Direct external writes (such as
@@ -417,7 +424,7 @@ class AdapterManifest:
         out of the admitted manifest into independent, immutable ProfileDescriptor snapshots.
         
         The caller MUST provide a valid, registry-issued admission_receipt_id.
-        The registry itself provides the expected digest, closing the forgery gap.
+        The registry itself provides the expected digest, closing the accidental forgery gap.
         """
         if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest or "profiles" not in raw_manifest:
             raise ValueError("raw_manifest must be an admitted manifest dict containing 'adapter' and 'profiles' blocks.")
@@ -431,7 +438,7 @@ class AdapterManifest:
             raise ValueError(
                 f"Manifest admission digest mismatch! Registry expects digest '{expected_digest}', "
                 f"but recomputed canonical digest over provided manifest is '{recomputed_digest}'. "
-                "Manifest is either unadmitted, forged, or tampered with."
+                "Manifest is either unadmitted, fabricated, or unintentionally modified."
             )
 
         adapter = raw_manifest["adapter"]
@@ -625,8 +632,41 @@ def determine_requirement_state(cell_key: CellKey, adapter_manifest: AdapterMani
 Promotion is a deterministic boolean rollup over the requirement states and evidence states of all cells. It explicitly keys requirements on the **full composite `CellKey`** (coverage case, peer binding, platform, transport, and proof kind) rather than a coarse case ID alone, ensuring that omitting one genuinely required `proof_kind` for an otherwise-covered coverage case is strictly rejected.
 
 ```python
+
+def _build_evidence_registry():
+    _store: dict[str, dict] = {}  # receipt_id -> cell dict
+    _lock: threading.Lock = threading.Lock()
+
+    class EvidenceRegistry:
+        """Minimal registry for admitted evidence cells."""
+        
+        @classmethod
+        def admit(cls, cell_data: dict, max_retries: int = 10) -> str:
+            # Atomic issue
+            for attempt in range(max_retries):
+                candidate_id = f"ev_{secrets.token_hex(16)}"
+                with _lock:
+                    if candidate_id not in _store:
+                        _store[candidate_id] = dict(cell_data)
+                        return candidate_id
+            raise RuntimeError("Unable to generate a unique evidence receipt ID.")
+            
+        @classmethod
+        def get_trusted_cell(cls, receipt_id: str) -> dict:
+            if not isinstance(receipt_id, str):
+                raise TypeError("receipt_id must be a string")
+            with _lock:
+                cell_data = _store.get(receipt_id)
+            if cell_data is None:
+                raise ValueError(f"Unknown evidence receipt ID: {receipt_id}")
+            return dict(cell_data)
+
+    return EvidenceRegistry
+
+EvidenceRegistry = _build_evidence_registry()
+
 def can_promote(
-    rollup_cells: list,
+    evidence_receipts: list[str],
     current_env,
     adapter_manifest: AdapterManifest,
     required_cell_keys: set[CellKey] | None = None,
@@ -645,10 +685,19 @@ def can_promote(
     6. Returns False if any cell carries an unadmitted/fabricated peer_binding, or if any required cell
        is missing, stale, unavailable, failed, omitted, or contradicted by a divergent sibling cell.
     """
-    if not rollup_cells:
+    if not evidence_receipts:
         return False
 
-    # 1. Reject any rollup cell whose peer_binding does not correspond to a real admitted profile
+    # 1. Look up trusted cell objects from EvidenceRegistry
+    rollup_cells = []
+    for receipt_id in evidence_receipts:
+        try:
+            cell_data = EvidenceRegistry.get_trusted_cell(receipt_id)
+            rollup_cells.append(cell_data["cell_obj"])
+        except ValueError:
+            return False
+
+    # 2. Reject any rollup cell whose peer_binding does not correspond to a real admitted profile
     for cell in rollup_cells:
         if not adapter_manifest.is_valid_peer_binding(cell.cell_key.peer_binding):
             return False
@@ -1078,8 +1127,10 @@ fabricated_cells = [
     )),
 ]
 
+fabricated_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in fabricated_cells]
+
 mock_env = MockEnv()
-promotion_result_fabricated = can_promote(fabricated_cells, mock_env, claude_manifest_obj)
+promotion_result_fabricated = can_promote(fabricated_receipts, mock_env, claude_manifest_obj)
 print(f"can_promote(fabricated_cells) returned: {promotion_result_fabricated}")
 print(f"ATTACK BLOCKED: Fabricated peer_binding rejected by can_promote: {promotion_result_fabricated is False}")
 
@@ -1116,7 +1167,9 @@ genuine_cells = [
     )),
 ]
 
-promotion_result_genuine = can_promote(genuine_cells, mock_env, claude_manifest_obj)
+genuine_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in genuine_cells]
+
+promotion_result_genuine = can_promote(genuine_receipts, mock_env, claude_manifest_obj)
 print(f"can_promote(genuine_cells) returned: {promotion_result_genuine}")
 print(f"GENUINE PROMOTION SUCCESS: Admitted profile correctly promoted: {promotion_result_genuine is True}")
 
@@ -1128,7 +1181,9 @@ mixed_cells = genuine_cells + [MockCell(CellKey(
     transport="PIPE",
     proof_kind="deterministic contract or integration",
 ))]
-promotion_result_mixed = can_promote(mixed_cells, mock_env, claude_manifest_obj)
+
+mixed_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in mixed_cells]
+promotion_result_mixed = can_promote(mixed_receipts, mock_env, claude_manifest_obj)
 print(f"can_promote(mixed_cells) returned: {promotion_result_mixed}")
 print(f"MIXED INJECTION BLOCKED: Unadmitted cell rejected: {promotion_result_mixed is False}")
 
@@ -1281,7 +1336,9 @@ stale_rollup_cells = [
     MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration")),
     MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable")),
 ]
-promotion_result_stale = can_promote(stale_rollup_cells, mock_env, claude_manifest_obj)
+
+stale_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in stale_rollup_cells]
+promotion_result_stale = can_promote(stale_receipts, mock_env, claude_manifest_obj)
 print(f"can_promote(stale_rollup_cells) with 8-day-old cell returned: {promotion_result_stale}")
 print(f"STALE PROMOTION BLOCKED: can_promote rejected stale evidence: {promotion_result_stale is False}")
 
@@ -1290,13 +1347,15 @@ print("\n--- 15. Round 31 Trust Boundary: caller-supplied required_cell_keys can
 one_cell_override = {CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration")}
 only_one_passing_cell = [MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"))]
 
-promotion_override_result = can_promote(only_one_passing_cell, mock_env, claude_manifest_obj, required_cell_keys=one_cell_override)
+only_one_passing_receipt = [EvidenceRegistry.admit({"cell_obj": c}) for c in only_one_passing_cell]
+
+promotion_override_result = can_promote(only_one_passing_receipt, mock_env, claude_manifest_obj, required_cell_keys=one_cell_override)
 print(f"can_promote with 1-cell override subset but only 1 cell provided: {promotion_override_result}")
 print(f"REQUIRED SET OVERRIDE BLOCKED: 100% manifest requirement enforcement held: {promotion_override_result is False}")
 
 # Caller provides an invalid non-manifest requirement key
 invalid_override = {CellKey("action.hub.unadmitted", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration")}
-promotion_invalid_override = can_promote(genuine_cells, mock_env, claude_manifest_obj, required_cell_keys=invalid_override)
+promotion_invalid_override = can_promote(genuine_receipts, mock_env, claude_manifest_obj, required_cell_keys=invalid_override)
 print(f"can_promote with non-manifest requirement override: {promotion_invalid_override}")
 print(f"NON-SUBSET OVERRIDE REJECTED: Caller cannot inject arbitrary requirements: {promotion_invalid_override is False}")
 
@@ -1333,7 +1392,9 @@ pipe_cells_for_pty = [
     MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PIPE", "deterministic contract or integration")),
     MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PIPE", "controlled real-OS executable")),
 ]
-promotion_pipe_on_pty = can_promote(pipe_cells_for_pty, mock_env, pty_manifest_obj)
+
+pipe_receipts_for_pty = [EvidenceRegistry.admit({"cell_obj": c}) for c in pipe_cells_for_pty]
+promotion_pipe_on_pty = can_promote(pipe_receipts_for_pty, mock_env, pty_manifest_obj)
 print(f"can_promote(pipe_cells_for_pty) returned: {promotion_pipe_on_pty}")
 print(f"TRANSPORT MISMATCH BLOCKED: PIPE evidence cannot satisfy PTY profile requirement: {promotion_pipe_on_pty is False}")
 
@@ -1344,7 +1405,9 @@ genuine_pty_cells = [
     MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PTY", "deterministic contract or integration")),
     MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PTY", "controlled real-OS executable")),
 ]
-promotion_genuine_pty = can_promote(genuine_pty_cells, mock_env, pty_manifest_obj)
+
+genuine_pty_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in genuine_pty_cells]
+promotion_genuine_pty = can_promote(genuine_pty_receipts, mock_env, pty_manifest_obj)
 print(f"can_promote(genuine_pty_cells) returned: {promotion_genuine_pty}")
 print(f"GENUINE PTY PROMOTION SUCCESS: PTY evidence satisfies PTY profile requirement: {promotion_genuine_pty is True}")
 
@@ -1404,7 +1467,9 @@ injected_cells = [
     MockCell(CellKey("action.hub.thread-new", "profile:cc.injected_post_admission", "win32-x64", "PIPE", "deterministic contract or integration")),
     MockCell(CellKey("action.hub.thread-new", "profile:cc.injected_post_admission", "win32-x64", "PIPE", "controlled real-OS executable")),
 ]
-promotion_injected = can_promote(injected_cells, mock_env, snapshot_manifest_obj)
+
+injected_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in injected_cells]
+promotion_injected = can_promote(injected_receipts, mock_env, snapshot_manifest_obj)
 print(f"can_promote(injected_cells) with mutated binding returned: {promotion_injected}")
 print(f"MUTATION INJECTION BLOCKED: Post-admission mutation cannot achieve promotion: {promotion_injected is False}")
 
@@ -1415,7 +1480,9 @@ original_cells = [
     MockCell(CellKey("action.hub.thread-new", "profile:cc.original", "win32-x64", "PIPE", "deterministic contract or integration")),
     MockCell(CellKey("action.hub.thread-new", "profile:cc.original", "win32-x64", "PIPE", "controlled real-OS executable")),
 ]
-promotion_original = can_promote(original_cells, mock_env, snapshot_manifest_obj)
+
+original_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in original_cells]
+promotion_original = can_promote(original_receipts, mock_env, snapshot_manifest_obj)
 print(f"can_promote(original_cells) with original binding returned: {promotion_original}")
 print(f"GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuine evidence: {promotion_original is True}")
 
