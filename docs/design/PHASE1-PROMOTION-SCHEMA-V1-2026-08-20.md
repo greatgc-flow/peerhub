@@ -41,8 +41,8 @@ The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell
     },
     "attempt_outcome": {
       "type": "string",
-      "enum": ["PASS", "FAIL", "HARNESS_FAILURE", "UNTESTED"],
-      "description": "The deterministic result of the execution."
+      "enum": ["EXECUTED_PASS", "PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE", "NOT_REQUESTED"],
+      "description": "The deterministic result of the execution matching the Phase 1 Test Taxonomy V3 five-state classifier."
     },
     "provenance": {
       "type": "object",
@@ -80,41 +80,71 @@ The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell
 
 A Rollup groups all cells sharing the same `(coverage_case_id, peer_binding, platform, transport)` but differing in `proof_kind`. 
 
-**Contradiction Rule:** A rollup is `CONTRADICTORY` if and only if two sibling cells within the rollup have divergent deterministic `attempt_outcome`s (e.g., `proof_kind: "deterministic contract or integration"` is `PASS`, but `proof_kind: "controlled real-OS executable"` is `FAIL`), AND both have `evidence_state: MEASURED`. 
+**Contradiction Rule:** A rollup is `CONTRADICTORY` if and only if two sibling cells within the rollup have divergent deterministic `attempt_outcome`s (e.g., `proof_kind: "deterministic contract or integration"` is `EXECUTED_PASS`, but `proof_kind: "controlled real-OS executable"` is `PRODUCT_FAILURE`), AND both have `evidence_state: MEASURED`. 
 Contradictions halt promotion and require manual resolution.
 
 ## 3. Classifier Algorithm (5-State Attempt Outcome)
 
-The classifier maps raw execution evidence to exactly one unambiguous attempt outcome, resolving precedence when multiple conditions apply simultaneously.
+The classifier maps raw execution evidence to exactly one unambiguous attempt outcome matching `PHASE1-TEST-TAXONOMY-V3-2026-08-20.md` Section 3, resolving precedence when multiple conditions apply simultaneously.
+
+### 3.1 Taxonomy State & Reason Code Mapping Table
+
+| Taxonomy State | Meaning & Precedence | Trigger Conditions / Reason Codes | Promotion Gate Effect |
+|---|---|---|---|
+| `QUOTA_BLOCKED` | Remote provider rate limits or quota exhaustion (Precedence 1) | `QUOTA_BLOCKED`, `quota_exhausted=True`, HTTP 429 | Blocks promotion (Transient/External) |
+| `ENVIRONMENT_UNAVAILABLE` | Infrastructure, missing binary, auth/network/provider outage, harness crash (Precedence 2) | `MISSING_EXECUTABLE`, `AUTHENTICATION_FAILURE`, `NETWORK_FAILURE`, `PROVIDER_OUTAGE`, `HARNESS_FAILURE`, `HARNESS_CRASH`, `MALFORMED_OUTPUT`, `exit_code == -1`, `timeout_exceeded` | Blocks promotion (`ERROR` state) |
+| `PRODUCT_FAILURE` | Explicit test assertion or product logic failure (Precedence 3) | `ASSERTION_FAILED`, `PRODUCT_FAILURE`, `exit_code != 0` (clean run, failed logic) | Hard-halts promotion (Product Defect) |
+| `EXECUTED_PASS` | Clean execution and successful assertions (Precedence 4) | `exit_code == 0`, valid receipt, assertions passed | Permits promotion when all required cells pass |
+| `NOT_REQUESTED` | Test was omitted or not requested (Precedence 5) | `raw_evidence is None`, omitted probe | Neutral / Absent |
+
+### 3.2 Classifier Implementation
 
 ```python
 def classify_evidence(raw_evidence) -> str:
     """
-    Returns one of: ["HARNESS_FAILURE", "FAIL", "PASS", "UNTESTED"]
+    Classifies raw execution evidence into one of the canonical 5 taxonomy states:
+    - EXECUTED_PASS: Clean execution with successful assertions.
+    - PRODUCT_FAILURE: Explicit test assertion or product logic failure.
+    - QUOTA_BLOCKED: Remote provider rate limits or quota exhaustion.
+    - ENVIRONMENT_UNAVAILABLE: Missing local dependencies/binaries, auth failure, network down, provider outage, or harness failure.
+    - NOT_REQUESTED: Test was omitted or not requested.
     """
     if raw_evidence is None:
-        return "UNTESTED"
+        return "NOT_REQUESTED"
         
-    # PRECEDENCE 1: Infrastructure, timeout, or harness crash.
-    # The test environment itself blew up; we cannot trust any output.
-    if raw_evidence.exit_code == -1 or "HARNESS_CRASH" in raw_evidence.reason_codes or raw_evidence.timeout_exceeded:
-        return "HARNESS_FAILURE"
+    reason_codes = set(getattr(raw_evidence, "reason_codes", []))
+    
+    # PRECEDENCE 1: Quota / Rate-limit blockage
+    if "QUOTA_BLOCKED" in reason_codes or getattr(raw_evidence, "quota_exhausted", False):
+        return "QUOTA_BLOCKED"
         
-    # PRECEDENCE 2: Silent failures, missing receipts, or malformed assertions.
-    # The test ran, but the required validation artifacts were not produced.
-    if not raw_evidence.has_valid_redacted_receipt or "MALFORMED_OUTPUT" in raw_evidence.reason_codes:
-        return "HARNESS_FAILURE"
+    # PRECEDENCE 2: Environment unavailability / Harness failure / Missing dependencies
+    env_unavail_codes = {
+        "MISSING_EXECUTABLE",
+        "AUTHENTICATION_FAILURE",
+        "NETWORK_FAILURE",
+        "PROVIDER_OUTAGE",
+        "HARNESS_FAILURE",
+        "HARNESS_CRASH",
+        "MALFORMED_OUTPUT"
+    }
+    if (
+        raw_evidence.exit_code == -1
+        or raw_evidence.timeout_exceeded
+        or not getattr(raw_evidence, "has_valid_redacted_receipt", True)
+        or bool(reason_codes & env_unavail_codes)
+    ):
+        return "ENVIRONMENT_UNAVAILABLE"
         
-    # PRECEDENCE 3: Explicit test assertion failure.
-    # The test executed cleanly but the business logic failed.
-    if raw_evidence.exit_code != 0 or "ASSERTION_FAILED" in raw_evidence.reason_codes:
-        return "FAIL"
+    # PRECEDENCE 3: Explicit test assertion failure / Product defect
+    if raw_evidence.exit_code != 0 or "ASSERTION_FAILED" in reason_codes or "PRODUCT_FAILURE" in reason_codes:
+        return "PRODUCT_FAILURE"
         
-    # PRECEDENCE 4: Clean execution and successful assertions.
+    # PRECEDENCE 4: Clean execution and successful assertions
     if raw_evidence.exit_code == 0:
-        return "PASS"
+        return "EXECUTED_PASS"
         
-    return "UNTESTED"
+    return "NOT_REQUESTED"
 ```
 
 ## 4. Freshness and Invalidation Rules
@@ -133,7 +163,7 @@ def determine_evidence_state(cell, current_env) -> str:
             return "UNAVAILABLE" # Cannot run test due to environment constraints
         return "ABSENT"          # We just haven't run it yet
         
-    if cell.attempt_outcome == "HARNESS_FAILURE":
+    if cell.attempt_outcome in ("ENVIRONMENT_UNAVAILABLE", "HARNESS_FAILURE"):
         return "ERROR"
         
     # Check formal age validation
@@ -171,9 +201,14 @@ class CellKey:
             self.proof_kind,
         )
 
+_ADMITTED_MANIFEST_TOKEN = object()
+
 @dataclass(frozen=True, slots=True)
 class AdapterManifest:
-    """Documented contract of an admitted adapter manifest used during promotion evaluation."""
+    """Documented contract of an admitted adapter manifest used during promotion evaluation.
+    Enforces deterministic construction exclusively from an admitted manifest schema instance.
+    Direct manual construction with arbitrary or conflicting values is strictly blocked.
+    """
     adapter_id: str
     peer_kind: str
     capabilities: tuple[str, ...]
@@ -182,20 +217,44 @@ class AdapterManifest:
     core_parity_requirements: tuple[str, ...]
     required_proof_kinds: tuple[str, ...]
     requires_snapshots: bool
+    _token: object = None
+
+    def __post_init__(self):
+        if self._token is not _ADMITTED_MANIFEST_TOKEN:
+            raise TypeError(
+                "AdapterManifest direct construction is prohibited to guarantee promotion determinism. "
+                "Instances must be traceably constructed via AdapterManifest.from_manifest(admitted_manifest_dict)."
+            )
 
     @classmethod
     def from_manifest(cls, raw_manifest: dict) -> AdapterManifest:
-        """Constructs this contract strictly by reading the real fields out of an admitted manifest instance."""
+        """Constructs this contract strictly by validating and reading fields from an admitted manifest instance."""
+        if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest:
+            raise ValueError("raw_manifest must be an admitted manifest dict containing an 'adapter' block.")
         adapter = raw_manifest["adapter"]
+        required_keys = (
+            "adapter_id",
+            "peer_kind",
+            "capabilities",
+            "supported_platforms",
+            "supported_transports",
+            "core_parity_requirements",
+            "required_proof_kinds",
+            "requires_snapshots",
+        )
+        missing = [k for k in required_keys if k not in adapter]
+        if missing:
+            raise ValueError(f"Admitted manifest missing required policy fields: {missing}")
         return cls(
             adapter_id=adapter["adapter_id"],
             peer_kind=adapter["peer_kind"],
-            capabilities=tuple(adapter.get("capabilities", [])),
-            supported_platforms=tuple(adapter.get("supported_platforms", [])),
-            supported_transports=tuple(adapter.get("supported_transports", [])),
-            core_parity_requirements=tuple(adapter.get("core_parity_requirements", [])),
-            required_proof_kinds=tuple(adapter.get("required_proof_kinds", [])),
-            requires_snapshots=adapter.get("requires_snapshots", False)
+            capabilities=tuple(adapter["capabilities"]),
+            supported_platforms=tuple(adapter["supported_platforms"]),
+            supported_transports=tuple(adapter["supported_transports"]),
+            core_parity_requirements=tuple(adapter["core_parity_requirements"]),
+            required_proof_kinds=tuple(adapter["required_proof_kinds"]),
+            requires_snapshots=bool(adapter["requires_snapshots"]),
+            _token=_ADMITTED_MANIFEST_TOKEN,
         )
 
     def declares_capability(self, coverage_case_id: str) -> bool:
@@ -282,13 +341,42 @@ def can_promote(
     """
     Returns True if and only if:
     1. rollup_cells is non-empty and every required composite CellKey is covered.
-    2. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome PASS.
-    3. Returns False if any required cell is missing, stale, unavailable, failed, or omitted.
+    2. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome EXECUTED_PASS.
+    3. Contradiction Guard: No sibling cell within the same rollup context (same coverage_case_id,
+       peer_binding, platform, transport) has a measured failure (PRODUCT_FAILURE) or divergent
+       contradictory outcome against a passing sibling cell.
+    4. Returns False if any required cell is missing, stale, unavailable, failed, omitted,
+       or contradicted by a failing sibling cell.
     """
     if not rollup_cells:
         return False
         
-    # Enumerate full required composite CellKeys
+    # Group cells by coverage rollup context: (coverage_case_id, peer_binding, platform, transport)
+    rollup_groups: dict[tuple[str, str, str, str], list] = {}
+    for cell in rollup_cells:
+        group_key = (
+            cell.cell_key.coverage_case_id,
+            cell.cell_key.peer_binding,
+            cell.cell_key.platform,
+            cell.cell_key.transport,
+        )
+        rollup_groups.setdefault(group_key, []).append(cell)
+
+    # 1. Contradiction & Measured Sibling Failure Detection
+    for group_key, cells in rollup_groups.items():
+        measured_cells = [
+            c for c in cells
+            if determine_evidence_state(c, current_env) == "MEASURED"
+        ]
+        has_pass = any(c.attempt_outcome == "EXECUTED_PASS" for c in measured_cells)
+        has_product_failure = any(c.attempt_outcome == "PRODUCT_FAILURE" for c in measured_cells)
+        
+        # If any sibling proof measured a product failure, or if a passing cell is contradicted
+        # by a failing sibling cell, the rollup is contradictory/failed and promotion halts.
+        if has_product_failure or (has_pass and any(c.attempt_outcome in ("PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE") for c in measured_cells if c.attempt_outcome != "EXECUTED_PASS")):
+            return False
+
+    # 2. Enumerate full required composite CellKeys
     expected_required: set[CellKey] = set(required_cell_keys) if required_cell_keys is not None else set()
     if not expected_required:
         bindings = {c.cell_key.peer_binding for c in rollup_cells}
@@ -298,6 +386,7 @@ def can_promote(
     if not expected_required:
         return False
         
+    # 3. Verify completeness: 100% of required composite CellKeys must be covered and passing
     covered_cell_keys: set[CellKey] = set()
     for cell in rollup_cells:
         req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
@@ -305,11 +394,10 @@ def can_promote(
             ev_state = determine_evidence_state(cell, current_env)
             if ev_state != "MEASURED":
                 return False
-            if cell.attempt_outcome != "PASS":
+            if cell.attempt_outcome != "EXECUTED_PASS":
                 return False
             covered_cell_keys.add(cell.cell_key)
             
-    # Verify completeness: 100% of required composite CellKeys must be covered
     # If any required proof_kind for any coverage case is omitted, issubset returns False.
     return expected_required.issubset(covered_cell_keys)
 ```
@@ -353,7 +441,7 @@ Captures successful integration execution of `hub.py ask` delegating to `claude-
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "MEASURED",
-  "attempt_outcome": "PASS",
+  "attempt_outcome": "EXECUTED_PASS",
   "provenance": {
     "timestamp_utc": "2026-08-20T22:30:00Z",
     "isolation_root": "P:/workspace/peerhub/.sandbox/run-1029",
@@ -382,7 +470,7 @@ Captures the execution of concurrency test fixture `fix-thread-new-conc-01` (Par
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "MEASURED",
-  "attempt_outcome": "FAIL",
+  "attempt_outcome": "PRODUCT_FAILURE",
   "provenance": {
     "timestamp_utc": "2026-08-20T22:31:00Z",
     "isolation_root": "P:/workspace/peerhub/.sandbox/run-1030",
@@ -411,7 +499,7 @@ Captures historical evidence for rate-limit reset credit consumption on `codex-p
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "STALE",
-  "attempt_outcome": "PASS",
+  "attempt_outcome": "EXECUTED_PASS",
   "provenance": {
     "timestamp_utc": "2026-08-01T10:00:00Z",
     "isolation_root": "P:/workspace/peerhub/.sandbox/run-0050",
@@ -440,7 +528,7 @@ Captures execution on a host where the target executable (`agy.exe`) is absent f
   },
   "requirement_state": "REQUIRED",
   "evidence_state": "UNAVAILABLE",
-  "attempt_outcome": "UNTESTED",
+  "attempt_outcome": "ENVIRONMENT_UNAVAILABLE",
   "provenance": {
     "timestamp_utc": "2026-08-20T22:35:00Z",
     "isolation_root": "N/A",
@@ -460,15 +548,15 @@ While an individual promotion cell cannot be contradictory (as `proof_kind` is a
 
 If the following two cells exist simultaneously for `action.hub.credit-status` (`profile:cx.standard`, `win32-x64`, `PIPE`):
 
-**Cell A (`proof_kind: "deterministic contract or integration"` - PASS)**
+**Cell A (`proof_kind: "deterministic contract or integration"` - EXECUTED_PASS)**
 * `proof_kind`: "deterministic contract or integration"
-* `attempt_outcome`: "PASS"
+* `attempt_outcome`: "EXECUTED_PASS"
 * `evidence_state`: "MEASURED"
 *(Integration test against live app-server successfully queries rate limit quota and returns exit code 0)*
 
-**Cell B (`proof_kind: "controlled real-OS executable"` - FAIL)**
+**Cell B (`proof_kind: "controlled real-OS executable"` - PRODUCT_FAILURE)**
 * `proof_kind`: "controlled real-OS executable"
-* `attempt_outcome`: "FAIL"
+* `attempt_outcome`: "PRODUCT_FAILURE"
 * `evidence_state`: "MEASURED"
 *(Executable test assertion failed because mock capability declaration in local harness config omitted `supports_reset_credits`)*
 
