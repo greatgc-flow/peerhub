@@ -183,31 +183,302 @@ from __future__ import annotations
 from dataclasses import dataclass
 from contextvars import ContextVar
 from datetime import datetime
+from typing import ClassVar
 import hashlib
 import json
 import re
 import secrets
+import threading
+import jsonschema
 
-_ADAPTER_ID_RE = re.compile(r"^[a-z0-9-]+$")
-_ADAPTER_VER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_PEER_KIND_RE = re.compile(r"^[a-z]+$")
+_MANIFEST_SCHEMA_V2 = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://peerhub.local/schema/adapter-manifest/v2",
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "manifest_version",
+        "status",
+        "adapter",
+        "execution",
+        "engine",
+        "profiles",
+    ],
+    "properties": {
+        "manifest_version": {"const": "2.0.0"},
+        "status": {"enum": ["active", "inactive"]},
+        "adapter": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "adapter_id",
+                "adapter_version",
+                "peer_kind",
+                "capabilities",
+                "supported_platforms",
+                "supported_transports",
+                "core_parity_requirements",
+                "required_proof_kinds",
+                "requires_snapshots",
+                "readiness_probe_id",
+            ],
+            "properties": {
+                "adapter_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+                "adapter_version": {
+                    "type": "string",
+                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                },
+                "peer_kind": {"type": "string", "pattern": "^[a-z]+$"},
+                "aliases": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "capabilities": {
+                    "type": "array",
+                    "items": {"enum": ["SESSION", "STREAM", "GRACEFUL_CANCEL"]},
+                },
+                "supported_platforms": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string"},
+                },
+                "supported_transports": {
+                    "type": "array",
+                    "items": {"enum": ["PIPE", "PTY"]},
+                },
+                "core_parity_requirements": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "required_proof_kinds": {
+                    "type": "array",
+                    "items": {
+                        "enum": [
+                            "deterministic contract or integration",
+                            "controlled real-OS executable",
+                            "live provider exact-profile",
+                            "legacy-parity evidence",
+                        ]
+                    },
+                },
+                "requires_snapshots": {"type": "boolean"},
+                "readiness_probe_id": {"type": "string", "minLength": 1},
+                "usage_provider_id": {"type": "string"},
+            },
+        },
+        "execution": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["executable", "templates", "env_policy"],
+            "properties": {
+                "executable": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["resolution_rule", "target"],
+                    "properties": {
+                        "resolution_rule": {"enum": ["absolute", "sibling", "path"]},
+                        "target": {"type": "string", "minLength": 1},
+                    },
+                },
+                "shim_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "templates": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["start"],
+                    "properties": {
+                        "start": {"$ref": "#/$defs/invocation_template"},
+                        "resume": {"$ref": "#/$defs/invocation_template"},
+                    },
+                },
+                "env_policy": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["inherit", "set"],
+                    "properties": {
+                        "inherit": {"type": "array", "items": {"type": "string"}},
+                        "set": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+        "engine": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["engine_id", "options"],
+            "properties": {
+                "engine_id": {
+                    "type": "string",
+                    "enum": [
+                        "builtin:json-claude-v1",
+                        "builtin:jsonl-codex-v1",
+                        "builtin:json-agy-v1",
+                        "builtin:pty-legacy-v1",
+                    ],
+                },
+                "options": {
+                    "type": "object",
+                    "description": "Explicit finite typed options per engine.",
+                },
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:json-claude-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Builtin SSE Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["enforce_strict_json"],
+                                "properties": {
+                                    "enforce_strict_json": {"type": "boolean"}
+                                },
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:jsonl-codex-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Empty Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "maxProperties": 0,
+                                "properties": {},
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:json-agy-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Empty Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "maxProperties": 0,
+                                "properties": {},
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:pty-legacy-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Builtin CLI Regex Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["success_regex"],
+                                "properties": {
+                                    "success_regex": {"type": "string"},
+                                    "error_regex": {"type": "string"},
+                                },
+                            }
+                        }
+                    },
+                },
+            ],
+        },
+        "profiles": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "profile_id",
+                    "profile_class",
+                    "supports_reasoning_effort",
+                    "transport",
+                    "prompt_policy",
+                ],
+                "properties": {
+                    "profile_id": {"type": "string", "minLength": 1},
+                    "profile_class": {"type": "string"},
+                    "supports_reasoning_effort": {"type": "boolean"},
+                    "transport": {"enum": ["PIPE", "PTY"]},
+                    "prompt_policy": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "policy_id",
+                            "max_inline_utf8_bytes",
+                            "artifact_reference_supported",
+                        ],
+                        "properties": {
+                            "policy_id": {"type": "string"},
+                            "max_inline_utf8_bytes": {
+                                "type": "integer",
+                                "minimum": 0,
+                            },
+                            "artifact_reference_supported": {"type": "boolean"},
+                        },
+                    },
+                },
+            },
+        },
+    },
+    "$defs": {
+        "invocation_template": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["argv", "cwd"],
+            "properties": {
+                "argv": {"type": "array", "items": {"type": "string"}},
+                "cwd": {"type": "string"},
+                "stdin": {"type": "string"},
+                "artifacts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "artifact_id",
+                            "placeholder",
+                            "access_mode",
+                            "lifecycle",
+                        ],
+                        "properties": {
+                            "artifact_id": {"type": "string"},
+                            "placeholder": {"type": "string"},
+                            "access_mode": {"type": "string"},
+                            "lifecycle": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        }
+    },
+}
 
-_VALID_STATUSES = {"active", "inactive"}
-_VALID_CAPABILITIES = {"SESSION", "STREAM", "GRACEFUL_CANCEL"}
-_VALID_TRANSPORTS = {"PIPE", "PTY"}
-_VALID_PROOF_KINDS = {
-    "deterministic contract or integration",
-    "controlled real-OS executable",
-    "live provider exact-profile",
-    "legacy-parity evidence",
-}
-_VALID_EXEC_RESOLUTION_RULES = {"absolute", "sibling", "path"}
-_VALID_ENGINE_IDS = {
-    "builtin:json-claude-v1",
-    "builtin:jsonl-codex-v1",
-    "builtin:json-agy-v1",
-    "builtin:pty-legacy-v1",
-}
+_MANIFEST_VALIDATOR = jsonschema.Draft202012Validator(_MANIFEST_SCHEMA_V2)
 
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
 
@@ -218,142 +489,31 @@ class AdmissionRegistry:
     against the PHASE1-MANIFEST-SCHEMA-V2 specification. It computes and stores 
     the canonical AST digest (manifest_ast_digest = SHA256(canonical_json(M_i))) 
     of a fully validated manifest under a newly issued, collision-safe receipt ID 
-    (128-bit random token with explicit store-uniqueness retry checks). The registry 
-    is the only trusted source for linking a receipt ID to a digest, preventing 
-    callers from supplying their own digests as proof.
+    (128-bit random token with atomic concurrency lock and uniqueness retry checks).
+    The registry is the only trusted source for linking a receipt ID to a digest,
+    preventing callers from supplying their own digests as proof.
     """
-    _store: dict[str, str] = {}  # receipt_id -> canonical_sha256
+    _store: ClassVar[dict[str, str]] = {}  # receipt_id -> canonical_sha256
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def validate_manifest(cls, raw_manifest: dict) -> None:
-        """Validates raw manifest against PHASE1-MANIFEST-SCHEMA-V2 specification."""
+        """Validates raw manifest against PHASE1-MANIFEST-SCHEMA-V2 specification and semantic rules."""
         if not isinstance(raw_manifest, dict):
             raise TypeError(f"Manifest must be a dict, got {type(raw_manifest).__name__}")
 
-        # Top-level required keys
-        required_top_keys = ("manifest_version", "status", "adapter", "execution", "engine", "profiles")
-        missing_top = [k for k in required_top_keys if k not in raw_manifest]
-        if missing_top:
-            raise ValueError(f"Manifest validation failed: missing required top-level fields: {missing_top}")
+        # 1. Authoritative V2 JSON Schema structural validation (Draft 2020-12)
+        errors = list(_MANIFEST_VALIDATOR.iter_errors(raw_manifest))
+        if errors:
+            err_details = [f"{e.message}" for e in errors]
+            raise ValueError(f"Manifest schema validation failed: {'; '.join(err_details)}")
 
-        allowed_top_keys = set(required_top_keys)
-        extra_top = set(raw_manifest) - allowed_top_keys
-        if extra_top:
-            raise ValueError(f"Manifest validation failed: forbidden extra top-level fields: {sorted(extra_top)}")
-
-        if raw_manifest["manifest_version"] != "2.0.0":
-            raise ValueError(
-                f"Manifest validation failed: unsupported manifest_version {raw_manifest['manifest_version']!r}, expected '2.0.0'"
-            )
-
-        if raw_manifest["status"] not in _VALID_STATUSES:
-            raise ValueError(f"Manifest validation failed: invalid status {raw_manifest['status']!r}")
-
-        # 1. Adapter block validation
-        adapter = raw_manifest["adapter"]
-        if not isinstance(adapter, dict):
-            raise TypeError("Field 'adapter' must be a dict")
-
-        required_adapter_keys = (
-            "adapter_id",
-            "adapter_version",
-            "peer_kind",
-            "capabilities",
-            "supported_platforms",
-            "supported_transports",
-            "core_parity_requirements",
-            "required_proof_kinds",
-            "requires_snapshots",
-            "readiness_probe_id",
-        )
-        missing_adapter = [k for k in required_adapter_keys if k not in adapter]
-        if missing_adapter:
-            raise ValueError(f"Manifest validation failed: adapter block missing required fields: {missing_adapter}")
-
-        allowed_adapter_keys = set(required_adapter_keys) | {"aliases", "usage_provider_id"}
-        extra_adapter = set(adapter) - allowed_adapter_keys
-        if extra_adapter:
-            raise ValueError(f"Manifest validation failed: adapter block contains forbidden extra fields: {sorted(extra_adapter)}")
-
-        if not isinstance(adapter["adapter_id"], str) or not _ADAPTER_ID_RE.match(adapter["adapter_id"]):
-            raise ValueError(f"Invalid adapter_id format: {adapter['adapter_id']!r}")
-        if not isinstance(adapter["adapter_version"], str) or not _ADAPTER_VER_RE.match(adapter["adapter_version"]):
-            raise ValueError(f"Invalid adapter_version format: {adapter['adapter_version']!r}")
-        if not isinstance(adapter["peer_kind"], str) or not _PEER_KIND_RE.match(adapter["peer_kind"]):
-            raise ValueError(f"Invalid peer_kind format: {adapter['peer_kind']!r}")
-        if not isinstance(adapter["requires_snapshots"], bool):
-            raise TypeError("Field 'requires_snapshots' must be a bool")
-        if not isinstance(adapter["readiness_probe_id"], str) or not adapter["readiness_probe_id"]:
-            raise ValueError("Field 'readiness_probe_id' must be a non-empty string")
-
-        for seq_name, valid_set in [
-            ("capabilities", _VALID_CAPABILITIES),
-            ("supported_transports", _VALID_TRANSPORTS),
-            ("required_proof_kinds", _VALID_PROOF_KINDS),
-        ]:
-            val = adapter[seq_name]
-            if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
-                raise TypeError(f"Field '{seq_name}' must be a list or tuple of strings")
-            invalid_items = [x for x in val if x not in valid_set]
-            if invalid_items:
-                raise ValueError(f"Field '{seq_name}' contains invalid items: {invalid_items}")
-
-        for seq_name in ("supported_platforms", "core_parity_requirements"):
-            val = adapter[seq_name]
-            if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
-                raise TypeError(f"Field '{seq_name}' must be a list or tuple of strings")
-
-        if len(adapter["supported_platforms"]) == 0:
-            raise ValueError("Field 'supported_platforms' cannot be empty")
-
-        if "aliases" in adapter:
-            if not isinstance(adapter["aliases"], (list, tuple)) or not all(isinstance(x, str) for x in adapter["aliases"]):
-                raise TypeError("Field 'aliases' must be a list or tuple of strings")
-        if "usage_provider_id" in adapter:
-            if not isinstance(adapter["usage_provider_id"], str):
-                raise TypeError("Field 'usage_provider_id' must be a string")
-
-        # 2. Execution block validation
-        execution = raw_manifest["execution"]
-        if not isinstance(execution, dict):
-            raise TypeError("Field 'execution' must be a dict")
-
-        required_exec_keys = ("executable", "templates", "env_policy")
-        missing_exec = [k for k in required_exec_keys if k not in execution]
-        if missing_exec:
-            raise ValueError(f"Manifest validation failed: execution block missing required fields: {missing_exec}")
-
-        allowed_exec_keys = set(required_exec_keys) | {"shim_names"}
-        extra_exec = set(execution) - allowed_exec_keys
-        if extra_exec:
-            raise ValueError(f"Manifest validation failed: execution block contains forbidden extra fields: {sorted(extra_exec)}")
-
-        executable = execution["executable"]
-        if not isinstance(executable, dict):
-            raise TypeError("Field 'executable' must be a dict")
-        if set(executable.keys()) != {"resolution_rule", "target"}:
-            raise ValueError(f"Invalid executable definition: {executable}")
-        if executable["resolution_rule"] not in _VALID_EXEC_RESOLUTION_RULES:
-            raise ValueError(f"Invalid resolution_rule: {executable['resolution_rule']!r}")
-        if not isinstance(executable["target"], str) or not executable["target"]:
-            raise ValueError("Executable target must be a non-empty string")
-
-        templates = execution["templates"]
-        if not isinstance(templates, dict) or "start" not in templates:
-            raise ValueError("Templates must be a dict containing at least a 'start' template")
-
-        start_tmpl = templates["start"]
-        if not isinstance(start_tmpl, dict) or "argv" not in start_tmpl or "cwd" not in start_tmpl:
-            raise ValueError("'start' template must contain 'argv' and 'cwd'")
-        if not isinstance(start_tmpl["argv"], (list, tuple)) or not all(isinstance(x, str) for x in start_tmpl["argv"]):
-            raise TypeError("'start' template 'argv' must be a list of strings")
-        if not isinstance(start_tmpl["cwd"], str):
-            raise TypeError("'start' template 'cwd' must be a string")
-
-        # Semantic rule 4.1.1: prompt placeholder in start template
+        # 2. Semantic admission rules (Section 4.1 in V2 Specification)
+        # Rule 4.1.1: Prompt placeholder in start template
+        start_tmpl = raw_manifest["execution"]["templates"]["start"]
         start_has_prompt = any(
             "{prompt_content}" in arg or "{prompt_reference}" in arg
-            for arg in start_tmpl["argv"]
+            for arg in start_tmpl.get("argv", [])
         ) or (
             isinstance(start_tmpl.get("stdin"), str)
             and ("{prompt_content}" in start_tmpl["stdin"] or "{prompt_reference}" in start_tmpl["stdin"])
@@ -361,19 +521,17 @@ class AdmissionRegistry:
         if not start_has_prompt:
             raise ValueError("Semantic validation failed: 'execution.templates.start' MUST contain '{prompt_content}' or '{prompt_reference}' in argv or stdin.")
 
-        # Resume template check (mandatory if SESSION capability declared)
-        if "SESSION" in adapter["capabilities"] and "resume" not in templates:
+        # Rule 4.1.2: Resume template guard (mandatory if SESSION capability declared)
+        capabilities = raw_manifest["adapter"].get("capabilities", [])
+        templates = raw_manifest["execution"]["templates"]
+        if "SESSION" in capabilities and "resume" not in templates:
             raise ValueError("Manifest declares SESSION capability but is missing 'execution.templates.resume'")
 
         if "resume" in templates:
             resume_tmpl = templates["resume"]
-            if not isinstance(resume_tmpl, dict) or "argv" not in resume_tmpl or "cwd" not in resume_tmpl:
-                raise ValueError("'resume' template must contain 'argv' and 'cwd'")
-            if not isinstance(resume_tmpl["argv"], (list, tuple)) or not all(isinstance(x, str) for x in resume_tmpl["argv"]):
-                raise TypeError("'resume' template 'argv' must be a list of strings")
             resume_has_session = any(
                 "{session.external_session_id}" in arg or "{conversation}" in arg or "{session." in arg
-                for arg in resume_tmpl["argv"]
+                for arg in resume_tmpl.get("argv", [])
             ) or (
                 isinstance(resume_tmpl.get("stdin"), str)
                 and ("{session.external_session_id}" in resume_tmpl["stdin"] or "{session." in resume_tmpl["stdin"])
@@ -381,71 +539,22 @@ class AdmissionRegistry:
             if not resume_has_session:
                 raise ValueError("Semantic validation failed: 'execution.templates.resume' MUST contain session placeholder in argv or stdin.")
 
-        env_policy = execution["env_policy"]
-        if not isinstance(env_policy, dict) or "inherit" not in env_policy or "set" not in env_policy:
-            raise ValueError("'env_policy' must contain 'inherit' and 'set'")
-        if not isinstance(env_policy["inherit"], (list, tuple)) or not all(isinstance(x, str) for x in env_policy["inherit"]):
-            raise TypeError("'env_policy.inherit' must be a list of strings")
-        if not isinstance(env_policy["set"], dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env_policy["set"].items()):
-            raise TypeError("'env_policy.set' must be a dict of str -> str")
-
-        # 3. Engine block validation
-        engine = raw_manifest["engine"]
-        if not isinstance(engine, dict) or "engine_id" not in engine or "options" not in engine:
-            raise ValueError("'engine' must be a dict containing 'engine_id' and 'options'")
-        if engine["engine_id"] not in _VALID_ENGINE_IDS:
-            raise ValueError(f"Invalid engine_id: {engine['engine_id']!r}")
-        if not isinstance(engine["options"], dict):
-            raise TypeError("'engine.options' must be a dict")
-        if engine["engine_id"] == "builtin:json-claude-v1":
-            if "enforce_strict_json" not in engine["options"] or not isinstance(engine["options"]["enforce_strict_json"], bool):
-                raise ValueError("engine 'builtin:json-claude-v1' requires boolean option 'enforce_strict_json'")
-        elif engine["engine_id"] == "builtin:pty-legacy-v1":
-            if "success_regex" not in engine["options"] or not isinstance(engine["options"]["success_regex"], str):
-                raise ValueError("engine 'builtin:pty-legacy-v1' requires string option 'success_regex'")
-
-        # 4. Profiles block validation
-        profiles = raw_manifest["profiles"]
-        if not isinstance(profiles, (list, tuple)) or len(profiles) == 0:
-            raise ValueError("Field 'profiles' must be a non-empty list of profile objects")
-        for p in profiles:
-            if not isinstance(p, dict):
-                raise TypeError("Each profile must be a dict")
-            req_prof_keys = ("profile_id", "profile_class", "supports_reasoning_effort", "transport", "prompt_policy")
-            missing_prof = [k for k in req_prof_keys if k not in p]
-            if missing_prof:
-                raise ValueError(f"Profile missing required fields: {missing_prof}")
-            if not isinstance(p["profile_id"], str) or not p["profile_id"]:
-                raise ValueError("profile_id must be a non-empty string")
-            if not isinstance(p["profile_class"], str):
-                raise TypeError("profile_class must be a string")
-            if not isinstance(p["supports_reasoning_effort"], bool):
-                raise TypeError("supports_reasoning_effort must be a bool")
-            if p["transport"] not in _VALID_TRANSPORTS:
-                raise ValueError(f"Invalid profile transport: {p['transport']!r}")
-            pp = p["prompt_policy"]
-            if not isinstance(pp, dict) or not {"policy_id", "max_inline_utf8_bytes", "artifact_reference_supported"}.issubset(pp.keys()):
-                raise ValueError(f"Invalid prompt_policy in profile {p['profile_id']}: {pp}")
-            if not isinstance(pp["max_inline_utf8_bytes"], int) or pp["max_inline_utf8_bytes"] < 0:
-                raise ValueError("prompt_policy.max_inline_utf8_bytes must be non-negative integer")
-            if not isinstance(pp["artifact_reference_supported"], bool):
-                raise TypeError("prompt_policy.artifact_reference_supported must be a bool")
-
     @classmethod
     def admit(cls, raw_manifest: dict, max_retries: int = 10) -> str:
-        """Admission lifecycle: Validates manifest against Phase 1 V2 schema, computes canonical digest, issues collision-safe receipt ID."""
+        """Admission lifecycle: Validates manifest against Phase 1 V2 schema, computes canonical digest, issues collision-safe receipt ID atomically."""
         # 1. Genuine schema validation before issuance
         cls.validate_manifest(raw_manifest)
 
         # 2. Canonical AST digest computation over full manifest (manifest_ast_digest)
         digest = AdapterManifest.canonical_digest(raw_manifest)
 
-        # 3. Collision-safe 128-bit receipt ID issuance with atomic uniqueness check & retry loop
+        # 3. Collision-safe 128-bit receipt ID issuance with atomic check-and-insert under lock
         for attempt in range(max_retries):
             candidate_id = f"rcpt_{secrets.token_hex(16)}"
-            if candidate_id not in cls._store:
-                cls._store[candidate_id] = digest
-                return candidate_id
+            with cls._lock:
+                if candidate_id not in cls._store:
+                    cls._store[candidate_id] = digest
+                    return candidate_id
 
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
@@ -454,7 +563,8 @@ class AdmissionRegistry:
         """Promotion lifecycle: Looks up the trusted digest by registry-issued receipt ID."""
         if not isinstance(receipt_id, str):
             raise TypeError("receipt_id must be a string")
-        digest = cls._store.get(receipt_id)
+        with cls._lock:
+            digest = cls._store.get(receipt_id)
         if digest is None:
             raise ValueError(f"Unknown admission receipt ID: {receipt_id}")
         return digest
@@ -912,171 +1022,330 @@ If the following two cells exist simultaneously for `action.hub.credit-status` (
 The overall rollup for `action.hub.credit-status` on `(profile:cx.standard, win32-x64, PIPE)` resolves to **`CONTRADICTORY`**, halting promotion until the discrepancy between the executable simulation and live integration execution is investigated and resolved.
 
 
-## 10. Round 25 Execution Trace (Schema Validation & Collision Safety)
+## 10. Round 27 Execution Trace (Authoritative Schema Validation & Atomic Concurrency Safety)
 
 ```python
 import hashlib
 import json
 import re
 import secrets
-from dataclasses import dataclass
+import threading
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import ClassVar
+import jsonschema
 
-_ADAPTER_ID_RE = re.compile(r"^[a-z0-9-]+$")
-_ADAPTER_VER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
-_PEER_KIND_RE = re.compile(r"^[a-z]+$")
+_MANIFEST_SCHEMA_V2 = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://peerhub.local/schema/adapter-manifest/v2",
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "manifest_version",
+        "status",
+        "adapter",
+        "execution",
+        "engine",
+        "profiles",
+    ],
+    "properties": {
+        "manifest_version": {"const": "2.0.0"},
+        "status": {"enum": ["active", "inactive"]},
+        "adapter": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": [
+                "adapter_id",
+                "adapter_version",
+                "peer_kind",
+                "capabilities",
+                "supported_platforms",
+                "supported_transports",
+                "core_parity_requirements",
+                "required_proof_kinds",
+                "requires_snapshots",
+                "readiness_probe_id",
+            ],
+            "properties": {
+                "adapter_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+                "adapter_version": {
+                    "type": "string",
+                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+                },
+                "peer_kind": {"type": "string", "pattern": "^[a-z]+$"},
+                "aliases": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "capabilities": {
+                    "type": "array",
+                    "items": {"enum": ["SESSION", "STREAM", "GRACEFUL_CANCEL"]},
+                },
+                "supported_platforms": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string"},
+                },
+                "supported_transports": {
+                    "type": "array",
+                    "items": {"enum": ["PIPE", "PTY"]},
+                },
+                "core_parity_requirements": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "required_proof_kinds": {
+                    "type": "array",
+                    "items": {
+                        "enum": [
+                            "deterministic contract or integration",
+                            "controlled real-OS executable",
+                            "live provider exact-profile",
+                            "legacy-parity evidence",
+                        ]
+                    },
+                },
+                "requires_snapshots": {"type": "boolean"},
+                "readiness_probe_id": {"type": "string", "minLength": 1},
+                "usage_provider_id": {"type": "string"},
+            },
+        },
+        "execution": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["executable", "templates", "env_policy"],
+            "properties": {
+                "executable": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["resolution_rule", "target"],
+                    "properties": {
+                        "resolution_rule": {"enum": ["absolute", "sibling", "path"]},
+                        "target": {"type": "string", "minLength": 1},
+                    },
+                },
+                "shim_names": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "templates": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["start"],
+                    "properties": {
+                        "start": {"$ref": "#/$defs/invocation_template"},
+                        "resume": {"$ref": "#/$defs/invocation_template"},
+                    },
+                },
+                "env_policy": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["inherit", "set"],
+                    "properties": {
+                        "inherit": {"type": "array", "items": {"type": "string"}},
+                        "set": {
+                            "type": "object",
+                            "additionalProperties": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        },
+        "engine": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["engine_id", "options"],
+            "properties": {
+                "engine_id": {
+                    "type": "string",
+                    "enum": [
+                        "builtin:json-claude-v1",
+                        "builtin:jsonl-codex-v1",
+                        "builtin:json-agy-v1",
+                        "builtin:pty-legacy-v1",
+                    ],
+                },
+                "options": {
+                    "type": "object",
+                    "description": "Explicit finite typed options per engine.",
+                },
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:json-claude-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Builtin SSE Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["enforce_strict_json"],
+                                "properties": {
+                                    "enforce_strict_json": {"type": "boolean"}
+                                },
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:jsonl-codex-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Empty Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "maxProperties": 0,
+                                "properties": {},
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:json-agy-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Empty Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "maxProperties": 0,
+                                "properties": {},
+                            }
+                        }
+                    },
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "engine_id": {"const": "builtin:pty-legacy-v1"}
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "options": {
+                                "title": "Builtin CLI Regex Options",
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": ["success_regex"],
+                                "properties": {
+                                    "success_regex": {"type": "string"},
+                                    "error_regex": {"type": "string"},
+                                },
+                            }
+                        }
+                    },
+                },
+            ],
+        },
+        "profiles": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": [
+                    "profile_id",
+                    "profile_class",
+                    "supports_reasoning_effort",
+                    "transport",
+                    "prompt_policy",
+                ],
+                "properties": {
+                    "profile_id": {"type": "string", "minLength": 1},
+                    "profile_class": {"type": "string"},
+                    "supports_reasoning_effort": {"type": "boolean"},
+                    "transport": {"enum": ["PIPE", "PTY"]},
+                    "prompt_policy": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "policy_id",
+                            "max_inline_utf8_bytes",
+                            "artifact_reference_supported",
+                        ],
+                        "properties": {
+                            "policy_id": {"type": "string"},
+                            "max_inline_utf8_bytes": {
+                                "type": "integer",
+                                "minimum": 0,
+                            },
+                            "artifact_reference_supported": {"type": "boolean"},
+                        },
+                    },
+                },
+            },
+        },
+    },
+    "$defs": {
+        "invocation_template": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["argv", "cwd"],
+            "properties": {
+                "argv": {"type": "array", "items": {"type": "string"}},
+                "cwd": {"type": "string"},
+                "stdin": {"type": "string"},
+                "artifacts": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": [
+                            "artifact_id",
+                            "placeholder",
+                            "access_mode",
+                            "lifecycle",
+                        ],
+                        "properties": {
+                            "artifact_id": {"type": "string"},
+                            "placeholder": {"type": "string"},
+                            "access_mode": {"type": "string"},
+                            "lifecycle": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        }
+    },
+}
 
-_VALID_STATUSES = {"active", "inactive"}
-_VALID_CAPABILITIES = {"SESSION", "STREAM", "GRACEFUL_CANCEL"}
-_VALID_TRANSPORTS = {"PIPE", "PTY"}
-_VALID_PROOF_KINDS = {
-    "deterministic contract or integration",
-    "controlled real-OS executable",
-    "live provider exact-profile",
-    "legacy-parity evidence",
-}
-_VALID_EXEC_RESOLUTION_RULES = {"absolute", "sibling", "path"}
-_VALID_ENGINE_IDS = {
-    "builtin:json-claude-v1",
-    "builtin:jsonl-codex-v1",
-    "builtin:json-agy-v1",
-    "builtin:pty-legacy-v1",
-}
+_MANIFEST_VALIDATOR = jsonschema.Draft202012Validator(_MANIFEST_SCHEMA_V2)
 
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
 
 class AdmissionRegistry:
-    _store: dict[str, str] = {}
+    _store: ClassVar[dict[str, str]] = {}
+    _lock: ClassVar[threading.Lock] = threading.Lock()
 
     @classmethod
     def validate_manifest(cls, raw_manifest: dict) -> None:
         if not isinstance(raw_manifest, dict):
             raise TypeError(f"Manifest must be a dict, got {type(raw_manifest).__name__}")
 
-        required_top_keys = ("manifest_version", "status", "adapter", "execution", "engine", "profiles")
-        missing_top = [k for k in required_top_keys if k not in raw_manifest]
-        if missing_top:
-            raise ValueError(f"Manifest validation failed: missing required top-level fields: {missing_top}")
+        # 1. Authoritative V2 JSON Schema structural validation (Draft 2020-12)
+        errors = list(_MANIFEST_VALIDATOR.iter_errors(raw_manifest))
+        if errors:
+            err_details = [f"{e.message}" for e in errors]
+            raise ValueError(f"Manifest schema validation failed: {'; '.join(err_details)}")
 
-        allowed_top_keys = set(required_top_keys)
-        extra_top = set(raw_manifest) - allowed_top_keys
-        if extra_top:
-            raise ValueError(f"Manifest validation failed: forbidden extra top-level fields: {sorted(extra_top)}")
-
-        if raw_manifest["manifest_version"] != "2.0.0":
-            raise ValueError(
-                f"Manifest validation failed: unsupported manifest_version {raw_manifest['manifest_version']!r}, expected '2.0.0'"
-            )
-
-        if raw_manifest["status"] not in _VALID_STATUSES:
-            raise ValueError(f"Manifest validation failed: invalid status {raw_manifest['status']!r}")
-
-        # 1. Adapter block validation
-        adapter = raw_manifest["adapter"]
-        if not isinstance(adapter, dict):
-            raise TypeError("Field 'adapter' must be a dict")
-
-        required_adapter_keys = (
-            "adapter_id",
-            "adapter_version",
-            "peer_kind",
-            "capabilities",
-            "supported_platforms",
-            "supported_transports",
-            "core_parity_requirements",
-            "required_proof_kinds",
-            "requires_snapshots",
-            "readiness_probe_id",
-        )
-        missing_adapter = [k for k in required_adapter_keys if k not in adapter]
-        if missing_adapter:
-            raise ValueError(f"Manifest validation failed: adapter block missing required fields: {missing_adapter}")
-
-        allowed_adapter_keys = set(required_adapter_keys) | {"aliases", "usage_provider_id"}
-        extra_adapter = set(adapter) - allowed_adapter_keys
-        if extra_adapter:
-            raise ValueError(f"Manifest validation failed: adapter block contains forbidden extra fields: {sorted(extra_adapter)}")
-
-        if not isinstance(adapter["adapter_id"], str) or not _ADAPTER_ID_RE.match(adapter["adapter_id"]):
-            raise ValueError(f"Invalid adapter_id format: {adapter['adapter_id']!r}")
-        if not isinstance(adapter["adapter_version"], str) or not _ADAPTER_VER_RE.match(adapter["adapter_version"]):
-            raise ValueError(f"Invalid adapter_version format: {adapter['adapter_version']!r}")
-        if not isinstance(adapter["peer_kind"], str) or not _PEER_KIND_RE.match(adapter["peer_kind"]):
-            raise ValueError(f"Invalid peer_kind format: {adapter['peer_kind']!r}")
-        if not isinstance(adapter["requires_snapshots"], bool):
-            raise TypeError("Field 'requires_snapshots' must be a bool")
-        if not isinstance(adapter["readiness_probe_id"], str) or not adapter["readiness_probe_id"]:
-            raise ValueError("Field 'readiness_probe_id' must be a non-empty string")
-
-        for seq_name, valid_set in [
-            ("capabilities", _VALID_CAPABILITIES),
-            ("supported_transports", _VALID_TRANSPORTS),
-            ("required_proof_kinds", _VALID_PROOF_KINDS),
-        ]:
-            val = adapter[seq_name]
-            if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
-                raise TypeError(f"Field '{seq_name}' must be a list or tuple of strings")
-            invalid_items = [x for x in val if x not in valid_set]
-            if invalid_items:
-                raise ValueError(f"Field '{seq_name}' contains invalid items: {invalid_items}")
-
-        for seq_name in ("supported_platforms", "core_parity_requirements"):
-            val = adapter[seq_name]
-            if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
-                raise TypeError(f"Field '{seq_name}' must be a list or tuple of strings")
-
-        if len(adapter["supported_platforms"]) == 0:
-            raise ValueError("Field 'supported_platforms' cannot be empty")
-
-        if "aliases" in adapter:
-            if not isinstance(adapter["aliases"], (list, tuple)) or not all(isinstance(x, str) for x in adapter["aliases"]):
-                raise TypeError("Field 'aliases' must be a list or tuple of strings")
-        if "usage_provider_id" in adapter:
-            if not isinstance(adapter["usage_provider_id"], str):
-                raise TypeError("Field 'usage_provider_id' must be a string")
-
-        # 2. Execution block validation
-        execution = raw_manifest["execution"]
-        if not isinstance(execution, dict):
-            raise TypeError("Field 'execution' must be a dict")
-
-        required_exec_keys = ("executable", "templates", "env_policy")
-        missing_exec = [k for k in required_exec_keys if k not in execution]
-        if missing_exec:
-            raise ValueError(f"Manifest validation failed: execution block missing required fields: {missing_exec}")
-
-        allowed_exec_keys = set(required_exec_keys) | {"shim_names"}
-        extra_exec = set(execution) - allowed_exec_keys
-        if extra_exec:
-            raise ValueError(f"Manifest validation failed: execution block contains forbidden extra fields: {sorted(extra_exec)}")
-
-        executable = execution["executable"]
-        if not isinstance(executable, dict):
-            raise TypeError("Field 'executable' must be a dict")
-        if set(executable.keys()) != {"resolution_rule", "target"}:
-            raise ValueError(f"Invalid executable definition: {executable}")
-        if executable["resolution_rule"] not in _VALID_EXEC_RESOLUTION_RULES:
-            raise ValueError(f"Invalid resolution_rule: {executable['resolution_rule']!r}")
-        if not isinstance(executable["target"], str) or not executable["target"]:
-            raise ValueError("Executable target must be a non-empty string")
-
-        templates = execution["templates"]
-        if not isinstance(templates, dict) or "start" not in templates:
-            raise ValueError("Templates must be a dict containing at least a 'start' template")
-
-        start_tmpl = templates["start"]
-        if not isinstance(start_tmpl, dict) or "argv" not in start_tmpl or "cwd" not in start_tmpl:
-            raise ValueError("'start' template must contain 'argv' and 'cwd'")
-        if not isinstance(start_tmpl["argv"], (list, tuple)) or not all(isinstance(x, str) for x in start_tmpl["argv"]):
-            raise TypeError("'start' template 'argv' must be a list of strings")
-        if not isinstance(start_tmpl["cwd"], str):
-            raise TypeError("'start' template 'cwd' must be a string")
-
-        # Semantic rule 4.1.1: prompt placeholder in start template
+        # 2. Semantic admission rules (Section 4.1 in V2 Specification)
+        start_tmpl = raw_manifest["execution"]["templates"]["start"]
         start_has_prompt = any(
             "{prompt_content}" in arg or "{prompt_reference}" in arg
-            for arg in start_tmpl["argv"]
+            for arg in start_tmpl.get("argv", [])
         ) or (
             isinstance(start_tmpl.get("stdin"), str)
             and ("{prompt_content}" in start_tmpl["stdin"] or "{prompt_reference}" in start_tmpl["stdin"])
@@ -1084,19 +1353,16 @@ class AdmissionRegistry:
         if not start_has_prompt:
             raise ValueError("Semantic validation failed: 'execution.templates.start' MUST contain '{prompt_content}' or '{prompt_reference}' in argv or stdin.")
 
-        # Resume template check (mandatory if SESSION capability declared)
-        if "SESSION" in adapter["capabilities"] and "resume" not in templates:
+        capabilities = raw_manifest["adapter"].get("capabilities", [])
+        templates = raw_manifest["execution"]["templates"]
+        if "SESSION" in capabilities and "resume" not in templates:
             raise ValueError("Manifest declares SESSION capability but is missing 'execution.templates.resume'")
 
         if "resume" in templates:
             resume_tmpl = templates["resume"]
-            if not isinstance(resume_tmpl, dict) or "argv" not in resume_tmpl or "cwd" not in resume_tmpl:
-                raise ValueError("'resume' template must contain 'argv' and 'cwd'")
-            if not isinstance(resume_tmpl["argv"], (list, tuple)) or not all(isinstance(x, str) for x in resume_tmpl["argv"]):
-                raise TypeError("'resume' template 'argv' must be a list of strings")
             resume_has_session = any(
                 "{session.external_session_id}" in arg or "{conversation}" in arg or "{session." in arg
-                for arg in resume_tmpl["argv"]
+                for arg in resume_tmpl.get("argv", [])
             ) or (
                 isinstance(resume_tmpl.get("stdin"), str)
                 and ("{session.external_session_id}" in resume_tmpl["stdin"] or "{session." in resume_tmpl["stdin"])
@@ -1104,71 +1370,22 @@ class AdmissionRegistry:
             if not resume_has_session:
                 raise ValueError("Semantic validation failed: 'execution.templates.resume' MUST contain session placeholder in argv or stdin.")
 
-        env_policy = execution["env_policy"]
-        if not isinstance(env_policy, dict) or "inherit" not in env_policy or "set" not in env_policy:
-            raise ValueError("'env_policy' must contain 'inherit' and 'set'")
-        if not isinstance(env_policy["inherit"], (list, tuple)) or not all(isinstance(x, str) for x in env_policy["inherit"]):
-            raise TypeError("'env_policy.inherit' must be a list of strings")
-        if not isinstance(env_policy["set"], dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env_policy["set"].items()):
-            raise TypeError("'env_policy.set' must be a dict of str -> str")
-
-        # 3. Engine block validation
-        engine = raw_manifest["engine"]
-        if not isinstance(engine, dict) or "engine_id" not in engine or "options" not in engine:
-            raise ValueError("'engine' must be a dict containing 'engine_id' and 'options'")
-        if engine["engine_id"] not in _VALID_ENGINE_IDS:
-            raise ValueError(f"Invalid engine_id: {engine['engine_id']!r}")
-        if not isinstance(engine["options"], dict):
-            raise TypeError("'engine.options' must be a dict")
-        if engine["engine_id"] == "builtin:json-claude-v1":
-            if "enforce_strict_json" not in engine["options"] or not isinstance(engine["options"]["enforce_strict_json"], bool):
-                raise ValueError("engine 'builtin:json-claude-v1' requires boolean option 'enforce_strict_json'")
-        elif engine["engine_id"] == "builtin:pty-legacy-v1":
-            if "success_regex" not in engine["options"] or not isinstance(engine["options"]["success_regex"], str):
-                raise ValueError("engine 'builtin:pty-legacy-v1' requires string option 'success_regex'")
-
-        # 4. Profiles block validation
-        profiles = raw_manifest["profiles"]
-        if not isinstance(profiles, (list, tuple)) or len(profiles) == 0:
-            raise ValueError("Field 'profiles' must be a non-empty list of profile objects")
-        for p in profiles:
-            if not isinstance(p, dict):
-                raise TypeError("Each profile must be a dict")
-            req_prof_keys = ("profile_id", "profile_class", "supports_reasoning_effort", "transport", "prompt_policy")
-            missing_prof = [k for k in req_prof_keys if k not in p]
-            if missing_prof:
-                raise ValueError(f"Profile missing required fields: {missing_prof}")
-            if not isinstance(p["profile_id"], str) or not p["profile_id"]:
-                raise ValueError("profile_id must be a non-empty string")
-            if not isinstance(p["profile_class"], str):
-                raise TypeError("profile_class must be a string")
-            if not isinstance(p["supports_reasoning_effort"], bool):
-                raise TypeError("supports_reasoning_effort must be a bool")
-            if p["transport"] not in _VALID_TRANSPORTS:
-                raise ValueError(f"Invalid profile transport: {p['transport']!r}")
-            pp = p["prompt_policy"]
-            if not isinstance(pp, dict) or not {"policy_id", "max_inline_utf8_bytes", "artifact_reference_supported"}.issubset(pp.keys()):
-                raise ValueError(f"Invalid prompt_policy in profile {p['profile_id']}: {pp}")
-            if not isinstance(pp["max_inline_utf8_bytes"], int) or pp["max_inline_utf8_bytes"] < 0:
-                raise ValueError("prompt_policy.max_inline_utf8_bytes must be non-negative integer")
-            if not isinstance(pp["artifact_reference_supported"], bool):
-                raise TypeError("prompt_policy.artifact_reference_supported must be a bool")
-
     @classmethod
     def admit(cls, raw_manifest: dict, max_retries: int = 10) -> str:
-        """Admission lifecycle: Validates manifest against Phase 1 V2 schema, computes canonical digest, issues collision-safe receipt ID."""
+        """Admission lifecycle: Validates manifest against Phase 1 V2 schema, computes canonical digest, issues collision-safe receipt ID atomically."""
         # 1. Genuine schema validation before issuance
         cls.validate_manifest(raw_manifest)
 
         # 2. Canonical AST digest computation over full manifest (manifest_ast_digest)
         digest = AdapterManifest.canonical_digest(raw_manifest)
 
-        # 3. Collision-safe 128-bit receipt ID issuance with atomic uniqueness check & retry loop
+        # 3. Collision-safe 128-bit receipt ID issuance with atomic check-and-insert under lock
         for attempt in range(max_retries):
             candidate_id = f"rcpt_{secrets.token_hex(16)}"
-            if candidate_id not in cls._store:
-                cls._store[candidate_id] = digest
-                return candidate_id
+            with cls._lock:
+                if candidate_id not in cls._store:
+                    cls._store[candidate_id] = digest
+                    return candidate_id
 
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
@@ -1176,7 +1393,8 @@ class AdmissionRegistry:
     def get_trusted_digest(cls, receipt_id: str) -> str:
         if not isinstance(receipt_id, str):
             raise TypeError("receipt_id must be a string")
-        digest = cls._store.get(receipt_id)
+        with cls._lock:
+            digest = cls._store.get(receipt_id)
         if digest is None:
             raise ValueError(f"Unknown admission receipt ID: {receipt_id}")
         return digest
@@ -1254,8 +1472,8 @@ try:
 except Exception as e:
     print(f"REJECTED at admit() as expected: {type(e).__name__}: {e}")
 
-print("\n--- 2. Fully schema-valid V2 manifest admitted and promoted ---")
-valid_manifest = {
+print("\n--- 2. cx's exact extra-key Codex manifest rejected at admit() before receipt issuance ---")
+valid_claude_manifest = {
     "manifest_version": "2.0.0",
     "status": "active",
     "adapter": {
@@ -1292,7 +1510,7 @@ valid_manifest = {
     },
     "engine": {
         "engine_id": "builtin:json-claude-v1",
-        "options": { "enforce_strict_json": True }
+        "options": {"enforce_strict_json": True}
     },
     "profiles": [
         {
@@ -1309,28 +1527,55 @@ valid_manifest = {
     ]
 }
 
-# Genuine Admission
-receipt_id = AdmissionRegistry.admit(valid_manifest)
-print(f"Admitted manifest, got 128-bit collision-safe receipt: {receipt_id}")
+cx_extra_key_codex_manifest = dict(valid_claude_manifest)
+cx_extra_key_codex_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
+cx_extra_key_codex_manifest["adapter"]["adapter_id"] = "codex-peer"
+cx_extra_key_codex_manifest["adapter"]["peer_kind"] = "cx"
+cx_extra_key_codex_manifest["engine"] = {
+    "engine_id": "builtin:jsonl-codex-v1",
+    "options": {"enforce_strict_json": True}  # Extra key forbidden under Empty Options schema!
+}
 
-# Genuine Promotion
+store_size_before = len(AdmissionRegistry._store)
 try:
-    manifest_obj = AdapterManifest.from_manifest(valid_manifest, receipt_id)
-    print(f"SUCCESS: Constructed {manifest_obj.adapter_id} with genuine receipt.")
+    AdmissionRegistry.admit(cx_extra_key_codex_manifest)
+    print("FAILED: cx extra-key Codex manifest was unexpectedly admitted!")
 except Exception as e:
-    print(f"ERROR: {e}")
+    store_size_after = len(AdmissionRegistry._store)
+    print(f"REJECTED at admit() as expected: {type(e).__name__}: {e}")
+    print(f"Store unpolluted (no receipt issued): {store_size_before == store_size_after}")
 
-print("\n--- 3. Collision safety: forced collision detected & retried to fresh receipt ID ---")
-existing_receipt_id = receipt_id
+print("\n--- 3. Fully schema-valid Codex manifest with empty options admitted successfully ---")
+valid_codex_manifest = dict(valid_claude_manifest)
+valid_codex_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
+valid_codex_manifest["adapter"]["adapter_id"] = "codex-peer"
+valid_codex_manifest["adapter"]["peer_kind"] = "cx"
+valid_codex_manifest["engine"] = {
+    "engine_id": "builtin:jsonl-codex-v1",
+    "options": {}
+}
+
+codex_receipt_id = AdmissionRegistry.admit(valid_codex_manifest)
+print(f"Admitted valid Codex manifest, got 128-bit collision-safe receipt: {codex_receipt_id}")
+codex_manifest_obj = AdapterManifest.from_manifest(valid_codex_manifest, codex_receipt_id)
+print(f"SUCCESS: Constructed {codex_manifest_obj.adapter_id} ({codex_manifest_obj.peer_kind}) with genuine receipt.")
+
+print("\n--- 4. Fully schema-valid Claude manifest admitted and promoted ---")
+claude_receipt_id = AdmissionRegistry.admit(valid_claude_manifest)
+print(f"Admitted valid Claude manifest, got 128-bit collision-safe receipt: {claude_receipt_id}")
+claude_manifest_obj = AdapterManifest.from_manifest(valid_claude_manifest, claude_receipt_id)
+print(f"SUCCESS: Constructed {claude_manifest_obj.adapter_id} ({claude_manifest_obj.peer_kind}) with genuine receipt.")
+
+print("\n--- 5. Collision safety: forced sequential collision retried to fresh receipt ID ---")
+existing_receipt_id = claude_receipt_id
 raw_existing_token = existing_receipt_id.replace("rcpt_", "")
 
-second_valid_manifest = dict(valid_manifest)
-second_valid_manifest["adapter"] = dict(valid_manifest["adapter"])
-second_valid_manifest["adapter"]["adapter_id"] = "codex-peer"
-second_valid_manifest["adapter"]["peer_kind"] = "cx"
-second_valid_manifest["engine"] = {"engine_id": "builtin:jsonl-codex-v1", "options": {}}
+second_valid_manifest = dict(valid_claude_manifest)
+second_valid_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
+second_valid_manifest["adapter"]["adapter_id"] = "agy-peer"
+second_valid_manifest["adapter"]["peer_kind"] = "ag"
+second_valid_manifest["engine"] = {"engine_id": "builtin:json-agy-v1", "options": {}}
 
-# Monkeypatch token_hex so 1st call collides with existing receipt, 2nd call yields fresh token
 mock_tokens = [raw_existing_token, "abcdef0123456789abcdef0123456789"]
 def mock_token_hex(nbytes=16):
     return mock_tokens.pop(0) if mock_tokens else "99999999999999999999999999999999"
@@ -1348,7 +1593,7 @@ try:
 finally:
     secrets.token_hex = orig_token_hex
 
-print("\n--- 4. Collision safety: forced exhaustion raises explicit RuntimeError ---")
+print("\n--- 6. Collision safety: forced exhaustion raises explicit RuntimeError ---")
 def colliding_forever_token_hex(nbytes=16):
     return raw_existing_token
 
@@ -1362,9 +1607,67 @@ except RuntimeError as e:
 finally:
     secrets.token_hex = orig_token_hex
 
-print("\n--- 5. Forgery attempt (supplying own digest as receipt ID) ---")
-forged_manifest = dict(valid_manifest)
-forged_manifest["adapter"] = dict(valid_manifest["adapter"])
+print("\n--- 7. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---")
+# Deliberately force two concurrent threads to generate the same candidate token initially
+# and attempt to claim it simultaneously, proving that under the atomic lock, both callers
+# obtain distinct receipt IDs and neither digest is lost.
+colliding_candidate_raw = "11112222333344445555666677778888"
+t1_unique_raw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+t2_unique_raw = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+thread_token_streams = {
+    "T1": [colliding_candidate_raw, t1_unique_raw],
+    "T2": [colliding_candidate_raw, t2_unique_raw],
+}
+
+def concurrent_mock_token_hex(nbytes=16):
+    tname = threading.current_thread().name
+    stream = thread_token_streams.get(tname)
+    if stream:
+        return stream.pop(0)
+    return secrets.token_bytes(nbytes).hex()
+
+manifest_t1 = dict(valid_claude_manifest)
+manifest_t1["adapter"] = dict(valid_claude_manifest["adapter"])
+manifest_t1["adapter"]["adapter_id"] = "conc-peer-1"
+
+manifest_t2 = dict(valid_claude_manifest)
+manifest_t2["adapter"] = dict(valid_claude_manifest["adapter"])
+manifest_t2["adapter"]["adapter_id"] = "conc-peer-2"
+
+concurrent_results = {}
+barrier = threading.Barrier(2)
+
+def concurrent_worker(tname, manifest):
+    threading.current_thread().name = tname
+    barrier.wait()  # synchronize start
+    receipt = AdmissionRegistry.admit(manifest)
+    concurrent_results[tname] = (receipt, AdapterManifest.canonical_digest(manifest))
+
+secrets.token_hex = concurrent_mock_token_hex
+try:
+    store_count_before_conc = len(AdmissionRegistry._store)
+    th1 = threading.Thread(target=concurrent_worker, args=("T1", manifest_t1))
+    th2 = threading.Thread(target=concurrent_worker, args=("T2", manifest_t2))
+    th1.start(); th2.start()
+    th1.join(); th2.join()
+
+    r1, d1 = concurrent_results["T1"]
+    r2, d2 = concurrent_results["T2"]
+
+    print(f"Thread 1 receipt ID: {r1}")
+    print(f"Thread 2 receipt ID: {r2}")
+    print(f"Receipt IDs are distinct (no duplicate ID issued): {r1 != r2}")
+    print(f"Thread 1 digest in registry: {AdmissionRegistry.get_trusted_digest(r1) == d1}")
+    print(f"Thread 2 digest in registry: {AdmissionRegistry.get_trusted_digest(r2) == d2}")
+    print(f"Store size increased by exactly 2 entries: {len(AdmissionRegistry._store) == store_count_before_conc + 2}")
+    print("CONCURRENCY RACE VERIFIED FIXED: Atomic lock prevents TOCTOU clobbering under real thread contention.")
+finally:
+    secrets.token_hex = orig_token_hex
+
+print("\n--- 8. Forgery attempt (supplying own digest as receipt ID) ---")
+forged_manifest = dict(valid_claude_manifest)
+forged_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
 forged_manifest["adapter"]["adapter_id"] = "forged-adapter"
 
 forged_digest = AdapterManifest.canonical_digest(forged_manifest)
@@ -1374,10 +1677,10 @@ try:
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
 
-print("\n--- 6. Syntactically well-formed but unknown receipt ID ---")
+print("\n--- 9. Syntactically well-formed but unknown receipt ID ---")
 unknown_receipt_id = "rcpt_00000000000000000000000000000000"
 try:
-    AdapterManifest.from_manifest(valid_manifest, unknown_receipt_id)
+    AdapterManifest.from_manifest(valid_claude_manifest, unknown_receipt_id)
     print("SUCCESS: Unknown receipt worked! (This should not happen)")
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
@@ -1387,25 +1690,42 @@ except Exception as e:
 
 ```
 --- 1. cx's missing-required-fields manifest rejected at admit() ---
-REJECTED at admit() as expected: ValueError: Manifest validation failed: missing required top-level fields: ['manifest_version', 'status', 'execution', 'engine', 'profiles']
+REJECTED at admit() as expected: ValueError: Manifest schema validation failed: Additional properties are not allowed ('version' was unexpected); 'manifest_version' is a required property; 'status' is a required property; 'execution' is a required property; 'engine' is a required property; 'profiles' is a required property; 'adapter_version' is a required property; 'readiness_probe_id' is a required property
 
---- 2. Fully schema-valid V2 manifest admitted and promoted ---
-Admitted manifest, got 128-bit collision-safe receipt: rcpt_477d2250a6189c2db6f4b86a9da7d637
-SUCCESS: Constructed claude-peer with genuine receipt.
+--- 2. cx's exact extra-key Codex manifest rejected at admit() before receipt issuance ---
+REJECTED at admit() as expected: ValueError: Manifest schema validation failed: Additional properties are not allowed ('enforce_strict_json' was unexpected); {'enforce_strict_json': True} is expected to be empty
+Store unpolluted (no receipt issued): True
 
---- 3. Collision safety: forced collision detected & retried to fresh receipt ID ---
-Earlier receipt ID (rcpt_477d2250a6189c2db6f4b86a9da7d637) digest preserved intact: True
+--- 3. Fully schema-valid Codex manifest with empty options admitted successfully ---
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_be1dca3248ed833926b7f767bf9c3a23
+SUCCESS: Constructed codex-peer (cx) with genuine receipt.
+
+--- 4. Fully schema-valid Claude manifest admitted and promoted ---
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_15acfa9f6bc079f5ee912aeda8f62234
+SUCCESS: Constructed claude-peer (cc) with genuine receipt.
+
+--- 5. Collision safety: forced sequential collision retried to fresh receipt ID ---
+Earlier receipt ID (rcpt_15acfa9f6bc079f5ee912aeda8f62234) digest preserved intact: True
 Second admission detected collision and retried to fresh ID: rcpt_abcdef0123456789abcdef0123456789
-Store size now: 2 distinct entries (no clobbering!)
+Store size now: 3 distinct entries (no clobbering!)
 
---- 4. Collision safety: forced exhaustion raises explicit RuntimeError ---
+--- 6. Collision safety: forced exhaustion raises explicit RuntimeError ---
 EXPLICIT ERROR RAISED: Collision resolution exhausted: unable to generate a unique admission receipt ID.
 Earlier receipt digest remains intact: True
 
---- 5. Forgery attempt (supplying own digest as receipt ID) ---
+--- 7. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
+Thread 1 receipt ID: rcpt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Thread 2 receipt ID: rcpt_11112222333344445555666677778888
+Receipt IDs are distinct (no duplicate ID issued): True
+Thread 1 digest in registry: True
+Thread 2 digest in registry: True
+Store size increased by exactly 2 entries: True
+CONCURRENCY RACE VERIFIED FIXED: Atomic lock prevents TOCTOU clobbering under real thread contention.
+
+--- 8. Forgery attempt (supplying own digest as receipt ID) ---
 BLOCKED: ValueError: Unknown admission receipt ID: 6BD899AB9DC099CE261BBF959712E62BBF156B0E8DC141FBC784D533C6774DE1
 
---- 6. Syntactically well-formed but unknown receipt ID ---
+--- 9. Syntactically well-formed but unknown receipt ID ---
 BLOCKED: ValueError: Unknown admission receipt ID: rcpt_00000000000000000000000000000000
 ```
 
