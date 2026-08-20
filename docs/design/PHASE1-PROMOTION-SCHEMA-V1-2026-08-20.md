@@ -176,15 +176,27 @@ class AdapterManifest:
     """Documented contract of an admitted adapter manifest used during promotion evaluation."""
     adapter_id: str
     peer_kind: str
-    capabilities: tuple[str, ...]                   # e.g. ("SESSION", "STREAM")
-    supported_platforms: tuple[str, ...]            # e.g. ("win32-x64",)
-    supported_transports: tuple[str, ...]           # e.g. ("PIPE", "PTY")
-    core_parity_requirements: tuple[str, ...]       # e.g. ("action.hub.ask", "action.hub.thread-new")
-    required_proof_kinds: tuple[str, ...] = (
-        "deterministic contract or integration",
-        "controlled real-OS executable",
-    )
-    requires_snapshots: bool = False
+    capabilities: tuple[str, ...]
+    supported_platforms: tuple[str, ...]
+    supported_transports: tuple[str, ...]
+    core_parity_requirements: tuple[str, ...]
+    required_proof_kinds: tuple[str, ...]
+    requires_snapshots: bool
+
+    @classmethod
+    def from_manifest(cls, raw_manifest: dict) -> AdapterManifest:
+        """Constructs this contract strictly by reading the real fields out of an admitted manifest instance."""
+        adapter = raw_manifest["adapter"]
+        return cls(
+            adapter_id=adapter["adapter_id"],
+            peer_kind=adapter["peer_kind"],
+            capabilities=tuple(adapter.get("capabilities", [])),
+            supported_platforms=tuple(adapter.get("supported_platforms", [])),
+            supported_transports=tuple(adapter.get("supported_transports", [])),
+            core_parity_requirements=tuple(adapter.get("core_parity_requirements", [])),
+            required_proof_kinds=tuple(adapter.get("required_proof_kinds", [])),
+            requires_snapshots=adapter.get("requires_snapshots", False)
+        )
 
     def declares_capability(self, coverage_case_id: str) -> bool:
         """Verifies whether the adapter declares capability for the given case or general actions."""

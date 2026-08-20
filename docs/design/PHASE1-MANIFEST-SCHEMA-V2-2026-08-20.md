@@ -50,7 +50,11 @@ The `execution.templates` block now directly models the inputs required to build
         "adapter_version", 
         "peer_kind", 
         "capabilities", 
-        "transports", 
+        "supported_platforms",
+        "supported_transports",
+        "core_parity_requirements",
+        "required_proof_kinds",
+        "requires_snapshots",
         "readiness_probe_id"
       ],
       "properties": {
@@ -65,10 +69,23 @@ The `execution.templates` block now directly models the inputs required to build
           "type": "array",
           "items": { "enum": ["SESSION", "STREAM", "GRACEFUL_CANCEL"] }
         },
-        "transports": {
+        "supported_platforms": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "supported_transports": {
           "type": "array",
           "items": { "enum": ["PIPE", "PTY"] }
         },
+        "core_parity_requirements": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_proof_kinds": {
+          "type": "array",
+          "items": { "enum": ["deterministic contract or integration", "controlled real-OS executable", "live provider exact-profile", "legacy-parity evidence"] }
+        },
+        "requires_snapshots": { "type": "boolean" },
         "readiness_probe_id": { "type": "string" },
         "usage_provider_id": { "type": "string" }
       }
@@ -336,7 +353,11 @@ For every manifest $M_i$:
     "adapter_version": "1.0.0",
     "peer_kind": "cc",
     "capabilities": ["SESSION"],
-    "transports": ["PIPE"],
+    "supported_platforms": ["win32-x64"],
+    "supported_transports": ["PIPE"],
+    "core_parity_requirements": ["action.hub.ask", "action.hub.thread-new"],
+    "required_proof_kinds": ["deterministic contract or integration", "controlled real-OS executable"],
+    "requires_snapshots": false,
     "readiness_probe_id": "process-exit-zero"
   },
   "execution": {
@@ -389,7 +410,11 @@ For every manifest $M_i$:
     "adapter_version": "1.0.0",
     "peer_kind": "cx",
     "capabilities": ["SESSION", "STREAM"],
-    "transports": ["PIPE"],
+    "supported_platforms": ["win32-x64"],
+    "supported_transports": ["PIPE"],
+    "core_parity_requirements": ["action.hub.credit-status", "action.hub.credit-consume", "action.hub.thread-new"],
+    "required_proof_kinds": ["deterministic contract or integration", "controlled real-OS executable"],
+    "requires_snapshots": true,
     "readiness_probe_id": "process-exit-zero"
   },
   "execution": {
@@ -442,7 +467,11 @@ For every manifest $M_i$:
     "adapter_version": "1.0.0",
     "peer_kind": "ag",
     "capabilities": ["SESSION"],
-    "transports": ["PIPE"],
+    "supported_platforms": ["win32-x64"],
+    "supported_transports": ["PIPE"],
+    "core_parity_requirements": ["action.hub.init-session"],
+    "required_proof_kinds": ["deterministic contract or integration", "controlled real-OS executable"],
+    "requires_snapshots": false,
     "readiness_probe_id": "process-exit-zero"
   },
   "execution": {
