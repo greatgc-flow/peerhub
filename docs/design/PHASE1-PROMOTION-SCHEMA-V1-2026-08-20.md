@@ -183,9 +183,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from contextvars import ContextVar
 from datetime import datetime
+import hashlib
+import json
 import secrets
 
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
+
+@dataclass(frozen=True, slots=True)
+class AdmissionReceiptRef:
+    """Reference to an admitted receipt carrying the authenticated manifest content digest."""
+    receipt_id: str
+    manifest_canonical_sha256: str
 
 @dataclass(frozen=True, slots=True)
 class CellKey:
@@ -208,7 +216,8 @@ class CellKey:
 @dataclass(frozen=True, slots=True)
 class AdapterManifest:
     """Documented contract of an admitted adapter manifest used during promotion evaluation.
-    Enforces deterministic construction exclusively from an admitted manifest schema instance.
+    Enforces deterministic construction exclusively from an admitted manifest schema instance
+    whose canonical content digest matches an authentic admission receipt.
     Direct manual construction with arbitrary or conflicting values is guarded via a context-local
     ephemeral token scoped to from_manifest execution (using contextvars.ContextVar). This prevents
     accidental manual instantiation and cross-thread concurrency races, establishing a clearly-marked
@@ -233,14 +242,67 @@ class AdapterManifest:
         ):
             raise TypeError(
                 "AdapterManifest direct construction is prohibited to guarantee promotion determinism. "
-                "Instances must be traceably constructed via AdapterManifest.from_manifest(admitted_manifest_dict)."
+                "Instances must be traceably constructed via AdapterManifest.from_manifest(raw_manifest, admission_receipt)."
             )
 
+    @staticmethod
+    def canonical_digest(manifest_dict_or_adapter_block: dict) -> str:
+        """Computes the unambiguous, deterministic SHA-256 hex digest over canonical JSON.
+
+        Canonicalization rule:
+        1. If the input contains an 'adapter' key, canonicalize the 'adapter' block dictionary.
+           Otherwise canonicalize the given dictionary directly.
+        2. Serialize to UTF-8 encoded JSON with sorted keys (sort_keys=True) and compact delimiters
+           separators=(',', ':') with ensure_ascii=False.
+        3. Compute SHA-256 over the UTF-8 bytes and return uppercase hexadecimal string.
+        """
+        if not isinstance(manifest_dict_or_adapter_block, dict):
+            raise TypeError(f"Payload must be a dict, got {type(manifest_dict_or_adapter_block).__name__}.")
+        target = manifest_dict_or_adapter_block.get("adapter", manifest_dict_or_adapter_block)
+        canonical_bytes = json.dumps(
+            target,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return hashlib.sha256(canonical_bytes).hexdigest().upper()
+
     @classmethod
-    def from_manifest(cls, raw_manifest: dict) -> AdapterManifest:
-        """Constructs this contract strictly by validating and reading fields from an admitted manifest instance."""
+    def from_manifest(
+        cls,
+        raw_manifest: dict,
+        admission_receipt: dict | AdmissionReceiptRef | str,
+    ) -> AdapterManifest:
+        """Constructs this contract strictly by validating schema shape, verifying canonical
+        digest authenticity against a real admission receipt reference, and reading fields."""
         if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest:
             raise ValueError("raw_manifest must be an admitted manifest dict containing an 'adapter' block.")
+
+        # 1. Resolve expected manifest digest from admission receipt reference
+        if isinstance(admission_receipt, str):
+            expected_digest = admission_receipt.strip().upper()
+        elif isinstance(admission_receipt, AdmissionReceiptRef):
+            expected_digest = admission_receipt.manifest_canonical_sha256.strip().upper()
+        elif isinstance(admission_receipt, dict):
+            if "manifest_binding" in admission_receipt and isinstance(admission_receipt["manifest_binding"], dict):
+                expected_digest = admission_receipt["manifest_binding"].get("manifest_canonical_sha256")
+            else:
+                expected_digest = admission_receipt.get("manifest_canonical_sha256")
+            if not expected_digest or not isinstance(expected_digest, str):
+                raise ValueError("admission_receipt dict must contain 'manifest_binding.manifest_canonical_sha256' or 'manifest_canonical_sha256'.")
+            expected_digest = expected_digest.strip().upper()
+        else:
+            raise TypeError(f"admission_receipt must be a dict, AdmissionReceiptRef, or hex string digest, got {type(admission_receipt).__name__}.")
+
+        # 2. Recompute canonical digest over given manifest content and verify provenance / authenticity
+        recomputed_digest = cls.canonical_digest(raw_manifest)
+        if recomputed_digest != expected_digest:
+            raise ValueError(
+                f"Manifest admission digest mismatch! Receipt vouches for digest '{expected_digest}', "
+                f"but recomputed canonical digest over provided manifest is '{recomputed_digest}'. "
+                "Manifest is either unadmitted, forged, or tampered with."
+            )
+
         adapter = raw_manifest["adapter"]
         required_keys = (
             "adapter_id",
