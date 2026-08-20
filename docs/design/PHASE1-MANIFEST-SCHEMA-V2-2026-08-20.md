@@ -194,15 +194,74 @@ The `execution.templates` block now directly models the inputs required to build
 }
 ```
 
-## 4. Semantic Validation Rules at Admission
+## 4. Executable Admission, ACL Evaluation, and Transitive Binding Model
 
-In addition to V1's JSON Schema and absolute-path resolution checks, the Admission process performs strict semantic template validation:
+To eliminate TOCTOU, unauthenticated tampering, and wrapper-only binding vulnerabilities, manifest admission strictly resolves, validates, and cryptographically binds the complete transitive execution graph.
+
+### 4.1. Semantic Validation Rules at Admission
+In addition to JSON Schema structural checks and absolute path resolution:
 1. **Start Template Guard**: The `execution.templates.start` object MUST contain a prompt placeholder (`{prompt_content}` or `{prompt_reference}`) within its `argv` or `stdin` fields. If missing, the manifest is hard-rejected at admission time.
 2. **Resume Template Guard**: If `execution.templates.resume` is provided (mandatory if `capabilities` includes `SESSION`), it MUST contain a session placeholder (e.g., `{session.external_session_id}`) in its `argv` or `stdin` fields. If missing, the manifest is hard-rejected.
 
-## 5. Worked Examples
+### 4.2. Reconciled Windows ACL Evaluation (Non-World-Writable NTFS Enforcement)
+Empirical investigation of live Windows environments (`P:\`, `D:\`, `%APPDATA%`, `%LOCALAPPDATA%`) demonstrates that default NTFS inheritance grants `NT AUTHORITY\Authenticated Users:(OI)(CI)(M)`. Requiring denial of Authenticated Users Modify access would reject 100% of standard non-elevated developer and portable installations.
 
-### 5.1. claude-adapter.json
+The admission engine enforces the following real-world security threshold:
+1. **Local NTFS Filesystem**: Target files and directories must reside on a local NTFS volume supporting access control lists.
+2. **World-Writable & Anonymous Denial**:
+   * Security Principal `Everyone` (`S-1-1-0`) must NOT have Write Data (`WD`), Append Data (`AD`), Write Attributes (`WA`), Write Extended Attributes (`WEA`), Delete (`DE`), Modify (`M`), or Full Control (`F`). At most Read & Execute `(RX)` is permitted.
+   * `ANONYMOUS LOGON` (`S-1-5-7`) and `BUILTIN\Guests` (`S-1-5-32-546`) must have no write or modify permissions.
+3. **Authorized Ownership & Authenticated Users**:
+   * Directory ownership must belong to `BUILTIN\Administrators`, `NT AUTHORITY\SYSTEM`, or the active user account SID.
+   * `NT AUTHORITY\Authenticated Users:(M)` is explicitly permitted on local workstation installs.
+4. **Reparse Point / Junction Safety**:
+   * No directory component in the path may traverse an unverified symlink, volume mount point, or junction point.
+
+### 4.3. Transitive Executable Chain Resolution & Hashing
+Admission does NOT stop at top-level `.cmd` wrappers:
+1. **Static Trampoline Tracing**: If the entrypoint is a `.cmd`/`.bat` wrapper, the parser analyzes the script to resolve the target interpreter (`node.exe` resolved on `PATH` at admission time) and script target (`codex.js`). If the script invokes a vendor native binary (e.g. `claude.exe`, `codex.exe`), the native binary is resolved.
+2. **Transitive Chain Structuring**:
+   Every file in the transitive execution chain is assigned a role (`ENTRYPOINT_WRAPPER`, `INTERPRETER`, `SCRIPT`, `NATIVE_BINARY`, `HELPER_BINARY`) and recorded with its canonical absolute path, byte length, and SHA-256 digest.
+3. **Aggregate Chain Digest**:
+   The aggregate chain digest is computed over the canonically sorted sequence of `(role, canonical_path, sha256)`:
+   $$\text{Digest} = \text{SHA256}\left( \bigoplus_{i} \left( \text{Role}_i \mathbin{\Vert} \text{":"} \mathbin{\Vert} \text{Path}_i \mathbin{\Vert} \text{":"} \mathbin{\Vert} \text{SHA256}_i \mathbin{\Vert} \text{"\n"} \right) \right)$$
+4. **Pre-Spawn Revalidation**:
+   Immediately before invoking `subprocess.Popen`:
+   * The manifest canonical JSON AST hash is checked.
+   * The Python engine code digest is checked.
+   * Every file in the `transitive_executable_chain` is `stat`'d and re-hashed.
+   * `PATH` is **never re-resolved** at spawn time; only the pinned absolute paths are executed.
+
+---
+
+## 5. Collision Algorithm, Canonical Normalization, and Atomic Snapshots
+
+To prevent registry poisoning, profile hijacking, and platform-specific casing/alias collisions:
+
+### 5.1. Key Normalization Algorithm: `normalize_key(s: str) -> str`
+1. **Unicode Normalization Form C**: `unicodedata.normalize('NFC', s)`
+2. **Unicode Case-Folding**: `s.casefold()`
+3. **Trailing Whitespace/Dot Stripping**: `s.rstrip('. ')`
+4. **Executable Extension Stripping**: Strip recognized extensions (`.exe`, `.cmd`, `.bat`, `.com`, `.ps1`, `.vbs`, `.js`).
+
+### 5.2. Claim Space Extraction & Collision Rules
+For every manifest $M_i$:
+* Extract normalized `adapter_id`, `peer_kind`, `profile_ids`, `shim_names`, and aliases.
+* Compute canonical AST digest: `SHA256(canonical_json(M_i))`.
+* **Collision Verdict**: A collision occurs if multiple manifests claim the same normalized key or share the same AST digest under different filenames.
+
+### 5.3. Atomic Snapshot Publication & Reader Synchronization
+1. **Monotonic Generation**: Monotonically increasing 64-bit integer `registry_generation`.
+2. **Candidate Staging**: Candidate manifests are loaded into an isolated memory buffer.
+3. **Atomic Rejection**: If ANY manifest fails JSON schema, ACL checks, semantic template checks, transitive chain resolution, or triggers a collision, the **entire candidate snapshot is rejected**.
+4. **RCU Pointer Swap**: On success, the new snapshot is wrapped in `PublishedRegistry(generation=G+1, timestamp=now, adapters=...)` and published via an atomic pointer store (`active_registry_ref.store()`).
+5. **Reader Immunity**: In-flight executions maintain pinned references to their active `PublishedRegistry` and `AdmissionReceipt`, preventing tearing across reloads.
+
+---
+
+## 6. Worked Examples
+
+### 6.1. claude-adapter.json
 ```json
 {
   "manifest_version": "2.0.0",
@@ -255,7 +314,7 @@ In addition to V1's JSON Schema and absolute-path resolution checks, the Admissi
 }
 ```
 
-### 5.2. codex-adapter.json
+### 6.2. codex-adapter.json
 ```json
 {
   "manifest_version": "2.0.0",
@@ -308,7 +367,7 @@ In addition to V1's JSON Schema and absolute-path resolution checks, the Admissi
 }
 ```
 
-### 5.3. agy-adapter.json
+### 6.3. agy-adapter.json
 ```json
 {
   "manifest_version": "2.0.0",
@@ -361,7 +420,7 @@ In addition to V1's JSON Schema and absolute-path resolution checks, the Admissi
 }
 ```
 
-## 6. Honest Gaps & Unexpressible Features
+## 7. Honest Gaps & Unexpressible Features
 
 Despite this rigorous translation, certain runtime interaction patterns in the real world *genuinely cannot be expressed* through this purely declarative schema:
 
