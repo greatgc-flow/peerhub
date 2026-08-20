@@ -831,382 +831,13 @@ If the following two cells exist simultaneously for `action.hub.credit-status` (
 The overall rollup for `action.hub.credit-status` on `(profile:cx.standard, win32-x64, PIPE)` resolves to **`CONTRADICTORY`**, halting promotion until the discrepancy between the executable simulation and live integration execution is investigated and resolved.
 
 
-## 10. Round 29 Execution Trace (Normative Schema SSOT, Declared Profiles & Fabricated Binding Defense)
+## 10. Execution Trace (Verification of SSOT, Admission, Promotion, Staleness & Invariants)
+
+This execution trace exercises the normative single source of truth (SSOT) schema loader, the admission lifecycle, promotion evaluation, freshness/staleness checks, and security invariants. Rather than maintaining a separate, decoupled re-implementation of the validator, registry, or promotion algorithms within this trace section, these tests directly invoke the primary definitions established above in Sections 4, 5, 6, and 7.
 
 ```python
-import hashlib
-import json
-import re
-import secrets
-import threading
-from contextvars import ContextVar
-from dataclasses import dataclass
-from pathlib import Path
-from typing import ClassVar
-import jsonschema
-
-# --- 1. Canonical Schema Loader (Single Normative Source of Truth) ---
-def load_manifest_schema_v2(schema_path: str | Path | None = None) -> dict:
-    """Loads the normative Phase 1 Manifest JSON Schema (Draft 2020-12) directly from its canonical source of truth."""
-    if schema_path is None:
-        candidates = [
-            Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
-            Path(__file__).parent / "PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md" if "__file__" in globals() else None,
-            Path("PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
-        ]
-        for c in candidates:
-            if c and c.exists():
-                schema_path = c
-                break
-        if schema_path is None:
-            schema_path = Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md")
-    
-    content = Path(schema_path).read_text(encoding="utf-8")
-    match = re.search(r"```json\s*(\{[\s\S]*?\"\$id\":\s*\"https://peerhub\.local/schema/adapter-manifest/v2\"[\s\S]*?\})\s*```", content)
-    if not match:
-        raise ValueError(f"Could not extract normative manifest schema v2 from {schema_path}")
-    return json.loads(match.group(1))
-
-_MANIFEST_SCHEMA_V2 = load_manifest_schema_v2()
-_MANIFEST_VALIDATOR = jsonschema.Draft202012Validator(_MANIFEST_SCHEMA_V2)
-
-_active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
-
-class AdmissionRegistry:
-    """Minimal trusted registry for admitted manifests.
-    
-    Populated exclusively during a real admission event after rigorous validation
-    against the PHASE1-MANIFEST-SCHEMA-V2 specification. It computes and stores 
-    the canonical AST digest (manifest_ast_digest = SHA256(canonical_json(M_i))) 
-    of a fully validated manifest under a newly issued, collision-safe receipt ID 
-    (128-bit random token with atomic concurrency lock and uniqueness retry checks).
-    The registry is the only trusted source for linking a receipt ID to a digest,
-    preventing callers from supplying their own digests as proof.
-    """
-    _store: ClassVar[dict[str, str]] = {}
-    _lock: ClassVar[threading.Lock] = threading.Lock()
-
-    @classmethod
-    def validate_manifest(cls, raw_manifest: dict) -> None:
-        if not isinstance(raw_manifest, dict):
-            raise TypeError(f"Manifest must be a dict, got {type(raw_manifest).__name__}")
-
-        # 1. Authoritative V2 JSON Schema structural validation (Draft 2020-12)
-        errors = list(_MANIFEST_VALIDATOR.iter_errors(raw_manifest))
-        if errors:
-            err_details = [f"{e.message}" for e in errors]
-            raise ValueError(f"Manifest schema validation failed: {'; '.join(err_details)}")
-
-        # 2. Semantic admission rules (Section 4.1 in V2 Specification)
-        start_tmpl = raw_manifest["execution"]["templates"]["start"]
-        start_has_prompt = any(
-            "{prompt_content}" in arg or "{prompt_reference}" in arg
-            for arg in start_tmpl.get("argv", [])
-        ) or (
-            isinstance(start_tmpl.get("stdin"), str)
-            and ("{prompt_content}" in start_tmpl["stdin"] or "{prompt_reference}" in start_tmpl["stdin"])
-        )
-        if not start_has_prompt:
-            raise ValueError("Semantic validation failed: 'execution.templates.start' MUST contain '{prompt_content}' or '{prompt_reference}' in argv or stdin.")
-
-        capabilities = raw_manifest["adapter"].get("capabilities", [])
-        templates = raw_manifest["execution"]["templates"]
-        if "SESSION" in capabilities and "resume" not in templates:
-            raise ValueError("Manifest declares SESSION capability but is missing 'execution.templates.resume'")
-
-        if "resume" in templates:
-            resume_tmpl = templates["resume"]
-            resume_has_session = any(
-                "{session.external_session_id}" in arg or "{conversation}" in arg or "{session." in arg
-                for arg in resume_tmpl.get("argv", [])
-            ) or (
-                isinstance(resume_tmpl.get("stdin"), str)
-                and ("{session.external_session_id}" in resume_tmpl["stdin"] or "{session." in resume_tmpl["stdin"])
-            )
-            if not resume_has_session:
-                raise ValueError("Semantic validation failed: 'execution.templates.resume' MUST contain session placeholder in argv or stdin.")
-
-    @classmethod
-    def admit(cls, raw_manifest: dict, max_retries: int = 10) -> str:
-        cls.validate_manifest(raw_manifest)
-        digest = AdapterManifest.canonical_digest(raw_manifest)
-        for attempt in range(max_retries):
-            candidate_id = f"rcpt_{secrets.token_hex(16)}"
-            with cls._lock:
-                if candidate_id not in cls._store:
-                    cls._store[candidate_id] = digest
-                    return candidate_id
-        raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
-
-    @classmethod
-    def get_trusted_digest(cls, receipt_id: str) -> str:
-        if not isinstance(receipt_id, str):
-            raise TypeError("receipt_id must be a string")
-        with cls._lock:
-            digest = cls._store.get(receipt_id)
-        if digest is None:
-            raise ValueError(f"Unknown admission receipt ID: {receipt_id}")
-        return digest
-
-@dataclass(frozen=True, slots=True)
-class CellKey:
-    coverage_case_id: str
-    peer_binding: str
-    platform: str
-    transport: str
-    proof_kind: str
-
-    def as_tuple(self) -> tuple[str, str, str, str, str]:
-        return (
-            self.coverage_case_id,
-            self.peer_binding,
-            self.platform,
-            self.transport,
-            self.proof_kind,
-        )
-
-@dataclass(frozen=True, slots=True)
-class AdapterManifest:
-    adapter_id: str
-    peer_kind: str
-    capabilities: tuple[str, ...]
-    supported_platforms: tuple[str, ...]
-    supported_transports: tuple[str, ...]
-    core_parity_requirements: tuple[str, ...]
-    required_proof_kinds: tuple[str, ...]
-    requires_snapshots: bool
-    profiles: tuple[dict, ...]
-    _token: str | None = None
-
-    def __post_init__(self):
-        active_token = _active_manifest_token.get()
-        if self._token is None or active_token is None or self._token != active_token:
-            raise TypeError(
-                "AdapterManifest direct construction is prohibited to guarantee promotion determinism. "
-                "Instances must be traceably constructed via AdapterManifest.from_manifest(raw_manifest, admission_receipt)."
-            )
-
-    @staticmethod
-    def canonical_digest(raw_manifest: dict) -> str:
-        if not isinstance(raw_manifest, dict):
-            raise TypeError(f"Payload must be a dict, got {type(raw_manifest).__name__}.")
-        canonical_bytes = json.dumps(
-            raw_manifest,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=False,
-        ).encode("utf-8")
-        return hashlib.sha256(canonical_bytes).hexdigest().upper()
-
-    @classmethod
-    def from_manifest(
-        cls,
-        raw_manifest: dict,
-        admission_receipt_id: str,
-    ) -> "AdapterManifest":
-        if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest or "profiles" not in raw_manifest:
-            raise ValueError("raw_manifest must be an admitted manifest dict containing 'adapter' and 'profiles' blocks.")
-
-        expected_digest = AdmissionRegistry.get_trusted_digest(admission_receipt_id)
-        recomputed_digest = cls.canonical_digest(raw_manifest)
-        if recomputed_digest != expected_digest:
-            raise ValueError(
-                f"Manifest admission digest mismatch! Registry expects digest '{expected_digest}', "
-                f"but recomputed canonical digest over provided manifest is '{recomputed_digest}'."
-            )
-
-        adapter = raw_manifest["adapter"]
-        required_adapter_keys = (
-            "adapter_id",
-            "peer_kind",
-            "capabilities",
-            "supported_platforms",
-            "supported_transports",
-            "core_parity_requirements",
-            "required_proof_kinds",
-            "requires_snapshots",
-        )
-        missing_adapter = [k for k in required_adapter_keys if k not in adapter]
-        if missing_adapter:
-            raise ValueError(f"Admitted manifest missing required adapter policy fields: {missing_adapter}")
-
-        if not isinstance(adapter["adapter_id"], str) or not isinstance(adapter["peer_kind"], str):
-            raise TypeError("Fields 'adapter_id' and 'peer_kind' must be strings.")
-
-        for seq_field in (
-            "capabilities",
-            "supported_platforms",
-            "supported_transports",
-            "core_parity_requirements",
-            "required_proof_kinds",
-        ):
-            val = adapter[seq_field]
-            if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
-                raise TypeError(f"Field '{seq_field}' must be a list or tuple of strings, got {type(val).__name__}.")
-
-        if not isinstance(adapter["requires_snapshots"], bool):
-            raise TypeError(f"Field 'requires_snapshots' must be a bool, got {type(adapter['requires_snapshots']).__name__}.")
-
-        raw_profiles = raw_manifest["profiles"]
-        if not isinstance(raw_profiles, (list, tuple)) or not raw_profiles:
-            raise TypeError("Field 'profiles' must be a non-empty list or tuple.")
-        for p in raw_profiles:
-            if not isinstance(p, dict) or "profile_id" not in p or not isinstance(p["profile_id"], str) or not p["profile_id"]:
-                raise TypeError("Each profile in 'profiles' must be a dict containing a non-empty string 'profile_id'.")
-
-        token = secrets.token_hex(32)
-        reset_token = _active_manifest_token.set(token)
-        try:
-            return cls(
-                adapter_id=adapter["adapter_id"],
-                peer_kind=adapter["peer_kind"],
-                capabilities=tuple(adapter["capabilities"]),
-                supported_platforms=tuple(adapter["supported_platforms"]),
-                supported_transports=tuple(adapter["supported_transports"]),
-                core_parity_requirements=tuple(adapter["core_parity_requirements"]),
-                required_proof_kinds=tuple(adapter["required_proof_kinds"]),
-                requires_snapshots=adapter["requires_snapshots"],
-                profiles=tuple(raw_profiles),
-                _token=token,
-            )
-        finally:
-            _active_manifest_token.reset(reset_token)
-
-    @property
-    def declared_profile_ids(self) -> frozenset[str]:
-        """Returns the set of genuine profile_id strings declared in this admitted manifest."""
-        return frozenset(p["profile_id"] for p in self.profiles)
-
-    def is_valid_peer_binding(self, peer_binding: str) -> bool:
-        """Checks if a peer_binding string corresponds to a real profile_id declared in this manifest."""
-        if not isinstance(peer_binding, str):
-            return False
-        norm = peer_binding[8:] if peer_binding.startswith("profile:") else peer_binding
-        return norm in self.declared_profile_ids or peer_binding in self.declared_profile_ids
-
-    def declares_capability(self, coverage_case_id: str) -> bool:
-        if "session" in coverage_case_id:
-            return "SESSION" in self.capabilities
-        if "stream" in coverage_case_id:
-            return "STREAM" in self.capabilities
-        return coverage_case_id in self.core_parity_requirements or len(self.capabilities) > 0
-
-    def supports_platform(self, platform: str) -> bool:
-        return platform in self.supported_platforms
-
-    def supports_transport(self, transport: str) -> bool:
-        return transport in self.supported_transports
-
-    def get_expected_required_cell_keys(
-        self,
-        peer_binding: str,
-        platform: str = "win32-x64",
-        transport: str = "PIPE",
-    ) -> set[CellKey]:
-        if not self.is_valid_peer_binding(peer_binding):
-            return set()
-        keys: set[CellKey] = set()
-        for case_id in self.core_parity_requirements:
-            for proof in self.required_proof_kinds:
-                key = CellKey(
-                    coverage_case_id=case_id,
-                    peer_binding=peer_binding,
-                    platform=platform,
-                    transport=transport,
-                    proof_kind=proof,
-                )
-                if determine_requirement_state(key, self) == "REQUIRED":
-                    keys.add(key)
-        return keys
-
-def determine_requirement_state(cell_key: CellKey, adapter_manifest: AdapterManifest) -> str:
-    if not adapter_manifest.declares_capability(cell_key.coverage_case_id):
-        return "NOT_APPLICABLE"
-    if not adapter_manifest.supports_platform(cell_key.platform):
-        return "NOT_APPLICABLE"
-    if not adapter_manifest.supports_transport(cell_key.transport):
-        return "NOT_APPLICABLE"
-    if cell_key.coverage_case_id in adapter_manifest.core_parity_requirements:
-        if cell_key.proof_kind in adapter_manifest.required_proof_kinds:
-            return "REQUIRED"
-        return "OPTIONAL"
-    if cell_key.proof_kind == "legacy-parity evidence" and not adapter_manifest.requires_snapshots:
-        return "OPTIONAL"
-    return "OPTIONAL"
-
-def determine_evidence_state(cell, current_env) -> str:
-    if cell is None:
-        if current_env.missing_dependencies:
-            return "UNAVAILABLE"
-        return "ABSENT"
-    if cell.attempt_outcome == "ENVIRONMENT_UNAVAILABLE":
-        return "ERROR"
-    return cell.evidence_state
-
-def can_promote(
-    rollup_cells: list,
-    current_env,
-    adapter_manifest: AdapterManifest,
-    required_cell_keys: set[CellKey] | None = None,
-) -> bool:
-    if not rollup_cells:
-        return False
-
-    # 1. Reject any rollup cell whose peer_binding does not correspond to a real admitted profile
-    for cell in rollup_cells:
-        if not adapter_manifest.is_valid_peer_binding(cell.cell_key.peer_binding):
-            return False
-
-    # Group cells by coverage rollup context: (coverage_case_id, peer_binding, platform, transport)
-    rollup_groups: dict[tuple[str, str, str, str], list] = {}
-    for cell in rollup_cells:
-        group_key = (
-            cell.cell_key.coverage_case_id,
-            cell.cell_key.peer_binding,
-            cell.cell_key.platform,
-            cell.cell_key.transport,
-        )
-        rollup_groups.setdefault(group_key, []).append(cell)
-
-    # 2. Contradiction Detection
-    for group_key, cells in rollup_groups.items():
-        evaluated_cells = [
-            c for c in cells
-            if determine_evidence_state(c, current_env) in ("MEASURED", "ERROR")
-        ]
-        has_pass = any(c.attempt_outcome == "EXECUTED_PASS" for c in evaluated_cells)
-        if has_pass:
-            has_contradiction = any(
-                c.attempt_outcome in ("PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE")
-                for c in evaluated_cells
-            )
-            if has_contradiction:
-                return False
-
-    # 3. Enumerate full required composite CellKeys grounded in the manifest's real declared profiles
-    expected_required: set[CellKey] = set(required_cell_keys) if required_cell_keys is not None else set()
-    if not expected_required:
-        for profile_id in adapter_manifest.declared_profile_ids:
-            expected_required.update(adapter_manifest.get_expected_required_cell_keys(peer_binding=f"profile:{profile_id}"))
-
-    if not expected_required:
-        return False
-
-    # 4. Verify completeness: 100% of required composite CellKeys must be covered and passing
-    covered_cell_keys: set[CellKey] = set()
-    for cell in rollup_cells:
-        req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
-        if req_state == "REQUIRED":
-            ev_state = determine_evidence_state(cell, current_env)
-            if ev_state != "MEASURED":
-                return False
-            if cell.attempt_outcome != "EXECUTED_PASS":
-                return False
-            covered_cell_keys.add(cell.cell_key)
-
-    return expected_required.issubset(covered_cell_keys)
-
 # --- EXECUTION TRACES ---
+# Directly invoking primary definitions from Sections 4, 5, 6, 7 above without duplication.
 
 print("--- 1. Single Normative Schema SSOT & Mechanical Equality Check ---")
 canonical_raw_schema = load_manifest_schema_v2()
@@ -1346,15 +977,23 @@ claude_manifest_obj = AdapterManifest.from_manifest(valid_claude_manifest, claud
 print(f"SUCCESS: Constructed {claude_manifest_obj.adapter_id} ({claude_manifest_obj.peer_kind}) carrying genuine declared profiles: {claude_manifest_obj.declared_profile_ids}")
 
 print("\n--- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---")
+from dataclasses import field
+
+@dataclass(frozen=True)
+class MockProvenance:
+    timestamp_utc: datetime = datetime(2026, 8, 20, 22, 0, 0)
+
 @dataclass
 class MockEnv:
     missing_dependencies: bool = False
+    current_time_utc: datetime = datetime(2026, 8, 20, 22, 30, 0)
 
 @dataclass
 class MockCell:
     cell_key: CellKey
     attempt_outcome: str = "EXECUTED_PASS"
     evidence_state: str = "MEASURED"
+    provenance: MockProvenance = field(default_factory=MockProvenance)
 
 # Attacker provides passing cells for a fabricated peer_binding never declared in admitted manifest
 fabricated_binding = "profile:fabricated.peer"
@@ -1557,6 +1196,107 @@ try:
     print("SUCCESS: Unknown receipt worked! (This should not happen)")
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
+
+print("\n--- 14. Freshness & Staleness Invalidation (8-Day-Old Evidence Evaluates to STALE) ---")
+# Evidence captured 8 days ago (exceeding MAX_AGE_SECONDS = 7 days)
+fresh_timestamp = datetime(2026, 8, 20, 22, 0, 0)
+stale_8d_timestamp = datetime(2026, 8, 12, 22, 0, 0)  # 8 days before evaluation time 2026-08-20T22:30:00
+
+fresh_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=fresh_timestamp),
+)
+
+stale_cell_8d = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=stale_8d_timestamp),
+)
+
+eval_fresh_state = determine_evidence_state(fresh_cell, mock_env)
+eval_stale_state = determine_evidence_state(stale_cell_8d, mock_env)
+age_days = (mock_env.current_time_utc - stale_cell_8d.provenance.timestamp_utc).total_seconds() / 86400.0
+
+print(f"Fresh cell age: {(mock_env.current_time_utc - fresh_cell.provenance.timestamp_utc).total_seconds() / 3600.0:.1f} hours -> evidence_state: {eval_fresh_state}")
+print(f"8-day-old cell age: {age_days:.1f} days -> evidence_state: {eval_stale_state}")
+print(f"STALENESS CHECK VERIFIED: 8-day-old evidence evaluates to STALE: {eval_stale_state == 'STALE'}")
+
+# Test promotion rejection when a required cell is 8 days old
+stale_rollup_cells = [
+    stale_cell_8d,
+    MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable")),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable")),
+]
+promotion_result_stale = can_promote(stale_rollup_cells, mock_env, claude_manifest_obj)
+print(f"can_promote(stale_rollup_cells) with 8-day-old cell returned: {promotion_result_stale}")
+print(f"STALE PROMOTION BLOCKED: can_promote rejected stale evidence: {promotion_result_stale is False}")
+
+print("\n--- 15. Round 31 Trust Boundary: caller-supplied required_cell_keys cannot override/weaken manifest ---")
+# Caller provides a single trivial required key attempting to bypass the 4 real required keys
+one_cell_override = {CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration")}
+only_one_passing_cell = [MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"))]
+
+promotion_override_result = can_promote(only_one_passing_cell, mock_env, claude_manifest_obj, required_cell_keys=one_cell_override)
+print(f"can_promote with 1-cell override subset but only 1 cell provided: {promotion_override_result}")
+print(f"REQUIRED SET OVERRIDE BLOCKED: 100% manifest requirement enforcement held: {promotion_override_result is False}")
+
+# Caller provides an invalid non-manifest requirement key
+invalid_override = {CellKey("action.hub.unadmitted", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration")}
+promotion_invalid_override = can_promote(genuine_cells, mock_env, claude_manifest_obj, required_cell_keys=invalid_override)
+print(f"can_promote with non-manifest requirement override: {promotion_invalid_override}")
+print(f"NON-SUBSET OVERRIDE REJECTED: Caller cannot inject arbitrary requirements: {promotion_invalid_override is False}")
+
+print("\n--- 16. Round 31 Per-Profile Transport: PTY profile requires PTY evidence (cannot promote on PIPE) ---")
+valid_pty_manifest = dict(valid_claude_manifest)
+valid_pty_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
+valid_pty_manifest["adapter"]["adapter_id"] = "pty-peer"
+valid_pty_manifest["adapter"]["peer_kind"] = "pty"
+valid_pty_manifest["adapter"]["supported_transports"] = ["PTY"]
+valid_pty_manifest["profiles"] = [
+    {
+        "profile_id": "pty.standard",
+        "profile_class": "tier",
+        "supports_reasoning_effort": False,
+        "transport": "PTY",
+        "prompt_policy": {
+            "policy_id": "pty-standard-policy",
+            "max_inline_utf8_bytes": 1000000,
+            "artifact_reference_supported": False
+        }
+    }
+]
+
+pty_receipt_id = AdmissionRegistry.admit(valid_pty_manifest)
+pty_manifest_obj = AdapterManifest.from_manifest(valid_pty_manifest, pty_receipt_id)
+pty_expected_keys = pty_manifest_obj.get_expected_required_cell_keys("profile:pty.standard")
+pty_transports = {k.transport for k in pty_expected_keys}
+print(f"PTY profile expected required cell transports: {pty_transports}")
+
+# Supplying PIPE-only evidence for a PTY-declared profile fails promotion
+pipe_cells_for_pty = [
+    MockCell(CellKey("action.hub.ask", "profile:pty.standard", "win32-x64", "PIPE", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.ask", "profile:pty.standard", "win32-x64", "PIPE", "controlled real-OS executable")),
+    MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PIPE", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PIPE", "controlled real-OS executable")),
+]
+promotion_pipe_on_pty = can_promote(pipe_cells_for_pty, mock_env, pty_manifest_obj)
+print(f"can_promote(pipe_cells_for_pty) returned: {promotion_pipe_on_pty}")
+print(f"TRANSPORT MISMATCH BLOCKED: PIPE evidence cannot satisfy PTY profile requirement: {promotion_pipe_on_pty is False}")
+
+# Genuine PTY evidence for PTY-declared profile succeeds
+genuine_pty_cells = [
+    MockCell(CellKey("action.hub.ask", "profile:pty.standard", "win32-x64", "PTY", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.ask", "profile:pty.standard", "win32-x64", "PTY", "controlled real-OS executable")),
+    MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PTY", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.thread-new", "profile:pty.standard", "win32-x64", "PTY", "controlled real-OS executable")),
+]
+promotion_genuine_pty = can_promote(genuine_pty_cells, mock_env, pty_manifest_obj)
+print(f"can_promote(genuine_pty_cells) returned: {promotion_genuine_pty}")
+print(f"GENUINE PTY PROMOTION SUCCESS: PTY evidence satisfies PTY profile requirement: {promotion_genuine_pty is True}")
 ```
 
 **Output:**
@@ -1578,11 +1318,11 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_d38491c34f1b8747e099880bcc5dd62e
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_a939622055731cf956b4ca382c2c0f10
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_d084c0eb85f4b595167f99609fce7829
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_60d21b89daa8296a1f74f3f1cc057385
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
 --- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---
@@ -1598,13 +1338,13 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (rcpt_d084c0eb85f4b595167f99609fce7829) digest preserved intact: True
+Earlier receipt ID (rcpt_60d21b89daa8296a1f74f3f1cc057385) digest preserved intact: True
 Second admission detected collision and retried to fresh ID: rcpt_abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
 --- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
-Thread 1 receipt ID: rcpt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Thread 2 receipt ID: rcpt_11112222333344445555666677778888
+Thread 1 receipt ID: rcpt_11112222333344445555666677778888
+Thread 2 receipt ID: rcpt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 Receipt IDs are distinct (no duplicate ID issued): True
 Thread 1 digest in registry: True
 Thread 2 digest in registry: True
@@ -1616,5 +1356,25 @@ BLOCKED: ValueError: Unknown admission receipt ID: 6BD899AB9DC099CE261BBF959712E
 
 --- 13. Syntactically well-formed but unknown receipt ID ---
 BLOCKED: ValueError: Unknown admission receipt ID: rcpt_00000000000000000000000000000000
+
+--- 14. Freshness & Staleness Invalidation (8-Day-Old Evidence Evaluates to STALE) ---
+Fresh cell age: 0.5 hours -> evidence_state: MEASURED
+8-day-old cell age: 8.0 days -> evidence_state: STALE
+STALENESS CHECK VERIFIED: 8-day-old evidence evaluates to STALE: True
+can_promote(stale_rollup_cells) with 8-day-old cell returned: False
+STALE PROMOTION BLOCKED: can_promote rejected stale evidence: True
+
+--- 15. Round 31 Trust Boundary: caller-supplied required_cell_keys cannot override/weaken manifest ---
+can_promote with 1-cell override subset but only 1 cell provided: False
+REQUIRED SET OVERRIDE BLOCKED: 100% manifest requirement enforcement held: True
+can_promote with non-manifest requirement override: False
+NON-SUBSET OVERRIDE REJECTED: Caller cannot inject arbitrary requirements: True
+
+--- 16. Round 31 Per-Profile Transport: PTY profile requires PTY evidence (cannot promote on PIPE) ---
+PTY profile expected required cell transports: {'PTY'}
+can_promote(pipe_cells_for_pty) returned: False
+TRANSPORT MISMATCH BLOCKED: PIPE evidence cannot satisfy PTY profile requirement: True
+can_promote(genuine_pty_cells) returned: True
+GENUINE PTY PROMOTION SUCCESS: PTY evidence satisfies PTY profile requirement: True
 ```
 
