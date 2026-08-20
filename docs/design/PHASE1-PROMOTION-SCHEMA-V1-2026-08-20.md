@@ -220,92 +220,109 @@ _MANIFEST_VALIDATOR = jsonschema.Draft202012Validator(_MANIFEST_SCHEMA_V2)
 
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
 
-class AdmissionRegistry:
-    """Minimal trusted registry for admitted manifests.
-    
-    Populated exclusively during a real admission event after rigorous validation
-    against the PHASE1-MANIFEST-SCHEMA-V2 specification. It computes and stores 
-    the canonical AST digest (manifest_ast_digest = SHA256(canonical_json(M_i))) 
-    of a fully validated manifest under a newly issued, collision-safe receipt ID 
-    (128-bit random token with atomic concurrency lock and uniqueness retry checks).
-    The registry is the only trusted source for linking a receipt ID to a digest,
-    preventing callers from supplying their own digests as proof.
-    """
-    _store: ClassVar[dict[str, str]] = {}  # receipt_id -> canonical_sha256
-    _lock: ClassVar[threading.Lock] = threading.Lock()
+def _build_admission_registry():
+    _store: dict[str, str] = {}  # receipt_id -> canonical_sha256
+    _lock: threading.Lock = threading.Lock()
 
-    @classmethod
-    def validate_manifest(cls, raw_manifest: dict) -> None:
-        """Validates raw manifest against PHASE1-MANIFEST-SCHEMA-V2 specification and semantic rules."""
-        if not isinstance(raw_manifest, dict):
-            raise TypeError(f"Manifest must be a dict, got {type(raw_manifest).__name__}")
+    class AdmissionRegistry:
+        """Minimal trusted registry for admitted manifests.
+        
+        Populated exclusively during a real admission event after rigorous validation
+        against the PHASE1-MANIFEST-SCHEMA-V2 specification. It computes and stores 
+        the canonical AST digest (manifest_ast_digest = SHA256(canonical_json(M_i))) 
+        of a fully validated manifest under a newly issued, collision-safe receipt ID 
+        (128-bit random token with atomic concurrency lock and uniqueness retry checks).
+        The registry is the only trusted source for linking a receipt ID to a digest,
+        preventing callers from supplying their own digests as proof.
 
-        # 1. Authoritative V2 JSON Schema structural validation (Draft 2020-12)
-        errors = list(_MANIFEST_VALIDATOR.iter_errors(raw_manifest))
-        if errors:
-            err_details = [f"{e.message}" for e in errors]
-            raise ValueError(f"Manifest schema validation failed: {'; '.join(err_details)}")
+        The backing store and lock are encapsulated inside a closure rather than exposed
+        as public or mutable class attributes. Direct external writes (such as
+        mutating AdmissionRegistry._store or monkeypatching class attributes) fail or
+        have zero effect on trusted admission and get_trusted_digest lookups.
+        """
 
-        # 2. Semantic admission rules (Section 4.1 in V2 Specification)
-        # Rule 4.1.1: Prompt placeholder in start template
-        start_tmpl = raw_manifest["execution"]["templates"]["start"]
-        start_has_prompt = any(
-            "{prompt_content}" in arg or "{prompt_reference}" in arg
-            for arg in start_tmpl.get("argv", [])
-        ) or (
-            isinstance(start_tmpl.get("stdin"), str)
-            and ("{prompt_content}" in start_tmpl["stdin"] or "{prompt_reference}" in start_tmpl["stdin"])
-        )
-        if not start_has_prompt:
-            raise ValueError("Semantic validation failed: 'execution.templates.start' MUST contain '{prompt_content}' or '{prompt_reference}' in argv or stdin.")
+        @classmethod
+        def validate_manifest(cls, raw_manifest: dict) -> None:
+            """Validates raw manifest against PHASE1-MANIFEST-SCHEMA-V2 specification and semantic rules."""
+            if not isinstance(raw_manifest, dict):
+                raise TypeError(f"Manifest must be a dict, got {type(raw_manifest).__name__}")
 
-        # Rule 4.1.2: Resume template guard (mandatory if SESSION capability declared)
-        capabilities = raw_manifest["adapter"].get("capabilities", [])
-        templates = raw_manifest["execution"]["templates"]
-        if "SESSION" in capabilities and "resume" not in templates:
-            raise ValueError("Manifest declares SESSION capability but is missing 'execution.templates.resume'")
+            # 1. Authoritative V2 JSON Schema structural validation (Draft 2020-12)
+            errors = list(_MANIFEST_VALIDATOR.iter_errors(raw_manifest))
+            if errors:
+                err_details = [f"{e.message}" for e in errors]
+                raise ValueError(f"Manifest schema validation failed: {'; '.join(err_details)}")
 
-        if "resume" in templates:
-            resume_tmpl = templates["resume"]
-            resume_has_session = any(
-                "{session.external_session_id}" in arg or "{conversation}" in arg or "{session." in arg
-                for arg in resume_tmpl.get("argv", [])
+            # 2. Semantic admission rules (Section 4.1 in V2 Specification)
+            # Rule 4.1.1: Prompt placeholder in start template
+            start_tmpl = raw_manifest["execution"]["templates"]["start"]
+            start_has_prompt = any(
+                "{prompt_content}" in arg or "{prompt_reference}" in arg
+                for arg in start_tmpl.get("argv", [])
             ) or (
-                isinstance(resume_tmpl.get("stdin"), str)
-                and ("{session.external_session_id}" in resume_tmpl["stdin"] or "{session." in resume_tmpl["stdin"])
+                isinstance(start_tmpl.get("stdin"), str)
+                and ("{prompt_content}" in start_tmpl["stdin"] or "{prompt_reference}" in start_tmpl["stdin"])
             )
-            if not resume_has_session:
-                raise ValueError("Semantic validation failed: 'execution.templates.resume' MUST contain session placeholder in argv or stdin.")
+            if not start_has_prompt:
+                raise ValueError("Semantic validation failed: 'execution.templates.start' MUST contain '{prompt_content}' or '{prompt_reference}' in argv or stdin.")
 
-    @classmethod
-    def admit(cls, raw_manifest: dict, max_retries: int = 10) -> str:
-        """Admission lifecycle: Validates manifest against Phase 1 V2 schema, computes canonical digest, issues collision-safe receipt ID atomically."""
-        # 1. Genuine schema validation before issuance
-        cls.validate_manifest(raw_manifest)
+            # Rule 4.1.2: Resume template guard (mandatory if SESSION capability declared)
+            capabilities = raw_manifest["adapter"].get("capabilities", [])
+            templates = raw_manifest["execution"]["templates"]
+            if "SESSION" in capabilities and "resume" not in templates:
+                raise ValueError("Manifest declares SESSION capability but is missing 'execution.templates.resume'")
 
-        # 2. Canonical AST digest computation over full manifest (manifest_ast_digest)
-        digest = AdapterManifest.canonical_digest(raw_manifest)
+            if "resume" in templates:
+                resume_tmpl = templates["resume"]
+                resume_has_session = any(
+                    "{session.external_session_id}" in arg or "{conversation}" in arg or "{session." in arg
+                    for arg in resume_tmpl.get("argv", [])
+                ) or (
+                    isinstance(resume_tmpl.get("stdin"), str)
+                    and ("{session.external_session_id}" in resume_tmpl["stdin"] or "{session." in resume_tmpl["stdin"])
+                )
+                if not resume_has_session:
+                    raise ValueError("Semantic validation failed: 'execution.templates.resume' MUST contain session placeholder in argv or stdin.")
 
-        # 3. Collision-safe 128-bit receipt ID issuance with atomic check-and-insert under lock
-        for attempt in range(max_retries):
-            candidate_id = f"rcpt_{secrets.token_hex(16)}"
-            with cls._lock:
-                if candidate_id not in cls._store:
-                    cls._store[candidate_id] = digest
-                    return candidate_id
+        @classmethod
+        def admit(cls, raw_manifest: dict, max_retries: int = 10) -> str:
+            """Admission lifecycle: Validates manifest against Phase 1 V2 schema, computes canonical digest, issues collision-safe receipt ID atomically."""
+            # 1. Genuine schema validation before issuance
+            cls.validate_manifest(raw_manifest)
 
-        raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
+            # 2. Canonical AST digest computation over full manifest (manifest_ast_digest)
+            digest = AdapterManifest.canonical_digest(raw_manifest)
 
-    @classmethod
-    def get_trusted_digest(cls, receipt_id: str) -> str:
-        """Promotion lifecycle: Looks up the trusted digest by registry-issued receipt ID."""
-        if not isinstance(receipt_id, str):
-            raise TypeError("receipt_id must be a string")
-        with cls._lock:
-            digest = cls._store.get(receipt_id)
-        if digest is None:
-            raise ValueError(f"Unknown admission receipt ID: {receipt_id}")
-        return digest
+            # 3. Collision-safe 128-bit receipt ID issuance with atomic check-and-insert under lock
+            for attempt in range(max_retries):
+                candidate_id = f"rcpt_{secrets.token_hex(16)}"
+                with _lock:
+                    if candidate_id not in _store:
+                        _store[candidate_id] = digest
+                        return candidate_id
+
+            raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
+
+        @classmethod
+        def get_trusted_digest(cls, receipt_id: str) -> str:
+            """Promotion lifecycle: Looks up the trusted digest by registry-issued receipt ID."""
+            if not isinstance(receipt_id, str):
+                raise TypeError("receipt_id must be a string")
+            with _lock:
+                digest = _store.get(receipt_id)
+            if digest is None:
+                raise ValueError(f"Unknown admission receipt ID: {receipt_id}")
+            return digest
+
+        @classmethod
+        def store_size(cls) -> int:
+            """Read-only introspection returning the current number of admitted entries in the trusted registry."""
+            with _lock:
+                return len(_store)
+
+    return AdmissionRegistry
+
+AdmissionRegistry = _build_admission_registry()
 
 @dataclass(frozen=True, slots=True)
 class CellKey:
@@ -966,12 +983,12 @@ cx_extra_key_codex_manifest["engine"] = {
     "options": {"enforce_strict_json": True}
 }
 
-store_size_before = len(AdmissionRegistry._store)
+store_size_before = AdmissionRegistry.store_size()
 try:
     AdmissionRegistry.admit(cx_extra_key_codex_manifest)
     print("FAILED: cx extra-key Codex manifest was unexpectedly admitted!")
 except Exception as e:
-    store_size_after = len(AdmissionRegistry._store)
+    store_size_after = AdmissionRegistry.store_size()
     print(f"REJECTED at admit() as expected: {type(e).__name__}: {e}")
     print(f"Store unpolluted (no receipt issued): {store_size_before == store_size_after}")
 
@@ -1151,7 +1168,7 @@ try:
     
     print(f"Earlier receipt ID ({existing_receipt_id}) digest preserved intact: {first_digest_before == first_digest_after}")
     print(f"Second admission detected collision and retried to fresh ID: {second_receipt_id}")
-    print(f"Store size now: {len(AdmissionRegistry._store)} distinct entries (no clobbering!)")
+    print(f"Store size now: {AdmissionRegistry.store_size()} distinct entries (no clobbering!)")
 finally:
     secrets.token_hex = orig_token_hex
 
@@ -1191,7 +1208,7 @@ def concurrent_worker(tname, manifest):
 
 secrets.token_hex = concurrent_mock_token_hex
 try:
-    store_count_before_conc = len(AdmissionRegistry._store)
+    store_count_before_conc = AdmissionRegistry.store_size()
     th1 = threading.Thread(target=concurrent_worker, args=("T1", manifest_t1))
     th2 = threading.Thread(target=concurrent_worker, args=("T2", manifest_t2))
     th1.start(); th2.start()
@@ -1205,7 +1222,7 @@ try:
     print(f"Receipt IDs are distinct (no duplicate ID issued): {r1 != r2}")
     print(f"Thread 1 digest in registry: {AdmissionRegistry.get_trusted_digest(r1) == d1}")
     print(f"Thread 2 digest in registry: {AdmissionRegistry.get_trusted_digest(r2) == d2}")
-    print(f"Store size increased by exactly 2 entries: {len(AdmissionRegistry._store) == store_count_before_conc + 2}")
+    print(f"Store size increased by exactly 2 entries: {AdmissionRegistry.store_size() == store_count_before_conc + 2}")
     print("CONCURRENCY RACE VERIFIED FIXED: Atomic lock prevents TOCTOU clobbering under real thread contention.")
 finally:
     secrets.token_hex = orig_token_hex
@@ -1401,6 +1418,61 @@ original_cells = [
 promotion_original = can_promote(original_cells, mock_env, snapshot_manifest_obj)
 print(f"can_promote(original_cells) with original binding returned: {promotion_original}")
 print(f"GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuine evidence: {promotion_original is True}")
+
+print("\n--- 18. Round 35 Trust Boundary: Direct external write to AdmissionRegistry storage is blocked / has zero effect ---")
+unadmitted_forged_manifest = dict(valid_claude_manifest)
+unadmitted_forged_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
+unadmitted_forged_manifest["adapter"]["adapter_id"] = "forged-bypass-peer"
+unadmitted_forged_manifest["profiles"] = [
+    {
+        "profile_id": "cc.forged",
+        "profile_class": "tier",
+        "supports_reasoning_effort": False,
+        "transport": "PIPE",
+        "prompt_policy": {
+            "policy_id": "forged-policy",
+            "max_inline_utf8_bytes": 1000000,
+            "artifact_reference_supported": False,
+        },
+    }
+]
+
+forged_digest = AdapterManifest.canonical_digest(unadmitted_forged_manifest)
+forged_receipt_id = "rcpt_cx_forged_storage_bypass_token_12345"
+
+# Attack Step A: Attacker attempts direct subscript mutation on AdmissionRegistry._store
+try:
+    AdmissionRegistry._store[forged_receipt_id] = forged_digest
+    print("FAILED: Direct subscript write to AdmissionRegistry._store unexpectedly succeeded!")
+except AttributeError as e:
+    print(f"ATTACK STEP A BLOCKED: Direct subscript mutation raised {type(e).__name__}: {e}")
+
+# Attack Step B: Attacker attempts to monkeypatch AdmissionRegistry._store by assigning a dict
+AdmissionRegistry._store = {forged_receipt_id: forged_digest}
+
+# Verify get_trusted_digest still queries the closure-scoped store and rejects the forged entry
+try:
+    AdmissionRegistry.get_trusted_digest(forged_receipt_id)
+    print("FAILED: get_trusted_digest trusted monkeypatched AdmissionRegistry._store!")
+except ValueError as e:
+    print(f"ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: {type(e).__name__}: {e}")
+
+# Verify AdapterManifest.from_manifest also fails when using the forged receipt ID
+try:
+    AdapterManifest.from_manifest(unadmitted_forged_manifest, forged_receipt_id)
+    print("FAILED: from_manifest succeeded with forged receipt ID!")
+except ValueError as e:
+    print(f"FORGERY REJECTED at from_manifest(): {type(e).__name__}: {e}")
+
+# Clean up monkeypatched class attribute (if any)
+if hasattr(AdmissionRegistry, "_store"):
+    delattr(AdmissionRegistry, "_store")
+
+# Genuine admission still succeeds exactly as before
+genuine_forged_receipt = AdmissionRegistry.admit(unadmitted_forged_manifest)
+print(f"GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: {genuine_forged_receipt}")
+genuine_manifest_obj = AdapterManifest.from_manifest(unadmitted_forged_manifest, genuine_forged_receipt)
+print(f"GENUINE CONSTRUCT SUCCESS: Constructed {genuine_manifest_obj.adapter_id} with digest verified from trusted registry.")
 ```
 
 **Output:**
@@ -1492,5 +1564,12 @@ can_promote(injected_cells) with mutated binding returned: False
 MUTATION INJECTION BLOCKED: Post-admission mutation cannot achieve promotion: True
 can_promote(original_cells) with original binding returned: True
 GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuine evidence: True
+
+--- 18. Round 35 Trust Boundary: Direct external write to AdmissionRegistry storage is blocked / has zero effect ---
+ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
+ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
+FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: rcpt_4c8eabd19fdced934c64ae0b0ecfc23b
+GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
 ```
 
