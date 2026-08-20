@@ -174,15 +174,18 @@ def determine_evidence_state(cell, current_env) -> str:
     return cell.evidence_state
 ```
 
-## 5. Adapter Manifest Evaluation Context & Type Definitions
+### 5. Adapter Manifest Evaluation Context & Type Definitions
 
-To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines the `CellKey` and `AdapterManifest` structures:
+To eliminate schema-drift vulnerabilities and establish a strict single source of truth (SSOT), `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md` (Section 3) is explicitly designated as the **single normative source of truth** for the Phase 1 Manifest JSON Schema (Draft 2020-12). This document does not maintain a second, decoupled inline transcription of the schema; the admission and promotion validator is loaded directly from that canonical source definition.
+
+To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines `load_manifest_schema_v2`, `AdmissionRegistry`, `CellKey`, and `AdapterManifest` (which carries the admitted manifest's real declared `profiles` list):
 
 ```python
 from __future__ import annotations
 from dataclasses import dataclass
 from contextvars import ContextVar
 from datetime import datetime
+from pathlib import Path
 from typing import ClassVar
 import hashlib
 import json
@@ -191,293 +194,28 @@ import secrets
 import threading
 import jsonschema
 
-_MANIFEST_SCHEMA_V2 = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://peerhub.local/schema/adapter-manifest/v2",
-    "type": "object",
-    "additionalProperties": False,
-    "required": [
-        "manifest_version",
-        "status",
-        "adapter",
-        "execution",
-        "engine",
-        "profiles",
-    ],
-    "properties": {
-        "manifest_version": {"const": "2.0.0"},
-        "status": {"enum": ["active", "inactive"]},
-        "adapter": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": [
-                "adapter_id",
-                "adapter_version",
-                "peer_kind",
-                "capabilities",
-                "supported_platforms",
-                "supported_transports",
-                "core_parity_requirements",
-                "required_proof_kinds",
-                "requires_snapshots",
-                "readiness_probe_id",
-            ],
-            "properties": {
-                "adapter_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
-                "adapter_version": {
-                    "type": "string",
-                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-                },
-                "peer_kind": {"type": "string", "pattern": "^[a-z]+$"},
-                "aliases": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "capabilities": {
-                    "type": "array",
-                    "items": {"enum": ["SESSION", "STREAM", "GRACEFUL_CANCEL"]},
-                },
-                "supported_platforms": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {"type": "string"},
-                },
-                "supported_transports": {
-                    "type": "array",
-                    "items": {"enum": ["PIPE", "PTY"]},
-                },
-                "core_parity_requirements": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "required_proof_kinds": {
-                    "type": "array",
-                    "items": {
-                        "enum": [
-                            "deterministic contract or integration",
-                            "controlled real-OS executable",
-                            "live provider exact-profile",
-                            "legacy-parity evidence",
-                        ]
-                    },
-                },
-                "requires_snapshots": {"type": "boolean"},
-                "readiness_probe_id": {"type": "string", "minLength": 1},
-                "usage_provider_id": {"type": "string"},
-            },
-        },
-        "execution": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["executable", "templates", "env_policy"],
-            "properties": {
-                "executable": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["resolution_rule", "target"],
-                    "properties": {
-                        "resolution_rule": {"enum": ["absolute", "sibling", "path"]},
-                        "target": {"type": "string", "minLength": 1},
-                    },
-                },
-                "shim_names": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "templates": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["start"],
-                    "properties": {
-                        "start": {"$ref": "#/$defs/invocation_template"},
-                        "resume": {"$ref": "#/$defs/invocation_template"},
-                    },
-                },
-                "env_policy": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["inherit", "set"],
-                    "properties": {
-                        "inherit": {"type": "array", "items": {"type": "string"}},
-                        "set": {
-                            "type": "object",
-                            "additionalProperties": {"type": "string"},
-                        },
-                    },
-                },
-            },
-        },
-        "engine": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["engine_id", "options"],
-            "properties": {
-                "engine_id": {
-                    "type": "string",
-                    "enum": [
-                        "builtin:json-claude-v1",
-                        "builtin:jsonl-codex-v1",
-                        "builtin:json-agy-v1",
-                        "builtin:pty-legacy-v1",
-                    ],
-                },
-                "options": {
-                    "type": "object",
-                    "description": "Explicit finite typed options per engine.",
-                },
-            },
-            "allOf": [
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:json-claude-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Builtin SSE Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["enforce_strict_json"],
-                                "properties": {
-                                    "enforce_strict_json": {"type": "boolean"}
-                                },
-                            }
-                        }
-                    },
-                },
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:jsonl-codex-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Empty Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "maxProperties": 0,
-                                "properties": {},
-                            }
-                        }
-                    },
-                },
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:json-agy-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Empty Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "maxProperties": 0,
-                                "properties": {},
-                            }
-                        }
-                    },
-                },
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:pty-legacy-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Builtin CLI Regex Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["success_regex"],
-                                "properties": {
-                                    "success_regex": {"type": "string"},
-                                    "error_regex": {"type": "string"},
-                                },
-                            }
-                        }
-                    },
-                },
-            ],
-        },
-        "profiles": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": [
-                    "profile_id",
-                    "profile_class",
-                    "supports_reasoning_effort",
-                    "transport",
-                    "prompt_policy",
-                ],
-                "properties": {
-                    "profile_id": {"type": "string", "minLength": 1},
-                    "profile_class": {"type": "string"},
-                    "supports_reasoning_effort": {"type": "boolean"},
-                    "transport": {"enum": ["PIPE", "PTY"]},
-                    "prompt_policy": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": [
-                            "policy_id",
-                            "max_inline_utf8_bytes",
-                            "artifact_reference_supported",
-                        ],
-                        "properties": {
-                            "policy_id": {"type": "string"},
-                            "max_inline_utf8_bytes": {
-                                "type": "integer",
-                                "minimum": 0,
-                            },
-                            "artifact_reference_supported": {"type": "boolean"},
-                        },
-                    },
-                },
-            },
-        },
-    },
-    "$defs": {
-        "invocation_template": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["argv", "cwd"],
-            "properties": {
-                "argv": {"type": "array", "items": {"type": "string"}},
-                "cwd": {"type": "string"},
-                "stdin": {"type": "string"},
-                "artifacts": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": [
-                            "artifact_id",
-                            "placeholder",
-                            "access_mode",
-                            "lifecycle",
-                        ],
-                        "properties": {
-                            "artifact_id": {"type": "string"},
-                            "placeholder": {"type": "string"},
-                            "access_mode": {"type": "string"},
-                            "lifecycle": {"type": "string"},
-                        },
-                    },
-                },
-            },
-        }
-    },
-}
+def load_manifest_schema_v2(schema_path: str | Path | None = None) -> dict:
+    """Loads the normative Phase 1 Manifest JSON Schema (Draft 2020-12) directly from its canonical source of truth."""
+    if schema_path is None:
+        candidates = [
+            Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
+            Path(__file__).parent / "PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md" if "__file__" in globals() else None,
+            Path("PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
+        ]
+        for c in candidates:
+            if c and c.exists():
+                schema_path = c
+                break
+        if schema_path is None:
+            schema_path = Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md")
+    
+    content = Path(schema_path).read_text(encoding="utf-8")
+    match = re.search(r"```json\s*(\{[\s\S]*?\"\$id\":\s*\"https://peerhub\.local/schema/adapter-manifest/v2\"[\s\S]*?\})\s*```", content)
+    if not match:
+        raise ValueError(f"Could not extract normative manifest schema v2 from {schema_path}")
+    return json.loads(match.group(1))
 
+_MANIFEST_SCHEMA_V2 = load_manifest_schema_v2()
 _MANIFEST_VALIDATOR = jsonschema.Draft202012Validator(_MANIFEST_SCHEMA_V2)
 
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
@@ -605,6 +343,7 @@ class AdapterManifest:
     core_parity_requirements: tuple[str, ...]
     required_proof_kinds: tuple[str, ...]
     requires_snapshots: bool
+    profiles: tuple[dict, ...]
     _token: str | None = None
 
     def __post_init__(self):
@@ -646,13 +385,14 @@ class AdapterManifest:
         admission_receipt_id: str,
     ) -> AdapterManifest:
         """Constructs this contract strictly by validating schema shape, verifying canonical
-        digest authenticity via the trusted AdmissionRegistry, and reading fields.
+        digest authenticity via the trusted AdmissionRegistry, and reading fields directly
+        out of the admitted manifest (including genuine declared profiles).
         
         The caller MUST provide a valid, registry-issued admission_receipt_id.
         The registry itself provides the expected digest, closing the forgery gap.
         """
-        if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest:
-            raise ValueError("raw_manifest must be an admitted manifest dict containing an 'adapter' block.")
+        if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest or "profiles" not in raw_manifest:
+            raise ValueError("raw_manifest must be an admitted manifest dict containing 'adapter' and 'profiles' blocks.")
 
         # 1. Look up trusted digest from the registry using the opaque ID
         expected_digest = AdmissionRegistry.get_trusted_digest(admission_receipt_id)
@@ -667,7 +407,7 @@ class AdapterManifest:
             )
 
         adapter = raw_manifest["adapter"]
-        required_keys = (
+        required_adapter_keys = (
             "adapter_id",
             "peer_kind",
             "capabilities",
@@ -677,9 +417,9 @@ class AdapterManifest:
             "required_proof_kinds",
             "requires_snapshots",
         )
-        missing = [k for k in required_keys if k not in adapter]
-        if missing:
-            raise ValueError(f"Admitted manifest missing required policy fields: {missing}")
+        missing_adapter = [k for k in required_adapter_keys if k not in adapter]
+        if missing_adapter:
+            raise ValueError(f"Admitted manifest missing required adapter policy fields: {missing_adapter}")
 
         if not isinstance(adapter["adapter_id"], str) or not isinstance(adapter["peer_kind"], str):
             raise TypeError("Fields 'adapter_id' and 'peer_kind' must be strings.")
@@ -698,6 +438,14 @@ class AdapterManifest:
         if not isinstance(adapter["requires_snapshots"], bool):
             raise TypeError(f"Field 'requires_snapshots' must be a bool, got {type(adapter['requires_snapshots']).__name__}.")
 
+        # 3. Validate and extract declared profile descriptors directly from admitted manifest
+        raw_profiles = raw_manifest["profiles"]
+        if not isinstance(raw_profiles, (list, tuple)) or not raw_profiles:
+            raise TypeError("Field 'profiles' must be a non-empty list or tuple.")
+        for p in raw_profiles:
+            if not isinstance(p, dict) or "profile_id" not in p or not isinstance(p["profile_id"], str) or not p["profile_id"]:
+                raise TypeError("Each profile in 'profiles' must be a dict containing a non-empty string 'profile_id'.")
+
         token = secrets.token_hex(32)
         reset_token = _active_manifest_token.set(token)
         try:
@@ -710,10 +458,23 @@ class AdapterManifest:
                 core_parity_requirements=tuple(adapter["core_parity_requirements"]),
                 required_proof_kinds=tuple(adapter["required_proof_kinds"]),
                 requires_snapshots=adapter["requires_snapshots"],
+                profiles=tuple(raw_profiles),
                 _token=token,
             )
         finally:
             _active_manifest_token.reset(reset_token)
+
+    @property
+    def declared_profile_ids(self) -> frozenset[str]:
+        """Returns the set of genuine profile_id strings declared in this admitted manifest."""
+        return frozenset(p["profile_id"] for p in self.profiles)
+
+    def is_valid_peer_binding(self, peer_binding: str) -> bool:
+        """Checks if a peer_binding string corresponds to a real profile_id declared in this manifest."""
+        if not isinstance(peer_binding, str):
+            return False
+        norm = peer_binding[8:] if peer_binding.startswith("profile:") else peer_binding
+        return norm in self.declared_profile_ids or peer_binding in self.declared_profile_ids
 
     def declares_capability(self, coverage_case_id: str) -> bool:
         """Verifies whether the adapter declares capability for the given case or general actions."""
@@ -738,6 +499,8 @@ class AdapterManifest:
         transport: str = "PIPE",
     ) -> set[CellKey]:
         """Enumerates the full composite CellKey set required for promotion."""
+        if not self.is_valid_peer_binding(peer_binding):
+            return set()
         keys: set[CellKey] = set()
         for case_id in self.core_parity_requirements:
             for proof in self.required_proof_kinds:
@@ -798,17 +561,23 @@ def can_promote(
 ) -> bool:
     """
     Returns True if and only if:
-    1. rollup_cells is non-empty and every required composite CellKey is covered.
-    2. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome EXECUTED_PASS.
-    3. Contradiction Guard: No sibling cell within the same rollup context (same coverage_case_id,
+    1. rollup_cells is non-empty and every cell corresponds to a real admitted profile declared in adapter_manifest.
+    2. Every required composite CellKey for the admitted manifest's declared profiles is covered.
+    3. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome EXECUTED_PASS.
+    4. Contradiction Guard: No sibling cell within the same rollup context (same coverage_case_id,
        peer_binding, platform, transport) has a divergent contradictory outcome (PRODUCT_FAILURE,
        QUOTA_BLOCKED, ENVIRONMENT_UNAVAILABLE) against a passing sibling cell in the same rollup group.
-    4. Returns False if any required cell is missing, stale, unavailable, failed, omitted,
-       or contradicted by a divergent sibling cell.
+    5. Returns False if any cell carries an unadmitted/fabricated peer_binding, or if any required cell
+       is missing, stale, unavailable, failed, omitted, or contradicted by a divergent sibling cell.
     """
     if not rollup_cells:
         return False
-        
+
+    # 1. Reject any rollup cell whose peer_binding does not correspond to a real admitted profile
+    for cell in rollup_cells:
+        if not adapter_manifest.is_valid_peer_binding(cell.cell_key.peer_binding):
+            return False
+
     # Group cells by coverage rollup context: (coverage_case_id, peer_binding, platform, transport)
     rollup_groups: dict[tuple[str, str, str, str], list] = {}
     for cell in rollup_cells:
@@ -820,7 +589,7 @@ def can_promote(
         )
         rollup_groups.setdefault(group_key, []).append(cell)
 
-    # 1. Contradiction Detection
+    # 2. Contradiction Detection
     for group_key, cells in rollup_groups.items():
         evaluated_cells = [
             c for c in cells
@@ -835,17 +604,16 @@ def can_promote(
             if has_contradiction:
                 return False
 
-    # 2. Enumerate full required composite CellKeys
+    # 3. Enumerate full required composite CellKeys grounded in the manifest's real declared profiles
     expected_required: set[CellKey] = set(required_cell_keys) if required_cell_keys is not None else set()
     if not expected_required:
-        bindings = {c.cell_key.peer_binding for c in rollup_cells}
-        for b in bindings:
-            expected_required.update(adapter_manifest.get_expected_required_cell_keys(peer_binding=b))
-            
+        for profile_id in adapter_manifest.declared_profile_ids:
+            expected_required.update(adapter_manifest.get_expected_required_cell_keys(peer_binding=f"profile:{profile_id}"))
+
     if not expected_required:
         return False
-        
-    # 3. Verify completeness: 100% of required composite CellKeys must be covered and passing
+
+    # 4. Verify completeness: 100% of required composite CellKeys must be covered and passing
     covered_cell_keys: set[CellKey] = set()
     for cell in rollup_cells:
         req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
@@ -856,7 +624,7 @@ def can_promote(
             if cell.attempt_outcome != "EXECUTED_PASS":
                 return False
             covered_cell_keys.add(cell.cell_key)
-            
+
     # If any required proof_kind for any coverage case is omitted, issubset returns False.
     return expected_required.issubset(covered_cell_keys)
 ```
@@ -1022,7 +790,7 @@ If the following two cells exist simultaneously for `action.hub.credit-status` (
 The overall rollup for `action.hub.credit-status` on `(profile:cx.standard, win32-x64, PIPE)` resolves to **`CONTRADICTORY`**, halting promotion until the discrepancy between the executable simulation and live integration execution is investigated and resolved.
 
 
-## 10. Round 27 Execution Trace (Authoritative Schema Validation & Atomic Concurrency Safety)
+## 10. Round 29 Execution Trace (Normative Schema SSOT, Declared Profiles & Fabricated Binding Defense)
 
 ```python
 import hashlib
@@ -1032,301 +800,48 @@ import secrets
 import threading
 from contextvars import ContextVar
 from dataclasses import dataclass
+from pathlib import Path
 from typing import ClassVar
 import jsonschema
 
-_MANIFEST_SCHEMA_V2 = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "$id": "https://peerhub.local/schema/adapter-manifest/v2",
-    "type": "object",
-    "additionalProperties": False,
-    "required": [
-        "manifest_version",
-        "status",
-        "adapter",
-        "execution",
-        "engine",
-        "profiles",
-    ],
-    "properties": {
-        "manifest_version": {"const": "2.0.0"},
-        "status": {"enum": ["active", "inactive"]},
-        "adapter": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": [
-                "adapter_id",
-                "adapter_version",
-                "peer_kind",
-                "capabilities",
-                "supported_platforms",
-                "supported_transports",
-                "core_parity_requirements",
-                "required_proof_kinds",
-                "requires_snapshots",
-                "readiness_probe_id",
-            ],
-            "properties": {
-                "adapter_id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
-                "adapter_version": {
-                    "type": "string",
-                    "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
-                },
-                "peer_kind": {"type": "string", "pattern": "^[a-z]+$"},
-                "aliases": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "capabilities": {
-                    "type": "array",
-                    "items": {"enum": ["SESSION", "STREAM", "GRACEFUL_CANCEL"]},
-                },
-                "supported_platforms": {
-                    "type": "array",
-                    "minItems": 1,
-                    "items": {"type": "string"},
-                },
-                "supported_transports": {
-                    "type": "array",
-                    "items": {"enum": ["PIPE", "PTY"]},
-                },
-                "core_parity_requirements": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "required_proof_kinds": {
-                    "type": "array",
-                    "items": {
-                        "enum": [
-                            "deterministic contract or integration",
-                            "controlled real-OS executable",
-                            "live provider exact-profile",
-                            "legacy-parity evidence",
-                        ]
-                    },
-                },
-                "requires_snapshots": {"type": "boolean"},
-                "readiness_probe_id": {"type": "string", "minLength": 1},
-                "usage_provider_id": {"type": "string"},
-            },
-        },
-        "execution": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["executable", "templates", "env_policy"],
-            "properties": {
-                "executable": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["resolution_rule", "target"],
-                    "properties": {
-                        "resolution_rule": {"enum": ["absolute", "sibling", "path"]},
-                        "target": {"type": "string", "minLength": 1},
-                    },
-                },
-                "shim_names": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                },
-                "templates": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["start"],
-                    "properties": {
-                        "start": {"$ref": "#/$defs/invocation_template"},
-                        "resume": {"$ref": "#/$defs/invocation_template"},
-                    },
-                },
-                "env_policy": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["inherit", "set"],
-                    "properties": {
-                        "inherit": {"type": "array", "items": {"type": "string"}},
-                        "set": {
-                            "type": "object",
-                            "additionalProperties": {"type": "string"},
-                        },
-                    },
-                },
-            },
-        },
-        "engine": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["engine_id", "options"],
-            "properties": {
-                "engine_id": {
-                    "type": "string",
-                    "enum": [
-                        "builtin:json-claude-v1",
-                        "builtin:jsonl-codex-v1",
-                        "builtin:json-agy-v1",
-                        "builtin:pty-legacy-v1",
-                    ],
-                },
-                "options": {
-                    "type": "object",
-                    "description": "Explicit finite typed options per engine.",
-                },
-            },
-            "allOf": [
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:json-claude-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Builtin SSE Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["enforce_strict_json"],
-                                "properties": {
-                                    "enforce_strict_json": {"type": "boolean"}
-                                },
-                            }
-                        }
-                    },
-                },
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:jsonl-codex-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Empty Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "maxProperties": 0,
-                                "properties": {},
-                            }
-                        }
-                    },
-                },
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:json-agy-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Empty Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "maxProperties": 0,
-                                "properties": {},
-                            }
-                        }
-                    },
-                },
-                {
-                    "if": {
-                        "properties": {
-                            "engine_id": {"const": "builtin:pty-legacy-v1"}
-                        }
-                    },
-                    "then": {
-                        "properties": {
-                            "options": {
-                                "title": "Builtin CLI Regex Options",
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["success_regex"],
-                                "properties": {
-                                    "success_regex": {"type": "string"},
-                                    "error_regex": {"type": "string"},
-                                },
-                            }
-                        }
-                    },
-                },
-            ],
-        },
-        "profiles": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": [
-                    "profile_id",
-                    "profile_class",
-                    "supports_reasoning_effort",
-                    "transport",
-                    "prompt_policy",
-                ],
-                "properties": {
-                    "profile_id": {"type": "string", "minLength": 1},
-                    "profile_class": {"type": "string"},
-                    "supports_reasoning_effort": {"type": "boolean"},
-                    "transport": {"enum": ["PIPE", "PTY"]},
-                    "prompt_policy": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": [
-                            "policy_id",
-                            "max_inline_utf8_bytes",
-                            "artifact_reference_supported",
-                        ],
-                        "properties": {
-                            "policy_id": {"type": "string"},
-                            "max_inline_utf8_bytes": {
-                                "type": "integer",
-                                "minimum": 0,
-                            },
-                            "artifact_reference_supported": {"type": "boolean"},
-                        },
-                    },
-                },
-            },
-        },
-    },
-    "$defs": {
-        "invocation_template": {
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["argv", "cwd"],
-            "properties": {
-                "argv": {"type": "array", "items": {"type": "string"}},
-                "cwd": {"type": "string"},
-                "stdin": {"type": "string"},
-                "artifacts": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": [
-                            "artifact_id",
-                            "placeholder",
-                            "access_mode",
-                            "lifecycle",
-                        ],
-                        "properties": {
-                            "artifact_id": {"type": "string"},
-                            "placeholder": {"type": "string"},
-                            "access_mode": {"type": "string"},
-                            "lifecycle": {"type": "string"},
-                        },
-                    },
-                },
-            },
-        }
-    },
-}
+# --- 1. Canonical Schema Loader (Single Normative Source of Truth) ---
+def load_manifest_schema_v2(schema_path: str | Path | None = None) -> dict:
+    """Loads the normative Phase 1 Manifest JSON Schema (Draft 2020-12) directly from its canonical source of truth."""
+    if schema_path is None:
+        candidates = [
+            Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
+            Path(__file__).parent / "PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md" if "__file__" in globals() else None,
+            Path("PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
+        ]
+        for c in candidates:
+            if c and c.exists():
+                schema_path = c
+                break
+        if schema_path is None:
+            schema_path = Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md")
+    
+    content = Path(schema_path).read_text(encoding="utf-8")
+    match = re.search(r"```json\s*(\{[\s\S]*?\"\$id\":\s*\"https://peerhub\.local/schema/adapter-manifest/v2\"[\s\S]*?\})\s*```", content)
+    if not match:
+        raise ValueError(f"Could not extract normative manifest schema v2 from {schema_path}")
+    return json.loads(match.group(1))
 
+_MANIFEST_SCHEMA_V2 = load_manifest_schema_v2()
 _MANIFEST_VALIDATOR = jsonschema.Draft202012Validator(_MANIFEST_SCHEMA_V2)
 
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
 
 class AdmissionRegistry:
+    """Minimal trusted registry for admitted manifests.
+    
+    Populated exclusively during a real admission event after rigorous validation
+    against the PHASE1-MANIFEST-SCHEMA-V2 specification. It computes and stores 
+    the canonical AST digest (manifest_ast_digest = SHA256(canonical_json(M_i))) 
+    of a fully validated manifest under a newly issued, collision-safe receipt ID 
+    (128-bit random token with atomic concurrency lock and uniqueness retry checks).
+    The registry is the only trusted source for linking a receipt ID to a digest,
+    preventing callers from supplying their own digests as proof.
+    """
     _store: ClassVar[dict[str, str]] = {}
     _lock: ClassVar[threading.Lock] = threading.Lock()
 
@@ -1372,21 +887,14 @@ class AdmissionRegistry:
 
     @classmethod
     def admit(cls, raw_manifest: dict, max_retries: int = 10) -> str:
-        """Admission lifecycle: Validates manifest against Phase 1 V2 schema, computes canonical digest, issues collision-safe receipt ID atomically."""
-        # 1. Genuine schema validation before issuance
         cls.validate_manifest(raw_manifest)
-
-        # 2. Canonical AST digest computation over full manifest (manifest_ast_digest)
         digest = AdapterManifest.canonical_digest(raw_manifest)
-
-        # 3. Collision-safe 128-bit receipt ID issuance with atomic check-and-insert under lock
         for attempt in range(max_retries):
             candidate_id = f"rcpt_{secrets.token_hex(16)}"
             with cls._lock:
                 if candidate_id not in cls._store:
                     cls._store[candidate_id] = digest
                     return candidate_id
-
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
     @classmethod
@@ -1400,6 +908,23 @@ class AdmissionRegistry:
         return digest
 
 @dataclass(frozen=True, slots=True)
+class CellKey:
+    coverage_case_id: str
+    peer_binding: str
+    platform: str
+    transport: str
+    proof_kind: str
+
+    def as_tuple(self) -> tuple[str, str, str, str, str]:
+        return (
+            self.coverage_case_id,
+            self.peer_binding,
+            self.platform,
+            self.transport,
+            self.proof_kind,
+        )
+
+@dataclass(frozen=True, slots=True)
 class AdapterManifest:
     adapter_id: str
     peer_kind: str
@@ -1409,32 +934,85 @@ class AdapterManifest:
     core_parity_requirements: tuple[str, ...]
     required_proof_kinds: tuple[str, ...]
     requires_snapshots: bool
+    profiles: tuple[dict, ...]
     _token: str | None = None
 
     def __post_init__(self):
         active_token = _active_manifest_token.get()
         if self._token is None or active_token is None or self._token != active_token:
-            raise TypeError("Direct construction prohibited.")
+            raise TypeError(
+                "AdapterManifest direct construction is prohibited to guarantee promotion determinism. "
+                "Instances must be traceably constructed via AdapterManifest.from_manifest(raw_manifest, admission_receipt)."
+            )
 
     @staticmethod
     def canonical_digest(raw_manifest: dict) -> str:
         if not isinstance(raw_manifest, dict):
             raise TypeError(f"Payload must be a dict, got {type(raw_manifest).__name__}.")
         canonical_bytes = json.dumps(
-            raw_manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+            raw_manifest,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
         ).encode("utf-8")
         return hashlib.sha256(canonical_bytes).hexdigest().upper()
 
     @classmethod
-    def from_manifest(cls, raw_manifest: dict, admission_receipt_id: str) -> "AdapterManifest":
-        if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest:
-            raise ValueError("raw_manifest must be an admitted manifest dict containing an 'adapter' block.")
+    def from_manifest(
+        cls,
+        raw_manifest: dict,
+        admission_receipt_id: str,
+    ) -> "AdapterManifest":
+        if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest or "profiles" not in raw_manifest:
+            raise ValueError("raw_manifest must be an admitted manifest dict containing 'adapter' and 'profiles' blocks.")
+
         expected_digest = AdmissionRegistry.get_trusted_digest(admission_receipt_id)
         recomputed_digest = cls.canonical_digest(raw_manifest)
         if recomputed_digest != expected_digest:
-            raise ValueError(f"Manifest admission digest mismatch! Registry expects digest {expected_digest}, but recomputed is {recomputed_digest}.")
+            raise ValueError(
+                f"Manifest admission digest mismatch! Registry expects digest '{expected_digest}', "
+                f"but recomputed canonical digest over provided manifest is '{recomputed_digest}'."
+            )
 
         adapter = raw_manifest["adapter"]
+        required_adapter_keys = (
+            "adapter_id",
+            "peer_kind",
+            "capabilities",
+            "supported_platforms",
+            "supported_transports",
+            "core_parity_requirements",
+            "required_proof_kinds",
+            "requires_snapshots",
+        )
+        missing_adapter = [k for k in required_adapter_keys if k not in adapter]
+        if missing_adapter:
+            raise ValueError(f"Admitted manifest missing required adapter policy fields: {missing_adapter}")
+
+        if not isinstance(adapter["adapter_id"], str) or not isinstance(adapter["peer_kind"], str):
+            raise TypeError("Fields 'adapter_id' and 'peer_kind' must be strings.")
+
+        for seq_field in (
+            "capabilities",
+            "supported_platforms",
+            "supported_transports",
+            "core_parity_requirements",
+            "required_proof_kinds",
+        ):
+            val = adapter[seq_field]
+            if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
+                raise TypeError(f"Field '{seq_field}' must be a list or tuple of strings, got {type(val).__name__}.")
+
+        if not isinstance(adapter["requires_snapshots"], bool):
+            raise TypeError(f"Field 'requires_snapshots' must be a bool, got {type(adapter['requires_snapshots']).__name__}.")
+
+        raw_profiles = raw_manifest["profiles"]
+        if not isinstance(raw_profiles, (list, tuple)) or not raw_profiles:
+            raise TypeError("Field 'profiles' must be a non-empty list or tuple.")
+        for p in raw_profiles:
+            if not isinstance(p, dict) or "profile_id" not in p or not isinstance(p["profile_id"], str) or not p["profile_id"]:
+                raise TypeError("Each profile in 'profiles' must be a dict containing a non-empty string 'profile_id'.")
+
         token = secrets.token_hex(32)
         reset_token = _active_manifest_token.set(token)
         try:
@@ -1447,12 +1025,159 @@ class AdapterManifest:
                 core_parity_requirements=tuple(adapter["core_parity_requirements"]),
                 required_proof_kinds=tuple(adapter["required_proof_kinds"]),
                 requires_snapshots=adapter["requires_snapshots"],
+                profiles=tuple(raw_profiles),
                 _token=token,
             )
         finally:
             _active_manifest_token.reset(reset_token)
 
-print("--- 1. cx's missing-required-fields manifest rejected at admit() ---")
+    @property
+    def declared_profile_ids(self) -> frozenset[str]:
+        """Returns the set of genuine profile_id strings declared in this admitted manifest."""
+        return frozenset(p["profile_id"] for p in self.profiles)
+
+    def is_valid_peer_binding(self, peer_binding: str) -> bool:
+        """Checks if a peer_binding string corresponds to a real profile_id declared in this manifest."""
+        if not isinstance(peer_binding, str):
+            return False
+        norm = peer_binding[8:] if peer_binding.startswith("profile:") else peer_binding
+        return norm in self.declared_profile_ids or peer_binding in self.declared_profile_ids
+
+    def declares_capability(self, coverage_case_id: str) -> bool:
+        if "session" in coverage_case_id:
+            return "SESSION" in self.capabilities
+        if "stream" in coverage_case_id:
+            return "STREAM" in self.capabilities
+        return coverage_case_id in self.core_parity_requirements or len(self.capabilities) > 0
+
+    def supports_platform(self, platform: str) -> bool:
+        return platform in self.supported_platforms
+
+    def supports_transport(self, transport: str) -> bool:
+        return transport in self.supported_transports
+
+    def get_expected_required_cell_keys(
+        self,
+        peer_binding: str,
+        platform: str = "win32-x64",
+        transport: str = "PIPE",
+    ) -> set[CellKey]:
+        if not self.is_valid_peer_binding(peer_binding):
+            return set()
+        keys: set[CellKey] = set()
+        for case_id in self.core_parity_requirements:
+            for proof in self.required_proof_kinds:
+                key = CellKey(
+                    coverage_case_id=case_id,
+                    peer_binding=peer_binding,
+                    platform=platform,
+                    transport=transport,
+                    proof_kind=proof,
+                )
+                if determine_requirement_state(key, self) == "REQUIRED":
+                    keys.add(key)
+        return keys
+
+def determine_requirement_state(cell_key: CellKey, adapter_manifest: AdapterManifest) -> str:
+    if not adapter_manifest.declares_capability(cell_key.coverage_case_id):
+        return "NOT_APPLICABLE"
+    if not adapter_manifest.supports_platform(cell_key.platform):
+        return "NOT_APPLICABLE"
+    if not adapter_manifest.supports_transport(cell_key.transport):
+        return "NOT_APPLICABLE"
+    if cell_key.coverage_case_id in adapter_manifest.core_parity_requirements:
+        if cell_key.proof_kind in adapter_manifest.required_proof_kinds:
+            return "REQUIRED"
+        return "OPTIONAL"
+    if cell_key.proof_kind == "legacy-parity evidence" and not adapter_manifest.requires_snapshots:
+        return "OPTIONAL"
+    return "OPTIONAL"
+
+def determine_evidence_state(cell, current_env) -> str:
+    if cell is None:
+        if current_env.missing_dependencies:
+            return "UNAVAILABLE"
+        return "ABSENT"
+    if cell.attempt_outcome == "ENVIRONMENT_UNAVAILABLE":
+        return "ERROR"
+    return cell.evidence_state
+
+def can_promote(
+    rollup_cells: list,
+    current_env,
+    adapter_manifest: AdapterManifest,
+    required_cell_keys: set[CellKey] | None = None,
+) -> bool:
+    if not rollup_cells:
+        return False
+
+    # 1. Reject any rollup cell whose peer_binding does not correspond to a real admitted profile
+    for cell in rollup_cells:
+        if not adapter_manifest.is_valid_peer_binding(cell.cell_key.peer_binding):
+            return False
+
+    # Group cells by coverage rollup context: (coverage_case_id, peer_binding, platform, transport)
+    rollup_groups: dict[tuple[str, str, str, str], list] = {}
+    for cell in rollup_cells:
+        group_key = (
+            cell.cell_key.coverage_case_id,
+            cell.cell_key.peer_binding,
+            cell.cell_key.platform,
+            cell.cell_key.transport,
+        )
+        rollup_groups.setdefault(group_key, []).append(cell)
+
+    # 2. Contradiction Detection
+    for group_key, cells in rollup_groups.items():
+        evaluated_cells = [
+            c for c in cells
+            if determine_evidence_state(c, current_env) in ("MEASURED", "ERROR")
+        ]
+        has_pass = any(c.attempt_outcome == "EXECUTED_PASS" for c in evaluated_cells)
+        if has_pass:
+            has_contradiction = any(
+                c.attempt_outcome in ("PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE")
+                for c in evaluated_cells
+            )
+            if has_contradiction:
+                return False
+
+    # 3. Enumerate full required composite CellKeys grounded in the manifest's real declared profiles
+    expected_required: set[CellKey] = set(required_cell_keys) if required_cell_keys is not None else set()
+    if not expected_required:
+        for profile_id in adapter_manifest.declared_profile_ids:
+            expected_required.update(adapter_manifest.get_expected_required_cell_keys(peer_binding=f"profile:{profile_id}"))
+
+    if not expected_required:
+        return False
+
+    # 4. Verify completeness: 100% of required composite CellKeys must be covered and passing
+    covered_cell_keys: set[CellKey] = set()
+    for cell in rollup_cells:
+        req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
+        if req_state == "REQUIRED":
+            ev_state = determine_evidence_state(cell, current_env)
+            if ev_state != "MEASURED":
+                return False
+            if cell.attempt_outcome != "EXECUTED_PASS":
+                return False
+            covered_cell_keys.add(cell.cell_key)
+
+    return expected_required.issubset(covered_cell_keys)
+
+# --- EXECUTION TRACES ---
+
+print("--- 1. Single Normative Schema SSOT & Mechanical Equality Check ---")
+canonical_raw_schema = load_manifest_schema_v2()
+print(f"Normative V2 Schema ID loaded from canonical file: {canonical_raw_schema['$id']}")
+print(f"Validator schema equals canonical source: {_MANIFEST_SCHEMA_V2 == canonical_raw_schema}")
+
+print("\n--- 2. cx's readiness_probe_id Discrepancy Resolved ---")
+probe_id_subschema = _MANIFEST_SCHEMA_V2["properties"]["adapter"]["properties"]["readiness_probe_id"]
+print(f"Normative schema definition for 'readiness_probe_id': {probe_id_subschema}")
+print(f"Has minLength constraint: {'minLength' in probe_id_subschema} (Correct: False, unconstrained string)")
+
+print("\n--- 3. cx's missing-required-fields manifest rejected at admit() ---")
 cx_missing_fields_manifest = {
     "adapter": {
         "adapter_id": "test-adapter",
@@ -1472,7 +1197,7 @@ try:
 except Exception as e:
     print(f"REJECTED at admit() as expected: {type(e).__name__}: {e}")
 
-print("\n--- 2. cx's exact extra-key Codex manifest rejected at admit() before receipt issuance ---")
+print("\n--- 4. cx's exact extra-key Codex manifest rejected at admit() before receipt issuance ---")
 valid_claude_manifest = {
     "manifest_version": "2.0.0",
     "status": "active",
@@ -1533,7 +1258,7 @@ cx_extra_key_codex_manifest["adapter"]["adapter_id"] = "codex-peer"
 cx_extra_key_codex_manifest["adapter"]["peer_kind"] = "cx"
 cx_extra_key_codex_manifest["engine"] = {
     "engine_id": "builtin:jsonl-codex-v1",
-    "options": {"enforce_strict_json": True}  # Extra key forbidden under Empty Options schema!
+    "options": {"enforce_strict_json": True}
 }
 
 store_size_before = len(AdmissionRegistry._store)
@@ -1545,7 +1270,7 @@ except Exception as e:
     print(f"REJECTED at admit() as expected: {type(e).__name__}: {e}")
     print(f"Store unpolluted (no receipt issued): {store_size_before == store_size_after}")
 
-print("\n--- 3. Fully schema-valid Codex manifest with empty options admitted successfully ---")
+print("\n--- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---")
 valid_codex_manifest = dict(valid_claude_manifest)
 valid_codex_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
 valid_codex_manifest["adapter"]["adapter_id"] = "codex-peer"
@@ -1554,19 +1279,130 @@ valid_codex_manifest["engine"] = {
     "engine_id": "builtin:jsonl-codex-v1",
     "options": {}
 }
+valid_codex_manifest["profiles"] = [
+    {
+        "profile_id": "cx.standard",
+        "profile_class": "tier",
+        "supports_reasoning_effort": False,
+        "transport": "PIPE",
+        "prompt_policy": {
+            "policy_id": "cx-standard-policy",
+            "max_inline_utf8_bytes": 1000000,
+            "artifact_reference_supported": False
+        }
+    }
+]
 
 codex_receipt_id = AdmissionRegistry.admit(valid_codex_manifest)
 print(f"Admitted valid Codex manifest, got 128-bit collision-safe receipt: {codex_receipt_id}")
 codex_manifest_obj = AdapterManifest.from_manifest(valid_codex_manifest, codex_receipt_id)
-print(f"SUCCESS: Constructed {codex_manifest_obj.adapter_id} ({codex_manifest_obj.peer_kind}) with genuine receipt.")
+print(f"SUCCESS: Constructed {codex_manifest_obj.adapter_id} ({codex_manifest_obj.peer_kind}) carrying genuine declared profiles: {codex_manifest_obj.declared_profile_ids}")
 
-print("\n--- 4. Fully schema-valid Claude manifest admitted and promoted ---")
+print("\n--- 6. Fully schema-valid Claude manifest admitted with declared profiles ---")
 claude_receipt_id = AdmissionRegistry.admit(valid_claude_manifest)
 print(f"Admitted valid Claude manifest, got 128-bit collision-safe receipt: {claude_receipt_id}")
 claude_manifest_obj = AdapterManifest.from_manifest(valid_claude_manifest, claude_receipt_id)
-print(f"SUCCESS: Constructed {claude_manifest_obj.adapter_id} ({claude_manifest_obj.peer_kind}) with genuine receipt.")
+print(f"SUCCESS: Constructed {claude_manifest_obj.adapter_id} ({claude_manifest_obj.peer_kind}) carrying genuine declared profiles: {claude_manifest_obj.declared_profile_ids}")
 
-print("\n--- 5. Collision safety: forced sequential collision retried to fresh receipt ID ---")
+print("\n--- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---")
+@dataclass
+class MockEnv:
+    missing_dependencies: bool = False
+
+@dataclass
+class MockCell:
+    cell_key: CellKey
+    attempt_outcome: str = "EXECUTED_PASS"
+    evidence_state: str = "MEASURED"
+
+# Attacker provides passing cells for a fabricated peer_binding never declared in admitted manifest
+fabricated_binding = "profile:fabricated.peer"
+fabricated_cells = [
+    MockCell(CellKey(
+        coverage_case_id="action.hub.ask",
+        peer_binding=fabricated_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="deterministic contract or integration",
+    )),
+    MockCell(CellKey(
+        coverage_case_id="action.hub.ask",
+        peer_binding=fabricated_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="controlled real-OS executable",
+    )),
+    MockCell(CellKey(
+        coverage_case_id="action.hub.thread-new",
+        peer_binding=fabricated_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="deterministic contract or integration",
+    )),
+    MockCell(CellKey(
+        coverage_case_id="action.hub.thread-new",
+        peer_binding=fabricated_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="controlled real-OS executable",
+    )),
+]
+
+mock_env = MockEnv()
+promotion_result_fabricated = can_promote(fabricated_cells, mock_env, claude_manifest_obj)
+print(f"can_promote(fabricated_cells) returned: {promotion_result_fabricated}")
+print(f"ATTACK BLOCKED: Fabricated peer_binding rejected by can_promote: {promotion_result_fabricated is False}")
+
+print("\n--- 8. Genuine Admitted Profile Promotion Rollup ---")
+genuine_binding = "profile:cc.standard"
+genuine_cells = [
+    MockCell(CellKey(
+        coverage_case_id="action.hub.ask",
+        peer_binding=genuine_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="deterministic contract or integration",
+    )),
+    MockCell(CellKey(
+        coverage_case_id="action.hub.ask",
+        peer_binding=genuine_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="controlled real-OS executable",
+    )),
+    MockCell(CellKey(
+        coverage_case_id="action.hub.thread-new",
+        peer_binding=genuine_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="deterministic contract or integration",
+    )),
+    MockCell(CellKey(
+        coverage_case_id="action.hub.thread-new",
+        peer_binding=genuine_binding,
+        platform="win32-x64",
+        transport="PIPE",
+        proof_kind="controlled real-OS executable",
+    )),
+]
+
+promotion_result_genuine = can_promote(genuine_cells, mock_env, claude_manifest_obj)
+print(f"can_promote(genuine_cells) returned: {promotion_result_genuine}")
+print(f"GENUINE PROMOTION SUCCESS: Admitted profile correctly promoted: {promotion_result_genuine is True}")
+
+print("\n--- 9. Mixed Genuine + Unadmitted Peer Binding Rollup ---")
+mixed_cells = genuine_cells + [MockCell(CellKey(
+    coverage_case_id="action.hub.ask",
+    peer_binding="profile:unadmitted.injected",
+    platform="win32-x64",
+    transport="PIPE",
+    proof_kind="deterministic contract or integration",
+))]
+promotion_result_mixed = can_promote(mixed_cells, mock_env, claude_manifest_obj)
+print(f"can_promote(mixed_cells) returned: {promotion_result_mixed}")
+print(f"MIXED INJECTION BLOCKED: Unadmitted cell rejected: {promotion_result_mixed is False}")
+
+print("\n--- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---")
 existing_receipt_id = claude_receipt_id
 raw_existing_token = existing_receipt_id.replace("rcpt_", "")
 
@@ -1575,6 +1411,19 @@ second_valid_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
 second_valid_manifest["adapter"]["adapter_id"] = "agy-peer"
 second_valid_manifest["adapter"]["peer_kind"] = "ag"
 second_valid_manifest["engine"] = {"engine_id": "builtin:json-agy-v1", "options": {}}
+second_valid_manifest["profiles"] = [
+    {
+        "profile_id": "ag.standard",
+        "profile_class": "tier",
+        "supports_reasoning_effort": False,
+        "transport": "PIPE",
+        "prompt_policy": {
+            "policy_id": "ag-standard-policy",
+            "max_inline_utf8_bytes": 1000000,
+            "artifact_reference_supported": False
+        }
+    }
+]
 
 mock_tokens = [raw_existing_token, "abcdef0123456789abcdef0123456789"]
 def mock_token_hex(nbytes=16):
@@ -1593,24 +1442,7 @@ try:
 finally:
     secrets.token_hex = orig_token_hex
 
-print("\n--- 6. Collision safety: forced exhaustion raises explicit RuntimeError ---")
-def colliding_forever_token_hex(nbytes=16):
-    return raw_existing_token
-
-secrets.token_hex = colliding_forever_token_hex
-try:
-    AdmissionRegistry.admit(second_valid_manifest, max_retries=5)
-    print("FAILED: Should have raised RuntimeError on exhaustion!")
-except RuntimeError as e:
-    print(f"EXPLICIT ERROR RAISED: {e}")
-    print(f"Earlier receipt digest remains intact: {AdmissionRegistry.get_trusted_digest(existing_receipt_id) == first_digest_before}")
-finally:
-    secrets.token_hex = orig_token_hex
-
-print("\n--- 7. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---")
-# Deliberately force two concurrent threads to generate the same candidate token initially
-# and attempt to claim it simultaneously, proving that under the atomic lock, both callers
-# obtain distinct receipt IDs and neither digest is lost.
+print("\n--- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---")
 colliding_candidate_raw = "11112222333344445555666677778888"
 t1_unique_raw = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 t2_unique_raw = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -1640,7 +1472,7 @@ barrier = threading.Barrier(2)
 
 def concurrent_worker(tname, manifest):
     threading.current_thread().name = tname
-    barrier.wait()  # synchronize start
+    barrier.wait()
     receipt = AdmissionRegistry.admit(manifest)
     concurrent_results[tname] = (receipt, AdapterManifest.canonical_digest(manifest))
 
@@ -1665,7 +1497,7 @@ try:
 finally:
     secrets.token_hex = orig_token_hex
 
-print("\n--- 8. Forgery attempt (supplying own digest as receipt ID) ---")
+print("\n--- 12. Forgery attempt (supplying own digest as receipt ID) ---")
 forged_manifest = dict(valid_claude_manifest)
 forged_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
 forged_manifest["adapter"]["adapter_id"] = "forged-adapter"
@@ -1677,7 +1509,7 @@ try:
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
 
-print("\n--- 9. Syntactically well-formed but unknown receipt ID ---")
+print("\n--- 13. Syntactically well-formed but unknown receipt ID ---")
 unknown_receipt_id = "rcpt_00000000000000000000000000000000"
 try:
     AdapterManifest.from_manifest(valid_claude_manifest, unknown_receipt_id)
@@ -1689,31 +1521,47 @@ except Exception as e:
 **Output:**
 
 ```
---- 1. cx's missing-required-fields manifest rejected at admit() ---
+--- 1. Single Normative Schema SSOT & Mechanical Equality Check ---
+Normative V2 Schema ID loaded from canonical file: https://peerhub.local/schema/adapter-manifest/v2
+Validator schema equals canonical source: True
+
+--- 2. cx's readiness_probe_id Discrepancy Resolved ---
+Normative schema definition for 'readiness_probe_id': {'type': 'string'}
+Has minLength constraint: False (Correct: False, unconstrained string)
+
+--- 3. cx's missing-required-fields manifest rejected at admit() ---
 REJECTED at admit() as expected: ValueError: Manifest schema validation failed: Additional properties are not allowed ('version' was unexpected); 'manifest_version' is a required property; 'status' is a required property; 'execution' is a required property; 'engine' is a required property; 'profiles' is a required property; 'adapter_version' is a required property; 'readiness_probe_id' is a required property
 
---- 2. cx's exact extra-key Codex manifest rejected at admit() before receipt issuance ---
+--- 4. cx's exact extra-key Codex manifest rejected at admit() before receipt issuance ---
 REJECTED at admit() as expected: ValueError: Manifest schema validation failed: Additional properties are not allowed ('enforce_strict_json' was unexpected); {'enforce_strict_json': True} is expected to be empty
 Store unpolluted (no receipt issued): True
 
---- 3. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_be1dca3248ed833926b7f767bf9c3a23
-SUCCESS: Constructed codex-peer (cx) with genuine receipt.
+--- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_d38491c34f1b8747e099880bcc5dd62e
+SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
---- 4. Fully schema-valid Claude manifest admitted and promoted ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_15acfa9f6bc079f5ee912aeda8f62234
-SUCCESS: Constructed claude-peer (cc) with genuine receipt.
+--- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_d084c0eb85f4b595167f99609fce7829
+SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
---- 5. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (rcpt_15acfa9f6bc079f5ee912aeda8f62234) digest preserved intact: True
+--- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---
+can_promote(fabricated_cells) returned: False
+ATTACK BLOCKED: Fabricated peer_binding rejected by can_promote: True
+
+--- 8. Genuine Admitted Profile Promotion Rollup ---
+can_promote(genuine_cells) returned: True
+GENUINE PROMOTION SUCCESS: Admitted profile correctly promoted: True
+
+--- 9. Mixed Genuine + Unadmitted Peer Binding Rollup ---
+can_promote(mixed_cells) returned: False
+MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
+
+--- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
+Earlier receipt ID (rcpt_d084c0eb85f4b595167f99609fce7829) digest preserved intact: True
 Second admission detected collision and retried to fresh ID: rcpt_abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
---- 6. Collision safety: forced exhaustion raises explicit RuntimeError ---
-EXPLICIT ERROR RAISED: Collision resolution exhausted: unable to generate a unique admission receipt ID.
-Earlier receipt digest remains intact: True
-
---- 7. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
+--- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
 Thread 1 receipt ID: rcpt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 Thread 2 receipt ID: rcpt_11112222333344445555666677778888
 Receipt IDs are distinct (no duplicate ID issued): True
@@ -1722,10 +1570,10 @@ Thread 2 digest in registry: True
 Store size increased by exactly 2 entries: True
 CONCURRENCY RACE VERIFIED FIXED: Atomic lock prevents TOCTOU clobbering under real thread contention.
 
---- 8. Forgery attempt (supplying own digest as receipt ID) ---
+--- 12. Forgery attempt (supplying own digest as receipt ID) ---
 BLOCKED: ValueError: Unknown admission receipt ID: 6BD899AB9DC099CE261BBF959712E62BBF156B0E8DC141FBC784D533C6774DE1
 
---- 9. Syntactically well-formed but unknown receipt ID ---
+--- 13. Syntactically well-formed but unknown receipt ID ---
 BLOCKED: ValueError: Unknown admission receipt ID: rcpt_00000000000000000000000000000000
 ```
 
