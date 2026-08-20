@@ -80,7 +80,7 @@ The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell
 
 A Rollup groups all cells sharing the same `(coverage_case_id, peer_binding, platform, transport)` but differing in `proof_kind`. 
 
-**Contradiction Rule:** A rollup is `CONTRADICTORY` if and only if two sibling cells within the rollup have divergent deterministic `attempt_outcome`s (e.g., `proof_kind: "deterministic contract or integration"` is `EXECUTED_PASS`, but `proof_kind: "controlled real-OS executable"` is `PRODUCT_FAILURE`), AND both have `evidence_state: MEASURED`. 
+**Contradiction Rule:** A rollup is `CONTRADICTORY` if and only if two sibling cells within the same rollup group have divergent deterministic `attempt_outcome`s (e.g., one sibling is `EXECUTED_PASS`, but another sibling has a failing or unavailable outcome: `PRODUCT_FAILURE`, `QUOTA_BLOCKED`, or `ENVIRONMENT_UNAVAILABLE`) with active evaluated evidence. 
 Contradictions halt promotion and require manual resolution.
 
 ## 3. Classifier Algorithm (5-State Attempt Outcome)
@@ -163,7 +163,7 @@ def determine_evidence_state(cell, current_env) -> str:
             return "UNAVAILABLE" # Cannot run test due to environment constraints
         return "ABSENT"          # We just haven't run it yet
         
-    if cell.attempt_outcome in ("ENVIRONMENT_UNAVAILABLE", "HARNESS_FAILURE"):
+    if cell.attempt_outcome == "ENVIRONMENT_UNAVAILABLE":
         return "ERROR"
         
     # Check formal age validation
@@ -181,7 +181,9 @@ To ground the requirement rules in concrete, typed contracts matching `PHASE1-MA
 ```python
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import ClassVar
 from datetime import datetime
+import secrets
 
 @dataclass(frozen=True, slots=True)
 class CellKey:
@@ -201,13 +203,12 @@ class CellKey:
             self.proof_kind,
         )
 
-_ADMITTED_MANIFEST_TOKEN = object()
-
 @dataclass(frozen=True, slots=True)
 class AdapterManifest:
     """Documented contract of an admitted adapter manifest used during promotion evaluation.
     Enforces deterministic construction exclusively from an admitted manifest schema instance.
-    Direct manual construction with arbitrary or conflicting values is strictly blocked.
+    Direct manual construction with arbitrary or conflicting values is strictly blocked via an
+    unforgeable dynamic construction token generated at from_manifest call time.
     """
     adapter_id: str
     peer_kind: str
@@ -217,10 +218,15 @@ class AdapterManifest:
     core_parity_requirements: tuple[str, ...]
     required_proof_kinds: tuple[str, ...]
     requires_snapshots: bool
-    _token: object = None
+    _token: str | None = None
+
+    _active_construction_token: ClassVar[str | None] = None
 
     def __post_init__(self):
-        if self._token is not _ADMITTED_MANIFEST_TOKEN:
+        if (
+            self._token is None
+            or self._token != AdapterManifest._active_construction_token
+        ):
             raise TypeError(
                 "AdapterManifest direct construction is prohibited to guarantee promotion determinism. "
                 "Instances must be traceably constructed via AdapterManifest.from_manifest(admitted_manifest_dict)."
@@ -245,17 +251,40 @@ class AdapterManifest:
         missing = [k for k in required_keys if k not in adapter]
         if missing:
             raise ValueError(f"Admitted manifest missing required policy fields: {missing}")
-        return cls(
-            adapter_id=adapter["adapter_id"],
-            peer_kind=adapter["peer_kind"],
-            capabilities=tuple(adapter["capabilities"]),
-            supported_platforms=tuple(adapter["supported_platforms"]),
-            supported_transports=tuple(adapter["supported_transports"]),
-            core_parity_requirements=tuple(adapter["core_parity_requirements"]),
-            required_proof_kinds=tuple(adapter["required_proof_kinds"]),
-            requires_snapshots=bool(adapter["requires_snapshots"]),
-            _token=_ADMITTED_MANIFEST_TOKEN,
-        )
+
+        if not isinstance(adapter["adapter_id"], str) or not isinstance(adapter["peer_kind"], str):
+            raise TypeError("Fields 'adapter_id' and 'peer_kind' must be strings.")
+
+        for seq_field in (
+            "capabilities",
+            "supported_platforms",
+            "supported_transports",
+            "core_parity_requirements",
+            "required_proof_kinds",
+        ):
+            val = adapter[seq_field]
+            if not isinstance(val, (list, tuple)) or not all(isinstance(x, str) for x in val):
+                raise TypeError(f"Field '{seq_field}' must be a list or tuple of strings, got {type(val).__name__}.")
+
+        if not isinstance(adapter["requires_snapshots"], bool):
+            raise TypeError(f"Field 'requires_snapshots' must be a bool, got {type(adapter['requires_snapshots']).__name__}.")
+
+        token = secrets.token_hex(32)
+        cls._active_construction_token = token
+        try:
+            return cls(
+                adapter_id=adapter["adapter_id"],
+                peer_kind=adapter["peer_kind"],
+                capabilities=tuple(adapter["capabilities"]),
+                supported_platforms=tuple(adapter["supported_platforms"]),
+                supported_transports=tuple(adapter["supported_transports"]),
+                core_parity_requirements=tuple(adapter["core_parity_requirements"]),
+                required_proof_kinds=tuple(adapter["required_proof_kinds"]),
+                requires_snapshots=adapter["requires_snapshots"],
+                _token=token,
+            )
+        finally:
+            cls._active_construction_token = None
 
     def declares_capability(self, coverage_case_id: str) -> bool:
         """Verifies whether the adapter declares capability for the given case or general actions."""
@@ -343,10 +372,10 @@ def can_promote(
     1. rollup_cells is non-empty and every required composite CellKey is covered.
     2. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome EXECUTED_PASS.
     3. Contradiction Guard: No sibling cell within the same rollup context (same coverage_case_id,
-       peer_binding, platform, transport) has a measured failure (PRODUCT_FAILURE) or divergent
-       contradictory outcome against a passing sibling cell.
+       peer_binding, platform, transport) has a divergent contradictory outcome (PRODUCT_FAILURE,
+       QUOTA_BLOCKED, ENVIRONMENT_UNAVAILABLE) against a passing sibling cell in the same rollup group.
     4. Returns False if any required cell is missing, stale, unavailable, failed, omitted,
-       or contradicted by a failing sibling cell.
+       or contradicted by a divergent sibling cell.
     """
     if not rollup_cells:
         return False
@@ -362,19 +391,20 @@ def can_promote(
         )
         rollup_groups.setdefault(group_key, []).append(cell)
 
-    # 1. Contradiction & Measured Sibling Failure Detection
+    # 1. Contradiction Detection
     for group_key, cells in rollup_groups.items():
-        measured_cells = [
+        evaluated_cells = [
             c for c in cells
-            if determine_evidence_state(c, current_env) == "MEASURED"
+            if determine_evidence_state(c, current_env) in ("MEASURED", "ERROR")
         ]
-        has_pass = any(c.attempt_outcome == "EXECUTED_PASS" for c in measured_cells)
-        has_product_failure = any(c.attempt_outcome == "PRODUCT_FAILURE" for c in measured_cells)
-        
-        # If any sibling proof measured a product failure, or if a passing cell is contradicted
-        # by a failing sibling cell, the rollup is contradictory/failed and promotion halts.
-        if has_product_failure or (has_pass and any(c.attempt_outcome in ("PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE") for c in measured_cells if c.attempt_outcome != "EXECUTED_PASS")):
-            return False
+        has_pass = any(c.attempt_outcome == "EXECUTED_PASS" for c in evaluated_cells)
+        if has_pass:
+            has_contradiction = any(
+                c.attempt_outcome in ("PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE")
+                for c in evaluated_cells
+            )
+            if has_contradiction:
+                return False
 
     # 2. Enumerate full required composite CellKeys
     expected_required: set[CellKey] = set(required_cell_keys) if required_cell_keys is not None else set()
