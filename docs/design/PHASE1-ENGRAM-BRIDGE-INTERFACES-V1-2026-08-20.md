@@ -1,6 +1,7 @@
 # Phase 1: Engram Bridge Interfaces (v1)
 
-> Status: Draft responding to round 2 critique (R2-04).
+> **Status:** SUPERSEDED BY `PHASE1-ENGRAM-BRIDGE-INTERFACES-V2-2026-08-20.md` (Round 5 Item 4)  
+> *Preserved for Round 4 audit history.* See V2 for the complete, production-grade typed contracts, real payloads, and cutover enforcement.
 
 ## 1. Document Verification
 The citations in cx's round 2 critique have been successfully verified against the source documents:
