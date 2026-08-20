@@ -178,7 +178,7 @@ def determine_evidence_state(cell, current_env) -> str:
 
 To eliminate schema-drift vulnerabilities and establish a strict single source of truth (SSOT), `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md` (Section 3) is explicitly designated as the **single normative source of truth** for the Phase 1 Manifest JSON Schema (Draft 2020-12). This document does not maintain a second, decoupled inline transcription of the schema; the admission and promotion validator is loaded directly from that canonical source definition.
 
-To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines `load_manifest_schema_v2`, `AdmissionRegistry`, `CellKey`, and `AdapterManifest` (which carries the admitted manifest's real declared `profiles` list):
+To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines `load_manifest_schema_v2`, `AdmissionRegistry`, `CellKey`, `ProfileDescriptor`, and `AdapterManifest` (which carries genuine immutable `ProfileDescriptor` snapshots of the admitted manifest's real declared profiles):
 
 ```python
 from __future__ import annotations
@@ -326,6 +326,17 @@ class CellKey:
         )
 
 @dataclass(frozen=True, slots=True)
+class ProfileDescriptor:
+    """Immutable snapshot descriptor for a declared adapter profile captured at admission time.
+    Prevents post-admission mutations of caller-owned raw manifest dictionaries from retroactively
+    altering the admitted manifest's declared profiles or transport bindings.
+    """
+    profile_id: str
+    transport: str  # "PIPE" | "PTY"
+    profile_class: str = "tier"
+    supports_reasoning_effort: bool = False
+
+@dataclass(frozen=True, slots=True)
 class AdapterManifest:
     """Documented contract of an admitted adapter manifest used during promotion evaluation.
     Enforces deterministic construction exclusively from an admitted manifest schema instance
@@ -343,7 +354,7 @@ class AdapterManifest:
     core_parity_requirements: tuple[str, ...]
     required_proof_kinds: tuple[str, ...]
     requires_snapshots: bool
-    profiles: tuple[dict, ...]
+    profiles: tuple[ProfileDescriptor, ...]
     _token: str | None = None
 
     def __post_init__(self):
@@ -386,7 +397,7 @@ class AdapterManifest:
     ) -> AdapterManifest:
         """Constructs this contract strictly by validating schema shape, verifying canonical
         digest authenticity via the trusted AdmissionRegistry, and reading fields directly
-        out of the admitted manifest (including genuine declared profiles).
+        out of the admitted manifest into independent, immutable ProfileDescriptor snapshots.
         
         The caller MUST provide a valid, registry-issued admission_receipt_id.
         The registry itself provides the expected digest, closing the forgery gap.
@@ -438,13 +449,35 @@ class AdapterManifest:
         if not isinstance(adapter["requires_snapshots"], bool):
             raise TypeError(f"Field 'requires_snapshots' must be a bool, got {type(adapter['requires_snapshots']).__name__}.")
 
-        # 3. Validate and extract declared profile descriptors directly from admitted manifest
+        # 3. Validate and extract declared profile descriptors into genuine immutable snapshots
         raw_profiles = raw_manifest["profiles"]
         if not isinstance(raw_profiles, (list, tuple)) or not raw_profiles:
             raise TypeError("Field 'profiles' must be a non-empty list or tuple.")
+        
+        parsed_profiles: list[ProfileDescriptor] = []
         for p in raw_profiles:
             if not isinstance(p, dict) or "profile_id" not in p or not isinstance(p["profile_id"], str) or not p["profile_id"]:
                 raise TypeError("Each profile in 'profiles' must be a dict containing a non-empty string 'profile_id'.")
+            transport = p.get("transport", "PIPE")
+            if not isinstance(transport, str) or transport not in ("PIPE", "PTY"):
+                raise TypeError(f"Profile '{p['profile_id']}' transport must be 'PIPE' or 'PTY', got {transport!r}.")
+            profile_class = p.get("profile_class", "tier")
+            if not isinstance(profile_class, str):
+                raise TypeError(f"Profile '{p['profile_id']}' profile_class must be a string, got {type(profile_class).__name__}.")
+            supports_effort = p.get("supports_reasoning_effort", False)
+            if not isinstance(supports_effort, bool):
+                raise TypeError(f"Profile '{p['profile_id']}' supports_reasoning_effort must be a bool, got {type(supports_effort).__name__}.")
+            
+            # Deep snapshot: capture values into a fresh frozen ProfileDescriptor instance.
+            # No reference to caller-owned dicts or mutable nested objects is retained.
+            parsed_profiles.append(
+                ProfileDescriptor(
+                    profile_id=str(p["profile_id"]),
+                    transport=str(transport),
+                    profile_class=str(profile_class),
+                    supports_reasoning_effort=supports_effort,
+                )
+            )
 
         token = secrets.token_hex(32)
         reset_token = _active_manifest_token.set(token)
@@ -458,7 +491,7 @@ class AdapterManifest:
                 core_parity_requirements=tuple(adapter["core_parity_requirements"]),
                 required_proof_kinds=tuple(adapter["required_proof_kinds"]),
                 requires_snapshots=adapter["requires_snapshots"],
-                profiles=tuple(raw_profiles),
+                profiles=tuple(parsed_profiles),
                 _token=token,
             )
         finally:
@@ -467,7 +500,7 @@ class AdapterManifest:
     @property
     def declared_profile_ids(self) -> frozenset[str]:
         """Returns the set of genuine profile_id strings declared in this admitted manifest."""
-        return frozenset(p["profile_id"] for p in self.profiles)
+        return frozenset(p.profile_id for p in self.profiles)
 
     def is_valid_peer_binding(self, peer_binding: str) -> bool:
         """Checks if a peer_binding string corresponds to a real profile_id declared in this manifest."""
@@ -476,7 +509,7 @@ class AdapterManifest:
         norm = peer_binding[8:] if peer_binding.startswith("profile:") else peer_binding
         return norm in self.declared_profile_ids or peer_binding in self.declared_profile_ids
 
-    def get_profile(self, peer_binding_or_profile_id: str) -> dict | None:
+    def get_profile(self, peer_binding_or_profile_id: str) -> ProfileDescriptor | None:
         """Looks up the declared profile descriptor by peer_binding or profile_id."""
         if not isinstance(peer_binding_or_profile_id, str):
             return None
@@ -486,14 +519,14 @@ class AdapterManifest:
             else peer_binding_or_profile_id
         )
         for p in self.profiles:
-            if p.get("profile_id") == norm:
+            if p.profile_id == norm:
                 return p
         return None
 
     def get_profile_transport(self, peer_binding_or_profile_id: str) -> str | None:
         """Returns the declared transport ('PIPE' | 'PTY') for the given profile."""
         p = self.get_profile(peer_binding_or_profile_id)
-        return p.get("transport") if p else None
+        return p.transport if p else None
 
     def declares_capability(self, coverage_case_id: str) -> bool:
         """Verifies whether the adapter declares capability for the given case or general actions."""
@@ -633,8 +666,8 @@ def can_promote(
     # own declared profiles, reading each profile's individually declared transport.
     manifest_required: set[CellKey] = set()
     for profile in adapter_manifest.profiles:
-        profile_id = profile["profile_id"]
-        profile_transport = profile.get("transport")
+        profile_id = profile.profile_id
+        profile_transport = profile.transport
         manifest_required.update(
             adapter_manifest.get_expected_required_cell_keys(
                 peer_binding=f"profile:{profile_id}",
@@ -1297,6 +1330,77 @@ genuine_pty_cells = [
 promotion_genuine_pty = can_promote(genuine_pty_cells, mock_env, pty_manifest_obj)
 print(f"can_promote(genuine_pty_cells) returned: {promotion_genuine_pty}")
 print(f"GENUINE PTY PROMOTION SUCCESS: PTY evidence satisfies PTY profile requirement: {promotion_genuine_pty is True}")
+
+print("\n--- 17. Round 33 Deep Snapshot: In-Place Mutation of raw_manifest Dict Does Not Alter Admitted Manifest ---")
+# Build a genuine manifest and admit it
+mutable_manifest = dict(valid_claude_manifest)
+mutable_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
+mutable_manifest["adapter"]["adapter_id"] = "mutable-claude-peer"
+mutable_manifest["profiles"] = [
+    {
+        "profile_id": "cc.original",
+        "profile_class": "tier",
+        "supports_reasoning_effort": False,
+        "transport": "PIPE",
+        "prompt_policy": {
+            "policy_id": "cc-original-policy",
+            "max_inline_utf8_bytes": 1000000,
+            "artifact_reference_supported": False
+        }
+    }
+]
+
+mutable_receipt_id = AdmissionRegistry.admit(mutable_manifest)
+snapshot_manifest_obj = AdapterManifest.from_manifest(mutable_manifest, mutable_receipt_id)
+
+profiles_before = snapshot_manifest_obj.declared_profile_ids
+transport_before = snapshot_manifest_obj.get_profile_transport("profile:cc.original")
+print(f"Declared profiles before caller mutation: {profiles_before}")
+print(f"Declared transport before caller mutation: {transport_before}")
+
+# cx's exact attack: Caller mutates the original raw_manifest dictionary in-place after construction
+mutable_manifest["profiles"][0]["profile_id"] = "cc.injected_post_admission"
+mutable_manifest["profiles"][0]["transport"] = "PTY"
+mutable_manifest["profiles"].append({
+    "profile_id": "cc.forged_appended",
+    "profile_class": "tier",
+    "supports_reasoning_effort": False,
+    "transport": "PTY",
+    "prompt_policy": {
+        "policy_id": "forged",
+        "max_inline_utf8_bytes": 0,
+        "artifact_reference_supported": False
+    }
+})
+
+profiles_after = snapshot_manifest_obj.declared_profile_ids
+transport_after = snapshot_manifest_obj.get_profile_transport("profile:cc.original")
+print(f"Declared profiles after caller in-place mutation: {profiles_after}")
+print(f"Declared transport after caller in-place mutation: {transport_after}")
+print(f"SNAPSHOT IMMUTABILITY VERIFIED: declared_profile_ids unchanged: {profiles_before == profiles_after}")
+print(f"SNAPSHOT IMMUTABILITY VERIFIED: get_profile_transport unchanged: {transport_before == transport_after}")
+
+# Promotion attempt using injected post-admission profile fails
+injected_cells = [
+    MockCell(CellKey("action.hub.ask", "profile:cc.injected_post_admission", "win32-x64", "PIPE", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.ask", "profile:cc.injected_post_admission", "win32-x64", "PIPE", "controlled real-OS executable")),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.injected_post_admission", "win32-x64", "PIPE", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.injected_post_admission", "win32-x64", "PIPE", "controlled real-OS executable")),
+]
+promotion_injected = can_promote(injected_cells, mock_env, snapshot_manifest_obj)
+print(f"can_promote(injected_cells) with mutated binding returned: {promotion_injected}")
+print(f"MUTATION INJECTION BLOCKED: Post-admission mutation cannot achieve promotion: {promotion_injected is False}")
+
+# Genuine evidence matching the immutable snapshot still succeeds
+original_cells = [
+    MockCell(CellKey("action.hub.ask", "profile:cc.original", "win32-x64", "PIPE", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.ask", "profile:cc.original", "win32-x64", "PIPE", "controlled real-OS executable")),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.original", "win32-x64", "PIPE", "deterministic contract or integration")),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.original", "win32-x64", "PIPE", "controlled real-OS executable")),
+]
+promotion_original = can_promote(original_cells, mock_env, snapshot_manifest_obj)
+print(f"can_promote(original_cells) with original binding returned: {promotion_original}")
+print(f"GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuine evidence: {promotion_original is True}")
 ```
 
 **Output:**
@@ -1376,5 +1480,17 @@ can_promote(pipe_cells_for_pty) returned: False
 TRANSPORT MISMATCH BLOCKED: PIPE evidence cannot satisfy PTY profile requirement: True
 can_promote(genuine_pty_cells) returned: True
 GENUINE PTY PROMOTION SUCCESS: PTY evidence satisfies PTY profile requirement: True
+
+--- 17. Round 33 Deep Snapshot: In-Place Mutation of raw_manifest Dict Does Not Alter Admitted Manifest ---
+Declared profiles before caller mutation: frozenset({'cc.original'})
+Declared transport before caller mutation: PIPE
+Declared profiles after caller in-place mutation: frozenset({'cc.original'})
+Declared transport after caller in-place mutation: PIPE
+SNAPSHOT IMMUTABILITY VERIFIED: declared_profile_ids unchanged: True
+SNAPSHOT IMMUTABILITY VERIFIED: get_profile_transport unchanged: True
+can_promote(injected_cells) with mutated binding returned: False
+MUTATION INJECTION BLOCKED: Post-admission mutation cannot achieve promotion: True
+can_promote(original_cells) with original binding returned: True
+GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuine evidence: True
 ```
 
