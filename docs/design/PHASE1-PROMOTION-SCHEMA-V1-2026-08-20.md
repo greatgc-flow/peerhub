@@ -206,7 +206,7 @@ To ground the requirement rules in concrete, typed contracts matching `PHASE1-MA
 from __future__ import annotations
 from dataclasses import dataclass
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import ClassVar
 import hashlib
@@ -651,6 +651,8 @@ Promotion is a deterministic boolean rollup over the requirement states and evid
 `EvidenceSnapshot` is intentionally a **smaller, named promotion-specific projection** of the full `PromotionLedgerCell` schema defined in Section 1.1:
 
 - **Captured Fields:** It captures exactly the minimal subset of attributes required for deterministic evaluation of `can_promote()`: `cell_key` (`coverage_case_id`, `peer_binding`, `platform`, `transport`, `proof_kind`), `attempt_outcome`, `evidence_state`, and `provenance.timestamp_utc` (used for freshness, skew, and lifecycle validation in `determine_evidence_state()`).
+- **Timestamp UTC Normalization:** Every genuinely timezone-aware timestamp is normalized directly to canonical UTC (`astimezone(timezone.utc)`) at admission time upon snapshot construction before validation and storage, ensuring that timestamps carrying non-UTC offsets (such as +09:00) are converted to a zero-offset representation (`timezone.utc`) while preserving the exact absolute point in time. Offset-naive timestamps without timezone information remain strictly rejected.
+- **Enum Validation on CellKey:** `validate_snapshot()` strictly validates `transport` and `proof_kind` against the manifest schema's authoritative enum sets (`{"PIPE", "PTY"}` for transport; `{"deterministic contract or integration", "controlled real-OS executable", "live provider exact-profile", "legacy-parity evidence"}` for proof_kind), rejecting invalid or fabricated values before a receipt is issued so bogus evidence cannot land in contradiction rollup groups.
 - **Deliberately Omitted Fields:** It omits `requirement_state` (which is computed dynamically by the promotion gate against the authoritative `AdapterManifest`), `raw_capture_protection`, `serialization_policy`, and execution-level provenance metadata (`isolation_root`, `provider_home`, `session_id`, `lease_id`, `source_tags`, `redacted_receipt_hash`).
 - **Enforcement of Omitted Fields:** These omitted evidence-integrity and execution-context fields are not evaluated during the in-memory boolean rollup; they are enforced at the ingestion and ledger-storage layers during raw receipt generation, cryptographic hashing, and persistence serialization prior to admission into the promotion evaluation pipeline.
 
@@ -665,6 +667,8 @@ class ProvenanceSnapshot:
             raise TypeError("provenance must carry a real timestamp_utc of the real datetime type")
         if self.timestamp_utc.tzinfo is None or self.timestamp_utc.tzinfo.utcoffset(self.timestamp_utc) is None:
             raise ValueError("timestamp_utc must be a timezone-aware datetime (e.g. timezone.utc)")
+        if self.timestamp_utc.tzinfo != timezone.utc or self.timestamp_utc.utcoffset() != timezone.utc.utcoffset(None):
+            object.__setattr__(self, "timestamp_utc", self.timestamp_utc.astimezone(timezone.utc))
 
 @dataclass(frozen=True, slots=True)
 class EvidenceSnapshot:
@@ -709,6 +713,19 @@ def _build_evidence_registry():
                 if not isinstance(val, str):
                     raise TypeError(f"cell_key.{field_name} must be a string")
                     
+            valid_transports = {"PIPE", "PTY"}
+            if ck.transport not in valid_transports:
+                raise ValueError(f"cell_key.transport must be one of {valid_transports}, got {ck.transport!r}")
+
+            valid_proof_kinds = {
+                "deterministic contract or integration",
+                "controlled real-OS executable",
+                "live provider exact-profile",
+                "legacy-parity evidence",
+            }
+            if ck.proof_kind not in valid_proof_kinds:
+                raise ValueError(f"cell_key.proof_kind must be one of {valid_proof_kinds}, got {ck.proof_kind!r}")
+
             valid_outcomes = {"EXECUTED_PASS", "PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE", "NOT_REQUESTED"}
             if snapshot.attempt_outcome not in valid_outcomes:
                 raise ValueError(f"cell_obj.attempt_outcome must be one of {valid_outcomes}")
@@ -723,6 +740,8 @@ def _build_evidence_registry():
                 raise ValueError("provenance must carry a real timestamp_utc of the real datetime type")
             if snapshot.provenance.timestamp_utc.tzinfo is None or snapshot.provenance.timestamp_utc.tzinfo.utcoffset(snapshot.provenance.timestamp_utc) is None:
                 raise ValueError("provenance.timestamp_utc must be a timezone-aware datetime (offset-naive datetimes are rejected)")
+            if snapshot.provenance.timestamp_utc.tzinfo != timezone.utc or snapshot.provenance.timestamp_utc.utcoffset() != timezone.utc.utcoffset(None):
+                raise ValueError("provenance.timestamp_utc must have a UTC offset of exactly zero")
 
         @classmethod
         def admit(cls, cell_data: dict, max_retries: int = 10) -> str:
@@ -1902,6 +1921,84 @@ recent_promotion = can_promote(recent_rollup, mock_env, claude_manifest_obj)
 print(f"Timezone-aware recent cell evidence_state: {recent_state}")
 print(f"TIMEZONE-AWARE NO CRASH: determine_evidence_state evaluated cleanly without TypeError: {recent_state == 'MEASURED'}")
 print(f"GENUINE TIMEZONE-AWARE PROMOTION SUCCESS: can_promote returned True: {recent_promotion is True}")
+
+print("\n--- 23. Round 44 Item 1: Genuine Non-UTC Timezone-Aware Timestamp Normalized to UTC ---")
+# Non-UTC timezone-aware timestamp (+09:00, e.g. Tokyo / JST)
+jst_tz = timezone(timedelta(hours=9))
+jst_ts = datetime(2026, 8, 21, 7, 15, 0, tzinfo=jst_tz) # equivalent to 2026-08-20 22:15:00 UTC
+jst_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=jst_ts)
+)
+
+jst_receipt = EvidenceRegistry.admit({"cell_obj": jst_cell})
+admitted_snapshot = EvidenceRegistry.get_validated_cell(jst_receipt)["cell_obj"]
+stored_ts = admitted_snapshot.provenance.timestamp_utc
+
+print(f"Original input timestamp: {jst_ts} (tz offset: {jst_ts.utcoffset()})")
+print(f"Stored snapshot timestamp: {stored_ts} (tz offset: {stored_ts.utcoffset()})")
+print(f"NON-UTC NORMALIZED TO UTC: Stored tzinfo is timezone.utc and offset is zero: {stored_ts.tzinfo == timezone.utc and stored_ts.utcoffset() == timedelta(0)}")
+print(f"TIMESTAMP EQUIVALENCE PRESERVED: Normalized timestamp matches original point in time: {stored_ts == jst_ts}")
+
+print("\n--- 24. Round 44 Item 2: Enum Validation on transport & proof_kind & False-Contradiction Prevention ---")
+# A. Bogus transport value (e.g. SOCKET) rejected before receipt issuance
+bogus_transport_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "SOCKET", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": bogus_transport_cell})
+    print("FAILED: EvidenceRegistry.admit accepted a cell with bogus transport 'SOCKET'!")
+except ValueError as e:
+    print(f"BOGUS TRANSPORT REJECTED: {type(e).__name__}: {e}")
+
+# B. Bogus proof_kind value rejected before receipt issuance
+bogus_proof_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "invented arbitrary proof kind"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": bogus_proof_cell})
+    print("FAILED: EvidenceRegistry.admit accepted a cell with bogus proof_kind!")
+except ValueError as e:
+    print(f"BOGUS PROOF_KIND REJECTED: {type(e).__name__}: {e}")
+
+# C. False-contradiction scenario: bogus-proof_kind failing sibling rejected at admission
+# Genuine passing cells for action.hub.ask and action.hub.thread-new
+genuine_passing_cells = [
+    MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"), attempt_outcome="EXECUTED_PASS", evidence_state="MEASURED", provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)),
+    MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), attempt_outcome="EXECUTED_PASS", evidence_state="MEASURED", provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"), attempt_outcome="EXECUTED_PASS", evidence_state="MEASURED", provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)),
+    MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), attempt_outcome="EXECUTED_PASS", evidence_state="MEASURED", provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)),
+]
+valid_receipts = [EvidenceRegistry.admit({"cell_obj": c}) for c in genuine_passing_cells]
+
+# Sibling cell in the same contradiction group (action.hub.ask, profile:cc.standard, win32-x64, PIPE)
+# with a bogus proof_kind and PRODUCT_FAILURE outcome
+bogus_failing_sibling = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "bogus unvalidated proof kind"),
+    attempt_outcome="PRODUCT_FAILURE",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": bogus_failing_sibling})
+    print("FAILED: Bogus failing sibling admitted!")
+except ValueError as e:
+    print(f"FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: {type(e).__name__}: {e}")
+
+# The legitimate promotion proceeds cleanly without being blocked by unvalidated garbage
+legitimate_promotion = can_promote(valid_receipts, mock_env, claude_manifest_obj)
+print(f"LEGITIMATE PROMOTION PRESERVED: can_promote returned True: {legitimate_promotion is True}")
 ```
 
 **Output:**
