@@ -1728,7 +1728,7 @@ print(f"POST-ADMISSION MUTATION BLOCKED: Promotion result remained {promotion_af
 
 **Output:**
 
-`	ext
+```text
 --- 1. Single Normative Schema SSOT & Mechanical Equality Check ---
 Normative V2 Schema ID loaded from canonical file: https://peerhub.local/schema/adapter-manifest/v2
 Validator schema equals canonical source: True
