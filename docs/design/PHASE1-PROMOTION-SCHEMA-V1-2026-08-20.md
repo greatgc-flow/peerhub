@@ -181,9 +181,11 @@ To ground the requirement rules in concrete, typed contracts matching `PHASE1-MA
 ```python
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import ClassVar
+from contextvars import ContextVar
 from datetime import datetime
 import secrets
+
+_active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
 
 @dataclass(frozen=True, slots=True)
 class CellKey:
@@ -207,8 +209,10 @@ class CellKey:
 class AdapterManifest:
     """Documented contract of an admitted adapter manifest used during promotion evaluation.
     Enforces deterministic construction exclusively from an admitted manifest schema instance.
-    Direct manual construction with arbitrary or conflicting values is strictly blocked via an
-    unforgeable dynamic construction token generated at from_manifest call time.
+    Direct manual construction with arbitrary or conflicting values is guarded via a context-local
+    ephemeral token scoped to from_manifest execution (using contextvars.ContextVar). This prevents
+    accidental manual instantiation and cross-thread concurrency races, establishing a clearly-marked
+    internal boundary rather than claiming absolute unforgeability against intentional private-state tampering.
     """
     adapter_id: str
     peer_kind: str
@@ -220,12 +224,12 @@ class AdapterManifest:
     requires_snapshots: bool
     _token: str | None = None
 
-    _active_construction_token: ClassVar[str | None] = None
-
     def __post_init__(self):
+        active_token = _active_manifest_token.get()
         if (
             self._token is None
-            or self._token != AdapterManifest._active_construction_token
+            or active_token is None
+            or self._token != active_token
         ):
             raise TypeError(
                 "AdapterManifest direct construction is prohibited to guarantee promotion determinism. "
@@ -270,7 +274,7 @@ class AdapterManifest:
             raise TypeError(f"Field 'requires_snapshots' must be a bool, got {type(adapter['requires_snapshots']).__name__}.")
 
         token = secrets.token_hex(32)
-        cls._active_construction_token = token
+        reset_token = _active_manifest_token.set(token)
         try:
             return cls(
                 adapter_id=adapter["adapter_id"],
@@ -284,7 +288,7 @@ class AdapterManifest:
                 _token=token,
             )
         finally:
-            cls._active_construction_token = None
+            _active_manifest_token.reset(reset_token)
 
     def declares_capability(self, coverage_case_id: str) -> bool:
         """Verifies whether the adapter declares capability for the given case or general actions."""
