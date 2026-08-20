@@ -461,7 +461,7 @@ A collision is triggered if:
     "manifest_canonical_sha256": "05041744ADD473AB8176C9CF453B76502C2B9D3F0B5A3710B98B4DAB4D0E9EF4"
   },
   "engine_binding": {
-    "engine_id": "builtin:pty-agy-v1",
+    "engine_id": "builtin:json-agy-v1",
     "engine_implementation_version": "2.0.0",
     "engine_source_path": "P:\\workspace\\peerhub\\peerhub\\adapters\\agy_adapter.py",
     "engine_source_sha256": "AD0BB81F94C42A559C5464D2B2BBFFF55249145B78D927162C5247B00D962300"

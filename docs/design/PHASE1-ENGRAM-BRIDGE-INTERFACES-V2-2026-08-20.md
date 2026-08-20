@@ -138,44 +138,17 @@ These models reflect the **exact data shapes** discovered in live `.ai/state.jso
 from typing import Mapping, Sequence
 
 @dataclass(frozen=True, slots=True)
-class LegacyLeadershipRecord:
-    peer: str
-    status: str  # "ACTIVE", "YIELDED", "EXPIRED"
-    domain: str
-    reason: str
-    claimed_at: str
-
-@dataclass(frozen=True, slots=True)
-class LegacyCoordinatorHistoryEntry:
-    peer: str
-    at: str
-    room: str
-
-@dataclass(frozen=True, slots=True)
-class LegacyHumanInterfaceAssignment:
-    peer: str
-    profile: str | None
-    lease_id: str
-    assigned_at: str
-    last_heartbeat_at: str
-    expires_at: str
-    owner_pid: int
-    close_reason: str | None
-
-@dataclass(frozen=True, slots=True)
 class CoordinationStatePayload:
     """Exact model of .ai/state.json."""
-    human_interface_peer: str
-    human_interface_assignment_time: str
-    active_console_peer: str
-    leader: str
-    active_coordinator: str
-    leadership: LegacyLeadershipRecord
-    coordinator_history: tuple[LegacyCoordinatorHistoryEntry, ...]
-    updated_at: str
-    room_id: str
-    members: dict[str, str]  # peer -> session hash (e.g. {"cx": "c2a70", "cc": "cde50", "ag": "ae7e2"})
-    human_interface_assignment: LegacyHumanInterfaceAssignment | None
+    room_id: str | None
+    members: dict[str, str]
+    mission: str | None
+    blocked: str | None
+    phase: str | None
+    active_coordinator: str | None
+    human_interface_peer: str | None
+    role_assignments: dict[str, str]
+    updated_at: str | None
 
 @dataclass(frozen=True, slots=True)
 class LegacyLeaseRecord:

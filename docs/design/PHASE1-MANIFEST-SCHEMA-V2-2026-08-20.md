@@ -63,7 +63,7 @@ The `execution.templates` block now directly models the inputs required to build
         },
         "transports": {
           "type": "array",
-          "items": { "enum": ["STDIO", "PTY", "HTTP"] }
+          "items": { "enum": ["PIPE", "PTY"] }
         },
         "readiness_probe_id": { "type": "string" },
         "usage_provider_id": { "type": "string" }
@@ -111,7 +111,7 @@ The `execution.templates` block now directly models the inputs required to build
       "additionalProperties": false,
       "required": ["engine_id", "options"],
       "properties": {
-        "engine_id": { "type": "string" },
+        "engine_id": { "type": "string", "enum": ["builtin:json-claude-v1", "builtin:jsonl-codex-v1", "builtin:json-agy-v1", "builtin:pty-legacy-v1"] },
         "options": {
           "type": "object",
           "description": "Explicit finite typed options per engine.",
@@ -150,7 +150,7 @@ The `execution.templates` block now directly models the inputs required to build
           "profile_id": { "type": "string" },
           "profile_class": { "type": "string" },
           "supports_reasoning_effort": { "type": "boolean" },
-          "transport": { "enum": ["STDIO", "PTY", "HTTP"] },
+          "transport": { "enum": ["PIPE", "PTY"] },
           "prompt_policy": {
             "type": "object",
             "additionalProperties": false,
@@ -271,7 +271,7 @@ For every manifest $M_i$:
     "adapter_version": "1.0.0",
     "peer_kind": "cc",
     "capabilities": ["SESSION"],
-    "transports": ["STDIO"],
+    "transports": ["PIPE"],
     "readiness_probe_id": "process-exit-zero"
   },
   "execution": {
@@ -303,7 +303,7 @@ For every manifest $M_i$:
       "profile_id": "cc.standard",
       "profile_class": "tier",
       "supports_reasoning_effort": false,
-      "transport": "STDIO",
+      "transport": "PIPE",
       "prompt_policy": {
         "policy_id": "cc-standard-policy",
         "max_inline_utf8_bytes": 1000000,
@@ -324,7 +324,7 @@ For every manifest $M_i$:
     "adapter_version": "1.0.0",
     "peer_kind": "cx",
     "capabilities": ["SESSION", "STREAM"],
-    "transports": ["STDIO"],
+    "transports": ["PIPE"],
     "readiness_probe_id": "process-exit-zero"
   },
   "execution": {
@@ -356,7 +356,7 @@ For every manifest $M_i$:
       "profile_id": "cx.standard",
       "profile_class": "tier",
       "supports_reasoning_effort": false,
-      "transport": "STDIO",
+      "transport": "PIPE",
       "prompt_policy": {
         "policy_id": "cx-standard-policy",
         "max_inline_utf8_bytes": 1000000,
@@ -377,7 +377,7 @@ For every manifest $M_i$:
     "adapter_version": "1.0.0",
     "peer_kind": "ag",
     "capabilities": ["SESSION"],
-    "transports": ["STDIO"],
+    "transports": ["PIPE"],
     "readiness_probe_id": "process-exit-zero"
   },
   "execution": {
@@ -411,7 +411,7 @@ For every manifest $M_i$:
       "profile_id": "ag.standard",
       "profile_class": "tier",
       "supports_reasoning_effort": true,
-      "transport": "STDIO",
+      "transport": "PIPE",
       "prompt_policy": {
         "policy_id": "ag-standard-policy",
         "max_inline_utf8_bytes": 1000000,

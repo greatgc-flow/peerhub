@@ -24,7 +24,7 @@ The Promotion Ledger is modeled as an inventory of discrete **Cells**. Each cell
         "peer_binding": { "type": "string", "description": "e.g., 'profile:cc.standard', 'profile:cx.standard', 'profile:ag.standard'" },
         "platform": { "type": "string", "description": "e.g., 'win32-x64'" },
         "transport": { "type": "string", "description": "e.g., 'stdio' or 'pty'" },
-        "proof_kind": { "type": "string", "enum": ["dry_run", "integration", "fuzz", "snapshot"] }
+        "proof_kind": { "type": "string", "enum": ["deterministic contract or integration", "controlled real-OS executable", "live provider exact-profile", "legacy-parity evidence"] }
       },
       "required": ["coverage_case_id", "peer_binding", "platform", "transport", "proof_kind"],
       "additionalProperties": false
@@ -136,21 +136,32 @@ def determine_evidence_state(cell, current_env, raw_evidence) -> str:
     if cell.attempt_outcome == "HARNESS_FAILURE":
         return "ERROR"
         
-    # Check Age Invalidation
+    # Check formal age validation
     age = current_env.current_time_utc - cell.provenance.timestamp_utc
     if age.total_seconds() > MAX_AGE_SECONDS:
         return "STALE"
-        
-    # Check Formal Invalidation Rules
-    # Rule 1: Protocol breaking change invalidates old integration tests
-    if cell.provenance.protocol_version < current_env.min_protocol_version:
-        return "STALE"
-        
-    # Rule 2: Host architecture change (if the cell claims to be platform-independent but wasn't)
-    if cell.provenance.provider_home_arch != current_env.architecture and cell.cell_key.platform == "native":
-         return "STALE"
          
     return "MEASURED"
+```
+
+## 5. Promotion Rollup Rule (`can_promote`)
+
+Promotion is a deterministic boolean rollup over the requirement states and evidence states of all cells.
+
+```python
+def can_promote(rollup_cells: list, current_env, adapter_manifest) -> bool:
+    """
+    Returns True if the rollup meets all requirements for promotion.
+    """
+    for cell in rollup_cells:
+        req_state = determine_requirement_state(cell.cell_key, adapter_manifest)
+        if req_state == "REQUIRED":
+            ev_state = determine_evidence_state(cell, current_env, cell.raw_evidence)
+            if ev_state != "MEASURED":
+                return False
+            if cell.attempt_outcome != "PASS":
+                return False
+    return True
 ```
 
 ## 5. Cell Requirement Rules

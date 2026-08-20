@@ -17,7 +17,7 @@
   * **Invalid (`fix-register-node-inv-01`, NYI):** Pre-state: Standard `nodes.json`. Request: `register-node --tier invalid_num`. Expected exit: 2. Output: `argument --tier: invalid int value` to stderr. Post-state: `nodes.json` unchanged.
   * **Auth (`fix-register-node-auth-01`, NYI):** Pre-state: Read-only `nodes.json` / write permission denied on `.ai/`. Request: `register-node --name worker1`. Expected exit: 1. Output: PermissionError / error to stderr. Post-state: `nodes.json` unchanged.
   * **Recovery (`fix-register-node-rec-01`, NYI):** Pre-state: File lock `nodes` held by concurrent process. Request: `register-node --name worker2`. Recovery injection: Hub retries file lock acquisition with timeout and acquires. Expected exit: 0. Output: `[REGISTER] worker2 ...`. Post-state: `nodes.json` correctly updated with `worker2`.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 2. list-nodes
 * **Input Schema:** `ai_root: Path`. Validation: None. Authorization: Routine read-only action, exempt from role guards.
@@ -36,7 +36,7 @@
   * **Invalid (`fix-list-nodes-inv-01`, NYI):** Pre-state: `nodes.json` is missing on disk. Request: `list-nodes`. Expected exit: 0. Output: Header `[HUB] NODES ({len(_default_nodes()['nodes'])})` with default fallback nodes. Post-state: Unchanged.
   * **Auth (`fix-list-nodes-auth-01`, NYI):** Pre-state: Read permission denied on `nodes.json`. Request: `list-nodes`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-list-nodes-rec-01`, NYI):** Pre-state: `nodes.json` contains unformatted whitespace lines. Request: `list-nodes`. Recovery injection: Hub loads JSON safely and renders nodes. Expected exit: 0. Output: Formatted node list. Post-state: Unchanged.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 3. health-update
 * **Input Schema:** `peer_id: str = "cc"` (via `--peer`), `status: str = "GREEN"` (via `--status`, e.g. "GREEN", "YELLOW", "RED", "AUTO"), `jsonl_mb: float = 0.0` (via `--jsonl-mb`), `failures: int = 0` (via `--failures`), `extra: dict | None = None`, `availability: dict | None = None`. Validation: `peer_id` validated against enabled peers in `_load_orchestration()`. If peer disabled/unknown, prints refusal and exits 0. Authorization: Zero-token exempt system action (`_SYSTEM_EXEMPT_ACTIONS`).
@@ -55,7 +55,7 @@
   * **Invalid (`fix-health-update-inv-01`, NYI):** Pre-state: Orchestration enabled peers = `{cc, cx, ag}`. Request: `health-update --peer unknown_node`. Expected exit: 0. Output: `[HUB] HEALTH-UPDATE REFUSED: unknown_node is not an enabled peer.`. Post-state: Unchanged.
   * **Auth (`fix-health-update-auth-01`, NYI):** Pre-state: Write permission denied on `_sys/cc/health.json`. Request: `health-update --peer cc --status GREEN`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-health-update-rec-01`, NYI):** Pre-state: Lock `health_cc` held by concurrent thread. Request: `health-update --peer cc --status GREEN`. Recovery injection: Hub waits on lock, acquires, and writes atomically. Expected exit: 0. Output: `[HUB] HEALTH-UPDATE cc ...`. Post-state: Updated health record written.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 4. health-check
 * **Input Schema:** `peer_filter: str | None = None` (via `--peer`), `ai_root: Path | None = None`, `recover: bool = False` (via `--recover`). Validation: Filters to target peer if specified; otherwise all enabled peers. Authorization: System exempt (`_SYSTEM_EXEMPT_ACTIONS`), zero-token read/reconcile.
@@ -74,7 +74,7 @@
   * **Invalid (`fix-health-check-inv-01`, NYI):** Pre-state: `health.json` missing for target peer. Request: `health-check --peer nonexistent_peer`. Expected exit: 0. Output: `[HUB:GATE] HEALTH | nonexistent_peer=UNKNOWN`. Post-state: Unchanged.
   * **Auth (`fix-health-check-auth-01`, NYI):** Pre-state: Directory permission denied on `_sys/`. Request: `health-check`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-health-check-rec-01`, NYI):** Pre-state: `health.json` has `status: GREEN` with `active_pid: 99999` (dead process). Request: `health-check --peer cc --recover`. Recovery injection: Hub detects dead PID via `_pid_alive`, updates `status` to STALE, records `stale_marked_at`, and removes `active_pid`. Expected exit: 0. Output: `[HUB:GATE] HEALTH | cc=STALE(0.4MB)`. Post-state: `health.json` persisted with status STALE.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 5. peer-status
 * **Input Schema:** `node_id: str | None = None` (via `--peer`), `include_all: bool = False` (via `--all`). Validation: Validates `node_id` against normalized orchestration; prints error if unknown. Authorization: System zero-token inspection.
@@ -93,7 +93,7 @@
   * **Invalid (`fix-peer-status-inv-01`, NYI):** Pre-state: Standard orchestration. Request: `peer-status --peer invalid_peer_name`. Expected exit: 0 (returns after printing error to stderr). Output: `[HUB:ERROR] unknown peer: invalid_peer_name` to stderr. Post-state: Unchanged.
   * **Auth (`fix-peer-status-auth-01`, NYI):** Pre-state: CLI version probe binary inaccessible. Request: `peer-status --peer cc`. Expected exit: 0. Output: TSV table with empty/absent version column. Post-state: `cli_version_source: absent` recorded.
   * **Recovery (`fix-peer-status-rec-01`, NYI):** Pre-state: `health.json` locked during probe write. Request: `peer-status`. Recovery injection: Hub handles write failure gracefully (`except Exception: pass`) and prints status table without crashing. Expected exit: 0. Output: Full TSV status table. Post-state: Retains prior valid health file.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 6. context-fill
 * **Input Schema:** `ai_root: Path`, `sections: list[str] | None = None` (via `--sections`, comma-separated string), `frame: bool = False` (via `--frame`). Defaults: Protocol config sections or `["GOAL", "PENDING_ISSUES", "KEY_DECISIONS", "ACTIVE_THREADS"]`. Authorization: System exempt (`_SYSTEM_EXEMPT_ACTIONS`), zero-token read.
@@ -117,7 +117,7 @@ Complete task
   * **Invalid (`fix-context-fill-inv-01`, NYI):** Pre-state: `state.json` has `room_id: null`. Request: `context-fill`. Expected exit: 0. Output: `[HUB] CONTEXT-FILL: no active room`. Post-state: Unchanged.
   * **Auth (`fix-context-fill-auth-01`, NYI):** Pre-state: `handoff.md` file permissions restricted. Request: `context-fill`. Expected exit: 1. Output: PermissionError / error to stderr. Post-state: Unchanged.
   * **Recovery (`fix-context-fill-rec-01`, NYI):** Pre-state: Special section `lessons` requested when no active room exists. Request: `context-fill --sections lessons`. Recovery injection: Hub handles lessons independently of room presence, loads active lessons, and formats lesson block. Expected exit: 0. Output: Compiled lessons markdown block. Post-state: Unchanged.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 7. checkpoint
 * **Input Schema:** `ai_root: Path`, `agent: str = "unknown"` (via `--agent`), `note: str` (via `--msg`, required). Validation: Requires non-empty `--msg`; exits 1 if missing. Authorization: Permitted for active room participants.
@@ -136,7 +136,7 @@ Complete task
   * **Invalid (`fix-checkpoint-inv-01`, NYI):** Pre-state: Active room `room-1234`. Request: `checkpoint --agent cc` (missing `--msg`). Expected exit: 1. Output: `[HUB] checkpoint requires --msg` to stderr. Post-state: `handoff.md` unchanged.
   * **Auth (`fix-checkpoint-auth-01`, NYI):** Pre-state: No active room (`state.json` has `room_id: null`). Request: `checkpoint --agent cc --msg "Test"`. Expected exit: 1. Output: `[HUB] CHECKPOINT: no active room` to stderr. Post-state: Unchanged.
   * **Recovery (`fix-checkpoint-rec-01`, NYI):** Pre-state: `handoff.md` exists without an `ACTIVE_THREADS` section header. Request: `checkpoint --agent cc --msg "Recovery note"`. Recovery injection: Hub creates or appends `## [ACTIVE_THREADS]` header and inserts entry cleanly. Expected exit: 0. Output: `[HUB] CHECKPOINT cc | room=room-1234 | Recovery note`. Post-state: `handoff.md` contains well-formed section with new item.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 8. peer-quarantine
 * **Input Schema:** `ai_root: Path`, `peer_id: str` (via `--peer` or `--target`), `reason: str = ""` (via `--reason`). Validation: Identifies target peer directory. Authorization: System exempt (`_SYSTEM_EXEMPT_ACTIONS`), operational safety control.
@@ -155,7 +155,7 @@ Complete task
   * **Invalid (`fix-peer-quarantine-inv-01`, NYI):** Pre-state: Empty peer name passed. Request: `peer-quarantine --peer ""`. Expected exit: 0 (or handled gracefully). Output: `[HUB] PEER-QUARANTINE  | reason=manual`. Post-state: Default health file path handled.
   * **Auth (`fix-peer-quarantine-auth-01`, NYI):** Pre-state: Write permission denied on `_sys/cc/health.json`. Request: `peer-quarantine --peer cc`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-peer-quarantine-rec-01`, NYI):** Pre-state: No active room handoff exists (`state.json` missing room). Request: `peer-quarantine --peer cc --reason "probe failure"`. Recovery injection: `_append_handoff_item` safely skips handoff append when room is missing; health mutation succeeds. Expected exit: 0. Output: `[HUB] PEER-QUARANTINE cc | reason=probe failure`. Post-state: `health.json` updated with RED quarantine status.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 9. peer-recover
 * **Input Schema:** `ai_root: Path`, `peer_id: str` (via `--peer` or `--target`, accepts specific peer ID or `"all"`), `reason: str = ""` (via `--reason`). Validation: Validates target peer ID. Authorization: System exempt (`_SYSTEM_EXEMPT_ACTIONS`).
@@ -174,7 +174,7 @@ Complete task
   * **Invalid (`fix-peer-recover-inv-01`, NYI):** Pre-state: Standard environment. Request: `peer-recover --peer all`. Expected exit: 0. Output: `[HUB] PEER-RECOVER ...` printed for every configured peer. Post-state: All peer health files reset to GREEN.
   * **Auth (`fix-peer-recover-auth-01`, NYI):** Pre-state: Write-protected `health.json`. Request: `peer-recover --peer cc`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-peer-recover-rec-01`, NYI):** Pre-state: Peer health has profile-level gate closures (`availability.profiles.effort.gate_open = False`). Request: `peer-recover --peer cc`. Recovery injection: Hub traverses all sub-profiles and re-enables `gate_open = True` while stripping `rate_limit_state`. Expected exit: 0. Output: `[HUB] PEER-RECOVER cc | reason=manual`. Post-state: Root peer and all sub-profiles fully re-enabled.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 10. new-topic
 * **Input Schema:** `ai_root: Path`, `subject: str = ""` (via `--subject` or `--mission`). Validation: None. Authorization: Room governance action.
@@ -194,7 +194,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-new-topic-inv-01`, NYI):** Pre-state: `state.json` missing or empty. Request: `new-topic`. Expected exit: 0. Output: `[HUB] NEW-TOPIC room-.... | from=none | subject=`. Post-state: Fresh room created with default goal.
   * **Auth (`fix-new-topic-auth-01`, NYI):** Pre-state: Write-protected `state.json` or `sessions/` directory. Request: `new-topic --subject "test"`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-new-topic-rec-01`, NYI):** Pre-state: Old room directory exists but lacks `handoff.md`. Request: `new-topic --subject "New Goal"`. Recovery injection: Hub skips archiving and initializes fresh handoff with default sections without failing. Expected exit: 0. Output: `[HUB] NEW-TOPIC room-.... | from=old-room | subject=New Goal`. Post-state: Fresh room directory and handoff created cleanly.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 11. clear-room
 * **Input Schema:** `ai_root: Path`, `subject: str = ""` (via `--subject` or `--mission`). Validation: None. Authorization: Room governance action.
@@ -213,7 +213,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-clear-room-inv-01`, NYI):** Pre-state: `mailbox.json` does not exist. Request: `clear-room`. Expected exit: 0. Output: `[HUB] CLEAR-ROOM room-.... | from=none | subject=`. Post-state: Fresh room and empty `mailbox.json` initialized.
   * **Auth (`fix-clear-room-auth-01`, NYI):** Pre-state: Permission denied on `mailbox.json`. Request: `clear-room`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-clear-room-rec-01`, NYI):** Pre-state: Concurrent lock on `mailbox` during clearance. Request: `clear-room --subject "Wipe"`. Recovery injection: Hub acquires `mailbox` lock, writes empty array, cleans orphaned payloads, then acquires `state` lock to update room metadata. Expected exit: 0. Output: `[HUB] CLEAR-ROOM room-.... ...`. Post-state: Cleanly reset mailbox and state.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 12. preflight
 * **Input Schema:** `ai_root: Path`, `cmd: str` (via `--cmd`, required), `shell: str | None = None` (via `--shell`), `peer: str | None = None` (via `--peer` or `--agent`). Validation: Requires non-empty `--cmd`; exits 1 if missing. Authorization: Command classification guard, safe inspection.
@@ -232,7 +232,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-preflight-inv-01`, NYI):** Pre-state: Standard environment. Request: `preflight` (missing `--cmd`). Expected exit: 1. Output: `[HUB] preflight requires --cmd` to stderr. Post-state: Unchanged.
   * **Auth (`fix-preflight-auth-01`, NYI):** Pre-state: Standard guard config. Request: `preflight --cmd "rm -rf /" --peer cc`. Expected exit: 0. Output: JSON with `"allowed": false`, `"matched_rule": "blocked_patterns"`. Post-state: Operational error recorded for `cc` in `operational_errors.jsonl`.
   * **Recovery (`fix-preflight-rec-01`, NYI):** Pre-state: Custom shell specified with command string. Request: `preflight --cmd "Get-Process" --shell powershell`. Recovery injection: Hub evaluates powershell-specific rules. Expected exit: 0. Output: JSON evaluation with `"shell": "powershell"`. Post-state: Unchanged.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 13. context-hash
 * **Input Schema:** `ai_root: Path`. Validation: None. Authorization: System exempt (`_SYSTEM_EXEMPT_ACTIONS`), read-only state hash.
@@ -257,7 +257,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
 ` line endings vs Unix `
 `. Request: `context-hash`. Recovery injection: Hub normalizes newlines to `
 ` before hashing, producing identical digest across OS platforms. Expected exit: 0. Output: Deterministic cross-platform SHA-256 hash. Post-state: Unchanged.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 14. report-error
 * **Input Schema:** `ai_root: Path`, `peer: str = "unknown"` (via `--peer` or `--agent`), `pattern: str = "unknown"` (via `--pattern` or `--reason`), `detail: str = ""` (via `--detail`), `severity: str = "warn"` (via `--severity`). Validation: None. Authorization: Operational error reporting interface.
@@ -276,7 +276,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-report-error-inv-01`, NYI):** Pre-state: Standard environment. Request: `report-error`. Expected exit: 0. Output: `[HUB] operational-error recorded peer=unknown pattern=unknown count=1`. Post-state: Default entry recorded.
   * **Auth (`fix-report-error-auth-01`, NYI):** Pre-state: Write-protected `operational_errors.jsonl`. Request: `report-error --peer cx --pattern "err"`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-report-error-rec-01`, NYI):** Pre-state: `operational_errors.jsonl` has 2 prior matching errors for `cx` with pattern `sandbox_violation` (threshold=3). Request: `report-error --peer cx --pattern "sandbox_violation"`. Recovery injection: Hub records 3rd error, detects threshold breach (`count >= 3`), and automatically triggers `action_peer_quarantine` for `cx`. Expected exit: 0. Output: `[HUB] operational-error recorded peer=cx pattern=sandbox_violation count=3` (with quarantine output). Post-state: `cx` marked RED/quarantined in `_sys/cx/health.json`.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 15. feedback-add
 * **Input Schema:** `ai_root: Path`, `source_peer: str = "unknown"` (via `--peer` or `--from`), `category: str = "other"` (via `--category`), `severity: str = "medium"` (via `--severity`), `title: str = "unknown gap"` (via `--subject` or `--msg`), `detail: str = ""` (via `--detail`). Validation: None. Authorization: Feedback loop reporting by peer or coordinator.
@@ -295,7 +295,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-feedback-add-inv-01`, NYI):** Pre-state: Standard environment. Request: `feedback-add`. Expected exit: 0. Output: `[HUB] FEEDBACK-ADD GAP-20260820-001 | peer=unknown | title=unknown gap`. Post-state: Default entry appended.
   * **Auth (`fix-feedback-add-auth-01`, NYI):** Pre-state: Directory permission denied for `feedback.jsonl`. Request: `feedback-add --peer cc`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-feedback-add-rec-01`, NYI):** Pre-state: `feedback.jsonl` contains legacy unformatted lines and prior ID `GAP-20260820-005`. Request: `feedback-add --peer cc --subject "New gap"`. Recovery injection: Hub skips malformed lines, determines next sequential sequence number `006`, and writes under `feedback` lock. Expected exit: 0. Output: `[HUB] FEEDBACK-ADD GAP-20260820-006 | peer=cc | title=New gap`. Post-state: Sequence correctly incremented.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 16. feedback-list
 * **Input Schema:** `ai_root: Path`. Validation: None. Authorization: Read-only feedback review.
@@ -314,7 +314,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-feedback-list-inv-01`, NYI):** Pre-state: `feedback.jsonl` does not exist. Request: `feedback-list`. Expected exit: 0. Output: `No feedback records found.`. Post-state: Unchanged.
   * **Auth (`fix-feedback-list-auth-01`, NYI):** Pre-state: Unreadable `feedback.jsonl` permissions. Request: `feedback-list`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-feedback-list-rec-01`, NYI):** Pre-state: `feedback.jsonl` has corrupted JSON lines mixed with valid lines. Request: `feedback-list`. Recovery injection: Hub skips corrupted lines via `try/except json.JSONDecodeError` and renders all valid records cleanly. Expected exit: 0. Output: TSV table of all valid records. Post-state: Unchanged.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 17. feedback-resolve
 * **Input Schema:** `ai_root: Path`, `feedback_id: str` (via `--feedback-id` or `--round-id`), `status: str = "done"` (via `--status`), `owner: str | None = None` (via `--agent` or `--peer`). Validation: `feedback_id` must exist in `feedback.jsonl`. Exits 1 if file missing or ID not found. Authorization: Feedback management.
@@ -333,7 +333,7 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-feedback-resolve-inv-01`, NYI):** Pre-state: `feedback.jsonl` exists but does not contain `GAP-99999999-999`. Request: `feedback-resolve --feedback-id GAP-99999999-999`. Expected exit: 1. Output: `[HUB:ERROR] feedback ID GAP-99999999-999 not found` to stderr. Post-state: `feedback.jsonl` unchanged.
   * **Auth (`fix-feedback-resolve-auth-01`, NYI):** Pre-state: `feedback.jsonl` does not exist on disk. Request: `feedback-resolve --feedback-id GAP-20260820-001`. Expected exit: 1. Output: `[HUB:ERROR] feedback file not found` to stderr. Post-state: Unchanged.
   * **Recovery (`fix-feedback-resolve-rec-01`, NYI):** Pre-state: Lock `feedback` held during resolution attempt. Request: `feedback-resolve --feedback-id GAP-20260820-001 --status dismissed`. Recovery injection: Hub retries file lock acquisition, acquires lock, and writes updated records. Expected exit: 0. Output: `[HUB] FEEDBACK-RESOLVE GAP-20260820-001 | status=dismissed`. Post-state: Feedback record updated to dismissed.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
 
 ## 18. artifact-claim
 * **Input Schema:** `ai_root: Path`, `artifact_name: str` (via `--name`), `owner: str = "unknown"` (via `--peer` or `--agent`). Validation: If artifact is already claimed by another owner and status != "finalized", rejects with Exit 1. Authorization: Governed artifact lifecycle management.
@@ -352,4 +352,4 @@ Decision A`. Request: `new-topic --subject "Phase 2 Architecture"`. Expected exi
   * **Invalid (`fix-artifact-claim-inv-01`, NYI):** Pre-state: `spec.md` is claimed by `cc` with status `claimed`. Request: `artifact-claim --name spec.md --peer cx`. Expected exit: 1. Output: `[HUB:ERROR] artifact spec.md is already claimed by cc` to stderr. Post-state: `artifact_metadata.json` unchanged.
   * **Auth (`fix-artifact-claim-auth-01`, NYI):** Pre-state: Write-protected `artifact_metadata.json`. Request: `artifact-claim --name spec.md --peer cc`. Expected exit: 1. Output: PermissionError to stderr. Post-state: Unchanged.
   * **Recovery (`fix-artifact-claim-rec-01`, NYI):** Pre-state: `spec.md` was previously claimed by `cc` and finalized (`status: "finalized"`). Request: `artifact-claim --name spec.md --peer cx`. Recovery injection: Finalized artifacts can be re-claimed by a new owner for subsequent revisions. Expected exit: 0. Output: `[HUB] ARTIFACT-CLAIM spec.md | owner=cx`. Post-state: `spec.md` owner updated to `cx` with status `claimed`.
-* **Legacy Digest:** `f748b095ecbe2ad4a14fc97443e513dbe132a53e94d61cdfb9a905cb6864a238` | **Proof Ref:** `[PROOF_REF_TBD]`
+* **Legacy Digest:** `3b2d750381a440a70138bdcbca819e9cb55bebf9dc596d551c5b18b87bc6ae3f` | **Proof Ref:** `[No explicit proof artifact yet; hash verified locally against P:\workspace\Engram]`
