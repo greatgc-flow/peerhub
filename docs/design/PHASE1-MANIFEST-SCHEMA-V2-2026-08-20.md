@@ -377,7 +377,7 @@ For every manifest $M_i$:
     "adapter_version": "1.0.0",
     "peer_kind": "ag",
     "capabilities": ["SESSION"],
-    "transports": ["PTY"],
+    "transports": ["STDIO"],
     "readiness_probe_id": "process-exit-zero"
   },
   "execution": {
@@ -388,11 +388,13 @@ For every manifest $M_i$:
     "templates": {
       "start": {
         "argv": ["{executable}", "-p", "{prompt_content}", "--output-format", "json"],
-        "cwd": "{workspace_scope}"
+        "cwd": "{workspace_scope}",
+        "stdin": "DEVNULL"
       },
       "resume": {
         "argv": ["{executable}", "-p", "{prompt_content}", "--output-format", "json", "--conversation", "{session.external_session_id}"],
-        "cwd": "{workspace_scope}"
+        "cwd": "{workspace_scope}",
+        "stdin": "DEVNULL"
       }
     },
     "env_policy": {
@@ -401,7 +403,7 @@ For every manifest $M_i$:
     }
   },
   "engine": {
-    "engine_id": "builtin:pty-agy-v1",
+    "engine_id": "builtin:json-agy-v1",
     "options": {}
   },
   "profiles": [
@@ -409,7 +411,7 @@ For every manifest $M_i$:
       "profile_id": "ag.standard",
       "profile_class": "tier",
       "supports_reasoning_effort": true,
-      "transport": "PTY",
+      "transport": "STDIO",
       "prompt_policy": {
         "policy_id": "ag-standard-policy",
         "max_inline_utf8_bytes": 1000000,
@@ -424,6 +426,6 @@ For every manifest $M_i$:
 
 Despite this rigorous translation, certain runtime interaction patterns in the real world *genuinely cannot be expressed* through this purely declarative schema:
 
-1. **PTY Interactive State Machines (agy)**: A true interactive PTY tool does not accept a one-shot prompt via argv like `agy -p {prompt_content}`. It launches into an interactive shell, emits a `>` character, and requires the prompt to be typed into `stdin` at the right moment. The declarative manifest cannot express "wait for sequence X, send Y". The `builtin:pty-agy-v1` Engine is forced to hardcode this state machine logic in Python. The manifest simply points to that Engine and provides the `argv` for spawn.
+1. **PTY Interactive State Machines (Legacy/Test Tools)**: A true interactive PTY tool does not accept a one-shot prompt via argv. It launches into an interactive shell, emits a prompt character, and requires input to be typed into `stdin` at the right moment. The declarative manifest cannot express "wait for sequence X, send Y". For these explicitly-opt-in transport choices, a dedicated Engine (e.g. `builtin:pty-legacy-v1`) is forced to hardcode this state machine logic in Python. The manifest simply points to that Engine and provides the `argv` for spawn.
 2. **Graceful Cancel Delivery**: `InvocationPlan` inherently omits the graceful cancel recipe because it often involves out-of-band signals (e.g. `SIGINT` or specific terminal control sequences on Windows). The manifest lacks a way to declare "send Ctrl+C on cancel". The Engine entirely owns implementing the cancel mechanism for its target tool.
 3. **Complex Artifact Generation**: For tools that require dynamically generated artifact config files (e.g., writing a `.toml` on the fly containing multiple dynamically routed options before running the command), `execution.templates.*.artifacts` can only provide simple placeholder injection. Any complex logic must be synthesized by the Engine before the process spawns.

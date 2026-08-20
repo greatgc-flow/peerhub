@@ -193,7 +193,7 @@ The table illustrates six genuinely distinct architectural situations across the
 3. **Non-Idempotent / Irreversible Mutation (`credit-consume`)**: Irreversible upstream quota consumption requiring human terminal origin (`origin="terminal"`), `--confirm` flag, and UUID idempotency correlation through a 3-stage preflight/audit/verify pipeline.
 4. **Real Concurrency Race Condition (`thread-new`)**: Unlocked check-then-act defect (`path.exists()` before `path.open("a")`) verified to produce duplicate `THREAD_CREATE` headers when two peers invoke simultaneously.
 5. **Smart-Model Final Arbiter Governance (`arbiter-review`)**: DIR-005 governance action invoking `cc.fable` on split consensus rounds, strictly budget-guarded (5 reviews per 5h window).
-6. **PTY Interactive Transport Session (`init-session`)**: Agent lifecycle initialization on PTY transport (`ag.standard`), exercising the `builtin:pty-agy-v1` terminal state machine.
+6. **STDIO Transport Session (`init-session`)**: Agent lifecycle initialization on stdio transport (`ag.standard`), exercising the `builtin:json-agy-v1` stream parser.
 
 | Adapter | Parity Ledger Row (Action) | Batch Citation | `coverage_case_id` | Core Parity Req? | Behavioral Scenario & Finding |
 |---|---|---|---|---|---|
@@ -202,7 +202,7 @@ The table illustrates six genuinely distinct architectural situations across the
 | `codex-peer` (`cx`) | `credit-consume` (`action_credit_consume`) | Batch 5, Action 18 | `action.hub.credit-consume` | YES | Irreversible mutation requiring human `--confirm` + canonical UUID; multi-stage preflight/audit/verify lifecycle. |
 | `claude-peer` (`cc`) / `codex-peer` (`cx`) | `thread-new` (`action_thread_new`) | Batch 5, Action 4 | `action.hub.thread-new` | YES | Check-then-act race condition (`fix-thread-new-conc-01`); concurrent creation produces duplicate `THREAD_CREATE` headers. |
 | `claude-peer` (`cc` Arbiter) | `arbiter-review` (`run_arbiter_on_round`) | Batch 5, Action 16 | `action.hub.arbiter-review` | NO (Optional) | DIR-005 smart-model final arbiter for dissenting rounds; strictly budget-limited (5/5h window). |
-| `agy-peer` (`ag`) | `init-session` (`action_init_session`) | Batch 1, Action 1 | `action.hub.init-session` | YES | Session lifecycle initialization, agent registration in `state.json`, and `_log_p2p` JOIN emission via PTY transport (`ag.standard`). |
+| `agy-peer` (`ag`) | `init-session` (`action_init_session`) | Batch 1, Action 1 | `action.hub.init-session` | YES | Session lifecycle initialization, agent registration in `state.json`, and `_log_p2p` JOIN emission via STDIO transport (`ag.standard`). |
 
 ## 7. Worked Examples (Concrete JSON)
 
@@ -295,8 +295,8 @@ Captures historical evidence for rate-limit reset credit consumption on `codex-p
 }
 ```
 
-### 7.4 UNAVAILABLE State: `action.hub.init-session` via `agy-peer` (PTY Transport)
-Captures execution in an automated headless CI runner lacking Windows ConPTY terminal support. Because `agy-peer` (`ag.standard`) requires PTY transport (`win32-x64`), the test harness cannot allocate pseudo-terminal resources, cleanly recording `UNAVAILABLE` without registering a spurious product failure.
+### 7.4 UNAVAILABLE State: `action.hub.init-session` via `agy-peer` (Executable Absent)
+Captures execution on a host where the target executable (`agy.exe`) is absent from the `PATH` or its configured location. Because the required runtime dependency is missing from the environment, the test harness cleanly records `UNAVAILABLE` without registering a spurious product failure.
 
 ```json
 {
@@ -304,7 +304,7 @@ Captures execution in an automated headless CI runner lacking Windows ConPTY ter
     "coverage_case_id": "action.hub.init-session",
     "peer_binding": "profile:ag.standard",
     "platform": "win32-x64",
-    "transport": "pty",
+    "transport": "stdio",
     "proof_kind": "integration"
   },
   "requirement_state": "REQUIRED",
@@ -316,7 +316,7 @@ Captures execution in an automated headless CI runner lacking Windows ConPTY ter
     "provider_home": "P:/_sys/tools/agy",
     "session_id": "room-efde",
     "lease_id": "lease-ag-init-003",
-    "source_tags": ["app_server"],
+    "source_tags": ["empirical_probe"],
     "redacted_receipt_hash": "N/A"
   },
   "raw_capture_protection": false,
