@@ -476,6 +476,25 @@ class AdapterManifest:
         norm = peer_binding[8:] if peer_binding.startswith("profile:") else peer_binding
         return norm in self.declared_profile_ids or peer_binding in self.declared_profile_ids
 
+    def get_profile(self, peer_binding_or_profile_id: str) -> dict | None:
+        """Looks up the declared profile descriptor by peer_binding or profile_id."""
+        if not isinstance(peer_binding_or_profile_id, str):
+            return None
+        norm = (
+            peer_binding_or_profile_id[8:]
+            if peer_binding_or_profile_id.startswith("profile:")
+            else peer_binding_or_profile_id
+        )
+        for p in self.profiles:
+            if p.get("profile_id") == norm:
+                return p
+        return None
+
+    def get_profile_transport(self, peer_binding_or_profile_id: str) -> str | None:
+        """Returns the declared transport ('PIPE' | 'PTY') for the given profile."""
+        p = self.get_profile(peer_binding_or_profile_id)
+        return p.get("transport") if p else None
+
     def declares_capability(self, coverage_case_id: str) -> bool:
         """Verifies whether the adapter declares capability for the given case or general actions."""
         if "session" in coverage_case_id:
@@ -496,10 +515,13 @@ class AdapterManifest:
         self,
         peer_binding: str,
         platform: str = "win32-x64",
-        transport: str = "PIPE",
+        transport: str | None = None,
     ) -> set[CellKey]:
         """Enumerates the full composite CellKey set required for promotion."""
         if not self.is_valid_peer_binding(peer_binding):
+            return set()
+        resolved_transport = transport if transport is not None else self.get_profile_transport(peer_binding)
+        if resolved_transport is None:
             return set()
         keys: set[CellKey] = set()
         for case_id in self.core_parity_requirements:
@@ -508,7 +530,7 @@ class AdapterManifest:
                     coverage_case_id=case_id,
                     peer_binding=peer_binding,
                     platform=platform,
-                    transport=transport,
+                    transport=resolved_transport,
                     proof_kind=proof,
                 )
                 if determine_requirement_state(key, self) == "REQUIRED":
@@ -562,12 +584,15 @@ def can_promote(
     """
     Returns True if and only if:
     1. rollup_cells is non-empty and every cell corresponds to a real admitted profile declared in adapter_manifest.
-    2. Every required composite CellKey for the admitted manifest's declared profiles is covered.
-    3. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome EXECUTED_PASS.
-    4. Contradiction Guard: No sibling cell within the same rollup context (same coverage_case_id,
+    2. Every required composite CellKey for the admitted manifest's declared profiles (using each profile's
+       own declared transport) is covered and passing.
+    3. If caller supplies required_cell_keys, it is strictly validated as a subset of the manifest-derived
+       requirements and cannot substitute, weaken, or reduce the manifest-authoritative required set.
+    4. Every REQUIRED cell is in evidence_state MEASURED and attempt_outcome EXECUTED_PASS.
+    5. Contradiction Guard: No sibling cell within the same rollup context (same coverage_case_id,
        peer_binding, platform, transport) has a divergent contradictory outcome (PRODUCT_FAILURE,
        QUOTA_BLOCKED, ENVIRONMENT_UNAVAILABLE) against a passing sibling cell in the same rollup group.
-    5. Returns False if any cell carries an unadmitted/fabricated peer_binding, or if any required cell
+    6. Returns False if any cell carries an unadmitted/fabricated peer_binding, or if any required cell
        is missing, stale, unavailable, failed, omitted, or contradicted by a divergent sibling cell.
     """
     if not rollup_cells:
@@ -604,14 +629,30 @@ def can_promote(
             if has_contradiction:
                 return False
 
-    # 3. Enumerate full required composite CellKeys grounded in the manifest's real declared profiles
-    expected_required: set[CellKey] = set(required_cell_keys) if required_cell_keys is not None else set()
-    if not expected_required:
-        for profile_id in adapter_manifest.declared_profile_ids:
-            expected_required.update(adapter_manifest.get_expected_required_cell_keys(peer_binding=f"profile:{profile_id}"))
+    # 3. Always compute the real, manifest-derived required set first from the admitted manifest's
+    # own declared profiles, reading each profile's individually declared transport.
+    manifest_required: set[CellKey] = set()
+    for profile in adapter_manifest.profiles:
+        profile_id = profile["profile_id"]
+        profile_transport = profile.get("transport")
+        manifest_required.update(
+            adapter_manifest.get_expected_required_cell_keys(
+                peer_binding=f"profile:{profile_id}",
+                transport=profile_transport,
+            )
+        )
 
-    if not expected_required:
+    if not manifest_required:
         return False
+
+    # Caller-supplied required_cell_keys cannot substitute or reduce the manifest-derived set.
+    # If supplied, validate that it is an allowable subset of the manifest-derived requirements.
+    if required_cell_keys is not None:
+        caller_set = set(required_cell_keys)
+        if not caller_set.issubset(manifest_required):
+            return False
+
+    expected_required: set[CellKey] = manifest_required
 
     # 4. Verify completeness: 100% of required composite CellKeys must be covered and passing
     covered_cell_keys: set[CellKey] = set()
