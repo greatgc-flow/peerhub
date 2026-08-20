@@ -638,10 +638,49 @@ def _build_evidence_registry():
     _lock: threading.Lock = threading.Lock()
 
     class EvidenceRegistry:
-        """Minimal registry for admitted evidence cells."""
+        """Registry for admitted evidence cells.
+        
+        This registry performs real shape and type validation against accidental or 
+        malformed evidence, consistent with the threat model section's honest framing.
+        It does NOT provide unforgeable provenance binding or absolute security guarantees
+        against deliberate same-process tampering. It merely ensures that admitted
+        evidence strictly conforms to the required cell schema before issuing a receipt.
+        """
         
         @classmethod
+        def validate_cell(cls, cell_data: dict) -> None:
+            if not isinstance(cell_data, dict):
+                raise TypeError("cell_data must be a dictionary")
+            
+            if "cell_obj" not in cell_data:
+                raise ValueError("cell_data must contain a 'cell_obj' key")
+                
+            cell = cell_data["cell_obj"]
+            
+            if not hasattr(cell, "cell_key") or type(cell.cell_key).__name__ != "CellKey":
+                raise TypeError("cell_obj must expose a real cell_key of the real CellKey type")
+                
+            ck = cell.cell_key
+            for field_name in ["coverage_case_id", "peer_binding", "platform", "transport", "proof_kind"]:
+                if not hasattr(ck, field_name) or not isinstance(getattr(ck, field_name), str):
+                    raise TypeError(f"cell_key.{field_name} must be a string")
+                    
+            valid_outcomes = {"EXECUTED_PASS", "PRODUCT_FAILURE", "QUOTA_BLOCKED", "ENVIRONMENT_UNAVAILABLE", "NOT_REQUESTED"}
+            if not hasattr(cell, "attempt_outcome") or cell.attempt_outcome not in valid_outcomes:
+                raise ValueError(f"cell_obj.attempt_outcome must be one of {valid_outcomes}")
+                
+            valid_evidence_states = {"MEASURED", "ABSENT", "UNAVAILABLE", "ERROR", "STALE"}
+            if not hasattr(cell, "evidence_state") or cell.evidence_state not in valid_evidence_states:
+                raise ValueError(f"cell_obj.evidence_state must be one of {valid_evidence_states}")
+                
+            if not hasattr(cell, "provenance") or cell.provenance is None:
+                raise ValueError("cell_obj must have a real provenance object")
+            if not hasattr(cell.provenance, "timestamp_utc"):
+                raise ValueError("provenance must carry a real timestamp_utc")
+
+        @classmethod
         def admit(cls, cell_data: dict, max_retries: int = 10) -> str:
+            cls.validate_cell(cell_data)
             # Atomic issue
             for attempt in range(max_retries):
                 candidate_id = f"ev_{secrets.token_hex(16)}"
@@ -652,7 +691,7 @@ def _build_evidence_registry():
             raise RuntimeError("Unable to generate a unique evidence receipt ID.")
             
         @classmethod
-        def get_trusted_cell(cls, receipt_id: str) -> dict:
+        def get_validated_cell(cls, receipt_id: str) -> dict:
             if not isinstance(receipt_id, str):
                 raise TypeError("receipt_id must be a string")
             with _lock:
@@ -688,11 +727,11 @@ def can_promote(
     if not evidence_receipts:
         return False
 
-    # 1. Look up trusted cell objects from EvidenceRegistry
+    # 1. Look up validated cell objects from EvidenceRegistry
     rollup_cells = []
     for receipt_id in evidence_receipts:
         try:
-            cell_data = EvidenceRegistry.get_trusted_cell(receipt_id)
+            cell_data = EvidenceRegistry.get_validated_cell(receipt_id)
             rollup_cells.append(cell_data["cell_obj"])
         except ValueError:
             return False
@@ -1540,11 +1579,58 @@ genuine_forged_receipt = AdmissionRegistry.admit(unadmitted_forged_manifest)
 print(f"GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: {genuine_forged_receipt}")
 genuine_manifest_obj = AdapterManifest.from_manifest(unadmitted_forged_manifest, genuine_forged_receipt)
 print(f"GENUINE CONSTRUCT SUCCESS: Constructed {genuine_manifest_obj.adapter_id} with digest verified from trusted registry.")
+
+print("\n--- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---")
+# 1. Attempt to admit a bare dictionary
+bare_dict_cell = {"attempt_outcome": "EXECUTED_PASS", "evidence_state": "MEASURED"}
+try:
+    EvidenceRegistry.admit({"cell_obj": bare_dict_cell})
+    print("FAILED: EvidenceRegistry.admit accepted a bare dictionary instead of a real cell object!")
+except TypeError as e:
+    print(f"SHAPE VALIDATION BLOCKED: Bare dictionary rejected: {type(e).__name__}: {e}")
+
+# 2. Attempt to admit a cell with an invalid attempt_outcome
+class MalformedCell(MockCell):
+    pass
+
+malformed_cell = MalformedCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="INVALID_OUTCOME",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+try:
+    EvidenceRegistry.admit({"cell_obj": malformed_cell})
+    print("FAILED: EvidenceRegistry.admit accepted a cell with an invalid attempt_outcome!")
+except ValueError as e:
+    print(f"SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: {type(e).__name__}: {e}")
+
+# 3. Genuine cell admitted successfully
+genuine_test_cell = MockCell(
+    cell_key=CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"),
+    attempt_outcome="EXECUTED_PASS",
+    evidence_state="MEASURED",
+    provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc)
+)
+
+genuine_receipt = EvidenceRegistry.admit({"cell_obj": genuine_test_cell})
+print(f"GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: {genuine_receipt}")
+
+# Verify it still promotes correctly (mocking required cell for cc.standard)
+genuine_receipts = [
+    genuine_receipt,
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.ask", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "deterministic contract or integration"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))}),
+    EvidenceRegistry.admit({"cell_obj": MockCell(CellKey("action.hub.thread-new", "profile:cc.standard", "win32-x64", "PIPE", "controlled real-OS executable"), provenance=MockProvenance(timestamp_utc=mock_env.current_time_utc))})
+]
+promotion_genuine_test = can_promote(genuine_receipts, mock_env, claude_manifest_obj)
+print(f"GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: {promotion_genuine_test}")
 ```
 
 **Output:**
 
-```
+`	ext
 --- 1. Single Normative Schema SSOT & Mechanical Equality Check ---
 Normative V2 Schema ID loaded from canonical file: https://peerhub.local/schema/adapter-manifest/v2
 Validator schema equals canonical source: True
@@ -1561,11 +1647,11 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_a939622055731cf956b4ca382c2c0f10
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_fec2eba4395fda9729ebb56712524c9a
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_60d21b89daa8296a1f74f3f1cc057385
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_b3c19bfde9348b4faec32ae0b1c9af30
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
 --- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---
@@ -1581,13 +1667,13 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (rcpt_60d21b89daa8296a1f74f3f1cc057385) digest preserved intact: True
+Earlier receipt ID (rcpt_b3c19bfde9348b4faec32ae0b1c9af30) digest preserved intact: True
 Second admission detected collision and retried to fresh ID: rcpt_abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
 --- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
-Thread 1 receipt ID: rcpt_11112222333344445555666677778888
-Thread 2 receipt ID: rcpt_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Thread 1 receipt ID: rcpt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Thread 2 receipt ID: rcpt_11112222333344445555666677778888
 Receipt IDs are distinct (no duplicate ID issued): True
 Thread 1 digest in registry: True
 Thread 2 digest in registry: True
@@ -1636,7 +1722,14 @@ GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuin
 ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
 ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
 FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
-GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: rcpt_4c8eabd19fdced934c64ae0b0ecfc23b
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: rcpt_c5b48a69e416a1d22806cbe1c0590a84
 GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
-```
 
+--- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---
+SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must expose a real cell_key of the real CellKey type
+SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'NOT_REQUESTED', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'ENVIRONMENT_UNAVAILABLE'}
+GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_f0ad847ba92197330abbe49b5c0a9a5c
+GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
+``n
+``n
+`
