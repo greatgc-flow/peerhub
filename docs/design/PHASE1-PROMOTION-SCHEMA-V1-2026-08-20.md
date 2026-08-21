@@ -239,7 +239,7 @@ class TransitiveExecutableNode:
     canonical_path: str
     file_size_bytes: int
     sha256: str
-    is_reparse_point: bool
+    is_reparse_point: Literal[None] = None
 
 @dataclass(frozen=True, slots=True)
 class AclEvaluationEvidence:
@@ -374,8 +374,12 @@ def _build_admission_registry():
         @classmethod
         def validate_executable_chain(cls, raw_manifest: dict, transitive_executable_chain: list[dict]) -> tuple[str, tuple[TransitiveExecutableNode, ...]]:
             """Validates the transitive executable chain and returns its aggregate digest."""
-            if not isinstance(transitive_executable_chain, list) or not transitive_executable_chain:
-                raise ValueError("Executable chain must be a non-empty list.")
+            if not isinstance(transitive_executable_chain, list) or len(transitive_executable_chain) != 1:
+                # Scope decision explicit note:
+                # Multi-node wrapper-chain admission, requiring real recursive derivation of actual invocation 
+                # edges from wrapper file contents, is deferred entirely to Phase 2. Phase 1 admission only covers
+                # adapters whose manifest declares a direct native-binary entrypoint with no wrapper layer.
+                raise ValueError("Executable chain must contain exactly one node (Phase 1 limitation).")
             
             target = raw_manifest.get("execution", {}).get("executable", {}).get("target")
             if not target:
@@ -392,13 +396,19 @@ def _build_admission_registry():
                 if role_str not in [e.value for e in ExecutableRole]:
                     raise ValueError(f"Invalid role {role_str}")
                 role = ExecutableRole(role_str)
+                
+                if role != ExecutableRole.NATIVE_BINARY:
+                    raise ValueError(f"Executable chain role must be NATIVE_BINARY, got {role.name}. Phase 1 admission does not support wrappers.")
+                
                 c_path = item["canonical_path"]
+                if not os.path.isabs(c_path):
+                    raise ValueError(f"canonical_path must be an absolute path, got '{c_path}'")
+                
+                # Consistently use canonicalized absolute form everywhere
+                c_path_canon = os.path.normpath(os.path.abspath(c_path))
                 claimed_hash = item["sha256"]
                 
                 if idx == 0:
-                    if role not in (ExecutableRole.ENTRYPOINT_WRAPPER, ExecutableRole.NATIVE_BINARY):
-                        raise ValueError(f"Executable chain entrypoint must be ENTRYPOINT_WRAPPER or NATIVE_BINARY, got {role.name}")
-                    
                     resolution_rule = raw_manifest.get("execution", {}).get("executable", {}).get("resolution_rule")
                     if not resolution_rule:
                         raise ValueError("Manifest missing execution.executable.resolution_rule")
@@ -430,29 +440,24 @@ def _build_admission_registry():
                         raise ValueError(f"Unknown resolution_rule {resolution_rule}")
                         
                     resolved_canon = os.path.normpath(os.path.abspath(resolved_target)).lower()
-                    c_path_canon = os.path.normpath(os.path.abspath(c_path)).lower()
-                    if resolved_canon != c_path_canon:
-                        raise ValueError(f"Executable chain entrypoint {c_path} does not match resolved manifest target {resolved_target}")
+                    if resolved_canon != c_path_canon.lower():
+                        raise ValueError(f"Executable chain entrypoint {c_path_canon} does not match resolved manifest target {resolved_target}")
                 
-                if not os.path.exists(c_path):
-                    raise ValueError(f"Executable path does not exist: {c_path}")
+                if not os.path.exists(c_path_canon):
+                    raise ValueError(f"Executable path does not exist: {c_path_canon}")
                 
-                with open(c_path, "rb") as f:
+                with open(c_path_canon, "rb") as f:
                     actual_hash = hashlib.sha256(f.read()).hexdigest().upper()
                 if actual_hash != claimed_hash.upper():
-                    raise ValueError(f"Executable hash mismatch for {c_path}! Claimed: {claimed_hash}, Actual: {actual_hash}")
+                    raise ValueError(f"Executable hash mismatch for {c_path_canon}! Claimed: {claimed_hash}, Actual: {actual_hash}")
                 
                 nodes.append(TransitiveExecutableNode(
                     role=role,
-                    canonical_path=c_path,
-                    file_size_bytes=os.path.getsize(c_path),
+                    canonical_path=c_path_canon,
+                    file_size_bytes=os.path.getsize(c_path_canon),
                     sha256=actual_hash,
-                    is_reparse_point=item.get("is_reparse_point", False) # Explicitly skipped in Phase 1 schema model
+                    is_reparse_point=None
                 ))
-
-            last_node = nodes[-1]
-            if last_node.role not in (ExecutableRole.NATIVE_BINARY, ExecutableRole.INTERPRETER):
-                raise ValueError("Transitive executable chain is incomplete: leaf node must be NATIVE_BINARY or INTERPRETER")
 
             # Compute aggregate chain digest (deterministic sort by role and path)
             sorted_nodes = sorted(nodes, key=lambda x: (x.role.value, x.canonical_path))
@@ -2244,6 +2249,39 @@ try:
     print("FAILED: Leaked receipt was successfully mutated!")
 except dataclasses.FrozenInstanceError as e:
     print(f"MUTABLE RECEIPT LEAK PREVENTED: {type(e).__name__}: {e}")
+
+print("\n--- 27. Round 50 cx's unrelated-node-1 attack rejected (multi-node Phase 1 limit) ---")
+import tempfile
+with tempfile.NamedTemporaryFile(delete=False) as f:
+    f.write(b"dummy")
+    dummy_path = f.name
+try:
+    with open(dummy_path, "rb") as f:
+        dummy_hash = hashlib.sha256(f.read()).hexdigest().upper()
+    
+    multi_node_chain = [
+        {'role': 'NATIVE_BINARY', 'canonical_path': _real_path, 'sha256': _real_hash, 'is_reparse_point': False},
+        {'role': 'NATIVE_BINARY', 'canonical_path': dummy_path, 'sha256': dummy_hash, 'is_reparse_point': False}
+    ]
+    
+    try:
+        AdmissionRegistry.admit(valid_claude_manifest, multi_node_chain)
+        print("FAILED: Multi-node chain unexpectedly admitted!")
+    except ValueError as e:
+        print(f"MULTI-NODE CHAIN BLOCKED: {type(e).__name__}: {e}")
+finally:
+    os.remove(dummy_path)
+
+print("\n--- 28. Round 50 relative canonical_path rejected ---")
+rel_path = os.path.basename(_real_path)
+rel_node_chain = [
+    {'role': 'NATIVE_BINARY', 'canonical_path': rel_path, 'sha256': _real_hash, 'is_reparse_point': False}
+]
+try:
+    AdmissionRegistry.admit(valid_claude_manifest, rel_node_chain)
+    print("FAILED: Relative canonical_path unexpectedly admitted!")
+except ValueError as e:
+    print(f"RELATIVE PATH BLOCKED: {type(e).__name__}: {e}")
 ```
 
 **Output:**
@@ -2265,11 +2303,11 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: rcpt_1abe1da63a1f5056b7c559ad48f43d20
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T090719Z-c29dda727b0a4ece3d9219499c5ec186
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: rcpt_cda4d26b5ba183297e831668a925db02
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T090719Z-f96f3744cc19887bc2a50e855dea8059
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
 --- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---
@@ -2285,13 +2323,13 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (rcpt_cda4d26b5ba183297e831668a925db02) digest preserved intact: True
-Second admission detected collision and retried to fresh ID: rcpt_abcdef0123456789abcdef0123456789
+Earlier receipt ID (receipt-cc-claude-peer-20260821T090719Z-f96f3744cc19887bc2a50e855dea8059) digest preserved intact: True
+Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T090719Z-abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
 --- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
-Thread 1 receipt ID: rcpt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Thread 2 receipt ID: rcpt_11112222333344445555666677778888
+Thread 1 receipt ID: receipt-cc-conc-peer-20260821T090719Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Thread 2 receipt ID: receipt-cc-conc-peer-20260821T090719Z-11112222333344445555666677778888
 Receipt IDs are distinct (no duplicate ID issued): True
 Thread 1 digest in registry: True
 Thread 2 digest in registry: True
@@ -2299,7 +2337,7 @@ Store size increased by exactly 2 entries: True
 CONCURRENCY RACE VERIFIED FIXED: Atomic lock prevents TOCTOU clobbering under real thread contention.
 
 --- 12. Forgery attempt (supplying own digest as receipt ID) ---
-BLOCKED: ValueError: Unknown admission receipt ID: 6BD899AB9DC099CE261BBF959712E62BBF156B0E8DC141FBC784D533C6774DE1
+BLOCKED: ValueError: Unknown admission receipt ID: F016DD6BC74793CAB561C2972D89FE81C1366B908FF0A542FCCB33E80981A2FE
 
 --- 13. Syntactically well-formed but unknown receipt ID ---
 BLOCKED: ValueError: Unknown admission receipt ID: rcpt_00000000000000000000000000000000
@@ -2340,26 +2378,26 @@ GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuin
 ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
 ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
 FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
-GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: rcpt_e49cbbb3239f61eea6d1dd4a9defde1d
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T090719Z-ce0dfe5de7221ee18c432ee7a6968e53
 GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
 
 --- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---
 SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must expose a real cell_key of the real CellKey type
-SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'EXECUTED_PASS', 'QUOTA_BLOCKED', 'ENVIRONMENT_UNAVAILABLE', 'PRODUCT_FAILURE', 'NOT_REQUESTED'}
-GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_11f950947fa88104afcf21f7d9f97742
+SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'NOT_REQUESTED', 'QUOTA_BLOCKED', 'EXECUTED_PASS', 'PRODUCT_FAILURE'}
+GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_ff7dd464d95eb3c97cc12aed805fe296
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
 
 --- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---
 TYPE-NAME SPOOF BLOCKED: TypeError: cell_obj must expose a real cell_key of the real CellKey type
 NON-DATETIME TIMESTAMP BLOCKED: TypeError: provenance must carry a real timestamp_utc of the real datetime type
-Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_2f064869ec92b108de1e9b1f0c2c181e
+Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_d89ccf218062d82d5e642dec60938c76
 Promotion with PRODUCT_FAILURE returned: False
 Attacker mutated original cell object to EXECUTED_PASS.
 Promotion after post-admission mutation returned: False
 POST-ADMISSION MUTATION BLOCKED: Promotion result remained False despite mutation of original object.
 
 --- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---
-TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'NOT_REQUESTED', 'PRODUCT_FAILURE', 'QUOTA_BLOCKED', 'ENVIRONMENT_UNAVAILABLE', 'EXECUTED_PASS'}
+TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'NOT_REQUESTED', 'QUOTA_BLOCKED', 'EXECUTED_PASS', 'PRODUCT_FAILURE'}
 GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: True
 
 --- 22. Round 42 Item 2: Timezone-Aware UTC Enforcement & Future Skew Bounds ---
@@ -2379,13 +2417,19 @@ TIMESTAMP EQUIVALENCE PRESERVED: Normalized timestamp matches original point in 
 
 --- 24. Round 44 Item 2: Enum Validation on transport & proof_kind & False-Contradiction Prevention ---
 BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PIPE', 'PTY'}, got 'SOCKET'
-BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'deterministic contract or integration', 'legacy-parity evidence'}, got 'invented arbitrary proof kind'
-FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'deterministic contract or integration', 'legacy-parity evidence'}, got 'bogus unvalidated proof kind'
+BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'legacy-parity evidence', 'deterministic contract or integration'}, got 'invented arbitrary proof kind'
+FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'legacy-parity evidence', 'deterministic contract or integration'}, got 'bogus unvalidated proof kind'
 LEGITIMATE PROMOTION PRESERVED: can_promote returned True: True
 
 --- 25. Round 47: Mismatched-Target Admission Attack ---
-MISMATCHED TARGET BLOCKED: ValueError: Executable chain entrypoint P:\_sys\env\venv\Scripts\python.exe does not match manifest target does_not_exist.cmd
+MISMATCHED TARGET BLOCKED: ValueError: Target 'does_not_exist.cmd' with resolution_rule 'path' could not be resolved via OS PATH
 
 --- 26. Round 47: Mutable-Receipt-Leak Attack ---
 MUTABLE RECEIPT LEAK PREVENTED: FrozenInstanceError: cannot assign to field 'aggregate_chain_digest'
+
+--- 27. Round 50 cx's unrelated-node-1 attack rejected (multi-node Phase 1 limit) ---
+MULTI-NODE CHAIN BLOCKED: ValueError: Executable chain must contain exactly one node (Phase 1 limitation).
+
+--- 28. Round 50 relative canonical_path rejected ---
+RELATIVE PATH BLOCKED: ValueError: canonical_path must be an absolute path, got 'python.exe'
 ```
