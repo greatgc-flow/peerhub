@@ -20,9 +20,9 @@ To safely manage optional `PATH` shims (e.g., generating a `cc.bat` that proxies
   - `target_path`: Absolute path of the generated shim file.
   - `sha256`: SHA-256 hash of the shim file exactly as PeerHub generated it.
   - `target_adapter`: Profile/adapter target the shim proxies to.
-  - `admission_receipt_id`: Cryptographic digest/ID of the corresponding admission receipt.
+  - `admission_receipt_id`: The unified, real admission receipt ID (e.g., `receipt-cc-claude-peer-20260820T215000Z-a1b2c3d4`) from the corresponding Phase 1 AdmissionRegistry.
   - `backups`: Array of historical pre-existing file backup records.
-- **Canonical Target and Admission-Receipt Binding:** A shim's registry entry must tie back to a specific **admission receipt** (from the manifest admission protocol). This binding ensures that a shim can never point at an arbitrary binary on disk; it is strictly bound to an executable that was formally admitted through the manifest system.
+- **Canonical Target and Admission-Receipt Binding:** A shim's registry entry must tie back to a specific **admission receipt** (from the unified manifest and executable admission protocol). This binding ensures that a shim can never point at an arbitrary binary on disk; it is strictly bound to an executable that was formally admitted with full executable integrity validation (hash chains and ACLs).
 - **File Signatures:** The shim file itself will contain a distinctive header comment block (`:: PeerHub Managed Shim - DO NOT EDIT MANUALLY`) to visually indicate its origin to human administrators.
 
 ### 2.3. Initial-Path Collision Handling and Pre-Overwrite Backup
