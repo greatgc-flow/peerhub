@@ -35,6 +35,11 @@ As established in the ratified promotion schema, this capability will eventually
 **Connection Ownership & Concurrency:**
 This coordinator never owns or creates its own database connection or file. It receives an already-initialized, capability-probed canonical `StateStore` instance from its caller, ensuring DB constraints are enforced on a local filesystem at initialization. Furthermore, store-busy/unavailable failures during concurrent access are bounded and surfaced to the coordinator's own caller as a clear, typed application-boundary error (e.g., `StateStoreUnavailableError`), never an unbounded internal retry loop that could hang the host process.
 
+> [!WARNING]
+> **Open Item for Phase 2 Port Design (Deadline Enforcement):**
+> The coordinator's current timeout/deadline guarantee is not actually a property of the real `StateStore` port contract (`peerhub/state/contract.py`). It only holds because this specific adapter implementation (`FakeSqliteUnitOfWork`) internally chooses non-blocking (`timeout=0.0`) SQLite acquisition. Other completely valid adapters that satisfy the real `StateStore` protocol but use long internal busy-timeouts will silently defeat the coordinator's deadline enforcement. Making this a genuine, portable guarantee requires extending the real `StateStore/UnitOfWork` port interface (e.g., adding an explicit deadline-aware acquisition method or a documented non-blocking-behavior requirement) as real, necessary Phase 2 implementation work.
+
+
 **Shared Unit of Work Contract:**
 Any caller invoking `admit_manifest()` from within an existing dispatch transaction MUST supply that transaction's UoW via the `shared_unit` parameter. Omitting it is only safe for a genuinely standalone admission not nested inside another transaction. This is a caller contract the type system cannot fully enforce. If this contract is violated (e.g., an already-open dispatch UoW exists but `shared_unit` is incorrectly omitted), it will cause an immediate self-contention deadlock that is predictably bounded by the overall deadline and surfaces as a detectable `StateStoreUnavailableError`, rather than silently swallowing the failure.
 
@@ -69,19 +74,14 @@ CREATE TABLE manifest_admission_receipts (
 );
 ```
 
-### 2. Coordinator Design (Illustrative Python)
+### 2. Coordinator Design (Conceptual Overview)
 
 > [!NOTE]
-> The code block below is an illustrative sketch of the admission coordinator's core logic. For the exact, currently-verified, and authoritative implementation of this logic, refer to the runnable `trace.py` script in Section 4 below.
+> The complete, currently-verified implementation lives in the runnable `trace.py` script in section 4 below, which is the sole authoritative source for this design's exact behavior. This section is a conceptual overview only and intentionally does not duplicate the full implementation to avoid the synchronization drift found in Rounds 77 and 81.
+
+The `ManifestAdmissionCoordinator` orchestrates Phase 1 executable-integrity manifest admission. Its primary interfaces are defined below:
 
 ```python
-import secrets
-import time
-from datetime import datetime, timezone
-from typing import Protocol, Self
-from peerhub.state.contract import StateStore, UnitOfWork, ReadUnitOfWork
-from peerhub.core.context import Clock, IdSource
-
 class ManifestAdmissionReadUnitOfWork(ReadUnitOfWork, Protocol):
     def get_manifest_receipt(self, receipt_id: str) -> 'ManifestAdmissionReceipt | None': ...
 
@@ -89,236 +89,21 @@ class ManifestAdmissionUnitOfWork(ManifestAdmissionReadUnitOfWork, UnitOfWork, P
     def put_manifest_receipt(self, receipt: 'ManifestAdmissionReceipt') -> None: ...
     def put_shim_entry(self, entry: 'ShimRegistryEntry') -> None: ...
 
-class StateStoreUnavailableError(Exception):
-    """Raised when the database is locked beyond the retry bound."""
-    pass
-
 class ManifestAdmissionCoordinator:
-    """Orchestrate Phase 1 executable-integrity manifest admission."""
-
-    def __init__(
-        self,
-        store: StateStore[ManifestAdmissionUnitOfWork, ManifestAdmissionReadUnitOfWork],
-        *,
-        clock: Clock,
-        ids: IdSource,
-    ) -> None:
-        self._store = store
-        self._clock = clock
-        self._ids = ids
-
     def admit_manifest(
         self, 
         raw_manifest: dict, 
         transitive_executable_chain: tuple[dict, ...],
         shared_unit: ManifestAdmissionUnitOfWork | None = None
-    ) -> 'ManifestAdmissionReceipt':
-        if not isinstance(transitive_executable_chain, tuple) or len(transitive_executable_chain) != 1:
-            raise ValueError("Phase 1 honestly admits only a single-node chain (chain_complete=False).")
-            
-        target = raw_manifest.get("execution", {}).get("executable", {}).get("target")
-        if not target:
-            raise ValueError("Manifest missing execution.executable.target")
-            
-        nodes = []
-        for idx, item in enumerate(transitive_executable_chain):
-            if not isinstance(item, dict):
-                raise TypeError("Each executable chain item must be a dictionary.")
-            if "role" not in item or "canonical_path" not in item or "sha256" not in item:
-                raise ValueError("Executable chain item missing required fields: role, canonical_path, sha256.")
-                
-            role_str = item["role"]
-            if role_str not in [e.value for e in ExecutableRole]:
-                raise ValueError(f"Invalid role {role_str}")
-            role = ExecutableRole(role_str)
-            
-            c_path = item["canonical_path"]
-            if not os.path.isabs(c_path):
-                raise ValueError(f"canonical_path must be an absolute path, got '{c_path}'")
-            
-            c_path_canon = os.path.normpath(os.path.abspath(c_path))
-            claimed_hash = item["sha256"]
-            
-            if not os.path.exists(c_path_canon):
-                raise ValueError(f"Executable path does not exist: {c_path_canon}")
-            
-            if idx == 0:
-                resolution_rule = raw_manifest.get("execution", {}).get("executable", {}).get("resolution_rule")
-                if not resolution_rule:
-                    raise ValueError("Manifest missing execution.executable.resolution_rule")
-                
-                resolved_target = None
-                if resolution_rule == "absolute":
-                    if not os.path.isabs(target):
-                        raise ValueError(f"resolution_rule 'absolute' requires target to be an absolute path, got '{target}'")
-                    resolved_target = target
-                elif resolution_rule == "sibling":
-                    raise ValueError("resolution_rule 'sibling' is not supported by this in-memory prototype")
-                elif resolution_rule == "path":
-                    if (
-                        "/" in target
-                        or "\\" in target
-                        or os.sep in target
-                        or (os.altsep and os.altsep in target)
-                        or os.path.isabs(target)
-                        or bool(os.path.dirname(target))
-                        or bool(os.path.splitdrive(target)[0])
-                    ):
-                        raise ValueError(f"resolution_rule 'path' requires a bare command name with no path components, got '{target}'")
-                    
-                    path_dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
-                    resolved_target = None
-                    is_windows = sys.platform == "win32" or os.name == "nt"
-                    target_has_ext = bool(os.path.splitext(target)[1])
-                    
-                    pathext_list = []
-                    if is_windows:
-                        raw_pathext = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD")
-                        if raw_pathext != "":
-                            for token in raw_pathext.split(os.pathsep):
-                                if not re.match(r"^\.[A-Za-z0-9]+$", token):
-                                    raise ValueError("Malformed PATHEXT")
-                                pathext_list.append(token)
-                    
-                    for directory in path_dirs:
-                        candidate = os.path.join(directory, target)
-                        if is_windows and not target_has_ext:
-                            matched = False
-                            for ext in pathext_list:
-                                ext_candidate = candidate + ext
-                                if os.path.isfile(ext_candidate):
-                                    resolved_target = ext_candidate
-                                    matched = True
-                                    break
-                            if matched:
-                                break
-                        else:
-                            if os.path.isfile(candidate):
-                                resolved_target = candidate
-                                break
-                                
-                    if resolved_target is None:
-                        raise ValueError(f"Target '{target}' with resolution_rule 'path' could not be resolved via OS PATH")
-                else:
-                    raise ValueError(f"Unknown resolution_rule {resolution_rule}")
-                    
-                resolved_canon = os.path.normpath(os.path.abspath(resolved_target))
-                if not os.path.exists(resolved_canon):
-                    raise ValueError(f"Resolved target does not exist: {resolved_canon}")
-                
-                try:
-                    same_file = os.path.samefile(resolved_canon, c_path_canon)
-                except OSError:
-                    same_file = False
-                if not same_file:
-                    raise ValueError(f"Executable chain entrypoint {c_path_canon} does not match resolved manifest target {resolved_target}")
-            
-            with open(c_path_canon, "rb") as f:
-                file_content = f.read()
-                actual_hash = hashlib.sha256(file_content).hexdigest().upper()
-            if actual_hash != claimed_hash.upper():
-                raise ValueError(f"Executable hash mismatch for {c_path_canon}! Claimed: {claimed_hash}, Actual: {actual_hash}")
-            
-            if role == ExecutableRole.NATIVE_BINARY and not file_content.startswith(b"MZ"):
-                raise ValueError(f"File content at {c_path_canon} does not match NATIVE_BINARY format claim (missing MZ magic bytes).")
-            
-            nodes.append(TransitiveExecutableNode(
-                role=role,
-                canonical_path=c_path_canon,
-                file_size_bytes=os.path.getsize(c_path_canon),
-                sha256=actual_hash,
-                is_reparse_point=None
-            ))
+    ) -> 'ManifestAdmissionReceipt': ...
 
-        sorted_nodes = sorted(nodes, key=lambda x: (x.role.value, x.canonical_path))
-        payload = ""
-        for node in sorted_nodes:
-            payload += f"{node.role.value}:{node.canonical_path}:{node.sha256}\n"
-        aggregate_chain_digest = hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
-        
-        # Derived explicitly from the raw manifest dict itself
-        adapter_id = raw_manifest["adapter"]["adapter_id"]
-        peer_kind = raw_manifest["adapter"]["peer_kind"]
-        timestamp_utc = datetime.fromtimestamp(self._clock.now(), tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        
-        # 2. Collision-safe ID issuance via real transaction semantics with a bounded loop
-        MAX_RETRIES = 10
-        deadline = time.monotonic() + 5.0
-        
-        for attempt in range(MAX_RETRIES):
-            random_suffix = secrets.token_hex(16)
-            receipt_id = f"receipt-{peer_kind}-{adapter_id}-{timestamp_utc}-{random_suffix}"
-            
-            # ... initialize provisioning evidence and receipt ...
-            
-            if shared_unit is not None:
-                try:
-                    shared_unit.put_manifest_receipt(receipt)
-                    return receipt
-                except sqlite3.IntegrityError as e:
-                    if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
-                        continue
-                    raise
-            else:
-                while True:
-                    try:
-                        with self._store.unit_of_work(timeout=0.0) as unit:
-                            unit.put_manifest_receipt(receipt)
-                            unit.commit()
-                        return receipt
-                    except sqlite3.IntegrityError as e:
-                        if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
-                            break # Break inner loop, retry random suffix
-                        raise # Propagate any other integrity error
-                    except sqlite3.OperationalError as e:
-                        # Typed detection via sqlite_errorcode where available, fallback to str check
-                        is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-                        if not is_locked and 'locked' in str(e).lower():
-                            is_locked = True
-                            
-                        if is_locked:
-                            if time.monotonic() >= deadline:
-                                raise StateStoreUnavailableError("Database locked beyond timeout bound")
-                            time.sleep(0.05)
-                        else:
-                            raise e
-
-        raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
-
-    def get_trusted_digest(self, receipt_id: str) -> str:
-        if not isinstance(receipt_id, str):
-            raise TypeError("receipt_id must be a string")
-        try:
-            with self._store.read_unit_of_work() as unit:
-                receipt = unit.get_manifest_receipt(receipt_id)
-                if receipt:
-                    return receipt.manifest_canonical_sha256
-                raise ValueError("Unknown admission receipt ID")
-        except sqlite3.OperationalError as e:
-            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-            if not is_locked and 'locked' in str(e).lower():
-                is_locked = True
-            if is_locked:
-                raise StateStoreUnavailableError("Database locked during read") from e
-            raise
-        
-    def get_trusted_receipt(self, receipt_id: str) -> 'ManifestAdmissionReceipt':
-        if not isinstance(receipt_id, str):
-            raise TypeError("receipt_id must be a string")
-        try:
-            with self._store.read_unit_of_work() as unit:
-                receipt = unit.get_manifest_receipt(receipt_id)
-                if receipt:
-                    return receipt
-                raise ValueError("Unknown admission receipt ID")
-        except sqlite3.OperationalError as e:
-            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-            if not is_locked and 'locked' in str(e).lower():
-                is_locked = True
-            if is_locked:
-                raise StateStoreUnavailableError("Database locked during read") from e
-            raise
+    def get_trusted_digest(self, receipt_id: str) -> str: ...
+    def get_trusted_receipt(self, receipt_id: str) -> 'ManifestAdmissionReceipt': ...
 ```
+
+**Core Responsibilities:**
+* **`admit_manifest`**: Validates the single-node chain (verifying the absolute path, resolving via OS PATH, checking SHA-256 and MZ magic bytes) and writes the admission receipt to the database. If called from within an existing UoW, it uses that unit (`shared_unit`). Otherwise, it requests its own non-blocking UoW from the injected `StateStore` and implements a bounded retry loop to handle concurrent lock contention, gracefully yielding `StateStoreUnavailableError`.
+* **`get_trusted_digest` / `get_trusted_receipt`**: Safely retrieves verified receipts from the store, employing the same bounded read lock contention loop.
 
 ### 3. Deserialization and Deep Immutability
 
@@ -459,7 +244,26 @@ class FakeSqliteUnitOfWork:
 
     def commit(self) -> None:
         if not self.read_only:
-            self.conn.commit()
+            try:
+                self.conn.commit()
+            except sqlite3.IntegrityError as e:
+                if "UNIQUE constraint failed" in str(e):
+                    raise StateStoreConstraintError(str(e)) from e
+                raise
+            except sqlite3.OperationalError as e:
+                is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                if not is_locked and 'locked' in str(e).lower():
+                    is_locked = True
+                if is_locked:
+                    raise StateStoreUnavailableError("Database locked on commit") from e
+                raise
+
+    def rollback(self) -> None:
+        if not self.read_only and self.conn.in_transaction:
+            self.conn.rollback()
+
+    def close(self) -> None:
+        self.conn.close()
 
     def put_manifest_receipt(self, receipt: ManifestAdmissionReceipt) -> None:
         prov = receipt.provisioning_evidence
@@ -819,6 +623,7 @@ if __name__ == "__main__":
         def new_id(self, ns): return secrets.token_hex(8)
 
     print("--- TRACE DEMONSTRATION START ---")
+
     
     # We must use file-backed DB for lock testing
     db_file = os.path.abspath("test_trace.db")
@@ -827,6 +632,23 @@ if __name__ == "__main__":
     store = FakeStateStore(db_path=db_file)
     store.initialize()
     coordinator = ManifestAdmissionCoordinator(store, DummyClock(), DummyIdSource())
+
+    print("\n(0) Protocol conformance checks (Issue 2 resolution):")
+    # We must explicitly import protocols to test
+    import os, sys
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+    from peerhub.state.contract import UnitOfWork, ReadUnitOfWork
+    
+    uow = store.unit_of_work()
+    is_uow = isinstance(uow, UnitOfWork)
+    print(f"FakeSqliteUnitOfWork satisfies UnitOfWork: {is_uow}")
+    uow.close()
+    
+    ruow = store.read_unit_of_work()
+    is_ruow = isinstance(ruow, ReadUnitOfWork)
+    print(f"FakeSqliteUnitOfWork satisfies ReadUnitOfWork: {is_ruow}")
+    ruow.close()
+
     
     # 1. Real valid binary (using python.exe or cmd.exe)
     valid_exe = os.path.abspath(sys.executable)
@@ -970,6 +792,46 @@ if __name__ == "__main__":
 
     holder_read.join()
 
+    
+    print("\n(i) Raw sqlite3 exception cannot escape commit() under lock contention (Issue 1 resolution):")
+    def reader_worker_holding_shared_lock():
+        conn = None
+        try:
+            conn = sqlite3.connect(store.db_path, timeout=6.0)
+            conn.execute("BEGIN DEFERRED")
+            conn.execute("SELECT * FROM manifest_admission_receipts").fetchall()
+            time.sleep(4.0)
+        except Exception as e:
+            print(f"Reader worker failed: {e}")
+        finally:
+            if conn:
+                conn.close()
+
+    holder_reader = threading.Thread(target=reader_worker_holding_shared_lock)
+    holder_reader.start()
+    time.sleep(0.5)
+
+    try:
+        with store.unit_of_work() as uow:
+            # Modify the receipt ID to avoid UNIQUE constraint violation on put
+            new_receipt_id = receipt.admission_receipt_id + "-commit-test"
+            prov = receipt.provisioning_evidence
+            
+            import dataclasses
+            new_prov = dataclasses.replace(prov, receipt_id=new_receipt_id)
+            new_receipt = dataclasses.replace(receipt, admission_receipt_id=new_receipt_id, provisioning_evidence=new_prov)
+            
+            uow.put_manifest_receipt(new_receipt)
+            # This should raise StateStoreUnavailableError, not raw sqlite3.OperationalError
+            uow.commit() 
+        print("-> FAILED: Commit succeeded despite reader holding shared lock.")
+    except StateStoreUnavailableError as e:
+        print(f"-> SUCCESS: Commit correctly translated locked error: {e}")
+    except Exception as e:
+        print(f"-> FAILED: Commit leaked raw exception or other error: {type(e).__name__}: {e}")
+
+    holder_reader.join()
+
     print("--- TRACE DEMONSTRATION END ---")
 ```
 
@@ -977,8 +839,12 @@ if __name__ == "__main__":
 ```text
 --- TRACE DEMONSTRATION START ---
 
+(0) Protocol conformance checks (Issue 2 resolution):
+FakeSqliteUnitOfWork satisfies UnitOfWork: True
+FakeSqliteUnitOfWork satisfies ReadUnitOfWork: True
+
 (a) Admission success & ID match (valid single-node real binary):
-Issued ID: receipt-ag-adapter_1-20260821T160658Z-8aa4281e35d4469e273b4c73d21a7e9b
+Issued ID: receipt-ag-adapter_1-20260821T162935Z-9d08117da199e81bb6971e0fc51f01b1
 -> Format matches ratified scheme.
 
 (b) Admission rejection (nonexistent path):
@@ -988,10 +854,10 @@ Issued ID: receipt-ag-adapter_1-20260821T160658Z-8aa4281e35d4469e273b4c73d21a7e9
 -> SUCCESS: Wrong hash rejected: Executable hash mismatch for P:\_sys\env\venv\Scripts\python.exe! Claimed: 0000000000000000000000000000000000000000000000000000000000000000, Actual: 3ADBBF2AF609E206E3CA18CD55FC7C4B52F5C8BB8218DD99FD5A9E50D7A193CD
 
 (d) Admission rejection (missing MZ magic bytes):
--> SUCCESS: Non-MZ file rejected: File content at P:\workspace\peerhub\extracted6.py does not match NATIVE_BINARY format claim (missing MZ magic bytes).
+-> SUCCESS: Non-MZ file rejected: File content at P:\workspace\peerhub\docs\design\trace_run.py does not match NATIVE_BINARY format claim (missing MZ magic bytes).
 
 (e) Concurrent contention (real file-backed wall-clock bounded):
--> SUCCESS: Gave up after 5.02s with StateStoreUnavailableError: Database locked beyond timeout bound
+-> SUCCESS: Gave up after 5.01s with StateStoreUnavailableError: Database locked beyond timeout bound
 
 (f) Caller-supplied open UoW (Issue 4 resolution):
 -> SUCCESS: Admitted via shared UoW. ID format matched.
@@ -1000,9 +866,13 @@ Issued ID: receipt-ag-adapter_1-20260821T160658Z-8aa4281e35d4469e273b4c73d21a7e9
 -> SUCCESS: Detected self-contention when shared_unit omitted: Database locked beyond timeout bound
 
 (h) Concurrent contention on read path (Issue 4 resolution):
--> SUCCESS: Read gave up after 5.03s with StateStoreUnavailableError: Database locked beyond timeout bound during read
+-> SUCCESS: Read gave up after 5.07s with StateStoreUnavailableError: Database locked beyond timeout bound during read
+
+(i) Raw sqlite3 exception cannot escape commit() under lock contention (Issue 1 resolution):
+-> SUCCESS: Commit correctly translated locked error: Database locked on commit
 --- TRACE DEMONSTRATION END ---
-``````
+```
+
 
 ## C. Shim Registry Persistence Folding
 
