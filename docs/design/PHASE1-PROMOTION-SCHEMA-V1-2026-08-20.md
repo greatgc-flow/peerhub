@@ -421,6 +421,9 @@ def _build_admission_registry():
                 c_path_canon = os.path.normpath(os.path.abspath(c_path))
                 claimed_hash = item["sha256"]
                 
+                if not os.path.exists(c_path_canon):
+                    raise ValueError(f"Executable path does not exist: {c_path_canon}")
+                
                 if idx == 0:
                     resolution_rule = raw_manifest.get("execution", {}).get("executable", {}).get("resolution_rule")
                     if not resolution_rule:
@@ -474,18 +477,23 @@ def _build_admission_registry():
                         
                         for directory in path_dirs:
                             candidate = os.path.join(directory, target)
-                            if os.path.isfile(candidate):
-                                resolved_target = candidate
-                                break
                             if is_windows and not target_has_ext:
+                                # When target has no extension on Windows, real OS command resolution
+                                # (e.g. cmd.exe / CreateProcess) searches PATHEXT-extended candidates
+                                # in PATHEXT order; bare extensionless files are not executable via PATH.
                                 matched = False
                                 for ext in pathext_list:
-                                    ext_candidate = candidate + ext if ext.startswith(".") else f"{candidate}.{ext}"
+                                    ext_candidate = candidate + (ext if ext.startswith(".") else f".{ext}")
                                     if os.path.isfile(ext_candidate):
                                         resolved_target = ext_candidate
                                         matched = True
                                         break
                                 if matched:
+                                    break
+                            else:
+                                # Non-Windows or target already has an explicit extension
+                                if os.path.isfile(candidate):
+                                    resolved_target = candidate
                                     break
                                     
                         if resolved_target is None:
@@ -493,12 +501,16 @@ def _build_admission_registry():
                     else:
                         raise ValueError(f"Unknown resolution_rule {resolution_rule}")
                         
-                    resolved_canon = os.path.normpath(os.path.abspath(resolved_target)).lower()
-                    if resolved_canon != c_path_canon.lower():
+                    resolved_canon = os.path.normpath(os.path.abspath(resolved_target))
+                    if not os.path.exists(resolved_canon):
+                        raise ValueError(f"Resolved target does not exist: {resolved_canon}")
+                    
+                    try:
+                        same_file = os.path.samefile(resolved_canon, c_path_canon)
+                    except OSError:
+                        same_file = False
+                    if not same_file:
                         raise ValueError(f"Executable chain entrypoint {c_path_canon} does not match resolved manifest target {resolved_target}")
-                
-                if not os.path.exists(c_path_canon):
-                    raise ValueError(f"Executable path does not exist: {c_path_canon}")
                 
                 with open(c_path_canon, "rb") as f:
                     file_content = f.read()
@@ -2536,6 +2548,136 @@ try:
 finally:
     if os.path.exists(adversarial_cwd_path):
         os.remove(adversarial_cwd_path)
+
+print("\n--- 34. Round 61 PATHEXT Resolution Order (Bare extensionless vs PATHEXT-extended precedence) ---")
+# When a directory in PATH contains both a bare extensionless file ('probe_precedence_r61')
+# and a PATHEXT-extended executable ('probe_precedence_r61.cmd'), real Windows resolution
+# (cmd.exe / CreateProcess) resolves and executes the PATHEXT-extended candidate.
+# The validator now matches this precedence ordering: resolving 'probe_precedence_r61' resolves to
+# 'probe_precedence_r61.cmd', rejecting any chain that claims to bind against the bare extensionless file.
+with tempfile.TemporaryDirectory() as tmp_pathext_dir:
+    bare_probe_path = os.path.join(tmp_pathext_dir, "probe_precedence_r61")
+    cmd_probe_path = os.path.join(tmp_pathext_dir, "probe_precedence_r61.cmd")
+    with open(bare_probe_path, "wb") as f:
+        f.write(b"BARE_EXTENSIONLESS_FILE_NOT_EXECUTABLE")
+    with open(cmd_probe_path, "wb") as f:
+        f.write(b"@echo off\necho PATHEXT_EXECUTABLE\n")
+        
+    with open(bare_probe_path, "rb") as f:
+        bare_hash = hashlib.sha256(f.read()).hexdigest().upper()
+    with open(cmd_probe_path, "rb") as f:
+        cmd_hash = hashlib.sha256(f.read()).hexdigest().upper()
+        
+    orig_path_env = os.environ.get("PATH", "")
+    os.environ["PATH"] = f"{tmp_pathext_dir}{os.pathsep}{orig_path_env}"
+    try:
+        # 1. Manifest specifies bare target 'probe_precedence_r61'.
+        # Attacker tries to bind chain to the bare file 'probe_precedence_r61'.
+        # Validator resolves 'probe_precedence_r61' -> 'probe_precedence_r61.cmd' (PATHEXT precedence)
+        # and detects that chain entrypoint 'probe_precedence_r61' does not match resolved target 'probe_precedence_r61.cmd'.
+        mismatched_bare_chain = [{
+            "role": "ENTRYPOINT_WRAPPER",
+            "canonical_path": os.path.abspath(bare_probe_path),
+            "sha256": bare_hash,
+            "is_reparse_point": False
+        }]
+        probe_manifest = dict(valid_claude_manifest)
+        probe_manifest["execution"] = dict(valid_claude_manifest["execution"])
+        probe_manifest["execution"]["executable"] = {
+            "resolution_rule": "path",
+            "target": "probe_precedence_r61"
+        }
+        try:
+            AdmissionRegistry.admit(probe_manifest, mismatched_bare_chain)
+            print("FAILED: Bare extensionless candidate was incorrectly admitted over PATHEXT candidate!")
+        except ValueError as e:
+            print(f"PATHEXT PRECEDENCE ENFORCED (bare candidate rejected): {type(e).__name__}: {e}")
+
+        # 2. Genuine admission binding to the PATHEXT-resolved executable succeeds
+        correct_cmd_chain = [{
+            "role": "ENTRYPOINT_WRAPPER",
+            "canonical_path": os.path.abspath(cmd_probe_path),
+            "sha256": cmd_hash,
+            "is_reparse_point": False
+        }]
+        probe_receipt_id = AdmissionRegistry.admit(probe_manifest, correct_cmd_chain)
+        print(f"GENUINE PATHEXT ADMISSION SUCCESS: Admitted via PATHEXT precedence, got receipt: {probe_receipt_id}")
+
+        # 3. Directory with ONLY a bare extensionless file (no PATHEXT match) cannot resolve on Windows
+        bare_only_path = os.path.join(tmp_pathext_dir, "probe_bare_only_r61")
+        with open(bare_only_path, "wb") as f:
+            f.write(b"BARE_ONLY")
+        bare_only_manifest = dict(valid_claude_manifest)
+        bare_only_manifest["execution"] = dict(valid_claude_manifest["execution"])
+        bare_only_manifest["execution"]["executable"] = {
+            "resolution_rule": "path",
+            "target": "probe_bare_only_r61"
+        }
+        try:
+            AdmissionRegistry.admit(bare_only_manifest, mismatched_bare_chain)
+            print("FAILED: Bare extensionless file with no PATHEXT match was unexpectedly resolved!")
+        except ValueError as e:
+            print(f"BARE EXTENSIONLESS WITHOUT PATHEXT REJECTED: {type(e).__name__}: {e}")
+    finally:
+        os.environ["PATH"] = orig_path_env
+
+print("\n--- 35. Round 61 Unicode Case-Folding Path Identity (Real Filesystem Identity via os.path.samefile) ---")
+# cx showed that .lower() string comparison incorrectly conflates two distinct real NTFS files
+# with Unicode-confusable names (e.g. Kelvin sign '\u212A' vs ASCII 'K') because str.lower()
+# maps both code points to 'k', even though they are distinct files with different content.
+# Replacing .lower() with os.path.samefile() ensures genuine filesystem inode/handle identity.
+with tempfile.TemporaryDirectory() as tmp_unicode_dir:
+    kelvin_name = "target_\u212A_r61.cmd"
+    ascii_name = "target_K_r61.cmd"
+    kelvin_path = os.path.join(tmp_unicode_dir, kelvin_name)
+    ascii_path = os.path.join(tmp_unicode_dir, ascii_name)
+    
+    with open(kelvin_path, "wb") as f:
+        f.write(b"@echo off\necho KELVIN_SIGN_SCRIPT\n")
+    with open(ascii_path, "wb") as f:
+        f.write(b"@echo off\necho ASCII_K_SCRIPT\n")
+        
+    with open(kelvin_path, "rb") as f:
+        kelvin_hash = hashlib.sha256(f.read()).hexdigest().upper()
+    with open(ascii_path, "rb") as f:
+        ascii_hash = hashlib.sha256(f.read()).hexdigest().upper()
+        
+    # Verify that these are two distinct real files on NTFS with different content
+    print(f"Two distinct files created on NTFS: '{kelvin_name}' and '{ascii_name}'")
+    print(f"Python str.lower() conflates paths: {kelvin_path.lower() == ascii_path.lower()}")
+    print(f"os.path.samefile() correctly distinguishes files: {not os.path.samefile(kelvin_path, ascii_path)}")
+    
+    # 1. Manifest targets the Kelvin sign file, but chain claims the ASCII K file
+    unicode_confusable_manifest = dict(valid_claude_manifest)
+    unicode_confusable_manifest["execution"] = dict(valid_claude_manifest["execution"])
+    unicode_confusable_manifest["execution"]["executable"] = {
+        "resolution_rule": "absolute",
+        "target": os.path.abspath(kelvin_path)
+    }
+    
+    spoofed_ascii_chain = [{
+        "role": "ENTRYPOINT_WRAPPER",
+        "canonical_path": os.path.abspath(ascii_path),
+        "sha256": ascii_hash,
+        "is_reparse_point": False
+    }]
+    
+    try:
+        AdmissionRegistry.admit(unicode_confusable_manifest, spoofed_ascii_chain)
+        print("FAILED: Unicode-confusable path was incorrectly bound to different file via string lower()!")
+    except ValueError as e:
+        print(f"UNICODE CONFUSABLE BINDING BLOCKED: {type(e).__name__}: {e}")
+        
+    # 2. Manifest targets Kelvin sign file and chain provides genuine Kelvin sign file
+    genuine_kelvin_chain = [{
+        "role": "ENTRYPOINT_WRAPPER",
+        "canonical_path": os.path.abspath(kelvin_path),
+        "sha256": kelvin_hash,
+        "is_reparse_point": False
+    }]
+    unicode_receipt_id = AdmissionRegistry.admit(unicode_confusable_manifest, genuine_kelvin_chain)
+    print(f"GENUINE UNICODE TARGET ADMISSION SUCCESS: Admitted with genuine filesystem identity, got receipt: {unicode_receipt_id}")
+
 ```
 
 **Output:**
@@ -2557,12 +2699,12 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T104918Z-7f296b0338217326a851e0ca1db1fdef
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T111136Z-6930f0f24940caab20198cc9e64cc473
 Codex receipt chain_complete (shallow entrypoint verification): False
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T104918Z-ea8f0127a70ef6cbc6dda53c7b1e197f
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T111136Z-c11fb8f45ea5f4361725b45558a1cae9
 Claude receipt chain_complete (shallow entrypoint verification): False
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
@@ -2579,13 +2721,13 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (receipt-cc-claude-peer-20260821T104918Z-ea8f0127a70ef6cbc6dda53c7b1e197f) digest preserved intact: True
-Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T104918Z-abcdef0123456789abcdef0123456789
+Earlier receipt ID (receipt-cc-claude-peer-20260821T111136Z-c11fb8f45ea5f4361725b45558a1cae9) digest preserved intact: True
+Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T111136Z-abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
 --- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
-Thread 1 receipt ID: receipt-cc-conc-peer-20260821T104918Z-11112222333344445555666677778888
-Thread 2 receipt ID: receipt-cc-conc-peer-20260821T104918Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Thread 1 receipt ID: receipt-cc-conc-peer-20260821T111136Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Thread 2 receipt ID: receipt-cc-conc-peer-20260821T111136Z-11112222333344445555666677778888
 Receipt IDs are distinct (no duplicate ID issued): True
 Thread 1 digest in registry: True
 Thread 2 digest in registry: True
@@ -2634,26 +2776,26 @@ GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuin
 ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
 ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
 FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
-GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T104918Z-cb66b246cb19cb5df782726ad0576714
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T111136Z-5541c0a94c551b917be58295c84a6a37
 GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
 
 --- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---
 SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must expose a real cell_key of the real CellKey type
-SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'QUOTA_BLOCKED', 'NOT_REQUESTED'}
-GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_e0327419920b347eeb5a7f82ecd32f7c
+SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'PRODUCT_FAILURE', 'NOT_REQUESTED', 'QUOTA_BLOCKED', 'EXECUTED_PASS', 'ENVIRONMENT_UNAVAILABLE'}
+GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_a269a2525ead1bcbdc4d877145e9ca7c
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
 
 --- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---
 TYPE-NAME SPOOF BLOCKED: TypeError: cell_obj must expose a real cell_key of the real CellKey type
 NON-DATETIME TIMESTAMP BLOCKED: TypeError: provenance must carry a real timestamp_utc of the real datetime type
-Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_102025286c550d4b825085d79eec9e1d
+Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_26d487967203f1f1a9352d7a4153fd23
 Promotion with PRODUCT_FAILURE returned: False
 Attacker mutated original cell object to EXECUTED_PASS.
 Promotion after post-admission mutation returned: False
 POST-ADMISSION MUTATION BLOCKED: Promotion result remained False despite mutation of original object.
 
 --- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---
-TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'QUOTA_BLOCKED', 'NOT_REQUESTED'}
+TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'PRODUCT_FAILURE', 'NOT_REQUESTED', 'QUOTA_BLOCKED', 'EXECUTED_PASS', 'ENVIRONMENT_UNAVAILABLE'}
 GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: True
 
 --- 22. Round 42 Item 2: Timezone-Aware UTC Enforcement & Future Skew Bounds ---
@@ -2672,9 +2814,9 @@ NON-UTC NORMALIZED TO UTC: Stored tzinfo is timezone.utc and offset is zero: Tru
 TIMESTAMP EQUIVALENCE PRESERVED: Normalized timestamp matches original point in time: True
 
 --- 24. Round 44 Item 2: Enum Validation on transport & proof_kind & False-Contradiction Prevention ---
-BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PIPE', 'PTY'}, got 'SOCKET'
-BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'legacy-parity evidence', 'live provider exact-profile', 'deterministic contract or integration', 'controlled real-OS executable'}, got 'invented arbitrary proof kind'
-FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'legacy-parity evidence', 'live provider exact-profile', 'deterministic contract or integration', 'controlled real-OS executable'}, got 'bogus unvalidated proof kind'
+BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PTY', 'PIPE'}, got 'SOCKET'
+BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'live provider exact-profile', 'legacy-parity evidence', 'deterministic contract or integration', 'controlled real-OS executable'}, got 'invented arbitrary proof kind'
+FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'live provider exact-profile', 'legacy-parity evidence', 'deterministic contract or integration', 'controlled real-OS executable'}, got 'bogus unvalidated proof kind'
 LEGITIMATE PROMOTION PRESERVED: can_promote returned True: True
 
 --- 25. Round 47: Mismatched-Target Admission Attack ---
@@ -2693,7 +2835,7 @@ RELATIVE PATH BLOCKED: ValueError: canonical_path must be an absolute path, got 
 NON-PE FORMAT REJECTED: ValueError: File content at P:\workspace\peerhub\docs\design\PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md does not match NATIVE_BINARY format claim (missing MZ magic bytes).
 
 --- 30. Round 55/57 Entrypoint Verification with chain_complete=False ---
-Admitted wrapper-fronted peer manifest: receipt-cc-claude-peer-20260821T104918Z-f21100b9b86fafdcb36c6611c82d4c66
+Admitted wrapper-fronted peer manifest: receipt-cc-claude-peer-20260821T111136Z-1ce2e9441c69db095da5a734e4f6528e
 Declared role: ENTRYPOINT_WRAPPER
 Wrapper receipt chain_complete flag: False
 Provisioning evidence chain_complete flag: False
@@ -2707,9 +2849,21 @@ RELATIVE TARGET UNDER ABSOLUTE RULE REJECTED: ValueError: resolution_rule 'absol
 --- 32. Round 57 resolution_rule 'path' rejects path separators (enforces bare command name) ---
 PATH SEPARATOR IN PATH RULE REJECTED (.\): ValueError: resolution_rule 'path' requires a bare command name with no path components, got '.\claude.cmd'
 PATH SEPARATOR IN PATH RULE REJECTED (subdir\..\): ValueError: resolution_rule 'path' requires a bare command name with no path components, got 'subdir\..\claude.cmd'
-GENUINE BARE NAME ADMISSION SUCCESS: Admitted via real PATH lookup, got receipt: receipt-cc-claude-peer-20260821T104918Z-063a292cd7b0fc116d2389e325060aba
+GENUINE BARE NAME ADMISSION SUCCESS: Admitted via real PATH lookup, got receipt: receipt-cc-claude-peer-20260821T111136Z-2a1db85e0d74da9052b88510ccb2637c
 
 --- 33. Round 59 Strict PATH-Only Resolution (CWD Shadowing & Registry Independence) ---
-GENUINE PATH COMMAND ADMISSION SUCCESS: Bare target 'python.exe' resolved via PATH directory, got receipt: receipt-cc-claude-peer-20260821T104918Z-fc3e97908c2451140eee94b94f3b9265
+GENUINE PATH COMMAND ADMISSION SUCCESS: Bare target 'python.exe' resolved via PATH directory, got receipt: receipt-cc-claude-peer-20260821T111136Z-fa42230e042e838d30c7e186ea26eef3
 CWD SHADOWING ATTACK BLOCKED: ValueError: Target 'adversarial_cwd_shadow_command.cmd' with resolution_rule 'path' could not be resolved via OS PATH
+
+--- 34. Round 61 PATHEXT Resolution Order (Bare extensionless vs PATHEXT-extended precedence) ---
+PATHEXT PRECEDENCE ENFORCED (bare candidate rejected): ValueError: Executable chain entrypoint D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-9099\tmpp424nmq_\probe_precedence_r61 does not match resolved manifest target D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-9099\tmpp424nmq_\probe_precedence_r61.CMD
+GENUINE PATHEXT ADMISSION SUCCESS: Admitted via PATHEXT precedence, got receipt: receipt-cc-claude-peer-20260821T111136Z-250b91c27fd044d0f285ced0ebd9ac69
+BARE EXTENSIONLESS WITHOUT PATHEXT REJECTED: ValueError: Target 'probe_bare_only_r61' with resolution_rule 'path' could not be resolved via OS PATH
+
+--- 35. Round 61 Unicode Case-Folding Path Identity (Real Filesystem Identity via os.path.samefile) ---
+Two distinct files created on NTFS: 'target_K_r61.cmd' and 'target_K_r61.cmd'
+Python str.lower() conflates paths: True
+os.path.samefile() correctly distinguishes files: True
+UNICODE CONFUSABLE BINDING BLOCKED: ValueError: Executable chain entrypoint D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-9099\tmp4qwtxtlg\target_K_r61.cmd does not match resolved manifest target D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-9099\tmp4qwtxtlg\target_K_r61.cmd
+GENUINE UNICODE TARGET ADMISSION SUCCESS: Admitted with genuine filesystem identity, got receipt: receipt-cc-claude-peer-20260821T111136Z-58c68c33fd117433c76775b690622b14
 ```
