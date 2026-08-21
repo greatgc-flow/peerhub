@@ -215,7 +215,7 @@ class FakeSqliteUnitOfWork:
 class FakeStateStore:
     def __init__(self):
         self.db_path = "file:memorydb?mode=memory&cache=shared"
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, uri=True) as conn:
             conn.execute('''
                 CREATE TABLE IF NOT EXISTS manifest_admission_receipts (
                     admission_receipt_id TEXT PRIMARY KEY, manifest_canonical_sha256 TEXT NOT NULL,
@@ -229,10 +229,16 @@ class FakeStateStore:
             ''')
 
     def unit_of_work(self) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0))
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True))
 
     def read_unit_of_work(self) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0))
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True))
+
+    def get_row_counts(self):
+        with sqlite3.connect(self.db_path, timeout=5.0, uri=True) as conn:
+            total_count = conn.execute("SELECT COUNT(*) FROM manifest_admission_receipts WHERE peer_kind = 'cc'").fetchone()[0]
+            distinct_count = conn.execute("SELECT COUNT(DISTINCT admission_receipt_id) FROM manifest_admission_receipts WHERE peer_kind = 'cc'").fetchone()[0]
+            return total_count, distinct_count
 
 class ManifestAdmissionCoordinator:
     def __init__(self, store: FakeStateStore, clock, ids):
@@ -281,7 +287,16 @@ if __name__ == "__main__":
     errors = []
     def worker():
         try:
-            for _ in range(10): coordinator.admit_manifest({}, "cc", "adapter_2")
+            for _ in range(10):
+                while True:
+                    try:
+                        coordinator.admit_manifest({}, "cc", "adapter_2")
+                        break
+                    except sqlite3.OperationalError as e:
+                        if 'locked' in str(e):
+                            time.sleep(0.01)
+                        else:
+                            raise e
         except Exception as e:
             errors.append(e)
 
@@ -291,6 +306,11 @@ if __name__ == "__main__":
 
     if errors: print(f"-> Concurrency failed with {len(errors)} errors")
     else: print("-> 50 concurrent admissions succeeded, SQLite BEGIN IMMEDIATE enforced atomicity.")
+
+    total_count, distinct_count = store.get_row_counts()
+    print(f"-> Concurrency verification: {total_count} total rows, {distinct_count} distinct IDs.")
+    assert total_count == 50, f"Expected 50 rows, got {total_count}"
+    assert distinct_count == 50, f"Expected 50 distinct IDs, got {distinct_count}"
 
     print("\\n(c) Deep immutability round-trip:")
     with store.read_unit_of_work() as unit:
@@ -317,11 +337,12 @@ if __name__ == "__main__":
 --- TRACE DEMONSTRATION START ---
 
 (a) Admission success & ID match:
-Issued ID: receipt-ag-adapter_1-1787318472-c881cc0eff662fd84ab96b7cc398a331
+Issued ID: receipt-ag-adapter_1-1787319153-bb6cb6259ed7ffe530377c4e5ed178d2
 -> Format matches ratified scheme.
 
 (b) Concurrent contention:
 -> 50 concurrent admissions succeeded, SQLite BEGIN IMMEDIATE enforced atomicity.
+-> Concurrency verification: 50 total rows, 50 distinct IDs.
 
 (c) Deep immutability round-trip:
 Attempting to mutate trust_root dict...
