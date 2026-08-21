@@ -200,7 +200,13 @@ def determine_evidence_state(cell, current_env) -> str:
 
 To eliminate schema-drift vulnerabilities and establish a strict single source of truth (SSOT), `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md` (Section 3) is explicitly designated as the **single normative source of truth** for the Phase 1 Manifest JSON Schema (Draft 2020-12). This document does not maintain a second, decoupled inline transcription of the schema; the admission and promotion validator is loaded directly from that canonical source definition.
 
-To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines `load_manifest_schema_v2`, `AdmissionRegistry`, `CellKey`, `ProfileDescriptor`, and `AdapterManifest` (which carries genuine immutable `ProfileDescriptor` snapshots of the admitted manifest's real declared profiles):
+To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines `load_manifest_schema_v2`, `AdmissionRegistry`, `CellKey`, `ProfileDescriptor`, and `AdapterManifest` (which carries genuine immutable `ProfileDescriptor` snapshots of the admitted manifest's real declared profiles).
+
+### 6. Architectural Mapping: AdmissionCoordinator & StateStore
+
+The `AdmissionRegistry` model defined below is a design-stage abstraction. It explicitly represents the executable-integrity and manifest-evaluation portion of the **real, already-existing `peerhub.dispatch.admission.AdmissionCoordinator`'s broader admission pipeline**. During Phase 2 implementation, this capability will not be a permanently separate mechanism; instead, it will be wired directly into `AdmissionCoordinator` as an additional critical verification step before a request is fully admitted.
+
+Furthermore, the closure-scoped in-memory store (`_store`) used throughout this document's execution traces is strictly a design-stage prototype. Phase 2 implementation will back this concept with the **real, durable `StateStore`-backed persistence** that `peerhub.dispatch.admission.py` already uses for its own real admission state, entirely replacing the in-memory closure pattern.
 
 ```python
 from __future__ import annotations
@@ -216,6 +222,56 @@ import re
 import secrets
 import threading
 import jsonschema
+from dataclasses import dataclass
+from typing import Literal
+from enum import Enum
+
+class ExecutableRole(str, Enum):
+    ENTRYPOINT_WRAPPER = "ENTRYPOINT_WRAPPER"
+    INTERPRETER = "INTERPRETER"
+    SCRIPT = "SCRIPT"
+    NATIVE_BINARY = "NATIVE_BINARY"
+    HELPER_BINARY = "HELPER_BINARY"
+
+@dataclass(frozen=True, slots=True)
+class TransitiveExecutableNode:
+    role: ExecutableRole
+    canonical_path: str
+    file_size_bytes: int
+    sha256: str
+    is_reparse_point: bool
+
+@dataclass(frozen=True, slots=True)
+class AclEvaluationEvidence:
+    evaluated_paths: tuple[str, ...]
+    volume_type: str
+    everyone_writable: bool
+    anonymous_writable: bool
+    authenticated_users_modify_allowed: bool
+    effective_dacl_summary: str
+    verdict: Literal["PASS_SECURE_LOCAL", "FAIL_WORLD_WRITABLE", "FAIL_NON_NTFS"]
+
+@dataclass(frozen=True, slots=True)
+class ProvisioningEvidenceReceipt:
+    receipt_id: str
+    schema_version: Literal["2.0.0"]
+    adapter_id: str
+    peer_kind: str
+    inventory_generation: int
+    trust_root: dict[str, str]
+    observed_vendor: dict[str, str | None]
+    acl_evaluation: AclEvaluationEvidence | None
+    transitive_executable_chain: tuple[TransitiveExecutableNode, ...]
+    companion_binaries: tuple[TransitiveExecutableNode, ...]
+    aggregate_chain_digest: str
+    timestamp_utc: str
+
+@dataclass(frozen=True, slots=True)
+class AdmissionReceipt:
+    admission_receipt_id: str
+    manifest_canonical_sha256: str
+    provisioning_evidence: ProvisioningEvidenceReceipt
+    admitted_at_utc: str
 
 def load_manifest_schema_v2(schema_path: str | Path | None = None) -> dict:
     """Loads the normative Phase 1 Manifest JSON Schema (Draft 2020-12) directly from its canonical source of truth."""
@@ -244,7 +300,7 @@ _MANIFEST_VALIDATOR = jsonschema.Draft202012Validator(_MANIFEST_SCHEMA_V2)
 _active_manifest_token: ContextVar[str | None] = ContextVar("_active_manifest_token", default=None)
 
 def _build_admission_registry():
-    _store: dict[str, dict] = {}  # receipt_id -> receipt dict
+    _store: dict[str, AdmissionReceipt] = {}  # receipt_id -> AdmissionReceipt
     _lock: threading.Lock = threading.Lock()
 
     class AdmissionRegistry:
@@ -252,8 +308,12 @@ def _build_admission_registry():
         
         Populated exclusively during a real admission event after rigorous validation
         against the PHASE1-MANIFEST-SCHEMA-V2 specification AND real executable-integrity
-        evidence (hash chains and ACL evaluation, as defined in PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20). 
-        It computes and stores the full AdmissionReceipt under a newly issued, collision-safe 
+        evidence (transitive hash-chain verification and manifest-target binding, as defined
+        in PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20). ACL evaluation, trust-root verification,
+        and vendor observation are honestly scoped OUT of this Phase 1 in-memory prototype
+        (see acl_evaluation=None below) and deferred to a real Phase 2 HostCapabilityInventory
+        implementation; this registry does not claim to perform them.
+        It computes and stores the AdmissionReceipt under a newly issued, collision-safe 
         real receipt ID (e.g., receipt-cc-claude-peer-...), following the proven single-source-of-truth
         discipline established by ARCHITECTURE.md's AdmissionSnapshot.
         
@@ -310,19 +370,33 @@ def _build_admission_registry():
                     raise ValueError("Semantic validation failed: 'execution.templates.resume' MUST contain session placeholder in argv or stdin.")
 
         @classmethod
-        def validate_executable_chain(cls, transitive_executable_chain: list[dict]) -> str:
+        def validate_executable_chain(cls, raw_manifest: dict, transitive_executable_chain: list[dict]) -> tuple[str, tuple[TransitiveExecutableNode, ...]]:
             """Validates the transitive executable chain and returns its aggregate digest."""
             if not isinstance(transitive_executable_chain, list) or not transitive_executable_chain:
                 raise ValueError("Executable chain must be a non-empty list.")
             
-            for item in transitive_executable_chain:
+            target = raw_manifest.get("execution", {}).get("executable", {}).get("target")
+            if not target:
+                raise ValueError("Manifest missing execution.executable.target")
+                
+            nodes = []
+            for idx, item in enumerate(transitive_executable_chain):
                 if not isinstance(item, dict):
                     raise TypeError("Each executable chain item must be a dictionary.")
                 if "role" not in item or "canonical_path" not in item or "sha256" not in item:
                     raise ValueError("Executable chain item missing required fields: role, canonical_path, sha256.")
                     
+                role_str = item["role"]
+                if role_str not in [e.value for e in ExecutableRole]:
+                    raise ValueError(f"Invalid role {role_str}")
+                role = ExecutableRole(role_str)
                 c_path = item["canonical_path"]
                 claimed_hash = item["sha256"]
+                
+                # Check target match on first node (ENTRYPOINT_WRAPPER or NATIVE_BINARY)
+                if idx == 0:
+                    if not (c_path.endswith(f"/{target}") or c_path.endswith(f"\\{target}") or os.path.basename(c_path) == target):
+                        raise ValueError(f"Executable chain entrypoint {c_path} does not match manifest target {target}")
                 
                 if not os.path.exists(c_path):
                     raise ValueError(f"Executable path does not exist: {c_path}")
@@ -331,14 +405,22 @@ def _build_admission_registry():
                     actual_hash = hashlib.sha256(f.read()).hexdigest().upper()
                 if actual_hash != claimed_hash.upper():
                     raise ValueError(f"Executable hash mismatch for {c_path}! Claimed: {claimed_hash}, Actual: {actual_hash}")
+                
+                nodes.append(TransitiveExecutableNode(
+                    role=role,
+                    canonical_path=c_path,
+                    file_size_bytes=os.path.getsize(c_path),
+                    sha256=actual_hash,
+                    is_reparse_point=item.get("is_reparse_point", False)
+                ))
 
             # Compute aggregate chain digest (deterministic sort by role and path)
-            sorted_chain = sorted(transitive_executable_chain, key=lambda x: (x.get("role", ""), x.get("canonical_path", "")))
+            sorted_nodes = sorted(nodes, key=lambda x: (x.role.value, x.canonical_path))
             payload = ""
-            for item in sorted_chain:
-                payload += f"{item.get('role', '')}:{item.get('canonical_path', '')}:{item.get('sha256', '')}\n"
+            for node in sorted_nodes:
+                payload += f"{node.role.value}:{node.canonical_path}:{node.sha256}\n"
             
-            return hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
+            return hashlib.sha256(payload.encode("utf-8")).hexdigest().upper(), tuple(nodes)
 
         @classmethod
         def admit(cls, raw_manifest: dict, transitive_executable_chain: list[dict], max_retries: int = 10) -> str:
@@ -350,27 +432,19 @@ def _build_admission_registry():
             manifest_digest = AdapterManifest.canonical_digest(raw_manifest)
 
             # 3. Validate executable integrity and compute aggregate digest
-            aggregate_chain_digest = cls.validate_executable_chain(transitive_executable_chain)
+            aggregate_chain_digest, nodes = cls.validate_executable_chain(raw_manifest, transitive_executable_chain)
 
             # Extract fields for receipt generation
             adapter_id = raw_manifest["adapter"]["adapter_id"]
             peer_kind = raw_manifest["adapter"]["peer_kind"]
             timestamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-            # Construct the receipt
-            receipt = {
-                "$schema": "https://peerhub.local/schema/admission-receipt/v2",
-                "schema_version": "2.0.0",
-                "adapter_id": adapter_id,
-                "peer_kind": peer_kind,
-                "admission_timestamp_utc": timestamp_utc,
-                "manifest_binding": {
-                    "manifest_canonical_sha256": manifest_digest
-                },
-                "transitive_executable_chain": transitive_executable_chain,
-                "aggregate_chain_digest": aggregate_chain_digest
-            }
-
+            # Scope decision explicit note:
+            # We explicitly skip full real ACL evaluation, trust root verification, and vendor observations
+            # for this in-memory prototype, opting for honest placeholders instead of mocking OS mechanics.
+            # A genuine Phase 2 HostCapabilityInventory implementation will populate these fields with
+            # real NTFS/OS evidence before inserting into the real AdmissionCoordinator.
+            
             # 4. Collision-safe receipt ID issuance with atomic check-and-insert under lock
             for attempt in range(max_retries):
                 # e.g. receipt-cc-claude-peer-20260820T215000Z-a1b2c3d4
@@ -379,14 +453,33 @@ def _build_admission_registry():
                 
                 with _lock:
                     if candidate_id not in _store:
-                        receipt["receipt_id"] = candidate_id
+                        prov_evidence = ProvisioningEvidenceReceipt(
+                            receipt_id=candidate_id,
+                            schema_version="2.0.0",
+                            adapter_id=adapter_id,
+                            peer_kind=peer_kind,
+                            inventory_generation=1,
+                            trust_root={"host_machine": "UNVERIFIED_PROTOTYPE"},
+                            observed_vendor={},
+                            acl_evaluation=None, # Explicitly skipped in Phase 1 schema model
+                            transitive_executable_chain=nodes,
+                            companion_binaries=(),
+                            aggregate_chain_digest=aggregate_chain_digest,
+                            timestamp_utc=timestamp_utc
+                        )
+                        receipt = AdmissionReceipt(
+                            admission_receipt_id=candidate_id,
+                            manifest_canonical_sha256=manifest_digest,
+                            provisioning_evidence=prov_evidence,
+                            admitted_at_utc=timestamp_utc
+                        )
                         _store[candidate_id] = receipt
                         return candidate_id
 
             raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
         @classmethod
-        def get_trusted_receipt(cls, receipt_id: str) -> dict:
+        def get_trusted_receipt(cls, receipt_id: str) -> AdmissionReceipt:
             """Looks up the full trusted receipt by registry-issued receipt ID."""
             if not isinstance(receipt_id, str):
                 raise TypeError("receipt_id must be a string")
@@ -400,7 +493,7 @@ def _build_admission_registry():
         def get_trusted_digest(cls, receipt_id: str) -> str:
             """Promotion lifecycle: Looks up the trusted digest by registry-issued receipt ID."""
             receipt = cls.get_trusted_receipt(receipt_id)
-            return receipt["manifest_binding"]["manifest_canonical_sha256"]
+            return receipt.manifest_canonical_sha256
 
         @classmethod
         def store_size(cls) -> int:
@@ -513,8 +606,8 @@ class AdapterManifest:
 
         # 1. Look up trusted receipt from the registry using the opaque ID
         trusted_receipt = AdmissionRegistry.get_trusted_receipt(admission_receipt_id)
-        expected_manifest_digest = trusted_receipt["manifest_binding"]["manifest_canonical_sha256"]
-        expected_chain_digest = trusted_receipt["aggregate_chain_digest"]
+        expected_manifest_digest = trusted_receipt.manifest_canonical_sha256
+        expected_chain_digest = trusted_receipt.provisioning_evidence.aggregate_chain_digest
 
         # 2. Recompute canonical digest over FULL manifest content and verify authenticity
         recomputed_manifest_digest = cls.canonical_digest(raw_manifest)
@@ -526,7 +619,7 @@ class AdapterManifest:
             )
 
         # 3. Recompute aggregate chain digest over provided chain and verify authenticity
-        recomputed_chain_digest = AdmissionRegistry.validate_executable_chain(transitive_executable_chain)
+        recomputed_chain_digest, _ = AdmissionRegistry.validate_executable_chain(raw_manifest, transitive_executable_chain)
         if recomputed_chain_digest != expected_chain_digest:
             raise ValueError(
                 f"Executable chain admission digest mismatch! Registry expects digest '{expected_chain_digest}', "
@@ -1235,7 +1328,7 @@ valid_claude_manifest = {
     "execution": {
         "executable": {
             "resolution_rule": "path",
-            "target": "claude.cmd"
+            "target": os.path.basename(_real_path)
         },
         "templates": {
             "start": {
@@ -2084,6 +2177,31 @@ except ValueError as e:
 # The legitimate promotion proceeds cleanly without being blocked by unvalidated garbage
 legitimate_promotion = can_promote(valid_receipts, mock_env, claude_manifest_obj)
 print(f"LEGITIMATE PROMOTION PRESERVED: can_promote returned True: {legitimate_promotion is True}")
+
+import dataclasses
+
+print("\n--- 25. Round 47: Mismatched-Target Admission Attack ---")
+mismatched_manifest = dict(valid_claude_manifest)
+mismatched_manifest["execution"] = dict(valid_claude_manifest["execution"])
+mismatched_manifest["execution"]["executable"] = {
+    "resolution_rule": "path",
+    "target": "does_not_exist.cmd"
+}
+try:
+    AdmissionRegistry.admit(mismatched_manifest, VALID_CHAIN)
+    print("FAILED: Mismatched target was unexpectedly admitted!")
+except ValueError as e:
+    print(f"MISMATCHED TARGET BLOCKED: {type(e).__name__}: {e}")
+
+print("\n--- 26. Round 47: Mutable-Receipt-Leak Attack ---")
+receipt_id = AdmissionRegistry.admit(valid_claude_manifest, VALID_CHAIN)
+leaked_receipt = AdmissionRegistry.get_trusted_receipt(receipt_id)
+try:
+    # Attempt to mutate the aggregate chain digest on the returned receipt
+    leaked_receipt.provisioning_evidence.aggregate_chain_digest = 'FORGED_DIGEST'
+    print("FAILED: Leaked receipt was successfully mutated!")
+except dataclasses.FrozenInstanceError as e:
+    print(f"MUTABLE RECEIPT LEAK PREVENTED: {type(e).__name__}: {e}")
 ```
 
 **Output:**
@@ -2210,4 +2328,22 @@ FUTURE TIMESTAMP PROMOTION BLOCKED: can_promote returned False: True
 Timezone-aware recent cell evidence_state: MEASURED
 TIMEZONE-AWARE NO CRASH: determine_evidence_state evaluated cleanly without TypeError: True
 GENUINE TIMEZONE-AWARE PROMOTION SUCCESS: can_promote returned True: True
+
+--- 23. Round 44 Item 1: Genuine Non-UTC Timezone-Aware Timestamp Normalized to UTC ---
+Original input timestamp: 2026-08-21 07:15:00+09:00 (tz offset: 9:00:00)
+Stored snapshot timestamp: 2026-08-20 22:15:00+00:00 (tz offset: 0:00:00)
+NON-UTC NORMALIZED TO UTC: Stored tzinfo is timezone.utc and offset is zero: True
+TIMESTAMP EQUIVALENCE PRESERVED: Normalized timestamp matches original point in time: True
+
+--- 24. Round 44 Item 2: Enum Validation on transport & proof_kind & False-Contradiction Prevention ---
+BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PIPE', 'PTY'}, got 'SOCKET'
+BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'deterministic contract or integration', 'legacy-parity evidence'}, got 'invented arbitrary proof kind'
+FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'deterministic contract or integration', 'legacy-parity evidence'}, got 'bogus unvalidated proof kind'
+LEGITIMATE PROMOTION PRESERVED: can_promote returned True: True
+
+--- 25. Round 47: Mismatched-Target Admission Attack ---
+MISMATCHED TARGET BLOCKED: ValueError: Executable chain entrypoint P:\_sys\env\venv\Scripts\python.exe does not match manifest target does_not_exist.cmd
+
+--- 26. Round 47: Mutable-Receipt-Leak Attack ---
+MUTABLE RECEIPT LEAK PREVENTED: FrozenInstanceError: cannot assign to field 'aggregate_chain_digest'
 ```
