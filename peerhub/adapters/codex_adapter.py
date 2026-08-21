@@ -332,6 +332,19 @@ class RealCodexAdapter:
             argv = ("codex.cmd", "exec", "--json", prompt)
             redacted_display = "codex.cmd exec --json <redacted>"
 
+        # No explicit --sandbox flag: inherits config.toml's sandbox_mode.
+        # If workspace_scope resolves through a SUBST/junction alias whose
+        # real target cannot be cleanly invoked (e.g. contains a shell
+        # metacharacter), Codex's own Windows unelevated sandbox will refuse
+        # every subprocess with "cannot enforce split writable root sets",
+        # failing silently for any real (non-trivial) task while trivial
+        # prompts still succeed. See PEERHUB-CODEX-SUBST-SANDBOX-CONFLICT-
+        # 2026-08-21.md for the full root cause and recommended handling
+        # (detect the failure explicitly; resolve to genuine filesystem
+        # identity before choosing how to invoke, per the same discipline
+        # as AdmissionRegistry's canonical_path/samefile() checks) before
+        # this adapter is exercised against a workspace root that aliases
+        # its own real path.
         return InvocationPlan(
             argv=argv,
             cwd_reference=request.workspace_scope,
