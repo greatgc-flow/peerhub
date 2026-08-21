@@ -267,6 +267,15 @@ class ProvisioningEvidenceReceipt:
     companion_binaries: tuple[TransitiveExecutableNode, ...]
     aggregate_chain_digest: str
     timestamp_utc: str
+    # chain_complete is True ONLY when the admitted node's role is NATIVE_BINARY (the entire real
+    # execution surface has been hashed and verified). When the role is anything else (e.g. ENTRYPOINT_WRAPPER,
+    # SCRIPT, INTERPRETER, HELPER_BINARY), chain_complete is False.
+    # What chain_complete=False means and does not mean:
+    # It means the caller can prove the exact bytes of the entrypoint file that will be invoked.
+    # It makes NO claim whatsoever about what that entrypoint actually does when run (which interpreter,
+    # scripts, or downstream binaries it launches), which remains entirely unverified in this Phase 1
+    # in-memory prototype and is deferred to Phase 2's real recursive wrapper-content derivation.
+    chain_complete: bool
 
 @dataclass(frozen=True, slots=True)
 class AdmissionReceipt:
@@ -274,6 +283,9 @@ class AdmissionReceipt:
     manifest_canonical_sha256: str
     provisioning_evidence: ProvisioningEvidenceReceipt
     admitted_at_utc: str
+    # Mirrors provisioning_evidence.chain_complete: True if single node is NATIVE_BINARY, False otherwise.
+    # chain_complete=False proves the entrypoint bytes but makes no claim about downstream execution.
+    chain_complete: bool
 
 def load_manifest_schema_v2(schema_path: str | Path | None = None) -> dict:
     """Loads the normative Phase 1 Manifest JSON Schema (Draft 2020-12) directly from its canonical source of truth."""
@@ -310,10 +322,10 @@ def _build_admission_registry():
         
         Populated exclusively during a real admission event after rigorous validation
         against the PHASE1-MANIFEST-SCHEMA-V2 specification AND real executable-integrity
-        evidence (transitive hash-chain verification and manifest-target binding, as defined
-        in PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20). ACL evaluation, trust-root verification,
+        evidence (single entrypoint hash verification and manifest-target binding, with truthful role
+        and explicit chain_complete receipt status). ACL evaluation, trust-root verification,
         vendor observation, and full recursive wrapper-chain derivation from the filesystem are 
-        honestly scoped OUT of this Phase 1 in-memory prototype (see acl_evaluation=None below) 
+        honestly scoped OUT of this Phase 1 in-memory prototype (see acl_evaluation=None and chain_complete=False below) 
         and deferred to a real Phase 2 HostCapabilityInventory implementation; this registry does not claim to perform them.
         It computes and stores the AdmissionReceipt under a newly issued, collision-safe 
         real receipt ID (e.g., receipt-cc-claude-peer-...), following the proven single-source-of-truth
@@ -377,8 +389,8 @@ def _build_admission_registry():
             if not isinstance(transitive_executable_chain, list) or len(transitive_executable_chain) != 1:
                 # Scope decision explicit note:
                 # Multi-node wrapper-chain admission, requiring real recursive derivation of actual invocation 
-                # edges from wrapper file contents, is deferred entirely to Phase 2. Phase 1 admission only covers
-                # adapters whose manifest declares a direct native-binary entrypoint with no wrapper layer.
+                # edges from wrapper file contents, is deferred entirely to Phase 2. Phase 1 admission restricts
+                # the chain to exactly the single resolved entrypoint node under its truthful declared role.
                 raise ValueError("Executable chain must contain exactly one node (Phase 1 limitation).")
             
             target = raw_manifest.get("execution", {}).get("executable", {}).get("target")
@@ -397,9 +409,6 @@ def _build_admission_registry():
                     raise ValueError(f"Invalid role {role_str}")
                 role = ExecutableRole(role_str)
                 
-                if role != ExecutableRole.NATIVE_BINARY:
-                    raise ValueError(f"Executable chain role must be NATIVE_BINARY, got {role.name}. Phase 1 admission does not support wrappers.")
-                
                 c_path = item["canonical_path"]
                 if not os.path.isabs(c_path):
                     raise ValueError(f"canonical_path must be an absolute path, got '{c_path}'")
@@ -415,6 +424,8 @@ def _build_admission_registry():
                     
                     resolved_target = None
                     if resolution_rule == "absolute":
+                        if not os.path.isabs(target):
+                            raise ValueError(f"resolution_rule 'absolute' requires target to be an absolute path, got '{target}'")
                         resolved_target = target
                     elif resolution_rule == "sibling":
                         # Honest scope deferral: PHASE1-MANIFEST-SCHEMA-V1's normative definition
@@ -487,6 +498,9 @@ def _build_admission_registry():
             # 3. Validate executable integrity and compute aggregate digest
             aggregate_chain_digest, nodes = cls.validate_executable_chain(raw_manifest, transitive_executable_chain)
 
+            # Determine chain_complete: True if and only if single node is NATIVE_BINARY
+            chain_complete = (len(nodes) == 1 and nodes[0].role == ExecutableRole.NATIVE_BINARY)
+
             # Extract fields for receipt generation
             adapter_id = raw_manifest["adapter"]["adapter_id"]
             peer_kind = raw_manifest["adapter"]["peer_kind"]
@@ -519,16 +533,20 @@ def _build_admission_registry():
                             transitive_executable_chain=nodes,
                             companion_binaries=(),
                             aggregate_chain_digest=aggregate_chain_digest,
-                            timestamp_utc=timestamp_utc
+                            timestamp_utc=timestamp_utc,
+                            chain_complete=chain_complete,
                         )
                         receipt = AdmissionReceipt(
                             admission_receipt_id=candidate_id,
                             manifest_canonical_sha256=manifest_digest,
                             provisioning_evidence=prov_evidence,
-                            admitted_at_utc=timestamp_utc
+                            admitted_at_utc=timestamp_utc,
+                            chain_complete=chain_complete,
                         )
                         _store[candidate_id] = receipt
                         return candidate_id
+
+            raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
             raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
@@ -1327,11 +1345,26 @@ This execution trace exercises the normative single source of truth (SSOT) schem
 # Directly invoking primary definitions from Sections 4, 5, 6, 7 above without duplication.
 
 import sys
+import os
+import shutil
 import hashlib
-_real_path = sys.executable
-with open(_real_path, "rb") as f:
-    _real_hash = hashlib.sha256(f.read()).hexdigest().upper()
-VALID_CHAIN = [{'role': 'NATIVE_BINARY', 'canonical_path': _real_path, 'sha256': _real_hash, 'is_reparse_point': False}]
+
+_real_native_path = sys.executable
+with open(_real_native_path, "rb") as f:
+    _real_native_hash = hashlib.sha256(f.read()).hexdigest().upper()
+VALID_NATIVE_CHAIN = [{'role': 'NATIVE_BINARY', 'canonical_path': _real_native_path, 'sha256': _real_native_hash, 'is_reparse_point': False}]
+VALID_CHAIN = VALID_NATIVE_CHAIN
+
+# Real tracked wrapper fixtures from PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md
+_real_codex_path = shutil.which("codex.cmd") or os.path.abspath(r"P:\_sys\cli\codex.bat")
+with open(_real_codex_path, "rb") as f:
+    _real_codex_hash = hashlib.sha256(f.read()).hexdigest().upper()
+CODEX_WRAPPER_CHAIN = [{'role': 'ENTRYPOINT_WRAPPER', 'canonical_path': _real_codex_path, 'sha256': _real_codex_hash, 'is_reparse_point': False}]
+
+_real_claude_path = shutil.which("claude.cmd") or os.path.abspath(r"P:\_sys\cli\claude.bat")
+with open(_real_claude_path, "rb") as f:
+    _real_claude_hash = hashlib.sha256(f.read()).hexdigest().upper()
+CLAUDE_WRAPPER_CHAIN = [{'role': 'ENTRYPOINT_WRAPPER', 'canonical_path': _real_claude_path, 'sha256': _real_claude_hash, 'is_reparse_point': False}]
 
 print("--- 1. Single Normative Schema SSOT & Mechanical Equality Check ---")
 canonical_raw_schema = load_manifest_schema_v2()
@@ -1358,7 +1391,7 @@ cx_missing_fields_manifest = {
     "version": "1.0"
 }
 try:
-    AdmissionRegistry.admit(cx_missing_fields_manifest, VALID_CHAIN)
+    AdmissionRegistry.admit(cx_missing_fields_manifest, CLAUDE_WRAPPER_CHAIN)
     print("FAILED: cx missing-fields manifest was unexpectedly admitted!")
 except Exception as e:
     print(f"REJECTED at admit() as expected: {type(e).__name__}: {e}")
@@ -1382,7 +1415,7 @@ valid_claude_manifest = {
     "execution": {
         "executable": {
             "resolution_rule": "path",
-            "target": os.path.basename(_real_path)
+            "target": "claude.cmd"
         },
         "templates": {
             "start": {
@@ -1429,7 +1462,7 @@ cx_extra_key_codex_manifest["engine"] = {
 
 store_size_before = AdmissionRegistry.store_size()
 try:
-    AdmissionRegistry.admit(cx_extra_key_codex_manifest, VALID_CHAIN)
+    AdmissionRegistry.admit(cx_extra_key_codex_manifest, CLAUDE_WRAPPER_CHAIN)
     print("FAILED: cx extra-key Codex manifest was unexpectedly admitted!")
 except Exception as e:
     store_size_after = AdmissionRegistry.store_size()
@@ -1441,6 +1474,28 @@ valid_codex_manifest = dict(valid_claude_manifest)
 valid_codex_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
 valid_codex_manifest["adapter"]["adapter_id"] = "codex-peer"
 valid_codex_manifest["adapter"]["peer_kind"] = "cx"
+valid_codex_manifest["adapter"]["capabilities"] = ["SESSION", "STREAM"]
+valid_codex_manifest["adapter"]["core_parity_requirements"] = ["action.hub.credit-status", "action.hub.credit-consume", "action.hub.thread-new"]
+valid_codex_manifest["adapter"]["requires_snapshots"] = True
+valid_codex_manifest["execution"] = dict(valid_claude_manifest["execution"])
+valid_codex_manifest["execution"]["executable"] = {
+    "resolution_rule": "path",
+    "target": "codex.cmd"
+}
+valid_codex_manifest["execution"]["templates"] = {
+    "start": {
+        "argv": ["{executable}", "exec", "--json", "{prompt_content}"],
+        "cwd": "{workspace_scope}"
+    },
+    "resume": {
+        "argv": ["{executable}", "exec", "resume", "--json", "{session.external_session_id}", "{prompt_content}"],
+        "cwd": "{workspace_scope}"
+    }
+}
+valid_codex_manifest["execution"]["env_policy"] = {
+    "inherit": ["PATH", "SYSTEMROOT", "USERPROFILE", "APPDATA"],
+    "set": {}
+}
 valid_codex_manifest["engine"] = {
     "engine_id": "builtin:jsonl-codex-v1",
     "options": {}
@@ -1459,15 +1514,19 @@ valid_codex_manifest["profiles"] = [
     }
 ]
 
-codex_receipt_id = AdmissionRegistry.admit(valid_codex_manifest, VALID_CHAIN)
+codex_receipt_id = AdmissionRegistry.admit(valid_codex_manifest, CODEX_WRAPPER_CHAIN)
 print(f"Admitted valid Codex manifest, got 128-bit collision-safe receipt: {codex_receipt_id}")
-codex_manifest_obj = AdapterManifest.from_manifest(valid_codex_manifest, codex_receipt_id, VALID_CHAIN)
+codex_receipt = AdmissionRegistry.get_trusted_receipt(codex_receipt_id)
+print(f"Codex receipt chain_complete (honest wrapper admission): {codex_receipt.chain_complete}")
+codex_manifest_obj = AdapterManifest.from_manifest(valid_codex_manifest, codex_receipt_id, CODEX_WRAPPER_CHAIN)
 print(f"SUCCESS: Constructed {codex_manifest_obj.adapter_id} ({codex_manifest_obj.peer_kind}) carrying genuine declared profiles: {codex_manifest_obj.declared_profile_ids}")
 
 print("\n--- 6. Fully schema-valid Claude manifest admitted with declared profiles ---")
-claude_receipt_id = AdmissionRegistry.admit(valid_claude_manifest, VALID_CHAIN)
+claude_receipt_id = AdmissionRegistry.admit(valid_claude_manifest, CLAUDE_WRAPPER_CHAIN)
 print(f"Admitted valid Claude manifest, got 128-bit collision-safe receipt: {claude_receipt_id}")
-claude_manifest_obj = AdapterManifest.from_manifest(valid_claude_manifest, claude_receipt_id, VALID_CHAIN)
+claude_receipt = AdmissionRegistry.get_trusted_receipt(claude_receipt_id)
+print(f"Claude receipt chain_complete (honest wrapper admission): {claude_receipt.chain_complete}")
+claude_manifest_obj = AdapterManifest.from_manifest(valid_claude_manifest, claude_receipt_id, CLAUDE_WRAPPER_CHAIN)
 print(f"SUCCESS: Constructed {claude_manifest_obj.adapter_id} ({claude_manifest_obj.peer_kind}) carrying genuine declared profiles: {claude_manifest_obj.declared_profile_ids}")
 
 print("\n--- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---")
@@ -1591,20 +1650,8 @@ second_valid_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
 # Force the same peer_kind and adapter_id so the receipt prefix matches exactly
 second_valid_manifest["adapter"]["adapter_id"] = "claude-peer"
 second_valid_manifest["adapter"]["peer_kind"] = "cc"
-second_valid_manifest["engine"] = {"engine_id": "builtin:json-agy-v1", "options": {}}
-second_valid_manifest["profiles"] = [
-    {
-        "profile_id": "cc.standard",
-        "profile_class": "tier",
-        "supports_reasoning_effort": False,
-        "transport": "PIPE",
-        "prompt_policy": {
-            "policy_id": "cc-standard-policy",
-            "max_inline_utf8_bytes": 1000000,
-            "artifact_reference_supported": False
-        }
-    }
-]
+second_valid_manifest["engine"] = {"engine_id": "builtin:json-claude-v1", "options": {"enforce_strict_json": True}}
+second_valid_manifest["profiles"] = valid_claude_manifest["profiles"]
 
 mock_tokens = [raw_existing_token, "abcdef0123456789abcdef0123456789"]
 def mock_token_hex(nbytes=16):
@@ -1614,7 +1661,7 @@ orig_token_hex = secrets.token_hex
 secrets.token_hex = mock_token_hex
 try:
     first_digest_before = AdmissionRegistry.get_trusted_digest(existing_receipt_id)
-    second_receipt_id = AdmissionRegistry.admit(second_valid_manifest, VALID_CHAIN)
+    second_receipt_id = AdmissionRegistry.admit(second_valid_manifest, CLAUDE_WRAPPER_CHAIN)
     first_digest_after = AdmissionRegistry.get_trusted_digest(existing_receipt_id)
     
     print(f"Earlier receipt ID ({existing_receipt_id}) digest preserved intact: {first_digest_before == first_digest_after}")
@@ -1654,7 +1701,7 @@ barrier = threading.Barrier(2)
 def concurrent_worker(tname, manifest):
     threading.current_thread().name = tname
     barrier.wait()
-    receipt = AdmissionRegistry.admit(manifest, VALID_CHAIN)
+    receipt = AdmissionRegistry.admit(manifest, CLAUDE_WRAPPER_CHAIN)
     concurrent_results[tname] = (receipt, AdapterManifest.canonical_digest(manifest))
 
 secrets.token_hex = concurrent_mock_token_hex
@@ -1685,7 +1732,7 @@ forged_manifest["adapter"]["adapter_id"] = "forged-adapter"
 
 forged_digest = AdapterManifest.canonical_digest(forged_manifest)
 try:
-    AdapterManifest.from_manifest(forged_manifest, forged_digest, VALID_CHAIN)
+    AdapterManifest.from_manifest(forged_manifest, forged_digest, CLAUDE_WRAPPER_CHAIN)
     print("SUCCESS: Forgery worked! (This should not happen)")
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
@@ -1693,7 +1740,7 @@ except Exception as e:
 print("\n--- 13. Syntactically well-formed but unknown receipt ID ---")
 unknown_receipt_id = "rcpt_00000000000000000000000000000000"
 try:
-    AdapterManifest.from_manifest(valid_claude_manifest, unknown_receipt_id, VALID_CHAIN)
+    AdapterManifest.from_manifest(valid_claude_manifest, unknown_receipt_id, CLAUDE_WRAPPER_CHAIN)
     print("SUCCESS: Unknown receipt worked! (This should not happen)")
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
@@ -1775,8 +1822,8 @@ valid_pty_manifest["profiles"] = [
     }
 ]
 
-pty_receipt_id = AdmissionRegistry.admit(valid_pty_manifest, VALID_CHAIN)
-pty_manifest_obj = AdapterManifest.from_manifest(valid_pty_manifest, pty_receipt_id, VALID_CHAIN)
+pty_receipt_id = AdmissionRegistry.admit(valid_pty_manifest, CLAUDE_WRAPPER_CHAIN)
+pty_manifest_obj = AdapterManifest.from_manifest(valid_pty_manifest, pty_receipt_id, CLAUDE_WRAPPER_CHAIN)
 pty_expected_keys = pty_manifest_obj.get_expected_required_cell_keys("profile:pty.standard")
 pty_transports = {k.transport for k in pty_expected_keys}
 print(f"PTY profile expected required cell transports: {pty_transports}")
@@ -1826,8 +1873,8 @@ mutable_manifest["profiles"] = [
     }
 ]
 
-mutable_receipt_id = AdmissionRegistry.admit(mutable_manifest, VALID_CHAIN)
-snapshot_manifest_obj = AdapterManifest.from_manifest(mutable_manifest, mutable_receipt_id, VALID_CHAIN)
+mutable_receipt_id = AdmissionRegistry.admit(mutable_manifest, CLAUDE_WRAPPER_CHAIN)
+snapshot_manifest_obj = AdapterManifest.from_manifest(mutable_manifest, mutable_receipt_id, CLAUDE_WRAPPER_CHAIN)
 
 profiles_before = snapshot_manifest_obj.declared_profile_ids
 transport_before = snapshot_manifest_obj.get_profile_transport("profile:cc.original")
@@ -1922,7 +1969,7 @@ except ValueError as e:
 
 # Verify AdapterManifest.from_manifest also fails when using the forged receipt ID
 try:
-    AdapterManifest.from_manifest(unadmitted_forged_manifest, forged_receipt_id, VALID_CHAIN)
+    AdapterManifest.from_manifest(unadmitted_forged_manifest, forged_receipt_id, CLAUDE_WRAPPER_CHAIN)
     print("FAILED: from_manifest succeeded with forged receipt ID!")
 except ValueError as e:
     print(f"FORGERY REJECTED at from_manifest(): {type(e).__name__}: {e}")
@@ -1932,9 +1979,9 @@ if hasattr(AdmissionRegistry, "_store"):
     delattr(AdmissionRegistry, "_store")
 
 # Genuine admission still succeeds exactly as before
-genuine_forged_receipt = AdmissionRegistry.admit(unadmitted_forged_manifest, VALID_CHAIN)
+genuine_forged_receipt = AdmissionRegistry.admit(unadmitted_forged_manifest, CLAUDE_WRAPPER_CHAIN)
 print(f"GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: {genuine_forged_receipt}")
-genuine_manifest_obj = AdapterManifest.from_manifest(unadmitted_forged_manifest, genuine_forged_receipt, VALID_CHAIN)
+genuine_manifest_obj = AdapterManifest.from_manifest(unadmitted_forged_manifest, genuine_forged_receipt, CLAUDE_WRAPPER_CHAIN)
 print(f"GENUINE CONSTRUCT SUCCESS: Constructed {genuine_manifest_obj.adapter_id} with digest verified from trusted registry.")
 
 print("\n--- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---")
@@ -2243,13 +2290,13 @@ mismatched_manifest["execution"]["executable"] = {
     "target": "does_not_exist.cmd"
 }
 try:
-    AdmissionRegistry.admit(mismatched_manifest, VALID_CHAIN)
+    AdmissionRegistry.admit(mismatched_manifest, CLAUDE_WRAPPER_CHAIN)
     print("FAILED: Mismatched target was unexpectedly admitted!")
 except ValueError as e:
     print(f"MISMATCHED TARGET BLOCKED: {type(e).__name__}: {e}")
 
 print("\n--- 26. Round 47: Mutable-Receipt-Leak Attack ---")
-receipt_id = AdmissionRegistry.admit(valid_claude_manifest, VALID_CHAIN)
+receipt_id = AdmissionRegistry.admit(valid_claude_manifest, CLAUDE_WRAPPER_CHAIN)
 leaked_receipt = AdmissionRegistry.get_trusted_receipt(receipt_id)
 try:
     # Attempt to mutate the aggregate chain digest on the returned receipt
@@ -2268,7 +2315,7 @@ try:
         dummy_hash = hashlib.sha256(f.read()).hexdigest().upper()
     
     multi_node_chain = [
-        {'role': 'NATIVE_BINARY', 'canonical_path': _real_path, 'sha256': _real_hash, 'is_reparse_point': False},
+        {'role': 'ENTRYPOINT_WRAPPER', 'canonical_path': _real_claude_path, 'sha256': _real_claude_hash, 'is_reparse_point': False},
         {'role': 'NATIVE_BINARY', 'canonical_path': dummy_path, 'sha256': dummy_hash, 'is_reparse_point': False}
     ]
     
@@ -2281,9 +2328,9 @@ finally:
     os.remove(dummy_path)
 
 print("\n--- 28. Round 50 relative canonical_path rejected ---")
-rel_path = os.path.basename(_real_path)
+rel_path = os.path.basename(_real_claude_path)
 rel_node_chain = [
-    {'role': 'NATIVE_BINARY', 'canonical_path': rel_path, 'sha256': _real_hash, 'is_reparse_point': False}
+    {'role': 'ENTRYPOINT_WRAPPER', 'canonical_path': rel_path, 'sha256': _real_claude_hash, 'is_reparse_point': False}
 ]
 try:
     AdmissionRegistry.admit(valid_claude_manifest, rel_node_chain)
@@ -2312,6 +2359,44 @@ try:
     print("FAILED: Non-PE file was unexpectedly admitted as NATIVE_BINARY!")
 except ValueError as e:
     print(f"NON-PE FORMAT REJECTED: {type(e).__name__}: {e}")
+
+print("\n--- 30. Round 55 Honest Wrapper Admission with chain_complete=False ---")
+real_wrapper_path = os.path.abspath(r"P:\_sys\cli\claude.bat")
+with open(real_wrapper_path, "rb") as f:
+    real_wrapper_hash = hashlib.sha256(f.read()).hexdigest().upper()
+
+honest_wrapper_chain = [
+    {'role': 'ENTRYPOINT_WRAPPER', 'canonical_path': real_wrapper_path, 'sha256': real_wrapper_hash, 'is_reparse_point': False}
+]
+
+wrapper_manifest = dict(valid_claude_manifest)
+wrapper_manifest["execution"] = dict(valid_claude_manifest["execution"])
+wrapper_manifest["execution"]["executable"] = {
+    "resolution_rule": "absolute",
+    "target": real_wrapper_path
+}
+
+wrapper_receipt_id = AdmissionRegistry.admit(wrapper_manifest, honest_wrapper_chain)
+wrapper_receipt = AdmissionRegistry.get_trusted_receipt(wrapper_receipt_id)
+print(f"Admitted wrapper-fronted peer manifest: {wrapper_receipt_id}")
+print(f"Honest declared role: {wrapper_receipt.provisioning_evidence.transitive_executable_chain[0].role.value}")
+print(f"Receipt chain_complete flag: {wrapper_receipt.chain_complete}")
+print(f"Provisioning evidence chain_complete flag: {wrapper_receipt.provisioning_evidence.chain_complete}")
+print(f"HONEST WRAPPER ADMISSION VERIFIED: chain_complete is False: {wrapper_receipt.chain_complete is False}")
+
+print("\n--- 31. Round 55 resolution_rule 'absolute' rejects relative target ---")
+rel_target_manifest = dict(valid_claude_manifest)
+rel_target_manifest["execution"] = dict(valid_claude_manifest["execution"])
+rel_target_manifest["execution"]["executable"] = {
+    "resolution_rule": "absolute",
+    "target": "claude.cmd"
+}
+
+try:
+    AdmissionRegistry.admit(rel_target_manifest, CLAUDE_WRAPPER_CHAIN)
+    print("FAILED: Relative target was unexpectedly admitted under resolution_rule 'absolute'!")
+except ValueError as e:
+    print(f"RELATIVE TARGET UNDER ABSOLUTE RULE REJECTED: {type(e).__name__}: {e}")
 ```
 
 **Output:**
@@ -2333,11 +2418,13 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T090719Z-c29dda727b0a4ece3d9219499c5ec186
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T101547Z-1f18c2404b46cc4e36311ac92165e163
+Codex receipt chain_complete (honest wrapper admission): False
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T090719Z-f96f3744cc19887bc2a50e855dea8059
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T101547Z-90366b8693091ce3717894151b3e0b30
+Claude receipt chain_complete (honest wrapper admission): False
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
 --- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---
@@ -2353,13 +2440,13 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (receipt-cc-claude-peer-20260821T090719Z-f96f3744cc19887bc2a50e855dea8059) digest preserved intact: True
-Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T090719Z-abcdef0123456789abcdef0123456789
+Earlier receipt ID (receipt-cc-claude-peer-20260821T101547Z-90366b8693091ce3717894151b3e0b30) digest preserved intact: True
+Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T101547Z-abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
 --- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
-Thread 1 receipt ID: receipt-cc-conc-peer-20260821T090719Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-Thread 2 receipt ID: receipt-cc-conc-peer-20260821T090719Z-11112222333344445555666677778888
+Thread 1 receipt ID: receipt-cc-conc-peer-20260821T101547Z-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Thread 2 receipt ID: receipt-cc-conc-peer-20260821T101547Z-11112222333344445555666677778888
 Receipt IDs are distinct (no duplicate ID issued): True
 Thread 1 digest in registry: True
 Thread 2 digest in registry: True
@@ -2367,7 +2454,7 @@ Store size increased by exactly 2 entries: True
 CONCURRENCY RACE VERIFIED FIXED: Atomic lock prevents TOCTOU clobbering under real thread contention.
 
 --- 12. Forgery attempt (supplying own digest as receipt ID) ---
-BLOCKED: ValueError: Unknown admission receipt ID: F016DD6BC74793CAB561C2972D89FE81C1366B908FF0A542FCCB33E80981A2FE
+BLOCKED: ValueError: Unknown admission receipt ID: 6BD899AB9DC099CE261BBF959712E62BBF156B0E8DC141FBC784D533C6774DE1
 
 --- 13. Syntactically well-formed but unknown receipt ID ---
 BLOCKED: ValueError: Unknown admission receipt ID: rcpt_00000000000000000000000000000000
@@ -2408,26 +2495,26 @@ GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuin
 ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
 ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
 FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
-GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T090719Z-ce0dfe5de7221ee18c432ee7a6968e53
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T101548Z-c675df298efa8dd9883695ef7ed7782a
 GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
 
 --- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---
 SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must expose a real cell_key of the real CellKey type
-SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'NOT_REQUESTED', 'QUOTA_BLOCKED', 'EXECUTED_PASS', 'PRODUCT_FAILURE'}
-GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_ff7dd464d95eb3c97cc12aed805fe296
+SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'NOT_REQUESTED', 'PRODUCT_FAILURE', 'EXECUTED_PASS', 'ENVIRONMENT_UNAVAILABLE'}
+GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_791abe91efe10b0b4494c2894d9ebed9
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
 
 --- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---
 TYPE-NAME SPOOF BLOCKED: TypeError: cell_obj must expose a real cell_key of the real CellKey type
 NON-DATETIME TIMESTAMP BLOCKED: TypeError: provenance must carry a real timestamp_utc of the real datetime type
-Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_d89ccf218062d82d5e642dec60938c76
+Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_bac4ea3b74cfe81ace5416d351be6bb6
 Promotion with PRODUCT_FAILURE returned: False
 Attacker mutated original cell object to EXECUTED_PASS.
 Promotion after post-admission mutation returned: False
 POST-ADMISSION MUTATION BLOCKED: Promotion result remained False despite mutation of original object.
 
 --- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---
-TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'NOT_REQUESTED', 'QUOTA_BLOCKED', 'EXECUTED_PASS', 'PRODUCT_FAILURE'}
+TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'NOT_REQUESTED', 'PRODUCT_FAILURE', 'EXECUTED_PASS', 'ENVIRONMENT_UNAVAILABLE'}
 GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: True
 
 --- 22. Round 42 Item 2: Timezone-Aware UTC Enforcement & Future Skew Bounds ---
@@ -2446,9 +2533,9 @@ NON-UTC NORMALIZED TO UTC: Stored tzinfo is timezone.utc and offset is zero: Tru
 TIMESTAMP EQUIVALENCE PRESERVED: Normalized timestamp matches original point in time: True
 
 --- 24. Round 44 Item 2: Enum Validation on transport & proof_kind & False-Contradiction Prevention ---
-BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PIPE', 'PTY'}, got 'SOCKET'
-BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'legacy-parity evidence', 'deterministic contract or integration'}, got 'invented arbitrary proof kind'
-FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'live provider exact-profile', 'legacy-parity evidence', 'deterministic contract or integration'}, got 'bogus unvalidated proof kind'
+BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PTY', 'PIPE'}, got 'SOCKET'
+BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'deterministic contract or integration', 'controlled real-OS executable', 'legacy-parity evidence', 'live provider exact-profile'}, got 'invented arbitrary proof kind'
+FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'deterministic contract or integration', 'controlled real-OS executable', 'legacy-parity evidence', 'live provider exact-profile'}, got 'bogus unvalidated proof kind'
 LEGITIMATE PROMOTION PRESERVED: can_promote returned True: True
 
 --- 25. Round 47: Mismatched-Target Admission Attack ---
@@ -2461,8 +2548,19 @@ MUTABLE RECEIPT LEAK PREVENTED: FrozenInstanceError: cannot assign to field 'agg
 MULTI-NODE CHAIN BLOCKED: ValueError: Executable chain must contain exactly one node (Phase 1 limitation).
 
 --- 28. Round 50 relative canonical_path rejected ---
-RELATIVE PATH BLOCKED: ValueError: canonical_path must be an absolute path, got 'python.exe'
+RELATIVE PATH BLOCKED: ValueError: canonical_path must be an absolute path, got 'claude.cmd'
 
 --- 29. Round 53 NATIVE_BINARY magic-byte format validation ---
 NON-PE FORMAT REJECTED: ValueError: File content at P:\workspace\peerhub\docs\design\PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md does not match NATIVE_BINARY format claim (missing MZ magic bytes).
+
+--- 30. Round 55 Honest Wrapper Admission with chain_complete=False ---
+Admitted wrapper-fronted peer manifest: receipt-cc-claude-peer-20260821T101548Z-431cdca6c6c130a910a7455df5d2df66
+Honest declared role: ENTRYPOINT_WRAPPER
+Receipt chain_complete flag: False
+Provisioning evidence chain_complete flag: False
+HONEST WRAPPER ADMISSION VERIFIED: chain_complete is False: True
+
+--- 31. Round 55 resolution_rule 'absolute' rejects relative target ---
+RELATIVE TARGET UNDER ABSOLUTE RULE REJECTED: ValueError: resolution_rule 'absolute' requires target to be an absolute path, got 'claude.cmd'
 ```
+
