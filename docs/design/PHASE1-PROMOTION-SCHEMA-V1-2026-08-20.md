@@ -447,9 +447,17 @@ def _build_admission_registry():
                     raise ValueError(f"Executable path does not exist: {c_path_canon}")
                 
                 with open(c_path_canon, "rb") as f:
-                    actual_hash = hashlib.sha256(f.read()).hexdigest().upper()
+                    file_content = f.read()
+                    actual_hash = hashlib.sha256(file_content).hexdigest().upper()
                 if actual_hash != claimed_hash.upper():
                     raise ValueError(f"Executable hash mismatch for {c_path_canon}! Claimed: {claimed_hash}, Actual: {actual_hash}")
+                
+                if role == ExecutableRole.NATIVE_BINARY and not file_content.startswith(b"MZ"):
+                    # Honest scope deferral: This is a minimal two-byte magic-number check, not full PE structural
+                    # validation. A sufficiently constructed file with a forged MZ header but non-executable content
+                    # beyond it would still pass this check -- that deeper level of binary format verification is out
+                    # of Phase 1 scope.
+                    raise ValueError(f"File content at {c_path_canon} does not match NATIVE_BINARY format claim (missing MZ magic bytes).")
                 
                 nodes.append(TransitiveExecutableNode(
                     role=role,
@@ -2282,6 +2290,28 @@ try:
     print("FAILED: Relative canonical_path unexpectedly admitted!")
 except ValueError as e:
     print(f"RELATIVE PATH BLOCKED: {type(e).__name__}: {e}")
+
+print("\n--- 29. Round 53 NATIVE_BINARY magic-byte format validation ---")
+non_pe_path = os.path.abspath("docs/design/PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md")
+with open(non_pe_path, "rb") as f:
+    non_pe_hash = hashlib.sha256(f.read()).hexdigest().upper()
+
+non_pe_chain = [
+    {'role': 'NATIVE_BINARY', 'canonical_path': non_pe_path, 'sha256': non_pe_hash, 'is_reparse_point': False}
+]
+
+non_pe_manifest = dict(valid_claude_manifest)
+non_pe_manifest["execution"] = dict(valid_claude_manifest["execution"])
+non_pe_manifest["execution"]["executable"] = {
+    "resolution_rule": "absolute",
+    "target": non_pe_path
+}
+
+try:
+    AdmissionRegistry.admit(non_pe_manifest, non_pe_chain)
+    print("FAILED: Non-PE file was unexpectedly admitted as NATIVE_BINARY!")
+except ValueError as e:
+    print(f"NON-PE FORMAT REJECTED: {type(e).__name__}: {e}")
 ```
 
 **Output:**
@@ -2432,4 +2462,7 @@ MULTI-NODE CHAIN BLOCKED: ValueError: Executable chain must contain exactly one 
 
 --- 28. Round 50 relative canonical_path rejected ---
 RELATIVE PATH BLOCKED: ValueError: canonical_path must be an absolute path, got 'python.exe'
+
+--- 29. Round 53 NATIVE_BINARY magic-byte format validation ---
+NON-PE FORMAT REJECTED: ValueError: File content at P:\workspace\peerhub\docs\design\PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md does not match NATIVE_BINARY format claim (missing MZ magic bytes).
 ```
