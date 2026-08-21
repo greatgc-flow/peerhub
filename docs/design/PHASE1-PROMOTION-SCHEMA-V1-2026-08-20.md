@@ -209,6 +209,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import ClassVar
+import os
 import hashlib
 import json
 import re
@@ -319,6 +320,17 @@ def _build_admission_registry():
                     raise TypeError("Each executable chain item must be a dictionary.")
                 if "role" not in item or "canonical_path" not in item or "sha256" not in item:
                     raise ValueError("Executable chain item missing required fields: role, canonical_path, sha256.")
+                    
+                c_path = item["canonical_path"]
+                claimed_hash = item["sha256"]
+                
+                if not os.path.exists(c_path):
+                    raise ValueError(f"Executable path does not exist: {c_path}")
+                
+                with open(c_path, "rb") as f:
+                    actual_hash = hashlib.sha256(f.read()).hexdigest().upper()
+                if actual_hash != claimed_hash.upper():
+                    raise ValueError(f"Executable hash mismatch for {c_path}! Claimed: {claimed_hash}, Actual: {actual_hash}")
 
             # Compute aggregate chain digest (deterministic sort by role and path)
             sorted_chain = sorted(transitive_executable_chain, key=lambda x: (x.get("role", ""), x.get("canonical_path", "")))
@@ -459,7 +471,7 @@ class AdapterManifest:
         ):
             raise TypeError(
                 "AdapterManifest direct construction is prohibited to guarantee promotion determinism. "
-                "Instances must be traceably constructed via AdapterManifest.from_manifest(raw_manifest, admission_receipt)."
+                "Instances must be traceably constructed via AdapterManifest.from_manifest(raw_manifest, admission_receipt, VALID_CHAIN)."
             )
 
     @staticmethod
@@ -487,6 +499,7 @@ class AdapterManifest:
         cls,
         raw_manifest: dict,
         admission_receipt_id: str,
+        transitive_executable_chain: list[dict],
     ) -> AdapterManifest:
         """Constructs this contract strictly by validating schema shape, verifying canonical
         digest authenticity via the trusted AdmissionRegistry, and reading fields directly
@@ -498,16 +511,27 @@ class AdapterManifest:
         if not isinstance(raw_manifest, dict) or "adapter" not in raw_manifest or "profiles" not in raw_manifest:
             raise ValueError("raw_manifest must be an admitted manifest dict containing 'adapter' and 'profiles' blocks.")
 
-        # 1. Look up trusted digest from the registry using the opaque ID
-        expected_digest = AdmissionRegistry.get_trusted_digest(admission_receipt_id)
+        # 1. Look up trusted receipt from the registry using the opaque ID
+        trusted_receipt = AdmissionRegistry.get_trusted_receipt(admission_receipt_id)
+        expected_manifest_digest = trusted_receipt["manifest_binding"]["manifest_canonical_sha256"]
+        expected_chain_digest = trusted_receipt["aggregate_chain_digest"]
 
         # 2. Recompute canonical digest over FULL manifest content and verify authenticity
-        recomputed_digest = cls.canonical_digest(raw_manifest)
-        if recomputed_digest != expected_digest:
+        recomputed_manifest_digest = cls.canonical_digest(raw_manifest)
+        if recomputed_manifest_digest != expected_manifest_digest:
             raise ValueError(
-                f"Manifest admission digest mismatch! Registry expects digest '{expected_digest}', "
-                f"but recomputed canonical digest over provided manifest is '{recomputed_digest}'. "
+                f"Manifest admission digest mismatch! Registry expects digest '{expected_manifest_digest}', "
+                f"but recomputed canonical digest over provided manifest is '{recomputed_manifest_digest}'. "
                 "Manifest is either unadmitted, fabricated, or unintentionally modified."
+            )
+
+        # 3. Recompute aggregate chain digest over provided chain and verify authenticity
+        recomputed_chain_digest = AdmissionRegistry.validate_executable_chain(transitive_executable_chain)
+        if recomputed_chain_digest != expected_chain_digest:
+            raise ValueError(
+                f"Executable chain admission digest mismatch! Registry expects digest '{expected_chain_digest}', "
+                f"but recomputed aggregate digest over provided chain is '{recomputed_chain_digest}'. "
+                "Chain is either unadmitted, fabricated, or unintentionally modified."
             )
 
         adapter = raw_manifest["adapter"]
@@ -1155,6 +1179,13 @@ This execution trace exercises the normative single source of truth (SSOT) schem
 # --- EXECUTION TRACES ---
 # Directly invoking primary definitions from Sections 4, 5, 6, 7 above without duplication.
 
+import sys
+import hashlib
+_real_path = sys.executable
+with open(_real_path, "rb") as f:
+    _real_hash = hashlib.sha256(f.read()).hexdigest().upper()
+VALID_CHAIN = [{'role': 'NATIVE_BINARY', 'canonical_path': _real_path, 'sha256': _real_hash, 'is_reparse_point': False}]
+
 print("--- 1. Single Normative Schema SSOT & Mechanical Equality Check ---")
 canonical_raw_schema = load_manifest_schema_v2()
 print(f"Normative V2 Schema ID loaded from canonical file: {canonical_raw_schema['$id']}")
@@ -1180,7 +1211,7 @@ cx_missing_fields_manifest = {
     "version": "1.0"
 }
 try:
-    AdmissionRegistry.admit(cx_missing_fields_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
+    AdmissionRegistry.admit(cx_missing_fields_manifest, VALID_CHAIN)
     print("FAILED: cx missing-fields manifest was unexpectedly admitted!")
 except Exception as e:
     print(f"REJECTED at admit() as expected: {type(e).__name__}: {e}")
@@ -1251,7 +1282,7 @@ cx_extra_key_codex_manifest["engine"] = {
 
 store_size_before = AdmissionRegistry.store_size()
 try:
-    AdmissionRegistry.admit(cx_extra_key_codex_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
+    AdmissionRegistry.admit(cx_extra_key_codex_manifest, VALID_CHAIN)
     print("FAILED: cx extra-key Codex manifest was unexpectedly admitted!")
 except Exception as e:
     store_size_after = AdmissionRegistry.store_size()
@@ -1281,15 +1312,15 @@ valid_codex_manifest["profiles"] = [
     }
 ]
 
-codex_receipt_id = AdmissionRegistry.admit(valid_codex_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
+codex_receipt_id = AdmissionRegistry.admit(valid_codex_manifest, VALID_CHAIN)
 print(f"Admitted valid Codex manifest, got 128-bit collision-safe receipt: {codex_receipt_id}")
-codex_manifest_obj = AdapterManifest.from_manifest(valid_codex_manifest, codex_receipt_id)
+codex_manifest_obj = AdapterManifest.from_manifest(valid_codex_manifest, codex_receipt_id, VALID_CHAIN)
 print(f"SUCCESS: Constructed {codex_manifest_obj.adapter_id} ({codex_manifest_obj.peer_kind}) carrying genuine declared profiles: {codex_manifest_obj.declared_profile_ids}")
 
 print("\n--- 6. Fully schema-valid Claude manifest admitted with declared profiles ---")
-claude_receipt_id = AdmissionRegistry.admit(valid_claude_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
+claude_receipt_id = AdmissionRegistry.admit(valid_claude_manifest, VALID_CHAIN)
 print(f"Admitted valid Claude manifest, got 128-bit collision-safe receipt: {claude_receipt_id}")
-claude_manifest_obj = AdapterManifest.from_manifest(valid_claude_manifest, claude_receipt_id)
+claude_manifest_obj = AdapterManifest.from_manifest(valid_claude_manifest, claude_receipt_id, VALID_CHAIN)
 print(f"SUCCESS: Constructed {claude_manifest_obj.adapter_id} ({claude_manifest_obj.peer_kind}) carrying genuine declared profiles: {claude_manifest_obj.declared_profile_ids}")
 
 print("\n--- 7. Repro of cx's Fabricated peer_binding Attack Against can_promote() ---")
@@ -1435,7 +1466,7 @@ orig_token_hex = secrets.token_hex
 secrets.token_hex = mock_token_hex
 try:
     first_digest_before = AdmissionRegistry.get_trusted_digest(existing_receipt_id)
-    second_receipt_id = AdmissionRegistry.admit(second_valid_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
+    second_receipt_id = AdmissionRegistry.admit(second_valid_manifest, VALID_CHAIN)
     first_digest_after = AdmissionRegistry.get_trusted_digest(existing_receipt_id)
     
     print(f"Earlier receipt ID ({existing_receipt_id}) digest preserved intact: {first_digest_before == first_digest_after}")
@@ -1475,7 +1506,7 @@ barrier = threading.Barrier(2)
 def concurrent_worker(tname, manifest):
     threading.current_thread().name = tname
     barrier.wait()
-    receipt = AdmissionRegistry.admit(manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
+    receipt = AdmissionRegistry.admit(manifest, VALID_CHAIN)
     concurrent_results[tname] = (receipt, AdapterManifest.canonical_digest(manifest))
 
 secrets.token_hex = concurrent_mock_token_hex
@@ -1506,7 +1537,7 @@ forged_manifest["adapter"]["adapter_id"] = "forged-adapter"
 
 forged_digest = AdapterManifest.canonical_digest(forged_manifest)
 try:
-    AdapterManifest.from_manifest(forged_manifest, forged_digest)
+    AdapterManifest.from_manifest(forged_manifest, forged_digest, VALID_CHAIN)
     print("SUCCESS: Forgery worked! (This should not happen)")
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
@@ -1514,7 +1545,7 @@ except Exception as e:
 print("\n--- 13. Syntactically well-formed but unknown receipt ID ---")
 unknown_receipt_id = "rcpt_00000000000000000000000000000000"
 try:
-    AdapterManifest.from_manifest(valid_claude_manifest, unknown_receipt_id)
+    AdapterManifest.from_manifest(valid_claude_manifest, unknown_receipt_id, VALID_CHAIN)
     print("SUCCESS: Unknown receipt worked! (This should not happen)")
 except Exception as e:
     print(f"BLOCKED: {type(e).__name__}: {e}")
@@ -1596,8 +1627,8 @@ valid_pty_manifest["profiles"] = [
     }
 ]
 
-pty_receipt_id = AdmissionRegistry.admit(valid_pty_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
-pty_manifest_obj = AdapterManifest.from_manifest(valid_pty_manifest, pty_receipt_id)
+pty_receipt_id = AdmissionRegistry.admit(valid_pty_manifest, VALID_CHAIN)
+pty_manifest_obj = AdapterManifest.from_manifest(valid_pty_manifest, pty_receipt_id, VALID_CHAIN)
 pty_expected_keys = pty_manifest_obj.get_expected_required_cell_keys("profile:pty.standard")
 pty_transports = {k.transport for k in pty_expected_keys}
 print(f"PTY profile expected required cell transports: {pty_transports}")
@@ -1647,8 +1678,8 @@ mutable_manifest["profiles"] = [
     }
 ]
 
-mutable_receipt_id = AdmissionRegistry.admit(mutable_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
-snapshot_manifest_obj = AdapterManifest.from_manifest(mutable_manifest, mutable_receipt_id)
+mutable_receipt_id = AdmissionRegistry.admit(mutable_manifest, VALID_CHAIN)
+snapshot_manifest_obj = AdapterManifest.from_manifest(mutable_manifest, mutable_receipt_id, VALID_CHAIN)
 
 profiles_before = snapshot_manifest_obj.declared_profile_ids
 transport_before = snapshot_manifest_obj.get_profile_transport("profile:cc.original")
@@ -1743,7 +1774,7 @@ except ValueError as e:
 
 # Verify AdapterManifest.from_manifest also fails when using the forged receipt ID
 try:
-    AdapterManifest.from_manifest(unadmitted_forged_manifest, forged_receipt_id)
+    AdapterManifest.from_manifest(unadmitted_forged_manifest, forged_receipt_id, VALID_CHAIN)
     print("FAILED: from_manifest succeeded with forged receipt ID!")
 except ValueError as e:
     print(f"FORGERY REJECTED at from_manifest(): {type(e).__name__}: {e}")
@@ -1753,9 +1784,9 @@ if hasattr(AdmissionRegistry, "_store"):
     delattr(AdmissionRegistry, "_store")
 
 # Genuine admission still succeeds exactly as before
-genuine_forged_receipt = AdmissionRegistry.admit(unadmitted_forged_manifest, [{'role': 'NATIVE_BINARY', 'canonical_path': 'P:\_sys\dummy.exe', 'sha256': '0' * 64, 'is_reparse_point': False}])
+genuine_forged_receipt = AdmissionRegistry.admit(unadmitted_forged_manifest, VALID_CHAIN)
 print(f"GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: {genuine_forged_receipt}")
-genuine_manifest_obj = AdapterManifest.from_manifest(unadmitted_forged_manifest, genuine_forged_receipt)
+genuine_manifest_obj = AdapterManifest.from_manifest(unadmitted_forged_manifest, genuine_forged_receipt, VALID_CHAIN)
 print(f"GENUINE CONSTRUCT SUCCESS: Constructed {genuine_manifest_obj.adapter_id} with digest verified from trusted registry.")
 
 print("\n--- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---")
