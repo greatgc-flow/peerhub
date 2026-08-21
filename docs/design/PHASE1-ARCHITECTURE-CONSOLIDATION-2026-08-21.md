@@ -27,7 +27,13 @@ This document resolves the four broader architectural consolidation questions ex
 **Context:** `ARCHITECTURE.md` (Section 4) explicitly mandates SQLite as the single operational source of truth. The current `AdmissionRegistry` prototype relies on an in-memory closure-scoped dictionary, bypassing the transactional `StateStore[UnitOfWork]` port interface (defined in `peerhub/state/contract.py`).
 
 **Resolution:**
-The `ManifestAdmissionCoordinator` replaces the closure-scoped state with a proper `StateStore` port interface, matching the `AdmissionCoordinator` in `peerhub/dispatch/admission.py`.
+The `ManifestAdmissionCoordinator` replaces the closure-scoped state with a proper `StateStore` port interface, matching the `AdmissionCoordinator` in `peerhub/dispatch/admission.py`. 
+
+**Architectural Injection:**
+As established in the ratified promotion schema, this capability will eventually be wired into the real dispatch `AdmissionCoordinator`, "not... a permanently separate mechanism". To be unambiguous, `ManifestAdmissionCoordinator` is designed as an injected component that the real dispatch `AdmissionCoordinator` will call into as an additional verification step before a request is fully admitted. It is not a second, competing admission authority.
+
+**Connection Ownership & Concurrency:**
+This coordinator never owns or creates its own database connection or file. It receives an already-initialized, capability-probed canonical `StateStore` instance from its caller, ensuring DB constraints are enforced on a local filesystem at initialization. Furthermore, store-busy/unavailable failures during concurrent access are bounded and surfaced to the coordinator's own caller as a clear, typed application-boundary error (e.g., `StateStoreUnavailableError`), never an unbounded internal retry loop that could hang the host process.
 
 ### 1. Illustrative Schema (`0025_manifest_admission_receipts.sql`)
 ```sql
@@ -53,7 +59,9 @@ CREATE TABLE manifest_admission_receipts (
     -- that are retrieved as a single opaque document for evidence, never queried
     -- or joined by individual file node.
     transitive_executable_chain_json TEXT NOT NULL,
-    companion_binaries_json TEXT NOT NULL
+    companion_binaries_json TEXT NOT NULL,
+    admitted_at_utc TEXT NOT NULL,
+    prov_chain_complete INTEGER NOT NULL
 );
 ```
 
@@ -65,17 +73,23 @@ from typing import Protocol, Self
 from peerhub.state.contract import StateStore, UnitOfWork, ReadUnitOfWork
 from peerhub.core.context import Clock, IdSource
 
-class ManifestAdmissionUnitOfWork(UnitOfWork, Protocol):
-    def put_manifest_receipt(self, receipt: 'ManifestAdmissionReceipt') -> None: ...
+class ManifestAdmissionReadUnitOfWork(ReadUnitOfWork, Protocol):
     def get_manifest_receipt(self, receipt_id: str) -> 'ManifestAdmissionReceipt | None': ...
+
+class ManifestAdmissionUnitOfWork(ManifestAdmissionReadUnitOfWork, UnitOfWork, Protocol):
+    def put_manifest_receipt(self, receipt: 'ManifestAdmissionReceipt') -> None: ...
     def put_shim_entry(self, entry: 'ShimRegistryEntry') -> None: ...
+
+class StateStoreUnavailableError(Exception):
+    """Raised when the database is locked beyond the retry bound."""
+    pass
 
 class ManifestAdmissionCoordinator:
     """Orchestrate Phase 1 executable-integrity manifest admission."""
 
     def __init__(
         self,
-        store: StateStore[ManifestAdmissionUnitOfWork, ReadUnitOfWork],
+        store: StateStore[ManifestAdmissionUnitOfWork, ManifestAdmissionReadUnitOfWork],
         *,
         clock: Clock,
         ids: IdSource,
@@ -84,40 +98,67 @@ class ManifestAdmissionCoordinator:
         self._clock = clock
         self._ids = ids
 
-    def admit_manifest(self, raw_manifest: dict, executable_chain: list, peer_kind: str, adapter_id: str) -> 'ManifestAdmissionReceipt':
+    def admit_manifest(self, raw_manifest: dict) -> 'ManifestAdmissionReceipt':
         # 1. Validation logic carried over unchanged (schema, MZ check, PATHEXT rules, etc.)
         
-        # 2. Collision-safe ID issuance via real transaction semantics,
-        # fully preserving the ratified Phase 1 structure and cryptographic entropy.
-        timestamp_utc = str(self._clock.now())
-        # While self._ids.new_id("receipt") could be used, secrets.token_hex(16) precisely 
-        # maintains the previously ratified 128-bit cryptographic guarantee.
-        random_suffix = secrets.token_hex(16)
-        receipt_id = f"receipt-{peer_kind}-{adapter_id}-{timestamp_utc}-{random_suffix}"
+        # Derived explicitly from the raw manifest dict itself
+        adapter_id = raw_manifest["adapter"]["adapter_id"]
+        peer_kind = raw_manifest["adapter"]["peer_kind"]
+        timestamp_utc = self._clock.now().strftime("%Y%m%dT%H%M%SZ")
         
-        receipt = ManifestAdmissionReceipt(
-            admission_receipt_id=receipt_id,
-            # ... initialization of other fields ...
-        )
+        # 2. Collision-safe ID issuance via real transaction semantics with a bounded loop
+        MAX_RETRIES = 10
+        MAX_LOCK_ATTEMPTS = 50
         
-        # 3. Transactional commit
-        with self._store.unit_of_work() as unit:
-            unit.put_manifest_receipt(receipt)
-            unit.commit()
+        for attempt in range(MAX_RETRIES):
+            random_suffix = secrets.token_hex(16)
+            receipt_id = f"receipt-{peer_kind}-{adapter_id}-{timestamp_utc}-{random_suffix}"
             
-        return receipt
+            # ... initialize provisioning evidence and receipt ...
+            
+            lock_attempts = 0
+            while lock_attempts < MAX_LOCK_ATTEMPTS:
+                try:
+                    with self._store.unit_of_work() as unit:
+                        unit.put_manifest_receipt(receipt)
+                        unit.commit()
+                    return receipt
+                except sqlite3.IntegrityError:
+                    # Break out to retry the random suffix
+                    break
+                except sqlite3.OperationalError as e:
+                    # Typed detection via sqlite_errorcode where available, fallback to str check
+                    is_locked = getattr(e, 'sqlite_errorcode', 0) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                    if not is_locked and 'locked' in str(e).lower():
+                        is_locked = True
+                        
+                    if is_locked:
+                        lock_attempts += 1
+                        time.sleep(0.01)
+                    else:
+                        raise e
+            else:
+                raise StateStoreUnavailableError(f"Database locked after {MAX_LOCK_ATTEMPTS} attempts")
+
+        raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
     def get_trusted_digest(self, receipt_id: str) -> str | None:
         with self._store.read_unit_of_work() as unit:
             receipt = unit.get_manifest_receipt(receipt_id)
             if receipt:
-                return receipt.aggregate_chain_digest
+                return receipt.manifest_canonical_sha256
         return None
+        
+    def get_trusted_receipt(self, receipt_id: str) -> 'ManifestAdmissionReceipt | None':
+        with self._store.read_unit_of_work() as unit:
+            return unit.get_manifest_receipt(receipt_id)
 ```
 
 ### 3. Deserialization and Deep Immutability
 
-While SQLite naturally stores nested objects like the `trust_root` dict and `transitive_executable_chain` list as JSON strings, naive deserialization (`json.loads`) would return plain mutable dictionaries and lists, silently breaking the deep immutability achieved in the previous dialectic. To resolve this, the `ManifestAdmissionUnitOfWork` implementation must actively reconstruct these JSON properties into frozen types during reads:
+While SQLite naturally stores nested objects like the `trust_root` dict and `transitive_executable_chain` list as JSON strings, naive deserialization (`json.loads`) would return plain mutable dictionaries and lists, silently breaking the deep immutability achieved in the previous dialectic. To resolve this, the `ManifestAdmissionUnitOfWork` implementation must actively reconstruct these JSON properties into real frozen types during reads (e.g. using `dataclasses.asdict()` with an enum-aware default handler for writes, and explicit reconstruction on reads):
+* `ExecutableRole` enums must be instantiated.
+* `TransitiveExecutableNode` and `AclEvaluationEvidence` must be parsed back into real frozen dataclass instances, not left as dicts.
 * `trust_root`, `observed_vendor`, and `acl_evaluation` must be wrapped in `types.MappingProxyType`.
 * `transitive_executable_chain` and `companion_binaries` must be wrapped in Python `tuple`s.
 
@@ -125,7 +166,7 @@ This guarantees that a caller receiving a receipt from `get_manifest_receipt()` 
 
 ### 4. Trace Demonstration
 
-The following genuinely runnable script demonstrates the persistence logic, ratified ID generation format, concurrent atomicity using `BEGIN IMMEDIATE`, and deep-immutability preservation over the JSON serialization round-trip.
+The following genuinely runnable script demonstrates the persistence logic, bounded contention retry, real typed preservation over the JSON serialization round-trip, and the new two-level receipt architecture matching the ratified types.
 
 ```python
 # trace.py - Genuine Executable Trace Demonstration
@@ -135,42 +176,97 @@ import types
 import secrets
 import json
 import time
-from dataclasses import dataclass
-from typing import Protocol, Self
+from dataclasses import dataclass, asdict, is_dataclass
+from typing import Protocol, Self, Literal, Any, Dict
+from enum import Enum
 
-@dataclass(frozen=True)
-class ManifestAdmissionReceipt:
-    admission_receipt_id: str
-    manifest_canonical_sha256: str
-    schema_version: str
+class ExecutableRole(str, Enum):
+    ENTRYPOINT_WRAPPER = "ENTRYPOINT_WRAPPER"
+    INTERPRETER = "INTERPRETER"
+    SCRIPT = "SCRIPT"
+    NATIVE_BINARY = "NATIVE_BINARY"
+    HELPER_BINARY = "HELPER_BINARY"
+
+@dataclass(frozen=True, slots=True)
+class TransitiveExecutableNode:
+    role: ExecutableRole
+    canonical_path: str
+    file_size_bytes: int
+    sha256: str
+    is_reparse_point: Literal[None] = None
+
+@dataclass(frozen=True, slots=True)
+class AclEvaluationEvidence:
+    evaluated_paths: tuple[str, ...]
+    volume_type: str
+    everyone_writable: bool
+    anonymous_writable: bool
+    authenticated_users_modify_allowed: bool
+    effective_dacl_summary: str
+    verdict: Literal["PASS_SECURE_LOCAL", "FAIL_WORLD_WRITABLE", "FAIL_NON_NTFS"]
+
+@dataclass(frozen=True, slots=True)
+class ManifestProvisioningEvidenceReceipt:
+    receipt_id: str
+    schema_version: Literal["2.0.0"]
     adapter_id: str
     peer_kind: str
     inventory_generation: int
-    trust_root: types.MappingProxyType
-    observed_vendor: types.MappingProxyType
-    acl_evaluation: types.MappingProxyType | None
-    chain_complete: bool
+    trust_root: types.MappingProxyType[str, str]
+    observed_vendor: types.MappingProxyType[str, str | None]
+    acl_evaluation: AclEvaluationEvidence | None
+    transitive_executable_chain: tuple[TransitiveExecutableNode, ...]
+    companion_binaries: tuple[TransitiveExecutableNode, ...]
     aggregate_chain_digest: str
     timestamp_utc: str
-    transitive_executable_chain: tuple
-    companion_binaries: tuple
+    chain_complete: bool
+
+@dataclass(frozen=True, slots=True)
+class ManifestAdmissionReceipt:
+    admission_receipt_id: str
+    manifest_canonical_sha256: str
+    provisioning_evidence: ManifestProvisioningEvidenceReceipt
+    admitted_at_utc: str
+    chain_complete: bool
+
+class EnumEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Enum):
+            return obj.value
+        if is_dataclass(obj):
+            return asdict(obj)
+        if isinstance(obj, types.MappingProxyType):
+            return dict(obj)
+        return super().default(obj)
 
 class FakeSqliteUnitOfWork:
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, read_only: bool = False):
         self.conn = conn
+        self.read_only = read_only
 
     def __enter__(self) -> Self:
-        self.conn.execute("BEGIN IMMEDIATE")
+        if not self.read_only:
+            self.conn.execute("BEGIN IMMEDIATE")
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        if exc_type is None: pass 
-        else: self.conn.rollback()
+        try:
+            if not self.read_only:
+                if exc_type is None:
+                    if self.conn.in_transaction:
+                        self.conn.rollback()
+                else:
+                    self.conn.rollback()
+        finally:
+            self.conn.close()
 
     def commit(self) -> None:
-        self.conn.commit()
+        if not self.read_only:
+            self.conn.commit()
 
     def put_manifest_receipt(self, receipt: ManifestAdmissionReceipt) -> None:
+        prov = receipt.provisioning_evidence
+        
         self.conn.execute(
             """
             INSERT INTO manifest_admission_receipts (
@@ -178,18 +274,19 @@ class FakeSqliteUnitOfWork:
                 adapter_id, peer_kind, inventory_generation, trust_root_json,
                 observed_vendor_json, acl_evaluation_json, chain_complete,
                 aggregate_chain_digest, timestamp_utc, transitive_executable_chain_json,
-                companion_binaries_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                companion_binaries_json, admitted_at_utc, prov_chain_complete
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 receipt.admission_receipt_id, receipt.manifest_canonical_sha256,
-                receipt.schema_version, receipt.adapter_id, receipt.peer_kind,
-                receipt.inventory_generation, json.dumps(dict(receipt.trust_root)),
-                json.dumps(dict(receipt.observed_vendor)),
-                json.dumps(dict(receipt.acl_evaluation)) if receipt.acl_evaluation else None,
-                int(receipt.chain_complete), receipt.aggregate_chain_digest,
-                receipt.timestamp_utc, json.dumps(list(receipt.transitive_executable_chain)),
-                json.dumps(list(receipt.companion_binaries))
+                prov.schema_version, prov.adapter_id, prov.peer_kind,
+                prov.inventory_generation, json.dumps(prov.trust_root, cls=EnumEncoder),
+                json.dumps(prov.observed_vendor, cls=EnumEncoder),
+                json.dumps(prov.acl_evaluation, cls=EnumEncoder) if prov.acl_evaluation else None,
+                int(receipt.chain_complete), prov.aggregate_chain_digest,
+                prov.timestamp_utc, json.dumps(prov.transitive_executable_chain, cls=EnumEncoder),
+                json.dumps(prov.companion_binaries, cls=EnumEncoder),
+                receipt.admitted_at_utc, int(prov.chain_complete)
             )
         )
 
@@ -199,40 +296,85 @@ class FakeSqliteUnitOfWork:
         ).fetchone()
         if not row: return None
         
-        # Explicit immutability reconstruction
-        return ManifestAdmissionReceipt(
-            admission_receipt_id=row[0], manifest_canonical_sha256=row[1],
-            schema_version=row[2], adapter_id=row[3], peer_kind=row[4],
+        def _parse_node(d: Dict[str, Any]) -> TransitiveExecutableNode:
+            return TransitiveExecutableNode(
+                role=ExecutableRole(d['role']),
+                canonical_path=d['canonical_path'],
+                file_size_bytes=d['file_size_bytes'],
+                sha256=d['sha256'],
+                is_reparse_point=d.get('is_reparse_point')
+            )
+
+        def _parse_acl(d: Dict[str, Any] | None) -> AclEvaluationEvidence | None:
+            if not d: return None
+            return AclEvaluationEvidence(
+                evaluated_paths=tuple(d['evaluated_paths']),
+                volume_type=d['volume_type'],
+                everyone_writable=d['everyone_writable'],
+                anonymous_writable=d['anonymous_writable'],
+                authenticated_users_modify_allowed=d['authenticated_users_modify_allowed'],
+                effective_dacl_summary=d['effective_dacl_summary'],
+                verdict=d['verdict']
+            )
+
+        prov = ManifestProvisioningEvidenceReceipt(
+            receipt_id=row[0], 
+            schema_version=row[2],
+            adapter_id=row[3],
+            peer_kind=row[4],
             inventory_generation=row[5],
             trust_root=types.MappingProxyType(json.loads(row[6])),
             observed_vendor=types.MappingProxyType(json.loads(row[7])),
-            acl_evaluation=types.MappingProxyType(json.loads(row[8])) if row[8] else None,
-            chain_complete=bool(row[9]), aggregate_chain_digest=row[10], timestamp_utc=row[11],
-            transitive_executable_chain=tuple(json.loads(row[12])),
-            companion_binaries=tuple(json.loads(row[13])),
+            acl_evaluation=_parse_acl(json.loads(row[8])) if row[8] else None,
+            chain_complete=bool(row[15]),
+            aggregate_chain_digest=row[10],
+            timestamp_utc=row[11],
+            transitive_executable_chain=tuple(_parse_node(n) for n in json.loads(row[12])),
+            companion_binaries=tuple(_parse_node(n) for n in json.loads(row[13])),
+        )
+
+        return ManifestAdmissionReceipt(
+            admission_receipt_id=row[0],
+            manifest_canonical_sha256=row[1],
+            provisioning_evidence=prov,
+            admitted_at_utc=row[14],
+            chain_complete=bool(row[9]),
         )
 
 class FakeStateStore:
     def __init__(self):
         self.db_path = "file:memorydb?mode=memory&cache=shared"
-        with sqlite3.connect(self.db_path, uri=True) as conn:
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS manifest_admission_receipts (
-                    admission_receipt_id TEXT PRIMARY KEY, manifest_canonical_sha256 TEXT NOT NULL,
-                    schema_version TEXT NOT NULL, adapter_id TEXT NOT NULL, peer_kind TEXT NOT NULL,
-                    inventory_generation INTEGER NOT NULL, trust_root_json TEXT NOT NULL,
-                    observed_vendor_json TEXT NOT NULL, acl_evaluation_json TEXT,
-                    chain_complete INTEGER NOT NULL, aggregate_chain_digest TEXT NOT NULL,
-                    timestamp_utc TEXT NOT NULL, transitive_executable_chain_json TEXT NOT NULL,
-                    companion_binaries_json TEXT NOT NULL
-                )
-            ''')
+        self._keeper_conn = sqlite3.connect(self.db_path, uri=True)
+        self._keeper_conn.execute('''
+            CREATE TABLE IF NOT EXISTS manifest_admission_receipts (
+                admission_receipt_id TEXT PRIMARY KEY,
+                manifest_canonical_sha256 TEXT NOT NULL,
+                schema_version TEXT NOT NULL,
+                adapter_id TEXT NOT NULL,
+                peer_kind TEXT NOT NULL,
+                inventory_generation INTEGER NOT NULL,
+                trust_root_json TEXT NOT NULL,
+                observed_vendor_json TEXT NOT NULL,
+                acl_evaluation_json TEXT,
+                chain_complete INTEGER NOT NULL,
+                aggregate_chain_digest TEXT NOT NULL,
+                timestamp_utc TEXT NOT NULL,
+                transitive_executable_chain_json TEXT NOT NULL,
+                companion_binaries_json TEXT NOT NULL,
+                admitted_at_utc TEXT NOT NULL,
+                prov_chain_complete INTEGER NOT NULL
+            )
+        ''')
+
+    def __del__(self):
+        if hasattr(self, '_keeper_conn'):
+            self._keeper_conn.close()
 
     def unit_of_work(self) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True))
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=False)
 
     def read_unit_of_work(self) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True))
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=True)
 
     def get_row_counts(self):
         with sqlite3.connect(self.db_path, timeout=5.0, uri=True) as conn:
@@ -246,30 +388,97 @@ class ManifestAdmissionCoordinator:
         self._clock = clock
         self._ids = ids
 
-    def admit_manifest(self, raw_manifest: dict, peer_kind: str, adapter_id: str) -> ManifestAdmissionReceipt:
-        timestamp_utc = str(self._clock.now())
-        random_suffix = secrets.token_hex(16)
-        receipt_id = f"receipt-{peer_kind}-{adapter_id}-{timestamp_utc}-{random_suffix}"
+    def admit_manifest(self, raw_manifest: dict) -> ManifestAdmissionReceipt:
+        timestamp_utc = self._clock.now().strftime("%Y%m%dT%H%M%SZ")
+        adapter_id = raw_manifest["adapter"]["adapter_id"]
+        peer_kind = raw_manifest["adapter"]["peer_kind"]
         
-        receipt = ManifestAdmissionReceipt(
-            admission_receipt_id=receipt_id, manifest_canonical_sha256="fake_sha",
-            schema_version="v2", adapter_id=adapter_id, peer_kind=peer_kind,
-            inventory_generation=1, trust_root=types.MappingProxyType({"root": "trusted"}),
-            observed_vendor=types.MappingProxyType({"vendor": "fake"}), acl_evaluation=None,
-            chain_complete=False, aggregate_chain_digest="fake_agg_digest",
-            timestamp_utc=timestamp_utc, transitive_executable_chain=({"path": "/fake"},),
-            companion_binaries=()
-        )
-        
-        with self._store.unit_of_work() as unit:
-            unit.put_manifest_receipt(receipt)
-            unit.commit()
+        nodes = (TransitiveExecutableNode(
+            role=ExecutableRole.NATIVE_BINARY,
+            canonical_path="/fake",
+            file_size_bytes=1024,
+            sha256="fake_hash"
+        ),)
+
+        MAX_RETRIES = 10
+        for attempt in range(MAX_RETRIES):
+            random_suffix = secrets.token_hex(16)
+            receipt_id = f"receipt-{peer_kind}-{adapter_id}-{timestamp_utc}-{random_suffix}"
             
-        return receipt
+            prov_evidence = ManifestProvisioningEvidenceReceipt(
+                receipt_id=receipt_id,
+                schema_version="2.0.0",
+                adapter_id=adapter_id,
+                peer_kind=peer_kind,
+                inventory_generation=1,
+                trust_root=types.MappingProxyType({"root": "trusted"}),
+                observed_vendor=types.MappingProxyType({"vendor": "fake"}),
+                acl_evaluation=AclEvaluationEvidence(
+                    evaluated_paths=("/fake",),
+                    volume_type="NTFS",
+                    everyone_writable=False,
+                    anonymous_writable=False,
+                    authenticated_users_modify_allowed=False,
+                    effective_dacl_summary="SECURE",
+                    verdict="PASS_SECURE_LOCAL"
+                ),
+                chain_complete=False,
+                aggregate_chain_digest="fake_agg_digest",
+                timestamp_utc=timestamp_utc,
+                transitive_executable_chain=nodes,
+                companion_binaries=()
+            )
+            
+            receipt = ManifestAdmissionReceipt(
+                admission_receipt_id=receipt_id,
+                manifest_canonical_sha256="fake_sha",
+                provisioning_evidence=prov_evidence,
+                admitted_at_utc=timestamp_utc,
+                chain_complete=False
+            )
+            
+            MAX_LOCK_ATTEMPTS = 50
+            lock_attempts = 0
+            
+            while lock_attempts < MAX_LOCK_ATTEMPTS:
+                try:
+                    with self._store.unit_of_work() as unit:
+                        unit.put_manifest_receipt(receipt)
+                        unit.commit()
+                    return receipt
+                except sqlite3.IntegrityError:
+                    break
+                except sqlite3.OperationalError as e:
+                    is_locked = getattr(e, 'sqlite_errorcode', 0) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                    if not is_locked and 'locked' in str(e).lower():
+                        is_locked = True
+                        
+                    if is_locked:
+                        lock_attempts += 1
+                        time.sleep(0.01)
+                    else:
+                        raise e
+            else:
+                class StateStoreUnavailableError(Exception): pass
+                raise StateStoreUnavailableError(f"Database locked after {MAX_LOCK_ATTEMPTS} attempts")
+
+        raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
+
+    def get_trusted_digest(self, receipt_id: str) -> str | None:
+        with self._store.read_unit_of_work() as unit:
+            receipt = unit.get_manifest_receipt(receipt_id)
+            if receipt:
+                return receipt.manifest_canonical_sha256
+        return None
+
+    def get_trusted_receipt(self, receipt_id: str) -> ManifestAdmissionReceipt | None:
+        with self._store.read_unit_of_work() as unit:
+            return unit.get_manifest_receipt(receipt_id)
 
 if __name__ == "__main__":
+    from datetime import datetime, timezone
     class DummyClock:
-        def now(self): return int(time.time())
+        def now(self): return datetime.now(timezone.utc)
     class DummyIdSource:
         def new_id(self, ns): return secrets.token_hex(8)
 
@@ -278,7 +487,8 @@ if __name__ == "__main__":
     coordinator = ManifestAdmissionCoordinator(store, DummyClock(), DummyIdSource())
     
     print("\\n(a) Admission success & ID match:")
-    receipt = coordinator.admit_manifest({}, "ag", "adapter_1")
+    raw_manifest = {"adapter": {"adapter_id": "adapter_1", "peer_kind": "ag"}}
+    receipt = coordinator.admit_manifest(raw_manifest)
     print(f"Issued ID: {receipt.admission_receipt_id}")
     assert receipt.admission_receipt_id.startswith("receipt-ag-adapter_1-")
     print("-> Format matches ratified scheme.")
@@ -288,15 +498,7 @@ if __name__ == "__main__":
     def worker():
         try:
             for _ in range(10):
-                while True:
-                    try:
-                        coordinator.admit_manifest({}, "cc", "adapter_2")
-                        break
-                    except sqlite3.OperationalError as e:
-                        if 'locked' in str(e):
-                            time.sleep(0.01)
-                        else:
-                            raise e
+                coordinator.admit_manifest({"adapter": {"adapter_id": "adapter_2", "peer_kind": "cc"}})
         except Exception as e:
             errors.append(e)
 
@@ -304,7 +506,7 @@ if __name__ == "__main__":
     for t in threads: t.start()
     for t in threads: t.join()
 
-    if errors: print(f"-> Concurrency failed with {len(errors)} errors")
+    if errors: print(f"-> Concurrency failed with {len(errors)} errors: {errors[0]}")
     else: print("-> 50 concurrent admissions succeeded, SQLite BEGIN IMMEDIATE enforced atomicity.")
 
     total_count, distinct_count = store.get_row_counts()
@@ -313,22 +515,53 @@ if __name__ == "__main__":
     assert distinct_count == 50, f"Expected 50 distinct IDs, got {distinct_count}"
 
     print("\\n(c) Deep immutability round-trip:")
-    with store.read_unit_of_work() as unit:
-        read_receipt = unit.get_manifest_receipt(receipt.admission_receipt_id)
+    read_receipt = coordinator.get_trusted_receipt(receipt.admission_receipt_id)
         
     print("Attempting to mutate trust_root dict...")
     try:
-        read_receipt.trust_root["root"] = "hacked"
+        read_receipt.provisioning_evidence.trust_root["root"] = "hacked"
         print("-> FAILED: Mutation succeeded!")
     except TypeError as e:
         print(f"-> SUCCESS: Mutation rejected: {e}")
 
-    print("Attempting to mutate transitive_executable_chain list...")
+    print("Attempting to mutate nested TransitiveExecutableNode field...")
     try:
-        read_receipt.transitive_executable_chain.append({"path": "/hacked"})
+        # Dataclasses don't allow setting attributes if frozen
+        read_receipt.provisioning_evidence.transitive_executable_chain[0].canonical_path = "/hacked"
         print("-> FAILED: Mutation succeeded!")
-    except AttributeError as e:
+    except Exception as e:
         print(f"-> SUCCESS: Mutation rejected: {e}")
+
+    print("\\n(d) Persistence across connection cycle (Keeper connection verification):")
+    assert read_receipt is not None, "Receipt should survive connection cycles"
+    print("-> SUCCESS: Receipt survived connection cycle.")
+    
+    print("\\n(e) ID collision bounded retry verification:")
+    class CollisionMockStore(FakeStateStore):
+        def __init__(self):
+            super().__init__()
+            self.integrity_errors_thrown = 0
+
+        def unit_of_work(self) -> FakeSqliteUnitOfWork:
+            class MockUoW(FakeSqliteUnitOfWork):
+                def __init__(self, conn, read_only, store):
+                    super().__init__(conn, read_only)
+                    self.store = store
+                def put_manifest_receipt(self, receipt):
+                    if self.store.integrity_errors_thrown < 2:
+                        self.store.integrity_errors_thrown += 1
+                        raise sqlite3.IntegrityError("UNIQUE constraint failed")
+                    super().put_manifest_receipt(receipt)
+            return MockUoW(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=False, store=self)
+            
+    mock_store = CollisionMockStore()
+    collision_coordinator = ManifestAdmissionCoordinator(mock_store, DummyClock(), DummyIdSource())
+    try:
+        collision_receipt = collision_coordinator.admit_manifest(raw_manifest)
+        print("-> SUCCESS: ID collision triggered and correctly bounded-retried over transaction attempts.")
+    except Exception as e:
+        print(f"-> FAILED: Collision retry failed: {e}")
+
     print("--- TRACE DEMONSTRATION END ---")
 ```
 
@@ -337,7 +570,7 @@ if __name__ == "__main__":
 --- TRACE DEMONSTRATION START ---
 
 (a) Admission success & ID match:
-Issued ID: receipt-ag-adapter_1-1787319153-bb6cb6259ed7ffe530377c4e5ed178d2
+Issued ID: receipt-ag-adapter_1-20260821T135040Z-117959e0cc3279d0be6586ce96bab3e4
 -> Format matches ratified scheme.
 
 (b) Concurrent contention:
@@ -347,10 +580,17 @@ Issued ID: receipt-ag-adapter_1-1787319153-bb6cb6259ed7ffe530377c4e5ed178d2
 (c) Deep immutability round-trip:
 Attempting to mutate trust_root dict...
 -> SUCCESS: Mutation rejected: 'mappingproxy' object does not support item assignment
-Attempting to mutate transitive_executable_chain list...
--> SUCCESS: Mutation rejected: 'tuple' object has no attribute 'append'
+Attempting to mutate nested TransitiveExecutableNode field...
+-> SUCCESS: Mutation rejected: cannot assign to field 'canonical_path'
+
+(d) Persistence across connection cycle (Keeper connection verification):
+-> SUCCESS: Receipt survived connection cycle.
+
+(e) ID collision bounded retry verification:
+-> SUCCESS: ID collision triggered and correctly bounded-retried over transaction attempts.
 --- TRACE DEMONSTRATION END ---
 ```
+
 
 ## C. Shim Registry Persistence Folding
 
@@ -417,6 +657,12 @@ If a flat `shim_registry.json` file is required for external tooling consumption
 ## Completion Statement
 All four items (A, B, C, D) have been **fully addressed** with concrete, complete proposals:
 * **Item A** is addressed by renaming the domain models to `ManifestAdmissionCoordinator` and `ManifestAdmissionReceipt`.
-* **Item B** is addressed with the illustrative `0025_manifest_admission_receipts.sql` schema and a `StateStore`-integrated coordinator trace.
+* **Item B** is addressed with the illustrative `0025_manifest_admission_receipts.sql` schema and a `StateStore`-integrated coordinator trace. All 6 review issues were **fully addressed**:
+    1. **Dedicated Keeper Connection**: `FakeStateStore` holds an explicitly-opened keeper connection (`_keeper_conn`) for the instance's lifetime to prevent shared-cache death.
+    2. **Connection Lifecycle**: `__exit__` always closes the connection and explicitly checks for uncommitted transactions to rollback; reads use `read_only=True` to avoid `BEGIN IMMEDIATE`.
+    3. **Bounded Lock Retries**: Retry logic enforces `MAX_LOCK_ATTEMPTS=50`, checks `sqlite_errorcode` (or string fallback), and raises a typed `StateStoreUnavailableError` when bound is exceeded.
+    4. **JSON Round-trip for Real Types**: Deeply deserializes `TransitiveExecutableNode` as frozen dataclasses and reconstructed Enums, proving genuine typed persistence.
+    5. **Semantic Trace Drift**: `ManifestAdmissionReceipt` and `ManifestProvisioningEvidenceReceipt` are now distinct typed tiers; schema_version is "2.0.0", timestamp format is exact, ID collisions retry over bounded transactions, and `get_trusted_receipt()` is defined via `ManifestAdmissionReadUnitOfWork`.
+    6. **Prose and Injection Clarification**: Explicit prose states the coordinator receives an injected `StateStore` (and owns no files), and clarifies that it is an injected verification step within `AdmissionCoordinator`, not a competitor.
 * **Item C** is addressed by folding shim persistence into `shim_registry_entries` and migrating away from JSON file locking toward SQLite `UnitOfWork` writes.
 * **Item D** is addressed with exact replacement diffs aligning the two earlier specification documents with the honest `chain_complete=False` scope boundary established in the final Phase 1 dialectic.
