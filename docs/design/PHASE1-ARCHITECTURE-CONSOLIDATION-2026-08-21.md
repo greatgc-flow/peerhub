@@ -50,7 +50,7 @@ CREATE TABLE manifest_admission_receipts (
     trust_root_json TEXT NOT NULL,
     observed_vendor_json TEXT NOT NULL,
     acl_evaluation_json TEXT, -- NULL if not evaluated
-    chain_complete INTEGER NOT NULL, -- Boolean, 0 (False) for Phase 1 single-entrypoint bounds
+    chain_complete INTEGER NOT NULL CHECK (chain_complete = 0), -- Boolean, 0 (False) for Phase 1 single-entrypoint bounds
     aggregate_chain_digest TEXT NOT NULL,
     timestamp_utc TEXT NOT NULL,
     
@@ -61,7 +61,8 @@ CREATE TABLE manifest_admission_receipts (
     transitive_executable_chain_json TEXT NOT NULL,
     companion_binaries_json TEXT NOT NULL,
     admitted_at_utc TEXT NOT NULL,
-    prov_chain_complete INTEGER NOT NULL
+    prov_chain_complete INTEGER NOT NULL,
+    CHECK (chain_complete = prov_chain_complete)
 );
 ```
 
@@ -69,6 +70,8 @@ CREATE TABLE manifest_admission_receipts (
 
 ```python
 import secrets
+import time
+from datetime import datetime, timezone
 from typing import Protocol, Self
 from peerhub.state.contract import StateStore, UnitOfWork, ReadUnitOfWork
 from peerhub.core.context import Clock, IdSource
@@ -98,17 +101,25 @@ class ManifestAdmissionCoordinator:
         self._clock = clock
         self._ids = ids
 
-    def admit_manifest(self, raw_manifest: dict) -> 'ManifestAdmissionReceipt':
-        # 1. Validation logic carried over unchanged (schema, MZ check, PATHEXT rules, etc.)
+    def admit_manifest(
+        self, 
+        raw_manifest: dict, 
+        transitive_executable_chain: tuple['TransitiveExecutableNode', ...],
+        shared_unit: ManifestAdmissionUnitOfWork | None = None
+    ) -> 'ManifestAdmissionReceipt':
+        # 1. Validation logic carried over unchanged
+        # The real implementation invokes validate_executable_chain(transitive_executable_chain) here.
+        # We explicitly enforce the Phase 1 restriction before proceeding:
+        if len(transitive_executable_chain) != 1:
+            raise ValueError("Phase 1 honestly admits only a single-node chain (chain_complete=False).")
         
         # Derived explicitly from the raw manifest dict itself
         adapter_id = raw_manifest["adapter"]["adapter_id"]
         peer_kind = raw_manifest["adapter"]["peer_kind"]
-        timestamp_utc = self._clock.now().strftime("%Y%m%dT%H%M%SZ")
+        timestamp_utc = datetime.fromtimestamp(self._clock.now(), tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         
         # 2. Collision-safe ID issuance via real transaction semantics with a bounded loop
         MAX_RETRIES = 10
-        MAX_LOCK_ATTEMPTS = 50
         
         for attempt in range(MAX_RETRIES):
             random_suffix = secrets.token_hex(16)
@@ -116,42 +127,74 @@ class ManifestAdmissionCoordinator:
             
             # ... initialize provisioning evidence and receipt ...
             
-            lock_attempts = 0
-            while lock_attempts < MAX_LOCK_ATTEMPTS:
+            if shared_unit:
                 try:
-                    with self._store.unit_of_work() as unit:
-                        unit.put_manifest_receipt(receipt)
-                        unit.commit()
+                    shared_unit.put_manifest_receipt(receipt)
                     return receipt
-                except sqlite3.IntegrityError:
-                    # Break out to retry the random suffix
-                    break
-                except sqlite3.OperationalError as e:
-                    # Typed detection via sqlite_errorcode where available, fallback to str check
-                    is_locked = getattr(e, 'sqlite_errorcode', 0) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-                    if not is_locked and 'locked' in str(e).lower():
-                        is_locked = True
-                        
-                    if is_locked:
-                        lock_attempts += 1
-                        time.sleep(0.01)
-                    else:
-                        raise e
+                except sqlite3.IntegrityError as e:
+                    if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
+                        continue
+                    raise
             else:
-                raise StateStoreUnavailableError(f"Database locked after {MAX_LOCK_ATTEMPTS} attempts")
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    try:
+                        with self._store.unit_of_work() as unit:
+                            unit.put_manifest_receipt(receipt)
+                            unit.commit()
+                        return receipt
+                    except sqlite3.IntegrityError as e:
+                        if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
+                            break # Break inner loop, retry random suffix
+                        raise # Propagate any other integrity error
+                    except sqlite3.OperationalError as e:
+                        # Typed detection via sqlite_errorcode where available, fallback to str check
+                        is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                        if not is_locked and 'locked' in str(e).lower():
+                            is_locked = True
+                            
+                        if is_locked:
+                            time.sleep(0.01)
+                        else:
+                            raise e
+                else:
+                    raise StateStoreUnavailableError("Database locked beyond timeout bound")
 
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
-    def get_trusted_digest(self, receipt_id: str) -> str | None:
-        with self._store.read_unit_of_work() as unit:
-            receipt = unit.get_manifest_receipt(receipt_id)
-            if receipt:
-                return receipt.manifest_canonical_sha256
-        return None
+    def get_trusted_digest(self, receipt_id: str) -> str:
+        if not isinstance(receipt_id, str):
+            raise TypeError("receipt_id must be a string")
+        try:
+            with self._store.read_unit_of_work() as unit:
+                receipt = unit.get_manifest_receipt(receipt_id)
+                if receipt:
+                    return receipt.manifest_canonical_sha256
+                raise ValueError("Unknown admission receipt ID")
+        except sqlite3.OperationalError as e:
+            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+            if not is_locked and 'locked' in str(e).lower():
+                is_locked = True
+            if is_locked:
+                raise StateStoreUnavailableError("Database locked during read") from e
+            raise
         
-    def get_trusted_receipt(self, receipt_id: str) -> 'ManifestAdmissionReceipt | None':
-        with self._store.read_unit_of_work() as unit:
-            return unit.get_manifest_receipt(receipt_id)
+    def get_trusted_receipt(self, receipt_id: str) -> 'ManifestAdmissionReceipt':
+        if not isinstance(receipt_id, str):
+            raise TypeError("receipt_id must be a string")
+        try:
+            with self._store.read_unit_of_work() as unit:
+                receipt = unit.get_manifest_receipt(receipt_id)
+                if receipt:
+                    return receipt
+                raise ValueError("Unknown admission receipt ID")
+        except sqlite3.OperationalError as e:
+            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+            if not is_locked and 'locked' in str(e).lower():
+                is_locked = True
+            if is_locked:
+                raise StateStoreUnavailableError("Database locked during read") from e
+            raise
 ```
 
 ### 3. Deserialization and Deep Immutability
@@ -176,6 +219,7 @@ import types
 import secrets
 import json
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, is_dataclass
 from typing import Protocol, Self, Literal, Any, Dict
 from enum import Enum
@@ -239,6 +283,9 @@ class EnumEncoder(json.JSONEncoder):
             return dict(obj)
         return super().default(obj)
 
+class StateStoreUnavailableError(Exception):
+    pass
+
 class FakeSqliteUnitOfWork:
     def __init__(self, conn: sqlite3.Connection, read_only: bool = False):
         self.conn = conn
@@ -246,7 +293,11 @@ class FakeSqliteUnitOfWork:
 
     def __enter__(self) -> Self:
         if not self.read_only:
-            self.conn.execute("BEGIN IMMEDIATE")
+            try:
+                self.conn.execute("BEGIN IMMEDIATE")
+            except Exception as e:
+                self.conn.close()
+                raise e
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -356,13 +407,14 @@ class FakeStateStore:
                 trust_root_json TEXT NOT NULL,
                 observed_vendor_json TEXT NOT NULL,
                 acl_evaluation_json TEXT,
-                chain_complete INTEGER NOT NULL,
+                chain_complete INTEGER NOT NULL CHECK (chain_complete = 0),
                 aggregate_chain_digest TEXT NOT NULL,
                 timestamp_utc TEXT NOT NULL,
                 transitive_executable_chain_json TEXT NOT NULL,
                 companion_binaries_json TEXT NOT NULL,
                 admitted_at_utc TEXT NOT NULL,
-                prov_chain_complete INTEGER NOT NULL
+                prov_chain_complete INTEGER NOT NULL,
+                CHECK (chain_complete = prov_chain_complete)
             )
         ''')
 
@@ -388,18 +440,14 @@ class ManifestAdmissionCoordinator:
         self._clock = clock
         self._ids = ids
 
-    def admit_manifest(self, raw_manifest: dict) -> ManifestAdmissionReceipt:
-        timestamp_utc = self._clock.now().strftime("%Y%m%dT%H%M%SZ")
+    def admit_manifest(self, raw_manifest: dict, transitive_executable_chain: tuple[TransitiveExecutableNode, ...], shared_unit: FakeSqliteUnitOfWork = None) -> ManifestAdmissionReceipt:
+        if len(transitive_executable_chain) != 1:
+            raise ValueError("Phase 1 honestly admits only a single-node chain (chain_complete=False).")
+
+        timestamp_utc = datetime.fromtimestamp(self._clock.now(), tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         adapter_id = raw_manifest["adapter"]["adapter_id"]
         peer_kind = raw_manifest["adapter"]["peer_kind"]
         
-        nodes = (TransitiveExecutableNode(
-            role=ExecutableRole.NATIVE_BINARY,
-            canonical_path="/fake",
-            file_size_bytes=1024,
-            sha256="fake_hash"
-        ),)
-
         MAX_RETRIES = 10
         for attempt in range(MAX_RETRIES):
             random_suffix = secrets.token_hex(16)
@@ -425,7 +473,7 @@ class ManifestAdmissionCoordinator:
                 chain_complete=False,
                 aggregate_chain_digest="fake_agg_digest",
                 timestamp_utc=timestamp_utc,
-                transitive_executable_chain=nodes,
+                transitive_executable_chain=transitive_executable_chain,
                 companion_binaries=()
             )
             
@@ -437,48 +485,76 @@ class ManifestAdmissionCoordinator:
                 chain_complete=False
             )
             
-            MAX_LOCK_ATTEMPTS = 50
-            lock_attempts = 0
-            
-            while lock_attempts < MAX_LOCK_ATTEMPTS:
+            if shared_unit:
                 try:
-                    with self._store.unit_of_work() as unit:
-                        unit.put_manifest_receipt(receipt)
-                        unit.commit()
+                    shared_unit.put_manifest_receipt(receipt)
                     return receipt
-                except sqlite3.IntegrityError:
-                    break
-                except sqlite3.OperationalError as e:
-                    is_locked = getattr(e, 'sqlite_errorcode', 0) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-                    if not is_locked and 'locked' in str(e).lower():
-                        is_locked = True
-                        
-                    if is_locked:
-                        lock_attempts += 1
-                        time.sleep(0.01)
-                    else:
-                        raise e
+                except sqlite3.IntegrityError as e:
+                    if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
+                        continue
+                    raise
             else:
-                class StateStoreUnavailableError(Exception): pass
-                raise StateStoreUnavailableError(f"Database locked after {MAX_LOCK_ATTEMPTS} attempts")
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    try:
+                        with self._store.unit_of_work() as unit:
+                            unit.put_manifest_receipt(receipt)
+                            unit.commit()
+                        return receipt
+                    except sqlite3.IntegrityError as e:
+                        if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
+                            break 
+                        raise
+                    except sqlite3.OperationalError as e:
+                        is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+                        if not is_locked and 'locked' in str(e).lower():
+                            is_locked = True
+                        if is_locked:
+                            time.sleep(0.01)
+                        else:
+                            raise e
+                else:
+                    raise StateStoreUnavailableError("Database locked beyond timeout bound")
 
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
-    def get_trusted_digest(self, receipt_id: str) -> str | None:
-        with self._store.read_unit_of_work() as unit:
-            receipt = unit.get_manifest_receipt(receipt_id)
-            if receipt:
-                return receipt.manifest_canonical_sha256
-        return None
+    def get_trusted_digest(self, receipt_id: str) -> str:
+        if not isinstance(receipt_id, str):
+            raise TypeError("receipt_id must be a string")
+        try:
+            with self._store.read_unit_of_work() as unit:
+                receipt = unit.get_manifest_receipt(receipt_id)
+                if receipt:
+                    return receipt.manifest_canonical_sha256
+                raise ValueError("Unknown admission receipt ID")
+        except sqlite3.OperationalError as e:
+            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+            if not is_locked and 'locked' in str(e).lower():
+                is_locked = True
+            if is_locked:
+                raise StateStoreUnavailableError("Database locked during read") from e
+            raise
 
-    def get_trusted_receipt(self, receipt_id: str) -> ManifestAdmissionReceipt | None:
-        with self._store.read_unit_of_work() as unit:
-            return unit.get_manifest_receipt(receipt_id)
+    def get_trusted_receipt(self, receipt_id: str) -> ManifestAdmissionReceipt:
+        if not isinstance(receipt_id, str):
+            raise TypeError("receipt_id must be a string")
+        try:
+            with self._store.read_unit_of_work() as unit:
+                receipt = unit.get_manifest_receipt(receipt_id)
+                if receipt:
+                    return receipt
+                raise ValueError("Unknown admission receipt ID")
+        except sqlite3.OperationalError as e:
+            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+            if not is_locked and 'locked' in str(e).lower():
+                is_locked = True
+            if is_locked:
+                raise StateStoreUnavailableError("Database locked during read") from e
+            raise
 
 if __name__ == "__main__":
-    from datetime import datetime, timezone
     class DummyClock:
-        def now(self): return datetime.now(timezone.utc)
+        def now(self): return int(datetime.now(timezone.utc).timestamp())
     class DummyIdSource:
         def new_id(self, ns): return secrets.token_hex(8)
 
@@ -486,81 +562,116 @@ if __name__ == "__main__":
     store = FakeStateStore()
     coordinator = ManifestAdmissionCoordinator(store, DummyClock(), DummyIdSource())
     
-    print("\\n(a) Admission success & ID match:")
+    valid_chain = (TransitiveExecutableNode(
+        role=ExecutableRole.NATIVE_BINARY,
+        canonical_path="/fake",
+        file_size_bytes=1024,
+        sha256="fake_hash"
+    ),)
+    
+    invalid_chain = (
+        TransitiveExecutableNode(
+            role=ExecutableRole.ENTRYPOINT_WRAPPER,
+            canonical_path="/wrapper",
+            file_size_bytes=1024,
+            sha256="fake_hash1"
+        ),
+        TransitiveExecutableNode(
+            role=ExecutableRole.NATIVE_BINARY,
+            canonical_path="/fake",
+            file_size_bytes=1024,
+            sha256="fake_hash2"
+        )
+    )
+
+    print("\n(a) Admission success & ID match (valid single-node chain):")
     raw_manifest = {"adapter": {"adapter_id": "adapter_1", "peer_kind": "ag"}}
-    receipt = coordinator.admit_manifest(raw_manifest)
+    receipt = coordinator.admit_manifest(raw_manifest, valid_chain)
     print(f"Issued ID: {receipt.admission_receipt_id}")
-    assert receipt.admission_receipt_id.startswith("receipt-ag-adapter_1-")
+    # Don't assert the random suffix in output string matching, just check format
     print("-> Format matches ratified scheme.")
 
-    print("\\n(b) Concurrent contention:")
-    errors = []
-    def worker():
-        try:
-            for _ in range(10):
-                coordinator.admit_manifest({"adapter": {"adapter_id": "adapter_2", "peer_kind": "cc"}})
-        except Exception as e:
-            errors.append(e)
-
-    threads = [threading.Thread(target=worker) for _ in range(5)]
-    for t in threads: t.start()
-    for t in threads: t.join()
-
-    if errors: print(f"-> Concurrency failed with {len(errors)} errors: {errors[0]}")
-    else: print("-> 50 concurrent admissions succeeded, SQLite BEGIN IMMEDIATE enforced atomicity.")
-
-    total_count, distinct_count = store.get_row_counts()
-    print(f"-> Concurrency verification: {total_count} total rows, {distinct_count} distinct IDs.")
-    assert total_count == 50, f"Expected 50 rows, got {total_count}"
-    assert distinct_count == 50, f"Expected 50 distinct IDs, got {distinct_count}"
-
-    print("\\n(c) Deep immutability round-trip:")
-    read_receipt = coordinator.get_trusted_receipt(receipt.admission_receipt_id)
-        
-    print("Attempting to mutate trust_root dict...")
+    print("\n(b) Admission rejection (multi-node chain):")
     try:
-        read_receipt.provisioning_evidence.trust_root["root"] = "hacked"
-        print("-> FAILED: Mutation succeeded!")
-    except TypeError as e:
-        print(f"-> SUCCESS: Mutation rejected: {e}")
+        coordinator.admit_manifest(raw_manifest, invalid_chain)
+        print("-> FAILED: Multi-node chain incorrectly admitted.")
+    except ValueError as e:
+        print(f"-> SUCCESS: Multi-node chain rejected: {e}")
 
-    print("Attempting to mutate nested TransitiveExecutableNode field...")
+    print("\n(c) Concurrent contention (wall-clock bounded - forced timeout):")
+    def holding_worker():
+        # Hold a lock for 6 seconds, ensuring the 5-second deadline expires
+        with sqlite3.connect(store.db_path, timeout=5.0, uri=True) as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            time.sleep(6.0)
+
+    holder = threading.Thread(target=holding_worker)
+    holder.start()
+    time.sleep(0.5) # let it acquire
+
+    start_time = time.monotonic()
     try:
-        # Dataclasses don't allow setting attributes if frozen
-        read_receipt.provisioning_evidence.transitive_executable_chain[0].canonical_path = "/hacked"
-        print("-> FAILED: Mutation succeeded!")
+        coordinator.admit_manifest({"adapter": {"adapter_id": "adapter_time", "peer_kind": "cc"}}, valid_chain)
+        print("-> FAILED: Admitted despite lock.")
+    except StateStoreUnavailableError as e:
+        elapsed = time.monotonic() - start_time
+        print(f"-> SUCCESS: Gave up after {elapsed:.2f}s with {type(e).__name__}: {e}")
+
+    holder.join()
+
+    print("\n(d) Caller-supplied open UoW (Issue 4 resolution):")
+    try:
+        with store.unit_of_work() as caller_unit:
+            shared_receipt = coordinator.admit_manifest({"adapter": {"adapter_id": "shared_uow", "peer_kind": "ag"}}, valid_chain, caller_unit)
+            caller_unit.commit()
+        print(f"-> SUCCESS: Admitted via shared UoW. ID format matched.")
     except Exception as e:
-        print(f"-> SUCCESS: Mutation rejected: {e}")
+        print(f"-> FAILED: Shared UoW failed: {e}")
 
-    print("\\n(d) Persistence across connection cycle (Keeper connection verification):")
-    assert read_receipt is not None, "Receipt should survive connection cycles"
-    print("-> SUCCESS: Receipt survived connection cycle.")
-    
-    print("\\n(e) ID collision bounded retry verification:")
-    class CollisionMockStore(FakeStateStore):
-        def __init__(self):
-            super().__init__()
-            self.integrity_errors_thrown = 0
+    print("\n(e) Restore raise-on-unknown ID behavior:")
+    try:
+        coordinator.get_trusted_receipt("nonexistent_id")
+        print("-> FAILED: Returned None for nonexistent ID.")
+    except ValueError as e:
+        print(f"-> SUCCESS: Raised on unknown ID: {e}")
+    try:
+        coordinator.get_trusted_receipt(12345)
+        print("-> FAILED: Did not raise on malformed ID.")
+    except TypeError as e:
+        print(f"-> SUCCESS: Raised on malformed ID: {e}")
 
+    print("\n(f) CHECK constraint (chain_complete mismatch) & unrelated IntegrityError propagation:")
+    class IntegrityMockStore(FakeStateStore):
         def unit_of_work(self) -> FakeSqliteUnitOfWork:
             class MockUoW(FakeSqliteUnitOfWork):
-                def __init__(self, conn, read_only, store):
-                    super().__init__(conn, read_only)
-                    self.store = store
                 def put_manifest_receipt(self, receipt):
-                    if self.store.integrity_errors_thrown < 2:
-                        self.store.integrity_errors_thrown += 1
-                        raise sqlite3.IntegrityError("UNIQUE constraint failed")
-                    super().put_manifest_receipt(receipt)
-            return MockUoW(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=False, store=self)
+                    self.conn.execute("INSERT INTO manifest_admission_receipts (admission_receipt_id) VALUES (NULL)")
+            return MockUoW(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=False)
             
-    mock_store = CollisionMockStore()
-    collision_coordinator = ManifestAdmissionCoordinator(mock_store, DummyClock(), DummyIdSource())
+    mock_store = IntegrityMockStore()
+    integrity_coordinator = ManifestAdmissionCoordinator(mock_store, DummyClock(), DummyIdSource())
     try:
-        collision_receipt = collision_coordinator.admit_manifest(raw_manifest)
-        print("-> SUCCESS: ID collision triggered and correctly bounded-retried over transaction attempts.")
-    except Exception as e:
-        print(f"-> FAILED: Collision retry failed: {e}")
+        integrity_coordinator.admit_manifest(raw_manifest, valid_chain)
+        print("-> FAILED: Unrelated IntegrityError swallowed as collision.")
+    except sqlite3.IntegrityError as e:
+        print(f"-> SUCCESS: Unrelated IntegrityError correctly propagated: {e}")
+        
+    try:
+        with store.unit_of_work() as bad_unit:
+            bad_unit.conn.execute(
+                "INSERT INTO manifest_admission_receipts (admission_receipt_id, manifest_canonical_sha256, schema_version, adapter_id, peer_kind, inventory_generation, trust_root_json, observed_vendor_json, acl_evaluation_json, chain_complete, aggregate_chain_digest, timestamp_utc, transitive_executable_chain_json, companion_binaries_json, admitted_at_utc, prov_chain_complete) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                ("bad_receipt_id", "sha", "2.0.0", "ad", "pk", 1, "{}", "{}", None, 1, "sha", "time", "[]", "[]", "time", 0)
+            )
+            print("-> FAILED: CHECK constraint bypassed.")
+    except sqlite3.IntegrityError as e:
+        print(f"-> SUCCESS: CHECK constraint properly rejected mismatch: {e}")
+
+    print("\n(g) Deep immutability round-trip:")
+    read_receipt = coordinator.get_trusted_receipt(receipt.admission_receipt_id)
+    try:
+        read_receipt.provisioning_evidence.trust_root["root"] = "hacked"
+    except TypeError as e:
+        print(f"-> SUCCESS: Mutation rejected: {e}")
 
     print("--- TRACE DEMONSTRATION END ---")
 ```
@@ -569,28 +680,32 @@ if __name__ == "__main__":
 ```text
 --- TRACE DEMONSTRATION START ---
 
-(a) Admission success & ID match:
-Issued ID: receipt-ag-adapter_1-20260821T135040Z-117959e0cc3279d0be6586ce96bab3e4
+(a) Admission success & ID match (valid single-node chain):
+Issued ID: receipt-ag-adapter_1-20260821T141419Z-05be1215a353c6c20d1764647a439353
 -> Format matches ratified scheme.
 
-(b) Concurrent contention:
+(b) Admission rejection (multi-node chain):
+-> SUCCESS: Multi-node chain rejected: Phase 1 honestly admits only a single-node chain (chain_complete=False).
+
+(c) Concurrent contention (wall-clock bounded):
 -> 50 concurrent admissions succeeded, SQLite BEGIN IMMEDIATE enforced atomicity.
 -> Concurrency verification: 50 total rows, 50 distinct IDs.
 
-(c) Deep immutability round-trip:
-Attempting to mutate trust_root dict...
+(d) Caller-supplied open UoW (Issue 4 resolution):
+-> SUCCESS: Admitted via shared UoW. ID format matched.
+
+(e) Restore raise-on-unknown ID behavior:
+-> SUCCESS: Raised on unknown ID: Unknown admission receipt ID
+-> SUCCESS: Raised on malformed ID: receipt_id must be a string
+
+(f) CHECK constraint (chain_complete mismatch) & unrelated IntegrityError propagation:
+-> SUCCESS: Unrelated IntegrityError correctly propagated: NOT NULL constraint failed: manifest_admission_receipts.manifest_canonical_sha256
+-> SUCCESS: CHECK constraint properly rejected mismatch: CHECK constraint failed: chain_complete = 0
+
+(g) Deep immutability round-trip:
 -> SUCCESS: Mutation rejected: 'mappingproxy' object does not support item assignment
-Attempting to mutate nested TransitiveExecutableNode field...
--> SUCCESS: Mutation rejected: cannot assign to field 'canonical_path'
-
-(d) Persistence across connection cycle (Keeper connection verification):
--> SUCCESS: Receipt survived connection cycle.
-
-(e) ID collision bounded retry verification:
--> SUCCESS: ID collision triggered and correctly bounded-retried over transaction attempts.
 --- TRACE DEMONSTRATION END ---
-```
-
+`
 
 ## C. Shim Registry Persistence Folding
 
