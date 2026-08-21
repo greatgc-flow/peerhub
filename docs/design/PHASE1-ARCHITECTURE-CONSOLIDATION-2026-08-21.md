@@ -413,15 +413,34 @@ class EnumEncoder(json.JSONEncoder):
 class StateStoreUnavailableError(Exception):
     pass
 
+class StateStoreConstraintError(Exception):
+    pass
+
 class FakeSqliteUnitOfWork:
     def __init__(self, conn: sqlite3.Connection, read_only: bool = False):
         self.conn = conn
         self.read_only = read_only
 
+
+    def _run_query(self, query, params=()):
+        try:
+            return self.conn.execute(query, params)
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE constraint failed" in str(e):
+                raise StateStoreConstraintError(str(e)) from e
+            raise
+        except sqlite3.OperationalError as e:
+            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
+            if not is_locked and 'locked' in str(e).lower():
+                is_locked = True
+            if is_locked:
+                raise StateStoreUnavailableError("Database locked") from e
+            raise
+
     def __enter__(self) -> Self:
         if not self.read_only:
             try:
-                self.conn.execute("BEGIN IMMEDIATE")
+                self._run_query("BEGIN IMMEDIATE")
             except Exception as e:
                 self.conn.close()
                 raise e
@@ -445,7 +464,7 @@ class FakeSqliteUnitOfWork:
     def put_manifest_receipt(self, receipt: ManifestAdmissionReceipt) -> None:
         prov = receipt.provisioning_evidence
         
-        self.conn.execute(
+        self._run_query(
             """
             INSERT INTO manifest_admission_receipts (
                 admission_receipt_id, manifest_canonical_sha256, schema_version,
@@ -469,7 +488,7 @@ class FakeSqliteUnitOfWork:
         )
 
     def get_manifest_receipt(self, receipt_id: str) -> ManifestAdmissionReceipt | None:
-        row = self.conn.execute(
+        row = self._run_query(
             "SELECT * FROM manifest_admission_receipts WHERE admission_receipt_id = ?", (receipt_id,)
         ).fetchone()
         if not row: return None
@@ -522,38 +541,46 @@ class FakeSqliteUnitOfWork:
 class FakeStateStore:
     def __init__(self, db_path="file:memorydb?mode=memory&cache=shared"):
         self.db_path = db_path
-        self._keeper_conn = sqlite3.connect(self.db_path, uri=True)
-        self._keeper_conn.execute('''
-            CREATE TABLE IF NOT EXISTS manifest_admission_receipts (
-                admission_receipt_id TEXT PRIMARY KEY,
-                manifest_canonical_sha256 TEXT NOT NULL,
-                schema_version TEXT NOT NULL,
-                adapter_id TEXT NOT NULL,
-                peer_kind TEXT NOT NULL,
-                inventory_generation INTEGER NOT NULL,
-                trust_root_json TEXT NOT NULL,
-                observed_vendor_json TEXT NOT NULL,
-                acl_evaluation_json TEXT,
-                chain_complete INTEGER NOT NULL CHECK (chain_complete = 0),
-                aggregate_chain_digest TEXT NOT NULL,
-                timestamp_utc TEXT NOT NULL,
-                transitive_executable_chain_json TEXT NOT NULL,
-                companion_binaries_json TEXT NOT NULL,
-                admitted_at_utc TEXT NOT NULL,
-                prov_chain_complete INTEGER NOT NULL,
-                CHECK (chain_complete = prov_chain_complete)
-            )
-        ''')
+        self._keeper_conn = None
+
+    def initialize(self) -> None:
+        if self._keeper_conn is None:
+            self._keeper_conn = sqlite3.connect(self.db_path, uri=True)
+            self._keeper_conn.execute('''
+                CREATE TABLE IF NOT EXISTS manifest_admission_receipts (
+                    admission_receipt_id TEXT PRIMARY KEY,
+                    manifest_canonical_sha256 TEXT NOT NULL,
+                    schema_version TEXT NOT NULL,
+                    adapter_id TEXT NOT NULL,
+                    peer_kind TEXT NOT NULL,
+                    inventory_generation INTEGER NOT NULL,
+                    trust_root_json TEXT NOT NULL,
+                    observed_vendor_json TEXT NOT NULL,
+                    acl_evaluation_json TEXT,
+                    chain_complete INTEGER NOT NULL CHECK (chain_complete = 0),
+                    aggregate_chain_digest TEXT NOT NULL,
+                    timestamp_utc TEXT NOT NULL,
+                    transitive_executable_chain_json TEXT NOT NULL,
+                    companion_binaries_json TEXT NOT NULL,
+                    admitted_at_utc TEXT NOT NULL,
+                    prov_chain_complete INTEGER NOT NULL,
+                    CHECK (chain_complete = prov_chain_complete)
+                )
+            ''')
+
+    def close(self) -> None:
+        if self._keeper_conn is not None:
+            self._keeper_conn.close()
+            self._keeper_conn = None
 
     def __del__(self):
-        if hasattr(self, '_keeper_conn'):
-            self._keeper_conn.close()
+        self.close()
 
-    def unit_of_work(self, timeout: float = 5.0) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout, uri=True), read_only=False)
+    def unit_of_work(self) -> FakeSqliteUnitOfWork:
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=0.0, uri=True), read_only=False)
 
-    def read_unit_of_work(self, timeout: float = 5.0) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout, uri=True), read_only=True)
+    def read_unit_of_work(self) -> FakeSqliteUnitOfWork:
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=0.0, uri=True), read_only=True)
 
 class ManifestAdmissionCoordinator:
     def __init__(self, store: FakeStateStore, clock, ids):
@@ -731,67 +758,59 @@ class ManifestAdmissionCoordinator:
                 try:
                     shared_unit.put_manifest_receipt(receipt)
                     return receipt
-                except sqlite3.IntegrityError as e:
-                    if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
+                except StateStoreConstraintError as e:
+                    if "UNIQUE constraint failed" in str(e):
                         continue
                     raise
             else:
                 while True:
                     try:
-                        with self._store.unit_of_work(timeout=0.0) as unit:
+                        with self._store.unit_of_work() as unit:
                             unit.put_manifest_receipt(receipt)
                             unit.commit()
                         return receipt
-                    except sqlite3.IntegrityError as e:
-                        if "UNIQUE constraint failed: manifest_admission_receipts.admission_receipt_id" in str(e):
+                    except StateStoreConstraintError as e:
+                        if "UNIQUE constraint failed" in str(e):
                             break 
                         raise
-                    except sqlite3.OperationalError as e:
-                        is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-                        if not is_locked and 'locked' in str(e).lower():
-                            is_locked = True
-                        if is_locked:
-                            if time.monotonic() >= deadline:
-                                raise StateStoreUnavailableError("Database locked beyond timeout bound")
-                            time.sleep(0.05)
-                        else:
-                            raise e
+                    except StateStoreUnavailableError:
+                        if time.monotonic() >= deadline:
+                            raise StateStoreUnavailableError("Database locked beyond timeout bound")
+                        time.sleep(0.05)
 
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
     def get_trusted_digest(self, receipt_id: str) -> str:
         if not isinstance(receipt_id, str):
             raise TypeError("receipt_id must be a string")
-        try:
-            with self._store.read_unit_of_work() as unit:
-                receipt = unit.get_manifest_receipt(receipt_id)
-                if receipt:
-                    return receipt.manifest_canonical_sha256
-                raise ValueError("Unknown admission receipt ID")
-        except sqlite3.OperationalError as e:
-            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-            if not is_locked and 'locked' in str(e).lower():
-                is_locked = True
-            if is_locked:
-                raise StateStoreUnavailableError("Database locked during read") from e
-            raise
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                with self._store.read_unit_of_work() as unit:
+                    receipt = unit.get_manifest_receipt(receipt_id)
+                    if receipt:
+                        return receipt.manifest_canonical_sha256
+                    raise ValueError("Unknown admission receipt ID")
+            except StateStoreUnavailableError:
+                if time.monotonic() >= deadline:
+                    raise StateStoreUnavailableError("Database locked beyond timeout bound during read")
+                time.sleep(0.05)
 
     def get_trusted_receipt(self, receipt_id: str) -> ManifestAdmissionReceipt:
         if not isinstance(receipt_id, str):
             raise TypeError("receipt_id must be a string")
-        try:
-            with self._store.read_unit_of_work() as unit:
-                receipt = unit.get_manifest_receipt(receipt_id)
-                if receipt:
-                    return receipt
-                raise ValueError("Unknown admission receipt ID")
-        except sqlite3.OperationalError as e:
-            is_locked = (getattr(e, 'sqlite_errorcode', 0) & 0xFF) in (sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED)
-            if not is_locked and 'locked' in str(e).lower():
-                is_locked = True
-            if is_locked:
-                raise StateStoreUnavailableError("Database locked during read") from e
-            raise
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                with self._store.read_unit_of_work() as unit:
+                    receipt = unit.get_manifest_receipt(receipt_id)
+                    if receipt:
+                        return receipt
+                    raise ValueError("Unknown admission receipt ID")
+            except StateStoreUnavailableError:
+                if time.monotonic() >= deadline:
+                    raise StateStoreUnavailableError("Database locked beyond timeout bound during read")
+                time.sleep(0.05)
 
 if __name__ == "__main__":
     class DummyClock:
@@ -806,6 +825,7 @@ if __name__ == "__main__":
     if os.path.exists(db_file):
         os.remove(db_file)
     store = FakeStateStore(db_path=db_file)
+    store.initialize()
     coordinator = ManifestAdmissionCoordinator(store, DummyClock(), DummyIdSource())
     
     # 1. Real valid binary (using python.exe or cmd.exe)
@@ -877,12 +897,16 @@ if __name__ == "__main__":
 
     print("\n(e) Concurrent contention (real file-backed wall-clock bounded):")
     def holding_worker():
+        conn = None
         try:
-            with sqlite3.connect(store.db_path, timeout=6.0) as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                time.sleep(8.0)
+            conn = sqlite3.connect(store.db_path, timeout=6.0)
+            conn.execute("BEGIN IMMEDIATE")
+            time.sleep(8.0)
         except Exception as e:
             print(f"Holding worker failed: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     holder = threading.Thread(target=holding_worker)
     holder.start()
@@ -918,8 +942,35 @@ if __name__ == "__main__":
     except StateStoreUnavailableError as e:
         print(f"-> SUCCESS: Detected self-contention when shared_unit omitted: {e}")
 
-    print("--- TRACE DEMONSTRATION END ---")
 
+    print("\n(h) Concurrent contention on read path (Issue 4 resolution):")
+    def holding_worker_for_read():
+        conn = None
+        try:
+            conn = sqlite3.connect(store.db_path, timeout=6.0)
+            conn.execute("BEGIN EXCLUSIVE")
+            time.sleep(8.0)
+        except Exception as e:
+            print(f"Holding worker (read) failed: {e}")
+        finally:
+            if conn:
+                conn.close()
+                
+    holder_read = threading.Thread(target=holding_worker_for_read)
+    holder_read.start()
+    time.sleep(0.5)
+
+    start_time_read = time.monotonic()
+    try:
+        coordinator.get_trusted_receipt('dummy')
+        print("-> FAILED: Read admitted despite exclusive lock.")
+    except StateStoreUnavailableError as e:
+        elapsed_read = time.monotonic() - start_time_read
+        print(f"-> SUCCESS: Read gave up after {elapsed_read:.2f}s with {type(e).__name__}: {e}")
+
+    holder_read.join()
+
+    print("--- TRACE DEMONSTRATION END ---")
 ```
 
 **Real Executable Trace Output:**
@@ -927,7 +978,7 @@ if __name__ == "__main__":
 --- TRACE DEMONSTRATION START ---
 
 (a) Admission success & ID match (valid single-node real binary):
-Issued ID: receipt-ag-adapter_1-20260821T145743Z-04dee14d47b9577b6cdb3775effa912d
+Issued ID: receipt-ag-adapter_1-20260821T160658Z-8aa4281e35d4469e273b4c73d21a7e9b
 -> Format matches ratified scheme.
 
 (b) Admission rejection (nonexistent path):
@@ -937,18 +988,21 @@ Issued ID: receipt-ag-adapter_1-20260821T145743Z-04dee14d47b9577b6cdb3775effa912
 -> SUCCESS: Wrong hash rejected: Executable hash mismatch for P:\_sys\env\venv\Scripts\python.exe! Claimed: 0000000000000000000000000000000000000000000000000000000000000000, Actual: 3ADBBF2AF609E206E3CA18CD55FC7C4B52F5C8BB8218DD99FD5A9E50D7A193CD
 
 (d) Admission rejection (missing MZ magic bytes):
--> SUCCESS: Non-MZ file rejected: File content at C:\Users\GC\.gemini\antigravity-cli\scratch\trace_generator.py does not match NATIVE_BINARY format claim (missing MZ magic bytes).
+-> SUCCESS: Non-MZ file rejected: File content at P:\workspace\peerhub\extracted6.py does not match NATIVE_BINARY format claim (missing MZ magic bytes).
 
 (e) Concurrent contention (real file-backed wall-clock bounded):
--> SUCCESS: Gave up after 5.79s with StateStoreUnavailableError: Database locked beyond timeout bound
+-> SUCCESS: Gave up after 5.02s with StateStoreUnavailableError: Database locked beyond timeout bound
 
 (f) Caller-supplied open UoW (Issue 4 resolution):
 -> SUCCESS: Admitted via shared UoW. ID format matched.
 
 (g) Caller-supplied open UoW violated (self-contention):
 -> SUCCESS: Detected self-contention when shared_unit omitted: Database locked beyond timeout bound
+
+(h) Concurrent contention on read path (Issue 4 resolution):
+-> SUCCESS: Read gave up after 5.03s with StateStoreUnavailableError: Database locked beyond timeout bound during read
 --- TRACE DEMONSTRATION END ---
-```
+``````
 
 ## C. Shim Registry Persistence Folding
 
