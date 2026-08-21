@@ -2,7 +2,7 @@
 
 > **Status:** APPROVED DESIGN & EMPIRICAL BASELINE (Round 5 Punch-List Item 3)  
 > **Date:** 2026-08-20  
-> **Scope:** Grounded empirical investigation of live `claude.cmd`, `codex.cmd`, and `agy.exe` installations on Windows, reconciliation of NTFS ACL admission rules, transitive executable chain binding & hashing, deterministic collision detection algorithms, and complete worked admission receipts.
+> **Scope:** Grounded empirical investigation of live `claude.cmd`, `codex.cmd`, and `agy.exe` installations on Windows, reconciliation of NTFS ACL admission rules, empirical groundwork for Phase 2's transitive executable chain binding & hashing, deterministic collision detection algorithms, and single-node Phase 1 admission receipts (with multi-node Phase 2 candidate targets).
 
 ---
 
@@ -13,7 +13,7 @@ In the Round 4 countercritique (`PHASE1-CX-COUNTERCRITIQUE-ROUND4-2026-08-20.md`
 1. **The Impossible ACL Rule**: The previous admission rule demanded that the directory containing the target executable "deny unprivileged writes", interpreted as rejecting any directory granting `Modify` (`M`) to `NT AUTHORITY\Authenticated Users`. In reality, on Windows NTFS non-system drives (such as `D:\` or the substituted portable developer root `P:\`), default inheritance grants `Authenticated Users:(OI)(CI)(M)`. Enforcing denial of `Authenticated Users:M` causes PeerHub to reject 100% of real-world installations, portable developer environments, and user-space global package installs (`%APPDATA%\npm`, `%LOCALAPPDATA%`).
 2. **Wrapper-Only Hashing Gap**: The previous receipts bound only the top-level `.cmd` batch scripts (`claude.cmd`, `codex.cmd`). On Windows, `.cmd` wrappers are thin trampoline scripts that invoke secondary interpreters (`node.exe` resolved via `PATH` at runtime), ESM launcher scripts (`codex.js`), and nested platform-specific native binaries (`claude.exe`, `codex.exe`). Hashing only the `.cmd` wrapper failed to cryptographically bind what actually executes.
 
-This document replaces theoretical assumptions with **empirical measurements on the live host system** (`GC-SURFACE-01`). We trace the complete transitive execution graphs, inspect the exact NTFS ACLs via `icacls`, compute real SHA-256 hashes for every file in the transitive closures, establish a secure and achievable Windows ACL admission rule, define the deterministic collision and snapshot publication algorithms, and provide three complete, verified `AdmissionReceipt` instances.
+This document replaces theoretical assumptions with **empirical measurements on the live host system** (`GC-SURFACE-01`). We trace the complete transitive execution graphs (as explicit target evidence for Phase 2), inspect the exact NTFS ACLs via `icacls`, compute real SHA-256 hashes for every file in the transitive closures, establish a secure and achievable Windows ACL admission rule, define the deterministic collision and snapshot publication algorithms, and provide three single-node Phase 1 `AdmissionReceipt` instances (with the Phase 2 target multi-node chain structures retained for reference).
 
 ---
 
@@ -175,34 +175,24 @@ Admission applies the following deterministic security checks:
 4. **Reparse Point / Junction Prohibition**:
    * No directory component in the path may be an unvalidated symlink, volume mount point, or junction point pointing to an unverified volume.
 
-**Real-World Security Justification**: This rule effectively neutralizes untrusted local/remote unauthenticated tampering and cross-account privilege escalation from guest/sandbox accounts, while permitting standard non-elevated developer installations. When paired with **cryptographic transitive chain hash pinning**, any unauthorized modification of the executable or any script in its chain will immediately fail pre-spawn revalidation.
+**Real-World Security Justification**: This rule effectively neutralizes untrusted local/remote unauthenticated tampering and cross-account privilege escalation from guest/sandbox accounts, while permitting standard non-elevated developer installations. When paired with Phase 1's single-node cryptographic pinning, unauthorized modification of the admitted entrypoint executable can be detected at admission. (The stronger multi-node guarantee—where any modification of any script in the transitive chain would fail a pre-spawn revalidation—is explicitly deferred to Phase 2).
 
 ---
 
-### 3.2. Transitive Executable Chain Binding & Revalidation
+### 3.2. Single-Node Executable Binding (Phase 1)
 
-When a manifest declares an entrypoint (e.g. `claude.cmd`, `codex.cmd`, `agy.exe`), the admission engine performs recursive static tracing:
+When a manifest declares an entrypoint (e.g. `claude.cmd`, `codex.cmd`, `agy.exe`), Phase 1 admission strictly validates and pins exactly one entrypoint node. Full multi-node recursive wrapper-chain derivation (`chain_complete=True`) is explicitly deferred to Phase 2.
 
-1. **Wrapper Inspection**: If the entrypoint is a `.cmd` / `.bat` script, the parser reads its contents to resolve the target interpreter and invoked script/binary:
-   * For batch wrappers checking `%dp0%\node.exe` with PATH fallback, the admission engine resolves `node.exe` on `PATH` *at admission time* and records its absolute canonical path and hash.
-   * The launcher script (`codex.js`, `cli-wrapper.cjs`) is resolved and added to the transitive chain.
-   * For Node launcher scripts that spawn platform-specific vendor binaries, the platform package root (`@openai/codex-win32-x64`) is resolved and its worker binary (`codex.exe`) is pinned.
-2. **Transitive Chain Structuring**:
-   Each file is recorded with:
-   * `role`: `ENTRYPOINT_WRAPPER`, `INTERPRETER`, `SCRIPT`, `NATIVE_BINARY`, or `HELPER_BINARY`.
-   * `canonical_path`: Fully qualified, case-normalized absolute path.
-   * `file_size_bytes`: Exact byte length.
-   * `sha256`: Uppercase hexadecimal SHA-256 digest.
-   * `is_reparse_point`: Boolean check against `FILE_ATTRIBUTE_REPARSE_POINT`.
-3. **Aggregate Chain Digest Computation**:
-   To ensure deterministic binding of the complete execution closure, the `aggregate_chain_digest` is computed by sorting entries canonically by `(role, canonical_path)`, formatting each line as `"Role:Path:SHA256\n"`, and hashing the concatenated UTF-8 payload with SHA-256 (64-character uppercase hex string).
-   - **Scope Policy on Companion Binaries**: Direct runtime execution depends strictly on the core transitive execution chain (`ENTRYPOINT_WRAPPER`, `INTERPRETER`, `SCRIPT`, `NATIVE_BINARY`). The published `aggregate_chain_digest` canonically binds this direct `transitive_executable_chain` (excluding companion binaries). Auxiliary vendor binaries are recorded under `companion_binaries` for informational audit purposes only and are not bound to any pre-spawn revalidation guarantee.
-4. **Pre-Spawn Revalidation**:
-   Immediately before invoking `subprocess.Popen`:
-   * The manifest's canonical JSON AST digest is checked.
-   * The Python engine source file digest is checked.
-   * Every file in the `transitive_executable_chain` is `stat`'d and re-hashed.
-   * `PATH` is **never re-resolved** at spawn time; only the pinned absolute paths are executed.
+1. **Target Resolution**: The declared target is resolved to an absolute canonical path.
+2. **Single-Node Hashing**: The entrypoint node is hashed (SHA-256) and pinned.
+3. **Chain Scope (chain_complete=False)**: The admission receipt records the single entrypoint node and explicitly flags the chain as incomplete (`chain_complete: False`).
+
+**(Phase 2 DEFERRED) Transitive Executable Chain Binding & Revalidation:**
+*The following describes the target multi-node chain derivation deferred to Phase 2, based on the empirical host evidence gathered above. It is NOT current Phase 1 behavior:*
+1. **Wrapper Inspection**: Recursive static tracing to resolve target interpreters and invoked scripts/binaries.
+2. **Transitive Chain Structuring**: Each file recorded with role, path, size, and SHA-256.
+3. **Aggregate Chain Digest Computation**: Computing an aggregate hash over the full sequence.
+4. **Pre-Spawn Revalidation**: Re-hashing every file in the transitive chain immediately before every `subprocess.Popen` spawn.
 
 ---
 
@@ -233,7 +223,7 @@ A collision is triggered if:
 #### 4. Atomic Snapshot Publication & Reader Synchronization
 * **Monotonic Registry Generation**: An integer `registry_generation` (starting at 1) tracks published revisions.
 * **Isolated Candidate Staging**: Candidate manifests in the registry directory are staged into a memory snapshot.
-* **All-or-Nothing Gate**: If any manifest fails JSON schema validation, ACL checks, semantic template checks, transitive chain resolution, or triggers a collision, the **entire candidate snapshot is rejected**. No partial registrations are admitted.
+* **All-or-Nothing Gate**: If any manifest fails JSON schema validation, ACL checks, semantic template checks, single-node executable validation, or triggers a collision, the **entire candidate snapshot is rejected**. No partial registrations are admitted. (Full transitive chain resolution is a Phase 2 gate).
 * **Lock-Free Publication (RCU Semantics)**: On successful validation, the new snapshot is wrapped in an immutable `PublishedRegistry(generation=G+1, timestamp=now, adapters=...)`. The global active registry reference is updated via an atomic pointer swap (`active_registry_ref.store()`).
 * **Reader Guarantee**: In-flight requests hold a pinned reference to their admitted `PublishedRegistry` and `AdmissionReceipt` instances, guaranteeing immunity from concurrent reload tearing.
 
@@ -241,7 +231,9 @@ A collision is triggered if:
 
 ## 4. Worked Admission Receipts (Live Measured Data)
 
-### 4.1. Claude Code Worked Receipt (`claude-peer`)
+### 4.1. Claude Code Phase 2 Target Receipt (`claude-peer`)
+
+*(Note: This is an illustrative Phase 2 candidate receipt showing full multi-node transitive chain derivation based on the empirical data gathered above. Actual Phase 1 receipts only hash the single entrypoint node and set `chain_complete: False`).*
 
 ```json
 {
@@ -319,7 +311,9 @@ A collision is triggered if:
 
 ---
 
-### 4.2. OpenAI Codex Worked Receipt (`codex-peer`)
+### 4.2. OpenAI Codex Phase 2 Target Receipt (`codex-peer`)
+
+*(Note: This is an illustrative Phase 2 candidate receipt showing full multi-node transitive chain derivation based on the empirical data gathered above. Actual Phase 1 receipts only hash the single entrypoint node and set `chain_complete: False`).*
 
 ```json
 {
@@ -439,7 +433,9 @@ A collision is triggered if:
 
 ---
 
-### 4.3. Google Antigravity Worked Receipt (`agy-peer`)
+### 4.3. Google Antigravity Phase 2 Target Receipt (`agy-peer`)
+
+*(Note: This is an illustrative Phase 2 candidate receipt showing full multi-node transitive chain derivation based on the empirical data gathered above. Actual Phase 1 receipts only hash the single entrypoint node and set `chain_complete: False`).*
 
 ```json
 {
@@ -514,6 +510,6 @@ A collision is triggered if:
 | Gate Item 3 Condition | Status | Implementation Verification |
 |---|---|---|
 | Reconciled Real Windows ACL Rule | **CLOSED** | Proved `Authenticated Users:M` is default on live volume; updated rule to enforce NTFS non-world-writable (`Everyone:no-write`, `Anonymous:no-write`). |
-| Transitive Executable Binding | **CLOSED** | Fully traced `.cmd` wrappers, Node interpreters, `.js` launchers, and native `.exe` binaries with real SHA-256 digests. |
+| Transitive Executable Binding | **DEFERRED (Phase 2)** | Documented empirical host requirements for multi-node chains, but deferred actual implementation to Phase 2. Phase 1 validates only the single entrypoint node. |
 | Deterministic Normalization & Collision Detection | **CLOSED** | Formally defined Unicode NFC, case-folding, and extension stripping; specified atomic snapshot rejection and generation RCU synchronization. |
-| Worked Real Admission Receipts | **CLOSED** | Provided 3 complete, verified JSON receipts with zero placeholders or illustrative values. |
+| Worked Real Admission Receipts | **CLOSED** | Provided 3 complete, verified JSON receipts from empirical data, modeled as Phase 2 candidate targets to preserve multi-node host measurements. |

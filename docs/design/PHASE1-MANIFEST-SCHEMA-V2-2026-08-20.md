@@ -278,7 +278,7 @@ The `execution.templates` block now directly models the inputs required to build
 
 ## 4. Executable Admission, ACL Evaluation, and Transitive Binding Model
 
-To eliminate TOCTOU, unauthenticated tampering, and wrapper-only binding vulnerabilities, manifest admission strictly resolves, validates, and cryptographically binds the complete transitive execution graph.
+To eliminate TOCTOU and unauthenticated tampering for the single entrypoint node it admits, Phase 1 manifest admission strictly resolves, validates, and cryptographically binds that node's canonical path and content hash. The stronger wrapper-only-binding guarantee described in this section's Phase 2 subsections below -- cryptographically binding the complete transitive execution graph, not just the entrypoint -- is explicitly deferred to Phase 2; see §4.3 for the exact Phase 1/Phase 2 boundary.
 
 ### 4.1. Semantic Validation Rules at Admission
 In addition to JSON Schema structural checks and absolute path resolution:
@@ -299,20 +299,21 @@ The admission engine enforces the following real-world security threshold:
 4. **Reparse Point / Junction Safety**:
    * No directory component in the path may traverse an unverified symlink, volume mount point, or junction point.
 
-### 4.3. Transitive Executable Chain Resolution & Hashing
-Admission does NOT stop at top-level `.cmd` wrappers:
-1. **Static Trampoline Tracing**: If the entrypoint is a `.cmd`/`.bat` wrapper, the parser analyzes the script to resolve the target interpreter (`node.exe` resolved on `PATH` at admission time) and script target (`codex.js`). If the script invokes a vendor native binary (e.g. `claude.exe`, `codex.exe`), the native binary is resolved.
-2. **Transitive Chain Structuring**:
-   Every file in the transitive execution chain is assigned a role (`ENTRYPOINT_WRAPPER`, `INTERPRETER`, `SCRIPT`, `NATIVE_BINARY`, `HELPER_BINARY`) and recorded with its canonical absolute path, byte length, and SHA-256 digest.
-3. **Aggregate Chain Digest**:
-   The aggregate chain digest is computed over the canonically sorted sequence of `(role, canonical_path, sha256)`:
-   $$\text{Digest} = \text{SHA256}\left( \bigoplus_{i} \left( \text{Role}_i \mathbin{\Vert} \text{":"} \mathbin{\Vert} \text{Path}_i \mathbin{\Vert} \text{":"} \mathbin{\Vert} \text{SHA256}_i \mathbin{\Vert} \text{"\n"} \right) \right)$$
-4. **Pre-Spawn Revalidation**:
-   Immediately before invoking `subprocess.Popen`:
-   * The manifest canonical JSON AST hash is checked.
-   * The Python engine code digest is checked.
-   * Every file in the `transitive_executable_chain` is `stat`'d and re-hashed.
-   * `PATH` is **never re-resolved** at spawn time; only the pinned absolute paths are executed.
+### 4.3. Single-Node Executable Validation (Phase 1)
+In Phase 1, admission strictly validates and pins exactly one entrypoint node. Full multi-node recursive wrapper-chain derivation (`chain_complete=True`) is explicitly deferred to Phase 2 to allow admission of real-world wrapper-fronted peers like `claude.cmd` and `codex.cmd` in the interim.
+
+Phase 1 admission performs:
+1. **Target Resolution**: The target specified by `execution.executable.target` is resolved using the declared `resolution_rule` into an absolute canonical path.
+2. **Single-Node Hashing**: The resolved single entrypoint node is hashed (SHA-256) and pinned.
+3. **Native Binary Verification**: If the claim is `NATIVE_BINARY`, the entrypoint is verified via an MZ magic-byte check.
+4. **Chain Scope (chain_complete=False)**: The admission receipt records the single entrypoint node and explicitly flags the chain as incomplete (`chain_complete: False`).
+
+**(Phase 2 DEFERRED) Transitive Executable Chain Resolution & Hashing:**
+*The following describes the target multi-node chain derivation deferred to Phase 2, NOT current Phase 1 behavior:*
+* **Static Trampoline Tracing**: Analyzing `.cmd`/`.bat` wrappers to resolve target interpreters and native binaries.
+* **Transitive Chain Structuring**: Assigning roles and hashing every file in the transitive execution chain.
+* **Aggregate Chain Digest**: Computing an aggregate hash over the full multi-node sequence.
+* **Pre-Spawn Revalidation**: Re-hashing every file in the transitive chain immediately before every `subprocess.Popen` spawn.
 
 ---
 
@@ -335,7 +336,7 @@ For every manifest $M_i$:
 ### 5.3. Atomic Snapshot Publication & Reader Synchronization
 1. **Monotonic Generation**: Monotonically increasing 64-bit integer `registry_generation`.
 2. **Candidate Staging**: Candidate manifests are loaded into an isolated memory buffer.
-3. **Atomic Rejection**: If ANY manifest fails JSON schema, ACL checks, semantic template checks, transitive chain resolution, or triggers a collision, the **entire candidate snapshot is rejected**.
+3. **Atomic Rejection**: If ANY manifest fails JSON schema, ACL checks, semantic template checks, single-node executable validation, or triggers a collision, the **entire candidate snapshot is rejected**. (Note: Full transitive chain resolution is a Phase 2 deferred gate condition).
 4. **RCU Pointer Swap**: On success, the new snapshot is wrapped in `PublishedRegistry(generation=G+1, timestamp=now, adapters=...)` and published via an atomic pointer store (`active_registry_ref.store()`).
 5. **Reader Immunity**: In-flight executions maintain pinned references to their active `PublishedRegistry` and `AdmissionReceipt`, preventing tearing across reloads.
 
