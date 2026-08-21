@@ -251,6 +251,8 @@ class AclEvaluationEvidence:
     effective_dacl_summary: str
     verdict: Literal["PASS_SECURE_LOCAL", "FAIL_WORLD_WRITABLE", "FAIL_NON_NTFS"]
 
+from types import MappingProxyType
+
 @dataclass(frozen=True, slots=True)
 class ProvisioningEvidenceReceipt:
     receipt_id: str
@@ -258,8 +260,8 @@ class ProvisioningEvidenceReceipt:
     adapter_id: str
     peer_kind: str
     inventory_generation: int
-    trust_root: dict[str, str]
-    observed_vendor: dict[str, str | None]
+    trust_root: MappingProxyType[str, str]
+    observed_vendor: MappingProxyType[str, str | None]
     acl_evaluation: AclEvaluationEvidence | None
     transitive_executable_chain: tuple[TransitiveExecutableNode, ...]
     companion_binaries: tuple[TransitiveExecutableNode, ...]
@@ -310,9 +312,9 @@ def _build_admission_registry():
         against the PHASE1-MANIFEST-SCHEMA-V2 specification AND real executable-integrity
         evidence (transitive hash-chain verification and manifest-target binding, as defined
         in PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20). ACL evaluation, trust-root verification,
-        and vendor observation are honestly scoped OUT of this Phase 1 in-memory prototype
-        (see acl_evaluation=None below) and deferred to a real Phase 2 HostCapabilityInventory
-        implementation; this registry does not claim to perform them.
+        vendor observation, and full recursive wrapper-chain derivation from the filesystem are 
+        honestly scoped OUT of this Phase 1 in-memory prototype (see acl_evaluation=None below) 
+        and deferred to a real Phase 2 HostCapabilityInventory implementation; this registry does not claim to perform them.
         It computes and stores the AdmissionReceipt under a newly issued, collision-safe 
         real receipt ID (e.g., receipt-cc-claude-peer-...), following the proven single-source-of-truth
         discipline established by ARCHITECTURE.md's AdmissionSnapshot.
@@ -393,10 +395,44 @@ def _build_admission_registry():
                 c_path = item["canonical_path"]
                 claimed_hash = item["sha256"]
                 
-                # Check target match on first node (ENTRYPOINT_WRAPPER or NATIVE_BINARY)
                 if idx == 0:
-                    if not (c_path.endswith(f"/{target}") or c_path.endswith(f"\\{target}") or os.path.basename(c_path) == target):
-                        raise ValueError(f"Executable chain entrypoint {c_path} does not match manifest target {target}")
+                    if role not in (ExecutableRole.ENTRYPOINT_WRAPPER, ExecutableRole.NATIVE_BINARY):
+                        raise ValueError(f"Executable chain entrypoint must be ENTRYPOINT_WRAPPER or NATIVE_BINARY, got {role.name}")
+                    
+                    resolution_rule = raw_manifest.get("execution", {}).get("executable", {}).get("resolution_rule")
+                    if not resolution_rule:
+                        raise ValueError("Manifest missing execution.executable.resolution_rule")
+                    
+                    resolved_target = None
+                    if resolution_rule == "absolute":
+                        resolved_target = target
+                    elif resolution_rule == "sibling":
+                        # Honest scope deferral: PHASE1-MANIFEST-SCHEMA-V1's normative definition
+                        # requires "sibling" to resolve relative to the *manifest file's own
+                        # directory*. This in-memory prototype has no concept of a manifest's
+                        # source file path (raw_manifest is a caller-supplied dict, not a loaded
+                        # file), so os.path.abspath(target) would silently resolve relative to the
+                        # process's current working directory instead -- a different, incorrect
+                        # binding that could accidentally match or accidentally reject depending on
+                        # CWD. Rather than accept that unreliable behavior, "sibling" is explicitly
+                        # unsupported until Phase 2 threads a real manifest source path through.
+                        raise ValueError(
+                            "resolution_rule 'sibling' is not supported by this in-memory "
+                            "prototype: no manifest source directory is tracked. Use 'absolute' "
+                            "or 'path' instead, or defer to Phase 2 HostCapabilityInventory."
+                        )
+                    elif resolution_rule == "path":
+                        import shutil
+                        resolved_target = shutil.which(target)
+                        if resolved_target is None:
+                            raise ValueError(f"Target '{target}' with resolution_rule 'path' could not be resolved via OS PATH")
+                    else:
+                        raise ValueError(f"Unknown resolution_rule {resolution_rule}")
+                        
+                    resolved_canon = os.path.normpath(os.path.abspath(resolved_target)).lower()
+                    c_path_canon = os.path.normpath(os.path.abspath(c_path)).lower()
+                    if resolved_canon != c_path_canon:
+                        raise ValueError(f"Executable chain entrypoint {c_path} does not match resolved manifest target {resolved_target}")
                 
                 if not os.path.exists(c_path):
                     raise ValueError(f"Executable path does not exist: {c_path}")
@@ -411,8 +447,12 @@ def _build_admission_registry():
                     canonical_path=c_path,
                     file_size_bytes=os.path.getsize(c_path),
                     sha256=actual_hash,
-                    is_reparse_point=item.get("is_reparse_point", False)
+                    is_reparse_point=item.get("is_reparse_point", False) # Explicitly skipped in Phase 1 schema model
                 ))
+
+            last_node = nodes[-1]
+            if last_node.role not in (ExecutableRole.NATIVE_BINARY, ExecutableRole.INTERPRETER):
+                raise ValueError("Transitive executable chain is incomplete: leaf node must be NATIVE_BINARY or INTERPRETER")
 
             # Compute aggregate chain digest (deterministic sort by role and path)
             sorted_nodes = sorted(nodes, key=lambda x: (x.role.value, x.canonical_path))
@@ -440,15 +480,16 @@ def _build_admission_registry():
             timestamp_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
             # Scope decision explicit note:
-            # We explicitly skip full real ACL evaluation, trust root verification, and vendor observations
-            # for this in-memory prototype, opting for honest placeholders instead of mocking OS mechanics.
+            # We explicitly skip full real ACL evaluation, trust root verification, vendor observations,
+            # and full recursive wrapper-chain derivation from the filesystem for this in-memory prototype,
+            # opting for honest placeholders instead of mocking OS mechanics.
             # A genuine Phase 2 HostCapabilityInventory implementation will populate these fields with
             # real NTFS/OS evidence before inserting into the real AdmissionCoordinator.
             
             # 4. Collision-safe receipt ID issuance with atomic check-and-insert under lock
             for attempt in range(max_retries):
-                # e.g. receipt-cc-claude-peer-20260820T215000Z-a1b2c3d4
-                random_suffix = secrets.token_hex(4)
+                # e.g. receipt-cc-claude-peer-20260820T215000Z-a1b2c3d4...
+                random_suffix = secrets.token_hex(16)
                 candidate_id = f"receipt-{peer_kind}-{adapter_id}-{timestamp_utc}-{random_suffix}"
                 
                 with _lock:
@@ -459,8 +500,8 @@ def _build_admission_registry():
                             adapter_id=adapter_id,
                             peer_kind=peer_kind,
                             inventory_generation=1,
-                            trust_root={"host_machine": "UNVERIFIED_PROTOTYPE"},
-                            observed_vendor={},
+                            trust_root=MappingProxyType({"host_machine": "UNVERIFIED_PROTOTYPE"}),
+                            observed_vendor=MappingProxyType({}),
                             acl_evaluation=None, # Explicitly skipped in Phase 1 schema model
                             transitive_executable_chain=nodes,
                             companion_binaries=(),
@@ -1530,21 +1571,22 @@ print(f"MIXED INJECTION BLOCKED: Unadmitted cell rejected: {promotion_result_mix
 
 print("\n--- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---")
 existing_receipt_id = claude_receipt_id
-raw_existing_token = existing_receipt_id.replace("rcpt_", "")
+raw_existing_token = existing_receipt_id.split("-")[-1]
 
 second_valid_manifest = dict(valid_claude_manifest)
 second_valid_manifest["adapter"] = dict(valid_claude_manifest["adapter"])
-second_valid_manifest["adapter"]["adapter_id"] = "agy-peer"
-second_valid_manifest["adapter"]["peer_kind"] = "ag"
+# Force the same peer_kind and adapter_id so the receipt prefix matches exactly
+second_valid_manifest["adapter"]["adapter_id"] = "claude-peer"
+second_valid_manifest["adapter"]["peer_kind"] = "cc"
 second_valid_manifest["engine"] = {"engine_id": "builtin:json-agy-v1", "options": {}}
 second_valid_manifest["profiles"] = [
     {
-        "profile_id": "ag.standard",
+        "profile_id": "cc.standard",
         "profile_class": "tier",
         "supports_reasoning_effort": False,
         "transport": "PIPE",
         "prompt_policy": {
-            "policy_id": "ag-standard-policy",
+            "policy_id": "cc-standard-policy",
             "max_inline_utf8_bytes": 1000000,
             "artifact_reference_supported": False
         }
@@ -1587,11 +1629,11 @@ def concurrent_mock_token_hex(nbytes=16):
 
 manifest_t1 = dict(valid_claude_manifest)
 manifest_t1["adapter"] = dict(valid_claude_manifest["adapter"])
-manifest_t1["adapter"]["adapter_id"] = "conc-peer-1"
+manifest_t1["adapter"]["adapter_id"] = "conc-peer"
 
 manifest_t2 = dict(valid_claude_manifest)
 manifest_t2["adapter"] = dict(valid_claude_manifest["adapter"])
-manifest_t2["adapter"]["adapter_id"] = "conc-peer-2"
+manifest_t2["adapter"]["adapter_id"] = "conc-peer"
 
 concurrent_results = {}
 barrier = threading.Barrier(2)
