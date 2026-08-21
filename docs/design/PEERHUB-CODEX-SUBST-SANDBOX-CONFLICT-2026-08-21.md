@@ -1,6 +1,6 @@
 # Codex CLI dispatch failure on SUBST-mapped drives with special characters in the real path
 
-Status: root-caused 2026-08-21, config-level mitigation applied to legacy `hub.py` (`P:\_sys\ai\infra.json`), design implication for peerhub's own `CodexAdapter` documented below, not yet implemented in `peerhub/adapters/codex_adapter.py`.
+Status: root-caused 2026-08-21. No mitigation applied to legacy `hub.py` — see "Mitigation attempt and why it was reverted" below. Design implication for peerhub's own `CodexAdapter` documented below, not yet implemented in `peerhub/adapters/codex_adapter.py`.
 
 ## Finding
 
@@ -19,9 +19,23 @@ CreateProcess { message: "UnsupportedOperation(\"windows unelevated restricted-t
 
 **Confirmed not to affect other peers**: `ag` (agy.exe) has no filesystem-level OS sandbox at all (already documented in this project's own operating notes — its PTY has no FS sandbox), so it has no equivalent "split writable root" check and dispatches successfully from `P:\` with real subprocess execution (verified directly: a `git status --short` dispatch through `hub.py ask --to ag` succeeded normally). This is specifically a Codex-CLI Windows-sandbox behavior.
 
-## Mitigation applied to legacy `hub.py` (this session, 2026-08-21)
+## Mitigation attempt and why it was reverted
 
-`P:\_sys\ai\infra.json`'s `tool_paths.cx.default_flags` changed `--sandbox workspace-write` to `--sandbox danger-full-access`, confirmed directly (manual `codex.cmd ... --sandbox danger-full-access` invocation from `P:\` succeeded, including a real `git status --short`) to eliminate the conflict entirely. This is judged safe in this system specifically because `hub.py`'s own governed-mutation and capability-lease machinery is the actual security boundary around what a dispatched peer may do — Codex's own OS-level sandbox is a redundant, secondary layer here, not the primary one — so removing it for `cx` specifically does not remove the real enforcement. This mitigation was applied narrowly to `P:\_sys\ai\infra.json` at the user's explicit direction after the default auto-mode classifier correctly flagged it as a safety-relevant change requiring confirmation (it globally disables an AI-driven subprocess's own OS sandbox, which is a real trade-off worth a deliberate decision, not something to apply silently).
+Manually invoking `codex.cmd ... --sandbox danger-full-access` directly from `P:\` confirmed the conflict is fully eliminated by that flag (a real `git status --short` succeeded). Based on that, `P:\_sys\ai\infra.json`'s `tool_paths.cx.default_flags` was changed from `--sandbox workspace-write` to `--sandbox danger-full-access`, at the user's explicit direction after the default auto-mode classifier correctly flagged the change as safety-relevant and required confirmation.
+
+That edit turned out to be **ineffective and was reverted**: `infra.json`'s `tool_paths.cx.default_flags` is not the config `hub.py` actually uses to build the live `cx` invocation. The real source is `P:\_sys\ai\orchestration.json`'s `hub_nodes[].invoke_args` for the `cx` node, which hardcodes `-c sandbox="workspace-write"` directly (a Codex `-c key=value` config override, not a plain `--sandbox` flag), and — more importantly — that same node carries an explicit `security_contract`:
+
+```json
+"security_contract": {
+    "required_effective_args": [],
+    "forbidden_effective_args": ["dangerously-bypass-approvals-and-sandbox", "yolo", "full-auto"],
+    "sandbox_semantics": "workspace-write"
+}
+```
+
+`permission_classes.sandboxed_mutation` (the class `cx` is declared under) explicitly documents `cx` as "the most confined active mutation peer" and states "prefer lower privilege at equal capability fit." This is a deliberate, named security policy in this project, not an oversight or a stale default — `hub.py`'s own governed-mutation/capability-lease framing (used elsewhere in this session's reasoning to justify the now-reverted `infra.json` edit) does not override a peer's own explicitly declared `forbidden_effective_args`. Crossing this line is a real policy decision that needs its own explicit sign-off, not something to fold into an unrelated investigation. `infra.json`'s edit was reverted to its original `workspace-write` value; no live `hub.py` config was left in a modified state.
+
+**Net result**: the root cause is understood and documented, but no working mitigation for `cx` dispatch under the current `P:\` SUBST setup was applied in this session. Until either (a) the user explicitly authorizes weakening `cx`'s `security_contract`, or (b) a fix that doesn't require it is found (see recommendation 3 below — resolving to a clean canonical path is strictly better than a sandbox bypass, since it removes the conflict without touching the security boundary at all), `cx` dispatch from `P:\` remains unreliable for any task requiring a real subprocess.
 
 ## Design implication for peerhub's own `CodexAdapter`
 
