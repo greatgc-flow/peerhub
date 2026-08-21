@@ -238,7 +238,7 @@ A collision is triggered if:
 ```json
 {
   "$schema": "https://peerhub.local/schema/admission-receipt/v2",
-  "receipt_id": "receipt-cc-claude-peer-20260820T215000Z",
+  "receipt_id": "receipt-cc-claude-peer-20260820T125000Z",
   "schema_version": "2.0.0",
   "chain_complete": true,
   "adapter_id": "claude-peer",
@@ -319,7 +319,7 @@ A collision is triggered if:
 ```json
 {
   "$schema": "https://peerhub.local/schema/admission-receipt/v2",
-  "receipt_id": "receipt-cx-codex-peer-20260820T215000Z",
+  "receipt_id": "receipt-cx-codex-peer-20260820T125000Z",
   "schema_version": "2.0.0",
   "chain_complete": true,
   "adapter_id": "codex-peer",
@@ -442,7 +442,7 @@ A collision is triggered if:
 ```json
 {
   "$schema": "https://peerhub.local/schema/admission-receipt/v2",
-  "receipt_id": "receipt-ag-agy-peer-20260820T215000Z",
+  "receipt_id": "receipt-ag-agy-peer-20260820T125000Z",
   "schema_version": "2.0.0",
   "chain_complete": true,
   "adapter_id": "agy-peer",
