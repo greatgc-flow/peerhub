@@ -278,7 +278,7 @@ The `execution.templates` block now directly models the inputs required to build
 
 ## 4. Executable Admission, ACL Evaluation, and Transitive Binding Model
 
-To eliminate TOCTOU and unauthenticated tampering for the single entrypoint node it admits, Phase 1 manifest admission strictly resolves, validates, and cryptographically binds that node's canonical path and content hash. The stronger wrapper-only-binding guarantee described in this section's Phase 2 subsections below -- cryptographically binding the complete transitive execution graph, not just the entrypoint -- is explicitly deferred to Phase 2; see §4.3 for the exact Phase 1/Phase 2 boundary.
+To eliminate TOCTOU and unauthenticated tampering for the single entrypoint node it admits, Phase 1 manifest admission strictly resolves, validates, and cryptographically binds that node's canonical path and content hash. The stronger transitive-binding guarantee described in this section's Phase 2 subsections below -- cryptographically binding the complete transitive execution graph, not just the entrypoint, closing the wrapper-only-binding gap entirely -- is explicitly deferred to Phase 2; see §4.3 for the exact Phase 1/Phase 2 boundary.
 
 ### 4.1. Semantic Validation Rules at Admission
 In addition to JSON Schema structural checks and absolute path resolution:

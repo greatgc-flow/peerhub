@@ -13,7 +13,7 @@ In the Round 4 countercritique (`PHASE1-CX-COUNTERCRITIQUE-ROUND4-2026-08-20.md`
 1. **The Impossible ACL Rule**: The previous admission rule demanded that the directory containing the target executable "deny unprivileged writes", interpreted as rejecting any directory granting `Modify` (`M`) to `NT AUTHORITY\Authenticated Users`. In reality, on Windows NTFS non-system drives (such as `D:\` or the substituted portable developer root `P:\`), default inheritance grants `Authenticated Users:(OI)(CI)(M)`. Enforcing denial of `Authenticated Users:M` causes PeerHub to reject 100% of real-world installations, portable developer environments, and user-space global package installs (`%APPDATA%\npm`, `%LOCALAPPDATA%`).
 2. **Wrapper-Only Hashing Gap**: The previous receipts bound only the top-level `.cmd` batch scripts (`claude.cmd`, `codex.cmd`). On Windows, `.cmd` wrappers are thin trampoline scripts that invoke secondary interpreters (`node.exe` resolved via `PATH` at runtime), ESM launcher scripts (`codex.js`), and nested platform-specific native binaries (`claude.exe`, `codex.exe`). Hashing only the `.cmd` wrapper failed to cryptographically bind what actually executes.
 
-This document replaces theoretical assumptions with **empirical measurements on the live host system** (`GC-SURFACE-01`). We trace the complete transitive execution graphs (as explicit target evidence for Phase 2), inspect the exact NTFS ACLs via `icacls`, compute real SHA-256 hashes for every file in the transitive closures, establish a secure and achievable Windows ACL admission rule, define the deterministic collision and snapshot publication algorithms, and provide three single-node Phase 1 `AdmissionReceipt` instances (with the Phase 2 target multi-node chain structures retained for reference).
+This document replaces theoretical assumptions with **empirical measurements on the live host system** (`GC-SURFACE-01`). We trace the complete transitive execution graphs (as explicit target evidence for Phase 2), inspect the exact NTFS ACLs via `icacls`, compute real SHA-256 hashes for every file in the transitive closures, establish a secure and achievable Windows ACL admission rule, define the deterministic collision and snapshot publication algorithms, and provide three worked `AdmissionReceipt` examples modeled as Phase 2 targets (`chain_complete: true`) built from this empirical data -- real Phase 1 admission receipts are single-node only (`chain_complete: false`) and are not separately illustrated here.
 
 ---
 
@@ -240,6 +240,7 @@ A collision is triggered if:
   "$schema": "https://peerhub.local/schema/admission-receipt/v2",
   "receipt_id": "receipt-cc-claude-peer-20260820T215000Z",
   "schema_version": "2.0.0",
+  "chain_complete": true,
   "adapter_id": "claude-peer",
   "peer_kind": "cc",
   "admission_timestamp_utc": "2026-08-20T12:50:00Z",
@@ -320,6 +321,7 @@ A collision is triggered if:
   "$schema": "https://peerhub.local/schema/admission-receipt/v2",
   "receipt_id": "receipt-cx-codex-peer-20260820T215000Z",
   "schema_version": "2.0.0",
+  "chain_complete": true,
   "adapter_id": "codex-peer",
   "peer_kind": "cx",
   "admission_timestamp_utc": "2026-08-20T12:50:00Z",
@@ -435,13 +437,14 @@ A collision is triggered if:
 
 ### 4.3. Google Antigravity Phase 2 Target Receipt (`agy-peer`)
 
-*(Note: This is an illustrative Phase 2 candidate receipt showing full multi-node transitive chain derivation based on the empirical data gathered above. Actual Phase 1 receipts only hash the single entrypoint node and set `chain_complete: False`).*
+*(Note: This is an illustrative Phase 2 candidate receipt showing full transitive chain derivation based on the empirical data gathered above -- Agy's own measured chain happens to resolve to a single native binary with no wrapper layer, so this specific example's chain is one node, unlike the multi-node Claude/Codex examples above. Actual Phase 1 receipts only hash the single entrypoint node and set `chain_complete: False`).*
 
 ```json
 {
   "$schema": "https://peerhub.local/schema/admission-receipt/v2",
   "receipt_id": "receipt-ag-agy-peer-20260820T215000Z",
   "schema_version": "2.0.0",
+  "chain_complete": true,
   "adapter_id": "agy-peer",
   "peer_kind": "ag",
   "admission_timestamp_utc": "2026-08-20T12:50:00Z",
@@ -512,4 +515,4 @@ A collision is triggered if:
 | Reconciled Real Windows ACL Rule | **CLOSED** | Proved `Authenticated Users:M` is default on live volume; updated rule to enforce NTFS non-world-writable (`Everyone:no-write`, `Anonymous:no-write`). |
 | Transitive Executable Binding | **DEFERRED (Phase 2)** | Documented empirical host requirements for multi-node chains, but deferred actual implementation to Phase 2. Phase 1 validates only the single entrypoint node. |
 | Deterministic Normalization & Collision Detection | **CLOSED** | Formally defined Unicode NFC, case-folding, and extension stripping; specified atomic snapshot rejection and generation RCU synchronization. |
-| Worked Real Admission Receipts | **CLOSED** | Provided 3 complete, verified JSON receipts from empirical data, modeled as Phase 2 candidate targets to preserve multi-node host measurements. |
+| Worked Real Admission Receipts | **PHASE 2 ILLUSTRATIVE** | Provided 3 `chain_complete: true` example receipts built from real empirical data, modeled as Phase 2 targets. These are not Phase 1 receipts -- real Phase 1 admission only ever produces single-node, `chain_complete: false` receipts. |
