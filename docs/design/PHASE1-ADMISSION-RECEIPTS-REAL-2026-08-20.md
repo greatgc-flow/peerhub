@@ -95,7 +95,7 @@ Get-Volume -DriveLetter D                                            # NTFS Fixe
 
 ### 2.3. Real File Hashes and File Metadata
 
-The following table records the measured SHA-256 digests, byte lengths, and timestamps:
+The following table records the measured SHA-256 digests and byte lengths:
 
 | File Path | Role | Size (Bytes) | SHA-256 Digest |
 |---|---|---|---|
@@ -165,7 +165,7 @@ In standard Windows multi-user and domain architectures, the interactive develop
 
 #### The Reconciled Rule: Non-World-Writable NTFS Enforcement
 Admission applies the following deterministic security checks:
-1. **Local NTFS Volume Check**: Target paths must reside on a local NTFS filesystem supporting access control lists. Non-ACL filesystems (FAT/exFAT) are rejected unless an explicit portable bypass flag is asserted.
+1. **Local NTFS Volume Check**: Target paths must reside on a local NTFS filesystem supporting access control lists. Non-ACL filesystems (FAT/exFAT) are rejected unconditionally -- no bypass flag exists in the schema (consistent with `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`'s §4.2, which enforces this same rule with no exception).
 2. **Denial of World-Writable / Anonymous Access**:
    * Security Principal `Everyone` (`S-1-1-0`) must NOT have Write Data (`WD`), Append Data (`AD`), Write Attributes (`WA`), Write Extended Attributes (`WEA`), Delete (`DE`), Modify (`M`), or Full Control (`F`). At most Read & Execute `(RX)` is permitted.
    * `ANONYMOUS LOGON` (`S-1-5-7`) and `BUILTIN\Guests` (`S-1-5-32-546`) must have no write or modify grants.
@@ -175,7 +175,7 @@ Admission applies the following deterministic security checks:
 4. **Reparse Point / Junction Prohibition**:
    * No directory component in the path may be an unvalidated symlink, volume mount point, or junction point pointing to an unverified volume.
 
-**Real-World Security Justification**: This rule effectively neutralizes untrusted local/remote unauthenticated tampering and cross-account privilege escalation from guest/sandbox accounts, while permitting standard non-elevated developer installations. When paired with Phase 1's single-node cryptographic pinning, unauthorized modification of the admitted entrypoint executable can be detected at admission. (The stronger multi-node guarantee—where any modification of any script in the transitive chain would fail a pre-spawn revalidation—is explicitly deferred to Phase 2).
+**Real-World Security Justification**: This rule effectively neutralizes untrusted local/remote unauthenticated tampering and cross-account privilege escalation from guest/sandbox accounts, while permitting standard non-elevated developer installations. When paired with Phase 1's single-node cryptographic pinning, the admitted entrypoint executable's exact bytes are recorded and pinned as a trusted baseline at admission -- Phase 1 has no pre-existing trusted reference to compare against, so it establishes this baseline rather than detecting whether tampering already occurred before admission. (The stronger multi-node guarantee—where any modification of any script in the transitive chain would fail a pre-spawn revalidation against this baseline—is explicitly deferred to Phase 2).
 
 ---
 
