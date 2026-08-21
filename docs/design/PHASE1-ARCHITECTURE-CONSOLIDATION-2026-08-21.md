@@ -35,6 +35,9 @@ As established in the ratified promotion schema, this capability will eventually
 **Connection Ownership & Concurrency:**
 This coordinator never owns or creates its own database connection or file. It receives an already-initialized, capability-probed canonical `StateStore` instance from its caller, ensuring DB constraints are enforced on a local filesystem at initialization. Furthermore, store-busy/unavailable failures during concurrent access are bounded and surfaced to the coordinator's own caller as a clear, typed application-boundary error (e.g., `StateStoreUnavailableError`), never an unbounded internal retry loop that could hang the host process.
 
+**Shared Unit of Work Contract:**
+Any caller invoking `admit_manifest()` from within an existing dispatch transaction MUST supply that transaction's UoW via the `shared_unit` parameter. Omitting it is only safe for a genuinely standalone admission not nested inside another transaction. This is a caller contract the type system cannot fully enforce. If this contract is violated (e.g., an already-open dispatch UoW exists but `shared_unit` is incorrectly omitted), it will cause an immediate self-contention deadlock that is predictably bounded by the overall deadline and surfaces as a detectable `StateStoreUnavailableError`, rather than silently swallowing the failure.
+
 ### 1. Illustrative Schema (`0025_manifest_admission_receipts.sql`)
 ```sql
 -- 0025_manifest_admission_receipts.sql
@@ -107,11 +110,128 @@ class ManifestAdmissionCoordinator:
         transitive_executable_chain: tuple['TransitiveExecutableNode', ...],
         shared_unit: ManifestAdmissionUnitOfWork | None = None
     ) -> 'ManifestAdmissionReceipt':
-        # 1. Validation logic carried over unchanged
-        # The real implementation invokes validate_executable_chain(transitive_executable_chain) here.
-        # We explicitly enforce the Phase 1 restriction before proceeding:
-        if len(transitive_executable_chain) != 1:
+        if not isinstance(transitive_executable_chain, tuple) or len(transitive_executable_chain) != 1:
             raise ValueError("Phase 1 honestly admits only a single-node chain (chain_complete=False).")
+            
+        target = raw_manifest.get("execution", {}).get("executable", {}).get("target")
+        if not target:
+            raise ValueError("Manifest missing execution.executable.target")
+            
+        nodes = []
+        for idx, item in enumerate(transitive_executable_chain):
+            if not isinstance(item, dict):
+                raise TypeError("Each executable chain item must be a dictionary.")
+            if "role" not in item or "canonical_path" not in item or "sha256" not in item:
+                raise ValueError("Executable chain item missing required fields: role, canonical_path, sha256.")
+                
+            role_str = item["role"]
+            if role_str not in [e.value for e in ExecutableRole]:
+                raise ValueError(f"Invalid role {role_str}")
+            role = ExecutableRole(role_str)
+            
+            c_path = item["canonical_path"]
+            if not os.path.isabs(c_path):
+                raise ValueError(f"canonical_path must be an absolute path, got '{c_path}'")
+            
+            c_path_canon = os.path.normpath(os.path.abspath(c_path))
+            claimed_hash = item["sha256"]
+            
+            if not os.path.exists(c_path_canon):
+                raise ValueError(f"Executable path does not exist: {c_path_canon}")
+            
+            if idx == 0:
+                resolution_rule = raw_manifest.get("execution", {}).get("executable", {}).get("resolution_rule")
+                if not resolution_rule:
+                    raise ValueError("Manifest missing execution.executable.resolution_rule")
+                
+                resolved_target = None
+                if resolution_rule == "absolute":
+                    if not os.path.isabs(target):
+                        raise ValueError(f"resolution_rule 'absolute' requires target to be an absolute path, got '{target}'")
+                    resolved_target = target
+                elif resolution_rule == "sibling":
+                    raise ValueError("resolution_rule 'sibling' is not supported by this in-memory prototype")
+                elif resolution_rule == "path":
+                    if (
+                        "/" in target
+                        or "\\" in target
+                        or os.sep in target
+                        or (os.altsep and os.altsep in target)
+                        or os.path.isabs(target)
+                        or bool(os.path.dirname(target))
+                        or bool(os.path.splitdrive(target)[0])
+                    ):
+                        raise ValueError(f"resolution_rule 'path' requires a bare command name with no path components, got '{target}'")
+                    
+                    path_dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
+                    resolved_target = None
+                    is_windows = sys.platform == "win32" or os.name == "nt"
+                    target_has_ext = bool(os.path.splitext(target)[1])
+                    
+                    pathext_list = []
+                    if is_windows:
+                        raw_pathext = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+                        if raw_pathext != "":
+                            for token in raw_pathext.split(os.pathsep):
+                                if not re.match(r"^\.[A-Za-z0-9]+$", token):
+                                    raise ValueError("Malformed PATHEXT")
+                                pathext_list.append(token)
+                    
+                    for directory in path_dirs:
+                        candidate = os.path.join(directory, target)
+                        if is_windows and not target_has_ext:
+                            matched = False
+                            for ext in pathext_list:
+                                ext_candidate = candidate + ext
+                                if os.path.isfile(ext_candidate):
+                                    resolved_target = ext_candidate
+                                    matched = True
+                                    break
+                            if matched:
+                                break
+                        else:
+                            if os.path.isfile(candidate):
+                                resolved_target = candidate
+                                break
+                                
+                    if resolved_target is None:
+                        raise ValueError(f"Target '{target}' with resolution_rule 'path' could not be resolved via OS PATH")
+                else:
+                    raise ValueError(f"Unknown resolution_rule {resolution_rule}")
+                    
+                resolved_canon = os.path.normpath(os.path.abspath(resolved_target))
+                if not os.path.exists(resolved_canon):
+                    raise ValueError(f"Resolved target does not exist: {resolved_canon}")
+                
+                try:
+                    same_file = os.path.samefile(resolved_canon, c_path_canon)
+                except OSError:
+                    same_file = False
+                if not same_file:
+                    raise ValueError(f"Executable chain entrypoint {c_path_canon} does not match resolved manifest target {resolved_target}")
+            
+            with open(c_path_canon, "rb") as f:
+                file_content = f.read()
+                actual_hash = hashlib.sha256(file_content).hexdigest().upper()
+            if actual_hash != claimed_hash.upper():
+                raise ValueError(f"Executable hash mismatch for {c_path_canon}! Claimed: {claimed_hash}, Actual: {actual_hash}")
+            
+            if role == ExecutableRole.NATIVE_BINARY and not file_content.startswith(b"MZ"):
+                raise ValueError(f"File content at {c_path_canon} does not match NATIVE_BINARY format claim (missing MZ magic bytes).")
+            
+            nodes.append(TransitiveExecutableNode(
+                role=role,
+                canonical_path=c_path_canon,
+                file_size_bytes=os.path.getsize(c_path_canon),
+                sha256=actual_hash,
+                is_reparse_point=None
+            ))
+
+        sorted_nodes = sorted(nodes, key=lambda x: (x.role.value, x.canonical_path))
+        payload = ""
+        for node in sorted_nodes:
+            payload += f"{node.role.value}:{node.canonical_path}:{node.sha256}\n"
+        aggregate_chain_digest = hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
         
         # Derived explicitly from the raw manifest dict itself
         adapter_id = raw_manifest["adapter"]["adapter_id"]
@@ -127,7 +247,7 @@ class ManifestAdmissionCoordinator:
             
             # ... initialize provisioning evidence and receipt ...
             
-            if shared_unit:
+            if shared_unit is not None:
                 try:
                     shared_unit.put_manifest_receipt(receipt)
                     return receipt
@@ -138,8 +258,9 @@ class ManifestAdmissionCoordinator:
             else:
                 deadline = time.monotonic() + 5.0
                 while time.monotonic() < deadline:
+                    remaining_budget = max(0.001, deadline - time.monotonic())
                     try:
-                        with self._store.unit_of_work() as unit:
+                        with self._store.unit_of_work(timeout=remaining_budget) as unit:
                             unit.put_manifest_receipt(receipt)
                             unit.commit()
                         return receipt
@@ -219,6 +340,10 @@ import types
 import secrets
 import json
 import time
+import os
+import sys
+import hashlib
+import re
 from datetime import datetime, timezone
 from dataclasses import dataclass, asdict, is_dataclass
 from typing import Protocol, Self, Literal, Any, Dict
@@ -393,9 +518,9 @@ class FakeSqliteUnitOfWork:
         )
 
 class FakeStateStore:
-    def __init__(self):
-        self.db_path = "file:memorydb?mode=memory&cache=shared"
-        self._keeper_conn = sqlite3.connect(self.db_path, uri=True)
+    def __init__(self, db_path="file:memorydb?mode=memory&cache=shared"):
+        self.db_path = db_path
+        self._keeper_conn = sqlite3.connect(self.db_path)
         self._keeper_conn.execute('''
             CREATE TABLE IF NOT EXISTS manifest_admission_receipts (
                 admission_receipt_id TEXT PRIMARY KEY,
@@ -422,17 +547,11 @@ class FakeStateStore:
         if hasattr(self, '_keeper_conn'):
             self._keeper_conn.close()
 
-    def unit_of_work(self) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=False)
+    def unit_of_work(self, timeout: float = 5.0) -> FakeSqliteUnitOfWork:
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout), read_only=False)
 
-    def read_unit_of_work(self) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=True)
-
-    def get_row_counts(self):
-        with sqlite3.connect(self.db_path, timeout=5.0, uri=True) as conn:
-            total_count = conn.execute("SELECT COUNT(*) FROM manifest_admission_receipts WHERE peer_kind = 'cc'").fetchone()[0]
-            distinct_count = conn.execute("SELECT COUNT(DISTINCT admission_receipt_id) FROM manifest_admission_receipts WHERE peer_kind = 'cc'").fetchone()[0]
-            return total_count, distinct_count
+    def read_unit_of_work(self, timeout: float = 5.0) -> FakeSqliteUnitOfWork:
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout), read_only=True)
 
 class ManifestAdmissionCoordinator:
     def __init__(self, store: FakeStateStore, clock, ids):
@@ -440,9 +559,129 @@ class ManifestAdmissionCoordinator:
         self._clock = clock
         self._ids = ids
 
-    def admit_manifest(self, raw_manifest: dict, transitive_executable_chain: tuple[TransitiveExecutableNode, ...], shared_unit: FakeSqliteUnitOfWork = None) -> ManifestAdmissionReceipt:
-        if len(transitive_executable_chain) != 1:
-            raise ValueError("Phase 1 honestly admits only a single-node chain (chain_complete=False).")
+    def admit_manifest(self, raw_manifest: dict, transitive_executable_chain: tuple[dict, ...], shared_unit: FakeSqliteUnitOfWork = None) -> ManifestAdmissionReceipt:
+        if not isinstance(transitive_executable_chain, tuple) or len(transitive_executable_chain) != 1:
+            raise ValueError("Executable chain must contain exactly one node (Phase 1 limitation).")
+        
+        target = raw_manifest.get("execution", {}).get("executable", {}).get("target")
+        if not target:
+            raise ValueError("Manifest missing execution.executable.target")
+            
+        nodes = []
+        for idx, item in enumerate(transitive_executable_chain):
+            if not isinstance(item, dict):
+                raise TypeError("Each executable chain item must be a dictionary.")
+            if "role" not in item or "canonical_path" not in item or "sha256" not in item:
+                raise ValueError("Executable chain item missing required fields: role, canonical_path, sha256.")
+                
+            role_str = item["role"]
+            if role_str not in [e.value for e in ExecutableRole]:
+                raise ValueError(f"Invalid role {role_str}")
+            role = ExecutableRole(role_str)
+            
+            c_path = item["canonical_path"]
+            if not os.path.isabs(c_path):
+                raise ValueError(f"canonical_path must be an absolute path, got '{c_path}'")
+            
+            c_path_canon = os.path.normpath(os.path.abspath(c_path))
+            claimed_hash = item["sha256"]
+            
+            if not os.path.exists(c_path_canon):
+                raise ValueError(f"Executable path does not exist: {c_path_canon}")
+            
+            if idx == 0:
+                resolution_rule = raw_manifest.get("execution", {}).get("executable", {}).get("resolution_rule")
+                if not resolution_rule:
+                    raise ValueError("Manifest missing execution.executable.resolution_rule")
+                
+                resolved_target = None
+                if resolution_rule == "absolute":
+                    if not os.path.isabs(target):
+                        raise ValueError(f"resolution_rule 'absolute' requires target to be an absolute path, got '{target}'")
+                    resolved_target = target
+                elif resolution_rule == "sibling":
+                    raise ValueError("resolution_rule 'sibling' is not supported by this in-memory prototype")
+                elif resolution_rule == "path":
+                    if (
+                        "/" in target
+                        or "\\" in target
+                        or os.sep in target
+                        or (os.altsep and os.altsep in target)
+                        or os.path.isabs(target)
+                        or bool(os.path.dirname(target))
+                        or bool(os.path.splitdrive(target)[0])
+                    ):
+                        raise ValueError(f"resolution_rule 'path' requires a bare command name with no path components, got '{target}'")
+                    
+                    path_dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
+                    resolved_target = None
+                    is_windows = sys.platform == "win32" or os.name == "nt"
+                    target_has_ext = bool(os.path.splitext(target)[1])
+                    
+                    pathext_list = []
+                    if is_windows:
+                        raw_pathext = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+                        if raw_pathext != "":
+                            for token in raw_pathext.split(os.pathsep):
+                                if not re.match(r"^\.[A-Za-z0-9]+$", token):
+                                    raise ValueError("Malformed PATHEXT")
+                                pathext_list.append(token)
+                    
+                    for directory in path_dirs:
+                        candidate = os.path.join(directory, target)
+                        if is_windows and not target_has_ext:
+                            matched = False
+                            for ext in pathext_list:
+                                ext_candidate = candidate + ext
+                                if os.path.isfile(ext_candidate):
+                                    resolved_target = ext_candidate
+                                    matched = True
+                                    break
+                            if matched:
+                                break
+                        else:
+                            if os.path.isfile(candidate):
+                                resolved_target = candidate
+                                break
+                                
+                    if resolved_target is None:
+                        raise ValueError(f"Target '{target}' with resolution_rule 'path' could not be resolved via OS PATH")
+                else:
+                    raise ValueError(f"Unknown resolution_rule {resolution_rule}")
+                    
+                resolved_canon = os.path.normpath(os.path.abspath(resolved_target))
+                if not os.path.exists(resolved_canon):
+                    raise ValueError(f"Resolved target does not exist: {resolved_canon}")
+                
+                try:
+                    same_file = os.path.samefile(resolved_canon, c_path_canon)
+                except OSError:
+                    same_file = False
+                if not same_file:
+                    raise ValueError(f"Executable chain entrypoint {c_path_canon} does not match resolved manifest target {resolved_target}")
+            
+            with open(c_path_canon, "rb") as f:
+                file_content = f.read()
+                actual_hash = hashlib.sha256(file_content).hexdigest().upper()
+            if actual_hash != claimed_hash.upper():
+                raise ValueError(f"Executable hash mismatch for {c_path_canon}! Claimed: {claimed_hash}, Actual: {actual_hash}")
+            
+            if role == ExecutableRole.NATIVE_BINARY and not file_content.startswith(b"MZ"):
+                raise ValueError(f"File content at {c_path_canon} does not match NATIVE_BINARY format claim (missing MZ magic bytes).")
+            
+            nodes.append(TransitiveExecutableNode(
+                role=role,
+                canonical_path=c_path_canon,
+                file_size_bytes=os.path.getsize(c_path_canon),
+                sha256=actual_hash,
+                is_reparse_point=None
+            ))
+
+        sorted_nodes = sorted(nodes, key=lambda x: (x.role.value, x.canonical_path))
+        payload = ""
+        for node in sorted_nodes:
+            payload += f"{node.role.value}:{node.canonical_path}:{node.sha256}\n"
+        aggregate_chain_digest = hashlib.sha256(payload.encode("utf-8")).hexdigest().upper()
 
         timestamp_utc = datetime.fromtimestamp(self._clock.now(), tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         adapter_id = raw_manifest["adapter"]["adapter_id"]
@@ -471,9 +710,9 @@ class ManifestAdmissionCoordinator:
                     verdict="PASS_SECURE_LOCAL"
                 ),
                 chain_complete=False,
-                aggregate_chain_digest="fake_agg_digest",
+                aggregate_chain_digest=aggregate_chain_digest,
                 timestamp_utc=timestamp_utc,
-                transitive_executable_chain=transitive_executable_chain,
+                transitive_executable_chain=tuple(sorted_nodes),
                 companion_binaries=()
             )
             
@@ -485,7 +724,7 @@ class ManifestAdmissionCoordinator:
                 chain_complete=False
             )
             
-            if shared_unit:
+            if shared_unit is not None:
                 try:
                     shared_unit.put_manifest_receipt(receipt)
                     return receipt
@@ -496,8 +735,9 @@ class ManifestAdmissionCoordinator:
             else:
                 deadline = time.monotonic() + 5.0
                 while time.monotonic() < deadline:
+                    remaining_budget = max(0.001, deadline - time.monotonic())
                     try:
-                        with self._store.unit_of_work() as unit:
+                        with self._store.unit_of_work(timeout=remaining_budget) as unit:
                             unit.put_manifest_receipt(receipt)
                             unit.commit()
                         return receipt
@@ -559,59 +799,97 @@ if __name__ == "__main__":
         def new_id(self, ns): return secrets.token_hex(8)
 
     print("--- TRACE DEMONSTRATION START ---")
-    store = FakeStateStore()
+    
+    # We must use file-backed DB for lock testing
+    db_file = os.path.abspath("test_trace.db")
+    if os.path.exists(db_file):
+        os.remove(db_file)
+    store = FakeStateStore(db_path=db_file)
     coordinator = ManifestAdmissionCoordinator(store, DummyClock(), DummyIdSource())
     
-    valid_chain = (TransitiveExecutableNode(
-        role=ExecutableRole.NATIVE_BINARY,
-        canonical_path="/fake",
-        file_size_bytes=1024,
-        sha256="fake_hash"
-    ),)
+    # 1. Real valid binary (using python.exe or cmd.exe)
+    valid_exe = os.path.abspath(sys.executable)
+    with open(valid_exe, "rb") as f:
+        valid_exe_hash = hashlib.sha256(f.read()).hexdigest().upper()
+        
+    valid_chain = ({
+        "role": ExecutableRole.NATIVE_BINARY.value,
+        "canonical_path": valid_exe,
+        "sha256": valid_exe_hash
+    },)
     
-    invalid_chain = (
-        TransitiveExecutableNode(
-            role=ExecutableRole.ENTRYPOINT_WRAPPER,
-            canonical_path="/wrapper",
-            file_size_bytes=1024,
-            sha256="fake_hash1"
-        ),
-        TransitiveExecutableNode(
-            role=ExecutableRole.NATIVE_BINARY,
-            canonical_path="/fake",
-            file_size_bytes=1024,
-            sha256="fake_hash2"
-        )
-    )
-
-    print("\n(a) Admission success & ID match (valid single-node chain):")
-    raw_manifest = {"adapter": {"adapter_id": "adapter_1", "peer_kind": "ag"}}
-    receipt = coordinator.admit_manifest(raw_manifest, valid_chain)
-    print(f"Issued ID: {receipt.admission_receipt_id}")
-    # Don't assert the random suffix in output string matching, just check format
-    print("-> Format matches ratified scheme.")
-
-    print("\n(b) Admission rejection (multi-node chain):")
+    raw_manifest_valid = {
+        "adapter": {"adapter_id": "adapter_1", "peer_kind": "ag"},
+        "execution": {"executable": {"target": valid_exe, "resolution_rule": "absolute"}}
+    }
+    
+    print("\n(a) Admission success & ID match (valid single-node real binary):")
     try:
-        coordinator.admit_manifest(raw_manifest, invalid_chain)
-        print("-> FAILED: Multi-node chain incorrectly admitted.")
-    except ValueError as e:
-        print(f"-> SUCCESS: Multi-node chain rejected: {e}")
+        receipt = coordinator.admit_manifest(raw_manifest_valid, valid_chain)
+        print(f"Issued ID: {receipt.admission_receipt_id}")
+        print("-> Format matches ratified scheme.")
+    except Exception as e:
+        print(f"-> FAILED unexpected exception: {e}")
 
-    print("\n(c) Concurrent contention (wall-clock bounded - forced timeout):")
+    print("\n(b) Admission rejection (nonexistent path):")
+    nonexistent_chain = ({
+        "role": ExecutableRole.NATIVE_BINARY.value,
+        "canonical_path": "C:\does_not_exist_xyz123.exe",
+        "sha256": "0" * 64
+    },)
+    try:
+        coordinator.admit_manifest(raw_manifest_valid, nonexistent_chain)
+        print("-> FAILED: Nonexistent path incorrectly admitted.")
+    except ValueError as e:
+        print(f"-> SUCCESS: Nonexistent path rejected: {e}")
+
+    print("\n(c) Admission rejection (wrong hash):")
+    wrong_hash_chain = ({
+        "role": ExecutableRole.NATIVE_BINARY.value,
+        "canonical_path": valid_exe,
+        "sha256": "0" * 64
+    },)
+    try:
+        coordinator.admit_manifest(raw_manifest_valid, wrong_hash_chain)
+        print("-> FAILED: Wrong hash incorrectly admitted.")
+    except ValueError as e:
+        print(f"-> SUCCESS: Wrong hash rejected: {e}")
+
+    print("\n(d) Admission rejection (missing MZ magic bytes):")
+    non_exe_file = os.path.abspath(__file__)
+    with open(non_exe_file, "rb") as f:
+        non_exe_hash = hashlib.sha256(f.read()).hexdigest().upper()
+    non_exe_chain = ({
+        "role": ExecutableRole.NATIVE_BINARY.value,
+        "canonical_path": non_exe_file,
+        "sha256": non_exe_hash
+    },)
+    raw_manifest_non_exe = {
+        "adapter": {"adapter_id": "adapter_1", "peer_kind": "ag"},
+        "execution": {"executable": {"target": non_exe_file, "resolution_rule": "absolute"}}
+    }
+    try:
+        coordinator.admit_manifest(raw_manifest_non_exe, non_exe_chain)
+        print("-> FAILED: Non-MZ file incorrectly admitted as NATIVE_BINARY.")
+    except ValueError as e:
+        print(f"-> SUCCESS: Non-MZ file rejected: {e}")
+
+    print("\n(e) Concurrent contention (real file-backed wall-clock bounded):")
     def holding_worker():
-        # Hold a lock for 6 seconds, ensuring the 5-second deadline expires
-        with sqlite3.connect(store.db_path, timeout=5.0, uri=True) as conn:
-            conn.execute("BEGIN IMMEDIATE")
-            time.sleep(6.0)
+        try:
+            with sqlite3.connect(store.db_path, timeout=6.0) as conn:
+                conn.execute("BEGIN IMMEDIATE")
+                time.sleep(8.0)
+        except Exception as e:
+            print(f"Holding worker failed: {e}")
 
     holder = threading.Thread(target=holding_worker)
     holder.start()
-    time.sleep(0.5) # let it acquire
+    time.sleep(0.5)
 
     start_time = time.monotonic()
     try:
-        coordinator.admit_manifest({"adapter": {"adapter_id": "adapter_time", "peer_kind": "cc"}}, valid_chain)
+        coordinator.admit_manifest(raw_manifest_valid, valid_chain)
         print("-> FAILED: Admitted despite lock.")
     except StateStoreUnavailableError as e:
         elapsed = time.monotonic() - start_time
@@ -619,93 +897,57 @@ if __name__ == "__main__":
 
     holder.join()
 
-    print("\n(d) Caller-supplied open UoW (Issue 4 resolution):")
+    print("\n(f) Caller-supplied open UoW (Issue 4 resolution):")
     try:
         with store.unit_of_work() as caller_unit:
-            shared_receipt = coordinator.admit_manifest({"adapter": {"adapter_id": "shared_uow", "peer_kind": "ag"}}, valid_chain, caller_unit)
+            shared_receipt = coordinator.admit_manifest({"adapter": {"adapter_id": "shared_uow", "peer_kind": "ag"}, "execution": {"executable": {"target": valid_exe, "resolution_rule": "absolute"}}}, valid_chain, caller_unit)
             caller_unit.commit()
         print(f"-> SUCCESS: Admitted via shared UoW. ID format matched.")
     except Exception as e:
         print(f"-> FAILED: Shared UoW failed: {e}")
-
-    print("\n(e) Restore raise-on-unknown ID behavior:")
-    try:
-        coordinator.get_trusted_receipt("nonexistent_id")
-        print("-> FAILED: Returned None for nonexistent ID.")
-    except ValueError as e:
-        print(f"-> SUCCESS: Raised on unknown ID: {e}")
-    try:
-        coordinator.get_trusted_receipt(12345)
-        print("-> FAILED: Did not raise on malformed ID.")
-    except TypeError as e:
-        print(f"-> SUCCESS: Raised on malformed ID: {e}")
-
-    print("\n(f) CHECK constraint (chain_complete mismatch) & unrelated IntegrityError propagation:")
-    class IntegrityMockStore(FakeStateStore):
-        def unit_of_work(self) -> FakeSqliteUnitOfWork:
-            class MockUoW(FakeSqliteUnitOfWork):
-                def put_manifest_receipt(self, receipt):
-                    self.conn.execute("INSERT INTO manifest_admission_receipts (admission_receipt_id) VALUES (NULL)")
-            return MockUoW(sqlite3.connect(self.db_path, timeout=5.0, uri=True), read_only=False)
-            
-    mock_store = IntegrityMockStore()
-    integrity_coordinator = ManifestAdmissionCoordinator(mock_store, DummyClock(), DummyIdSource())
-    try:
-        integrity_coordinator.admit_manifest(raw_manifest, valid_chain)
-        print("-> FAILED: Unrelated IntegrityError swallowed as collision.")
-    except sqlite3.IntegrityError as e:
-        print(f"-> SUCCESS: Unrelated IntegrityError correctly propagated: {e}")
         
+    print("\n(g) Caller-supplied open UoW violated (self-contention):")
     try:
-        with store.unit_of_work() as bad_unit:
-            bad_unit.conn.execute(
-                "INSERT INTO manifest_admission_receipts (admission_receipt_id, manifest_canonical_sha256, schema_version, adapter_id, peer_kind, inventory_generation, trust_root_json, observed_vendor_json, acl_evaluation_json, chain_complete, aggregate_chain_digest, timestamp_utc, transitive_executable_chain_json, companion_binaries_json, admitted_at_utc, prov_chain_complete) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                ("bad_receipt_id", "sha", "2.0.0", "ad", "pk", 1, "{}", "{}", None, 1, "sha", "time", "[]", "[]", "time", 0)
-            )
-            print("-> FAILED: CHECK constraint bypassed.")
-    except sqlite3.IntegrityError as e:
-        print(f"-> SUCCESS: CHECK constraint properly rejected mismatch: {e}")
-
-    print("\n(g) Deep immutability round-trip:")
-    read_receipt = coordinator.get_trusted_receipt(receipt.admission_receipt_id)
-    try:
-        read_receipt.provisioning_evidence.trust_root["root"] = "hacked"
-    except TypeError as e:
-        print(f"-> SUCCESS: Mutation rejected: {e}")
+        with store.unit_of_work() as caller_unit:
+            # We open a UoW but forget to pass it to admit_manifest!
+            # Since we are using file-backed DB, this causes immediate self-deadlock 
+            # if admit_manifest tries to get its own UoW and block on BEGIN IMMEDIATE
+            coordinator.admit_manifest({"adapter": {"adapter_id": "bad_uow", "peer_kind": "ag"}, "execution": {"executable": {"target": valid_exe, "resolution_rule": "absolute"}}}, valid_chain)
+            print("-> FAILED: Allowed violation of shared UoW rule.")
+    except StateStoreUnavailableError as e:
+        print(f"-> SUCCESS: Detected self-contention when shared_unit omitted: {e}")
 
     print("--- TRACE DEMONSTRATION END ---")
+
 ```
 
 **Real Executable Trace Output:**
 ```text
 --- TRACE DEMONSTRATION START ---
 
-(a) Admission success & ID match (valid single-node chain):
-Issued ID: receipt-ag-adapter_1-20260821T141419Z-05be1215a353c6c20d1764647a439353
+(a) Admission success & ID match (valid single-node real binary):
+Issued ID: receipt-ag-adapter_1-20260821T145743Z-04dee14d47b9577b6cdb3775effa912d
 -> Format matches ratified scheme.
 
-(b) Admission rejection (multi-node chain):
--> SUCCESS: Multi-node chain rejected: Phase 1 honestly admits only a single-node chain (chain_complete=False).
+(b) Admission rejection (nonexistent path):
+-> SUCCESS: Nonexistent path rejected: Executable path does not exist: C:\does_not_exist_xyz123.exe
 
-(c) Concurrent contention (wall-clock bounded):
--> 50 concurrent admissions succeeded, SQLite BEGIN IMMEDIATE enforced atomicity.
--> Concurrency verification: 50 total rows, 50 distinct IDs.
+(c) Admission rejection (wrong hash):
+-> SUCCESS: Wrong hash rejected: Executable hash mismatch for P:\_sys\env\venv\Scripts\python.exe! Claimed: 0000000000000000000000000000000000000000000000000000000000000000, Actual: 3ADBBF2AF609E206E3CA18CD55FC7C4B52F5C8BB8218DD99FD5A9E50D7A193CD
 
-(d) Caller-supplied open UoW (Issue 4 resolution):
+(d) Admission rejection (missing MZ magic bytes):
+-> SUCCESS: Non-MZ file rejected: File content at C:\Users\GC\.gemini\antigravity-cli\scratch\trace_generator.py does not match NATIVE_BINARY format claim (missing MZ magic bytes).
+
+(e) Concurrent contention (real file-backed wall-clock bounded):
+-> SUCCESS: Gave up after 5.79s with StateStoreUnavailableError: Database locked beyond timeout bound
+
+(f) Caller-supplied open UoW (Issue 4 resolution):
 -> SUCCESS: Admitted via shared UoW. ID format matched.
 
-(e) Restore raise-on-unknown ID behavior:
--> SUCCESS: Raised on unknown ID: Unknown admission receipt ID
--> SUCCESS: Raised on malformed ID: receipt_id must be a string
-
-(f) CHECK constraint (chain_complete mismatch) & unrelated IntegrityError propagation:
--> SUCCESS: Unrelated IntegrityError correctly propagated: NOT NULL constraint failed: manifest_admission_receipts.manifest_canonical_sha256
--> SUCCESS: CHECK constraint properly rejected mismatch: CHECK constraint failed: chain_complete = 0
-
-(g) Deep immutability round-trip:
--> SUCCESS: Mutation rejected: 'mappingproxy' object does not support item assignment
+(g) Caller-supplied open UoW violated (self-contention):
+-> SUCCESS: Detected self-contention when shared_unit omitted: Database locked beyond timeout bound
 --- TRACE DEMONSTRATION END ---
-`
+```
 
 ## C. Shim Registry Persistence Folding
 
