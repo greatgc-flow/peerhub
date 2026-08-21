@@ -216,6 +216,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import ClassVar
 import os
+import sys
 import hashlib
 import json
 import re
@@ -458,8 +459,35 @@ def _build_admission_registry():
                             raise ValueError(
                                 f"resolution_rule 'path' requires a bare command name with no path components, got '{target}'"
                             )
-                        import shutil
-                        resolved_target = shutil.which(target)
+                        
+                        # Strict PATH-only resolution: Never consult or fall back to CWD implicitly.
+                        # Enumerate only directories explicitly present in the PATH environment variable.
+                        path_dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d]
+                        resolved_target = None
+                        is_windows = sys.platform == "win32" or os.name == "nt"
+                        target_has_ext = bool(os.path.splitext(target)[1])
+                        
+                        pathext_list = []
+                        if is_windows:
+                            raw_pathext = os.environ.get("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+                            pathext_list = [ext.strip() for ext in raw_pathext.split(os.pathsep) if ext.strip()]
+                        
+                        for directory in path_dirs:
+                            candidate = os.path.join(directory, target)
+                            if os.path.isfile(candidate):
+                                resolved_target = candidate
+                                break
+                            if is_windows and not target_has_ext:
+                                matched = False
+                                for ext in pathext_list:
+                                    ext_candidate = candidate + ext if ext.startswith(".") else f"{candidate}.{ext}"
+                                    if os.path.isfile(ext_candidate):
+                                        resolved_target = ext_candidate
+                                        matched = True
+                                        break
+                                if matched:
+                                    break
+                                    
                         if resolved_target is None:
                             raise ValueError(f"Target '{target}' with resolution_rule 'path' could not be resolved via OS PATH")
                     else:
@@ -2461,6 +2489,53 @@ bare_manifest["execution"]["executable"] = {
 }
 bare_receipt_id = AdmissionRegistry.admit(bare_manifest, CLAUDE_WRAPPER_CHAIN)
 print(f"GENUINE BARE NAME ADMISSION SUCCESS: Admitted via real PATH lookup, got receipt: {bare_receipt_id}")
+
+print("\n--- 33. Round 59 Strict PATH-Only Resolution (CWD Shadowing & Registry Independence) ---")
+# 1. Confirm genuine real command on PATH admits correctly under resolution_rule 'path'
+py_bare_name = os.path.basename(sys.executable)
+py_manifest = dict(valid_claude_manifest)
+py_manifest["execution"] = dict(valid_claude_manifest["execution"])
+py_manifest["execution"]["executable"] = {
+    "resolution_rule": "path",
+    "target": py_bare_name
+}
+py_receipt_id = AdmissionRegistry.admit(py_manifest, VALID_NATIVE_CHAIN)
+print(f"GENUINE PATH COMMAND ADMISSION SUCCESS: Bare target '{py_bare_name}' resolved via PATH directory, got receipt: {py_receipt_id}")
+
+# 2. cx's Adversarial Scenario: Bare file created in CWD (not in any PATH directory)
+# Under shutil.which without NoDefaultCurrentDirectoryInExePath, Windows would resolve to .\\adversarial_cmd.cmd.
+# Under manual PATH enumeration, CWD is never consulted, so admission must be rejected.
+adversarial_cwd_name = "adversarial_cwd_shadow_command.cmd"
+adversarial_cwd_path = os.path.abspath(adversarial_cwd_name)
+try:
+    with open(adversarial_cwd_path, "w", encoding="utf-8") as f:
+        f.write("@echo off\necho shadow\n")
+    
+    with open(adversarial_cwd_path, "rb") as f:
+        adversarial_hash = hashlib.sha256(f.read()).hexdigest().upper()
+        
+    adversarial_chain = [{
+        "role": "ENTRYPOINT_WRAPPER",
+        "canonical_path": adversarial_cwd_path,
+        "sha256": adversarial_hash,
+        "is_reparse_point": False
+    }]
+    
+    adv_manifest = dict(valid_claude_manifest)
+    adv_manifest["execution"] = dict(valid_claude_manifest["execution"])
+    adv_manifest["execution"]["executable"] = {
+        "resolution_rule": "path",
+        "target": adversarial_cwd_name
+    }
+    
+    try:
+        AdmissionRegistry.admit(adv_manifest, adversarial_chain)
+        print("FAILED: Bare command in CWD was unexpectedly resolved and admitted under resolution_rule 'path'!")
+    except ValueError as e:
+        print(f"CWD SHADOWING ATTACK BLOCKED: {type(e).__name__}: {e}")
+finally:
+    if os.path.exists(adversarial_cwd_path):
+        os.remove(adversarial_cwd_path)
 ```
 
 **Output:**
@@ -2482,12 +2557,12 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T103516Z-42399e7f21645afe55496f8fb38ff23f
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T104918Z-7f296b0338217326a851e0ca1db1fdef
 Codex receipt chain_complete (shallow entrypoint verification): False
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T103516Z-3d7a2a24c6fbb669ece1cdacbfbd5729
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T104918Z-ea8f0127a70ef6cbc6dda53c7b1e197f
 Claude receipt chain_complete (shallow entrypoint verification): False
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
@@ -2504,13 +2579,13 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (receipt-cc-claude-peer-20260821T103516Z-3d7a2a24c6fbb669ece1cdacbfbd5729) digest preserved intact: True
-Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T103516Z-abcdef0123456789abcdef0123456789
+Earlier receipt ID (receipt-cc-claude-peer-20260821T104918Z-ea8f0127a70ef6cbc6dda53c7b1e197f) digest preserved intact: True
+Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T104918Z-abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
 --- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
-Thread 1 receipt ID: receipt-cc-conc-peer-20260821T103516Z-11112222333344445555666677778888
-Thread 2 receipt ID: receipt-cc-conc-peer-20260821T103516Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Thread 1 receipt ID: receipt-cc-conc-peer-20260821T104918Z-11112222333344445555666677778888
+Thread 2 receipt ID: receipt-cc-conc-peer-20260821T104918Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 Receipt IDs are distinct (no duplicate ID issued): True
 Thread 1 digest in registry: True
 Thread 2 digest in registry: True
@@ -2559,26 +2634,26 @@ GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuin
 ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
 ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
 FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
-GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T103516Z-6883b26c27492ef726ad384dadb2c2fd
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T104918Z-cb66b246cb19cb5df782726ad0576714
 GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
 
 --- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---
 SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must expose a real cell_key of the real CellKey type
-SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'NOT_REQUESTED', 'ENVIRONMENT_UNAVAILABLE', 'PRODUCT_FAILURE', 'EXECUTED_PASS', 'QUOTA_BLOCKED'}
-GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_7ef542b1c150d555d6fe1e4f65a99310
+SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'QUOTA_BLOCKED', 'NOT_REQUESTED'}
+GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_e0327419920b347eeb5a7f82ecd32f7c
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
 
 --- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---
 TYPE-NAME SPOOF BLOCKED: TypeError: cell_obj must expose a real cell_key of the real CellKey type
 NON-DATETIME TIMESTAMP BLOCKED: TypeError: provenance must carry a real timestamp_utc of the real datetime type
-Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_b4c1ef9fc9f3d6b7ce7e64eccc048a8b
+Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_102025286c550d4b825085d79eec9e1d
 Promotion with PRODUCT_FAILURE returned: False
 Attacker mutated original cell object to EXECUTED_PASS.
 Promotion after post-admission mutation returned: False
 POST-ADMISSION MUTATION BLOCKED: Promotion result remained False despite mutation of original object.
 
 --- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---
-TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'NOT_REQUESTED', 'ENVIRONMENT_UNAVAILABLE', 'PRODUCT_FAILURE', 'EXECUTED_PASS', 'QUOTA_BLOCKED'}
+TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'QUOTA_BLOCKED', 'NOT_REQUESTED'}
 GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: True
 
 --- 22. Round 42 Item 2: Timezone-Aware UTC Enforcement & Future Skew Bounds ---
@@ -2597,9 +2672,9 @@ NON-UTC NORMALIZED TO UTC: Stored tzinfo is timezone.utc and offset is zero: Tru
 TIMESTAMP EQUIVALENCE PRESERVED: Normalized timestamp matches original point in time: True
 
 --- 24. Round 44 Item 2: Enum Validation on transport & proof_kind & False-Contradiction Prevention ---
-BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PTY', 'PIPE'}, got 'SOCKET'
-BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'deterministic contract or integration', 'live provider exact-profile', 'legacy-parity evidence', 'controlled real-OS executable'}, got 'invented arbitrary proof kind'
-FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'deterministic contract or integration', 'live provider exact-profile', 'legacy-parity evidence', 'controlled real-OS executable'}, got 'bogus unvalidated proof kind'
+BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PIPE', 'PTY'}, got 'SOCKET'
+BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'legacy-parity evidence', 'live provider exact-profile', 'deterministic contract or integration', 'controlled real-OS executable'}, got 'invented arbitrary proof kind'
+FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'legacy-parity evidence', 'live provider exact-profile', 'deterministic contract or integration', 'controlled real-OS executable'}, got 'bogus unvalidated proof kind'
 LEGITIMATE PROMOTION PRESERVED: can_promote returned True: True
 
 --- 25. Round 47: Mismatched-Target Admission Attack ---
@@ -2618,7 +2693,7 @@ RELATIVE PATH BLOCKED: ValueError: canonical_path must be an absolute path, got 
 NON-PE FORMAT REJECTED: ValueError: File content at P:\workspace\peerhub\docs\design\PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md does not match NATIVE_BINARY format claim (missing MZ magic bytes).
 
 --- 30. Round 55/57 Entrypoint Verification with chain_complete=False ---
-Admitted wrapper-fronted peer manifest: receipt-cc-claude-peer-20260821T103516Z-cdca12cc0c20f1f28d5987e13da52606
+Admitted wrapper-fronted peer manifest: receipt-cc-claude-peer-20260821T104918Z-f21100b9b86fafdcb36c6611c82d4c66
 Declared role: ENTRYPOINT_WRAPPER
 Wrapper receipt chain_complete flag: False
 Provisioning evidence chain_complete flag: False
@@ -2632,5 +2707,9 @@ RELATIVE TARGET UNDER ABSOLUTE RULE REJECTED: ValueError: resolution_rule 'absol
 --- 32. Round 57 resolution_rule 'path' rejects path separators (enforces bare command name) ---
 PATH SEPARATOR IN PATH RULE REJECTED (.\): ValueError: resolution_rule 'path' requires a bare command name with no path components, got '.\claude.cmd'
 PATH SEPARATOR IN PATH RULE REJECTED (subdir\..\): ValueError: resolution_rule 'path' requires a bare command name with no path components, got 'subdir\..\claude.cmd'
-GENUINE BARE NAME ADMISSION SUCCESS: Admitted via real PATH lookup, got receipt: receipt-cc-claude-peer-20260821T103516Z-12fddce162f61569020e0118ce921a9b
+GENUINE BARE NAME ADMISSION SUCCESS: Admitted via real PATH lookup, got receipt: receipt-cc-claude-peer-20260821T104918Z-063a292cd7b0fc116d2389e325060aba
+
+--- 33. Round 59 Strict PATH-Only Resolution (CWD Shadowing & Registry Independence) ---
+GENUINE PATH COMMAND ADMISSION SUCCESS: Bare target 'python.exe' resolved via PATH directory, got receipt: receipt-cc-claude-peer-20260821T104918Z-fc3e97908c2451140eee94b94f3b9265
+CWD SHADOWING ATTACK BLOCKED: ValueError: Target 'adversarial_cwd_shadow_command.cmd' with resolution_rule 'path' could not be resolved via OS PATH
 ```
