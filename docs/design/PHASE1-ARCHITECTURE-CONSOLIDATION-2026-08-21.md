@@ -71,6 +71,9 @@ CREATE TABLE manifest_admission_receipts (
 
 ### 2. Coordinator Design (Illustrative Python)
 
+> [!NOTE]
+> The code block below is an illustrative sketch of the admission coordinator's core logic. For the exact, currently-verified, and authoritative implementation of this logic, refer to the runnable `trace.py` script in Section 4 below.
+
 ```python
 import secrets
 import time
@@ -107,7 +110,7 @@ class ManifestAdmissionCoordinator:
     def admit_manifest(
         self, 
         raw_manifest: dict, 
-        transitive_executable_chain: tuple['TransitiveExecutableNode', ...],
+        transitive_executable_chain: tuple[dict, ...],
         shared_unit: ManifestAdmissionUnitOfWork | None = None
     ) -> 'ManifestAdmissionReceipt':
         if not isinstance(transitive_executable_chain, tuple) or len(transitive_executable_chain) != 1:
@@ -240,6 +243,7 @@ class ManifestAdmissionCoordinator:
         
         # 2. Collision-safe ID issuance via real transaction semantics with a bounded loop
         MAX_RETRIES = 10
+        deadline = time.monotonic() + 5.0
         
         for attempt in range(MAX_RETRIES):
             random_suffix = secrets.token_hex(16)
@@ -256,11 +260,9 @@ class ManifestAdmissionCoordinator:
                         continue
                     raise
             else:
-                deadline = time.monotonic() + 5.0
-                while time.monotonic() < deadline:
-                    remaining_budget = max(0.001, deadline - time.monotonic())
+                while True:
                     try:
-                        with self._store.unit_of_work(timeout=remaining_budget) as unit:
+                        with self._store.unit_of_work(timeout=0.0) as unit:
                             unit.put_manifest_receipt(receipt)
                             unit.commit()
                         return receipt
@@ -275,11 +277,11 @@ class ManifestAdmissionCoordinator:
                             is_locked = True
                             
                         if is_locked:
-                            time.sleep(0.01)
+                            if time.monotonic() >= deadline:
+                                raise StateStoreUnavailableError("Database locked beyond timeout bound")
+                            time.sleep(0.05)
                         else:
                             raise e
-                else:
-                    raise StateStoreUnavailableError("Database locked beyond timeout bound")
 
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
@@ -520,7 +522,7 @@ class FakeSqliteUnitOfWork:
 class FakeStateStore:
     def __init__(self, db_path="file:memorydb?mode=memory&cache=shared"):
         self.db_path = db_path
-        self._keeper_conn = sqlite3.connect(self.db_path)
+        self._keeper_conn = sqlite3.connect(self.db_path, uri=True)
         self._keeper_conn.execute('''
             CREATE TABLE IF NOT EXISTS manifest_admission_receipts (
                 admission_receipt_id TEXT PRIMARY KEY,
@@ -548,10 +550,10 @@ class FakeStateStore:
             self._keeper_conn.close()
 
     def unit_of_work(self, timeout: float = 5.0) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout), read_only=False)
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout, uri=True), read_only=False)
 
     def read_unit_of_work(self, timeout: float = 5.0) -> FakeSqliteUnitOfWork:
-        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout), read_only=True)
+        return FakeSqliteUnitOfWork(sqlite3.connect(self.db_path, timeout=timeout, uri=True), read_only=True)
 
 class ManifestAdmissionCoordinator:
     def __init__(self, store: FakeStateStore, clock, ids):
@@ -688,6 +690,7 @@ class ManifestAdmissionCoordinator:
         peer_kind = raw_manifest["adapter"]["peer_kind"]
         
         MAX_RETRIES = 10
+        deadline = time.monotonic() + 5.0
         for attempt in range(MAX_RETRIES):
             random_suffix = secrets.token_hex(16)
             receipt_id = f"receipt-{peer_kind}-{adapter_id}-{timestamp_utc}-{random_suffix}"
@@ -733,11 +736,9 @@ class ManifestAdmissionCoordinator:
                         continue
                     raise
             else:
-                deadline = time.monotonic() + 5.0
-                while time.monotonic() < deadline:
-                    remaining_budget = max(0.001, deadline - time.monotonic())
+                while True:
                     try:
-                        with self._store.unit_of_work(timeout=remaining_budget) as unit:
+                        with self._store.unit_of_work(timeout=0.0) as unit:
                             unit.put_manifest_receipt(receipt)
                             unit.commit()
                         return receipt
@@ -750,11 +751,11 @@ class ManifestAdmissionCoordinator:
                         if not is_locked and 'locked' in str(e).lower():
                             is_locked = True
                         if is_locked:
-                            time.sleep(0.01)
+                            if time.monotonic() >= deadline:
+                                raise StateStoreUnavailableError("Database locked beyond timeout bound")
+                            time.sleep(0.05)
                         else:
                             raise e
-                else:
-                    raise StateStoreUnavailableError("Database locked beyond timeout bound")
 
         raise RuntimeError("Collision resolution exhausted: unable to generate a unique admission receipt ID.")
 
@@ -834,7 +835,7 @@ if __name__ == "__main__":
     print("\n(b) Admission rejection (nonexistent path):")
     nonexistent_chain = ({
         "role": ExecutableRole.NATIVE_BINARY.value,
-        "canonical_path": "C:\does_not_exist_xyz123.exe",
+        "canonical_path": r"C:\does_not_exist_xyz123.exe",
         "sha256": "0" * 64
     },)
     try:
@@ -1017,7 +1018,7 @@ All four items (A, B, C, D) have been **fully addressed** with concrete, complet
 * **Item B** is addressed with the illustrative `0025_manifest_admission_receipts.sql` schema and a `StateStore`-integrated coordinator trace. All 6 review issues were **fully addressed**:
     1. **Dedicated Keeper Connection**: `FakeStateStore` holds an explicitly-opened keeper connection (`_keeper_conn`) for the instance's lifetime to prevent shared-cache death.
     2. **Connection Lifecycle**: `__exit__` always closes the connection and explicitly checks for uncommitted transactions to rollback; reads use `read_only=True` to avoid `BEGIN IMMEDIATE`.
-    3. **Bounded Lock Retries**: Retry logic enforces `MAX_LOCK_ATTEMPTS=50`, checks `sqlite_errorcode` (or string fallback), and raises a typed `StateStoreUnavailableError` when bound is exceeded.
+    3. **Bounded Lock Retries**: Retry logic strictly bounds total time (not just attempts) via `time.monotonic()`, passes `timeout=0` to SQLite to prevent blocking, and manages its own bounded retry interval in Python, raising a typed `StateStoreUnavailableError` exactly when the budget is exceeded.
     4. **JSON Round-trip for Real Types**: Deeply deserializes `TransitiveExecutableNode` as frozen dataclasses and reconstructed Enums, proving genuine typed persistence.
     5. **Semantic Trace Drift**: `ManifestAdmissionReceipt` and `ManifestProvisioningEvidenceReceipt` are now distinct typed tiers; schema_version is "2.0.0", timestamp format is exact, ID collisions retry over bounded transactions, and `get_trusted_receipt()` is defined via `ManifestAdmissionReadUnitOfWork`.
     6. **Prose and Injection Clarification**: Explicit prose states the coordinator receives an injected `StateStore` (and owns no files), and clarifies that it is an injected verification step within `AdmissionCoordinator`, not a competitor.
