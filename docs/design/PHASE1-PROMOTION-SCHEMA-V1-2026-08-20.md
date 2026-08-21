@@ -476,7 +476,9 @@ def _build_admission_registry():
                         # and arbitrary cmd.exe error recovery behaviors are explicitly out of scope for this
                         # Phase 1 prototype. Instead, this validator strictly enforces well-formed inputs:
                         # malformed PATHEXT values (entries missing leading dots, empty entries adjacent to
-                        # semicolons) fail closed immediately rather than attempting heuristic repair.
+                        # semicolons, or surrounding/internal whitespace) fail closed immediately via a single
+                        # strict pattern match (r"^\.[A-Za-z0-9]+$") on raw unmodified tokens rather than
+                        # attempting heuristic repair, stripping, or normalization.
                         
                         # Strict PATH-only resolution: Never consult or fall back to CWD implicitly.
                         # Enumerate only directories explicitly present in the PATH environment variable.
@@ -497,20 +499,13 @@ def _build_admission_registry():
                             else:
                                 raw_tokens = raw_pathext.split(os.pathsep)
                                 for token in raw_tokens:
-                                    t = token.strip()
-                                    if not t:
+                                    if not re.match(r"^\.[A-Za-z0-9]+$", token):
                                         raise ValueError(
                                             f"resolution_rule 'path' requires a well-formed PATHEXT environment variable "
-                                            f"(found empty token in PATHEXT '{raw_pathext}'). Cannot safely resolve "
-                                            f"commands under an ambiguous or malformed PATHEXT."
-                                        )
-                                    if not t.startswith("."):
-                                        raise ValueError(
-                                            f"resolution_rule 'path' requires a well-formed PATHEXT environment variable "
-                                            f"(every entry must start with a dot, got '{t}' in PATHEXT '{raw_pathext}'). "
+                                            f"(each entry must match r'^\\.[A-Za-z0-9]+$', got '{token}' in PATHEXT '{raw_pathext}'). "
                                             f"Cannot safely resolve commands under an ambiguous or malformed PATHEXT."
                                         )
-                                    pathext_list.append(t)
+                                    pathext_list.append(token)
                         
                         for directory in path_dirs:
                             candidate = os.path.join(directory, target)
@@ -2714,11 +2709,11 @@ with tempfile.TemporaryDirectory() as tmp_unicode_dir:
     unicode_receipt_id = AdmissionRegistry.admit(unicode_confusable_manifest, genuine_kelvin_chain)
     print(f"GENUINE UNICODE TARGET ADMISSION SUCCESS: Admitted with genuine filesystem identity, got receipt: {unicode_receipt_id}")
 
-print("\n--- 36. Round 63 PATHEXT Strictness & Malformed-Syntax Rejection (Fail-Closed on Missing Dot or Empty Token) ---")
+print("\n--- 36. Round 63/65 PATHEXT Strictness & Malformed-Syntax Rejection (Fail-Closed on Missing Dot or Empty Token) ---")
 # cx's Round 62 review showed that auto-normalizing PATHEXT tokens (auto-adding missing leading dots)
 # diverges from cmd.exe behavior when multiple candidates exist (e.g., PATHEXT="BAT;.CMD" with probe.bat
 # and probe.cmd present). Rather than attempting heuristic repair or guessing cmd.exe parsing quirks,
-# resolution_rule 'path' now strictly validates PATHEXT and fails closed on any malformed token
+# resolution_rule 'path' strictly validates PATHEXT against r"^\.[A-Za-z0-9]+$" and fails closed on any malformed token
 # (missing leading dot or empty tokens between/adjacent to semicolons), while handling explicitly empty
 # and unset PATHEXT deterministically.
 with tempfile.TemporaryDirectory() as tmp_r63_dir:
@@ -2815,6 +2810,108 @@ with tempfile.TemporaryDirectory() as tmp_r63_dir:
         elif "PATHEXT" in os.environ:
             del os.environ["PATHEXT"]
 
+print("\n--- 37. Round 65 Strict Pattern PATHEXT Validation (cx's Round 64 Whitespace Attack Rejected & Full Matrix Verified) ---")
+# cx's Round 64 review revealed that calling token.strip() before validation silently stripped trailing whitespace
+# from tokens like ".BAT ", allowing PATHEXT=".BAT ;.CMD" to pass validation and hash name.bat while cmd.exe actually executes name.cmd.
+# Round 65 replaces all ad hoc checks with a single strict regex match r"^\.[A-Za-z0-9]+$" against each raw unmodified token (no strip).
+# Here we reproduce cx's exact Round 64 attack with two real files having distinct content and hashes.
+with tempfile.TemporaryDirectory() as tmp_r65_dir:
+    r64_bat_path = os.path.join(tmp_r65_dir, "independent_r64_probe.bat")
+    r64_cmd_path = os.path.join(tmp_r65_dir, "independent_r64_probe.cmd")
+    with open(r64_bat_path, "wb") as f:
+        f.write(b"@echo off\necho PROBE_BAT_ROUND64_CONTENT\n")
+    with open(r64_cmd_path, "wb") as f:
+        f.write(b"@echo off\necho PROBE_CMD_ROUND64_CONTENT\n")
+
+    with open(r64_bat_path, "rb") as f:
+        r64_bat_hash = hashlib.sha256(f.read()).hexdigest().upper()
+    with open(r64_cmd_path, "rb") as f:
+        r64_cmd_hash = hashlib.sha256(f.read()).hexdigest().upper()
+
+    print(f"Created distinct probe files: .bat ({r64_bat_hash[:16]}...) vs .cmd ({r64_cmd_hash[:16]}...)")
+
+    orig_path_env = os.environ.get("PATH", "")
+    orig_pathext_env = os.environ.get("PATHEXT", None)
+
+    os.environ["PATH"] = f"{tmp_r65_dir}{os.pathsep}{orig_path_env}"
+
+    try:
+        manifest_r65 = dict(valid_claude_manifest)
+        manifest_r65["execution"] = dict(valid_claude_manifest["execution"])
+        manifest_r65["execution"]["executable"] = {
+            "resolution_rule": "path",
+            "target": "independent_r64_probe"
+        }
+        r64_bat_chain = [{
+            "role": "ENTRYPOINT_WRAPPER",
+            "canonical_path": os.path.abspath(r64_bat_path),
+            "sha256": r64_bat_hash,
+            "is_reparse_point": False
+        }]
+        r64_cmd_chain = [{
+            "role": "ENTRYPOINT_WRAPPER",
+            "canonical_path": os.path.abspath(r64_cmd_path),
+            "sha256": r64_cmd_hash,
+            "is_reparse_point": False
+        }]
+
+        # 1. cx's exact Round 64 attack: PATHEXT=".BAT ;.CMD" (literal trailing space after .BAT)
+        # Previous strip() behavior admitted and hashed .bat; now rejected outright by strict regex without stripping.
+        os.environ["PATHEXT"] = ".BAT ;.CMD"
+        try:
+            AdmissionRegistry.admit(manifest_r65, r64_bat_chain)
+            print("FAILED: PATHEXT with trailing space '.BAT ;.CMD' was unexpectedly accepted!")
+        except ValueError as e:
+            print(f"CX ROUND 64 TRAILING SPACE ATTACK REJECTED: {type(e).__name__}: {e}")
+
+        # 2. Leading whitespace in token: PATHEXT=" .BAT;.CMD"
+        os.environ["PATHEXT"] = " .BAT;.CMD"
+        try:
+            AdmissionRegistry.admit(manifest_r65, r64_bat_chain)
+            print("FAILED: PATHEXT with leading space ' .BAT;.CMD' was unexpectedly accepted!")
+        except ValueError as e:
+            print(f"LEADING SPACE IN TOKEN REJECTED: {type(e).__name__}: {e}")
+
+        # 3. Internal whitespace in token: PATHEXT=".B AT;.CMD"
+        os.environ["PATHEXT"] = ".B AT;.CMD"
+        try:
+            AdmissionRegistry.admit(manifest_r65, r64_bat_chain)
+            print("FAILED: PATHEXT with internal space '.B AT;.CMD' was unexpectedly accepted!")
+        except ValueError as e:
+            print(f"INTERNAL SPACE IN TOKEN REJECTED: {type(e).__name__}: {e}")
+
+        # 4. Trailing semicolon producing empty token: PATHEXT=".BAT;.CMD;"
+        os.environ["PATHEXT"] = ".BAT;.CMD;"
+        try:
+            AdmissionRegistry.admit(manifest_r65, r64_bat_chain)
+            print("FAILED: PATHEXT with trailing semicolon was unexpectedly accepted!")
+        except ValueError as e:
+            print(f"TRAILING SEMICOLON EMPTY TOKEN REJECTED: {type(e).__name__}: {e}")
+
+        # 5. Non-alphanumeric punctuation: PATHEXT=".BAT#;.CMD"
+        os.environ["PATHEXT"] = ".BAT#;.CMD"
+        try:
+            AdmissionRegistry.admit(manifest_r65, r64_bat_chain)
+            print("FAILED: PATHEXT with punctuation was unexpectedly accepted!")
+        except ValueError as e:
+            print(f"PUNCTUATION IN TOKEN REJECTED: {type(e).__name__}: {e}")
+
+        # 6. Re-verify genuine well-formed PATHEXT under single unified pattern
+        os.environ["PATHEXT"] = ".BAT;.CMD"
+        receipt_r65_bat = AdmissionRegistry.admit(manifest_r65, r64_bat_chain)
+        print(f"GENUINE WELL-FORMED PATHEXT (.BAT precedence): Got receipt: {receipt_r65_bat}")
+
+        os.environ["PATHEXT"] = ".CMD;.BAT"
+        receipt_r65_cmd = AdmissionRegistry.admit(manifest_r65, r64_cmd_chain)
+        print(f"GENUINE WELL-FORMED PATHEXT (.CMD precedence): Got receipt: {receipt_r65_cmd}")
+
+    finally:
+        os.environ["PATH"] = orig_path_env
+        if orig_pathext_env is not None:
+            os.environ["PATHEXT"] = orig_pathext_env
+        elif "PATHEXT" in os.environ:
+            del os.environ["PATHEXT"]
+
 ```
 
 **Output:**
@@ -2836,12 +2933,12 @@ REJECTED at admit() as expected: ValueError: Manifest schema validation failed: 
 Store unpolluted (no receipt issued): True
 
 --- 5. Fully schema-valid Codex manifest with empty options admitted successfully ---
-Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T113445Z-2708cff97dba39d40a0c990a04bd37d1
+Admitted valid Codex manifest, got 128-bit collision-safe receipt: receipt-cx-codex-peer-20260821T114733Z-5c59fff9880eba95fcd248c98c7a6428
 Codex receipt chain_complete (shallow entrypoint verification): False
 SUCCESS: Constructed codex-peer (cx) carrying genuine declared profiles: frozenset({'cx.standard'})
 
 --- 6. Fully schema-valid Claude manifest admitted with declared profiles ---
-Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T113445Z-9c3e17edffd6e5876517592cd0b47418
+Admitted valid Claude manifest, got 128-bit collision-safe receipt: receipt-cc-claude-peer-20260821T114733Z-f6fd65b180cccf72cec76735c7570598
 Claude receipt chain_complete (shallow entrypoint verification): False
 SUCCESS: Constructed claude-peer (cc) carrying genuine declared profiles: frozenset({'cc.standard'})
 
@@ -2858,13 +2955,13 @@ can_promote(mixed_cells) returned: False
 MIXED INJECTION BLOCKED: Unadmitted cell rejected: True
 
 --- 10. Collision safety: forced sequential collision retried to fresh receipt ID ---
-Earlier receipt ID (receipt-cc-claude-peer-20260821T113445Z-9c3e17edffd6e5876517592cd0b47418) digest preserved intact: True
-Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T113445Z-abcdef0123456789abcdef0123456789
+Earlier receipt ID (receipt-cc-claude-peer-20260821T114733Z-f6fd65b180cccf72cec76735c7570598) digest preserved intact: True
+Second admission detected collision and retried to fresh ID: receipt-cc-claude-peer-20260821T114733Z-abcdef0123456789abcdef0123456789
 Store size now: 3 distinct entries (no clobbering!)
 
 --- 11. Concurrency safety: Real multi-threaded concurrent execution with forced interleaving ---
-Thread 1 receipt ID: receipt-cc-conc-peer-20260821T113445Z-11112222333344445555666677778888
-Thread 2 receipt ID: receipt-cc-conc-peer-20260821T113445Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+Thread 1 receipt ID: receipt-cc-conc-peer-20260821T114733Z-11112222333344445555666677778888
+Thread 2 receipt ID: receipt-cc-conc-peer-20260821T114733Z-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 Receipt IDs are distinct (no duplicate ID issued): True
 Thread 1 digest in registry: True
 Thread 2 digest in registry: True
@@ -2913,26 +3010,26 @@ GENUINE SNAPSHOT PROMOTION SUCCESS: Immutable snapshot correctly promotes genuin
 ATTACK STEP A BLOCKED: Direct subscript mutation raised AttributeError: type object 'AdmissionRegistry' has no attribute '_store'
 ATTACK STEP B BLOCKED: get_trusted_digest ignored monkeypatch: ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
 FORGERY REJECTED at from_manifest(): ValueError: Unknown admission receipt ID: rcpt_cx_forged_storage_bypass_token_12345
-GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T113445Z-f853f54e3487e5f4d33ebdd256065265
+GENUINE ADMISSION SUCCESS: Valid manifest admitted through admit(), got: receipt-cc-forged-bypass-peer-20260821T114733Z-d60ab4e76b578e1d59dc05fd41c9f5bb
 GENUINE CONSTRUCT SUCCESS: Constructed forged-bypass-peer with digest verified from trusted registry.
 
 --- 19. Round 38 EvidenceRegistry Validates cell_data Shape ---
 SHAPE VALIDATION BLOCKED: Bare dictionary rejected: TypeError: cell_obj must expose a real cell_key of the real CellKey type
-SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'PRODUCT_FAILURE', 'EXECUTED_PASS', 'NOT_REQUESTED', 'QUOTA_BLOCKED'}
-GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_2be940cf28a80b16501dc02b634340a2
+SHAPE VALIDATION BLOCKED: Invalid attempt_outcome rejected: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'NOT_REQUESTED', 'ENVIRONMENT_UNAVAILABLE'}
+GENUINE CELL SUCCESS: Properly shaped cell admitted, got receipt: ev_52812dcc25edd3d79fd9a4bee3ec1e2c
 GENUINE CELL PROMOTION: Properly shaped cell still promotes exactly as before: True
 
 --- 20. cx's EvidenceRegistry Exact Attacks (Type-name Spoof, Non-datetime Timestamp, Post-admission Mutation) ---
 TYPE-NAME SPOOF BLOCKED: TypeError: cell_obj must expose a real cell_key of the real CellKey type
 NON-DATETIME TIMESTAMP BLOCKED: TypeError: provenance must carry a real timestamp_utc of the real datetime type
-Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_4a9d28199a4c56fe83fdeb52a7ffbf31
+Admitted mutable cell as PRODUCT_FAILURE, got receipt: ev_5d28871066aa9e10d8db70eb744232b5
 Promotion with PRODUCT_FAILURE returned: False
 Attacker mutated original cell object to EXECUTED_PASS.
 Promotion after post-admission mutation returned: False
 POST-ADMISSION MUTATION BLOCKED: Promotion result remained False despite mutation of original object.
 
 --- 21. Round 42 cx's Changing-Getter TOCTOU Attack in admit() ---
-TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'ENVIRONMENT_UNAVAILABLE', 'PRODUCT_FAILURE', 'EXECUTED_PASS', 'NOT_REQUESTED', 'QUOTA_BLOCKED'}
+TOCTOU CHANGING GETTER BLOCKED: ValueError: cell_obj.attempt_outcome must be one of {'QUOTA_BLOCKED', 'EXECUTED_PASS', 'PRODUCT_FAILURE', 'NOT_REQUESTED', 'ENVIRONMENT_UNAVAILABLE'}
 GENUINE CELL PROMOTION R42: Properly shaped cell still promotes correctly: True
 
 --- 22. Round 42 Item 2: Timezone-Aware UTC Enforcement & Future Skew Bounds ---
@@ -2952,8 +3049,8 @@ TIMESTAMP EQUIVALENCE PRESERVED: Normalized timestamp matches original point in 
 
 --- 24. Round 44 Item 2: Enum Validation on transport & proof_kind & False-Contradiction Prevention ---
 BOGUS TRANSPORT REJECTED: ValueError: cell_key.transport must be one of {'PTY', 'PIPE'}, got 'SOCKET'
-BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'deterministic contract or integration', 'live provider exact-profile', 'legacy-parity evidence'}, got 'invented arbitrary proof kind'
-FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'deterministic contract or integration', 'live provider exact-profile', 'legacy-parity evidence'}, got 'bogus unvalidated proof kind'
+BOGUS PROOF_KIND REJECTED: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'legacy-parity evidence', 'live provider exact-profile', 'deterministic contract or integration'}, got 'invented arbitrary proof kind'
+FALSE-CONTRADICTION PREVENTED: Bogus failing sibling rejected at admission: ValueError: cell_key.proof_kind must be one of {'controlled real-OS executable', 'legacy-parity evidence', 'live provider exact-profile', 'deterministic contract or integration'}, got 'bogus unvalidated proof kind'
 LEGITIMATE PROMOTION PRESERVED: can_promote returned True: True
 
 --- 25. Round 47: Mismatched-Target Admission Attack ---
@@ -2972,7 +3069,7 @@ RELATIVE PATH BLOCKED: ValueError: canonical_path must be an absolute path, got 
 NON-PE FORMAT REJECTED: ValueError: File content at P:\workspace\peerhub\docs\design\PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md does not match NATIVE_BINARY format claim (missing MZ magic bytes).
 
 --- 30. Round 55/57 Entrypoint Verification with chain_complete=False ---
-Admitted wrapper-fronted peer manifest: receipt-cc-claude-peer-20260821T113445Z-ef02b731978ff56a083f27402a5d1d8b
+Admitted wrapper-fronted peer manifest: receipt-cc-claude-peer-20260821T114733Z-81eada193bd3c5202a0a6747ff04f547
 Declared role: ENTRYPOINT_WRAPPER
 Wrapper receipt chain_complete flag: False
 Provisioning evidence chain_complete flag: False
@@ -2986,30 +3083,40 @@ RELATIVE TARGET UNDER ABSOLUTE RULE REJECTED: ValueError: resolution_rule 'absol
 --- 32. Round 57 resolution_rule 'path' rejects path separators (enforces bare command name) ---
 PATH SEPARATOR IN PATH RULE REJECTED (.\): ValueError: resolution_rule 'path' requires a bare command name with no path components, got '.\claude.cmd'
 PATH SEPARATOR IN PATH RULE REJECTED (subdir\..\): ValueError: resolution_rule 'path' requires a bare command name with no path components, got 'subdir\..\claude.cmd'
-GENUINE BARE NAME ADMISSION SUCCESS: Admitted via real PATH lookup, got receipt: receipt-cc-claude-peer-20260821T113445Z-3b21221cc19b0c7dbbfc10d8e4c1ca6b
+GENUINE BARE NAME ADMISSION SUCCESS: Admitted via real PATH lookup, got receipt: receipt-cc-claude-peer-20260821T114733Z-f7053927de3c988cdb4d98581c6fc8aa
 
 --- 33. Round 59 Strict PATH-Only Resolution (CWD Shadowing & Registry Independence) ---
-GENUINE PATH COMMAND ADMISSION SUCCESS: Bare target 'python.exe' resolved via PATH directory, got receipt: receipt-cc-claude-peer-20260821T113445Z-b8a275961078bbd7a7b41abebc305ffa
+GENUINE PATH COMMAND ADMISSION SUCCESS: Bare target 'python.exe' resolved via PATH directory, got receipt: receipt-cc-claude-peer-20260821T114733Z-e66c8e11ddccf68b9f8e9699148abc04
 CWD SHADOWING ATTACK BLOCKED: ValueError: Target 'adversarial_cwd_shadow_command.cmd' with resolution_rule 'path' could not be resolved via OS PATH
 
 --- 34. Round 61 PATHEXT Resolution Order (Bare extensionless vs PATHEXT-extended precedence) ---
-PATHEXT PRECEDENCE ENFORCED (bare candidate rejected): ValueError: Executable chain entrypoint D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-5a55\tmp0aiwtl0x\probe_precedence_r61 does not match resolved manifest target D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-5a55\tmp0aiwtl0x\probe_precedence_r61.CMD
-GENUINE PATHEXT ADMISSION SUCCESS: Admitted via PATHEXT precedence, got receipt: receipt-cc-claude-peer-20260821T113445Z-3e7c5f7f7bfeeb5680e68385ec1b4b46
+PATHEXT PRECEDENCE ENFORCED (bare candidate rejected): ValueError: Executable chain entrypoint D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-bc0a\tmpbs22kb55\probe_precedence_r61 does not match resolved manifest target D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-bc0a\tmpbs22kb55\probe_precedence_r61.CMD
+GENUINE PATHEXT ADMISSION SUCCESS: Admitted via PATHEXT precedence, got receipt: receipt-cc-claude-peer-20260821T114733Z-d469b93ec0f9148738fee947dc656ff3
 BARE EXTENSIONLESS WITHOUT PATHEXT REJECTED: ValueError: Target 'probe_bare_only_r61' with resolution_rule 'path' could not be resolved via OS PATH
 
 --- 35. Round 61 Unicode Case-Folding Path Identity (Real Filesystem Identity via os.path.samefile) ---
 Two distinct files created on NTFS: 'target_K_r61.cmd' and 'target_K_r61.cmd'
 Python str.lower() conflates paths: True
 os.path.samefile() correctly distinguishes files: True
-UNICODE CONFUSABLE BINDING BLOCKED: ValueError: Executable chain entrypoint D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-5a55\tmpojlvj8ug\target_K_r61.cmd does not match resolved manifest target D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-5a55\tmpojlvj8ug\target_K_r61.cmd
-GENUINE UNICODE TARGET ADMISSION SUCCESS: Admitted with genuine filesystem identity, got receipt: receipt-cc-claude-peer-20260821T113445Z-fcc78c3c7d9625c8195f7fa71a4c91cd
+UNICODE CONFUSABLE BINDING BLOCKED: ValueError: Executable chain entrypoint D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-bc0a\tmpcyw_ug4m\target_K_r61.cmd does not match resolved manifest target D:\Engram&Peerhub\PortableDev (v2.1)\_sys\data\temp\ask_ask-bc0a\tmpcyw_ug4m\target_K_r61.cmd
+GENUINE UNICODE TARGET ADMISSION SUCCESS: Admitted with genuine filesystem identity, got receipt: receipt-cc-claude-peer-20260821T114733Z-64dc51c2e5c1813b79c573c0cc7015fa
 
---- 36. Round 63 PATHEXT Strictness & Malformed-Syntax Rejection (Fail-Closed on Missing Dot or Empty Token) ---
-MALFORMED PATHEXT MISSING DOT REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (every entry must start with a dot, got 'BAT' in PATHEXT 'BAT;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
-MALFORMED PATHEXT LEADING EMPTY TOKEN REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (found empty token in PATHEXT ';.BAT;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
-MALFORMED PATHEXT CONSECUTIVE SEMICOLONS REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (found empty token in PATHEXT '.BAT;;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+--- 36. Round 63/65 PATHEXT Strictness & Malformed-Syntax Rejection (Fail-Closed on Missing Dot or Empty Token) ---
+MALFORMED PATHEXT MISSING DOT REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got 'BAT' in PATHEXT 'BAT;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+MALFORMED PATHEXT LEADING EMPTY TOKEN REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got '' in PATHEXT ';.BAT;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+MALFORMED PATHEXT CONSECUTIVE SEMICOLONS REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got '' in PATHEXT '.BAT;;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
 EXPLICITLY EMPTY PATHEXT RESOLUTION REJECTED: ValueError: Target 'cx_probe_r63' with resolution_rule 'path' could not be resolved via OS PATH
-GENUINE WELL-FORMED PATHEXT ADMISSION SUCCESS: Admitted via .BAT precedence, got receipt: receipt-cc-claude-peer-20260821T113445Z-0bb9e11d954b61912dce34569512d63b
-GENUINE WELL-FORMED PATHEXT ADMISSION SUCCESS (.CMD precedence): Got receipt: receipt-cc-claude-peer-20260821T113445Z-be6a12cbf8af65e2ba293ccfed63221f
-GENUINE UNSET PATHEXT ADMISSION SUCCESS (default list precedence): Got receipt: receipt-cc-claude-peer-20260821T113445Z-26ea77fb147fb6091382e5cebc30285a
+GENUINE WELL-FORMED PATHEXT ADMISSION SUCCESS: Admitted via .BAT precedence, got receipt: receipt-cc-claude-peer-20260821T114734Z-b68ed58021a62f5309169514a0769809
+GENUINE WELL-FORMED PATHEXT ADMISSION SUCCESS (.CMD precedence): Got receipt: receipt-cc-claude-peer-20260821T114734Z-2246d1e702424c617c7b5984a27283c2
+GENUINE UNSET PATHEXT ADMISSION SUCCESS (default list precedence): Got receipt: receipt-cc-claude-peer-20260821T114734Z-3931f10ac5d30313eabd1ef0677867b8
+
+--- 37. Round 65 Strict Pattern PATHEXT Validation (cx's Round 64 Whitespace Attack Rejected & Full Matrix Verified) ---
+Created distinct probe files: .bat (7E6D9FC05CD3D450...) vs .cmd (1D7ECACF9234A03A...)
+CX ROUND 64 TRAILING SPACE ATTACK REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got '.BAT ' in PATHEXT '.BAT ;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+LEADING SPACE IN TOKEN REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got ' .BAT' in PATHEXT ' .BAT;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+INTERNAL SPACE IN TOKEN REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got '.B AT' in PATHEXT '.B AT;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+TRAILING SEMICOLON EMPTY TOKEN REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got '' in PATHEXT '.BAT;.CMD;'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+PUNCTUATION IN TOKEN REJECTED: ValueError: resolution_rule 'path' requires a well-formed PATHEXT environment variable (each entry must match r'^\.[A-Za-z0-9]+$', got '.BAT#' in PATHEXT '.BAT#;.CMD'). Cannot safely resolve commands under an ambiguous or malformed PATHEXT.
+GENUINE WELL-FORMED PATHEXT (.BAT precedence): Got receipt: receipt-cc-claude-peer-20260821T114734Z-fa47fb788261ead3a259ece79f4ea270
+GENUINE WELL-FORMED PATHEXT (.CMD precedence): Got receipt: receipt-cc-claude-peer-20260821T114734Z-d578bc93a66802e7b2f1548c6ad38f54
 ```
