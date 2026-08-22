@@ -263,6 +263,12 @@ Additional non-blocking defects noted: backup step 4's "overwrite" doesn't requi
 
 **Next**: Round 93 redesigns the schema with immutable generation IDs (decoupling backup FK from the mutable `shim_name`), explicit pending-effect/operation-intent rows disambiguating install-vs-restore-in-flight, real path canonicalization, correct parent-before-child insert ordering, `BEGIN IMMEDIATE` (matching real code), and a stable per-operation idempotency key.
 
+## Round 93 (item C, second attempt): schema + state machine redesign — terminal caught a regression before dispatching for review
+
+ag's Round 93 response addressed all 6 Round 91 findings via a new `shim_pending_operations` intent table (resolving crash-state ambiguity), an immutable `shim_registration_id` surrogate key (resolving generation-identity loss), a documented canonicalization invariant, partial unique indexes scoped to `status='ACTIVE'`, `BEGIN IMMEDIATE` everywhere, and lock-release-after-commit ordering. However, the terminal independently reproduced a **regression**: the install protocol's step 1 prose inserted the new `shim_pending_operations` row (FK-referencing `shim_registration_id`) *before* inserting the parent `shim_registry_entries` row — the exact same FK-ordering defect class from Round 91, reintroduced on the new table. Reproduced directly (`sqlite3.IntegrityError: FOREIGN KEY constraint failed`) before the response was even sent to cx for review.
+
+Since the rest of the Round 93 design held up and the defect was a single, narrow, mechanical ordering fix (not a design flaw), the terminal corrected it directly in the committed document rather than dispatching a full review round for it — reordering step 1 so the parent row is inserted first, then the pending-operations row. The corrected order was independently re-verified with a second direct SQLite reproduction (`FIX VERIFIED: parent-before-child insert order succeeds, no FK violation`) before committing. Round 94 dispatches cx to adversarially review the full corrected Section C (schema + state machine only; reconciliation/repo-ops/trace remain deferred to a following round, and Round 92's content — built on the rejected Round 90 schema — remains unmerged).
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
