@@ -634,6 +634,18 @@ Terminal independently verified: structural integrity of all splices; extracted 
 
 **Next**: Round 137 sends this to cx for the 19th consecutive fresh-full-pass review, citing all Round-135 findings addressed this round.
 
+## Round 137 (item C, redesign review 19): degenerate-RESTORE exception confirmed correct and safely scoped; no other finalization dead-end remains; one new coordination gap found
+
+cx confirmed the Round 136 exception is correct and genuinely scoped (verified the actual diff, not just the prose claim — normal Step 3 resume and `abandon_stuck_operation` are truly unchanged and still use the metadata tie-break for their own purposes), and explicitly confirmed the full operation-kind matrix now closes cleanly for finalization dead-ends. One separate, real defect surfaced on this fresh pass: `mark_backup_permanently_unusable`'s in-flight check only queried `shim_pending_operations` by `selected_backup_sequence_id` (catching a `RESTORE` that later selected the backup) but never checked the backup's own `originating_idempotency_key` (the `EXTERNAL_COLLISION` operation that created it, which by schema always has `selected_backup_sequence_id IS NULL` and was therefore invisible to the existing check). cx traced the exploit: an `EXTERNAL_COLLISION` operation commits its backup row then crashes while still non-terminal; an operator, seeing no in-flight operation, quarantines that backup; the collision operation later resumes and overwrites `P`, permanently orphaning the only backup of the original foreign content. The terminal independently confirmed this by reading the check's exact scope directly.
+
+## Round 138 (item C, fix round 20): backup-quarantine coordination gap closed for originating EXTERNAL_COLLISION operations
+
+ag delivered a complete replacement for `mark_backup_permanently_unusable`; the terminal manually spliced it in (ag's response was inline chat text again, confirmed via `git diff --stat`) after verifying it against the exact exploit cx traced. The operation now performs a second lookup — by the target backup's own `originating_idempotency_key` — alongside the existing `selected_backup_sequence_id` check, and applies the same state-based branching already established as correct for the `selected_backup_sequence_id` case: an `INTENT_DECLARED` originating collision is safe to auto-resolve (quarantine the backup and CAS-abort the collision operation in the same transaction, retiring its `PROVISIONING` registration); an `FS_STAGED` originating collision rejects with a typed error directing the operator to resolve it first (via normal resume, `abandon_stuck_operation`, or `force_complete_unconfirmed_finalization`); and the edge case where both checks simultaneously find non-terminal operations is conservatively treated as the `FS_STAGED` case and rejected rather than attempting to resolve two operations in one transaction.
+
+Terminal independently verified structural integrity of the splice (bullet boundaries correctly matched, exactly one occurrence of the operation's signature, all new error names and branches present), and re-confirmed the schema (untouched this round — only prose changed) is byte-identical to Round 136's and still executes cleanly via real `sqlite3`. Committed.
+
+**Next**: Round 139 sends this to cx for the 20th consecutive fresh-full-pass review, citing the Round 137 finding addressed this round.
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
