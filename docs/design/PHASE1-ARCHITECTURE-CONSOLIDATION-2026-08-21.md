@@ -912,7 +912,11 @@ CREATE TABLE shim_registry_entries (
     admission_receipt_id TEXT NOT NULL REFERENCES manifest_admission_receipts(admission_receipt_id),
     shim_file_sha256 TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+
+    -- Cross-reference for baseline acceptance, explicitly linking to the ABORTED operation that prompted it
+    accepted_baseline_at TEXT,
+    accepted_baseline_reference_idempotency_key TEXT REFERENCES shim_pending_operations(idempotency_key)
 );
 
 -- Uniqueness enforced only among PROVISIONING and ACTIVE registrations; a RETIRED path may be legitimately reused
@@ -1086,7 +1090,7 @@ Every operation (`ABSENT`, `EXTERNAL_COLLISION`, `MANAGED_UPDATE`, `RESTORE`, an
      * `COMMIT`.
 
 2. **INTENT_DECLARED → FS_STAGED**
-   * *FS (staging only, no replacement of `P` yet)*: if `operation_kind='EXTERNAL_COLLISION'`, stage a `.tmp` copy of `P`, verify its hash, atomically `os.replace` to a finalized `.bak`, persist `backup_meta.json`, `fsync`/flush both (and their parent directory). For `RESTORE`, verify the selected `.bak` archive's SHA-256 against the DB record; if mismatch, transition `operation_state` to `ABORTED` (applying the retirement logic detailed below) and abort `ERR_CORRUPT_BACKUP_ARCHIVE`. If `intended_registry_outcome='ACTIVE'`, stage the full intended payload to a temporary file and `fsync` it (but do not yet replace `P`). If staging fails terminally, transition `operation_state` to `ABORTED` (applying retirement logic) and abort.
+   * *FS (staging only, no replacement of `P` yet)*: if `operation_kind='EXTERNAL_COLLISION'`, stage a `.tmp` copy of `P`, verify its hash explicitly against the persisted `pre_state_hash` from the pending-operation row, atomically `os.replace` to a finalized `.bak`, persist `backup_meta.json`, `fsync`/flush both (and their parent directory). For `RESTORE`, verify the selected `.bak` archive's SHA-256 against the DB record's `original_sha256`; if mismatch, transition `operation_state` to `ABORTED` (applying the retirement logic detailed below) and abort `ERR_CORRUPT_BACKUP_ARCHIVE`; if it matches, copy the `.bak` file to a deterministic restoration staging path (e.g. `P.restoring.<pid>`), apply the backup's recorded `original_mtime_epoch` and `original_permissions_octal` to that staging file, and `fsync` the staging file and its parent directory. If `intended_registry_outcome='ACTIVE'`, stage the full intended payload to a temporary file and `fsync` it (but do not yet replace `P`). If staging fails terminally, transition `operation_state` to `ABORTED` (applying retirement logic) and abort.
    * *DB*: `BEGIN IMMEDIATE`; if a backup was staged, `INSERT ... ON CONFLICT (originating_idempotency_key) DO NOTHING` into `shim_backup_entries` (generating `backup_sequence_id`); `UPDATE shim_pending_operations SET operation_state='FS_STAGED' WHERE idempotency_key=? AND operation_state='INTENT_DECLARED'` (affected rows must equal 1); `COMMIT`.
 
 3. **FS_STAGED → COMPLETED | ABORTED**
@@ -1111,7 +1115,7 @@ At every point in Steps 1, 2, or 3 where a terminal failure causes the operation
 
 **Operator recovery from `ABORTED` (Fixes F1 & F5):**
 Because an `ABORTED` operation no longer blocks new operations on the registry, a fresh idempotency key can simply declare a new intent. For the specific case where an operator manually inspects `P` after an `ERR_SHIM_EXTERNALLY_MODIFIED` and judges its externally-modified content acceptable, an explicit repository operation resolves the mismatch:
-* **`accept_current_as_baseline(idempotency_key, expected_inspected_hash)`** — the operator supplies the digest they personally inspected. The operation acquires the advisory lock, re-verifies `sha256(P) == expected_inspected_hash` at execution time (aborting if it has changed since inspection — do not trust a stale claim), and uses a CAS `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='ABORTED'` combined with atomically updating the `shim_registry_entries` hash to the new baseline. This operation is strictly restricted to `MANAGED_UPDATE` aborts, preventing silent promotion of an unauthorized `EXTERNAL_COLLISION`.
+* **`accept_current_as_baseline(aborted_idempotency_key, expected_inspected_hash)`** — the operator supplies the digest they personally inspected and the idempotency key of the aborted operation that prompted this review. The operation acquires the advisory lock and re-verifies `sha256(P) == expected_inspected_hash` at execution time (aborting if it has changed since inspection — do not trust a stale claim). It then READS (without mutating) the referenced aborted operation and requires that its `operation_kind='MANAGED_UPDATE'`, enforcing this restriction to prevent silent promotion of an unauthorized `EXTERNAL_COLLISION`. Finally, in its own transaction, it directly executes `UPDATE shim_registry_entries SET shim_file_sha256=<the live-verified hash>, updated_at=..., accepted_baseline_at=..., accepted_baseline_reference_idempotency_key=? WHERE shim_registration_id=? AND status='ACTIVE'` (CAS-guarded, affected-row-count checked). The original aborted operation's row is left permanently `ABORTED` as an honest, unfalsified audit record.
 
 ### 3. Transactional Replacement
 The complex JSON-file read-modify-write cycle (with `.tmp.<pid>` files and `os.replace`) is eliminated. Each state transition above is its own short, independently-committed `UnitOfWork`:
