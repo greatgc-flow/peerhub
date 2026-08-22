@@ -881,38 +881,89 @@ Issued ID: receipt-ag-adapter_1-20260821T162935Z-9d08117da199e81bb6971e0fc51f01b
 **Resolution:**
 The shim registry state is folded into the same SQLite database as the manifest receipts, sharing the single operational source of truth.
 
-### 1. Illustrative Schema Extension
+### 1. Illustrative Schema Extension (Corrected, Round 90)
+
+The Round 67 first-pass schema below was found by cx (Round 70) to preserve only the simplest metadata write, not the real backup/restore protocol specified in `PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md` §2.8.2-2.8.3. The corrected schema below resolves all 6 identified gaps: (a) missing forensic fields, (b) non-deterministic backup ordering, (c) `ON DELETE CASCADE` destroying audit history, (d) ambiguous target-path naming, (e) no canonical-path uniqueness constraint, (f) no restore/update/remove operations (addressed in §3 below).
+
 ```sql
 CREATE TABLE shim_registry_entries (
     shim_name TEXT PRIMARY KEY,
-    target_executable_path TEXT NOT NULL,
+
+    -- (e) Canonical-path uniqueness to prevent case collisions on case-insensitive filesystems
+    canonical_shim_path TEXT UNIQUE NOT NULL,
+
+    -- (d) The path where the generated shim file resides (corresponds to 'P' in §2.8.2/§2.8.3)
+    shim_path TEXT NOT NULL,
+
+    -- (d) The downstream real executable this shim forwards to (distinct from 'P')
+    downstream_target_path TEXT NOT NULL,
+
+    -- (c) & (f) Soft-delete state ('ACTIVE' / 'RETIRED') so backup history survives removal
+    status TEXT NOT NULL DEFAULT 'ACTIVE',
+
     profile_name TEXT NOT NULL,
     admission_receipt_id TEXT NOT NULL REFERENCES manifest_admission_receipts(admission_receipt_id),
     shim_file_sha256 TEXT NOT NULL,
-    created_at_utc TEXT NOT NULL,
-    updated_at_utc TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE shim_backup_entries (
-    backup_id TEXT PRIMARY KEY,
-    shim_name TEXT NOT NULL REFERENCES shim_registry_entries(shim_name) ON DELETE CASCADE,
-    original_path TEXT NOT NULL,
-    backup_path TEXT NOT NULL,
+    -- (b) Monotonic sequence for deterministic ordering of "most recent unrestored backup"
+    backup_sequence_id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- (c) No ON DELETE CASCADE: audit history persists even after the registry entry retires
+    shim_name TEXT NOT NULL,
+
+    -- (d) Path of the original collision target that was backed up (corresponds to 'P')
+    target_path TEXT NOT NULL,
+
+    backup_file_path TEXT NOT NULL,
     original_sha256 TEXT NOT NULL,
-    backed_up_at_utc TEXT NOT NULL,
-    restored_at_utc TEXT,
-    status TEXT NOT NULL -- e.g., 'ACTIVE', 'RESTORED', 'ORPHANED'
+
+    -- (a) Forensic fields required by §2.8.2's backup_meta.json schema
+    original_mtime_epoch REAL NOT NULL,
+    original_file_size_bytes INTEGER NOT NULL,
+    original_permissions_octal TEXT NOT NULL,
+    override_reason TEXT NOT NULL,
+
+    backup_created_at TEXT NOT NULL,
+    restored BOOLEAN NOT NULL DEFAULT 0,
+    restored_at TEXT,
+
+    FOREIGN KEY(shim_name) REFERENCES shim_registry_entries(shim_name)
 );
 ```
 
-### 2. Transactional Replacement
-The complex JSON-file read-modify-write cycle (with `.tmp.<pid>` files and `os.replace`) is eliminated. When installing or updating a shim's bindings, the coordinator uses an ordinary `UnitOfWork`:
+### 2. Crash-Recoverable State Machine
+
+No SQLite transaction is ever held open across a filesystem write (matching item B's established constraint). The real 6-step backup algorithm (§2.8.2) and 4-step restore protocol (§2.8.3) map onto independent, short-lived database transactions interleaved with filesystem boundaries.
+
+**Backup Protocol** — states: `BACKUP_STAGING` → `BACKUP_STAGED` → `BACKUP_COMMITTED` → `SHIM_REPLACED`
+
+1. **[START] → BACKUP_STAGING** — *FS*: acquire lock; read target `P`'s hash/size/permissions/mtime. *DB*: none.
+2. **BACKUP_STAGING → BACKUP_STAGED** — *FS*: stage `.tmp` copy of `P`, verify hash, atomically `os.replace` to finalized `.bak`, persist `backup_meta.json`. *DB*: none. (Crash: orphaned `.bak`/`.json` files are safely ignorable/GC-able; the database is unpolluted.)
+3. **BACKUP_STAGED → BACKUP_COMMITTED** — *FS*: none. *DB*: `BEGIN EXCLUSIVE`; `INSERT` into `shim_backup_entries` (generating `backup_sequence_id`); `INSERT OR REPLACE` into `shim_registry_entries` (`status='ACTIVE'`); `COMMIT`. (Crash: strictly isolated from I/O — safe to retry if rolled back.)
+4. **BACKUP_COMMITTED → SHIM_REPLACED** — *FS*: overwrite the generated shim at `P`; release lock. *DB*: none. (Crash: an `ACTIVE` registry row whose `P` lacks the correct shim payload safely triggers a targeted rewrite on reconciliation.)
+
+**Restore Protocol** — states: `RESTORE_STAGING` → `RESTORE_VERIFIED` → `RESTORE_STAGED_FS` → `RESTORE_COMPLETE`
+
+1. **[START] → RESTORE_STAGING** — *FS*: acquire lock. *DB*: `BEGIN DEFERRED` (read-only); query `shim_backup_entries` for the most recent unrestored backup (`ORDER BY backup_sequence_id DESC LIMIT 1`); `COMMIT`.
+2. **RESTORE_STAGING → RESTORE_VERIFIED** — *FS*: verify the `.bak` archive's SHA-256 against the DB record, abort `ERR_CORRUPT_BACKUP_ARCHIVE` on mismatch. *DB*: none.
+3. **RESTORE_VERIFIED → RESTORE_STAGED_FS** — *FS*: copy `.bak` to `P.restoring.<pid>`, apply `original_mtime_epoch`/`original_permissions_octal`, atomic `os.replace` over `P`. *DB*: none. (Crash: DB still reflects unrestored state; re-running the FS step is idempotent — `P` is atomically replaced with the identical verified payload again.)
+4. **RESTORE_STAGED_FS → RESTORE_COMPLETE** — *FS*: release lock. *DB*: `BEGIN EXCLUSIVE`; `UPDATE shim_backup_entries SET restored=1, restored_at=...`; `UPDATE shim_registry_entries SET status='RETIRED'`; `COMMIT`.
+
+### 3. Transactional Replacement
+The complex JSON-file read-modify-write cycle (with `.tmp.<pid>` files and `os.replace`) is eliminated. Each state transition above is its own short, independently-committed `UnitOfWork`:
 ```python
 with self._store.unit_of_work() as unit:
-    unit.put_shim_entry(new_shim_entry)
+    unit.commit_backup_entry(new_backup_entry)
     unit.commit()
 ```
 If a flat `shim_registry.json` file is required for external tooling consumption or fast shell pathing, it becomes an **explicitly-derived, read-only export/cache**. Consistent with how `ARCHITECTURE.md` treats the adapter registry as a "disposable derived index", a post-commit hook or explicit CLI command regenerates the JSON cache from the SQLite operational source of truth. It is never read back in to make dispatch decisions or write resolutions.
+
+> [!NOTE]
+> **Round 90 scope boundary.** This round covers only the corrected schema and the crash-recoverable state machine. The reconciliation/recovery procedure for resuming or discarding in-flight operations after an unclean exit, the concrete repository operations (`create_backup_staging`, `finalize_backup`, `commit_shim_replacement`, `get_most_recent_unrestored_backup`, `mark_backup_restored`, `retire_shim_entry`), and a genuinely executed trace demonstrating crash-recovery and deterministic restore-selection are addressed in the following round.
 
 ## D. Remediation of Overclaiming Document Prose
 
