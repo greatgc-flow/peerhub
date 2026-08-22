@@ -670,6 +670,18 @@ Terminal independently verified structural integrity of both changes and confirm
 
 **Next**: Round 143 sends this to cx for the 22nd consecutive fresh-full-pass review, citing the Round 141 finding addressed this round.
 
+## Round 143 (item C, redesign review 22): exact Round 141 ABA scenario fully closed and correctly scoped; a real "unrecorded corruption" gap found
+
+cx confirmed the Round 142 write-time backup-quarantine check genuinely closes the exact ABA sequence from Round 141, traced through all 7 steps, and confirmed by exhaustive elimination that no OTHER operation kind or recovery operation needs the same guard (only `EXTERNAL_COLLISION`'s write performs a genuinely new destructive write over content a backup exists to protect). But cx found the check only proves the backup's `corrupt_detected_at` FLAG isn't set — not that the `.bak` archive is still physically valid. cx's reachable counterexample: `.bak` is created, validated, fsynced, and its row committed; the process crashes before replacing `P`; during an arbitrarily long interruption, the `.bak` is externally deleted/corrupted/hardlinked/substituted with no PeerHub operation ever observing it, so `corrupt_detected_at` stays `NULL` forever; resume finds no quarantine flag and proceeds to overwrite the original content, whose only recovery archive is now silently unusable. cx also caught that the terminal's own Round 140 "already applied" clause still contained the exact false claim Round 141 had already disproved (that the collision operation would "necessarily rederive the same" determination and "complete safely regardless") — the terminal had fixed the underlying Step 3 logic in Round 142 but never corrected this specific leftover sentence.
+
+## Round 144 (item C, fix round 23): write-time check now re-validates the archive itself, not just its DB flag; stale sentence corrected
+
+ag applied both fixes directly (confirmed via `git diff`). Step 3's `EXTERNAL_COLLISION` write-time check now performs just-in-time archive re-validation immediately before writing, reusing the exact two-tier structural-vs-operational pattern Step 2 already establishes for RESTORE's own backup validation: after the cheap `corrupt_detected_at` flag check (kept as a fast path), it safely inspects the `.bak` (no-follow, non-regular/hardlinked rejection), verifies its hash against `pre_state_hash`, and re-fsyncs it; a structural failure (missing/non-regular/hardlinked/hash-mismatch) auto-quarantines the backup and CAS-aborts the operation atomically, exactly like Step 2's own pattern; an operational failure (permission/lock/IO error) is treated as transient, leaving the operation retryable at `FS_STAGED` without any state transition. The stale "already applied" sentence was corrected to accurately describe that the collision operation's later resume re-evaluates its own current state and takes whichever outcome is then correct — no longer claiming a single deterministic "will complete" result.
+
+Terminal independently verified structural integrity (the false claim is now fully absent from the document, replaced by the accurate description; both new error-raising sites present), and confirmed the schema (untouched this round) remains byte-identical to Round 136's and executes cleanly via real `sqlite3`. Committed.
+
+**Next**: Round 145 sends this to cx for the 23rd consecutive fresh-full-pass review, citing the Round 143 finding addressed this round.
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
