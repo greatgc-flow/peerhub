@@ -906,7 +906,7 @@ CREATE TABLE shim_registry_entries (
     -- The downstream real executable this shim forwards to (distinct from 'P')
     downstream_target_path TEXT NOT NULL,
 
-    status TEXT NOT NULL CHECK (status IN ('ACTIVE', 'RETIRED')),
+    status TEXT NOT NULL CHECK (status IN ('PROVISIONING', 'ACTIVE', 'RETIRED')),
 
     profile_name TEXT NOT NULL,
     admission_receipt_id TEXT NOT NULL REFERENCES manifest_admission_receipts(admission_receipt_id),
@@ -915,69 +915,116 @@ CREATE TABLE shim_registry_entries (
     updated_at TEXT NOT NULL
 );
 
--- Uniqueness enforced only among ACTIVE registrations; a RETIRED path may be legitimately reused
-CREATE UNIQUE INDEX idx_active_shim_name ON shim_registry_entries(shim_name) WHERE status = 'ACTIVE';
-CREATE UNIQUE INDEX idx_active_canonical_path ON shim_registry_entries(canonical_shim_path) WHERE status = 'ACTIVE';
+-- Uniqueness enforced only among PROVISIONING and ACTIVE registrations; a RETIRED path may be legitimately reused
+CREATE UNIQUE INDEX idx_active_shim_name ON shim_registry_entries(shim_name) WHERE status IN ('PROVISIONING', 'ACTIVE');
+CREATE UNIQUE INDEX idx_active_canonical_path ON shim_registry_entries(canonical_shim_path) WHERE status IN ('PROVISIONING', 'ACTIVE');
 
 CREATE TABLE shim_pending_operations (
     -- Caller-supplied idempotency key; checked BEFORE any parent-row mutation
     idempotency_key TEXT PRIMARY KEY,
 
-    -- Hash of the logical operation's inputs
+    -- Hash of the logical operation's inputs (including force_override_authorized)
     request_digest TEXT NOT NULL,
 
     -- Explicit operation intent, durably recorded BEFORE any filesystem write begins
     shim_registration_id TEXT NOT NULL REFERENCES shim_registry_entries(shim_registration_id),
 
     -- An observability/audit label identifying the logical operation.
-    -- The state machine and CHECK constraints do NOT branch on this value.
     operation_kind TEXT NOT NULL CHECK (operation_kind IN ('ABSENT', 'EXTERNAL_COLLISION', 'MANAGED_UPDATE', 'RESTORE', 'REMOVE')),
 
     -- Unified single-resource state assertions.
-    -- NULL pre_state_hash means P must be absent before. NULL post_state_hash means P must end absent.
     pre_state_hash TEXT,
     post_state_hash TEXT,
 
-    -- Explicit authorization flag/reason for the EXTERNAL_COLLISION path (Fixes F3)
+    -- Explicit authorization flag/reason for the EXTERNAL_COLLISION path
+    force_override_authorized INTEGER NOT NULL DEFAULT 0 CHECK (force_override_authorized IN (0, 1)),
     force_override_reason TEXT,
 
-    -- Intended bindings at intent time, applied uniformly at completion for any operation that leaves a shim.
+    -- Intended outcome for the registry entry upon completion
+    intended_registry_outcome TEXT NOT NULL CHECK (intended_registry_outcome IN ('ACTIVE', 'RETIRED')),
+
+    -- Intended bindings at intent time, required when outcome is ACTIVE
     intended_profile_name TEXT,
     intended_downstream_target_path TEXT,
     intended_admission_receipt_id TEXT REFERENCES manifest_admission_receipts(admission_receipt_id),
 
+    -- Populated when a REMOVE needs to remember the fallback tool path
+    intended_fallback_tool_path TEXT,
+
     -- Populated when a RESTORE selects a backup to restore from
     selected_backup_sequence_id INTEGER,
 
-    -- 'ABORTED' resolves the permanent-brick state (Fixes F1)
+    -- 'ABORTED' resolves the permanent-brick state
     operation_state TEXT NOT NULL CHECK (operation_state IN ('INTENT_DECLARED', 'FS_STAGED', 'COMPLETED', 'ABORTED')),
     created_at TEXT NOT NULL,
 
-    -- The CHECK constraint enforces the structural shape of the pre/post state hash assertions,
-    -- NOT by branching on the observability label 'operation_kind'.
+    -- Per-operation-kind CHECK constraints matching the unified design
     CHECK (
-        -- If the operation leaves a shim behind (post_state_hash IS NOT NULL), it MUST define the intended bindings.
-        (post_state_hash IS NOT NULL
+        (
+            operation_kind = 'ABSENT'
+            AND pre_state_hash IS NULL
+            AND post_state_hash IS NOT NULL
+            AND intended_registry_outcome = 'ACTIVE'
             AND intended_profile_name IS NOT NULL
             AND intended_downstream_target_path IS NOT NULL
-            AND intended_admission_receipt_id IS NOT NULL)
-        OR
-        -- If the operation results in an absent file (REMOVE), it MUST NOT have intended bindings.
-        (post_state_hash IS NULL
+            AND intended_admission_receipt_id IS NOT NULL
+            AND selected_backup_sequence_id IS NULL
+            AND force_override_authorized = 0
+            AND intended_fallback_tool_path IS NULL
+        ) OR (
+            operation_kind = 'EXTERNAL_COLLISION'
+            AND pre_state_hash IS NOT NULL
+            AND post_state_hash IS NOT NULL
+            AND intended_registry_outcome = 'ACTIVE'
+            AND intended_profile_name IS NOT NULL
+            AND intended_downstream_target_path IS NOT NULL
+            AND intended_admission_receipt_id IS NOT NULL
+            AND selected_backup_sequence_id IS NULL
+            AND force_override_authorized = 1
+            AND force_override_reason IS NOT NULL
+            AND intended_fallback_tool_path IS NULL
+        ) OR (
+            operation_kind = 'MANAGED_UPDATE'
+            AND pre_state_hash IS NOT NULL
+            AND post_state_hash IS NOT NULL
+            AND intended_registry_outcome = 'ACTIVE'
+            AND intended_profile_name IS NOT NULL
+            AND intended_downstream_target_path IS NOT NULL
+            AND intended_admission_receipt_id IS NOT NULL
+            AND selected_backup_sequence_id IS NULL
+            AND force_override_authorized = 0
+            AND intended_fallback_tool_path IS NULL
+        ) OR (
+            operation_kind = 'RESTORE'
+            AND pre_state_hash IS NOT NULL
+            AND post_state_hash IS NOT NULL
+            AND intended_registry_outcome = 'RETIRED'
             AND intended_profile_name IS NULL
             AND intended_downstream_target_path IS NULL
-            AND intended_admission_receipt_id IS NULL)
+            AND intended_admission_receipt_id IS NULL
+            AND selected_backup_sequence_id IS NOT NULL
+            AND force_override_authorized = 0
+            AND intended_fallback_tool_path IS NULL
+        ) OR (
+            operation_kind = 'REMOVE'
+            AND pre_state_hash IS NOT NULL
+            AND post_state_hash IS NULL
+            AND intended_registry_outcome = 'RETIRED'
+            AND intended_profile_name IS NULL
+            AND intended_downstream_target_path IS NULL
+            AND intended_admission_receipt_id IS NULL
+            AND selected_backup_sequence_id IS NULL
+            AND force_override_authorized = 0
+            AND intended_fallback_tool_path IS NOT NULL
+        )
     ),
-
-    -- Prevent vacuous no-op operations where P is absent both before and after
-    CHECK (pre_state_hash IS NOT NULL OR post_state_hash IS NOT NULL),
 
     -- Ensures a RESTORE's selected backup actually belongs to its own registration
     FOREIGN KEY (shim_registration_id, selected_backup_sequence_id) REFERENCES shim_backup_entries(shim_registration_id, backup_sequence_id)
 );
 
 -- Prevents multiple simultaneous non-terminal operations against the same registration.
--- Explicitly excludes ABORTED so a tampered operation does not permanently block the shim (Fixes F1).
+-- Explicitly excludes ABORTED so a tampered operation does not permanently block the shim.
 CREATE UNIQUE INDEX idx_active_pending_operation ON shim_pending_operations(shim_registration_id) WHERE operation_state NOT IN ('COMPLETED', 'ABORTED');
 
 -- Parent-side unique index required for the composite FK from shim_backup_entries
@@ -1013,10 +1060,10 @@ CREATE TABLE shim_backup_entries (
 CREATE UNIQUE INDEX idx_backup_reg_seq ON shim_backup_entries(shim_registration_id, backup_sequence_id);
 ```
 
-*(This schema was independently verified against real `sqlite3` before being committed: valid `MANAGED_UPDATE`/`REMOVE` shapes accepted; invalid shapes (post set without bindings, post NULL with bindings present, both pre/post NULL) correctly rejected with `CHECK constraint failed`; and — the specific proof that F1 is structurally fixed — after transitioning an operation to `ABORTED`, a fresh `INTENT_DECLARED` operation on the SAME registration was correctly accepted, confirming `idx_active_pending_operation`'s `NOT IN ('COMPLETED', 'ABORTED')` clause no longer lets an aborted operation permanently block the registration.)*
+*(This schema was independently verified against real `sqlite3` before being committed: valid shapes accepted; invalid shapes correctly rejected with `CHECK constraint failed`; and — the specific proof that F1 is structurally fixed — after transitioning an operation to `ABORTED` while its registry entry is `PROVISIONING`, a fresh `INTENT_DECLARED` operation on the SAME registration was correctly accepted, confirming `idx_active_pending_operation`'s `NOT IN ('COMPLETED', 'ABORTED')` clause no longer lets an aborted operation permanently block the registration.)*
 
 > [!IMPORTANT]
-> **Visibility of `ACTIVE` registrations.** Because new registrations become visible as `status='ACTIVE'` in `shim_registry_entries` the moment step 1 commits — before the actual filesystem write ever happens — an `ACTIVE` registry row is **not actually consumable** until its most recent associated operation reaches `COMPLETED`. Consumers evaluating "is this shim usable" MUST structurally exclude in-flight installs, e.g. by `LEFT JOIN`ing against `shim_pending_operations WHERE operation_state NOT IN ('COMPLETED', 'ABORTED')` and excluding matches.
+> **Visibility of `ACTIVE` registrations.** Because new registrations become visible as `status='PROVISIONING'` in `shim_registry_entries` the moment step 1 commits — before the actual filesystem write ever happens — consumers evaluating "is this shim usable" MUST structurally exclude in-flight installs, e.g. by only ever consuming rows where `status='ACTIVE'` (and never `PROVISIONING`).
 
 ### 2. Uniform Crash-Recoverable State Machine
 
@@ -1028,31 +1075,43 @@ Every operation (`ABSENT`, `EXTERNAL_COLLISION`, `MANAGED_UPDATE`, `RESTORE`, an
    * *FS*: Acquire advisory lock. Evaluate the current filesystem identity of `P` and compute `actual_hash = sha256(P)` (or note absence).
    * *DB*: `BEGIN IMMEDIATE`.
      * FIRST query `shim_pending_operations` by `idempotency_key`. If found, verify `request_digest` matches (reject as a conflict if not) and resume using its existing `shim_registration_id` — no new parent row is created.
-     * If not found, resolve the `ACTIVE` `shim_registry_entries` row (if any) matching this `shim_name`/`canonical_shim_path` via the deterministic canonicalization function. A partial match on only one of the two is a typed identity-conflict error, never a fallthrough.
+     * If not found, resolve the `ACTIVE` or `PROVISIONING` `shim_registry_entries` row (if any) matching this `shim_name`/`canonical_shim_path` via the deterministic canonicalization function. A partial match on only one of the two is a typed identity-conflict error, never a fallthrough.
      * *Concurrency check*: query `shim_pending_operations` for a non-terminal (`operation_state NOT IN ('COMPLETED', 'ABORTED')`) row on this `shim_registration_id`. If one exists with a different `idempotency_key`, abort with a typed "operation already in progress" conflict.
-     * *Admission-target validation (Fixes F4)*: for any operation leaving a shim (`post_state_hash IS NOT NULL`), fetch the referenced `manifest_admission_receipts` row's `transitive_executable_chain_json`, deserialize it (matching item B's established JSON round-trip pattern, in the application layer per item B's own "opaque document" design choice), and canonicalize the single entrypoint node's `canonical_path`. Compare it against the canonicalized intended `downstream_target_path`. Abort before any mutation on mismatch.
-     * *Fallback-precondition check (`REMOVE` only)*: if `post_state_hash IS NULL`, verify a fallback executable for the tool exists elsewhere on `PATH` outside the PeerHub shim directory, per the real doc's §2.7. Abort if none is found.
-     * *Pre-condition hash check*: compare `actual_hash` against the intended `pre_state_hash` (the active registration's own known hash for `MANAGED_UPDATE`/`REMOVE`, the foreign file's hash for `EXTERNAL_COLLISION`, `NULL`/absent for `ABSENT`, or the selected backup's `original_sha256` for `RESTORE`). Mismatch → abort `ERR_SHIM_EXTERNALLY_MODIFIED`.
-     * *Authorization (Fixes F3)*: for `EXTERNAL_COLLISION`, require a caller-supplied `force_override_reason`; abort `ERR_SHIM_COLLISION_DETECTED` if absent, matching the real doc's §2.3 fail-closed-by-default requirement — the collision is auto-*detected*, but never auto-*overridden*.
-     * If no `ACTIVE` registry row exists yet (`ABSENT`/`EXTERNAL_COLLISION`), `INSERT` the new parent `shim_registry_entries` row first — the parent must commit-order before any child references it, per the Round 91 `FOREIGN KEY constraint failed` reproduction.
-     * `INSERT` into `shim_pending_operations` recording `operation_kind`, `(pre_state_hash, post_state_hash)`, intended bindings (if `post_state_hash IS NOT NULL`), `force_override_reason` (if applicable), `selected_backup_sequence_id` (if restoring — chosen once here via `ORDER BY backup_sequence_id DESC LIMIT 1` among unrestored backups, and never re-queried by later steps), and `request_digest`. `operation_state='INTENT_DECLARED'`.
+     * *Admission-target validation*: for any operation leaving a shim (`intended_registry_outcome='ACTIVE'`), fetch the referenced `manifest_admission_receipts` row's `transitive_executable_chain_json`, deserialize it, and canonicalize the single entrypoint node's `canonical_path`. Compare it against the canonicalized intended `downstream_target_path`. Abort before any mutation on mismatch.
+     * *Fallback-precondition check (`REMOVE` only)*: if `operation_kind='REMOVE'`, verify a fallback executable for the tool exists elsewhere on `PATH` outside the PeerHub shim directory, per the real doc's §2.7. Abort if none is found. Persist its path as `intended_fallback_tool_path`.
+     * *Pre-condition hash check*: compare `actual_hash` against the intended `pre_state_hash` (the active registration's own `shim_file_sha256` for `MANAGED_UPDATE`/`REMOVE`/`RESTORE`, the foreign file's hash for `EXTERNAL_COLLISION`, `NULL`/absent for `ABSENT`). Mismatch → abort `ERR_SHIM_EXTERNALLY_MODIFIED`.
+     * *Authorization*: for `EXTERNAL_COLLISION`, require a caller-supplied `force_override_authorized=1`; abort `ERR_SHIM_COLLISION_DETECTED` if absent or false, matching the real doc's §2.3 fail-closed-by-default requirement — the collision is auto-*detected*, but never auto-*overridden*.
+     * If no `ACTIVE` or `PROVISIONING` registry row exists yet (`ABSENT`/`EXTERNAL_COLLISION`), `INSERT` the new parent `shim_registry_entries` row first with `status='PROVISIONING'` — the parent must commit-order before any child references it.
+     * `INSERT` into `shim_pending_operations` recording `operation_kind`, `(pre_state_hash, post_state_hash)`, intended bindings (if `intended_registry_outcome='ACTIVE'`), `force_override_authorized`, `force_override_reason` (if applicable), `selected_backup_sequence_id` (if restoring — chosen once here via `ORDER BY backup_sequence_id DESC LIMIT 1` among unrestored backups, and never re-queried by later steps), `intended_fallback_tool_path` (if `REMOVE`), and `request_digest`. `operation_state='INTENT_DECLARED'`.
      * `COMMIT`.
 
 2. **INTENT_DECLARED → FS_STAGED**
-   * *FS (staging only, no replacement of `P` yet)*: if `pre_state_hash IS NOT NULL` and the operation is `EXTERNAL_COLLISION`, stage a `.tmp` copy of `P`, verify its hash, atomically `os.replace` to a finalized `.bak`, persist `backup_meta.json`, `fsync`/flush both (and their parent directory). For `RESTORE`, verify the selected `.bak` archive's SHA-256 against the DB record, abort `ERR_CORRUPT_BACKUP_ARCHIVE` on mismatch. If `post_state_hash IS NOT NULL`, stage the full intended payload to a temporary file and `fsync` it (but do not yet replace `P`). `ABSENT`/`MANAGED_UPDATE`/`REMOVE` skip the backup sub-step entirely (no foreign file to preserve).
-   * *DB*: `BEGIN IMMEDIATE`; if a backup was staged, `INSERT ... ON CONFLICT (originating_idempotency_key) DO NOTHING` into `shim_backup_entries` (generating `backup_sequence_id`); `UPDATE shim_pending_operations SET operation_state='FS_STAGED' WHERE idempotency_key=? AND operation_state='INTENT_DECLARED'` (affected rows must equal 1); `COMMIT`. (Crash: strictly isolated from I/O — safe to retry if rolled back; a retry's backup insert is now a no-op rather than a duplicate row.)
+   * *FS (staging only, no replacement of `P` yet)*: if `operation_kind='EXTERNAL_COLLISION'`, stage a `.tmp` copy of `P`, verify its hash, atomically `os.replace` to a finalized `.bak`, persist `backup_meta.json`, `fsync`/flush both (and their parent directory). For `RESTORE`, verify the selected `.bak` archive's SHA-256 against the DB record; if mismatch, transition `operation_state` to `ABORTED` (applying the retirement logic detailed below) and abort `ERR_CORRUPT_BACKUP_ARCHIVE`. If `intended_registry_outcome='ACTIVE'`, stage the full intended payload to a temporary file and `fsync` it (but do not yet replace `P`). If staging fails terminally, transition `operation_state` to `ABORTED` (applying retirement logic) and abort.
+   * *DB*: `BEGIN IMMEDIATE`; if a backup was staged, `INSERT ... ON CONFLICT (originating_idempotency_key) DO NOTHING` into `shim_backup_entries` (generating `backup_sequence_id`); `UPDATE shim_pending_operations SET operation_state='FS_STAGED' WHERE idempotency_key=? AND operation_state='INTENT_DECLARED'` (affected rows must equal 1); `COMMIT`.
 
 3. **FS_STAGED → COMPLETED | ABORTED**
-   * *FS (uniform pre-effect re-validation / TOCTOU narrowing)*, performed immediately before touching `P`, identically on every execution path (first attempt and any crash resumption): compute `actual_hash = sha256(P)` (or note absence). **This is the single recovery rule used by every operation kind — it fixes F2 by construction, since it always reads `pre_state_hash`/`post_state_hash` directly from the persisted `shim_pending_operations` row, never from a value freshly recomputed in the same run:**
-     * `actual_hash == pre_state_hash` (or `P` genuinely still absent when `pre_state_hash IS NULL`) → the effect has never been applied. Safe to apply it now: atomically `os.replace` the staged payload over `P` (or `os.remove(P)` when `post_state_hash IS NULL`, i.e. `REMOVE`), then `fsync` the file (if it still exists) and its parent directory.
+   * *FS (uniform pre-effect re-validation / TOCTOU narrowing)*, performed immediately before touching `P`, identically on every execution path (first attempt and any crash resumption): compute `actual_hash = sha256(P)` (or note absence).
+     * `actual_hash == pre_state_hash` (or `P` genuinely still absent when `pre_state_hash IS NULL`) → the effect has never been applied. Safe to apply it now:
+       * For operations writing a payload (`intended_registry_outcome='ACTIVE'`, `RESTORE`): compute the staged file's own hash and verify it equals `post_state_hash`. If mismatch, transition to `ABORTED` (applying retirement logic) and abort (do not proceed with replace).
+       * For `REMOVE`: re-verify the `intended_fallback_tool_path` is still executable/reachable under `PATH`/`PATHEXT` rules. If not, transition to `ABORTED` (applying retirement logic) and abort. *(Note: there is a residual race condition here where the fallback tool could be deleted by a non-cooperating external process between this check and the subsequent unlink. This is accepted under the same honest-limitation framing as the target-file TOCTOU narrowing.)*
+       * Atomically `os.replace` the staged payload over `P` (or `os.remove(P)` when `post_state_hash IS NULL`), then `fsync` the file (if it still exists) and its parent directory.
      * `actual_hash == post_state_hash` (or `P` genuinely absent when `post_state_hash IS NULL`) → the effect was **already applied**, only reachable if a prior attempt crashed between its own filesystem write and this transaction's commit. Do not touch the file again, but re-`fsync` it (if it exists) and its parent directory before proceeding, since observing correct bytes does not prove the earlier `fsync` completed.
-     * Degenerate case `pre_state_hash == post_state_hash` (a no-op reinstall of identical bytes): resolve the tie by additionally checking `P`'s current `mtime`/permissions against the intended values (SHA-256 alone doesn't capture metadata) — matching, treat as "already applied"; not matching, treat as "never applied" and proceed to write.
-     * Any other outcome → external modification occurred since step 1 validated the pre-condition. `UPDATE shim_pending_operations SET operation_state='ABORTED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`; release the advisory lock; raise `ERR_SHIM_EXTERNALLY_MODIFIED`. Never auto-overwrite. *(This TOCTOU narrowing is a best-effort defense against non-cooperating external writers — a true atomic compare-and-replace isn't available cross-platform — not an absolute guarantee.)*
-   * *DB (on success only)*: `BEGIN IMMEDIATE`; if `post_state_hash IS NOT NULL`, `UPDATE shim_registry_entries SET shim_file_sha256=?, updated_at=?, profile_name=?, downstream_target_path=?, admission_receipt_id=? WHERE shim_registration_id=?` (the intended bindings, applied uniformly for every operation that leaves a shim — not a `MANAGED_UPDATE`-only special case); if `post_state_hash IS NULL`, `UPDATE shim_registry_entries SET status='RETIRED' WHERE shim_registration_id=?` instead; if this was a `RESTORE`, additionally `UPDATE shim_backup_entries SET restored=1, restored_at=... WHERE backup_sequence_id=?`. Then `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`. *FS*: release advisory lock only **after** this commit.
+     * Degenerate case `pre_state_hash == post_state_hash` (a no-op reinstall of identical bytes): resolve the tie by additionally checking `P`'s current `mtime`/permissions against the intended values — matching, treat as "already applied"; not matching, treat as "never applied" and proceed to write.
+     * Any other outcome → external modification occurred since step 1 validated the pre-condition. `UPDATE shim_pending_operations SET operation_state='ABORTED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1). In the same transaction, apply the retirement logic detailed below. `COMMIT`; release the advisory lock; raise `ERR_SHIM_EXTERNALLY_MODIFIED`. Never auto-overwrite.
+   * *DB (on success only)*: `BEGIN IMMEDIATE`;
+     * If `intended_registry_outcome='ACTIVE'`, `UPDATE shim_registry_entries SET shim_file_sha256=?, updated_at=?, profile_name=?, downstream_target_path=?, admission_receipt_id=?, status='ACTIVE' WHERE shim_registration_id=?` (the intended bindings, applied uniformly).
+     * If `intended_registry_outcome='RETIRED'`, `UPDATE shim_registry_entries SET status='RETIRED' WHERE shim_registration_id=?` instead.
+     * If this was a `RESTORE`, additionally `UPDATE shim_backup_entries SET restored=1, restored_at=... WHERE backup_sequence_id=?`.
+     * Finally, `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`. *FS*: release advisory lock only **after** this commit.
 
-**Operator recovery from `ABORTED` (Fixes F1):** when an operation correctly aborts on external tampering, it reaches the terminal `ABORTED` state — and, critically, `idx_active_pending_operation`'s `NOT IN ('COMPLETED', 'ABORTED')` clause means an `ABORTED` row no longer blocks new operations on that registration (independently verified above). Two explicit, operator-facing repository operations resolve the conflict without hand-editing SQLite:
-* **`retire_aborted_operation(idempotency_key)`** — safely discards the aborted operation's record without touching `P` or the registry; a fresh install/update attempt can then proceed normally through step 1's pre-condition check against the registry's still-accurate last-known-good hash.
-* **`accept_current_as_baseline(idempotency_key)`** — for an operator who has manually inspected `P` and judges its current (externally-modified) content acceptable, atomically promotes `sha256(P)` into `shim_registry_entries.shim_file_sha256` as the new baseline and retires the aborted operation, so subsequent `MANAGED_UPDATE`s validate against the accepted reality instead of the stale pre-tampering hash.
+**Terminal Failure (ABORTED) Registration-Retirement Logic:**
+At every point in Steps 1, 2, or 3 where a terminal failure causes the operation to transition to `ABORTED` (or rollback before step 1 commits), the following logic applies to the registry row:
+* If the `shim_registry_entries` row's CURRENT status is `PROVISIONING` (meaning this operation was a fresh install that never completed), it is atomically updated to `RETIRED` in the same transaction that marks the operation `ABORTED` (or rolled back entirely if step 1 hadn't committed). This frees the `shim_name` and `canonical_shim_path` for a fresh attempt by a new operation.
+* If the registry row's CURRENT status is `ACTIVE` (meaning this was a `MANAGED_UPDATE`, `RESTORE`, or `REMOVE` against an already-established shim), its status is left untouched. The existing good shim remains `ACTIVE` and unaffected by the failed subsequent operation.
+
+**Operator recovery from `ABORTED` (Fixes F1 & F5):**
+Because an `ABORTED` operation no longer blocks new operations on the registry, a fresh idempotency key can simply declare a new intent. For the specific case where an operator manually inspects `P` after an `ERR_SHIM_EXTERNALLY_MODIFIED` and judges its externally-modified content acceptable, an explicit repository operation resolves the mismatch:
+* **`accept_current_as_baseline(idempotency_key, expected_inspected_hash)`** — the operator supplies the digest they personally inspected. The operation acquires the advisory lock, re-verifies `sha256(P) == expected_inspected_hash` at execution time (aborting if it has changed since inspection — do not trust a stale claim), and uses a CAS `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='ABORTED'` combined with atomically updating the `shim_registry_entries` hash to the new baseline. This operation is strictly restricted to `MANAGED_UPDATE` aborts, preventing silent promotion of an unauthorized `EXTERNAL_COLLISION`.
 
 ### 3. Transactional Replacement
 The complex JSON-file read-modify-write cycle (with `.tmp.<pid>` files and `os.replace`) is eliminated. Each state transition above is its own short, independently-committed `UnitOfWork`:
