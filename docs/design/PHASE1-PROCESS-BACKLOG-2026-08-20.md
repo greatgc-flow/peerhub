@@ -658,6 +658,18 @@ Terminal independently verified structural integrity of both the applied and ref
 
 **Next**: Round 141 sends this to cx for the 21st consecutive fresh-full-pass review, citing the Round 139 finding addressed this round plus the terminal's own supplementary transaction-boundary fix.
 
+## Round 141 (item C, redesign review 21): exact Round 139 scenario fully closed; a narrower ABA gap found in the terminal's own Round 140 refinement
+
+cx confirmed the exact Round 139 data-loss sequence is genuinely fixed (the quarantine mark and the `FS_STAGED → ABORTED` CAS now occur in one transaction, so the vulnerable partial state is never committed), and confirmed the terminal was right that completing the collision operation inline would have violated the transaction-boundary invariant. But cx found the terminal's own claim -- that a future resume would "necessarily rederive the same already-applied result" -- was false: nothing holds the registration lock between the quarantine operation's point-in-time determination and the collision operation's own later, independent resume, and `P` remains externally mutable in between. cx's reachable counterexample: an external process writes bytes into `P` matching `post_state_hash` (no hash collision needed), the quarantine operation observes "already applied" and quarantines the backup while leaving the collision operation untouched, a SEPARATE external process then reverts `P` back to `pre_state_hash` before the collision operation resumes, and Step 3's ordinary "never applied" branch -- which never checks any backup's quarantine status -- proceeds to overwrite the original content with its only backup already known-corrupt. The terminal independently confirmed Step 3's "never applied" branch has no such check by reading it directly.
+
+## Round 142 (item C, fix round 22): write-time backup-quarantine check closes the ABA gap
+
+ag applied both fixes directly (confirmed via `git diff`). Step 3's "never applied" branch now includes an `EXTERNAL_COLLISION`-specific check, immediately before the filesystem replacement: it looks up whether the operation's own backup (via `originating_idempotency_key`) has `corrupt_detected_at IS NOT NULL`, and if so, refuses to write -- instead treating it identically to the "external modification" branch (CAS to `ABORTED`, retirement logic, stage cleanup, typed error `ERR_ORIGINATING_BACKUP_QUARANTINED`). This is scoped ONLY to `EXTERNAL_COLLISION`'s own write, since it's the only branch across the whole state machine that performs a genuinely new destructive write over potentially-still-valid foreign content -- no other operation kind or recovery operation needed the same check, since none of their own "never applied"/"external modification" paths ever write. The prose now states plainly that an "already applied" determination is only a point-in-time snapshot and does not bind the operation's own later resume, which is exactly why this write-time check (not the earlier determination alone) is what closes the gap. The terminal also lightly polished the Round 140 "never applied"/"external modification" clause's grammar while adding the explicit commit-then-cleanup ordering cx flagged as missing.
+
+Terminal independently verified structural integrity of both changes and confirmed the schema (untouched this round) remains byte-identical to Round 136's and executes cleanly via real `sqlite3`. Committed.
+
+**Next**: Round 143 sends this to cx for the 22nd consecutive fresh-full-pass review, citing the Round 141 finding addressed this round.
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
