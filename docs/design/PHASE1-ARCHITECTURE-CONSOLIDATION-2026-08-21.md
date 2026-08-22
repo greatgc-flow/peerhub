@@ -881,15 +881,18 @@ Issued ID: receipt-ag-adapter_1-20260821T162935Z-9d08117da199e81bb6971e0fc51f01b
 **Resolution:**
 The shim registry state is folded into the same SQLite database as the manifest receipts, sharing the single operational source of truth.
 
-### 1. Illustrative Schema Extension (Corrected, Round 93)
+### 1. Illustrative Schema Extension (Corrected, Round 95)
 
-The Round 90 schema was rejected by cx's Round 91 adversarial review, which found 6 blocking defects, 2 independently reproduced by the terminal (a real `FOREIGN KEY constraint failed` on first-forced-install due to child-before-parent insert ordering, and a mismatch against the real `SqliteUnitOfWork`'s `BEGIN IMMEDIATE` transaction mode). The corrected schema below fixes all 6: (1) crash-state ambiguity between install-in-flight, restore-in-flight, and external tampering, via an explicit `shim_pending_operations` intent record; (2) the FK-ordering bug, by committing the parent row before any child row references it; (3) undefined canonicalization, via an explicit case-folding/normalization invariant; (4) generation identity loss on soft-delete, via an immutable `shim_registration_id` surrogate key that backups reference instead of the mutable `shim_name`; (5) the lock-release race and the `BEGIN EXCLUSIVE`/`BEGIN IMMEDIATE` mismatch; (6) missing idempotency, via a caller-supplied `idempotency_key`.
+Round 93 correctly resolved 3 of cx's Round 91 findings — FK ordering, generation identity via the immutable `shim_registration_id`, and the `BEGIN IMMEDIATE` transaction mode — and cx's Round 94 review confirmed these hold. That review found 5 further blocking defects, fixed below: (1) the recovery decision was a binary "rewrite if hash differs" check that conflated "replacement never happened" with "external tampering after completion" — fixed with an explicit 3-way hash comparison in each transition's crash commentary; (2) the idempotency key never actually prevented duplicate effects, since a retry could fail on the active-path unique index or orphan the original registration before the conflict handler ran — fixed by checking for an existing pending operation by key *before* any parent-row mutation, plus a `request_digest` to reject key-reuse with different content, plus binding each backup row to its originating key; (3) canonicalization didn't resolve symlinks/junctions to real filesystem identity — fixed with an explicit `os.path.samefile`-equivalent identity-resolution rule; (4) restore didn't persist which exact backup it selected, allowing a resumed/retried restore to pick a different one — fixed with `selected_backup_sequence_id`; (5) `REMOVE` was a legal enum value with no defined behavior — removed from the allowed values pending a future round that designs its protocol.
 
-**Invariant: Deterministic Canonicalization.** Before any path is written to `canonical_shim_path`, it is processed through a concrete, deterministic canonicalization function: resolve to an absolute path, normalize path separators, and case-fold per the target platform's filesystem convention (strictly lowercased on Windows, since PeerHub's shim directories are case-insensitive there). This guarantees `C:/Shims/cc.bat` and `c:\shims\CC.bat` collide as intended under SQLite's default binary comparison, rather than silently coexisting.
+**Invariant: Deterministic Canonicalization.** Before any path is written to `canonical_shim_path`, it is processed through a concrete, deterministic canonicalization function that establishes true filesystem identity, consistent with how the rest of this architecture uses `os.path.samefile()` for the same purpose:
+* **For an existing path**, resolve to its real filesystem identity (following symlinks and junctions, rejecting loops) before normalizing path separators and case-folding per the target platform's filesystem convention (strictly lowercased on Windows).
+* **For a not-yet-existing final path** (a fresh install target), canonicalize the resolved parent directory's real identity, then append the literal final path component, normalized and case-folded.
+This guarantees robust collision detection even when two path strings address the same file through a symlink, junction, `\\?\`-prefixed path, or short-name (`8.3`) alias — not just the literal `C:/Shims/cc.bat` vs `c:\shims\CC.bat` case-variant example.
 
 ```sql
 CREATE TABLE shim_registry_entries (
-    -- (4) Immutable generation identity, decoupling backup FKs from the mutable shim_name
+    -- Immutable generation identity, decoupling backup FKs from the mutable shim_name
     shim_registration_id TEXT PRIMARY KEY,
 
     shim_name TEXT NOT NULL,
@@ -910,17 +913,51 @@ CREATE TABLE shim_registry_entries (
     updated_at TEXT NOT NULL
 );
 
--- (4) Uniqueness enforced only among ACTIVE registrations; a RETIRED path may be legitimately reused
+-- Uniqueness enforced only among ACTIVE registrations; a RETIRED path may be legitimately reused
 CREATE UNIQUE INDEX idx_active_shim_name ON shim_registry_entries(shim_name) WHERE status = 'ACTIVE';
 CREATE UNIQUE INDEX idx_active_canonical_path ON shim_registry_entries(canonical_shim_path) WHERE status = 'ACTIVE';
 
+CREATE TABLE shim_pending_operations (
+    -- Caller-supplied idempotency key; checked BEFORE any parent-row mutation, so a retry of an
+    -- already-succeeded operation resumes the existing registration instead of orphaning it
+    idempotency_key TEXT PRIMARY KEY,
+
+    -- Hash of the logical operation's inputs; a reused key with DIFFERENT content is a conflict,
+    -- not a silent resume
+    request_digest TEXT NOT NULL,
+
+    -- Explicit operation intent, durably recorded BEFORE any filesystem write begins, so
+    -- reconciliation reads intent directly instead of inferring it from a hash comparison alone.
+    shim_registration_id TEXT NOT NULL REFERENCES shim_registry_entries(shim_registration_id),
+
+    -- 'REMOVE' is intentionally excluded: the real doc's §2.7 safe-removal protocol
+    -- (hash verification, fallback-precondition check, atomic removal) is not yet
+    -- crash-recovery-designed; deferred to a future round rather than left undefined here.
+    operation_type TEXT NOT NULL CHECK (operation_type IN ('INSTALL', 'RESTORE')),
+    expected_hash TEXT,
+
+    -- Binds a RESTORE intent to the exact backup chosen at INTENT_DECLARED, so a crash-then-resume
+    -- or retry cannot re-query "most recent unrestored" and pick a different one
+    selected_backup_sequence_id INTEGER REFERENCES shim_backup_entries(backup_sequence_id),
+
+    operation_state TEXT NOT NULL CHECK (operation_state IN ('INTENT_DECLARED', 'FS_STAGED', 'COMPLETED')),
+    created_at TEXT NOT NULL
+);
+
+-- Prevents multiple simultaneous non-terminal operations against the same registration
+CREATE UNIQUE INDEX idx_active_pending_operation ON shim_pending_operations(shim_registration_id) WHERE operation_state != 'COMPLETED';
+
 CREATE TABLE shim_backup_entries (
-    -- (b, Round 70) Monotonic sequence for deterministic "most recent unrestored backup" ordering
+    -- Monotonic sequence for deterministic "most recent unrestored backup" ordering
     backup_sequence_id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-    -- (2) & (4) FK to the immutable generation id, not the mutable shim_name; no CASCADE, so
+    -- FK to the immutable generation id, not the mutable shim_name; no CASCADE, so
     -- backup/audit history survives the referenced registration being RETIRED
     shim_registration_id TEXT NOT NULL REFERENCES shim_registry_entries(shim_registration_id),
+
+    -- Binds this backup to the operation that created it; a retried backup-insertion step
+    -- becomes a safe no-op instead of inserting a duplicate row
+    originating_idempotency_key TEXT NOT NULL UNIQUE REFERENCES shim_pending_operations(idempotency_key),
 
     -- Path of the original collision target that was backed up (corresponds to 'P')
     target_path TEXT NOT NULL,
@@ -928,7 +965,7 @@ CREATE TABLE shim_backup_entries (
     backup_file_path TEXT NOT NULL,
     original_sha256 TEXT NOT NULL,
 
-    -- (a, Round 70) Forensic fields required by §2.8.2's backup_meta.json schema
+    -- Forensic fields required by §2.8.2's backup_meta.json schema
     original_mtime_epoch REAL NOT NULL,
     original_file_size_bytes INTEGER NOT NULL,
     original_permissions_octal TEXT NOT NULL,
@@ -938,40 +975,29 @@ CREATE TABLE shim_backup_entries (
     restored INTEGER NOT NULL DEFAULT 0 CHECK (restored IN (0, 1)),
     restored_at TEXT
 );
-
-CREATE TABLE shim_pending_operations (
-    -- (6) Caller-supplied idempotency key; a retried call with the same key is a safe no-op
-    idempotency_key TEXT PRIMARY KEY,
-
-    -- (1) Explicit operation intent, durably recorded BEFORE any filesystem write begins, so
-    -- reconciliation reads intent directly instead of inferring it from a hash comparison alone.
-    -- This is what distinguishes install-in-flight from restore-in-flight from external tampering
-    -- after COMPLETED (the latter must raise ERR_SHIM_EXTERNALLY_MODIFIED, never auto-overwrite).
-    shim_registration_id TEXT NOT NULL REFERENCES shim_registry_entries(shim_registration_id),
-    operation_type TEXT NOT NULL CHECK (operation_type IN ('INSTALL', 'RESTORE', 'REMOVE')),
-    expected_hash TEXT,
-    operation_state TEXT NOT NULL CHECK (operation_state IN ('INTENT_DECLARED', 'FS_STAGED', 'COMPLETED')),
-    created_at TEXT NOT NULL
-);
 ```
+
+*(`shim_pending_operations.selected_backup_sequence_id` forward-references `shim_backup_entries`, defined after it in this listing; SQLite does not require a referenced table to exist at `CREATE TABLE` parse time, only at DML time — independently verified.)*
 
 ### 2. Crash-Recoverable State Machine
 
-No SQLite transaction is ever held open across a filesystem write (matching item B's established constraint). A higher-level advisory/mutex file lock is held across the entire sequence, released only after the final DB commit; this does not violate the invariant above because the lock is a separate advisory mechanism, not an internal SQLite lock. Every transaction uses `BEGIN IMMEDIATE`, matching the real `SqliteUnitOfWork` (`peerhub/persistence/sqlite.py` lines 171, 347, 675, 726) — Round 90's `BEGIN EXCLUSIVE` was a fictional transaction mode not exposed by the real port.
+No SQLite transaction is ever held open across a filesystem write (matching item B's established constraint). A higher-level advisory/mutex file lock is held across the entire sequence, released only after the final DB commit; this does not violate the invariant above because the lock is a separate advisory mechanism, not an internal SQLite lock. Every transaction uses `BEGIN IMMEDIATE`, matching the real `SqliteUnitOfWork` (`peerhub/persistence/sqlite.py` lines 171, 347, 675, 726). Every `operation_state` transition is a compare-and-swap `UPDATE ... WHERE idempotency_key=? AND operation_state=<expected_prior_state>`, and callers must verify the affected-row count is exactly 1, treating 0 as a conflict to investigate rather than silently ignoring it. `fsync`/durability requirements cover the shim install/restore renames themselves (`os.replace` on `P` and its parent directory), not just the backup artifacts.
 
 **Backup/Install Protocol** — states: `INTENT_DECLARED` → `BACKUP_STAGED` → `DB_COMMITTED` → `SHIM_REPLACED (COMPLETED)`
 
-1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock; read target `P`'s hash/size/permissions/mtime. *DB*: `BEGIN IMMEDIATE`; `INSERT` the parent `shim_registry_entries` row first (generating the immutable `shim_registration_id`) — **the parent row must commit-order before any child row references it**, which is exactly the ordering the Round 91 reproduction (`FOREIGN KEY constraint failed`) showed Round 90 got backwards; then `INSERT ... ON CONFLICT (idempotency_key) DO NOTHING` into `shim_pending_operations` (`operation_type='INSTALL'`, `operation_state='INTENT_DECLARED'`, `expected_hash` = the incoming payload's hash), referencing the now-existing `shim_registration_id`; `COMMIT`.
-2. **INTENT_DECLARED → BACKUP_STAGED** — *FS*: stage `.tmp` copy of `P`, verify hash, atomically `os.replace` to finalized `.bak`, persist `backup_meta.json`, `fsync`/flush both before considering them securely synced. *DB*: none. (Crash: orphaned `.bak`/`.json` files with no `FS_STAGED`-or-later pending-operation row are safely ignorable/GC-able.)
-3. **BACKUP_STAGED → DB_COMMITTED** — *FS*: none. *DB*: `BEGIN IMMEDIATE`; `INSERT` into `shim_backup_entries` (FK to the already-existing `shim_registration_id`, generating `backup_sequence_id`); `UPDATE shim_pending_operations SET operation_state='FS_STAGED'`; `COMMIT`. (Crash: strictly isolated from I/O — safe to retry if rolled back.)
-4. **DB_COMMITTED → SHIM_REPLACED (COMPLETED)** — *FS*: stage the full generated shim payload and atomically `os.replace` it over `P`. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_pending_operations SET operation_state='COMPLETED'`; `COMMIT`. *FS*: release advisory lock only **after** this commit. (Crash: a pending-operation row stuck at `FS_STAGED` for an `INSTALL` means `P` may or may not have the correct payload — reconciliation compares `shim_file_sha256` against `expected_hash` and rewrites if they differ; a row already `COMPLETED` with a mismatching hash instead means external tampering, and must raise `ERR_SHIM_EXTERNALLY_MODIFIED` rather than auto-overwrite.)
+1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock; read target `P`'s hash/size/permissions/mtime. *DB*: `BEGIN IMMEDIATE`; FIRST query `shim_pending_operations` by `idempotency_key`. If found, verify `request_digest` matches (reject as a conflict if not) and resume using its existing `shim_registration_id` — no new parent row is created. If not found: `INSERT` the parent `shim_registry_entries` row first (generating the immutable `shim_registration_id`) — the parent must commit-order before any child references it, per the Round 91 `FOREIGN KEY constraint failed` reproduction — then `INSERT` into `shim_pending_operations` (`operation_type='INSTALL'`, `operation_state='INTENT_DECLARED'`, `expected_hash` = incoming payload's hash, `request_digest` = hash of inputs); `COMMIT`.
+2. **INTENT_DECLARED → BACKUP_STAGED** — *FS*: stage `.tmp` copy of `P`, verify hash, atomically `os.replace` to finalized `.bak`, persist `backup_meta.json`, `fsync`/flush both (and their parent directory) before considering them securely synced. *DB*: none. (Crash: orphaned `.bak`/`.json` files with no `FS_STAGED`-or-later pending-operation row are safely ignorable/GC-able.)
+3. **BACKUP_STAGED → DB_COMMITTED** — *FS*: none. *DB*: `BEGIN IMMEDIATE`; `INSERT ... ON CONFLICT (originating_idempotency_key) DO NOTHING` into `shim_backup_entries` (binding it to the operation, generating `backup_sequence_id`); `UPDATE shim_pending_operations SET operation_state='FS_STAGED' WHERE idempotency_key=? AND operation_state='INTENT_DECLARED'` (affected rows must equal 1); `COMMIT`. (Crash: strictly isolated from I/O — safe to retry if rolled back; a retry's backup insert is now a no-op rather than a duplicate row.)
+4. **DB_COMMITTED → SHIM_REPLACED (COMPLETED)** — *FS*: stage the full generated shim payload, atomically `os.replace` it over `P`, `fsync` the file and parent directory. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`. *FS*: release advisory lock only **after** this commit.
+   * *(Crash/Reconciliation for an `INSTALL` stuck at `FS_STAGED`: compute `actual_hash = sha256(P)` and perform an explicit 3-way comparison — `actual_hash == original_sha256` (from the backup) means replacement never happened, safe to (re)write the shim now; `actual_hash == expected_hash` (from the intent) means the filesystem effect already completed, mark `COMPLETED` without touching the file; any other hash means external modification occurred after the crash, fail with `ERR_SHIM_EXTERNALLY_MODIFIED`, never auto-overwrite.)*
 
 **Restore Protocol** — states: `INTENT_DECLARED` → `RESTORE_VERIFIED` → `RESTORE_STAGED_FS` → `RESTORE_COMPLETE`
 
-1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock. *DB*: `BEGIN IMMEDIATE`; query `shim_backup_entries` for the most recent unrestored backup for the target registration (`ORDER BY backup_sequence_id DESC LIMIT 1`); `INSERT ... ON CONFLICT (idempotency_key) DO NOTHING` into `shim_pending_operations` (`operation_type='RESTORE'`, `operation_state='INTENT_DECLARED'`) — the referenced `shim_registration_id` already exists from the original install, so no ordering issue arises here; `COMMIT`.
+1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock. *DB*: `BEGIN IMMEDIATE`; FIRST query `shim_pending_operations` by `idempotency_key` as in Install; if found, resume. If not found: query `shim_backup_entries` for the most recent unrestored backup for the target registration (`ORDER BY backup_sequence_id DESC LIMIT 1`); `INSERT` into `shim_pending_operations` (`operation_type='RESTORE'`, `operation_state='INTENT_DECLARED'`, `selected_backup_sequence_id` = the chosen backup, `request_digest` = hash of inputs); `COMMIT`. Every subsequent restore step references this persisted `selected_backup_sequence_id` — it is never re-queried.
 2. **INTENT_DECLARED → RESTORE_VERIFIED** — *FS*: verify the `.bak` archive's SHA-256 against the DB record, abort `ERR_CORRUPT_BACKUP_ARCHIVE` on mismatch. *DB*: none.
-3. **RESTORE_VERIFIED → RESTORE_STAGED_FS** — *FS*: copy `.bak` to `P.restoring.<pid>`, apply `original_mtime_epoch`/`original_permissions_octal`, atomic `os.replace` over `P`. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_pending_operations SET operation_state='FS_STAGED'`; `COMMIT`. (Crash: DB reflects `FS_STAGED`, not yet `COMPLETED`; re-verifying the `.bak` hash from disk — never trusting in-memory state lost in the crash — and re-running the FS step is idempotent, since `P` is atomically replaced with the identical verified payload again.)
-4. **RESTORE_STAGED_FS → RESTORE_COMPLETE** — *FS*: none. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_backup_entries SET restored=1, restored_at=...`; `UPDATE shim_registry_entries SET status='RETIRED'`; `UPDATE shim_pending_operations SET operation_state='COMPLETED'`; `COMMIT`. *FS*: release advisory lock only **after** this commit, closing the race window Round 90 left open by releasing the lock before the DB commit.
+3. **RESTORE_VERIFIED → RESTORE_STAGED_FS** — *FS*: copy `.bak` to `P.restoring.<pid>`, apply `original_mtime_epoch`/`original_permissions_octal`, atomically `os.replace` over `P`, `fsync` file and parent. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_pending_operations SET operation_state='FS_STAGED' WHERE idempotency_key=? AND operation_state='INTENT_DECLARED'` (affected rows must equal 1); `COMMIT`.
+4. **RESTORE_STAGED_FS → RESTORE_COMPLETE** — *FS*: none. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_backup_entries SET restored=1, restored_at=... WHERE backup_sequence_id=?`; `UPDATE shim_registry_entries SET status='RETIRED' WHERE shim_registration_id=?`; `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`. *FS*: release advisory lock only **after** this commit.
+   * *(Crash/Reconciliation for a `RESTORE` stuck at `FS_STAGED`: compute `actual_hash = sha256(P)` and perform the mirrored 3-way comparison — `actual_hash == shim_file_sha256` (the pre-restore registry value) means the restore never happened, safe to (re)write the selected backup to `P`; `actual_hash == ` the selected backup's `original_sha256` means the filesystem effect already completed, mark `COMPLETED` without touching the file; any other hash means external modification after the crash, fail with `ERR_SHIM_EXTERNALLY_MODIFIED`, never auto-overwrite.)*
 
 ### 3. Transactional Replacement
 The complex JSON-file read-modify-write cycle (with `.tmp.<pid>` files and `os.replace`) is eliminated. Each state transition above is its own short, independently-committed `UnitOfWork`:
