@@ -881,9 +881,11 @@ Issued ID: receipt-ag-adapter_1-20260821T162935Z-9d08117da199e81bb6971e0fc51f01b
 **Resolution:**
 The shim registry state is folded into the same SQLite database as the manifest receipts, sharing the single operational source of truth.
 
-### 1. Illustrative Schema Extension (Corrected, Round 95-99)
+### 1. Illustrative Schema Extension (Corrected, Round 95-101)
 
 Round 93 correctly resolved 3 of cx's Round 91 findings — FK ordering, generation identity via the immutable `shim_registration_id`, and the `BEGIN IMMEDIATE` transaction mode — and cx's Round 94 review confirmed these hold. That review found 5 further blocking defects, fixed below: (1) the recovery decision was a binary "rewrite if hash differs" check that conflated "replacement never happened" with "external tampering after completion" — fixed with an explicit 3-way hash comparison in each transition's crash commentary; (2) the idempotency key never actually prevented duplicate effects, since a retry could fail on the active-path unique index or orphan the original registration before the conflict handler ran — fixed by checking for an existing pending operation by key *before* any parent-row mutation, plus a `request_digest` to reject key-reuse with different content, plus binding each backup row to its originating key; (3) canonicalization didn't resolve symlinks/junctions to real filesystem identity — fixed with an explicit `os.path.samefile`-equivalent identity-resolution rule; (4) restore didn't persist which exact backup it selected, allowing a resumed/retried restore to pick a different one — fixed with `selected_backup_sequence_id`; (5) `REMOVE` was a legal enum value with no defined behavior — removed from the allowed values pending a future round that designs its protocol.
+
+Round 99 extended `INSTALL` to branch on 3 real lifecycle pre-conditions (`ABSENT`/`EXTERNAL_COLLISION`/`MANAGED_UPDATE`), closing a gap cx's fresh full-document pass found: the protocol previously only modeled `EXTERNAL_COLLISION`. Round 100's review of that extension found 4 further blocking defects plus supporting integrity gaps, fixed in this Round 101 update: (1) **TOCTOU narrowing** — pre-effect state is now explicitly re-validated immediately before the filesystem write on every execution path (not just checked once at intent declaration), narrowing but not eliminating the race against non-cooperating external writers; (2) **complete bindings update** — `MANAGED_UPDATE` now persists intended `profile_name`/`downstream_target_path`/`admission_receipt_id` at intent time and atomically updates all of them (not just the hash) at completion; (3) **admission-target validation** — `downstream_target_path` is now validated against the admitted executable's `canonical_path` (deserialized from the real `manifest_admission_receipts.transitive_executable_chain_json`, per item B's established JSON-round-trip pattern) before any mutation, for every sub-path; (4) **check-in-flight-before-hash ordering** — `MANAGED_UPDATE`'s pre-condition now checks for a non-terminal prior operation on the registration before diagnosing a hash mismatch as external tampering; (5) **relational integrity** — composite foreign keys now tie `selected_backup_sequence_id` and `originating_idempotency_key` to the correct `shim_registration_id`, an exact-match requirement replaces partial shim_name/canonical_path fallthrough, and an explicit note requires consumers to exclude `ACTIVE` registrations with a non-terminal pending operation.
 
 **Invariant: Deterministic Canonicalization.** Before any path is written to `canonical_shim_path`, it is processed through a concrete, deterministic canonicalization function that establishes true filesystem identity, consistent with how the rest of this architecture uses `os.path.samefile()` for the same purpose:
 * **For an existing path**, resolve to its real filesystem identity (following symlinks and junctions, rejecting loops) before normalizing path separators and case-folding per the target platform's filesystem convention (strictly lowercased on Windows).
@@ -935,7 +937,7 @@ CREATE TABLE shim_pending_operations (
     -- crash-recovery-designed; deferred to a future round rather than left undefined here.
     operation_type TEXT NOT NULL CHECK (operation_type IN ('INSTALL', 'RESTORE')),
 
-    -- (Round 99) Which of the real doc's 3 lifecycle pre-conditions this INSTALL is, detected at
+    -- Which of the real doc's 3 lifecycle pre-conditions this INSTALL is, detected at
     -- INTENT_DECLARED before any DB mutation: ABSENT (no file, no registry row -- simplest case),
     -- EXTERNAL_COLLISION (a foreign file exists -- the originally-modeled §2.3 --force path), or
     -- MANAGED_UPDATE (an ACTIVE registry row already exists -- the real doc's §2.4 safe-update path,
@@ -943,34 +945,51 @@ CREATE TABLE shim_pending_operations (
     install_sub_path TEXT CHECK (install_sub_path IN ('ABSENT', 'EXTERNAL_COLLISION', 'MANAGED_UPDATE')),
     expected_hash TEXT,
 
-    -- (Round 99) Snapshots the registry's known-good shim_file_sha256 at intent time for
+    -- Snapshots the registry's known-good shim_file_sha256 at intent time for
     -- MANAGED_UPDATE, giving crash recovery a static pre-effect reference since this sub-path
     -- overwrites the existing shim in place without ever inserting a backup row.
     pre_effect_hash TEXT,
 
+    -- (Round 101) Intended bindings at intent time, so step 4 can atomically update them alongside
+    -- the hash. Required for every INSTALL so MANAGED_UPDATE never silently leaves stale bindings
+    -- after updating the executable bytes.
+    intended_profile_name TEXT,
+    intended_downstream_target_path TEXT,
+    intended_admission_receipt_id TEXT REFERENCES manifest_admission_receipts(admission_receipt_id),
+
     -- Binds a RESTORE intent to the exact backup chosen at INTENT_DECLARED, so a crash-then-resume
     -- or retry cannot re-query "most recent unrestored" and pick a different one
-    selected_backup_sequence_id INTEGER REFERENCES shim_backup_entries(backup_sequence_id),
+    selected_backup_sequence_id INTEGER,
 
     operation_state TEXT NOT NULL CHECK (operation_state IN ('INTENT_DECLARED', 'FS_STAGED', 'COMPLETED')),
     created_at TEXT NOT NULL,
 
     -- Enforce the fields each operation type/sub-path actually needs, closing the nullable-column
     -- gap: INSTALL must carry its target hash, must NOT reference a backup, must declare a
-    -- sub-path, and only MANAGED_UPDATE carries a pre_effect_hash; RESTORE must reference exactly
-    -- the backup it selected and has no sub-path, expected_hash, or pre_effect_hash of its own.
+    -- sub-path and intended bindings, and only MANAGED_UPDATE carries a pre_effect_hash; RESTORE
+    -- must reference exactly the backup it selected and has none of the INSTALL-only fields.
     CHECK (
-        (operation_type = 'INSTALL' AND expected_hash IS NOT NULL AND selected_backup_sequence_id IS NULL AND install_sub_path IS NOT NULL AND (
-            (install_sub_path IN ('ABSENT', 'EXTERNAL_COLLISION') AND pre_effect_hash IS NULL) OR
-            (install_sub_path = 'MANAGED_UPDATE' AND pre_effect_hash IS NOT NULL)
-        ))
+        (operation_type = 'INSTALL' AND expected_hash IS NOT NULL AND selected_backup_sequence_id IS NULL AND install_sub_path IS NOT NULL
+            AND intended_profile_name IS NOT NULL AND intended_downstream_target_path IS NOT NULL AND intended_admission_receipt_id IS NOT NULL
+            AND (
+                (install_sub_path IN ('ABSENT', 'EXTERNAL_COLLISION') AND pre_effect_hash IS NULL) OR
+                (install_sub_path = 'MANAGED_UPDATE' AND pre_effect_hash IS NOT NULL)
+            ))
         OR
-        (operation_type = 'RESTORE' AND selected_backup_sequence_id IS NOT NULL AND expected_hash IS NULL AND install_sub_path IS NULL AND pre_effect_hash IS NULL)
-    )
+        (operation_type = 'RESTORE' AND selected_backup_sequence_id IS NOT NULL AND expected_hash IS NULL AND install_sub_path IS NULL AND pre_effect_hash IS NULL
+            AND intended_profile_name IS NULL AND intended_downstream_target_path IS NULL AND intended_admission_receipt_id IS NULL)
+    ),
+
+    -- (Round 101) Ensures a RESTORE's selected backup actually belongs to its own registration,
+    -- not merely any valid backup_sequence_id
+    FOREIGN KEY (shim_registration_id, selected_backup_sequence_id) REFERENCES shim_backup_entries(shim_registration_id, backup_sequence_id)
 );
 
 -- Prevents multiple simultaneous non-terminal operations against the same registration
 CREATE UNIQUE INDEX idx_active_pending_operation ON shim_pending_operations(shim_registration_id) WHERE operation_state != 'COMPLETED';
+
+-- (Round 101) Parent-side unique index required for the composite FK from shim_backup_entries
+CREATE UNIQUE INDEX idx_pending_op_reg_key ON shim_pending_operations(shim_registration_id, idempotency_key);
 
 CREATE TABLE shim_backup_entries (
     -- Monotonic sequence for deterministic "most recent unrestored backup" ordering
@@ -982,7 +1001,7 @@ CREATE TABLE shim_backup_entries (
 
     -- Binds this backup to the operation that created it; a retried backup-insertion step
     -- becomes a safe no-op instead of inserting a duplicate row
-    originating_idempotency_key TEXT NOT NULL UNIQUE REFERENCES shim_pending_operations(idempotency_key),
+    originating_idempotency_key TEXT NOT NULL UNIQUE,
 
     -- Path of the original collision target that was backed up (corresponds to 'P')
     target_path TEXT NOT NULL,
@@ -998,27 +1017,43 @@ CREATE TABLE shim_backup_entries (
 
     backup_created_at TEXT NOT NULL,
     restored INTEGER NOT NULL DEFAULT 0 CHECK (restored IN (0, 1)),
-    restored_at TEXT
+    restored_at TEXT,
+
+    -- (Round 101) Ensures this backup's originating operation was on the SAME registration,
+    -- not merely any valid pending-operation row
+    FOREIGN KEY (shim_registration_id, originating_idempotency_key) REFERENCES shim_pending_operations(shim_registration_id, idempotency_key)
 );
+
+-- (Round 101) Parent-side unique index required for the composite FK from shim_pending_operations
+CREATE UNIQUE INDEX idx_backup_reg_seq ON shim_backup_entries(shim_registration_id, backup_sequence_id);
 ```
 
-*(`shim_pending_operations.selected_backup_sequence_id` forward-references `shim_backup_entries`, defined after it in this listing; SQLite does not require a referenced table to exist at `CREATE TABLE` parse time, only at DML time — independently verified.)*
+*(This creates a circular table-level FK relationship — `shim_pending_operations` references `shim_backup_entries` for `selected_backup_sequence_id`, and `shim_backup_entries` references `shim_pending_operations` for `originating_idempotency_key` — which is safe in SQLite: `CREATE TABLE` does not require a referenced table to exist at parse time, only at DML time, and each individual row's FK columns reference a row in a *different logical operation* (an INSTALL's pending-op row is what a backup references; a later RESTORE's pending-op row is what references that backup), never itself. Independently verified end-to-end: schema creation, a full realistic insert sequence (registry row → INSTALL pending-op with NULL `selected_backup_sequence_id` → backup row → RESTORE pending-op referencing that backup) all succeed, and a RESTORE pending-op referencing a backup under a *different* registration is correctly rejected with `FOREIGN KEY constraint failed`.)*
+
+> [!IMPORTANT]
+> **Visibility of `ACTIVE` registrations.** Because new `ABSENT`/`EXTERNAL_COLLISION` registrations become visible as `status='ACTIVE'` in `shim_registry_entries` the moment step 1 commits — before the actual filesystem write in step 4 ever happens — an `ACTIVE` registry row is **not actually consumable** until its most recent associated operation reaches `COMPLETED`. Consumers evaluating "is this shim usable" MUST structurally exclude in-flight installs, e.g. by `LEFT JOIN`ing against `shim_pending_operations WHERE operation_state != 'COMPLETED'` and excluding matches.
 
 ### 2. Crash-Recoverable State Machine
 
 No SQLite transaction is ever held open across a filesystem write (matching item B's established constraint). A higher-level advisory/mutex file lock is held across the entire sequence, released only after the final DB commit; this does not violate the invariant above because the lock is a separate advisory mechanism, not an internal SQLite lock. Every transaction uses `BEGIN IMMEDIATE`, matching the real `SqliteUnitOfWork` (`peerhub/persistence/sqlite.py` lines 171, 347, 675, 726). Every `operation_state` transition is a compare-and-swap `UPDATE ... WHERE idempotency_key=? AND operation_state=<expected_prior_state>`, and callers must verify the affected-row count is exactly 1, treating 0 as a conflict to investigate rather than silently ignoring it. `fsync`/durability requirements cover the shim install/restore renames themselves (`os.replace` on `P` and its parent directory), not just the backup artifacts.
 
-**Backup/Install Protocol** — states: `INTENT_DECLARED` → `BACKUP_STAGED` → `DB_COMMITTED` → `SHIM_REPLACED (COMPLETED)`. This protocol now branches at step 1 into one of 3 real lifecycle sub-paths from `PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md` — `EXTERNAL_COLLISION` (§2.3's `--force` path, the only sub-path modeled through Round 98) never changes its internal mechanics below; `ABSENT` and `MANAGED_UPDATE` (§2.3's implicit no-collision case, and §2.4's safe-update-of-an-already-managed-shim) are new in Round 99 and reuse the same state names and CAS discipline.
+**Backup/Install Protocol** — states: `INTENT_DECLARED` → `BACKUP_STAGED` → `DB_COMMITTED` → `SHIM_REPLACED (COMPLETED)`. This protocol branches at step 1 into one of 3 real lifecycle sub-paths — `EXTERNAL_COLLISION` (§2.3's `--force` path), `ABSENT` (§2.3's implicit no-collision case), and `MANAGED_UPDATE` (§2.4's safe-update-of-an-already-managed-shim).
 
-1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock; read target `P`'s hash/size/permissions/mtime, if `P` exists. *DB*: `BEGIN IMMEDIATE`; FIRST query `shim_pending_operations` by `idempotency_key`. If found, verify `request_digest` matches (reject as a conflict if not) and resume using its existing `shim_registration_id` — no new parent row is created. If not found, **detect the pre-condition before any further mutation**:
-   * **`MANAGED_UPDATE`** — an `ACTIVE` `shim_registry_entries` row already exists for this `shim_name`/`canonical_shim_path`. Compare `P`'s actual hash against that row's own `shim_file_sha256`. Mismatch → abort `ERR_SHIM_EXTERNALLY_MODIFIED` immediately, before any further mutation, matching the real doc's §2.4 semantics exactly. Match → do **not** insert a new parent row; `INSERT` into `shim_pending_operations` referencing the *existing* `shim_registration_id` (`operation_type='INSTALL'`, `install_sub_path='MANAGED_UPDATE'`, `operation_state='INTENT_DECLARED'`, `expected_hash` = incoming payload's hash, `pre_effect_hash` = the matched `shim_file_sha256`, `request_digest` = hash of inputs).
-   * **`EXTERNAL_COLLISION`** — no `ACTIVE` row exists, but a foreign file exists at `P` (the path originally modeled through Round 98, unchanged). `INSERT` the new parent `shim_registry_entries` row first — the parent must commit-order before any child references it, per the Round 91 `FOREIGN KEY constraint failed` reproduction — then `INSERT` into `shim_pending_operations` referencing the *new* `shim_registration_id` (`install_sub_path='EXTERNAL_COLLISION'`, `expected_hash` = incoming payload's hash, `pre_effect_hash=NULL`, `request_digest` = hash of inputs).
-   * **`ABSENT`** — no `ACTIVE` row exists and no file exists at `P`, the simplest case: no collision, no backup needed. `INSERT` the new parent row first, then `INSERT` into `shim_pending_operations` referencing it (`install_sub_path='ABSENT'`, `expected_hash` = incoming payload's hash, `pre_effect_hash=NULL`, `request_digest` = hash of inputs).
+1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock; read target `P`'s hash/size/permissions/mtime, if `P` exists. *DB*: `BEGIN IMMEDIATE`; FIRST query `shim_pending_operations` by `idempotency_key`. If found, verify `request_digest` matches (reject as a conflict if not) and resume using its existing `shim_registration_id` — no new parent row is created. If not found, query `shim_registry_entries` for an `ACTIVE` row matching both `shim_name` AND `canonical_shim_path`:
+   * **Exactly one row matches both (`MANAGED_UPDATE`)**:
+     * *Concurrency check first*: query `shim_pending_operations` for a non-terminal (`operation_state != 'COMPLETED'`) row on this `shim_registration_id`. If one exists with a matching `idempotency_key`, resume it. If one exists with a **different** `idempotency_key`, abort with a typed "operation already in progress" conflict — do not let a raw unique-index `IntegrityError` be the de facto signal, and do not misdiagnose this as external tampering.
+     * *Only if no non-terminal operation exists*: **admission-target validation** — fetch the referenced `manifest_admission_receipts` row's `transitive_executable_chain_json` (an ordinary opaque-document read, per item B's established pattern), deserialize it into `TransitiveExecutableNode` instances, and compare the single entrypoint node's `canonical_path` against the intended `downstream_target_path`; abort before any mutation on mismatch. Then **pre-condition hash check** — compare `P`'s actual hash against the existing row's `shim_file_sha256`. Mismatch → abort `ERR_SHIM_EXTERNALLY_MODIFIED`, matching the real doc's §2.4 exactly. Match → do **not** insert a new parent row; `INSERT` into `shim_pending_operations` referencing the *existing* `shim_registration_id` (`install_sub_path='MANAGED_UPDATE'`, `expected_hash` = incoming payload's hash, `pre_effect_hash` = the matched `shim_file_sha256`, `intended_profile_name`/`intended_downstream_target_path`/`intended_admission_receipt_id` = the new bindings, `request_digest` = hash of inputs).
+   * **Exactly one of `shim_name`/`canonical_shim_path` matches, not both**: abort with a typed identity-conflict error. Never fall through to a new-parent insert.
+   * **Neither matches (`EXTERNAL_COLLISION` if a foreign file exists at `P`, else `ABSENT`)**: perform the same admission-target validation as above. On success, `INSERT` the new parent `shim_registry_entries` row first — the parent must commit-order before any child references it, per the Round 91 `FOREIGN KEY constraint failed` reproduction — then `INSERT` into `shim_pending_operations` referencing the *new* `shim_registration_id` (`install_sub_path` set accordingly, `pre_effect_hash=NULL`, intended bindings, `request_digest` = hash of inputs). Per the visibility note above, this new row is correctly not yet consumable, since its only associated operation is still non-terminal.
    * `COMMIT`.
 2. **INTENT_DECLARED → BACKUP_STAGED** — for `EXTERNAL_COLLISION` only: *FS*: stage `.tmp` copy of `P`, verify hash, atomically `os.replace` to finalized `.bak`, persist `backup_meta.json`, `fsync`/flush both (and their parent directory) before considering them securely synced. *DB*: none. (Crash: orphaned `.bak`/`.json` files with no `FS_STAGED`-or-later pending-operation row are safely ignorable/GC-able.) For `ABSENT` and `MANAGED_UPDATE`: no backup is needed or possible (there is no foreign file, and no `original_sha256` to preserve); this step performs no filesystem work and is skipped.
 3. **BACKUP_STAGED → DB_COMMITTED** — *FS*: none. *DB*: `BEGIN IMMEDIATE`; for `EXTERNAL_COLLISION` only, `INSERT ... ON CONFLICT (originating_idempotency_key) DO NOTHING` into `shim_backup_entries` (binding it to the operation, generating `backup_sequence_id`) — for `ABSENT`/`MANAGED_UPDATE`, `shim_backup_entries` correctly remains untouched, since neither sub-path has a `FOREIGN KEY` requiring a row there. For all 3 sub-paths: `UPDATE shim_pending_operations SET operation_state='FS_STAGED' WHERE idempotency_key=? AND operation_state='INTENT_DECLARED'` (affected rows must equal 1); `COMMIT`. (Crash: strictly isolated from I/O — safe to retry if rolled back; a retry's backup insert is now a no-op rather than a duplicate row.)
-4. **DB_COMMITTED → SHIM_REPLACED (COMPLETED)** — *FS*: stage the full generated shim payload, atomically `os.replace` it over `P`, `fsync` the file and parent directory. *DB*: `BEGIN IMMEDIATE`; for `MANAGED_UPDATE` only, additionally `UPDATE shim_registry_entries SET shim_file_sha256=?, updated_at=? WHERE shim_registration_id=?` (updating the registry's recorded hash in place, same generation, no new row). For all 3 sub-paths: `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`. *FS*: release advisory lock only **after** this commit.
-   * *(Crash/Reconciliation for an `INSTALL` stuck at `FS_STAGED`, across all 3 sub-paths: compute `actual_hash = sha256(P)` (or note the file's absence, for `ABSENT`) and perform an explicit 3-way comparison — **replacement never happened**, safe to (re)write the shim now, if: `actual_hash == original_sha256` from the backup row (`EXTERNAL_COLLISION`), or `actual_hash == pre_effect_hash` from the intent (`MANAGED_UPDATE`), or `P` still does not exist (`ABSENT`). **Replacement already completed**, if `actual_hash == expected_hash` — but observing correct bytes does **not** prove the earlier `fsync` completed (the crash may have landed between `os.replace` and `fsync`, leaving correct-but-non-durable content in cache) — re-`fsync` `P` and its parent directory now, then complete the DB updates (including the `shim_registry_entries` update for `MANAGED_UPDATE`) and mark `COMPLETED` without re-writing the file. **External modification**, on any other outcome (including `P` unexpectedly existing for `ABSENT`) — fail with `ERR_SHIM_EXTERNALLY_MODIFIED`, never auto-overwrite.)*
+4. **DB_COMMITTED → SHIM_REPLACED (COMPLETED)** — *FS*: stage the full generated shim payload. **Explicit pre-effect re-validation (TOCTOU narrowing)**, performed immediately before writing on every execution path (both normal forward progress and any crash resumption, since resuming from `FS_STAGED` can only mean a *previous* attempt reached this step): compute `actual_hash = sha256(P)` (or note absence) and perform a 3-way check —
+   * `actual_hash` still matches the pre-effect reference (`original_sha256` for `EXTERNAL_COLLISION`, `pre_effect_hash` for `MANAGED_UPDATE`, or `P` still absent for `ABSENT`) → safe to write now: atomically `os.replace` the staged payload over `P`, `fsync` the file and parent directory.
+   * `actual_hash == expected_hash` → the replacement **already completed** (only reachable if a prior attempt crashed between its own `os.replace` and this transaction's commit) — skip the filesystem write, but re-`fsync` `P` and its parent directory before proceeding, since observing correct bytes does not prove the earlier `fsync` completed.
+   * Any other outcome (including `P` unexpectedly existing for `ABSENT`) → external modification occurred since step 1 validated the pre-condition — abort `ERR_SHIM_EXTERNALLY_MODIFIED`, never auto-overwrite. *(This check is a best-effort narrowing against non-cooperating external writers — a true atomic compare-and-replace isn't available cross-platform — not an absolute guarantee, matching the honest-disclosed-limitation pattern already used elsewhere in this document.)*
+   *DB*: `BEGIN IMMEDIATE`; for `MANAGED_UPDATE` only, additionally `UPDATE shim_registry_entries SET shim_file_sha256=?, updated_at=?, profile_name=?, downstream_target_path=?, admission_receipt_id=? WHERE shim_registration_id=?` (atomically updating the hash **and** all 3 bindings together, from the intended values recorded at intent time — same generation, no new row). For all 3 sub-paths: `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`. *FS*: release advisory lock only **after** this commit.
+   * *(Crash/Reconciliation for an `INSTALL` stuck at `FS_STAGED`: no separate reconciliation branch is needed beyond the step 4 pre-effect re-validation above — it deterministically distinguishes all 3 outcomes on resumption exactly as it does on first execution.)*
 
 **Restore Protocol** — states: `INTENT_DECLARED` → `RESTORE_VERIFIED` → `RESTORE_STAGED_FS` → `RESTORE_COMPLETE`
 
