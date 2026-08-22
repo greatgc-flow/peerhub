@@ -301,6 +301,18 @@ The terminal reasoned through the actual commit/write ordering directly from the
 
 Round 97 sends this fix back to cx for final confirmation — this is now the 4th consecutive review round on the same schema/state-machine scope (91, 94, 96, 97), with findings narrowing round over round (6 → 5 → 1), consistent with genuine convergence rather than an indefinite sequence.
 
+## Round 97 (item C, fifth review): state placement + equal-hash tiebreak + CHECK constraint + empty-backup race all confirmed correct; 3 narrow defects — terminal fixed directly
+
+cx confirmed 4 of the items under review outright: the restore ambiguity is now correctly attached to `INTENT_DECLARED`; the equal-hash precedence rule (checking hash+metadata together before the pre-effect hash) is sound, with a note to sample hash and `stat()` from the same file identity to avoid a torn read during a concurrent external replace; the new operation-specific `CHECK` constraint matches every insert path described in the prose, including the idempotency-resume branch; and the empty-backup-lookup race is fully closed by `BEGIN IMMEDIATE`'s writer serialization across the SELECT-and-INSERT.
+
+3 narrow remaining defects, all fixed directly by the terminal without another ag round-trip:
+
+1. **A state-transition gap that made recovery internally impossible**: the post-effect branch of restore's `INTENT_DECLARED` recovery said to "resume directly at step 4," but step 4's CAS requires `operation_state='FS_STAGED'` — from `INTENT_DECLARED` that `UPDATE` would affect 0 rows and recovery could never complete. Fixed by having that branch first perform the same `INTENT_DECLARED → FS_STAGED` CAS update step 3 normally performs (DB-only, no file write), then proceed to step 4.
+2. **A durability gap in both install and restore's "already completed" recovery branches**: observing the correct post-effect hash on disk does not prove the earlier `fsync` actually completed — a crash landing between `os.replace` and `fsync` leaves correct bytes readable from cache without them being durable. Fixed by requiring both branches (install's `FS_STAGED` `actual_hash==expected_hash` case, and restore's `INTENT_DECLARED` post-effect case) to re-`fsync` `P` and its parent directory before marking the operation complete, even when no rewrite is needed.
+3. **A missing re-verification step**: when restore recovery determines the replacement never happened and must re-run step 3, `RESTORE_VERIFIED` (step 2's archive-integrity check) is not itself a persisted state, so the crash could have landed before that verification ever ran or before it survived to be trusted. Fixed by requiring step 2's verification to be re-run, not assumed, before re-attempting step 3's filesystem work.
+
+Also fixed the stale "(Corrected, Round 95)" heading cx flagged as mildly misleading given the Round 96 CHECK-constraint addition, to "(Corrected, Round 95-97)". Round 98 sends this final pass back to cx — the 5th consecutive review round on this scope, with findings narrowing 6 → 5 → 1 → 3 (all narrow/editorial) → (this round).
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
