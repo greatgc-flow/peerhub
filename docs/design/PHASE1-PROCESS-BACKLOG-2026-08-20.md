@@ -429,6 +429,12 @@ cx confirmed, with independent re-execution (registry → collision operation �
 
 **Next**: Round 110 fixes the blocking staging-locator gap (persist `staged_payload_path` and/or a deterministic idempotency-derived naming scheme, with defined creation/cleanup semantics), reapplies metadata verification on RESTORE's already-applied branch, and quarantines/labels Section C.4 as superseded.
 
+## Round 110 (item C, fix round 6): crash-stable staging path, RESTORE metadata reapplication, Section C.4 quarantined
+
+ag fixed all 3: (1) every payload-writing operation now derives its staging path deterministically and purely from `sha256(idempotency_key)[:16]` (e.g. `P.peerhub-stage.<hash>`) rather than a PID-based name — a resumed process after a crash always recomputes the identical path from the same persisted `idempotency_key`, with no separate lookup needed; staging creation is exclusive/no-follow, the file is implicitly consumed by `os.replace` on success, and explicitly deleted on every `ABORTED` path (mismatch during pre-effect re-validation, fallback-tool re-check failure, and external-modification abort) so nothing leaks; (2) `RESTORE`'s "already applied" branch now also re-verifies `P`'s `mtime`/permissions against the backup's recorded values and idempotently reapplies them if mismatched, not just the hash; (3) Section C.4 (the stale Round 103 implementation) now opens with an explicit `[!WARNING]` marking it superseded by the Round 104-110 redesign, retained only as a historical audit record — the same staleness cx flagged back in Round 105 and which went unaddressed until now.
+
+This round changed only state-machine prose, not the schema — the previously-verified SQL block is untouched and was re-confirmed to still execute cleanly. Committed. Round 111 sends this to cx for what should be the closing review of the redesigned schema/state-machine, now on its 5th review pass (105 rejected, 106→107 found 1 regression, 108→109 found 1 new gap, this is the fix).
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
