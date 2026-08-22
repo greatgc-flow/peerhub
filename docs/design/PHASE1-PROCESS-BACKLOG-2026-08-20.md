@@ -461,6 +461,12 @@ Minor: the quarantine warning on the superseded Round 103 section still says "Ro
 
 **Next**: Round 114 fixes: restore explicit no-follow/reject-unexpected-file-type staging semantics (closing the symlink/hardlink attack surface reintroduced by Round 112); an explicit inspect-before-replace sequence for finalized backup reuse; and the same missing-stage reconstruction rule Round 112 gave RESTORE, extended to ACTIVE-outcome degenerate retries.
 
+## Round 114 (item C, fix round 8): security regression closed, backup finalization and ACTIVE stage-reconstruction fixed
+
+ag fixed all 3, schema/subsection 1 untouched as instructed (cx had confirmed it needs no further changes): (1) restored and strengthened no-follow/reject-non-regular-file discipline everywhere a deterministic path is touched — `lstat`-style inspection before any reuse decision, `O_NOFOLLOW`-opened-handle validation to prevent a substitution race between the type check and use, unlink-only-the-directory-entry-then-recreate-exclusively instead of in-place overwrite, and the same discipline extended to RESTORE's metadata-reapplication step (never blindly `chmod`/`utime` through a symlink an attacker substituted for `P`); (2) the finalized `.bak` path now has its own explicit inspect-before-act sequence (safely check first; if present and hash-matching `pre_state_hash`, `fsync` and reuse directly, skipping `.tmp` re-staging; otherwise unlink-if-present and run the normal stage-verify-replace sequence) instead of relying on an `EEXIST` exception `os.replace` never actually raises; (3) ACTIVE-outcome degenerate retries now check whether `P` already matches the target content first (the common resumption case — skip straight to completion with no filesystem write) before falling back to stage-validation, and if neither `P` nor a valid stage has the payload, require the caller to re-declare the operation via a fresh `INTENT_DECLARED` rather than attempting silent recovery from nothing. Also updated the Section C.4 quarantine warning's stale version range from "Round 104-110" to "Round 104-114".
+
+Committed. Round 115 sends this to cx for the 7th review pass of the redesigned state machine — the schema itself has been confirmed converged since Round 113 and was not touched this round.
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
