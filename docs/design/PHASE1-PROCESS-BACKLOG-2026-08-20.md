@@ -502,6 +502,14 @@ ag fixed both: (1) `RESTORE`'s step-2 archive validation and the degenerate-case
 
 Terminal re-verified the schema still executes and applied this splice manually (delivered as inline text this round, not a direct file edit). Committed. Round 119 sends this to cx for the 9th review pass — the 10th consecutive fresh-full-pass instruction at this depth.
 
+## Round 119 (item C, redesign review 9): down to a single narrow, non-security liveness finding
+
+cx confirms the degenerate-path `fsync` fix is fully correct, and the 4 explicitly-enumerated permanent-failure modes (missing/non-regular/hardlinked/hash-mismatch) are correctly quarantined in both Step 2 and the Step 3 degenerate re-derivation path — but the broader "ANY permanent failure" claim wasn't quite true yet: a persistent ACL denial, an indefinitely-held sharing lock, or an unrecoverable read-side `EIO` can make an archive permanently unusable in practice without matching any of the 4 enumerated structural checks, so it remains unquarantined and can still starve an older valid backup indefinitely. Separately, "abort the operation normally" (for transient failures) doesn't specify what state the operation is LEFT in — does it stay `INTENT_DECLARED`, does it transition, is its stage retained or deleted — which matters for which idempotency key can safely retry. A minor platform note: fsyncing `P` in the degenerate no-write path is logically sound (flushing the exact validated bytes doesn't alter them), but on Windows, `FlushFileBuffers` requires a `GENERIC_WRITE`-capable handle, so an externally-authored file might be readable/hashable but not flushable by PeerHub — this failure must remain safely retryable, never silently ignored or treated as `COMPLETED`.
+
+cx's calibrated verdict: **"one narrow non-security liveness/implementability finding remains... After that policy is made deterministic, repository operations plus a genuinely executed current-design trace should be the final remaining work for item C."** No new schema defect, overwrite path, crash-ordering error, security bypass, or durability regression found on this full fresh pass.
+
+**Next**: Round 120 makes the permanent-vs-transient policy fully deterministic: define explicit state semantics for a transient Step 2 failure (operation stays `INTENT_DECLARED`, no CAS transition, stage untouched, same idempotency key can naturally retry by re-entering step 2); add an explicit operator-facing escalation path (mirroring `accept_current_as_baseline`'s pattern) for a backup that keeps failing transiently without ever resolving, letting a human manually mark it unusable after diagnosis; and require the degenerate-path `fsync(P)` failure to abort as retryable rather than silently proceeding to `COMPLETED`.
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
