@@ -496,6 +496,12 @@ cx's headline: **"the severity-1 flaw is fully closed and the schema is converge
 
 **Next**: Round 118 fixes: mark every PERMANENT selected-backup validation failure (not just hash mismatch — missing, non-regular, hardlinked, or corrupted-on-re-verify) as unusable in the same abort transaction, explicitly distinguishing permanent from transient I/O failures; and add an explicit `fsync` of `P` and its parent directory to the ACTIVE degenerate no-write success path (not a stage-write — cx explicitly warns against reintroducing that).
 
+## Round 118 (item C, fix round 10): both remaining findings fixed
+
+ag fixed both: (1) `RESTORE`'s step-2 archive validation and the degenerate-case re-derivation path in step 3 now both mark `corrupt_detected_at` on ANY permanent failure of the selected backup (missing, fails the safe no-follow/regular-file/`st_nlink==1` checks, or hash mismatch) — not just a hash mismatch — while explicitly carving out transient I/O/lock errors to abort WITHOUT marking the backup unusable, so genuinely temporary conditions can still be retried; (2) the ACTIVE degenerate no-write success path now explicitly `fsync`s `P` itself (via the same no-follow discipline) and its parent directory before completing, without reintroducing any stage-write fallback.
+
+Terminal re-verified the schema still executes and applied this splice manually (delivered as inline text this round, not a direct file edit). Committed. Round 119 sends this to cx for the 9th review pass — the 10th consecutive fresh-full-pass instruction at this depth.
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
