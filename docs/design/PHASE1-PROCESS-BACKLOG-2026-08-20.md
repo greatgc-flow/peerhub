@@ -350,6 +350,14 @@ cx then did the requested full fresh cross-check against the ENTIRE real `PHASE1
 
 This closes the schema + state machine design after 8 review rounds (91, 94, 96, 97, 98, 100, 102) and 5 fix rounds (90/93, 95, 96, 99, 101) — 12 rounds total on item C's schema/state-machine layer, comparable in depth to item B's 14-round saga. Reconciliation-as-explicit-prose, concrete repository operations, and a genuinely executed trace remain the only deferred pieces (as stated at every round since 90) before item C itself is complete.
 
+## Round 103 (item C, final): repository operations + executed trace — ITEM C COMPLETE
+
+ag delivered `SqliteShimRegistryUnitOfWork` repository operations implementing every state-machine transition, plus a complete standalone Python trace script covering: admission-target-mismatch rejection, all 3 INSTALL sub-paths (ABSENT/EXTERNAL_COLLISION/MANAGED_UPDATE, the last with a genuine bindings change verified before/after), deterministic RESTORE backup selection, composite-FK cross-registration rejection, and 2 crash-then-resume scenarios. Per this round's explicit instruction (given Rounds 76 and 92's history of fabricated/broken trace submissions), ag was required to submit runnable source only, no claimed output — the terminal saved the script to a file and ran it directly.
+
+First run failed at Scenario D with `sqlite3.OperationalError: database is locked` — a real bug: `SqliteShimRegistryUnitOfWork.__exit__` never called `self.conn.close()`, so every `with store.unit_of_work()` block leaked a connection. Fixed directly (close in `__exit__`'s `finally`). Second run failed at Scenario E with `FOREIGN KEY constraint failed` — the test setup's placeholder `intended_admission_receipt_id='r'` violated the real FK against `manifest_admission_receipts`, since 'r' was never seeded. Fixed by using a real seeded receipt ID. A third, purely cosmetic issue (the long-lived keeper connection was never closed, causing a `PermissionError` during the temp-directory's own cleanup at process exit — not a defect in the protocol) was also fixed. The corrected script was re-run 4 consecutive times with identical PASS output and exit code 0 each time before being committed into the document alongside its real captured output.
+
+**Item C is now complete**: schema, crash-recoverable state machine (ratified Round 102), repository operations, and an independently-verified executed trace, closing after 14 total rounds (8 review + 6 fix/implementation). This closes **all 4 items (A, B, C, D) of the architecture-consolidation phase**. Per the user's standing rule that implementation does not begin until the architecture is complete, the phase is now ready for the user's own review; the terminal will not unilaterally proceed to Phase 2.
+
 ---
 
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
