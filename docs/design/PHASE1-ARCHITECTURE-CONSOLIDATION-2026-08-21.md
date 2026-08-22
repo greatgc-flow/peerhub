@@ -941,7 +941,16 @@ CREATE TABLE shim_pending_operations (
     selected_backup_sequence_id INTEGER REFERENCES shim_backup_entries(backup_sequence_id),
 
     operation_state TEXT NOT NULL CHECK (operation_state IN ('INTENT_DECLARED', 'FS_STAGED', 'COMPLETED')),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+
+    -- Enforce the fields each operation type actually needs, closing the nullable-column gap:
+    -- INSTALL must carry its target hash and must NOT reference a backup; RESTORE must reference
+    -- exactly the backup it selected and has no separate expected_hash of its own.
+    CHECK (
+        (operation_type = 'INSTALL' AND expected_hash IS NOT NULL AND selected_backup_sequence_id IS NULL)
+        OR
+        (operation_type = 'RESTORE' AND selected_backup_sequence_id IS NOT NULL AND expected_hash IS NULL)
+    )
 );
 
 -- Prevents multiple simultaneous non-terminal operations against the same registration
@@ -993,11 +1002,12 @@ No SQLite transaction is ever held open across a filesystem write (matching item
 
 **Restore Protocol** — states: `INTENT_DECLARED` → `RESTORE_VERIFIED` → `RESTORE_STAGED_FS` → `RESTORE_COMPLETE`
 
-1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock. *DB*: `BEGIN IMMEDIATE`; FIRST query `shim_pending_operations` by `idempotency_key` as in Install; if found, resume. If not found: query `shim_backup_entries` for the most recent unrestored backup for the target registration (`ORDER BY backup_sequence_id DESC LIMIT 1`); `INSERT` into `shim_pending_operations` (`operation_type='RESTORE'`, `operation_state='INTENT_DECLARED'`, `selected_backup_sequence_id` = the chosen backup, `request_digest` = hash of inputs); `COMMIT`. Every subsequent restore step references this persisted `selected_backup_sequence_id` — it is never re-queried.
+1. **[START] → INTENT_DECLARED** — *FS*: acquire advisory lock. *DB*: `BEGIN IMMEDIATE`; FIRST query `shim_pending_operations` by `idempotency_key` as in Install; if found, resume. If not found: query `shim_backup_entries` for the most recent unrestored backup for the target registration (`ORDER BY backup_sequence_id DESC LIMIT 1`) — **if no such row exists, abort before inserting any intent record**, there is nothing to restore; otherwise `INSERT` into `shim_pending_operations` (`operation_type='RESTORE'`, `operation_state='INTENT_DECLARED'`, `selected_backup_sequence_id` = the chosen backup, `request_digest` = hash of inputs); `COMMIT`. Every subsequent restore step references this persisted `selected_backup_sequence_id` — it is never re-queried.
 2. **INTENT_DECLARED → RESTORE_VERIFIED** — *FS*: verify the `.bak` archive's SHA-256 against the DB record, abort `ERR_CORRUPT_BACKUP_ARCHIVE` on mismatch. *DB*: none.
 3. **RESTORE_VERIFIED → RESTORE_STAGED_FS** — *FS*: copy `.bak` to `P.restoring.<pid>`, apply `original_mtime_epoch`/`original_permissions_octal`, atomically `os.replace` over `P`, `fsync` file and parent. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_pending_operations SET operation_state='FS_STAGED' WHERE idempotency_key=? AND operation_state='INTENT_DECLARED'` (affected rows must equal 1); `COMMIT`.
+   * *(Crash/Reconciliation for a `RESTORE` stuck at `INTENT_DECLARED`: unlike Install, restore's filesystem replacement in this step happens **before** its `FS_STAGED` commit, so observing `INTENT_DECLARED` is the genuinely ambiguous state — the crash could have landed on either side of the `os.replace`. Compute `actual_hash = sha256(P)` and compare against the two persisted references, applying this precedence to resolve the case where they happen to be equal (an identical-payload reinstall/restore): check the post-effect condition FIRST — `actual_hash` matches the selected backup's `original_sha256` **and** `P`'s current `mtime`/permissions already equal `original_mtime_epoch`/`original_permissions_octal` (SHA-256 alone doesn't capture metadata, which the real protocol also restores) → the filesystem effect already completed, resume directly at step 4 (DB-only) without touching the file again. Otherwise, if `actual_hash == shim_file_sha256` (the pre-restore registry value) → replacement never happened, safe to run this step's filesystem work now. Any other outcome → external modification occurred after the crash, fail with `ERR_SHIM_EXTERNALLY_MODIFIED`, never auto-overwrite.)*
 4. **RESTORE_STAGED_FS → RESTORE_COMPLETE** — *FS*: none. *DB*: `BEGIN IMMEDIATE`; `UPDATE shim_backup_entries SET restored=1, restored_at=... WHERE backup_sequence_id=?`; `UPDATE shim_registry_entries SET status='RETIRED' WHERE shim_registration_id=?`; `UPDATE shim_pending_operations SET operation_state='COMPLETED' WHERE idempotency_key=? AND operation_state='FS_STAGED'` (affected rows must equal 1); `COMMIT`. *FS*: release advisory lock only **after** this commit.
-   * *(Crash/Reconciliation for a `RESTORE` stuck at `FS_STAGED`: compute `actual_hash = sha256(P)` and perform the mirrored 3-way comparison — `actual_hash == shim_file_sha256` (the pre-restore registry value) means the restore never happened, safe to (re)write the selected backup to `P`; `actual_hash == ` the selected backup's `original_sha256` means the filesystem effect already completed, mark `COMPLETED` without touching the file; any other hash means external modification after the crash, fail with `ERR_SHIM_EXTERNALLY_MODIFIED`, never auto-overwrite.)*
+   * *(Crash/Reconciliation for a `RESTORE` stuck at `FS_STAGED`: no hash check is needed or performed here. Reaching `FS_STAGED` is only possible after step 3's filesystem replacement already completed and was `fsync`'d — the DB commit that sets `FS_STAGED` happens strictly after that write, never before. This state therefore unambiguously proves the replacement already happened; recovery simply resumes and completes this step's DB-only updates, and must never re-run the filesystem work or re-derive a decision from `sha256(P)` at this state.)*
 
 ### 3. Transactional Replacement
 The complex JSON-file read-modify-write cycle (with `.tmp.<pid>` files and `os.replace`) is eliminated. Each state transition above is its own short, independently-committed `UnitOfWork`:
