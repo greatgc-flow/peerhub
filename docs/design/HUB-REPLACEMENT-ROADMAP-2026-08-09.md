@@ -1,5 +1,13 @@
 # peerhub → hub.py replacement roadmap
 
+> **STALE STATUS WARNING (2026-08-23):** several phase-status claims in this
+> document no longer match live source (e.g. "health/quota tracking: not
+> started" — `peerhub diag` now exists). For current replacement readiness,
+> see `HUB-REPLACEMENT-GAP-AUDIT-2026-08-23.md` (source-verified against
+> both hub.py's live subcommand list and peerhub's actual CLI/source), not
+> this document's status headers. This roadmap remains useful for phase
+> sequencing/history.
+
 Status: living document, updated as phases land. Started 2026-08-09 after
 GovernanceBroker cutover Steps A-D completed.
 
