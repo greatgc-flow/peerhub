@@ -150,3 +150,7 @@ today (consensus, session/room/thread continuity, health/leadership
 operations, task lifecycle, governance/learning protocol, diagnostics
 parity). Closing the gap is a real, multi-part implementation effort, not a
 documentation or wiring task.
+
+## Addendum: design-vs-implementation gap (same day, follow-up)
+
+User asked: if everything already-designed were implemented, would that close the gap? `cx` checked each of the 7 blocking categories against this repo's actual design docs (`_sys/docs-v2/`, `docs/design/`). **Verdict: no.** All 7 categories still lack a ratified, peerhub-side replacement design (existing docs describe hub.py's own current architecture/contracts, not a peerhub-side specification for them). Diagnostics/telemetry has the strongest existing foundation (`_sys/docs-v2/ops/diag-telemetry-architecture.md`) but still isn't a complete replacement design. **Per the standing rule, implementation does not start while known design gaps remain open — Phase 2 is paused; next step is closing these 7 design gaps, not coding.**
