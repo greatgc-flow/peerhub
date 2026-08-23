@@ -898,6 +898,10 @@ This schema abandons bespoke, operation-conditional logic (`install_sub_path` br
 * **For a not-yet-existing final path** (a fresh install target), canonicalize the resolved parent directory's real identity, then append the literal final path component, normalized and case-folded.
 This canonicalization is applied consistently to **both** sides of any target-path comparison.
 
+**Accepted Phase 1 limitation — no in-place shim renaming.** A registered shim's `shim_name` and `canonical_shim_path` are immutable identity fields for the lifetime of its `shim_registration_id`. The Phase 1 state machine provides no rename transition and no operation may update either field. Renaming therefore requires retiring the existing registration and creating a new registration through a fresh install. This is intentional and accepted for Phase 1, not an omitted operation.
+
+**Accepted Phase 1 limitation — retired-registration backup archives.** Retiring a shim registration does not automatically delete its existing `.bak` archives or their metadata rows. Those archives remain durable audit artifacts associated with the immutable `shim_registration_id`, but no normal active-shim restore path is guaranteed after retirement. This is not immediate logical data loss: the files and records remain present and auditable. It is an accepted risk of inert disk usage and requires an explicit future retention/garbage-collection policy if cleanup is desired.
+
 ```sql
 -- 0026_shim_registry_persistence.sql
 -- Illustrative placeholder consistent with Item B's convention
@@ -931,7 +935,18 @@ CREATE TABLE shim_registry_entries (
 -- Uniqueness enforced only among PROVISIONING and ACTIVE registrations; a RETIRED path may be legitimately reused
 CREATE UNIQUE INDEX idx_active_shim_name ON shim_registry_entries(shim_name) WHERE status IN ('PROVISIONING', 'ACTIVE');
 CREATE UNIQUE INDEX idx_active_canonical_path ON shim_registry_entries(canonical_shim_path) WHERE status IN ('PROVISIONING', 'ACTIVE');
+```
 
+**`operation_kind` derivation rule.** `operation_kind` is derived deterministically at Step 1 from the current filesystem state of `P`, the active registration state, and the requested operation intent; it is never caller-selectable independently of those facts. Select exactly one value:
+- `ABSENT` when no file exists at `P` and the requested outcome is `ACTIVE`.
+- `EXTERNAL_COLLISION` when a file exists at `P` but no matching active/provisioning registration exists for the canonicalized shim identity.
+- `MANAGED_UPDATE` when a matching active/provisioning registration exists, the requested outcome is `ACTIVE`, and the operation replaces the managed payload.
+- `RESTORE` when the requested operation selects an existing, unrestored backup archive for restoration.
+- `REMOVE` when the requested operation removes the managed shim and the intended registry outcome is `RETIRED`.
+
+After derivation, the operation's `pre_state_hash`, `post_state_hash`, intended registry outcome, binding fields, authorization fields, and backup/fallback fields MUST satisfy the corresponding `operation_kind` `CHECK` branch below. Any combination that maps to zero or more than one branch is rejected before the intent is committed.
+
+```sql
 CREATE TABLE shim_pending_operations (
     -- Caller-supplied idempotency key; checked BEFORE any parent-row mutation
     idempotency_key TEXT PRIMARY KEY,
@@ -1768,21 +1783,27 @@ PASS: Resumed successfully and wrote file
 
 **Context:** The ratified `AdmissionRegistry` codebase honestly admits only a single, shallow entrypoint node (`chain_complete=False` hardcoded), explicitly deferring full recursive wrapper-chain derivation to Phase 2. However, two normative documents still contain overclaiming text suggesting a "complete transitive execution graph" is bound.
 
-**Resolution (Prose Replacement Diffs):**
+**Resolution: Current-Text Reconciliation (refreshed 2026-08-23 — see below):**
 
-**1. `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`** (Section 4)
+The underlying overclaiming concern is resolved in both target documents, but not by the originally drafted replacement diffs that used to appear here. Later independent edits changed the documents directly, so the original diff text went stale (neither its "before" nor "after" text matched the live files) and has been replaced with this current-text reconciliation, confirmed via direct read of both files by `cx` and independently re-verified by the terminal.
 
-```diff
-- To eliminate TOCTOU, unauthenticated tampering, and wrapper-only binding vulnerabilities, manifest admission strictly resolves, validates, and cryptographically binds the complete transitive execution graph.
-+ To establish a secure baseline without overclaiming capability, manifest admission strictly resolves, validates, and cryptographically binds the shallow entrypoint node, explicitly and honestly deferring full transitive execution graph derivation and validation to Phase 2 (chain_complete=False).
-```
+**1. `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, Section 4**
 
-**2. `docs/design/PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20.md`** (Section 5, Verification Checklist)
+Current text:
 
-```diff
-- | Transitive Executable Binding | **CLOSED** | Fully traced `.cmd` wrappers, Node interpreters, `.js` launchers, and native `.exe` binaries with real SHA-256 digests. |
-+ | Transitive Executable Binding | **DEFERRED (Phase 2)** | Fully traced `.cmd` wrappers and downstream binaries, but full recursive derivation at admission time is explicitly deferred to Phase 2 (single entrypoint verified only, `chain_complete=False` hardcoded). |
-```
+> To cryptographically bind the admission-time evidence for the single entrypoint node it admits, Phase 1 manifest admission strictly resolves, validates, and pins that node's canonical path and content hash at the moment of admission.
+
+The same section explicitly states that Phase 1 validates and pins exactly one entrypoint node, that full multi-node recursive wrapper-chain derivation (`chain_complete=True`) is deferred to Phase 2, and that the Phase 1 receipt records `chain_complete: False`.
+
+**2. `docs/design/PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20.md`, Section 5**
+
+Current checklist row:
+
+> | Transitive Executable Binding | **DEFERRED (Phase 2)** | Documented empirical host requirements for multi-node chains, but deferred actual implementation to Phase 2. Phase 1 validates only the single entrypoint node. |
+
+The remainder of that document likewise identifies `chain_complete: true` receipts as Phase 2 illustrative targets and states that real Phase 1 admission produces only single-node, `chain_complete: false` receipts.
+
+Therefore the complete-transitive-execution-graph overclaim this item was opened to fix is resolved in both files, via later independent prose edits rather than the diff text this section originally specified.
 
 ---
 
