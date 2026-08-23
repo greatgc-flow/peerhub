@@ -877,6 +877,8 @@ Issued ID: receipt-ag-adapter_1-20260821T162935Z-9d08117da199e81bb6971e0fc51f01b
 --- TRACE DEMONSTRATION END ---
 ```
 
+> [!NOTE]
+> **Trace Validity Gap (Journal Mode):** The real `SqliteStateStore` adapter (`peerhub/persistence/sqlite.py`) uses `PRAGMA journal_mode = WAL`, under which readers never block writers and writers never block readers. This means scenario (h) (a read blocked by a `BEGIN EXCLUSIVE` holder) and scenario (i) (`commit()` failing because a reader holds a shared lock) cannot reproduce against the real store, since the illustrative trace above used SQLite's default rollback journal mode instead of WAL. Note that the `commit()` error-translation code these scenarios exercise is still correct and necessary (WAL writer-vs-writer contention is a real, different scenario), but the evidence presented for it was produced under a journal mode the canonical store doesn't actually use. This is disclosed here as a trace-validity gap, not a design defect.
 
 ## C. Shim Registry Persistence Folding
 
@@ -887,7 +889,7 @@ The shim registry state is folded into the same SQLite database as the manifest 
 
 **Round 104 provenance note:** the design below replaces the Round 90-103 `install_sub_path`-branching schema, which was ratified at Round 102 and implemented with repository operations and a passing trace at Round 103 — then, after closure, an independent fresh-eyes review (dispatched separately from the ag/cx dialectic that built it, at the user's explicit request for a final "is this actually complete" check) found 2 blocking defects the 12 prior review/fix rounds had missed: (F1) the state machine had no terminal failure state, so the design's own correct `ERR_SHIM_EXTERNALLY_MODIFIED` abort permanently bricked the shim with no recovery path short of hand-editing SQLite — independently reproduced by the terminal with no crash involved, purely from the protocol's own correct behavior; (F2) the Round 103 reference implementation's `EXTERNAL_COLLISION` crash-resume path compared a freshly-recomputed hash against itself instead of the durably-persisted `original_sha256`, silently defeating tamper detection across a crash window — also independently reproduced. The same review proposed collapsing the per-sub-path branching into a single uniform `(pre_state_hash, post_state_hash)` model, which the user approved over a narrower patch, since it resolves F1 structurally, makes F2 unrepeatable by construction, and lets `REMOVE` (previously fully deferred) fit the same shape as everything else instead of needing its own protocol.
 
-### 1. Illustrative Schema Extension (Redesigned, Round 104)
+### 1. Illustrative Schema Extension (`0026_shim_registry_persistence.sql`, Redesigned, Round 104)
 
 This schema abandons bespoke, operation-conditional logic (`install_sub_path` branching) in favor of a single uniform model: every operation asserts a `(pre_state_hash, post_state_hash)` transition over a single resource `P`, with exactly one filesystem effect, and the database commit strictly ordered before the effect.
 
@@ -897,6 +899,9 @@ This schema abandons bespoke, operation-conditional logic (`install_sub_path` br
 This canonicalization is applied consistently to **both** sides of any target-path comparison.
 
 ```sql
+-- 0026_shim_registry_persistence.sql
+-- Illustrative placeholder consistent with Item B's convention
+
 CREATE TABLE shim_registry_entries (
     -- Immutable generation identity, decoupling backup FKs from the mutable shim_name
     shim_registration_id TEXT PRIMARY KEY,
@@ -1114,7 +1119,7 @@ Every operation (`ABSENT`, `EXTERNAL_COLLISION`, `MANAGED_UPDATE`, `RESTORE`, an
      * FIRST query `shim_pending_operations` by `idempotency_key`. If found, verify `request_digest` matches (reject as a conflict if not) and resume using its existing `shim_registration_id` — no new parent row is created.
      * If not found, resolve the `ACTIVE` or `PROVISIONING` `shim_registry_entries` row (if any) matching this `shim_name`/`canonical_shim_path` via the deterministic canonicalization function. A partial match on only one of the two is a typed identity-conflict error, never a fallthrough.
      * *Concurrency check*: query `shim_pending_operations` for a non-terminal (`operation_state NOT IN ('COMPLETED', 'ABORTED')`) row on this `shim_registration_id`. If one exists with a different `idempotency_key`, abort with a typed "operation already in progress" conflict.
-     * *Admission-target validation*: for any operation leaving a shim (`intended_registry_outcome='ACTIVE'`), fetch the referenced `manifest_admission_receipts` row's `transitive_executable_chain_json`, deserialize it, and canonicalize the single entrypoint node's `canonical_path`. Compare it against the canonicalized intended `downstream_target_path`. Abort before any mutation on mismatch.
+     * *Admission-target validation*: for any operation leaving a shim (`intended_registry_outcome='ACTIVE'`), fetch the referenced `manifest_admission_receipts` row's `transitive_executable_chain_json`, deserialize it, and canonicalize the `canonical_path` of the chain node whose `role == ENTRYPOINT_WRAPPER`. Compare it against the canonicalized intended `downstream_target_path`. Abort before any mutation on mismatch.
      * *Fallback-precondition check (`REMOVE` only)*: if `operation_kind='REMOVE'`, verify a fallback executable for the tool exists elsewhere on `PATH` outside the PeerHub shim directory, per the real doc's §2.7. Abort if none is found. Persist its path as `intended_fallback_tool_path`.
      * *Pre-condition hash check*: compare `actual_hash` against the intended `pre_state_hash` (the active registration's own `shim_file_sha256` for `MANAGED_UPDATE`/`REMOVE`/`RESTORE`, the foreign file's hash for `EXTERNAL_COLLISION`, `NULL`/absent for `ABSENT`). Mismatch → abort `ERR_SHIM_EXTERNALLY_MODIFIED`.
      * *Authorization*: for `EXTERNAL_COLLISION`, require a caller-supplied `force_override_authorized=1`; abort `ERR_SHIM_COLLISION_DETECTED` if absent or false, matching the real doc's §2.3 fail-closed-by-default requirement — the collision is auto-*detected*, but never auto-*overridden*.
