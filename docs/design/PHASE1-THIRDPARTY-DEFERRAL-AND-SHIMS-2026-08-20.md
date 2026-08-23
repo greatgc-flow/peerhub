@@ -143,6 +143,11 @@ exit /b %ERRORLEVEL%
 - **Guaranteed Fallback Precondition:** Before shim removal is allowed to proceed, PeerHub must verify that removing the shim will not leave the user stranded. It must verify the existence of the underlying tool elsewhere on the original `PATH` (outside the PeerHub shim directory). If no fallback tool is found, removal fails safely with a warning, alerting the user.
 - **Muscle-Memory Fallback:** With the shim removed from the prepended PeerHub directory, the OS naturally falls back to the original executable, allowing the user's muscle-memory command to continue functioning seamlessly.
 
+> [!NOTE]
+> **§2.8.1-2.8.3 superseded.** `docs/design/PHASE1-ARCHITECTURE-CONSOLIDATION-2026-08-21.md` item C ("Shim Registry Persistence Folding") replaces this section's `shim_registry.json`-file-locking design and its concrete backup/rollback algorithm with a SQLite-backed, crash-recoverable `(pre_state_hash, post_state_hash)` state machine (ratified converged at Round 146 after a 57-round review arc). Every mechanism described below — the registry-lock file, the `shim_registry.json` read/write steps, the specific backup/restore algorithms — is historical context only and does not reflect the current design.
+>
+> This section's ONE requirement that survives into the current design is §2.8.1's isolated, non-`PATH`-exposed archive directory for backups. An earlier version of item C's redesign had inverted this (placing backups adjacent to the shim file itself, inside the `PATH`-exposed directory); an independent `cx` security review found this not exploitable through PeerHub's actual invocation/dispatch mechanisms, but confirmed it as a legitimate defense-in-depth concern and a direct inversion of this section's own requirement. This was corrected in the current design specifically to restore conformance with the isolated-archive requirement stated here — see the current design's backup-creation logic for the corrected path scheme.
+
 ### 2.8. Force-Override Collision Path: Backup Persistence and Concrete Rollback Protocol
 
 When `--force` is supplied to override a pre-existing unowned file or resolve an external collision, PeerHub implements a complete, recoverable backup lifecycle:
