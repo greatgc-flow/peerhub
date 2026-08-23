@@ -762,4 +762,14 @@ Terminal independently verified structural integrity and confirmed the schema (u
 
 ---
 
+## Round B4 closing verification (2026-08-23, dual independent confirmation — cx and ag): advisory-lock + staging-path specification CLOSED
+
+A local infrastructure fault (`P:\_sys\core\hub.py`'s dispatch mechanism, unrelated to this repo) blocked `cx` dispatches for a period; `ag` was substituted as an independent reviewer of the same Round B4 question and returned a full "VERDICT: SOUND AND COMPLETE" covering Rounds B–B4 combined, with point-by-point confirmation of each B4 fix. After the infrastructure fault was root-caused and fixed (an abandoned, uncommitted merge in the separate top-level `P:` repo had deleted several of `hub.py`'s dependency modules from the working tree only — `git merge --abort` restored `P:`'s own already-correct HEAD; no relation to this repo's content), `cx` was re-dispatched fresh and independently reached the same verdict: **"SOUND AND COMPLETE"**, confirming the lock-identity serialization is fully normative, the `sha256(idempotency_key)` rule is applied everywhere required, and the mount-boundary-aware atomicity check with its fail-safe fallback closes the concern, with no remaining defect found in the lock spec, staging spec, or their interaction with the rest of Section C.
+
+**This closes the Round B line of work** (advisory lock + staging-directory specification, Rounds B/B2/B3/B4) with two independent peer confirmations at the same HEAD (`adfc9c7`), matching the standard applied to every other closed round in this document.
+
+**Still open from the 2026-08-23 3-peer MECE audit** (see Round 146's audit entry above), not yet scheduled into a lettered round: cc's proposed higher-concept `validate_archive()` fourth-primitive (documentation-only consolidation of the two existing structural/operational archive-validation call sites under one named primitive, offered as real review value, not yet drafted or dispatched); `operation_kind`'s derivation rule (never explicitly stated as a rule, only implied by example); the fact that shim renaming is structurally impossible under the current schema (undisclosed limitation); retirement silently orphaning backups (undisclosed side effect); item D's diffs confirmed stale via direct grep (needs a refresh pass against the current state of the other three items). These are the next items in queue.
+
+---
+
 *This document is appended to, not rewritten, as new findings surface. Each entry should be added at the time of discovery, not reconstructed from memory later.*
