@@ -1,6 +1,9 @@
 # Promotion Ledger Schema & Execution Rules V1
 **Date:** 2026-08-20
 
+> [!NOTE]
+> **Errata:** This document's `AdmissionRegistry`, `AdmissionReceipt`, and `ProvisioningEvidenceReceipt` symbols were renamed to `ManifestAdmissionCoordinator`, `ManifestAdmissionReceipt`, and `ManifestProvisioningEvidenceReceipt` by `PHASE1-ARCHITECTURE-CONSOLIDATION-2026-08-21.md` item A (to avoid collision with two other pre-existing "admission" concepts in the codebase). Every occurrence of the old names throughout THIS document should be read as referring to the renamed symbols. This document's own prose and code were NOT edited to use the new names in place, to avoid disturbing an already-ratified 66-round design under review.
+
 This document defines the machine-readable schema, enumeration rules, state transitions, and deterministic algorithms for the Peerhub Promotion Ledger. This replaces the previous descriptive prose with a concrete, computable model.
 
 

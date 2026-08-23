@@ -38,7 +38,7 @@ This coordinator never owns or creates its own database connection or file. It r
 
 > [!WARNING]
 > **Open Item for Phase 2 Port Design (Deadline Enforcement):**
-> The coordinator's current timeout/deadline guarantee is not actually a property of the real `StateStore` port contract (`peerhub/state/contract.py`). It only holds because this specific adapter implementation (`FakeSqliteUnitOfWork`) internally chooses non-blocking (`timeout=0.0`) SQLite acquisition. Other completely valid adapters that satisfy the real `StateStore` protocol but use long internal busy-timeouts will silently defeat the coordinator's deadline enforcement. Making this a genuine, portable guarantee requires extending the real `StateStore/UnitOfWork` port interface (e.g., adding an explicit deadline-aware acquisition method or a documented non-blocking-behavior requirement) as real, necessary Phase 2 implementation work.
+> The coordinator's current timeout/deadline guarantee is not actually a property of the real `StateStore` port contract (`peerhub/state/contract.py`). It only holds because this specific adapter implementation (`FakeSqliteUnitOfWork`) internally chooses non-blocking (`timeout=0.0`) SQLite acquisition. The real `SqliteStateStore` adapter (`peerhub/persistence/sqlite.py`) defaults to `busy_timeout_ms=5_000` (`timeout=5.0`). While this coincidentally lands close enough to the coordinator's own ~5s deadline that nothing currently looks wrong, `SqliteStateStore(busy_timeout_ms=60_000)` is a legal, valid construction that would silently defeat the coordinator's deadline enforcement by 12x with no error surfaced. Making this a genuine, portable guarantee requires extending the real `StateStore/UnitOfWork` port interface (e.g., adding an explicit deadline-aware acquisition method or a documented non-blocking-behavior requirement) as real, *must do* Phase 2 implementation work.
 
 
 **Shared Unit of Work Contract:**
@@ -59,7 +59,7 @@ CREATE TABLE manifest_admission_receipts (
     trust_root_json TEXT NOT NULL,
     observed_vendor_json TEXT NOT NULL,
     acl_evaluation_json TEXT, -- NULL if not evaluated
-    chain_complete INTEGER NOT NULL CHECK (chain_complete = 0), -- Boolean, 0 (False) for Phase 1 single-entrypoint bounds
+    chain_complete INTEGER NOT NULL CHECK (chain_complete = 0), -- Boolean, 0 (False) for Phase 1 single-entrypoint bounds. Note: SQLite cannot drop a CHECK constraint via ALTER TABLE. Removing this constraint in Phase 2 will require a full table rebuild (via foreign_keys=OFF + foreign_key_check migration pattern, since shim_registry_entries has an FK into this table). Enforcing this at the application boundary would have avoided this future migration cost.
     aggregate_chain_digest TEXT NOT NULL,
     timestamp_utc TEXT NOT NULL,
     
@@ -74,6 +74,9 @@ CREATE TABLE manifest_admission_receipts (
     CHECK (chain_complete = prov_chain_complete)
 );
 ```
+
+> [!NOTE]
+> **Schema Invariant Requirement:** The shared SQLite store MUST be configured with `PRAGMA foreign_keys = ON;` (which is OFF by default in SQLite) for both Item B's and Item C's composite foreign-key integrity guarantees to hold. While enforced in the real `SqliteStateStore` adapter (`peerhub/persistence/sqlite.py`), it is a strict requirement of the `StateStore` contract that any adapter (fake or real) must set. The illustrative `FakeStateStore.unit_of_work()` below does not set this, meaning its trace ran with FK enforcement OFF.
 
 ### 2. Coordinator Design (Conceptual Overview)
 
