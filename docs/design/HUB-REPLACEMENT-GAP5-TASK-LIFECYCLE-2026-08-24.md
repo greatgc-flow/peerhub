@@ -410,3 +410,12 @@ object; may `child_request_ids` include parallel requests or is
 execution strictly sequential; canonical failure/failover event-history
 representation (examples here only keep counters+last-event summary — a
 separate append-only audit stream may still be needed).
+
+## DEFINITIVE CONFIRMATION (2026-08-26, terminal): same real CAS mechanism applies to task TargetStates
+
+See gap-2's doc for the full `validate_expected_revision`/`plan_mutation`/
+`apply_mutation_plan` code. Applies identically here: a task's
+`desired_state` in every `task.*` operation must be the COMPLETE next
+task snapshot (not a diff/patch); CAS failures raise
+`StaleRevisionError(target_id, expected_revision, current_revision)`;
+`task.create`'s first mutation must use `expected_revision=0`.

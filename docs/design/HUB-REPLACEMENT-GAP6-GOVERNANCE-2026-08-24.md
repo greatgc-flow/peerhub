@@ -356,3 +356,11 @@ consensus-round field names/hash semantics (pending the same
 Does a global lesson's empty `affected_peers` mean "all current and
 future peers"? Must human approval reference a separate auditable
 artifact, or can it be recorded directly by `actor_id`?
+
+## DEFINITIVE CONFIRMATION (2026-08-26, terminal): same real CAS mechanism applies to all governance artifact TargetStates
+
+See gap-2's doc for the full `validate_expected_revision`/`plan_mutation`/
+`apply_mutation_plan` code. Applies identically to directives/lessons/
+proposals/feedback/alerts: `desired_state` is always the COMPLETE next
+artifact state (not a patch); `StaleRevisionError` on CAS conflict;
+`expected_revision=0` for the first mutation (e.g. `lessons-propose`).

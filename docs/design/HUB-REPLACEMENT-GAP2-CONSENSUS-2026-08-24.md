@@ -338,3 +338,48 @@ Two possible architectures: (1) the direct `.ai/consensus/{round_id}.json` write
 ### Still unresolved (needs source inspection or explicit user policy decision)
 
 Whether `desired_state` must be the complete canonical state or may be a broker-validated patch (this doc assumes complete-replacement, needs confirming against `mutations.py`'s real `plan_mutation`/`apply_mutation_plan` bodies); exact `f(N,risk)` for N>3; whether quorum may be lost after a correction; whether Final Call is mandatory for every quorum or only selected risk classes; whether Final Call ACKs veto on all invariant violations or a defined subset; exact timeout/escalation deadline mechanics past the 30-min Human Tier-0 trigger; the authoritative ag transport→MutationRequest conversion (see above); the actual `effect_intent` structure (consensus-state field or broker metadata?); human authentication/authority evidence and whether `human_override` can safely enter the normal broker; coordinator lease/term/fencing/failover semantics; whether audit history belongs in `TargetState.state`, an external journal, or both.
+
+## DEFINITIVE CONFIRMATION (2026-08-26, terminal, real function bodies): `desired_state` is a COMPLETE replacement, CAS mechanism fully specified
+
+Direct read of `peerhub/governance/mutations.py`'s real
+`validate_expected_revision`/`plan_mutation`/`apply_mutation_plan`
+bodies — this was the last major "unresolved" item flagged across
+gap-2/5/6's concrete schemas, now closed with code, not inference:
+
+```python
+def validate_expected_revision(request, current) -> int:
+    if current is not None and current.target_id != request.target_id:
+        raise InvalidMutationError("current target does not match the mutation request")
+    current_revision = 0 if current is None else current.revision
+    if request.expected_revision != current_revision:
+        raise StaleRevisionError(request.target_id, request.expected_revision, current_revision)
+    return current_revision
+
+def plan_mutation(request, current, *, plan_id, planned_at) -> MutationPlan:
+    previous_revision = validate_expected_revision(request, current)
+    return MutationPlan(
+        plan_id=plan_id, request_id=request.request_id,
+        request_digest=mutation_payload_digest(request),
+        target_id=request.target_id, previous_revision=previous_revision,
+        next_revision=previous_revision + 1,
+        next_state=request.desired_state,   # <-- VERBATIM, no merge/patch logic
+        effect_intent=request.effect_intent, planned_at=planned_at,
+    )
+
+def apply_mutation_plan(current, plan, *, updated_at) -> TargetState:
+    current_revision = 0 if current is None else current.revision
+    if current is not None and current.target_id != plan.target_id:
+        raise InvalidMutationError("plan target does not match current target")
+    if current_revision != plan.previous_revision:
+        raise InvalidMutationError("plan previous revision is no longer current")
+    return TargetState(target_id=plan.target_id, revision=plan.next_revision,
+                        state=plan.next_state, updated_at=updated_at)
+```
+
+**Definitively confirmed**:
+1. **`desired_state` MUST be the complete, full canonical state — never a patch.** `plan_mutation` copies `request.desired_state` into `next_state` with zero transformation. The domain coordinator (not the broker) is responsible for computing the complete next state before submitting.
+2. **CAS rejection uses a specific typed exception, `StaleRevisionError(target_id, expected_revision, current_revision)`** — carries both the caller's stale value and the actual current value, enabling a precise retry (re-read current, recompute `desired_state`, resubmit with the correct `expected_revision`). `InvalidMutationError` is a separate exception for target-ID mismatches (a different, more serious class of caller error).
+3. **A brand-new target's first mutation (e.g. `propose`) MUST set `expected_revision=0`** — `current_revision = 0 if current is None else current.revision` treats "target doesn't exist yet" as revision 0.
+4. `apply_mutation_plan` performs a SECOND, redundant revision check (defense in depth against a stale plan being applied after another mutation landed in between planning and applying) — real double-checked CAS, not a single-check race window.
+
+**This closes gap-2/5/6's shared "still unresolved: patch vs. full replacement" item across all 3 concrete schemas** — every schema drafted (consensus round, lesson, task) should now be read with "desired_state = the complete next canonical object" as a hard, code-confirmed requirement, not an assumption.
