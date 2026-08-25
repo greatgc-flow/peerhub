@@ -1,5 +1,18 @@
 # hub.py Replacement — 7-Category Design Reinforcement Index (2026-08-24)
 
+> **★ MOST IMPORTANT DOC IN THIS SET: `HUB-REPLACEMENT-CRITICAL-FINDING-LEGACY-CATALOG-2026-08-24.md`.**
+> `peerhub/application/legacy.py` already has a `LEGACY_CATALOG` dict
+> mapping ~90 of hub.py's real legacy actions to real native target-method
+> names (e.g. `consensus-propose → consensus.round.propose`,
+> `task-checkpoint → coordination.task.checkpoint`,
+> `approval-request → governance.approval.request`). Only 3 of ~90 are
+> actually implemented (`ask`/`ask-all`/`ask-coordinator`); the rest are
+> `INVENTORIED` but `NOT BACKED`. This substantially answers gap-1's
+> "define the native surface" question for ALL 7 categories at once and
+> corrects several gap docs' own invented naming — read it before trusting
+> any gap doc's "native command surface" section written before this was
+> found.
+
 Triggered by: user request ("설계보강 ㄱㄱㄱ") after `HUB-REPLACEMENT-GAP-AUDIT-2026-08-23.md`
 found peerhub could not replace hub.py today (only 5 CLI commands exposed
 vs hub.py's 80+), and a same-day follow-up confirmed that implementing
