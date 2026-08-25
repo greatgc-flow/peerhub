@@ -201,3 +201,64 @@ translated through gap-1's versioned compat envelope. **Defer** exact
 schema names, timeout values, legacy `clear-room` semantics, handoff-field
 compatibility, and projection retention limits pending inspection of
 peerhub's real source (the 16 items above).
+
+## RECONCILIATION AGAINST REAL SOURCE (2026-08-24)
+
+Real `peerhub/dispatch/session_lease.py`/`heartbeat.py` confirmed via
+direct read (see `HUB-REPLACEMENT-REAL-SOURCE-GROUNDTRUTH-2026-08-24.md`
+and the gap-4 reconciliation for the `SessionLeaseCoordinator` type list).
+
+**`SessionLeaseCoordinator` is an even more direct match for gap-3's
+session-binding model than for gap-4's leadership concept** — strongest
+evidence: `create_session_and_lease(...)` + `SessionBindingKey` +
+`SessionBindingSnapshot` + `create_lease`/`renew_lease`/`close_lease` +
+`expire_and_recover_lease`/`validate_lease_fence`.
+
+| Gap-3 concept | Existing substrate |
+|---|---|
+| `init-session` | `create_session_and_lease(...)` |
+| Session identity/binding | `SessionBindingKey` |
+| Session state inspection | `SessionBindingSnapshot`/`LeaseSnapshot` |
+| `end-session` | `close_lease(...)` (body-level confirmation still needed) |
+| Session expiry | `expire_and_recover_lease(...)` |
+| Stale-owner protection | `validate_lease_fence(...)` |
+
+**Heartbeat substrate**: `HeartbeatWorker`/`LeaseRenewer`(Protocol)/
+`HeartbeatFailure` is the natural substrate for `terminal-heartbeat` +
+silent-terminal detection. `LeaseRenewer` being a `Protocol` suggests
+dependency inversion (worker likely depends on an abstract
+lease-renewal capability, not one concrete lease type) — makes a future
+terminal-duty lease PLAUSIBLE but NOT proven generic; needs a body-level
+read to confirm the protocol accepts a generic lease identifier (not
+session-lease-only), whether the worker is parameterized by lease kind,
+whether `HeartbeatFailure` distinguishes terminal/session/request
+failures.
+
+### Revised "Terminal handoff and duty" section
+
+Terminal duty should be represented using the existing lease/session
+machinery where applicable — `SessionLeaseCoordinator` for session
+binding/`init-session`, `HeartbeatWorker`/`LeaseRenewer` for liveness
+(feed `HeartbeatFailure` into the existing lease-expiry/recovery path,
+don't build a parallel heartbeat mechanism). **If the current worker
+doesn't support a distinct `terminal-duty` lease kind, the missing work
+is a narrow lease-kind/adapter extension, NOT a new liveness
+architecture.**
+
+**Design work still needed above these primitives** (genuine gaps, not
+covered by any real code found): durable room/namespace modeling,
+append-only thread/conversation modeling, handoff-content schema/
+ownership rules, explicit terminal-duty assignment/handoff semantics, a
+`terminal-duty-sweep` command/orchestration entry point, the
+no-auto-replay policy for a lost terminal.
+
+### Room/thread — CONFIRMED genuine gap in the surveyed dispatch layer
+
+Nothing in `session_lease.py`/`heartbeat.py`/`retry_authorization.py`/
+`admission.py`/`artifact_coordination.py` covers a durable room namespace,
+append-only thread/conversation stream, or thread
+membership/ordering/archival/replay. **Not yet ruled out**:
+`peerhub/persistence/` and `peerhub/application/` haven't been surveyed
+— room/thread concepts could plausibly live there. Needs a targeted read
+before calling this gap repository-wide (currently only "not in
+dispatch/health/governance," not "not anywhere").
