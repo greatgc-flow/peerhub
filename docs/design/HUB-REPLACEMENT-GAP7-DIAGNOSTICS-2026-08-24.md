@@ -125,3 +125,85 @@ subsystem is absent — it must never synthesize healthy/zero/idle values.**
 > schemas, authority boundaries, and migration behavior, but the
 > remaining risk is specification closure and conformance rather than an
 > unrecognized architectural category."
+
+## DIAG EXTENSION DESIGN (2026-08-26, cx): consensus/task/duty-lease rows, using tonight's concrete schemas
+
+`cx` could not access `peerhub`/design docs directly this round (worked
+from supplied context) — design is schema-driven and consistent with
+everything established tonight; exact column names/row ordering remain
+unverified against the real `presenter.py` layout.
+
+### New SUMMARY rows (follow the existing snapshot→render, `_dw`/`_pad`, optional-color, <65-col-truncation contract)
+
+**Consensus**: `CONSENSUS <phase> <votes_cast>/<votes_required> Q:<quorum>
+T-<countdown>` (e.g. `CONSENSUS VOTING 2/3 Q:2 T-04:18`) — deadline via
+the EXISTING `_format_countdown()` (already built for quota-reset
+countdowns); `OVERDUE` after expiry, `—` when no deadline. **Task**:
+`TASK <current_stage> <state> CP:<yes/no> AP:<yes/no>` (checkpoint
+presence, approval-pending flag) — narrow-terminal collapse: `TASK
+IMPLEMENT CP✓ AP—`. **Duty lease**: `DUTY <role> <term> HB:<countdown>
+<room_id>` — `UNHELD` if no lease, `EXPIRED` if heartbeat lapsed;
+`term` is an opaque token, never interpreted as a timestamp. Recommended
+implementation boundary: one formatter function per domain
+(`_format_consensus_row`/`_format_task_row`/`_format_duty_row`), not
+domain logic embedded in the generic table renderer.
+
+### `collect_live_snapshot()` new read dependencies
+
+Three new read-only inputs, **each an explicit dependency on gap-2/4/5
+providing an authoritative "list active X" read path** — the diagnostic
+layer must NOT reconstruct state by inference:
+`list_active_consensus_rounds(room_id)` (phase, votes cast/required,
+quorum, deadline), `list_active_tasks(room_id)` (current_stage, state,
+checkpoint presence, approval-pending flag), `list_active_duty_leases(
+room_id)` (room_id, role, term, heartbeat_expires_at — **stays separate
+from the TargetState broker**, consistent with gap-4's dedicated-lease
+decision). Snapshot collection should track per-domain source status
+(`"available"|"absent"|"error"`) distinctly — **a missing implementation
+must render `UNAVAILABLE`, never be silently treated as "no active
+object"** (same "never synthesize a value you don't have" principle
+from gap-4's health design).
+
+### New ATTENTION alert classes (trigger conditions using confirmed schema fields)
+
+`CRIT CONSENSUS OVERDUE` (deadline exists + now>deadline + non-terminal
+phase); `WARN CONSENSUS NO PROGRESS`/`QUORUM RISK` (both need a policy-
+supplied threshold — **not to be invented by the presenter**); `WARN
+TASK APPROVAL PENDING` (needs `approval_pending_since` or equivalent age
+field — if the schema only has a boolean, presenter can show status but
+not correctly age-gate the alert — **flag: does gap-5's schema need this
+field added?**); `WARN TASK CHECKPOINT MISSING` (needs stage-requires-
+checkpoint POLICY metadata, not hardcoded); `CRIT TASK FAILED` (only if
+`state` has a confirmed terminal-failure value); `CRIT DUTY LEASE
+EXPIRED`; `CRIT DUTY LEASE UNHELD` (needs a required-role-per-room policy
+source); `WARN DUTY LEASE NEAR EXPIRY` (configured warning window, not
+guessed). Dedup keys: `("consensus-overdue", round_id)`,
+`("task-approval", task_id)`, `("duty-expired", room_id, role, term)`.
+
+### Updated gap-7 verdict (strengthened)
+
+> "Gap-7 is an adapter-and-policy integration task, not a
+> telemetry-engine redesign." The concrete upstream schemas remove most
+> prior uncertainty — consensus/tasks/duty-leases each supply exactly
+> the fields needed; the existing presenter already provides width
+> handling, color fallback, truncation, snapshot/render separation.
+> **Remaining complexity is POLICY integration, not rendering**:
+> selecting which active round/task/lease to display when multiple
+> exist, defining required roles, defining checkpoint-required stages,
+> alert aging/warning-window thresholds, preserving the unavailable/
+> empty/failed distinction. **Nothing indicates a need to replace the
+> existing presenter or introduce a parallel diagnostics engine — subject
+> to the confirmations below, gap-7 can reasonably be marked
+> design-complete and ready for a small implementation/TDD pass.**
+
+### Unresolved (needs source access or policy decisions)
+
+Exact current SUMMARY columns/row ordering; does the presenter already
+have a generic optional-row abstraction; exact `TargetState` query/read
+API; are consensus/task identifiers+timestamps available in the
+projections; how are multiple active rounds/tasks selected for display;
+does the task schema need an `approval_pending_since` field added; which
+duty roles are required per room; configured thresholds (approval age,
+lease-near-expiry, consensus warning window); exact terminal-state
+enumerations; `—`/`N/A`/`UNAVAILABLE` convention for a missing domain;
+authoritative clock/timezone convention for deadline comparisons.
