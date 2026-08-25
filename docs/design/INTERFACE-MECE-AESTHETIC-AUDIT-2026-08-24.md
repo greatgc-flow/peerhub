@@ -201,3 +201,29 @@ strategy-based rather than growing more `if peer_id == ...` branches.
    user-facing errors); check existing test coverage for entry-point
    structure/launcher contracts/health bookkeeping/env loading/missing-
    executable behavior.
+
+## Health-writer ownership check (terminal, direct read, 2026-08-24)
+
+Per `cx`'s recommended next-check #2: `grep`'d for health.json writers
+across `_sys/cli/` and `_sys/core/`. Found: `agy_entry.py`,
+`codex_entry.py`, `console_runner.py` (the 3 already known), PLUS
+`_sys/core/hub.py`, `hub_error.py`, `hub_health.py`, `snapshot.py`.
+`hub_health.py`'s `PeerHealthState`/health-registry class is **peer-
+agnostic** (`_peer_dirs()` iterates all peers uniformly, no cc-specific
+branch, no ag/cx-specific branch either) — this is very likely the SAME
+mechanism that already keeps `_sys/claude/health.json` populated today
+(via `hub.py health-update`, called generically for any peer including
+cc), independent of `console_runner.py`'s narrower per-invocation
+`last_invocation_*`/`active_pid` bookkeeping.
+
+**This meaningfully de-risks finding 3's proposed fix**: adding a `cc`
+branch to `console_runner.py`'s `_update_peer_health_json` would likely
+be recording the SAME KIND of data (`last_invocation_duration_ms`/
+`last_invocation_exit_code`) that `hub_health.py`'s generic path doesn't
+appear to touch (that class looks read/summary-oriented — `context_status`,
+`gate_open`, `consecutive_failures`, `availability` as a read property —
+not obviously a per-invocation writer for those specific fields). Still
+**not fully confirmed** — `hub_health.py`'s actual write paths (not just
+its read-oriented class methods shown by this grep) weren't traced
+line-by-line. Recommend this specific confirmation before implementing
+finding 3's fix, not a blocker to documenting the recommendation.
