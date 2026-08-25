@@ -13,6 +13,30 @@
 > any gap doc's "native command surface" section written before this was
 > found.
 
+> **★ SECOND MOST IMPORTANT FINDING: the unified architecture pattern is
+> now field-level CONFIRMED across gaps 2/3/4/5/6** (2026-08-24, later
+> same day). `peerhub/governance/contract.py`'s real `TargetState{
+> target_id, revision: int, state: Mapping[str,JsonValue], updated_at}` +
+> `MutationRequest{..., expected_revision, operation: str, desired_state}`
+> + `MutationPlan` (enforcing `next_revision == previous_revision + 1`)
+> is a real, working, revision-based-CAS accumulating-aggregate substrate
+> — confirmed adequate for consensus rounds, directives, lessons,
+> proposals, feedback, and alerts alike (gap-2/gap-6). Separately,
+> `peerhub/dispatch/contract.py`'s real `LeaseCreateRequest` (tightly
+> bound to `session_id`+`command_id`+`attempt_id`) and
+> `RetryAuthorizationBundle` (scoped to exactly one request) CONFIRM two
+> things gap-4 and gap-5 could only guess at before: leadership/duty
+> leases need their OWN lease type (not a direct reuse of
+> `SessionLeaseCoordinator`'s concrete request type), and gap-5's Task
+> aggregate is genuinely necessary, not redundant with existing
+> retry/failover machinery. **The resulting unified pattern**: a generic
+> governed-mutation broker (`TargetState`/CAS) + generic request/attempt/
+> retry execution machinery underneath, with each gap's own domain
+> aggregate (a `TargetState` instance) and thin domain-coordinator logic
+> on top — the SAME shape for consensus rounds, tasks, and governance
+> artifacts alike. See each gap doc's own "FIELD-LEVEL CONFIRMATION"
+> section for detail.
+
 Triggered by: user request ("설계보강 ㄱㄱㄱ") after `HUB-REPLACEMENT-GAP-AUDIT-2026-08-23.md`
 found peerhub could not replace hub.py today (only 5 CLI commands exposed
 vs hub.py's 80+), and a same-day follow-up confirmed that implementing
