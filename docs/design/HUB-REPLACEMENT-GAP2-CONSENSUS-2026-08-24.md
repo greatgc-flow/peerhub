@@ -146,3 +146,75 @@ resolved against the actual live `protocol.md`/`protocol.json` text.
 - **Retroactive veto**: NONE for procedurally valid rounds — a gate-OPEN voter who didn't vote `disagree` before FINALIZE cannot retroactively block. Exception: a finalization that violates a higher-order invariant (INV-01~19) may be voided by Human (§4.4, "Quorum Authority Principle").
 - **Tiebreak (2v2 or N/2 split)**: check `protocol.json["workload"]["capability_registry"]` for the disputed task's domain → highest-domain-expertise peer recommends → Human (Tier 0) makes the final decision, no peer override (§4.6).
 - **PTY peer (ag) vote submission**: writes its vote directly to `.ai/consensus/{round_id}.json`, OR relays via `hub.py send --to cc` — **NEVER** `hub.py ask` (PTY deadlock risk) (§4.4). The native `peerhub consensus vote` command's PTY-peer path needs an equivalent non-`ask`-shaped submission mechanism, not just a CLI flag translation.
+
+## RECONCILIATION AGAINST REAL SOURCE (2026-08-24)
+
+Per `HUB-REPLACEMENT-REAL-SOURCE-GROUNDTRUTH-2026-08-24.md`, `peerhub/governance/`
+has a real, GENERIC governed-mutation broker (`MutationDisposition`,
+`TransitionStatus`, `OutboxState`, `EffectOutcome`, `RecoveryDisposition`
+enums; `EffectIntent`, `MutationRequest`, `TargetState`, `MutationPlan`,
+`CommandBinding`, `TransitionReceipt`, `OutboxEvent`, `EffectReceipt`,
+`MutationSubmission`, `PendingEffect` dataclasses) — domain-agnostic,
+NOT consensus-specific. `cx` reconciled the proposed event model against
+it.
+
+**Revised recommendation**: a consensus round = a `TargetState` (round ID
+as `target_id`, current domain state, participants, policy ref, vote
+material, deadlines, resolution metadata — subject to real field
+support). Operations submitted as domain-specific `MutationRequest`
+payloads (propose/open, cast-or-revise vote, final call, timeout,
+escalate, resolve, abandon). Broker validates + expected-revision-checks
+→ `MutationPlan` → applies transition → `TransitionReceipt` →
+`OutboxEvent` for durable notification; side effects via `EffectIntent`/
+`EffectReceipt`/`PendingEffect` + broker recovery. **The originally
+proposed named events (`ConsensusRoundProposed`, `ConsensusVoteCast`,
+etc.) are now domain event NAMES for projections/audit/notification —
+NOT a second, parallel event-persistence mechanism.**
+
+**Critical unresolved question the broker's existence does NOT answer**:
+does it support MULTIPLE sequential mutations against ONE `target_id`
+(accumulating votes), or is it shaped for one-request-to-one-terminal-
+transition? If the latter, **a consensus-specific coordinator/reducer is
+still required above the broker** — for quorum calculation, voter
+eligibility, deadline enforcement, legal-transition determination — but
+that coordinator should USE the broker for persistence/idempotency/
+revision-control/outbox/recovery, not build a parallel system.
+
+**Enum mapping is INFERENCE ONLY (names, not values, were available)**:
+`TransitionStatus` most plausibly describes ONE mutation's lifecycle, not
+the consensus round's richer business lifecycle
+(`proposed→voting→quorum_reached→resolved`, side paths
+`voting→timeout→forced_escalation→resolved`,
+`any-nonterminal→abandoned`) — the round's domain state should live as an
+aggregate field inside `TargetState`, with the 5 generic enums describing
+the mutation/publication/effect/recovery mechanics AROUND it, not
+replacing it.
+
+**`proposal-vote` (gap-6) claim CONFIRMED, more precisely**: a
+domain-specific mutation against a proposal `TargetState`, same broker +
+consensus/quorum logic as any consensus round. Two shapes possible — a
+proposal owns its own voting lifecycle in its own `TargetState`, OR a
+proposal references a separate consensus-round target whose resolution
+mutates the proposal target. **Which one is correct depends on real
+target/reference/transaction semantics — not assumable from class names
+alone.**
+
+### Verified vs inferred vs test-needed (explicit split)
+
+**Verified**: generic governed mutation/idempotency/outbox/recovery
+vocabulary exists; generic event log (`EventLogRecord`/`ConsumerOffset`)
+exists. **Inferred (plausible, not confirmed)**: one target per evolving
+aggregate, one mutation per vote/transition. **Test-needed / genuinely
+unverifiable without field-level reads**: repeated-mutation-per-target
+support, concurrent-vote serialization vs rejection, whether
+`MutationPlan` supports conditional/multi-step transitions based on the
+full vote set, per-mutation vs per-effect outbox emission, receipt→
+resulting-revision linkage, sync/async/retryable/compensatable effects,
+logical-only vs durable-rollback recovery, same-vs-different broker path
+for target creation vs mutation, payload validation/authorization hooks,
+atomic multi-target updates.
+
+**Next step**: field-level read of `MutationRequest`, `TargetState`,
+`MutationPlan`, `OutboxEvent` dataclass definitions (not just names) to
+resolve the "does it support accumulating rounds" question, which
+determines whether a separate consensus coordinator is mandatory.
