@@ -251,3 +251,108 @@ etc.) is a `MutationRequest` with the appropriate `operation` string and
 safety generically. **No per-artifact-type event-sourcing machinery is
 needed** — this was already gap-6's post-reconciliation conclusion, now
 confirmed at the field level rather than inferred from class names alone.
+
+## CONCRETE SCHEMA DESIGN (2026-08-26, cx): lesson artifact `TargetState.state`
+
+`cx` could not access this doc directly this round (worked from a
+summary); the terminal independently verified its one concrete file
+citation (`_sys/checks/check_lesson_enforcement.py`) exists on disk —
+citation is valid.
+
+Proposed envelope (`schema: "peerhub.lesson.v1"`), wrapped in
+`TargetState{target_id: "lesson:<id>", revision, state, updated_at}`:
+
+```json
+{
+  "schema": "peerhub.lesson.v1",
+  "lesson_id": "LL-20260826-001",
+  "lifecycle": "PROPOSED",
+  "content": {"title": "...", "rule": "...", "category": "runtime-reality", "severity": "HIGH"},
+  "scope": {"kind": "global", "workspace_id": null},
+  "affected_peers": ["cc", "cx", "ag"],
+  "source_evidence": [{"evidence_id": "EV-...", "kind": "empirical_probe", "uri": "...", "sha256": "...", "summary": "..."}],
+  "provenance": {"proposer": {"actor_id": "cx", "actor_type": "peer"}, "proposed_at": "...", "source_command": "lessons-propose"},
+  "approval": null,
+  "enforcement": {"artifact_id": null, "artifact_uri": null, "validation_status": "NOT_REQUIRED"},
+  "validity": {"expires_at": "...", "retired_at": null, "superseded_by": null},
+  "delivery": {"mode": "separate_targets", "required": true}
+}
+```
+
+At `ACTIVE`, `approval` is populated:
+
+```json
+"approval": {
+  "method": "ratified_governance_proposal",
+  "approved_by": [{"actor_id": "coordinator", "actor_type": "human", "approved_at": "..."}],
+  "authority": {
+    "target_id": "consensus-round:proposal-20260826-0042",
+    "resolution": "RESOLVED",
+    "outcome": "AUTHORIZE_LESSON_ACTIVATION",
+    "resolved_at": "...",
+    "resolution_sha256": "..."
+  }
+}
+```
+
+At `RETIRED`: `lifecycle:"RETIRED"`, `validity.retired_at` set,
+`validity.retirement_reason` (e.g. `"SUPERSEDED"`),
+`validity.superseded_by` pointing to the replacement lesson ID.
+
+**Delivery tracking is deliberately a SEPARATE `TargetState` per
+(lesson, peer)** — `target_id: "lesson-delivery:<lesson_id>:<peer_id>"`,
+own envelope (`peerhub.lesson-delivery.v1`) with `status`,
+`delivery_revision`, `delivered_at`, `delivery_method`,
+`delivery_evidence{command_id, correlation_id, result_sha256}`. **This
+keeps the canonical lesson revision independent from per-peer retries,
+partial delivery, and quarantine — `DELIVERY_PENDING`/`DELIVERED` are
+projection states on the delivery target, not the lesson's own lifecycle
+states.**
+
+### Operations → transitions
+
+| Operation string | Transition |
+|---|---|
+| `lessons-propose` | absent → `PROPOSED`, assigns immutable `lesson_id`. |
+| `lessons-approve` | stays `PROPOSED`, populates `approval` (human or authorized resolved proposal). |
+| `lessons-activate` | `PROPOSED`/`APPROVED` → `ACTIVE`, requires valid `approval` present. |
+| `lessons-retire` | `ACTIVE` → `RETIRED`, sets `retired_at`+reason. |
+| `lessons-supersede` | `ACTIVE` → `SUPERSEDED`, sets `superseded_by`. |
+| `lessons-quarantine` | any non-terminal → `QUARANTINED`, records reason+evidence+actor. |
+
+Every transition follows `next_revision == previous_revision + 1` (same
+CAS rule as gap-2's consensus rounds); the transition function must
+**reject invalid combinations rather than silently repairing them**.
+
+### Consensus-round approval reference — pointer + immutable snapshot, both
+
+```json
+"approval": {
+  "method": "ratified_governance_proposal",
+  "authority": {"target_id": "consensus-round:proposal-...", "target_revision": 6, "resolution": "RESOLVED", "outcome": "AUTHORIZE_LESSON_ACTIVATION", "resolved_at": "...", "approved_by": ["coordinator"], "resolution_sha256": "..."},
+  "snapshot": {"proposal_id": "...", "final_phase": "resolved", "quorum_reached": true, "outcome": "AUTHORIZE_LESSON_ACTIVATION", "authority_type": "human_ratified_governance_proposal"}
+}
+```
+
+The pointer gives provenance/lookup; the immutable snapshot makes the
+lesson self-auditing even if the consensus record is later archived.
+**The snapshot must never reinterpret peer votes as human approval** — a
+peer-agreement-only result is sufficient ONLY if governing policy
+explicitly authorizes that specific proposal type to grant
+lesson-activation authority; otherwise `lessons-activate` must reject it.
+
+### Unresolved (needs source access or explicit policy decision)
+
+Does the lifecycle include a persisted `APPROVED` intermediate state, or
+is approval just metadata on `PROPOSED` until activation? Exact
+severity/category enum values. Does expiry auto-transition to `EXPIRED`
+or just block future activation? Are `SUPERSEDED`/`QUARANTINED`
+terminal? Are enforcement artifacts mandatory for every lesson or only
+enforceable-classified ones? Exact actor schema/timestamp format. Is
+`lessons-approve` an existing command or a new proposed one? Does
+superseding require separate approval for the replacement lesson? Exact
+consensus-round field names/hash semantics (pending the same
+`mutations.py` body-level read gap-2's doc already flagged as open).
+Does a global lesson's empty `affected_peers` mean "all current and
+future peers"? Must human approval reference a separate auditable
+artifact, or can it be recorded directly by `actor_id`?
