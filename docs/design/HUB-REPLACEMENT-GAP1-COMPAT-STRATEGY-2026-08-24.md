@@ -179,3 +179,17 @@ already-obvious top 3). A retry of the caller-inventory pass should use
 a single ripgrep multi-pattern invocation with explicit `--glob`
 exclusions (`!.git`, `!__pycache__`, `!*.pyc`) rather than 90 sequential
 subprocess calls, which is what likely caused tonight's hang.
+
+## Caller-inventory script final result (2026-08-26): confirmed failed, not just slow
+
+The abandoned background script (`bbopv3fnd`) finally completed — every
+single one of the 90 per-action `grep -rl` subprocess calls hit its 30s
+timeout and returned `-1` (caught exception, not a real count). This
+confirms the approach was fundamentally broken (a `subprocess.run(...,
+timeout=30)` per action, likely each one re-scanning a large
+un-excluded tree from scratch), not merely slow — 90 real per-action
+counts remain ungathered. The single-pass alternation `Grep` tool result
+documented above (file-level concentration in `hub.py`/`protocol.json`/
+`console_runner.py`) remains the best available real signal tonight. A
+future retry should use one ripgrep multi-pattern call with `.git`/
+`__pycache__` exclusions, not 90 sequential subprocess invocations.
