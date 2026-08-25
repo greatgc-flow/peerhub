@@ -8,6 +8,19 @@ peerhub-side design. This index tracks the first-round design draft for
 all 7 blocking categories, produced 2026-08-24 by `cx` (delegated per
 standing quota policy, `cc`/`ag` both EXH-critical this session).
 
+**CORRECTION (2026-08-24, same day):** the user clarified the real goal is
+a **clean cutover** — hub.py and its 12 dependency modules will be fully
+DELETED and replaced entirely by peerhub, not run alongside it forever.
+"호환 또는 상위호환 OK" (compatible or a strict superset is fine) — peerhub
+does not need hub.py's exact CLI shape as a permanent contract. This
+significantly simplified gap-1 (see its own "SUPERSEDING CORRECTION"
+section: bounded one-time migration program instead of a permanent
+compat-adapter architecture) and reframes every other category's "legacy
+compatibility mapping" table as a one-time migration/equivalence receipt,
+not a runtime adapter contract. Gaps 2-7's native-functionality designs
+are otherwise unchanged — the actual domain-logic work (consensus,
+health, tasks, governance, diagnostics) is exactly as hard either way.
+
 **Status: first-round drafts complete for all 7 categories.** Each has
 an explicit "open questions" list requiring further dialectical rounds
 and/or user ratification before any implementation starts (per the
@@ -51,9 +64,16 @@ rule, implementation must not begin until each category's own open items
 are resolved through further dialectical rounds — this index is the
 starting map for that work, not a green light to start coding.
 
-## Recommended next steps (not yet started)
+## Recommended next steps (revised priority order, post clean-cutover correction)
 
-1. Verify `cx`'s "peerhub already has X" claims against real peerhub source directly (several rounds flagged sandbox-access inconsistency — sometimes could read `_sys/docs-v2/`, never confirmed reading `peerhub/`'s actual source this session).
-2. Resolve each category's open-questions list via further dialectical rounds (mirroring gap-2's pattern of checking against real ground-truth text where possible, rather than more reasoning-only rounds).
-3. Do the real static/dynamic caller-traffic inventory gap-1 flagged as a prerequisite for its exit-code table and exact initial compat command set.
-4. Only after the above: revisit the "architecture complete, proceed to Phase 2" decision.
+Per gap-1's revised recommendation, "permanent compat command surface" is
+no longer priority #1 — the real bottleneck is proving peerhub's native
+domain logic actually covers hub.py's behavior:
+
+1. **Native replacement completeness / semantic contracts** — verify `cx`'s "peerhub already has X" claims against real peerhub source directly (several rounds flagged sandbox-access inconsistency — sometimes could read `_sys/docs-v2/`, never confirmed reading `peerhub/`'s actual source this session). Resolve each category's open-questions list via further dialectical rounds (mirroring gap-2's pattern of checking against real ground-truth text where possible).
+2. **Caller discovery and migration inventory** — the real static/dynamic caller-traffic inventory gap-1 flagged (repo-wide search for hub.py invocations, per-caller migration records). This is now framed as a ONE-TIME migration inventory, not an ongoing compat-surface prioritization exercise.
+3. **Migration and cutover verification harness** — test real migrated callers + critical workflows end-to-end against peerhub, including negative/recovery paths.
+4. **State/data migration and operational cutover plan** — `.ai` state, sessions, handoffs, logs, locks, in-flight tasks/consensus rounds.
+5. **Deletion and reference hygiene** — remove hub.py + its 12 dependency modules + stale wrappers/docs/tests/imports only after the deletion gate passes.
+6. **Optional temporary compat shim** — only if incremental migration turns out to be operationally necessary; designed for removal from day one.
+7. Only after the above: revisit the "architecture complete, proceed to Phase 2" decision.
