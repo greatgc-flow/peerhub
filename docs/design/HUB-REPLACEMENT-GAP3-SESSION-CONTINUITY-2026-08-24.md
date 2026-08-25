@@ -277,3 +277,26 @@ schema) like ~87 of ~90 catalog entries. The gap is real at the
 IMPLEMENTATION and DATA-MODEL level (this doc's own room/session/thread
 schema proposal is still needed work), not at the naming/discoverability
 level.
+
+## FIELD-LEVEL CONFIRMATION (2026-08-24, terminal): SessionBindingKey's real composite identity
+
+```python
+class SessionBindingKey:
+    workspace_scope_id: str
+    instance_id: str
+    profile_id: str
+    conversation_scope: str
+```
+
+A 4-part composite key. This answers part of gap-3's own identity
+question for SESSIONS specifically: a session is uniquely identified by
+`(workspace_scope_id, instance_id, profile_id, conversation_scope)`, not
+a single ID field. `LeaseCreateRequest` (see gap-4's reconciliation doc
+for full fields) confirms sessions are tightly bound to
+`session_id`+`command_id`+`attempt_id` — i.e. a session-scoped lease is
+inherently tied to ONE execution, not a general-purpose room/thread
+membership concept. This reinforces (now with field-level evidence) that
+room/thread — which need to persist and be READABLE independent of any
+one command/attempt execution — are NOT the same kind of object as a
+session lease, and need their own data model as this doc already
+proposed, not a reuse of `SessionBindingKey`/`LeaseCreateRequest`.

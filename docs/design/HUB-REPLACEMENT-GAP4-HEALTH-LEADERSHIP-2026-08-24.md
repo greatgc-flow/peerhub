@@ -286,3 +286,40 @@ recovery, detailed quota/EXH accounting beyond `CHECK_USAGE_ADMISSION`.
 `EvidenceSubject`, `HealthScopeBinding`, `HealthScopeMembershipSnapshot`,
 `AdmissionSnapshotEntry`/`AdmissionSnapshot` to resolve canonical identity
 and confirm/deny quota-accounting presence.
+
+## FIELD-LEVEL CONFIRMATION (2026-08-24, terminal): SessionLeaseCoordinator's real lease type is session/attempt-SPECIFIC, not generic
+
+Direct read of `peerhub/dispatch/contract.py`'s real `LeaseCreateRequest`:
+
+```python
+class LeaseCreateRequest:
+    session_id: str                                    # REQUIRED
+    owner_principal_id: str
+    owner_instance_id: str
+    owner_process_birth_identity: ProcessBirthIdentity  # process-specific
+    heartbeat_timeout_ms: int
+    command_id: CommandID                               # REQUIRED
+    attempt_id: str                                      # REQUIRED
+    authority_epoch: int                                 # = the fencing token concept
+    owner_peer_id: str = ""
+```
+
+**This settles gap-4's open question about leadership reuse: NO, not
+directly.** `LeaseCreateRequest` is tightly coupled to one session +
+command + attempt execution (`session_id`/`command_id`/`attempt_id` are
+all required, non-optional fields) — it cannot represent a room-scoped
+leadership/terminal-duty lease that isn't tied to a single command
+execution. **Gap-4's `DutyAssignment` (leadership/roles) needs its OWN
+analogous-but-separate lease request type** — same PATTERN
+(`authority_epoch` is exactly the fencing-token concept gap-4 wanted;
+`owner_principal_id`/`owner_instance_id` are directly reusable identity
+concepts), but not the same concrete type. This confirms (with field-level
+evidence, not just a name-level guess) the earlier reconciliation's
+caution that "genericity is not yet proven" — it's now proven NOT
+generic, in its current form.
+
+**Recommended path**: model a new `DutyLeaseCreateRequest` (or similar)
+on this exact same field pattern minus the session/command/attempt-
+specific fields, scoped to `room_id`/`role` instead. This is real,
+concrete follow-up design work now that the "just reuse
+SessionLeaseCoordinator" hope is field-level ruled out.
