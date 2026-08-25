@@ -351,3 +351,92 @@ now confirmed, not inferred: any `NodeRegistry`/peer-identity design for
 gap-4 should use `(instance_id, profile_id)` as its composite key,
 consistent with the rest of the real codebase, not invent a different
 identity shape.
+
+## CONCRETE DESIGN (2026-08-26, cx): `DutyLeaseCreateRequest` — dedicated lease machinery, NOT the governed-mutation broker
+
+**Decision: duty leases use their OWN dedicated lease-request/snapshot
+types + a lightweight `DutyLeaseCoordinator`, modeled on
+`SessionLeaseCoordinator`'s real shape — NOT the `TargetState`/
+governed-mutation-broker substrate gap-2/5/6 use.** Reasoning: a
+heartbeat every few seconds/minutes extends liveness, not a business-
+state transition — needs to be cheap, frequent, immediately fence-
+validated; routing every renewal through
+`MutationRequest→MutationPlan→TransitionReceipt→OutboxEvent` would add
+unnecessary protocol/storage pressure and blur liveness vs. governed
+business mutations. **The generic broker MAY still govern slower
+leadership-domain state** (election policy, candidate/challenge status,
+audit-oriented leadership state) as its own `TargetState` — cross-
+referenced with the lease record via `lease_id`/`(room_id,role)`/`term`,
+never duplicating authority semantics in two independently-writable
+records.
+
+```python
+@dataclass(frozen=True)
+class DutyOwnerIdentity:
+    instance_id: str
+    profile_id: str
+
+@dataclass(frozen=True)
+class DutyLeaseCreateRequest:
+    room_id: str            # coordination scope -- a duty belongs to a room, not a session/command
+    role: str                # e.g. "terminal-duty", "domain-coordinator" -- lease key = (room_id, role)
+    owner: DutyOwnerIdentity  # confirmed composite identity, matches HealthScopeBinding/SessionBindingKey
+    owner_principal_id: str   # who/what authorized the holder (audit), distinct from runtime identity
+    heartbeat_timeout_ms: int
+    authority_epoch: int      # fencing token -- advances on every acquisition/recovery
+    term: int = 1             # leadership generation/election term, monotonic per (room_id, role)
+    challenge_until: int | None = None  # challenge/handoff window deadline -- policy state, NOT proof of ownership
+```
+
+**Excluded from real `LeaseCreateRequest` and why**: `session_id`
+(duty is room/role-scoped, not session-scoped), `command_id`/`attempt_id`
+(a duty spans many commands/attempts, must survive across them),
+`owner_process_birth_identity` (canonical identity is confirmed
+`(instance_id, profile_id)`; if terminal duty needs process-binding for
+safety, that's a separate optional field — a real, undecided policy
+choice, not established by current sources), `owner_peer_id` (redundant/
+ambiguous with the composite identity).
+
+`DutyLeaseSnapshot{lease_id, room_id, role, owner, owner_principal_id,
+authority_epoch, term, challenge_until, state: DutyLeaseState,
+heartbeat_expires_at, created_at, updated_at}`. Uniqueness: one active
+lease per `(room_id, role)`, replaceable only when expired/released/
+recovered-and-fenced.
+
+### Operation set (mirrors real `SessionLeaseCoordinator` method names)
+
+`DutyLeaseCoordinator.create_lease(request) -> DutyLeaseSnapshot`
+(claims an unheld/expired/recoverable room+role duty);
+`renew_lease(request: DutyLeaseRenewRequest, *, heartbeat_timeout_ms) ->
+DutyLeaseSnapshot` (extends expiry if lease_id+owner+term+fence all
+current); `close_lease(request: DutyLeaseCloseRequest) ->
+DutyLeaseSnapshot` (voluntary release); `expire_and_recover_lease(
+lease_id, *, recovery_actor_principal_id, trigger: RecoveryTrigger,
+evidence_digest, policy_id, policy_revision) -> (DutyLeaseSnapshot,
+RecoveryReceipt)` (fences an expired/stale holder, records recovery
+evidence); `validate_lease_fence(request: DutyLeaseFenceCheckRequest) ->
+(bool, tuple[str,...])` (validates lease_id+room+role+owner+term+
+authority_epoch). Supporting request types (`DutyLeaseRenewRequest`/
+`DutyLeaseCloseRequest`/`DutyLeaseFenceCheckRequest`) all carry the FULL
+immutable fence context (lease_id, room_id, role, owner, term,
+authority_epoch), not just a bare lease ID. **`create_lease` allocates
+a new lease ID + fencing epoch atomically; a challenger does NOT acquire
+the role merely because `challenge_until` passed — acquisition still
+needs the expiry/recovery rule AND a strictly newer term.**
+
+### Unresolved (needs more source or explicit policy decision)
+
+`SessionLeaseCoordinator`'s actual method BODIES weren't available this
+round (only signatures were used) — its real design doesn't establish
+leadership-specific election semantics, so this remains a genuinely new
+design, not a reconciliation. Should `term` and `authority_epoch` be
+identical/related/independently-monotonic? (cx's recommendation: keep
+both — `authority_epoch` fences stale records, `term` identifies the
+leadership generation). Does duty ownership need process-incarnation-
+binding (optional `ProcessBirthIdentity`) beyond the confirmed
+`(instance_id, profile_id)` identity? Exact challenge protocol (who may
+challenge, can an incumbent veto, is the challenge window advisory or
+mandatory)? Recovery-evidence fields/receipt reuse for duty leases not
+yet defined. Should leadership's slower election state be a separate
+`TargetState` or fields on `DutyLeaseSnapshot`? (cx recommends: separate
+conceptual state, one dedicated lease record as the liveness authority.)
