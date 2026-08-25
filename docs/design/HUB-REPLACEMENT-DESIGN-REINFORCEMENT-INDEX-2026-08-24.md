@@ -37,6 +37,25 @@
 > artifacts alike. See each gap doc's own "FIELD-LEVEL CONFIRMATION"
 > section for detail.
 
+> **★ UPDATE 2026-08-26 (overnight, paced work)**: gap-2 (consensus),
+> gap-5 (task), and gap-6 (lesson artifact) now each have a CONCRETE
+> `TargetState.state` JSON schema (not just direction) — see each doc's
+> "CONCRETE SCHEMA DESIGN" section. The single biggest remaining
+> cross-cutting uncertainty (does `desired_state` need to be a complete
+> replacement or can it be a patch; what exact exception fires on a CAS
+> conflict) is now DEFINITIVELY confirmed via `mutations.py`'s real
+> function bodies: **`desired_state` is always the complete next state,
+> `StaleRevisionError(target_id, expected_revision, current_revision)`
+> is the exact CAS-conflict exception, `expected_revision=0` for a
+> target's first-ever mutation.** Gap-4 also now has a concrete
+> `DutyLeaseCreateRequest` design — a deliberate DIFFERENT choice from
+> the `TargetState` pattern (dedicated lightweight lease machinery for
+> heartbeat-frequency liveness, not routed through the governed-mutation
+> broker). The per-gap "open items" counts in the table below predate
+> all of this and are now stale in DETAIL (though most gaps still have
+> real remaining ratification items) — read each gap doc's own latest
+> sections for current status, not just the summary counts here.
+
 Triggered by: user request ("설계보강 ㄱㄱㄱ") after `HUB-REPLACEMENT-GAP-AUDIT-2026-08-23.md`
 found peerhub could not replace hub.py today (only 5 CLI commands exposed
 vs hub.py's 80+), and a same-day follow-up confirmed that implementing
