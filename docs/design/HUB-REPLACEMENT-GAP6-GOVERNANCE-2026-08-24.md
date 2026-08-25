@@ -193,3 +193,46 @@ One canonical event/vote substrate; separate projections/lifecycles for
 directives, lessons, proposals, feedback, alerts; human/consensus gates
 preserved; no automatic mutation hidden behind propagation/sweep/
 injection/arbiter commands.
+
+## RECONCILIATION AGAINST REAL SOURCE (2026-08-24)
+
+Same real governance broker as gap-2's reconciliation (see that doc's
+section for the full type list). All 5 artifact categories map
+conceptually onto `TargetState` + domain-specific `MutationRequest`
+payloads through the SAME generic broker:
+
+| Artifact | Target | Mutation examples |
+|---|---|---|
+| Directive | directive target | propose, activate, supersede, revoke |
+| Lesson | lesson target | draft, validate, activate, deprecate |
+| Proposal | proposal target | submit, revise, approve, reject, adopt |
+| Feedback | feedback target | submit, acknowledge, classify, resolve |
+| Alert | alert target | raise, acknowledge, suppress, resolve |
+
+Broker supplies (common to all 5): mutation idempotency, expected-revision
+handling, transition receipts, outbox notification, effect tracking,
+recovery. **Broker does NOT supply the domain model itself** — directive
+precedence/scope, lesson evidence/activation criteria, proposal
+semantics/quorum policy, feedback classification/linkage, alert
+severity/dedup/escalation policy all remain domain-layer responsibilities
+gap-6 must still design (its existing lifecycle-state-machine sections
+for each artifact type stand — only the EVENT-PERSISTENCE framing
+changes).
+
+**Remove any implication that each artifact type owns a separate
+append-only event stream** — gap-6's originally-listed events
+(`RuntimeDirectiveCreated`, `LessonProposed`, `ProposalCreated`, etc.)
+remain useful as projection/audit-vocabulary names, not as a second,
+parallel persistence mechanism alongside the real broker.
+
+**`proposal-vote` reconciliation** (also recorded in gap-2's doc): confirmed
+to reuse the same broker + consensus/quorum logic as gap-2's rounds. Two
+possible shapes not yet distinguishable from available evidence: a
+proposal owns its own voting lifecycle in its own `TargetState`, or
+references a separate consensus-round target whose resolution mutates the
+proposal target — needs field-level source inspection to resolve, not
+assumable.
+
+Same verified/inferred/test-needed split as gap-2's reconciliation
+applies here (see that doc) — nothing artifact-type-specific changes the
+uncertainty level.
