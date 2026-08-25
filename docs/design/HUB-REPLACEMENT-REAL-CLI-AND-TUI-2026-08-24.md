@@ -199,3 +199,24 @@ than inventing a new UI paradigm per category.
    risk an overloaded, hard-to-scan single view? (A `peerhub diag
    --section consensus|health|tasks|governance` filter is one option, not
    yet decided.)
+
+## RESOLVED (2026-08-24): `--live` loop mechanics, confirmed by direct read of `_run_diag`
+
+`peerhub/cli.py`'s `_run_diag` (`--live` branch): **clear-and-redraw**,
+not append — `os.system("cls")` on Windows (`os.name == "nt"`),
+`\033[2J\033[H` (ANSI clear-screen + cursor-home) elsewhere. **2.0-second
+refresh interval**, polling for a keypress every 0.05s (`msvcrt.kbhit()`
+on Windows) so ESC/`q`/`Q`/Ctrl+C exits promptly without waiting a full
+interval. Snapshot→render split confirmed exactly as assumed in section
+3.1 above: `presenter.collect_live_snapshot()` then either
+`json.dumps(snapshot)` or `presenter.render(snapshot)` — the same
+snapshot feeds both output modes, no duplicate collection logic.
+`--json` mode does NOT loop/clear even under `--live` in the current
+code path shown (it still prints once per 2s tick inside the same while
+loop, just via `json.dumps` instead of `render`) — same refresh cadence
+applies to both.
+
+This confirms open question 1 from section 3.3 above. **Extend this
+exact pattern (clear-and-redraw, 2s interval, ESC/q/Ctrl+C exit,
+snapshot→render split) to any new `--live` view gaps 2-6 add**, rather
+than inventing a different refresh mechanism per domain.
