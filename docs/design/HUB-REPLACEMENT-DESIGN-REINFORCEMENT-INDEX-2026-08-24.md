@@ -37,6 +37,32 @@
 > artifacts alike. See each gap doc's own "FIELD-LEVEL CONFIRMATION"
 > section for detail.
 
+> **★★ UPDATE 2026-08-26 (later, overnight work concluding): design phase
+> substantially complete.** All 7 gaps now have either a concrete
+> `TargetState.state` JSON schema (gap-2 consensus, gap-3 room/thread/
+> message, gap-5 task, gap-6 lesson artifact — all sharing the same
+> confirmed governed-mutation-broker substrate and CAS mechanics), a
+> concrete dedicated design (gap-4's `DutyLeaseCreateRequest`/
+> `DutyLeaseSnapshot`, deliberately NOT on the broker), or a strengthened
+> design-complete verdict grounded in the above (gap-7's diag extension;
+> gap-1's real exit-code data + `LEGACY_CATALOG` inventory). **Remaining
+> open items across every gap doc are now overwhelmingly one of two
+> kinds**: (a) real caller/runtime-behavior questions that need live data
+> or implementation-time verification, not more design reasoning (e.g.
+> gap-1's per-action caller frequency, gap-3's exact `clear-room`
+> semantics, gap-7's exact current SUMMARY column layout), or (b)
+> explicit product/policy decisions only the user can make (e.g. gap-2's
+> exact quorum function for N>3, gap-6's lesson-approval-authority
+> question, gap-4's challenge-protocol rules). **Per the standing
+> "architecture must be complete before implementation" rule, this is a
+> genuine decision point**: the design layer has converged about as far
+> as pure design-and-reconciliation work can take it without either (1)
+> the user making the flagged policy calls, or (2) moving into an
+> implementation/TDD pass that will itself surface the remaining
+> runtime-behavior answers. Continuing to dispatch more design-only
+> rounds from here would mostly re-visit already-flagged open items
+> rather than find new ones.
+
 > **★ UPDATE 2026-08-26 (overnight, paced work)**: gap-2 (consensus),
 > gap-5 (task), and gap-6 (lesson artifact) now each have a CONCRETE
 > `TargetState.state` JSON schema (not just direction) — see each doc's
