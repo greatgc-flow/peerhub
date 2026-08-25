@@ -297,3 +297,116 @@ machinery** — the same layering pattern now confirmed across gaps 2, 3,
 4, 5, and 6: **generic governed-mutation broker + generic request/attempt
 execution machinery underneath, with each gap's own domain aggregate
 (`TargetState` instance) and domain-specific coordinator logic on top.**
+
+## CONCRETE SCHEMA DESIGN (2026-08-26, cx): task `TargetState.state`
+
+Mirrors gap-2/gap-6's treatment. `TargetState.state` is the canonical
+task snapshot; attempts/requests/checkpoints/approval gates stay
+separately addressable objects (same "keep canonical revision
+independent from conversational back-and-forth" principle as gap-6's
+lesson-delivery targets).
+
+Envelope (`schema: "peerhub.task-state/v1"`): `task_id`, `objective{summary,
+spec}`, `current_stage`, `state`, `executor{binding_state, coordinator,
+session_lease_id, capability_lease_id, route_decision_id,
+active_request_id}`, `checkpoint` (null until first checkpoint),
+`child_request_ids[]`, `active_attempt_id`, `failure{count,
+last_failure_id/class/at}`, `failover{count, last_failover_id/reason/at}`,
+`approval{active_request_target_id, required}`, `timestamps{created_at,
+started_at, completed_at, updated_at}`.
+
+**`executor` references the real dispatch substrate directly** — points
+to the `SessionLeaseCoordinator` binding result (session lease/capability
+lease/route decision), NOT `RetryAuthorizationCoordinator` (which stays
+request-scoped, referenced per individual attempt/request instead).
+
+At `CHECKPOINTED`: `checkpoint{checkpoint_id, stage, request_id,
+attempt_id, captured_at, resume_token_ref, state_digest,
+completed_units[], remaining_units[]}` populated, `executor.binding_state:
+"BOUND"`.
+
+At `AWAITING_APPROVAL`: `approval{active_request_target_id: "approval-...",
+required: true}` — **the task stores ONLY the approval target reference
+and gate status; the approval object owns its own conversation and
+revision history as a separate TargetState.**
+
+### Operations → transitions
+
+| Operation | Computation |
+|---|---|
+| `task.create` | Initial snapshot, `state="CREATED"`, empty children, no executor/checkpoint, zero counters. |
+| `task.claim_start` | Validate `state∈{CREATED,READY}`; create/attach stage's first request+attempt; bind `SessionLeaseCoordinator` lease/route/capability; `state="RUNNING"`. |
+| `task.checkpoint` | Validate active request/attempt+digest; persist checkpoint ref+completed/remaining units; `state="CHECKPOINTED"`; preserve executor binding if lease still valid. |
+| `task.request_approval` | Create separate `governance.approval.request` target; `approval.required=true`+target ID; `state="AWAITING_APPROVAL"`. |
+| `task.approval_granted` | Require terminal approval record with validated authority evidence; clear/archive approval ref; `approval.required=false`; → `READY`/`RUNNING`. |
+| `task.approval_rejected` | Require valid terminal rejection record; clear gate; → `FAILED`/`CANCELLED` per policy; record as terminal failure/reason. |
+| `task.request_failover` | Validate current request/attempt can't continue; increment `failover.count`; record event; invalidate/retire old executor binding; → `FAILOVER_PENDING`/`READY`. |
+| `task.complete` | Validate all required stages/outputs; `state="SUCCEEDED"`; clear active attempt; set `completed_at`; retain final refs for audit. |
+| `task.fail` | Validate terminal failure classification; increment `failure.count`; record metadata; `state="FAILED"`; clear active attempt; `completed_at`. |
+| `task.cancel` | Validate not already terminal; record reason/actor; `state="CANCELLED"`; clear execution; `completed_at`. |
+
+State machine: `CREATED → {READY,RUNNING,CANCELLED}`; `READY →
+{RUNNING,CANCELLED}`; `RUNNING → {CHECKPOINTED, AWAITING_APPROVAL,
+FAILOVER_PENDING, SUCCEEDED, FAILED, CANCELLED}`; `CHECKPOINTED →
+{READY,RUNNING,AWAITING_APPROVAL}`; `FAILOVER_PENDING →
+{READY,RUNNING,FAILED,CANCELLED}`; `AWAITING_APPROVAL →
+{READY,RUNNING,FAILED,CANCELLED}`. Every op is CAS-checked
+(`next_revision == previous_revision+1`), rejected if invalid for the
+current snapshot.
+
+### Approval gate = its OWN separate `TargetState` (confirmed choice, same principle as gap-6)
+
+`governance.approval.request:<approval_id>`, envelope
+`peerhub.governance.approval-request-state/v1`: `approval_id,
+approval_type, subject{task_target_id, task_revision, operation, stage,
+requested_effect}, state, requested_by{actor_id, request_id,
+requested_at}, authority_policy{required_role, required_scope,
+required_count}, decision, audit{created_at, updated_at, event_ids[]}`.
+States: `PENDING → {GRANTED, REJECTED, EXPIRED, WITHDRAWN}`.
+
+**Decision requires real authority evidence, never a bare claim**:
+`decision.authority{actor_id: "human:<id>", authority_class:
+"human_authority", credential_evidence{evidence_type: "unresolved" for
+now, credential_id, verification_status, verified_by, verified_at},
+scope[]}`. **`actor_id:"human"` alone is never sufficient — the broker
+or an authority-verifier must validate `credential_evidence` + scope +
+verification status. A peer may submit a request or relay a human
+decision, but cannot manufacture one.** Exact credential format/
+verification service deliberately left as an unresolved adapter
+boundary — not guessed.
+
+### Stage ≠ exactly one request (confirmed)
+
+A stage is a task-level unit that may need one request, multiple
+sequential requests, retries (multiple attempts), failover to a new
+request, or compensating/verification requests:
+`task → stage → {request → attempt(s)}`, potentially multiple requests
+per stage. Because `RetryAuthorizationCoordinator` binds exactly ONE
+request+its previous attempt (field-confirmed earlier), **request-level
+retry = same request + new authorized attempt**, while **task-level
+failover is structurally broader**: retire/invalidate the failed
+request/attempt binding → select/create a NEW request for the current
+stage → obtain a new request-scoped retry-authorization bundle →
+obtain/bind a new execution lease+route decision → continue the task.
+**`task-failover` is NOT an alias for request retry — it changes task
+execution ownership and may create a new child request while preserving
+the task's stage/objective/history/aggregate identity.**
+`child_request_ids` should be append-only (retired requests stay
+listed); `active_request_id` identifies the current owner.
+
+### Unresolved (needs source access or policy decision)
+
+Exact canonical field names/IDs `SessionLeaseCoordinator` actually
+emits; are capability leases/route decisions independently addressable
+targets or embedded records; the authoritative task-state enum and
+whether `READY` is mandatory post-creation/failover; is checkpoint data
+an artifact reference, opaque resume token, or both; exact legacy-
+command-to-operation mapping for every task command; does
+`approval_rejected` mean terminal `FAILED`, terminal `CANCELLED`, or
+policy-dependent nonterminal; authority credential format/verification
+service; are approval expiry/withdrawal required in v1; is
+`current_stage` free-form or must reference a versioned stage-plan
+object; may `child_request_ids` include parallel requests or is
+execution strictly sequential; canonical failure/failover event-history
+representation (examples here only keep counters+last-event summary — a
+separate append-only audit stream may still be needed).
