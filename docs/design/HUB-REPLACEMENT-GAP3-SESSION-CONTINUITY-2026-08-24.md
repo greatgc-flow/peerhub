@@ -316,3 +316,112 @@ either) — room/thread modeling is genuinely, completely undesigned at
 every layer of real peerhub. This doc's own room/session/thread data
 model proposal (see the top of this file) is real, necessary,
 ground-up design work, not a reconciliation task.
+
+## CONCRETE SCHEMA DESIGN (2026-08-26, cx): room/thread as `TargetState`, messages as SEPARATE per-message targets
+
+**Decision: rooms and threads use the governed `TargetState` substrate
+(unlike duty leases, which deliberately did NOT)** — reasoning from
+access pattern, not just precedent: duty leases are high-frequency
+liveness records whose primary operation is heartbeat renewal; rooms/
+threads are durable collaborative aggregates needing authorization,
+CAS-governed metadata, auditability, independent reads — their frequent
+activity is append-oriented (messages), not heartbeat-oriented.
+
+### Room `TargetState.state`
+
+```json
+{
+  "kind": "room", "schema_version": 1, "room_id": "room-01", "topic_id": "topic-01",
+  "title": "...", "status": "active", "created_at": "...",
+  "created_by": {"instance_id": "instance-a", "profile_id": "cx.standard"},
+  "participants": [{"instance_id": "...", "profile_id": "...", "role": "member", "joined_at": "..."}],
+  "thread_ids": ["thread-architecture", "thread-implementation"],
+  "session_bindings": [{"binding_id": "...", "instance_id": "...", "profile_id": "...", "session_id": "...", "role": "participant", "bound_at": "..."}],
+  "message_projection": {"message_count": 12, "last_message_id": "message-12", "last_message_at": "..."},
+  "retention": {"mode": "retained"}
+}
+```
+
+Participant identity is explicitly the confirmed composite
+`(instance_id, profile_id)`, not a bare profile/session ID.
+
+### Thread `TargetState.state`
+
+```json
+{
+  "kind": "thread", "schema_version": 1, "thread_id": "thread-architecture", "room_id": "room-01",
+  "subject": "...", "status": "open", "created_at": "...",
+  "created_by": {"instance_id": "...", "profile_id": "..."},
+  "participant_keys": [{"instance_id": "...", "profile_id": "..."}],
+  "message_projection": {"message_count": 3, "first_message_id": "message-101", "last_message_id": "message-103", "last_message_at": "...", "preview": "..."}
+}
+```
+
+**Thread state holds only a projection, never full message bodies.**
+
+### Messages — SEPARATE `TargetState` per message, NOT embedded
+
+**Reasoning (revision-churn avoidance)**: embedding the full message
+list inside room/thread state would mean every message (1) requires
+reading+replacing the whole thread state, (2) increments the thread's
+CAS revision, (3) increases conflict probability for concurrent senders,
+(4) grows the record without bound, (5) couples message durability to
+metadata mutation. **One independent `target_id: "message:<id>"` per
+message instead**:
+
+```json
+{
+  "target_id": "message:message-103", "revision": 1,
+  "state": {
+    "kind": "message", "schema_version": 1, "message_id": "message-103",
+    "room_id": "room-01", "thread_id": "thread-architecture", "sequence": 3,
+    "author": {"instance_id": "...", "profile_id": "..."},
+    "created_at": "...", "message_type": "text", "body": "...",
+    "reply_to": "message-102", "metadata": {}
+  },
+  "updated_at": "..."
+}
+```
+
+Messages are immutable after creation (or an edit creates a new revision
+under an explicit governed edit operation, if edits are ever needed).
+Room/thread's `message_projection` updates opportunistically but is
+**never the sole source of message truth**. Query model: `room target →
+thread IDs; thread target → message query by (room_id, thread_id,
+sequence); message targets → complete bodies/authorship`. **If strict
+contiguous ordering is required, sequence assignment needs a separate
+serialization/append-coordinator mechanism — that's a design dependency,
+not a reason to embed messages in the thread target.**
+
+### Room vs. topic vs. thread — resolved
+
+- **Room** = durable collaboration CONTAINER — owns participants,
+  session bindings, lifecycle, retention, the set of threads.
+- **Topic** = the subject/continuity LABEL associated with a room —
+  describes what the room is about, may carry across lifecycle
+  transitions, but is NOT itself the message stream or execution
+  session.
+- **Thread** = a focused conversational/work SUBSTREAM within a room —
+  own subject, participants, lifecycle, ordered message set.
+
+`room → {topic_id/metadata, participants, session_bindings, thread_ids →
+message targets}`. **A topic is not an alias for a thread** — a room has
+one current topic and several threads; a thread discusses one aspect of
+the topic. Whether a new topic creates a new room / mutates the existing
+room / creates a room generation is a lifecycle-POLICY decision, not
+inferable from the storage schema alone.
+
+### Unresolved (needs more source access or explicit policy decision)
+
+Whether message targets are physically stored in the same backend/table
+as other `TargetState` records; whether the broker currently supports
+dynamic target families for rooms/threads/messages at all (not yet
+confirmed — this whole design assumes it does); whether message ordering
+must be strictly contiguous/globally serialized; whether edits/deletes/
+reactions/attachments/redactions are required; whether room-membership
+changes need CAS on the room target or a separate membership target;
+exact `clear-room` behavioral semantics (delete/archive/detach — genuine
+runtime behavior, not determinable from source alone); does a topic
+change create a new room, mutate the existing one, or create a room
+generation; retention/pagination/indexing/garbage-collection policy for
+message targets.
