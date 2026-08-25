@@ -300,3 +300,19 @@ room/thread — which need to persist and be READABLE independent of any
 one command/attempt execution — are NOT the same kind of object as a
 session lease, and need their own data model as this doc already
 proposed, not a reuse of `SessionBindingKey`/`LeaseCreateRequest`.
+
+## FINAL CONFIRMATION (2026-08-24, terminal): room/thread has ZERO schema anywhere in real peerhub — genuinely unimplemented at every layer
+
+Checked all 24 real migrations in `peerhub/persistence/migrations/`
+(`0001` through `0024_telemetry_quota_tracking.sql`) directly — no
+room/thread table, column, or schema of any kind. The single grep hit
+(`0018_capability_leases.sql`) is a coincidental use of "threads" as a
+verb in a comment ("before increment 3 threads the state"), not a schema
+reference. **This is now the 3rd and most authoritative confirmation**
+(after: not in dispatch/health/governance modules; named in
+`LEGACY_CATALOG` as `coordination.room.*`/`coordination.thread.*` but
+`INVENTORIED`/`NOT BACKED`; now confirmed zero persistence-layer schema
+either) — room/thread modeling is genuinely, completely undesigned at
+every layer of real peerhub. This doc's own room/session/thread data
+model proposal (see the top of this file) is real, necessary,
+ground-up design work, not a reconciliation task.
