@@ -175,3 +175,88 @@ fencing/approval checks. Richer native error codes exposed internally:
 10. Are operator-selected failover targets allowed, or must routing always select the target?
 11. Exact legacy exit codes/output formats for these 4 commands?
 12. Policy for uncertain external side effects after executor loss?
+
+## RECONCILIATION AGAINST REAL SOURCE (2026-08-24)
+
+Real `peerhub/dispatch/retry_authorization.py` (`SameTargetRoute`,
+`FailoverRoute`, `RetryAuthorizationBundle`, `RetryAuthorizationUnitOfWork`,
+`RetryAuthorizationCoordinator`), `admission.py` (`AdmissionCoordinator`),
+`artifact_coordination.py` (`ArtifactCoordinator`) confirmed via direct
+read.
+
+**`RetryAuthorizationCoordinator` does NOT eliminate the proposed Task
+aggregate — it covers a different, narrower layer.**
+
+| Concern | Existing likely coverage |
+|---|---|
+| Retry one failed execution | `RetryAuthorizationCoordinator` |
+| Stay on same target | `SameTargetRoute` |
+| Move execution elsewhere | `FailoverRoute` |
+| Retry authorization/unit of work | `RetryAuthorizationUnitOfWork` |
+| Multi-stage durable task identity | **Not established** |
+| Several requests under one task | **Not established** |
+| Task-wide checkpoints | **Not established** |
+| Task-wide approval gates | **Not established** |
+| Task history/progress across attempts | **Not established** |
+
+**The Task aggregate is unnecessary ONLY IF a "task" is a thin alias for
+one request + its attempts. It remains justified if a task means durable,
+multi-stage work spanning multiple requests/attempts** — this is exactly
+the distinction gap-5's original draft made from the command names
+(`task-checkpoint` implies progress beyond one invocation), and nothing
+in the real retry/failover code contradicts that reasoning; it just
+confirms the EXECUTION-level retry/failover mechanics already exist
+separately. Needs a body-level read of `RetryAuthorizationUnitOfWork` to
+see if it already aggregates more than one attempt (would narrow or close
+the remaining Task-aggregate justification).
+
+**`ArtifactCoordinator` is NOT confirmed as checkpoint substrate** — the
+original audit's `artifact-claim`/`artifact-status`/`artifact-finalize`
+family suggests artifact (output/product) lifecycle management, not
+task-progress checkpointing. A checkpoint also needs task/phase identity,
+resumable execution position, causal parent attempt, checkpoint validity
+state, recovery/resume policy — none demonstrated by `ArtifactCoordinator`
+alone. Treat as unconfirmed pending a field/body read; a checkpoint might
+REFERENCE/publish an artifact without artifact coordination itself
+providing checkpoint semantics.
+
+**`AdmissionCoordinator` is PROBABLY operational/capability admission,
+NOT gap-5's human `approval-request` gate** — context: gap-4 already has
+`AdmissionState`, `CHECK_USAGE_ADMISSION` is a health/admission stage;
+this points to peer/request admission based on usage/capacity/capability/
+health, materially different from a human authorization workflow. Do
+NOT conflate without implementation evidence — `approval-request` remains
+undesigned unless `AdmissionCoordinator`'s fields explicitly contain
+approver identity, approval state, expiry, denial, audit provenance
+(needs a body/field-level read).
+
+### Revised "Task-failover" section
+
+Request/attempt retry and failover should use the existing
+`RetryAuthorizationCoordinator`/`RetryAuthorizationUnitOfWork`
+(`SameTargetRoute` = retry on original target, `FailoverRoute` =
+authorized route to another executor) — this covers the
+EXECUTION-LEVEL portion of `task-failover`. A separate Task aggregate
+remains necessary only when the product-level task spans multiple
+requests/stages/attempts and needs durable progress, checkpoints,
+approval state, or task-wide recovery history — this boundary must be
+verified from the coordinator's actual fields/transition logic, not
+assumed. **`task-failover` should NOT be implemented as a second failover
+engine — either expose the existing request/attempt failover path, or add
+a clearly-defined task-level orchestration layer above it (not a
+replacement for it).**
+
+### Revised "Native command surface" section
+
+Native commands should expose existing dispatch primitives, not duplicate
+their mechanics: task execution/retry → `RetryAuthorizationCoordinator`;
+same-target retry → `SameTargetRoute`; executor failover → `FailoverRoute`;
+retry decision/UoW state → `RetryAuthorizationUnitOfWork`; session
+continuity → `SessionLeaseCoordinator`; liveness →
+`HeartbeatWorker`/`LeaseRenewer`; artifact lifecycle → `ArtifactCoordinator`
+(only where genuinely artifact-scoped); operational admission →
+`AdmissionCoordinator`. **Still-missing (genuine gaps)**: durable
+multi-stage Task identity (if required), task checkpoint/resume
+semantics, human `approval-request`+resolution, explicit room/thread
+operations (shared with gap-3), terminal-duty handoff + no-auto-replay
+policy (shared with gap-3).
