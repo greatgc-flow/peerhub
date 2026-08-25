@@ -218,3 +218,71 @@ atomic multi-target updates.
 `MutationPlan`, `OutboxEvent` dataclass definitions (not just names) to
 resolve the "does it support accumulating rounds" question, which
 determines whether a separate consensus coordinator is mandatory.
+
+## CONFIRMED (2026-08-24, terminal, field-level read): broker DOES support accumulating rounds — biggest open question closed
+
+Direct read of `peerhub/governance/contract.py`'s real dataclass fields
+(not just names) resolves the "does the broker support multiple
+sequential mutations against one target_id" question definitively: **YES.**
+
+```python
+class TargetState:
+    target_id: str
+    revision: int            # strictly positive, incremented per mutation
+    state: Mapping[str, JsonValue]   # arbitrary JSON blob -- the round's domain state
+    updated_at: int
+
+class MutationRequest:
+    request_id: str
+    command_id: CommandID
+    correlation_id: str
+    client_id: str
+    command_type: str
+    idempotency_key: str
+    actor_id: str             # who cast this vote/action
+    policy_revision: str
+    target_id: str
+    expected_revision: int    # optimistic-concurrency CAS check
+    operation: str            # e.g. "cast_vote", "final_call", "timeout"
+    desired_state: Mapping[str, JsonValue]  # the new state blob after this op
+    effect_intent: EffectIntent
+
+class MutationPlan:
+    plan_id: str
+    request_id: str
+    request_digest: str
+    target_id: str
+    previous_revision: int
+    next_revision: int        # ENFORCED: next_revision == previous_revision + 1
+    next_state: Mapping[str, JsonValue]
+    effect_intent: EffectIntent
+    planned_at: int
+```
+
+This IS exactly a revision-based optimistic-concurrency accumulating
+aggregate: a consensus round's `TargetState.state` holds the round's full
+domain state as an arbitrary JSON blob (e.g. `{"phase": "voting",
+"votes": {"cc": "agree", "ag": null, "cx": "agree"}, "quorum": 3,
+"deadline": ...}`); each vote is a `MutationRequest(operation="cast_vote",
+actor_id=<voter>, target_id=<round_id>, expected_revision=<current>,
+desired_state=<blob with the new vote folded in>)`; the broker enforces
+`next_revision == previous_revision + 1` (real, code-enforced CAS), so
+concurrent votes race on `expected_revision` — one wins, the loser's
+request fails with a stale-revision error and must retry against the new
+current state. **This closes the "is a separate consensus coordinator
+mandatory" question too**: the coordinator's role is computing
+`desired_state` from `current state + new vote + quorum policy`, then
+submitting via the broker with CAS — the broker handles persistence/
+idempotency/concurrency/outbox itself; the coordinator is a thin
+domain-logic layer (quorum math, voter eligibility, deadline checks)
+over this real, confirmed-adequate substrate.
+
+**This is no longer "inferred" — reclassify from the earlier
+verified/inferred/test-needed split**: repeated-mutation-per-target
+support is now VERIFIED (was test-needed). Concurrent-vote handling is
+VERIFIED to use revision-based CAS rejection (was test-needed) — the
+exact retry semantics (does the caller get a typed error to retry, or
+does something else happen?) still needs a read of `broker.py`'s actual
+`apply_mutation_plan`/`validate_expected_revision` function bodies (not
+yet done), but the MECHANISM (CAS on `expected_revision`) is now
+code-confirmed, not guessed.
