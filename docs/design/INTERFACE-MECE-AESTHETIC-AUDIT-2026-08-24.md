@@ -227,3 +227,40 @@ not obviously a per-invocation writer for those specific fields). Still
 its read-oriented class methods shown by this grep) weren't traced
 line-by-line. Recommend this specific confirmation before implementing
 finding 3's fix, not a blocker to documenting the recommendation.
+
+## APPLIED (2026-08-24): findings 1-3 fixed (user authorized: "레거시 상위호환된다면 모두 바꿔도 좋으니 너무 얽메이지 말아줘")
+
+User explicitly lifted the "documentation only, no implementation without
+authorization" caution for backward/superset-compatible changes. Applied
+directly to `P:\_sys\cli\` (top-level `P:` repo, `stable/hub-py-restored`,
+commit `e1c8a7b`, pushed):
+
+1. Extracted `_set_title()` → new `P:\_sys\cli\_console_helpers.py`
+   (`set_console_title(portable_root, peer)`), removed the byte-for-byte
+   duplicate from all 3 entry points, all 3 now import and call it.
+2. `claude_entry.py` gained the missing executable-existence check,
+   matching codex/agy's exact message pattern.
+3. `claude_entry.py` now wires `health_json_path=_SYS_DIR/"claude"/
+   "health.json"`; `console_runner.py`'s `_update_peer_health_json` gained
+   `cc` to the `cx` branch (`if spec.peer_id in ("cx", "cc")`) — confirmed
+   safe first (`hub_health.py` is read-only, no conflicting writer).
+
+**Verification**: all 5 touched files pass `python -m py_compile`; a
+direct import smoke-test of all 3 entry points + the new helper module
+succeeded with no import errors; `codex_entry.py` was live-smoke-tested
+end-to-end (`codex_entry.py --version`, exit 0, hub lifecycle ran
+correctly) confirming the refactor didn't break the real launch path.
+Pre-commit hooks (docs-mece, encoding, policy-constants, ledger, wiring
+checks) all passed clean. Net diff: -31 lines (duplication removed).
+
+**Not yet applied** (deferred, still needs more design/verification per
+this doc's own earlier caution, or is a larger refactor than the
+"obviously safe" bar): finding 4 (env-var resolver normalization —
+`cx` found the current Antigravity implementation has a real bug beyond
+the asymmetry itself, assigning every declared key the same directory
+value; this needs its own careful fix, not a quick patch), the
+`_CMD`/`_EXE`→`_PATH` naming normalization (cosmetic, low priority), and
+`cx`'s stronger recommendation to make `_update_peer_health_json`
+data-driven/strategy-based instead of `if peer_id == ...` branches (the
+minimal `cc`-added fix above is backward-compatible and safe, but the
+bigger refactor is real follow-up work, not done here).
