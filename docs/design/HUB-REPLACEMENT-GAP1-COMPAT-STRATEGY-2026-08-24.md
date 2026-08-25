@@ -131,3 +131,51 @@ Peerhub is now substantially closer to replacement-ready under this framing than
 ### New open questions from this correction (12)
 
 Atomic cutover vs. a short incremental migration window? Authoritative peerhub state format — must existing `.ai` state be migrated? What happens to in-flight consensus rounds/tasks during cutover? Are old session transcripts/handoff records read-only archival, or must peerhub consume them natively? Does "equivalent" mean policy-outcome-only, or also persistence/observability details? Complete confirmed list of the 12 dependency modules? External callers outside the repo? Rollback mechanism during deployment if legacy code is already deleted? Who approves the final deletion gate? Is the temporary shim allowed to write state, or must it be a pure translator? What evidence proves no caller remains — static search, runtime telemetry, or both? Are human-facing workflows in scope, or only automated callers?
+
+## Static caller-inventory pass (2026-08-26, terminal, partial data)
+
+Attempted a full per-action grep-count script across `P:\_sys` +
+`P:\workspace\peerhub` for all ~90 `LEGACY_CATALOG` action names — the
+Python subprocess-per-action approach hung/timed out (background task
+`bbopv3fnd`, no output after 7+ minutes, likely scanning large
+un-excluded directories per call) and was abandoned rather than
+force-killed and retried blindly (per standing "diagnose before
+retrying" discipline — the likely cause is doing 90 separate `grep -rl`
+subprocess calls without `.git`/`__pycache__` exclusion across a large
+tree, not a real blocker worth fighting further tonight).
+
+**A faster single-pass alternation grep (via the terminal's own Grep
+tool, not a spawned subprocess) DID complete** and gives real, if
+coarser, signal — top files by total match count across the whole
+~90-action alternation pattern, restricted to `_sys/`:
+
+```text
+_sys\core\hub.py: 189
+_sys\ai\protocol.json: 123
+_sys\claude\session_state.json: 32
+_sys\antigravity\config\scratch\full_run.py: 27
+_sys\antigravity\config\scratch\trace_test.py: 27
+_sys\codex\session_state.json: 16
+_sys\cli\console_runner.py: 13
+_sys\ai\backlog.json: 17
+```
+
+**This is real, if imprecise, confirmation**: usage concentrates almost
+entirely in `hub.py` itself (the dispatcher/definer of all these
+actions) and `protocol.json` (the documentation/config layer), with the
+`session_state.json` files and `console_runner.py` (the 3 peer entry
+points' shared runner) showing genuine caller-side reference density.
+Most `.md` skill-doc hits are protocol DESCRIPTION references, not
+caller invocations. **This is consistent with, and does not contradict,
+the earlier finding that only `ask`/`ask-all`/`ask-coordinator` are
+`LEGACY_CATALOG`-backed** — those 3 are exactly the ones CLAUDE.md's own
+documented "Peer Call Method" section mandates as the standard dispatch
+form, i.e. the highest-real-frequency actions were correctly the first
+ones implemented.
+
+**Not resolved tonight**: precise per-action counts (needed for a
+confident full ranking of the initial compat command set beyond the
+already-obvious top 3). A retry of the caller-inventory pass should use
+a single ripgrep multi-pattern invocation with explicit `--glob`
+exclusions (`!.git`, `!__pycache__`, `!*.pyc`) rather than 90 sequential
+subprocess calls, which is what likely caused tonight's hang.
