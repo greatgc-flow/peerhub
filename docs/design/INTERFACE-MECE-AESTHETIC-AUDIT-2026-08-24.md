@@ -357,3 +357,96 @@ today's cluster), noting superseded/historical docs explicitly (many
 files likely reference designs later superseded by ratified decisions,
 same pattern as `HUB-REPLACEMENT-ROADMAP-2026-08-09.md`'s own
 stale-status problem found earlier).
+
+## Phase 2: remaining `_sys/cli/` files audit (2026-08-24, cx, real file access confirmed)
+
+Different lens than phase 1 (these 8 files are not structurally parallel
+siblings) — internal quality per file. Full access confirmed.
+
+**`diag.py`** (2593 lines, no module docstring): several broad
+`except Exception` handlers degrade to fallback output silently (IPC
+staged-file reporting, terminal-peer detection, active-profile lookup,
+routing-policy loading, git status) — for a DIAGNOSTIC tool, this
+reduces diagnostic truthfulness, the primary concern. Hardcoded local
+thresholds (4h stale-daemon, 120/90-col layout, 24h usage window,
+display limits) may belong in central config. No cross-file duplication
+found beyond ordinary subprocess/status probing.
+
+**`peer_mgr.py`** (875 lines): malformed transaction journals silently
+skipped in `_check_and_recover_transactions()` — could leave corrupted
+recovery state unnoticed. Fallback `BasicFileLock` differs materially
+from `filelock.FileLock` (treats existing lock file as contention, can
+wait until timeout for stale locks — documented but an operational
+weakness). Recovery trusts journal `rel_path` values, reconstructs
+targets as `_SYS/rel_path` — **no apparent path-traversal/journal-
+integrity validation**. Otherwise matches its detailed docstring.
+
+**`peer_console.py`** (465 lines): `_resolve_profile_and_model()` and
+`_check_forbidden_args()` silently convert orchestration/config parsing
+failures into DEFAULTS — for a security/profile-enforcement layer, this
+can conceal policy drift or malformed config. Peer-specific security
+defaults/dangerous-arg sets embedded directly in code, overlapping
+conceptually with `orchestration.json`/security contracts (risk of
+divergence). `_consumes_next_value()` heuristic (assumes every
+option-like token consumes the next unless it contains `=`) can misplace
+root flags for boolean options followed by positional args. **Docstring
+overclaim**: says wrappers "keep peer consoles in full-autonomy mode by
+default," but `cx` actually defaults to `workspace-write` and `gc`
+defaults to `auto_edit` — wording broader than actual behavior.
+
+**`batch_review.py`** (153 lines): `_get_diff()` ignores subprocess
+return codes — git failures can be presented to Gemini as valid review
+input (stderr with the real failure reason discarded).
+`_time_gate_ok()` **fails OPEN** on malformed/unreadable state (returns
+`True`) — can cause reviews to run more often than policy permits.
+`_update_last_review_ts()` unprotected — a successful review can still
+end with an uncaught state-write error. `_get_diff()` conceptually
+duplicated with `git_draft.py` (staged/unstaged semantics differ).
+
+**`manage.py`** (170 lines): **concrete defect** — argparse `action`
+choices omit `"workspace_init"` while dispatch logic checks BOTH
+`"workspace-init"` and `"workspace_init"` — the underscore branch is
+**unreachable dead code**. `get_subst_mappings()` catches all exceptions
+→ `{}`, hiding missing-`subst.exe`/encoding/unexpected-output failures;
+appears unused within this file (confirm if it's a retained legacy
+public API). Hardcoded fallback paths/defaults (`.ai/{peer_id}`,
+`cfg["root_dir"]`, npm-global layout) that should stay `peers.json`-
+governed. "Thin wrapper" docstring claim is incomplete — workspace-init
+is a substantial legacy implementation.
+
+**`git_draft.py`** (100 lines): temp output/diff files deleted ONLY
+after `save_raw()` succeeds — if it raises, both files leak in system
+temp. `_get_diff()` collapses every git failure into an empty string →
+reports "No changes detected" for repo errors/invalid paths/git
+timeouts (same class of bug as `batch_review.py`'s — **a shared helper
+would fix both at once**).
+
+**`ag_statusline.py`** (65 lines): first two stdin/log-write exception
+handlers silently discard failures (may be acceptable for best-effort
+statusline, but makes input/logging failures invisible).
+`subprocess.run(..., check=False)` doesn't inspect `returncode` — an
+unsuccessful script invocation with any stdout is treated as success.
+`STATUSLINE_TIMEOUT_SEC = 8` is a local magic value, should be
+centralized if a timeout policy exists elsewhere.
+
+**`cleanup.py`** (47 lines, cleanest of the 8): `run_cleanup()` and the
+`__main__` path construct two slightly different contexts (probably
+intentional, deserves a contract test). Wrapper silently discards
+`core.scrubber.run()`'s return value — callers can't observe success/
+failure through the legacy API. Otherwise clean.
+
+### Top 5 most significant issues across all 8 files
+
+1. **`manage.py`**: unreachable `"workspace_init"` dead branch (concrete, unambiguous defect).
+2. **`batch_review.py` + `git_draft.py`**: git failures misreported as empty diffs in both (shared root cause, shared fix opportunity).
+3. **`peer_console.py`**: security/config parsing failures fail silently (concerning for a security-enforcement layer specifically).
+4. **`batch_review.py`**: malformed review-gate state fails OPEN (runs reviews more than policy permits, not fewer — wrong fail direction for a rate-limiting gate).
+5. **`ag_statusline.py`**: subprocess nonzero exit code ignored.
+
+**Not yet applied** — this session remains audit/documentation for these
+8 files (unlike the 3 launcher scripts, where the user explicitly
+authorized applying clearly-safe fixes). These findings are real but
+some (e.g. `diag.py`'s broad exception handling) involve judgment calls
+about acceptable degradation vs. hidden failures that warrant discussion
+before changing, not purely mechanical fixes like the launcher findings
+were.
