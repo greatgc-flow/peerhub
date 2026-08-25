@@ -86,3 +86,30 @@ reconciliation effort.
    vs `application/` vs `governance/` a clean, MECE separation, or is
    there overlap — e.g. `application/legacy.py`'s `LEGACY_CATALOG`
    duplicating naming concerns that might belong in `core/`?).
+
+## CONFIRMED (2026-08-24): finding #3 is a real structural gap, not just a wiring omission
+
+Direct read of `console_runner.py`'s `_update_peer_health_json` confirms:
+this function has explicit branches for `spec.peer_id == "cx"` and
+`== "ag"` only — **there is no `cc` branch at all.** Even if
+`claude_entry.py` passed a `health_json_path`, nothing would happen for
+`cc` today. This is a genuine gap in `console_runner.py` itself (missing
+a `cc`-specific update branch — presumably `_sys/claude/health.json` gets
+updated through a different path, e.g. the terminal session's own
+tracking or a `hub.py health-update` call elsewhere, not this
+console-runner flow), not merely `claude_entry.py` forgetting to pass a
+field. **Worth fixing for consistency** once this reaches implementation
+— but confirming WHERE `_sys/claude/health.json` actually gets updated
+today is a prerequisite (not yet checked) before concluding cc's health
+tracking is actually broken vs. just handled elsewhere.
+
+Also confirmed: this function has a real, well-documented historical
+bug-fix comment for `cx` (a hard-killed wrapper could previously leave a
+false successful-invocation record; fixed to only write at "finish", not
+"start") — a good example of this project's own documentation discipline
+already being followed here. The `cc` gap and the `claude_entry.py`
+existence-check gap are the concrete, real inconsistencies; the `ag`
+env-var asymmetry (finding #4) remains open — ag's peers.json-driven env
+loading may simply reflect that ag genuinely needs more runtime config
+than the other two, which would make it correctly NOT symmetric, not a
+bug.
