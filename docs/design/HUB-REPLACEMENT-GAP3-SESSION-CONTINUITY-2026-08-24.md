@@ -262,3 +262,18 @@ membership/ordering/archival/replay. **Not yet ruled out**:
 — room/thread concepts could plausibly live there. Needs a targeted read
 before calling this gap repository-wide (currently only "not in
 dispatch/health/governance," not "not anywhere").
+
+## CORRECTION (2026-08-24, same day): room/thread ARE named in real code
+
+`HUB-REPLACEMENT-CRITICAL-FINDING-LEGACY-CATALOG-2026-08-24.md` found
+`peerhub/application/legacy.py`'s `LEGACY_CATALOG` already assigns real
+target names for room/thread: `coordination.room.clear`,
+`coordination.topic.create` (= `new-topic`), `coordination.thread.create/
+append/react/promote`, `coordination.terminal.*`,
+`coordination.handoff.append`. **This corrects the prior reconciliation
+round's conclusion that room/thread is "not found anywhere in peerhub"**
+— it IS named/planned, just `INVENTORIED`/`NOT BACKED` (no handler, no
+schema) like ~87 of ~90 catalog entries. The gap is real at the
+IMPLEMENTATION and DATA-MODEL level (this doc's own room/session/thread
+schema proposal is still needed work), not at the naming/discoverability
+level.
