@@ -90,3 +90,44 @@ Contract tests (adapter contract, independent of peerhub internals) → differen
 5. **Initial compat command set**: PROVISIONAL, not yet a real measurement. Proposed first set: `ask`, `ask-all`, `ask-coordinator`, `status`, `check`, `health-check`, `health-update`, `init-session`, `end-session`, `context-fill`, `send`, `broadcast`, `mark-read`, `consensus-propose`, `consensus-vote`, `consensus-check`, `peer-status`/equivalent. Everything else (append-log, checkpoint, handoff, thread ops, node registration, lessons, directives, admin mutations) stays `MIGRATION_REQUIRED`/`UNSUPPORTED` until measured. Static caller-inventory method proposed (since no live traffic logs exist): repo-wide search across `P:\` for `hub.py` invocations/legacy action names/exit-code-branching patterns (`.py`/`.ps1`/`.bat`/`.cmd`/`.sh`/`CLAUDE.md`/`AGENTS.md`/tests/skills/scheduled tasks/prompts), normalized into per-caller migration records; add opt-in compat-telemetry for dynamic observation later (command family/caller identity/outcome class/schema only, not payload, unless separately authorized); treat external/untracked callers as an explicit residual-risk category — absence from inventory ≠ evidence of absence.
 
 **Status after round 2**: entrypoint and session-mapping direction resolved; JSON schema proposed pending ratification; exit-code contract and exact initial command set both explicitly data-dependent (need a real static-inventory pass across `P:\`, not just this round's best-effort reasoning) before final ratification.
+
+## SUPERSEDING CORRECTION (2026-08-24): clean cutover, not permanent compatibility
+
+**User clarified the real goal**: hub.py and its 12 dependency modules will be COMPLETELY DELETED and replaced entirely by peerhub — this is a clean cutover, not indefinite dual-system coexistence. "호환 또는 상위호환 (compatible or a strict superset) is fine" — peerhub does NOT need hub.py's exact command names/flags/exit codes/output format as a permanent contract, only equivalent-or-better capability, with every real caller migrated ONCE.
+
+**This replaces the "staged hybrid" recommendation above.** The `PEERHUB_COMMAND_MODE: legacy→shadow→compat→native→retired` long rollout, the dual-run-forever differential-testing infrastructure, and the exit-code-preservation table are no longer the right shape of work — they were designed for indefinite backward compatibility, which is not the goal.
+
+### Revised recommendation: bounded migration program
+
+1. Define peerhub's native command/API surface around capabilities, not legacy syntax.
+2. Build a complete caller inventory (scripts/.bat wrappers, `CLAUDE.md`/prompts/docs, tests/fixtures, scheduled jobs, runbooks).
+3. Per caller: current hub.py invocation, intended native operation, semantic differences, migration owner/file, validation test.
+4. Migrate callers once to the native surface.
+5. Run the migrated caller/test suite + operational smoke tests.
+6. Freeze and archive the migration mapping (as a historical record, not a live contract).
+7. **Delete hub.py and its 12 dependency modules** only after the deletion gate passes.
+
+A **temporary** compat shim may still help as migration scaffolding (if callers can't all move in one atomic release) — but it must: cover only an explicitly inventoried subset, emit migration warnings/telemetry, have a fixed removal date/release gate, never become permanent architecture, fail clearly for unmapped/unsafe operations.
+
+**Verification bar**: zero unexplained legacy callers; every discovered caller migrated or explicitly retired; migrated-caller tests pass; critical workflows pass end-to-end against peerhub; no production path depends on the temporary shim; deletion of legacy modules leaves no import/path/doc/test references; rollback available during deployment, not via permanent dual execution. **No indefinite shadow mode, differential runner, exit-code-preservation table, or legacy command-mode lifecycle is required.**
+
+### Effect on gaps 2-7
+
+Their **native command-surface designs remain necessary as-is** — peerhub still needs real functionality for consensus, session continuity, health/leadership, tasks, governance, diagnostics. Their **"legacy compatibility mapping" tables should be reframed** (same content, different permanence) as a **one-time migration mapping / semantic-equivalence receipt**: `{Legacy operation, Native peerhub operation, Semantic delta, Caller set, Verification, Retirement condition}`. "Equivalent" means equivalent capability + policy outcome, not identical syntax/serialized output.
+
+### Revised priority order (was: "compat command surface" = blocking #1)
+
+1. **Native replacement completeness / semantic contracts** — prove peerhub covers hub.py's real behavior (state transitions, governance enforcement, recovery, persistence). This is the actual hard work, not a command surface.
+2. **Caller discovery and migration inventory** — an incomplete inventory is the main clean-cutover risk (an overlooked script breaks after deletion).
+3. **Migration and cutover verification harness** — test real migrated callers + critical workflows, including negative/recovery paths.
+4. **State/data migration and operational cutover plan** — `.ai` state, sessions, handoffs, logs, locks, in-flight tasks.
+5. **Deletion and reference hygiene** — remove hub.py/12 deps/stale wrappers/docs/tests/imports only after the deletion gate.
+6. **Optional temporary compat shim** — only if incremental migration is operationally necessary; designed for removal from day one.
+
+### Updated overall verdict
+
+Peerhub is now substantially closer to replacement-ready under this framing than under "preserve hub.py compatibility forever." **Easier**: clean native naming, no indefinite adapter layer, no permanent dual-run/shadow infra, exit codes/output format not a permanent contract, compat debt has a bounded end date, the 12 legacy modules can genuinely be deleted. **Equally hard, unchanged**: consensus correctness/quorum enforcement, session continuity/fingerprints/handoff/recovery, health gates/leadership/failover semantics, task ownership/checkpoint/failover, governance authorization/mutation boundaries, atomic state transitions/crash recovery, diagnostics with real provenance, complete caller discovery, live-state migration. **The clean cutover removes a large amount of compatibility-engineering effort, but does not reduce the core implementation burden of the orchestration system itself** — gaps 2-7's actual domain-logic design/build work is unchanged in difficulty.
+
+### New open questions from this correction (12)
+
+Atomic cutover vs. a short incremental migration window? Authoritative peerhub state format — must existing `.ai` state be migrated? What happens to in-flight consensus rounds/tasks during cutover? Are old session transcripts/handoff records read-only archival, or must peerhub consume them natively? Does "equivalent" mean policy-outcome-only, or also persistence/observability details? Complete confirmed list of the 12 dependency modules? External callers outside the repo? Rollback mechanism during deployment if legacy code is already deleted? Who approves the final deletion gate? Is the temporary shim allowed to write state, or must it be a pure translator? What evidence proves no caller remains — static search, runtime telemetry, or both? Are human-facing workflows in scope, or only automated callers?
