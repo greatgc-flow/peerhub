@@ -334,3 +334,26 @@ just a relevant existing example.
 docs/design/'s now-15-file organization) is real, open-ended work per
 the user's "영원히" instruction, but is left for a follow-up pass rather
 than continuing indefinitely without a fresh prioritization signal.
+
+## Docs/design/ folder organization finding (2026-08-24)
+
+`docs/design/` has **71 total files**, no master `README.md`/`INDEX.md`
+for the whole folder. Today's 12-file hub-replacement cluster is
+internally well-indexed (`HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-
+2026-08-24.md`), but there's no entry point for the other ~59
+pre-existing files spanning many earlier, unrelated efforts (item C's
+57-round arc, Phase 0/1 admission/promotion-schema work, etc.).
+
+**This is a real, concrete finding** matching the user's "문서... 알기
+쉬운지" request — a newcomer (human or peer) has no way to know what
+exists without listing the directory and guessing from filenames.
+**Not attempted here**: building a master index for all 71 files is a
+separate, much larger effort (requires understanding each doc's current
+status/relevance, most unrelated to today's hub-replacement work) — left
+as a recommended follow-up, not done as part of this session's scope.
+**Recommendation for a future pass**: a `docs/design/README.md` grouping
+files by effort/date (mirroring how `HUB-REPLACEMENT-*` already groups
+today's cluster), noting superseded/historical docs explicitly (many
+files likely reference designs later superseded by ratified decisions,
+same pattern as `HUB-REPLACEMENT-ROADMAP-2026-08-09.md`'s own
+stale-status problem found earlier).
