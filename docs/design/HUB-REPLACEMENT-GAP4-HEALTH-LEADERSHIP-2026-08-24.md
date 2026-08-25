@@ -323,3 +323,31 @@ on this exact same field pattern minus the session/command/attempt-
 specific fields, scoped to `room_id`/`role` instead. This is real,
 concrete follow-up design work now that the "just reuse
 SessionLeaseCoordinator" hope is field-level ruled out.
+
+## FIELD-LEVEL CONFIRMATION (2026-08-24, terminal): canonical identity is a composite (instance_id, profile_id) pair
+
+Direct read of `peerhub/health/contract.py`:
+
+```python
+class EvidenceSubject:
+    scope: PolicyScope
+    subject: str
+
+class HealthScopeBinding:
+    scope: PolicyScope
+    subject: str
+    members: tuple[tuple[str, str], ...]   # each member = (instance_id, profile_id)
+```
+
+**This resolves gap-4's open question #2 (canonical identity)**:
+identity is NOT a single peer-ID string — it's consistently a
+**composite `(instance_id, profile_id)` pair**, matching
+`SessionBindingKey`'s own 4-part key (`workspace_scope_id, instance_id,
+profile_id, conversation_scope` — see gap-3's reconciliation) which uses
+the same two fields. A "subject" at the health layer is a
+`(PolicyScope, subject_string)` pair, and scope-membership groups
+multiple `(instance_id, profile_id)` members under one subject. This is
+now confirmed, not inferred: any `NodeRegistry`/peer-identity design for
+gap-4 should use `(instance_id, profile_id)` as its composite key,
+consistent with the rest of the real codebase, not invent a different
+identity shape.
