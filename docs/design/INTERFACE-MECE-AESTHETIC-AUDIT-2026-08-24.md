@@ -113,3 +113,91 @@ env-var asymmetry (finding #4) remains open — ag's peers.json-driven env
 loading may simply reflect that ag genuinely needs more runtime config
 than the other two, which would make it correctly NOT symmetric, not a
 bug.
+
+## `cx` independent review (2026-08-24) — confirms all 3 findings, adds a 4th
+
+`cx` had real file access this round (confirmed reading `peers.json` and
+`_sys/claude/health.json` directly) and independently verified the 3
+findings as structural facts, plus found a **4th**: `peers.json` declares
+`CLAUDE_CONFIG_DIR` for Claude, but `claude_entry.py` never consumes it
+— the env-var asymmetry (original finding #4) is broader than just
+Antigravity being special; Claude has an unused declared config path too.
+
+### Recommendations (not yet applied — design/audit only, per this project's standing "no implementation before architecture is settled" rule; these are NOT peerhub design docs, they're live `_sys/cli/` scripts)
+
+1. **`_set_title()`**: extract to a new `_console_helpers.py`, NOT into
+   `console_runner.py` — title-setting is entry-point/UI setup;
+   `console_runner.py` should stay scoped to session lifecycle/leases/
+   spawning/health. All 3 wrappers import the helper.
+2. **`claude_entry.py` existence check**: add the same pattern as its
+   siblings (`if not _CLAUDE_CMD.exists(): print("[ERROR] claude.cmd not
+   found at ..."); print("  Install: npm install -g @anthropic-ai/claude-code");
+   sys.exit(1)`).
+3. **`cc` health branch**: **genuine gap, confirmed** — real
+   `_sys/claude/health.json` already has the same `availability.
+   last_invocation_*` fields `cx`'s branch writes for Codex, so this
+   isn't a schema-incompatibility issue. Recommended: wire
+   `health_json_path=_SYS_DIR/"claude"/"health.json"` into
+   `claude_entry.py`'s spec, then either add a `cc` branch mirroring
+   `cx`'s "finish" logic, or (cx's stronger recommendation) **generalize
+   `_update_peer_health_json` to a data-driven/strategy pattern instead
+   of accumulating more `if peer_id == ...` branches** — this is the
+   MECE-correct fix, not just a copy of the `cx` branch. **Caution before
+   implementing** (cx's own flag): verify whether some OTHER process
+   already writes to `_sys/claude/health.json`'s invocation fields (cc is
+   sometimes the terminal itself, not just a spawned subprocess like
+   ag/cx) — a second writer could conflict. Add a regression test for
+   this before landing the change.
+4. **Env-var asymmetry (broader than first thought)**: Antigravity's
+   `peers.json`-driven loading is justified in principle (real declared
+   vars: `AGY_CONFIG_HOME`, `GEMINI_DIR`) but the CURRENT implementation
+   is itself sloppy — loads only Antigravity's keys, and (real bug)
+   **assigns every declared key the SAME computed directory value**,
+   ignoring what each key's value should actually resolve to. Codex
+   hardcodes `CODEX_HOME` instead of reading the same registry. Claude's
+   declared `CLAUDE_CONFIG_DIR` is unused entirely. **Recommended: a
+   shared env-resolver reading `peers.json` uniformly for all 3 peers,
+   preserving genuinely peer-specific variables, not a blanket
+   normalization that pretends all 3 need identical env vars.**
+5. **Naming**: `_CLAUDE_CMD`/`_CODEX_CMD` (`.cmd` launchers) vs
+   `_AGY_EXE` (native exe) — the distinction is technically real but
+   visually inconsistent. Recommended: rename all 3 to a uniform `_PATH`
+   suffix (`_CLAUDE_PATH`/`_CODEX_PATH`/`_AGY_PATH`) since the variables
+   ARE filesystem paths regardless of launcher type; keep the launcher-type
+   distinction in comments, not the variable name.
+
+### MECE assessment
+
+Current split is "mostly sound": entry points own peer-specific
+executable path/env/cwd/context-options/health-path/historical-behavior-
+flags; `console_runner.py` owns common launch classification, hub
+lifecycle, lease handling, heartbeat, process execution, final health
+status, shared bookkeeping. **Real gaps**: duplicated title logic,
+inconsistent executable preflight, health bookkeeping keyed by hardcoded
+peer IDs (should be data-driven), env config split between code and
+registry inconsistently. `console_runner.py` should NOT absorb
+title-setting (wrong layer) but SHOULD make health bookkeeping
+strategy-based rather than growing more `if peer_id == ...` branches.
+
+### `cx`'s recommended next-check sequence (highest-value first)
+
+1. Verify environment-loader ownership: inspect `launcher.py`,
+   `manage.py`, `hub.py`, and any env-loader modules; compare their
+   `peers.json` resolution against the 3 entry points — determine if the
+   wrappers are bypassing an existing canonical resolver that should be
+   reused instead of building a new one.
+2. Verify health-file writer ownership: `rg -n "health\.json|
+   last_invocation|active_pid|health-update" _sys` — identify whether
+   multiple processes write the same peer's health file (directly
+   relevant to the `cc`-branch caution in item 3 above).
+3. Only then: extract the title helper + add Claude's executable/health
+   parity.
+4. Broader survey: all `_sys/cli/*.py` for direct subprocess/Popen/
+   os.system/cmd.exe launches, duplicated env/path/title/health/error
+   logic, import direction into `launcher.py`/`peer_console.py`/
+   `console_runner.py`; check for import cycles before extracting a new
+   shared module; build a responsibility matrix across all 12 CLI files
+   (inputs, subprocess ownership, config source, health writes,
+   user-facing errors); check existing test coverage for entry-point
+   structure/launcher contracts/health bookkeeping/env loading/missing-
+   executable behavior.
