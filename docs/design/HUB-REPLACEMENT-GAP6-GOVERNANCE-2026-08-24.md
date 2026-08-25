@@ -236,3 +236,18 @@ assumable.
 Same verified/inferred/test-needed split as gap-2's reconciliation
 applies here (see that doc) — nothing artifact-type-specific changes the
 uncertainty level.
+
+## CONFIRMED (2026-08-24, terminal, field-level read): same CAS/accumulating-target model applies to all 5 artifact types
+
+See gap-2's doc for the full field-level confirmation (`TargetState{target_id,
+revision, state: Mapping[str,JsonValue], updated_at}`,
+`MutationRequest{..., expected_revision, operation: str, desired_state:
+Mapping}`, `MutationPlan` enforcing `next_revision == previous_revision +
+1`). This applies identically to directives/lessons/proposals/feedback/
+alerts: each artifact's full lifecycle state lives in its `TargetState.state`
+JSON blob, each lifecycle transition (`propose`, `activate`, `resolve`,
+etc.) is a `MutationRequest` with the appropriate `operation` string and
+`desired_state`, and the broker's revision-CAS handles concurrent-mutation
+safety generically. **No per-artifact-type event-sourcing machinery is
+needed** — this was already gap-6's post-reconciliation conclusion, now
+confirmed at the field level rather than inferred from class names alone.
