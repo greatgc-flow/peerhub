@@ -264,3 +264,45 @@ value; this needs its own careful fix, not a quick patch), the
 data-driven/strategy-based instead of `if peer_id == ...` branches (the
 minimal `cc`-added fix above is backward-compatible and safe, but the
 bigger refactor is real follow-up work, not done here).
+
+## APPLIED (2026-08-24, round 2): finding 4 fully resolved
+
+Added `load_peer_env_vars(sys_dir, peer_key)` to `_console_helpers.py` —
+a single generic resolver reading `peers.json`'s declared `env_vars` for
+any peer, resolving each key to `_sys/<peer_key>/<declared subdir>`, only
+including it if that directory actually exists (preserves codex_entry.py's
+original existence-guard behavior, and ADDS that same missing safety
+property to agy_entry.py, which never had it). Applied to all 3:
+
+- **`agy_entry.py`**: replaced its per-key loop, which had a **latent
+  bug** — it resolved every declared key to the SAME hardcoded `"config"`
+  subdirectory regardless of that key's own declared value in
+  `peers.json`, invisible today only because both of ag's current keys
+  (`AGY_CONFIG_HOME`, `GEMINI_DIR`) happen to declare `"config"`. Fixed
+  generically; a future 3rd key with a different declared subdir would
+  now resolve correctly instead of silently landing in the wrong
+  directory.
+- **`codex_entry.py`**: replaced the hardcoded `CODEX_HOME` assignment
+  with reading `peers.json`'s own declared `codex.env_vars.CODEX_HOME`
+  entry (same resolved value today: `_sys/codex/config`).
+- **`claude_entry.py`**: now reads the previously-completely-unused
+  `claude.env_vars.CLAUDE_CONFIG_DIR` declaration (`P:\_sys\claude\config`).
+
+**Verification**: `py_compile` clean on all 4 touched files; import-level
+smoke test confirms all 3 peers resolve to their existing directories
+unchanged (`codex`/`agy` produce byte-identical values to their
+pre-refactor hardcoded/buggy versions; `claude` gains the previously-
+missing value); `codex_entry.py --version` live-smoke-tested again post-
+change (exit 0). `claude_entry.py` was NOT live-launched (would spawn a
+nested Claude Code process from inside this very session) — verified at
+compile/import level only, consistent with how it was verified in round 1.
+
+Committed `P:` repo `169906f`, pushed. **All 4 original interface-audit
+findings are now applied.** Remaining open item from this doc: `cx`'s
+stronger recommendation to make `console_runner.py`'s
+`_update_peer_health_json` fully data-driven/strategy-based (the current
+`if peer_id in (...)` branch-per-peer-family shape works and is
+backward-compatible, but isn't the most MECE-elegant long-term shape) —
+left as documented follow-up, not applied, since it's a larger refactor
+than the "clearly safe, backward/superset-compatible" bar the other 4
+fixes met.
