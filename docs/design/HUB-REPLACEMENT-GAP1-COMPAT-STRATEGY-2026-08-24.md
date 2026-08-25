@@ -193,3 +193,39 @@ documented above (file-level concentration in `hub.py`/`protocol.json`/
 `console_runner.py`) remains the best available real signal tonight. A
 future retry should use one ripgrep multi-pattern call with `.git`/
 `__pycache__` exclusions, not 90 sequential subprocess invocations.
+
+## Real exit-code distribution in hub.py (2026-08-26, terminal, direct grep — cheap, targeted)
+
+Instead of the failed repo-wide caller-frequency approach, a direct
+grep of `hub.py`'s own `sys.exit(...)` call sites gives real (if
+partial — call-site count, not runtime-frequency) data:
+
+```text
+108x  sys.exit(1)
+ 13x  sys.exit(3)
+  6x  sys.exit(2)
+  3x  sys.exit(0)
+  9x  sys.exit(SOFT_SKIP_EXIT)   # SOFT_SKIP_EXIT = 7 (named constant, confirmed real)
+  3x  sys.exit(proc.returncode)  # raw subprocess passthrough
+  1x  sys.exit(result.get("code", 3))  # dynamic, defaults to 3
+  1x  sys.exit(hard_code if hard_code > 0 else 1)  # dynamic, defaults to 1
+```
+
+**This confirms and refines the earlier best-effort classification**
+(from the 2026-08-24 round, made without this data): `1` genuinely IS
+the overwhelming majority (108 of ~145 call sites) — strongly supports
+treating it as a generic-failure catchall, not a specific contractual
+signal. `3` (13 sites) and `2` (6 sites) are meaningfully less common
+but not rare — worth checking a sample of their actual call sites before
+assuming they're all one semantic category (not done this round — call-
+site COUNT alone doesn't establish semantic consistency across all 13/6
+occurrences). `SOFT_SKIP_EXIT=7` (9 sites) is confirmed as a real, named,
+distinct constant — not a magic number, genuinely worth preserving as a
+distinguishable code in any compat mapping. `0` (3 explicit sites) —
+most success paths likely fall through without an explicit `sys.exit(0)`
+call, so this count understates real success-path frequency.
+
+**Still not resolved**: real CALLER behavior (does anything actually
+branch on 2 vs 3 vs generic-1?) — this grep only shows what hub.py emits,
+not what callers do with it. That half of the question remains
+genuinely data-dependent and unresolved tonight.
