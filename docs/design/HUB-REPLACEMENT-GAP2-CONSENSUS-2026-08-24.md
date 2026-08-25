@@ -286,3 +286,55 @@ does something else happen?) still needs a read of `broker.py`'s actual
 `apply_mutation_plan`/`validate_expected_revision` function bodies (not
 yet done), but the MECHANISM (CAS on `expected_revision`) is now
 code-confirmed, not guessed.
+
+## CONCRETE SCHEMA DESIGN (2026-08-24, cx, built on the field-level confirmation above)
+
+Proposed `TargetState.state` envelope (`schema: "peerhub.consensus-round.v1"`) — stable across all phases, phase transitions change `phase`/`status` and append immutable evidence, never redefine existing field meanings:
+
+```json
+{
+  "schema": "peerhub.consensus-round.v1",
+  "round_id": "round-2026-08-24-001",
+  "phase": "voting",
+  "status": "open",
+  "proposal": {"title": "...", "question": "...", "body": "...", "proposer_id": "cx", "proposed_at": 1756000000, "source_hash": "sha256:..."},
+  "participants": {"required": ["cc","cx","ag"], "eligible": ["cc","cx","ag"], "quorum": {"formula": "max(2, f(N, risk))", "required": 3, "risk": "normal", "basis": "protocol-v2"}},
+  "votes": {"cc": {"choice": "agree", "actor_id": "cc", "cast_at": 1756000010, "mutation_id": "mut-001"}},
+  "quorum": {"reached": false, "reached_at": null, "counted_votes": 1, "required_votes": 3},
+  "final_call": null,
+  "escalation": null,
+  "resolution": null,
+  "abandonment": null,
+  "audit": {"last_operation": "cast_vote", "last_actor_id": "cc", "operation_count": 2}
+}
+```
+
+`phase` values: `proposed → voting → quorum_reached → final_call → resolved | abandoned`. `status` (redundant, guard-friendly): `open | resolved | abandoned`. `final_call` object during that phase: `{required, opened_at, opened_by, question, acks: {actor: {ack, actor_id, acked_at, mutation_id}}, required_acks, ack_count, complete}` — **Final Call is an ACK round, not a second ordinary vote**; an ACK exposing a retroactive invariant violation transitions to escalation/abandonment per policy. `resolution`: `{outcome, resolved_at, resolved_by, basis, decision_hash, effective_state}`. `abandonment`: `{reason_code, reason, abandoned_at, abandoned_by, preceded_by}`.
+
+### Operation → state-computation table
+
+| Operation | Valid transition | Computation |
+|---|---|---|
+| `propose` | nonexistent → `proposed` | Create canonical envelope, empty votes/quorum, null phase objects. |
+| `cast_vote` | `proposed`/`voting` → `voting`/`quorum_reached` | Copy state, validate actor eligibility+choice, set `votes[actor_id]`, recompute counted-votes+quorum. |
+| `final_call_ack` | `final_call` → `final_call`/`resolved`/escalation | Copy state, validate ACK actor+uniqueness, set `final_call.acks[actor_id]`, recompute completion, create `resolution` if complete. |
+| `mark_timeout` | any open phase → timeout handling | Copy state, record timeout evidence; if protocol mandates Human Tier-0 escalation, create escalation record — **never silently resolve**. |
+| `request_escalation` | open/timeout → escalation pending | Copy state, set `escalation{reason, requester, tier, deadline, required_authority}`. |
+| `resolve` | `quorum_reached`/`final_call`/human-escalation → `resolved` | Copy state, validate resolution authority+prerequisites, set immutable resolution data + `status:"resolved"`. |
+| `abandon` | any nonterminal → `abandoned` | Copy state, validate abandonment authority/reason, set immutable abandonment data + `status:"abandoned"`. |
+
+**`desired_state` is a COMPLETE replacement candidate, not a patch** — every operation reads current state, validates against phase+policy, constructs the FULL next state. `expected_revision` is broker-CAS-checked; a stale `desired_state` fails with a CAS conflict, **never auto-merged**.
+
+### PTY-peer (ag) vote submission — architectural recommendation, not yet confirmable from field-level evidence alone
+
+Two possible architectures: (1) the direct `.ai/consensus/{round_id}.json` write is authoritative and ag bypasses `MutationRequest` entirely (needs a broker-side importer/reconciler to validate + convert + dedupe); (2) the file/`hub.py send` path is transport-only, and a coordinator/adapter receives the payload and issues a normal `MutationRequest(actor_id="ag", operation="cast_vote", ...)`. **cx recommends (2)** — keeps authorization/CAS/idempotency/audit/invariants centralized, ag's transport constraint stays intact. **Cannot be fully resolved without inspecting the actual write/send handler code** (not yet done). Standing requirement regardless of which: **all accepted ag votes MUST become governed `MutationRequest`s before affecting `TargetState` — a raw file must never be treated as committed consensus state.**
+
+### 3 more ratification items resolved
+
+- **Vote correction**: allowed via another `cast_vote` mutation (same `actor_id`, includes prior vote/hash, new `request_id`/`command_id`/idempotency key), **only while `proposed`/`voting`**, rejected after Final Call opens unless explicitly permitted. Visible `votes[actor_id]` = latest valid vote only; correction history lives in the broker journal. A correction recomputes quorum (may LOSE a previously-reached quorum if policy permits pre-Final-Call corrections).
+- **Human Tier-0 override**: must NOT be an ordinary peer vote / must NOT use a peer identity. If the identity model supports a distinct authenticated authority class: `{actor_id: "human:<subject-id>", actor_kind: "human", authority_tier: 0, operation: "human_override", desired_state: ...}`, with `resolution.authority: {kind:"human", tier:0, subject_id, credential_evidence}` recorded separately. **A process merely claiming `actor_id:"human"` is insufficient** — if no authenticated human-admission path exists yet, the override needs a separate escalation/control plane materialized into a broker mutation by a trusted authority adapter afterward. Unresolved without the real admission/authority implementation.
+- **Coordinator identity/failover**: the coordinator is a **role/lease over the domain, NOT a consensus participant/voter**. Round state may record `coordination: {role:"domain-coordinator", holder_id, term, lease_expires_at}`; broker stays stateless about "who is coordinator" except validated lease/term metadata; any eligible process may acquire the next term; old coordinators fenced by term/lease checks. Whether this needs its OWN separate `TargetState` (a lease/target abstraction) depends on real lease/fencing primitives not yet confirmed (see gap-4's field-level finding: `LeaseCreateRequest` is session/attempt-specific, so coordinator leadership likely needs its own lease type here too, consistent with that finding).
+
+### Still unresolved (needs source inspection or explicit user policy decision)
+
+Whether `desired_state` must be the complete canonical state or may be a broker-validated patch (this doc assumes complete-replacement, needs confirming against `mutations.py`'s real `plan_mutation`/`apply_mutation_plan` bodies); exact `f(N,risk)` for N>3; whether quorum may be lost after a correction; whether Final Call is mandatory for every quorum or only selected risk classes; whether Final Call ACKs veto on all invariant violations or a defined subset; exact timeout/escalation deadline mechanics past the 30-min Human Tier-0 trigger; the authoritative ag transport→MutationRequest conversion (see above); the actual `effect_intent` structure (consensus-state field or broker metadata?); human authentication/authority evidence and whether `human_override` can safely enter the normal broker; coordinator lease/term/fencing/failover semantics; whether audit history belongs in `TargetState.state`, an external journal, or both.
