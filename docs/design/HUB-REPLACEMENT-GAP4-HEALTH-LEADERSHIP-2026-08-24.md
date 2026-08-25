@@ -189,3 +189,100 @@ layered on top. Treat health/quarantine as node admission state, not a
 lease. Preserve strict evidence provenance, explicit recovery, bounded
 sweeps, and gap-1's compat translation for the full legacy command surface.
 Defer the 11 items above pending peerhub-source inspection and user input.
+
+## RECONCILIATION AGAINST REAL SOURCE (2026-08-24)
+
+Per `HUB-REPLACEMENT-REAL-SOURCE-GROUNDTRUTH-2026-08-24.md`, the terminal
+read `peerhub/health/contract.py`/`model.py` directly and fed the real
+types to `cx` for reconciliation. **Gap-4's generic `NONE|
+AUTO_QUARANTINED|OPERATOR_QUARANTINED|DISABLED` quarantine state machine
+is SUPERSEDED — use the real types below instead.**
+
+### Mapping (gap-4 concept → real substrate)
+
+| Gap-4 concept | Real peerhub substrate |
+|---|---|
+| `NodeRegistry` | **No direct equivalent found** — genuinely still undesigned (see below) |
+| `PeerHealth` | `AvailabilityState`, `ReadinessState`, `HealthStage`, `HealthStageStatus`, `HealthFailureClassification`, `HealthCircuitSnapshot`, `HealthProjectionSnapshot` |
+| `DutyAssignment` | Partially = `SessionLeaseCoordinator` + lease/fence types; **leadership-specific semantics (election, challenge window, term limits) are NOT covered — still a real gap** |
+| Generic quarantine enum | `AdmissionState.QUARANTINED` + `QuarantineAuthorityClass` (orthogonal dimension) |
+| Recovery/probing | `PROBE_AUTHORIZED` + `RecoveryProbeGrant/Authorization/ClaimResult/Receipt/Application` + `ProbeResult`/`ProbeDisposition`/`ProbeTransition` |
+
+**Real model is MORE precise than gap-4's draft — 4 separate orthogonal
+axes, never collapse into one enum**: `AvailabilityState` (operational
+availability: UNKNOWN/PROBING/HEALTHY/DEGRADED/UNAVAILABLE/STALE),
+`ReadinessState` (is the latest evaluation usable:
+READY/PROBE_INCONCLUSIVE/READINESS_STALE), `AdmissionState` (may work be
+admitted: OPEN/PROBE_AUTHORIZED/RECOVERY_REQUIRED/COOLDOWN/QUARANTINED,
+confirmed precedence order), `HealthStage` (WHERE validation
+failed/succeeded — 6-stage pipeline), `CircuitState` (circuit-breaker:
+CIRCUIT_OPEN/CIRCUIT_CLOSED), `QuarantineAuthorityClass` (WHY quarantine
+exists: AUTOMATIC/MANUAL/SECURITY/POLICY — this IS the AUTO- vs
+OPERATOR-quarantine distinction gap-4 wanted, plus 2 more cases).
+
+### Usage/quota tracking
+
+`HealthStage.CHECK_USAGE_ADMISSION` is the correct native replacement for
+gap-4's "quota/EXH tracking" AT THE STAGE-CLASSIFICATION LEVEL only.
+**Does NOT prove** a full quota/EXH data model (counters, windows,
+exhaustion accounting, quota-family aggregation, reset timing,
+reservation/consumption semantics) exists — that remains unverified
+unless found in `HealthPolicy`/`PolicyAction` fields (not yet inspected).
+
+### Canonical identity (open question #2) — NOT answered by `PolicyScope`
+
+`PolicyScope` (ROOT/PROFILE/QUOTA_FAMILY/ENVIRONMENT) is policy TOPOLOGY,
+not object identity — doesn't resolve peer-ID vs node-ID vs
+installation-ID vs fingerprint vs composite. `EvidenceSubject`,
+`HealthScopeBinding`, `HealthScopeMembershipSnapshot` look more relevant
+to identity/scope-membership but their fields weren't inspected yet —
+**still open, needs a follow-up field-level read.**
+
+### `SessionLeaseCoordinator` for leadership — reuse the substrate, NOT a complete leadership implementation
+
+Appropriate for fencing/lifetime mechanics (create/renew/close/expire-
+recover/validate-fence + `LeaseSnapshot`/`SessionBindingKey`/
+`SessionBindingSnapshot`/`RecoveryReceipt`/`RecoveryTrigger`). **Does
+NOT demonstrate**: election/candidate ordering, challenge window, a
+`PENDING` assignment sub-state, term numbers/epochs/limits, incumbent-
+challenge rules, explicit role ownership, split-brain prevention beyond
+lease-fence validation. A challenge window could be layered ABOVE the
+coordinator (new leadership state/policy layer) — **no evidence `PENDING`
+is already a supported lease sub-state; this needs new code or a
+confirmed existing extension point.**
+
+### Registration/discovery — CONFIRMED still genuinely undesigned
+
+No supplied health/routing type is a direct counterpart to
+`register-node`/`list-nodes`/`discover`. `HealthScopeBinding`/
+`HealthScopeMembershipSnapshot` may support membership relationships but
+don't establish node registration/discovery APIs. **Gap-4 should keep
+`NodeRegistry` as an explicitly open design area — do not prematurely
+spec it until canonical identity + membership types are inspected at the
+field level.**
+
+### Revised quarantine/recovery flow (replaces the original section)
+
+`AdmissionState.OPEN` (normal) → `PROBE_AUTHORIZED` (recovery testing
+explicitly authorized) → `RECOVERY_REQUIRED` (recovery needed before
+normal admission) → `COOLDOWN` (repeated/policy-defined failure) →
+`QUARANTINED`. Authority carried SEPARATELY via `QuarantineAuthorityClass`
+(AUTOMATIC=health-driven, MANUAL=operator, SECURITY=security enforcement,
+POLICY=policy enforcement). Recovery uses the real probe types; probe
+execution = `ProbeResult`/`ProbeDisposition`; transitions include
+`FAILURE_BACKOFF_INCREMENTED`, `SUCCESS_CIRCUIT_CLOSED`,
+`STALE_PROBE_NO_OP`. **`AvailabilityState`/`ReadinessState`/
+`CircuitState`/`AdmissionState` must stay 4 separate axes, never
+collapsed into one enum** — a successful probe may affect circuit+admission
+state but doesn't automatically mean healthy/ready.
+
+**Gap-4 items retained only where NOT demonstrated by real types**:
+explicit transition-audit requirements, authority/actor provenance (if
+not already policy/evidence dataclass fields), any permanent-`DISABLED`
+state (no real equivalent found), challenge-window/leadership-specific
+recovery, detailed quota/EXH accounting beyond `CHECK_USAGE_ADMISSION`.
+
+**Next step for this category**: field-level read of `HealthPolicy`,
+`EvidenceSubject`, `HealthScopeBinding`, `HealthScopeMembershipSnapshot`,
+`AdmissionSnapshotEntry`/`AdmissionSnapshot` to resolve canonical identity
+and confirm/deny quota-accounting presence.
