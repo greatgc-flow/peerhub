@@ -450,3 +450,14 @@ some (e.g. `diag.py`'s broad exception handling) involve judgment calls
 about acceptable degradation vs. hidden failures that warrant discussion
 before changing, not purely mechanical fixes like the launcher findings
 were.
+
+## APPLIED (2026-08-24): manage.py dead-code fix
+
+Removed the unreachable `"workspace_init"` (underscore) branch check —
+argparse's choices only ever allow `"workspace-init"` (hyphen), so this
+was pure dead code, safe/backward-compatible to remove (verified: `--help`
+output unchanged, compiles clean). `P:` repo commit `7bc3133`, pushed.
+The other phase-2 findings (fail-open/silent-failure patterns in
+`batch_review.py`/`git_draft.py`/`peer_console.py`/`ag_statusline.py`)
+remain documented-only — those are judgment-call behavior changes, not
+pure dead-code removal, and warrant discussion before changing.
