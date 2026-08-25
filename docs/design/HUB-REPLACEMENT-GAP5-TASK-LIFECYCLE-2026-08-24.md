@@ -260,3 +260,40 @@ multi-stage Task identity (if required), task checkpoint/resume
 semantics, human `approval-request`+resolution, explicit room/thread
 operations (shared with gap-3), terminal-duty handoff + no-auto-replay
 policy (shared with gap-3).
+
+## FIELD-LEVEL CONFIRMATION (2026-08-24, terminal): Task aggregate is CONFIRMED necessary, not redundant
+
+Direct read of `peerhub/dispatch/retry_authorization.py`'s real
+`RetryAuthorizationBundle`:
+
+```python
+class RetryAuthorizationBundle:
+    """The records committed by one retry-authorization transaction."""
+    request: RequestSnapshot
+    previous_attempt: AttemptSnapshot
+    session_lease: LeaseSnapshot
+    capability_lease: CapabilityLease
+    route_decision: RouteDecision
+```
+
+This is scoped to exactly ONE request + its previous attempt + one new
+route decision — there is no concept anywhere in this bundle of multiple
+requests grouped under a shared durable identity. **This definitively
+answers gap-5's central open question: the proposed Task aggregate is
+CONFIRMED necessary, not redundant with `RetryAuthorizationCoordinator`**
+— the real retry/failover machinery operates one level below where a
+multi-stage task (spanning several requests, needing durable checkpoints
+and task-wide progress) would need to live. `RetryAuthorizationCoordinator`
+remains the right substrate for retrying/failing-over ONE request within
+a task's execution, but a Task itself (using the same `TargetState`/
+`MutationRequest` governed-mutation pattern confirmed in gap-2/gap-6's
+field-level check) is real, necessary, not-yet-designed-in-code work.
+
+This closes the loop on gap-5's design: **a Task = a `TargetState` (like
+consensus rounds and governance artifacts) whose state blob tracks stage/
+checkpoint/approval progress, and whose stage transitions each dispatch a
+request through the existing request/attempt/retry-authorization
+machinery** — the same layering pattern now confirmed across gaps 2, 3,
+4, 5, and 6: **generic governed-mutation broker + generic request/attempt
+execution machinery underneath, with each gap's own domain aggregate
+(`TargetState` instance) and domain-specific coordinator logic on top.**
