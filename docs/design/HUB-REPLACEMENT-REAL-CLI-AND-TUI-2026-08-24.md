@@ -178,8 +178,9 @@ than inventing a new UI paradigm per category.
 
 ### 3.3 Open questions for this UI/TUI layer (new)
 
-1. Does `--live`'s refresh loop clear-and-redraw or append? (needs a
-   direct read of `_run_diag`'s loop body, not yet done)
+1. ~~Does `--live`'s refresh loop clear-and-redraw or append?~~ —
+   **RESOLVED**, see "RESOLVED (2026-08-24): `--live` loop mechanics"
+   section directly below: clear-and-redraw, 2.0s interval.
 2. Should the ATTENTION block (CRIT/WARN/INFO lines above SUMMARY) become
    a formally named, reusable primitive that every gap's alerts/blocking
    states feed into, or stay diag-specific?

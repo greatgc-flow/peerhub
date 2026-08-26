@@ -327,6 +327,16 @@ Proposed `TargetState.state` envelope (`schema: "peerhub.consensus-round.v1"`) �
 
 ### PTY-peer (ag) vote submission — architectural recommendation, not yet confirmable from field-level evidence alone
 
+**UPDATE 2026-08-26 (terminal, direct peerhub source check)**: grepped
+`peerhub/` for any `cast_vote`/consensus-round/vote-import handler outside
+`legacy.py`'s catalog entries — none exists. This is not a stalled research
+item; it genuinely cannot be resolved by reading more source because the
+real handler doesn't exist yet (consistent with `LEGACY_CATALOG`: only
+`ask`/`ask-all`/`ask-coordinator` are backed today). **Correct status: this
+resolves naturally at gap-2 implementation time, once `consensus.round.
+propose`/`cast_vote` handlers are actually written** — not a design-phase
+blocker, and not something more dialectical discussion can shortcut.
+
 Two possible architectures: (1) the direct `.ai/consensus/{round_id}.json` write is authoritative and ag bypasses `MutationRequest` entirely (needs a broker-side importer/reconciler to validate + convert + dedupe); (2) the file/`hub.py send` path is transport-only, and a coordinator/adapter receives the payload and issues a normal `MutationRequest(actor_id="ag", operation="cast_vote", ...)`. **cx recommends (2)** — keeps authorization/CAS/idempotency/audit/invariants centralized, ag's transport constraint stays intact. **Cannot be fully resolved without inspecting the actual write/send handler code** (not yet done). Standing requirement regardless of which: **all accepted ag votes MUST become governed `MutationRequest`s before affecting `TargetState` — a raw file must never be treated as committed consensus state.**
 
 ### 3 more ratification items resolved
