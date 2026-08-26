@@ -4,9 +4,9 @@
 
 ## What's real now
 
-18 commits (`e60c4c4`..`e9dfbb7`), all independently verified by the terminal (full `pytest -q` + `pyright` after every commit, not just cx's own report — see "Verification discipline" below). Test suite: **1068 passed**, 1 known pre-existing unrelated failure (`test_generate_manifest.py`'s committed hub.py hash snapshot, stale before this session started, tracked separately, not a peerhub regression).
+23 commits (`e60c4c4`..`43adfc0`), all independently verified by the terminal (full `pytest -q` + `pyright` after every commit, not just cx's own report — see "Verification discipline" below). Test suite: **1074 passed**, 1 known pre-existing unrelated failure (`test_generate_manifest.py`'s committed hub.py hash snapshot, stale before this session started) + occasional pre-existing flakiness in one real multi-threaded CAS-race test under full-suite load (`test_two_real_callers_race_at_attempt_creation_one_loses_cleanly`, passes cleanly in isolation, unrelated to any change this session).
 
-**First real end-to-end CLI path now exists**: `peerhub consensus propose|vote|status` (see gap-1 row below) — a real, runnable command, not just Python/test-callable code. This is the first CLI-layer work in this whole TDD pass.
+**All 5 real domains now have working CLI wiring**: `peerhub consensus propose|vote|status`, `peerhub task create|claim-start|checkpoint|complete|fail|cancel|status`, `peerhub lesson propose|approve|activate|retire|supersede|quarantine|status`, `peerhub room create|create-thread|append-message|clear|status`, `peerhub duty claim|heartbeat|close|status` — all real, runnable commands with `--json` output, not just Python/test-callable code. This is the first CLI-layer work in this whole TDD pass, and now the biggest single milestone in it.
 
 | Gap | Status | Real modules |
 |---|---|---|
@@ -17,11 +17,11 @@
 | **gap-5** task lifecycle | Complete | `peerhub/governance/tasks.py` — create, claim_start, checkpoint, request_approval, approval_granted/rejected, request_failover, complete, fail, cancel |
 | **gap-6** governance/lessons | Complete | `peerhub/governance/lessons.py` — propose, approve, activate, retire, supersede, quarantine, record_delivery_pending/complete |
 | **gap-7** diagnostics | Read-path + row formatters | `peerhub/governance/activity.py` — list_active_{consensus_rounds,tasks,lessons}; `peerhub/telemetry/domain_rows.py` — format_consensus_row/format_task_row(_narrow)/format_duty_row |
-| **gap-1** compat/cutover | Started | `peerhub consensus propose\|vote\|status` real CLI subcommands wired to `ConsensusService`, real `--json` output. Legacy-name translation (`consensus-propose` → `consensus propose`, per `LEGACY_CATALOG`) and every other domain's CLI wiring (rooms/tasks/lessons/duty-lease) not started — this is still the largest remaining gap by volume |
+| **gap-1** compat/cutover | Native CLI complete for 5 domains; legacy translation not started | `peerhub consensus\|task\|lesson\|room\|duty` — full real CLI subcommand groups, all 5 domains, real `--json` output |
 
 ## What's NOT done yet (real, not hypothetical, gaps)
 
-- **gap-1**: the actual legacy-command-translation CLI layer (LEGACY_CATALOG → native calls). Nothing implemented.
+- **gap-1**: legacy-command-translation specifically (`consensus-propose` → `consensus propose`, per `LEGACY_CATALOG`'s ~90-action mapping) — the native CLI surface it would translate TO now exists for 5 domains, but no translation/compat-adapter layer has been written yet.
 - **gap-3**: the rest of the original command list beyond room/thread/message/clear-room/terminal-duty — `init-session`/`end-session`/`send`/`mark-read`/`new-topic`/`thread-react`/`thread-promote`/`terminal-close`/`append-handoff`/`checkpoint`/`context-fill`.
 - **gap-7**: the formatters exist but are NOT wired into `collect_live_snapshot()`/the live `peerhub diag` render loop yet — they're pure, tested, unconnected functions.
 - **gap-2**: `SessionLeaseCoordinator`-backed coordinator-lease reuse (ratification item 16) was never actually implemented — consensus rounds don't yet claim/renew a coordinator lease during their lifecycle.
@@ -38,6 +38,10 @@
 4. `duty_lease.py`'s first refactor called `unit.get_duty_lease()` *after* `unit.commit()` on the same unit of work — raised `RuntimeError: SQLite unit of work is already finished`, a real regression the refactor introduced.
 5. `SqliteUnitOfWork` was missing `release_duty_lease`/`insert_duty_recovery_receipt` forwarding methods entirely — `close_lease` raised `AttributeError` on first real use, undetectable without actually running it.
 6. `domain_rows.py`'s first version had 18 real pyright errors (3 `reportPrivateUsage`, 15 `Any`-typing) — cx's own "targeted pyright: 0 errors" claim was checking a stale/different scope; a real run found them all.
+7. The CLI's `_run_consensus` first version pre-checked `paths.database_path.exists()` and rejected every command including `propose` (a write op that should initialize a fresh workspace) -- `create_runtime()` already handles initialization, the manual guard was both redundant and wrong.
+8. The CLI's `--json` output crashed with `TypeError: Object of type mappingproxy is not JSON serializable` -- `dict(target.state)` only converts the top level, frozen nested dicts inside it are untouched. Fixed once with a recursive `_json_safe()` helper, reused correctly in every subsequent CLI round.
+9. **Recurred twice across the 5 CLI-wiring rounds**: optional argparse flags defaulting to `""` instead of `None`/the real service-method default (`room_id`, `resume_token`, `scope_kind`) -- each one a silent semantic divergence from what the same Python call with its real default produces, not a crash, so each one needed an explicit test assertion to catch, not just "does it run." By the 4th and 5th rounds (room, duty), cx's own dispatch-time signature review avoided the bug entirely -- explicit warnings citing the exact prior recurrence worked.
+10. `peerhub duty`'s first version had 2 unused imports (`reportUnusedImport`), silently inflating `cli.py`'s pyright count from the 10-error baseline to 12 -- caught only because the terminal compares the ABSOLUTE error count against a known baseline every round, not just "pyright exit code."
 
 **None of these would have been caught by trusting cx's self-report.** This is the concrete argument for why every commit in this sequence carries independent terminal-side verification, not just a peer's word — consistent with this whole session's standing "verify, don't just trust a green report" discipline.
 
