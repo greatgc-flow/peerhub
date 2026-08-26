@@ -19,6 +19,10 @@ def _string_tuple(value: JsonValue | None) -> tuple[str, ...]:
     return ()
 
 
+def _optional_int(value: JsonValue | None) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
 @dataclass(frozen=True)
 class LegacyActionCall:
     action: str
@@ -246,6 +250,115 @@ class ConsensusCheckCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class TaskCheckpointCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.task.checkpoint"
+    submission: SubmissionMetadata
+    task_id: str
+    actor_id: str
+    checkpoint_id: str
+    stage: str
+    request_id: str
+    attempt_id: str
+    resume_token_ref: str | None
+    completed_units: tuple[str, ...]
+    remaining_units: tuple[str, ...]
+    expected_revision: int | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"task_id": self.task_id, "actor_id": self.actor_id, "checkpoint_id": self.checkpoint_id, "stage": self.stage, "request_id": self.request_id, "attempt_id": self.attempt_id, "resume_token_ref": self.resume_token_ref, "completed_units": self.completed_units, "remaining_units": self.remaining_units, "expected_revision": self.expected_revision}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class TaskStatusCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.task.status"
+    submission: SubmissionMetadata
+    task_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"task_id": self.task_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class TaskFailoverCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.task.failover"
+    submission: SubmissionMetadata
+    task_id: str
+    to_actor_id: str
+    reason: str
+    expected_revision: int | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"task_id": self.task_id, "to_actor_id": self.to_actor_id, "reason": self.reason, "expected_revision": self.expected_revision}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class LessonProposeCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.propose"
+    submission: SubmissionMetadata
+    lesson_id: str
+    title: str
+    rule: str
+    category: str
+    severity: str
+    proposer_id: str
+    affected_peers: tuple[str, ...]
+    scope_kind: str
+    workspace_id: str | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"lesson_id": self.lesson_id, "title": self.title, "rule": self.rule, "category": self.category, "severity": self.severity, "proposer_id": self.proposer_id, "affected_peers": self.affected_peers, "scope_kind": self.scope_kind, "workspace_id": self.workspace_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class LessonActivateCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.activate"
+    submission: SubmissionMetadata
+    lesson_id: str
+    actor_id: str
+    expected_revision: int | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"lesson_id": self.lesson_id, "actor_id": self.actor_id, "expected_revision": self.expected_revision}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class LessonRetireCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.retire"
+    submission: SubmissionMetadata
+    lesson_id: str
+    actor_id: str
+    reason: str
+    expected_revision: int | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"lesson_id": self.lesson_id, "actor_id": self.actor_id, "reason": self.reason, "expected_revision": self.expected_revision}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 class LegacyTranslator:
     def translate(
         self,
@@ -291,6 +404,20 @@ class LegacyTranslator:
                 submission=submission,
                 round_id=str(call.arguments.get("round_id", "")),
             ))
+        if call.action == "task-checkpoint":
+            return TranslatedCommand(command=TaskCheckpointCommand(
+                submission=submission, task_id=str(call.arguments.get("task_id", "")), actor_id=str(call.arguments.get("actor_id", "")), checkpoint_id=str(call.arguments.get("checkpoint_id", "")), stage=str(call.arguments.get("stage", "")), request_id=str(call.arguments.get("request_id", "")), attempt_id=str(call.arguments.get("attempt_id", "")), resume_token_ref=str(call.arguments["resume_token_ref"]) if call.arguments.get("resume_token_ref") is not None else None, completed_units=_string_tuple(call.arguments.get("completed_units")), remaining_units=_string_tuple(call.arguments.get("remaining_units")), expected_revision=_optional_int(call.arguments.get("expected_revision")),
+            ))
+        if call.action == "task-status":
+            return TranslatedCommand(command=TaskStatusCommand(submission=submission, task_id=str(call.arguments.get("task_id", ""))))
+        if call.action == "task-failover":
+            return TranslatedCommand(command=TaskFailoverCommand(submission=submission, task_id=str(call.arguments.get("task_id", "")), to_actor_id=str(call.arguments.get("to_actor_id", "")), reason=str(call.arguments.get("reason", "")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
+        if call.action == "lessons-propose":
+            return TranslatedCommand(command=LessonProposeCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), title=str(call.arguments.get("title", "")), rule=str(call.arguments.get("rule", "")), category=str(call.arguments.get("category", "")), severity=str(call.arguments.get("severity", "")), proposer_id=str(call.arguments.get("proposer_id", "")), affected_peers=_string_tuple(call.arguments.get("affected_peers")), scope_kind=str(call.arguments.get("scope_kind", "global")), workspace_id=str(call.arguments["workspace_id"]) if call.arguments.get("workspace_id") is not None else None))
+        if call.action == "lessons-activate":
+            return TranslatedCommand(command=LessonActivateCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
+        if call.action == "lessons-retire":
+            return TranslatedCommand(command=LessonRetireCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), reason=str(call.arguments.get("reason", "MANUAL")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
             
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,
