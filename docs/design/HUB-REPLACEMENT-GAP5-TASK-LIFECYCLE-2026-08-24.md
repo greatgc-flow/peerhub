@@ -6,7 +6,12 @@ Status: first-round draft from `cx`, 2026-08-24. Covers `task-checkpoint`,
 retry-loop/failover/checkpoint machinery from "local PeerHub session
 records" — **treat this claim as unverified until cross-checked against
 real peerhub source**, unlike gap-2's protocol.md citations which the
-terminal independently confirmed.
+terminal independently confirmed. **UPDATE 2026-08-26**: cross-checked
+directly against real `hub.py` (the legacy system, not peerhub) —
+confirmed true, and the actual implementation is thinner than assumed
+(no formal state machine, no fencing, `approval-request` is fire-and-
+forget, not a blocking gate). See "CONFIRMED: real legacy task
+machinery" below.
 
 ## Central conclusion
 
@@ -173,7 +178,7 @@ fencing/approval checks. Richer native error codes exposed internally:
 8. Authoritative approver model: named users, roles, room owners, or external identity provider?
 9. Approval expiry behavior: auto-reject, re-request, or indefinite pending?
 10. Are operator-selected failover targets allowed, or must routing always select the target?
-11. Exact legacy exit codes/output formats for these 4 commands?
+11. ~~Exact legacy exit codes/output formats for these 4 commands~~ — **RESOLVED 2026-08-26**, see "CONFIRMED: real legacy task machinery" section below.
 12. Policy for uncertain external side effects after executor loss?
 
 ## RECONCILIATION AGAINST REAL SOURCE (2026-08-24)
@@ -410,6 +415,56 @@ object; may `child_request_ids` include parallel requests or is
 execution strictly sequential; canonical failure/failover event-history
 representation (examples here only keep counters+last-event summary — a
 separate append-only audit stream may still be needed).
+
+## CONFIRMED: real legacy task machinery (2026-08-26, direct hub.py source read)
+
+The doc's opening status note said `cx` "claims some evidence of existing
+retry-loop/failover/checkpoint machinery... treat as unverified until
+cross-checked against real peerhub source." That check is now done —
+against `hub.py` (the legacy system itself, not peerhub) — and the claim
+is **confirmed true, but the real implementation is much thinner than
+this design's proposed state machine.** Read `action_task_checkpoint`,
+`action_task_status`, `action_task_failover`, `action_approval_request`,
+`P:\_sys\core\hub.py:11307-11389` and `:11802-11836`, directly:
+
+- **Real storage**: a single JSON dict at `_task_registry_path()`, keyed
+  by `task_id`, each value `{task_id, created_at, owner, status,
+  updated_at, checkpoints: [{peer, note, at}]}`. Not event-sourced, no
+  `fencing_epoch`, no formal state enum — `status` is a free string that
+  the real code only ever sets to the literal `"ACTIVE"`. **No code path
+  in any of these 3 actions ever sets a terminal status** (no
+  `COMPLETED`/`FAILED`/`CANCELLED` is ever written) — legacy tasks appear
+  to just stay `"ACTIVE"` forever once created; completion is tracked
+  only informally (via handoff/consensus text), not in the task record
+  itself. This is a real limitation of the legacy system, not something
+  this design failed to find.
+- **Exact exit codes**: `task-checkpoint` — missing `--id`/`--peer`/`--msg`
+  → `sys.exit(1)`; otherwise always succeeds (implicit `0`), printing
+  `[HUB] TASK-CHECKPOINT {id} | peer={peer}`. `task-status` — never exits
+  nonzero; prints `"No task registry records found."` if the file is
+  absent, a JSON dump if `--id` given, else a tab-separated table.
+  `task-failover` — missing `--task-id`/`--peer` → `1`; failover target
+  not healthy → `2` (`[HUB:ERROR] failover target {peer} is not healthy
+  status={status}`); task ID not found → `1`; otherwise `0`.
+  `approval-request` — no eligible `human_interface_peer` → `2`
+  (`[HUB:ERROR] no eligible human_interface_peer for approval request`);
+  otherwise `0`.
+- **`approval-request` is fire-and-forget, NOT a blocking gate**: it does
+  not pause, poll, or wait for a response. It selects a human-interface
+  peer, sends one `APPROVAL_REQUEST`-tagged message via `action_send`,
+  appends a note to the room's `PENDING_ISSUES` handoff section, prints a
+  confirmation, and returns immediately. **There is no machine-enforced
+  `AWAITING_APPROVAL` gate in legacy** — "awaiting approval" is a social/
+  process convention (the caller manually waits or polls), not a state
+  the legacy task registry itself encodes anywhere. This is the single
+  most important correction to this design's assumptions: the proposed
+  `AWAITING_APPROVAL` state + approval-gate `TargetState` (above) is a
+  **genuine upgrade over legacy behavior**, not a like-for-like port —
+  flag this explicitly to the user as a scope decision: replicate
+  legacy's non-blocking fire-and-forget approval request, or build the
+  richer blocking gate this design proposes (recommended, since the
+  richer version is a strict superset and the "clean cutover" policy
+  explicitly permits superset-compatible upgrades)?
 
 ## DEFINITIVE CONFIRMATION (2026-08-26, terminal): same real CAS mechanism applies to task TargetStates
 

@@ -176,7 +176,7 @@ projection is the sole source of truth.**
 
 1. Proposal authority levels — R:5/8/10 named but active voter set + quorum calc per level not fully defined for THIS model.
 2. Lesson approval authority — can a ratified proposal substitute for direct human approval (`learning.md` says `approved_by: user`)?
-3. `directive-add` scope — legacy name implies user directives, actual behavior is runtime-directive creation; needs explicit disambiguation (rename natively?).
+3. ~~`directive-add` scope~~ — **RESOLVED 2026-08-26** via direct read of `action_directive_add`, `P:\_sys\core\hub.py:10026`: its own docstring is explicit — `"Manually add a runtime directive (human-confirmed standing rule)"`. Confirmed as a runtime/session-scoped directive (has `ttl_hours` default 6 and `clear_condition`, both meaningless for a permanent user preference), not a user-preference store. Native disambiguation: name it `runtime_directive.create` (matches `LEGACY_CATALOG`'s `governance.*` convention), never `directive` alone or anything implying user-settings.
 4. Raw feedback storage — 3-layer learning design's raw-event/delivery-pack layers aren't implemented; introduce now or keep direct lesson maintenance?
 5. Lesson-broadcast semantics — immediate peer notification, pack invalidation, or just next-dispatch eligibility?
 6. Lesson acknowledgement — hash-ACK compression described but required peer ack protocol + retry behavior unspecified.

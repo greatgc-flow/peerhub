@@ -177,7 +177,7 @@ the old lease eventually expires and the room stays recoverable.
 6. Exact timeout/sweep configuration for duty leases?
 7. Does expired duty auto-trigger reassignment, or only make reassignment possible?
 8. ~~What does legacy `clear-room` actually currently delete/reset~~ — **RESOLVED 2026-08-26**, see "CONFIRMED" section above: deletes nothing, mints a new room + resets pointer fields + clears live peer session bindings only.
-9. Exact legacy handoff fields and serialization rules?
+9. ~~Exact legacy handoff fields and serialization rules~~ — **RESOLVED 2026-08-26** via direct read of `_HANDOFF_SECTIONS`/`_write_handoff`/`_parse_handoff`, `P:\_sys\core\hub.py:1255-1320`: exactly 6 fixed sections — `GOAL, RECENT_COMPLETED, PENDING_ISSUES, KEY_DECISIONS, CONSENSUS_HISTORY, ACTIVE_THREADS`. Storage tries a JSON form first (`{"sections": {...}}`), falls back to parsing Markdown (`## [SECTION]` headers, `- item` bullets, an empty section renders the literal placeholder `- (없음)`). Each of the 5 non-GOAL sections is trimmed to its own `HANDOFF_MAX_*` constant on every write — i.e. a bounded per-section ring buffer, not unbounded growth. Native mapping: these 6 sections become 6 fixed keys in a room/thread `TargetState.state` (or a dedicated projection), each independently length-capped; GOAL stays a single scalar, the rest stay capped lists.
 10. Are thread reactions toggles, append-only events, or immutable acknowledgements?
 11. Should `context-fill` return Markdown, structured JSON, or both?
 12. Which continuity sections are mandatory at startup, and their size limits?
