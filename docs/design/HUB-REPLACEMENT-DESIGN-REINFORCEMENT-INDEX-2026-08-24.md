@@ -9,10 +9,14 @@
 > implementation prerequisite (governed-mutation broker has zero
 > listing/query capability — confirmed via direct source read) is scoped as
 > its own small infrastructure task, not an open design question.
-> **Verdict: all 7 gap categories are TDD-ready; no outstanding item blocks
-> starting implementation.** Read that doc before treating any older
-> "Unresolved" list in an individual gap doc as still open — this
-> ratification supersedes them.
+> **Verdict (revised 2026-08-27 after a genuinely adversarial final gate-check
+> the user explicitly requested): all 7 gaps' domain designs are TDD-ready.
+> Starting TDD requires one small "Increment 0" first — a short broker
+> listing/query design (0a) and a shared deterministic test/recovery
+> harness (0b) — both newly scoped, not open design debate. No item blocks
+> STARTING TDD; Increment 0 simply comes first.** Read that doc before
+> treating any older "Unresolved" list in an individual gap doc as still
+> open — this ratification supersedes them.
 
 > **★ MOST IMPORTANT DOC IN THIS SET: `HUB-REPLACEMENT-CRITICAL-FINDING-LEGACY-CATALOG-2026-08-24.md`.**
 > `peerhub/application/legacy.py` already has a `LEGACY_CATALOG` dict

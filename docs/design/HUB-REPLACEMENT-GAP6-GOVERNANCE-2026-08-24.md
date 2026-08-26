@@ -357,6 +357,19 @@ Does a global lesson's empty `affected_peers` mean "all current and
 future peers"? Must human approval reference a separate auditable
 artifact, or can it be recorded directly by `actor_id`?
 
+**Status note (2026-08-27, final gate check)**: this list is
+*correctly* still open, not stale — these are implementation-time
+schema micro-details (exact enum values, exact field names/formats),
+the class of item `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md`
+explicitly says is safe to leave for TDD rather than forced now. The one
+exception: the "pending the same `mutations.py` body-level read gap-2's
+doc already flagged as open" parenthetical above IS stale — that read
+happened (see the "DEFINITIVE CONFIRMATION" section immediately below,
+and gap-2's own doc) and confirmed `desired_state` is always a complete
+replacement with `StaleRevisionError` as the CAS-conflict exception;
+that specific uncertainty no longer applies to consensus-round field
+semantics either.
+
 ## DEFINITIVE CONFIRMATION (2026-08-26, terminal): same real CAS mechanism applies to all governance artifact TargetStates
 
 See gap-2's doc for the full `validate_expected_revision`/`plan_mutation`/
