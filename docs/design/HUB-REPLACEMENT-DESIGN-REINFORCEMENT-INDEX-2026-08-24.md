@@ -63,6 +63,47 @@
 > rounds from here would mostly re-visit already-flagged open items
 > rather than find new ones.
 
+> **★★★ NEW CROSS-CUTTING FINDING 2026-08-26 (this session, direct peerhub
+> source read — corrects the "substantially complete" banner above): the
+> governed-mutation broker has NO listing/query capability at all,
+> confirmed at every layer.** Read `peerhub/state/contract.py` (the
+> feature-independent `UnitOfWork`/`ReadUnitOfWork`/`StateStore` Protocols
+> — zero domain methods, not even `get_target`), `peerhub/governance/
+> broker.py` (`get_target(target_id: str)` is a single-key point lookup;
+> no `list`/`query`/`find`/`scan` method anywhere), and the real concrete
+> backend `peerhub/persistence/sqlite_governance.py` (a real `targets`
+> SQL table, but queried ONLY by exact `target_id = ?`; the file DOES have
+> several `list_*` methods — `list_outbox_events`,
+> `list_outbox_events_by_command`, `list_unfinished_effect_deliveries`,
+> `list_claimable_effect_deliveries` — but every one of them is for
+> outbox/effect-delivery bookkeeping, NONE for targets). **This means
+> every domain built on `TargetState` — consensus rounds (gap-2), rooms/
+> threads (gap-3), tasks (gap-5), lessons/proposals/alerts (gap-6) — has
+> no way today to answer "list all active X for this room" without a
+> caller already knowing the exact `target_id` to look up.** Gap-7's diag
+> extension explicitly assumed `list_active_consensus_rounds(room_id)` /
+> `list_active_tasks(room_id)` / `list_active_duty_leases(room_id)` would
+> exist as "a dependency on gap-2/4/5's own implementation providing a
+> list active X read path" — that phrasing undersold it: **it is not a
+> to-be-confirmed dependency, it is a confirmed-absent capability that
+> gap-2/3/5/6 must each explicitly add**, not assume. Two implementation
+> shapes to choose between (a genuine open design question, not yet a
+> policy call): **(a)** add a genuine secondary index to the SQLite
+> backend (e.g. a `target_kind`/`room_id` column + index on the `targets`
+> table, with a new `list_targets(kind, room_id)`-style method added to
+> the concrete backend and, if kept portable across other future backends,
+> to the `GovernanceReadUnitOfWork` Protocol too), or **(b)** keep the
+> broker itself unchanged and have each domain coordinator maintain its
+> OWN separate lightweight registry/index target (e.g. a
+> `"room:{id}:active-tasks"` `TargetState` whose `state` is just a list of
+> other target_ids) that domain code keeps current on every create/
+> terminate. (b) avoids touching the generic broker/backend but pushes
+> index-consistency risk onto every domain; (a) is more invasive but
+> centralizes it once. **This needs to be resolved before gap-7's diag
+> extension or ANY "list active rounds/tasks/threads" UI/CLI surface can
+> actually be implemented — it is a real prerequisite, not a nice-to-have,
+> and was not previously surfaced in any gap doc.**
+
 > **★ UPDATE 2026-08-26 (overnight, paced work)**: gap-2 (consensus),
 > gap-5 (task), and gap-6 (lesson artifact) now each have a CONCRETE
 > `TargetState.state` JSON schema (not just direction) — see each doc's

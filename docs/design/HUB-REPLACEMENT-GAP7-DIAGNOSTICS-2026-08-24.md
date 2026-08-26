@@ -150,6 +150,18 @@ domain logic embedded in the generic table renderer.
 
 ### `collect_live_snapshot()` new read dependencies
 
+**UPDATE 2026-08-26 (direct peerhub source read, terminal): this
+dependency is CONFIRMED ABSENT, not merely unverified.** Read
+`peerhub/state/contract.py`, `peerhub/governance/broker.py`, and the real
+`peerhub/persistence/sqlite_governance.py` backend directly — the broker
+has zero listing/query capability anywhere (`get_target` is an exact-key
+point lookup only; the backend's several real `list_*` methods are all
+outbox/effect-delivery bookkeeping, none for targets). See the index
+doc's "NEW CROSS-CUTTING FINDING 2026-08-26" banner for the two candidate
+fixes. This diag-extension design cannot be implemented until gap-2/3/5
+each add a real listing capability — treat that as a blocking
+prerequisite, not a parallel/independent workstream.
+
 Three new read-only inputs, **each an explicit dependency on gap-2/4/5
 providing an authoritative "list active X" read path** — the diagnostic
 layer must NOT reconstruct state by inference:
