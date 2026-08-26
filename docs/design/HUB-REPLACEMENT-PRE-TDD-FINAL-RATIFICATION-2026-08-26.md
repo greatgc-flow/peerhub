@@ -124,6 +124,46 @@ mutation from an inbound callback — a zero-cost, already-compatible
 extension of gap-5's ratified schema. **Still no change to the verdict
 below.**
 
+## TDD Increment 0b survey (2026-08-27)
+
+Surveyed the real `workspace/peerhub` tree before adding code. The shared
+deterministic harness already exists; no parallel framework is warranted.
+
+`tests/fakes.py` provides `FakeClock` (prescribed timestamps, loud exhaustion),
+`DeterministicClock` (incrementing timestamps), `FakeIdSource` (prescribed
+namespace-aware IDs and deterministic UUIDs for outbox events),
+`SequentialIdSource`, and `RaisingFaultInjector`. The latter records hits and
+raises at `AFTER_TARGET_WRITE`, `BEFORE_COMMIT`, or `AFTER_COMMIT`. These are
+directly reusable by all new `TargetState` domains because `GovernanceBroker`
+already injects `Clock`, `IdSource`, and `FaultInjector`, and all domains share
+the same CAS broker/backend contract.
+
+Existing proof points are: CAS races in
+`tests/integration/persistence/test_sqlite_kernel.py::test_concurrent_same_revision_submissions_have_one_winner`
+and `tests/integration/dispatch/test_concurrent_attempt_claim.py`; retry and
+reload races in `tests/integration/dispatch/test_concurrent_retry_loop.py`;
+idempotency replay/conflict/convergence in
+`tests/integration/persistence/test_command_idempotency_kernel.py`; transaction
+rollback and an observable target-only broken commit in
+`tests/integration/persistence/test_sqlite_fault_boundaries.py`; outbox
+claim/completion recovery in `test_sqlite_kernel.py`; and migration interruption,
+resume, atomic partial-effect prevention, and backup restore in
+`test_migration_runner_sequence.py` and `test_migration_0017_drop_legacy_outbox.py`.
+
+| Concern | Disposition |
+|---|---|
+| (a) Retry after `StaleRevisionError` | Existing stale-error, concurrent-CAS, and retry/reload infrastructure is reusable; new domains need domain assertions once operations exist. |
+| (b) Duplicate mutation/idempotency replay | Already covered, including same-payload replay, conflicting payload rejection, and concurrent convergence. |
+| (c) Commit-to-outbox publication crash | Transaction rollback is covered, and the broken partial-commit probe is intentionally observable. `AFTER_COMMIT` is post-transaction; no separate publisher process/call exists yet, so no new hook can be implemented honestly now. |
+| (d) Lease expiry/renewal crash | Genuine future gap: governed `TargetState` has no lease expiry/renewal operation or fault point. Existing session-lease fault tests use local injectors and do not provide a reusable lease-expiry hook. Define named points with that future implementation. |
+| (e) Process restart/journal recovery | SQLite reopen/outbox recovery and interrupted migration resume are covered; future domain journal tests await those journals. |
+| (f) Migration rollback/partial cutover | Existing migration runner and legacy-outbox tests cover atomic failure, partial-effect prevention, and backup restoration; concrete future cutovers must add their data receipts. |
+
+**Conclusion:** Increment 0b requires no new production code. Reuse the current
+fakes and broker tests for each domain. Add lease/publisher/journal-specific
+fault points only when those production operations are introduced; adding them
+now would be speculative.
+
 ## Verdict (revised 2026-08-27 after the adversarial final gate-check)
 
 **All 7 gaps' schemas/designs are correct and TDD-ready as domain designs.** Every item that could be resolved by design-consistency reasoning has been; the single genuine business-judgment item has been decided by the user; standards-interop (A2A/MCP) and extensibility (OpenCode/Goose/OpenClaw) stress tests both confirmed no impact.
@@ -131,3 +171,28 @@ below.**
 **What changed 2026-08-27**: a genuinely adversarial pass (not a confirmation round — explicitly instructed to try to break the verdict) found that "TDD-ready" needs two small, honest amendments rather than being unconditionally true: the broker-listing prerequisite needs a real (if short) design pass, not just a label, and a previously-unnamed cross-cutting category (deterministic test/recovery harness for CAS/lease/timeout/outbox behavior) needs to exist before gap-specific tests can be written reliably. Neither of these means any gap's *domain design* is wrong — both are now scoped as **TDD Increment 0** (0a: broker listing/query design + implementation; 0b: deterministic test harness), to land before gap-specific TDD on gap-2/3/5/6/7, exactly the same "small, scoped, shared, not a redesign" character as every other item in this document. Plus a wording clarification (item 16) and a documentation-hygiene sweep (stale "Unresolved" paragraphs in 3 docs) — both applied directly, not blocking.
 
 **No outstanding item was found that should block STARTING TDD** — Increment 0 (0a + 0b) simply comes first, as real but small and already-scoped work, not as a return to open design debate. This is a stronger, more honest verdict than the pre-2026-08-27 version: it survived an actual adversarial attempt to break it, rather than only a series of confirmation rounds.
+
+## TDD Increment 0 status (2026-08-27): COMPLETE
+
+**0a (broker listing/query capability)**: implemented (migration 0025,
+`list_targets` on the Protocol/broker/SQLite backend, real tests).
+Independently re-verified by the terminal from an unrestricted
+environment: full suite 1027 passed (was 1024), 0 new pyright errors.
+Pushed as commit `e60c4c4`.
+
+**0b (deterministic test/recovery harness)**: surveyed rather than
+rebuilt — `tests/fakes.py`'s existing `FakeClock`/`DeterministicClock`/
+`FakeIdSource`/`SequentialIdSource`/`RaisingFaultInjector` already cover
+CAS races, retry/reload, idempotency replay, outbox recovery, and
+migration interruption/rollback, and are directly reusable by every new
+`TargetState` domain since `GovernanceBroker` already injects
+`Clock`/`IdSource`/`FaultInjector` uniformly. No new production code was
+added — correctly so, since the 2 genuine remaining gaps (lease-expiry/
+renewal fault points, a distinct post-commit publisher-process crash
+point) both concern operations that don't exist in real code yet;
+building speculative fault-injection hooks for them now would be
+guessing, not testing. Add those hooks when gap-4's duty-lease and any
+future separate-publisher-process design actually land.
+
+**gap-specific TDD (gap-2 consensus, gap-3 room/thread, gap-5 task,
+gap-6 governance, gap-7 diagnostics) may now begin.**
