@@ -49,6 +49,7 @@ from peerhub.runtime import create_runtime
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
+from peerhub.governance.rooms import RoomsService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 
 class SystemClock(Clock):
@@ -690,6 +691,50 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_room(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = RoomsService(runtime.governance_broker, clock=context.clock, ids=context.ids)
+            action = parsed.room_action
+            if action == "create":
+                submission = service.create_room(room_id=parsed.room_id, topic_id=parsed.topic_id, title=parsed.title, creator_id=parsed.creator, participants=tuple(x for x in parsed.participants.split(",") if x))
+            elif action == "create-thread":
+                submission = service.create_thread(thread_id=parsed.thread_id, room_id=parsed.room_id, subject=parsed.subject, creator_id=parsed.creator)
+            elif action == "append-message":
+                submission = service.append_message(message_id=parsed.message_id, room_id=parsed.room_id, thread_id=parsed.thread_id, author_id=parsed.author, body=parsed.body)
+            elif action == "clear":
+                submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
+            else:
+                target = runtime.governance_broker.get_target(parsed.room_id)
+                if target is None:
+                    raise RecordNotFoundError("room", parsed.room_id)
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(f"Room {parsed.room_id}: status={target.state['status']}")
+                return 0
+            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            assert target is not None
+            state = cast(dict[str, Any], target.state)
+            if parsed.json:
+                print(json.dumps(_json_safe(target.state)))
+            elif action == "create-thread":
+                print(f"Thread {parsed.thread_id} created in room {parsed.room_id}")
+            elif action == "append-message":
+                print(f"Message {parsed.message_id} appended to thread {parsed.thread_id} (sequence={state['sequence']})")
+            elif action == "clear":
+                print(f"Room {parsed.room_id} cleared -> new room {parsed.new_room_id}")
+            else:
+                print(f"Room {parsed.room_id} created")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub room: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -857,6 +902,22 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required, default=default)
         command_parser.add_argument("--json", action="store_true")
 
+    room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
+    room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
+    room_specs = {
+        "create": [("--room-id", True), ("--topic-id", True), ("--title", True), ("--creator", True), ("--participants", True)],
+        "create-thread": [("--thread-id", True), ("--room-id", True), ("--subject", True), ("--creator", True)],
+        "append-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--author", True), ("--body", True)],
+        "clear": [("--room-id", True), ("--new-room-id", True), ("--subject", True), ("--actor", True)],
+        "status": [("--room-id", True)],
+    }
+    for action, arguments in room_specs.items():
+        command_parser = room_subparsers.add_parser(action)
+        command_parser.add_argument("--workspace", default=".")
+        for name, required in arguments:
+            command_parser.add_argument(name, required=required)
+        command_parser.add_argument("--json", action="store_true")
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "statusline":
@@ -870,6 +931,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "lesson":
         return _run_lesson(parsed)
+
+    if parsed.command == "room":
+        return _run_room(parsed)
 
     if parsed.command == "diag":
         return _run_diag(parsed)
