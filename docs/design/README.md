@@ -18,7 +18,8 @@ Start here: **`HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-2026-08-24.md`**
 - `HUB-REPLACEMENT-CRITICAL-FINDING-LEGACY-CATALOG-2026-08-24.md` — ★ `LEGACY_CATALOG` maps ~90 legacy actions to real target names
 - `HUB-REPLACEMENT-REAL-SOURCE-GROUNDTRUTH-2026-08-24.md` — real peerhub module map, ground truth for reconciling gaps 1-7
 - `HUB-REPLACEMENT-REAL-CLI-AND-TUI-2026-08-24.md` — real CLI surface + TUI/diagnostics design
-- `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md` — **★ final closure, read this first**: all 53 remaining open items ratified/decided, TDD-ready verdict
+- `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md` — final design closure: all 53 remaining open items ratified/decided, TDD-ready verdict
+- `HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md` — **★ read this first now**: real implementation status, what's actually built and tested vs. still missing, as TDD is underway
 - `HUB-REPLACEMENT-GAP1-COMPAT-STRATEGY-2026-08-24.md` through `GAP7-DIAGNOSTICS-2026-08-24.md` — the 7 blocking-category designs
 - `HUB-REPLACEMENT-ROADMAP-2026-08-09.md` — older roadmap, flagged partially stale, kept for phase-sequencing history only
 - `INTERFACE-MECE-AESTHETIC-AUDIT-2026-08-24.md` — separate but related: cross-CLI (`_sys/cli/`) consistency/robustness audit, 5 real bugs found and fixed
