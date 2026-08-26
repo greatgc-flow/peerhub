@@ -196,6 +196,11 @@ class DutyLeaseCoordinator:
         if row.authority_epoch != request.authority_epoch: reasons.append("epoch_mismatch")
         return not reasons, tuple(reasons)
 
+    def get_active_duty_lease(self, room_id: str, role: str) -> DutyLeaseSnapshot | None:
+        """Read the currently active lease without exposing store internals."""
+        with self._store.read_unit_of_work() as unit:
+            return cast(DutyLeaseUnitOfWork, unit).get_active_duty_lease(room_id, role)
+
     @staticmethod
     def _require_fence(row: DutyLeaseSnapshot | None, request: DutyLeaseRenewRequest) -> None:
         if row is None:
