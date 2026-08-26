@@ -1,4 +1,5 @@
 import sqlite3
+from collections.abc import Sequence
 from typing import Callable
 from .sqlite_helpers import (
     _json_object,   # pyright: ignore[reportPrivateUsage]
@@ -44,6 +45,51 @@ class SqliteGovernanceRepository:
                 updated_at=row["updated_at"],
             )
 
+    def list_targets(
+            self,
+            kind: str,
+            scope: str | None = None,
+        ) -> Sequence[TargetState]:
+            """List the rebuildable target projection in stable target order.
+
+            The projection columns are maintained in the same SQLite write
+            transaction as the target row, so a read transaction observes
+            either the old or new complete set, never a torn index state.
+            Authorization remains the caller's responsibility, matching
+            ``get_target``.
+            """
+            if not kind:
+                raise ValueError("kind must be nonempty")
+            if scope is None:
+                rows = self._db().execute(
+                    """
+                    SELECT target_id, revision, state_json, updated_at
+                    FROM governed_targets
+                    WHERE target_kind = ?
+                    ORDER BY target_id ASC
+                    """,
+                    (kind,),
+                ).fetchall()
+            else:
+                rows = self._db().execute(
+                    """
+                    SELECT target_id, revision, state_json, updated_at
+                    FROM governed_targets
+                    WHERE target_kind = ? AND target_scope = ?
+                    ORDER BY target_id ASC
+                    """,
+                    (kind, scope),
+                ).fetchall()
+            return tuple(
+                TargetState(
+                    target_id=row["target_id"],
+                    revision=row["revision"],
+                    state=_json_object(row["state_json"]),
+                    updated_at=row["updated_at"],
+                )
+                for row in rows
+            )
+
     def compare_and_set_target(
             self,
             current: TargetState | None,
@@ -52,6 +98,10 @@ class SqliteGovernanceRepository:
             """Insert or CAS-update a versioned target."""
 
             connection = self._db()
+            kind_value = updated.state.get("kind")
+            scope_value = updated.state.get("scope")
+            target_kind = kind_value if isinstance(kind_value, str) else ""
+            target_scope = scope_value if isinstance(scope_value, str) else None
             if current is None:
                 try:
                     connection.execute(
@@ -60,14 +110,18 @@ class SqliteGovernanceRepository:
                             target_id,
                             revision,
                             state_json,
-                            updated_at
-                        ) VALUES (?, ?, ?, ?)
+                            updated_at,
+                            target_kind,
+                            target_scope
+                        ) VALUES (?, ?, ?, ?, ?, ?)
                         """,
                         (
                             updated.target_id,
                             updated.revision,
                             _json_text(updated.state),
                             updated.updated_at,
+                            target_kind,
+                            target_scope,
                         ),
                     )
                 except sqlite3.IntegrityError:
@@ -78,12 +132,15 @@ class SqliteGovernanceRepository:
                 """
                 UPDATE governed_targets
                 SET revision = ?, state_json = ?, updated_at = ?
+                    , target_kind = ?, target_scope = ?
                 WHERE target_id = ? AND revision = ?
                 """,
                 (
                     updated.revision,
                     _json_text(updated.state),
                     updated.updated_at,
+                    target_kind,
+                    target_scope,
                     current.target_id,
                     current.revision,
                 ),

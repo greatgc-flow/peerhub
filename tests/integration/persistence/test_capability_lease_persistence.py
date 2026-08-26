@@ -203,7 +203,7 @@ def test_migrations_register_capability_tiers_without_implicit_grants(
     try:
         assert connection.execute(
             "PRAGMA user_version"
-        ).fetchone() == (24,)
+        ).fetchone() == (25,)
         assert connection.execute(
             "SELECT name FROM schema_migrations WHERE version = 18"
         ).fetchone() == ("0018_capability_leases",)

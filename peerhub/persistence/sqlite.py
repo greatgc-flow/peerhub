@@ -594,6 +594,10 @@ class SqliteReadUnitOfWork:
         """Return the current target, if present."""
         return self.governance.get_target(target_id)
 
+    def list_targets(self, kind: str, scope: str | None = None) -> Sequence[TargetState]:
+        """Return targets matching kind and optional scope."""
+        return self.governance.list_targets(kind, scope)
+
     def get_transition_receipt(
         self,
         receipt_id: str,
@@ -782,6 +786,10 @@ class SqliteUnitOfWork:
     def get_target(self, target_id: str) -> TargetState | None:
         """Return the current target, if present."""
         return self.governance.get_target(target_id)
+
+    def list_targets(self, kind: str, scope: str | None = None) -> Sequence[TargetState]:
+        """Return targets matching kind and optional scope."""
+        return self.governance.list_targets(kind, scope)
 
     def compare_and_set_target(
         self,

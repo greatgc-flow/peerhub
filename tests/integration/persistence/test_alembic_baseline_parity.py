@@ -38,7 +38,9 @@ def _build_bespoke_v19_database(path: Path) -> None:
         for migration in SqliteStateStore._available_migrations()
         if migration[0] <= 19
     )
-    assert tuple(version for version, _ in migrations) == tuple(range(1, 20))
+    assert tuple(version for version, _ in migrations) == tuple(
+        range(1, migrations[-1][0] + 1)
+    )
 
     connection = sqlite3.connect(path, isolation_level=None)
     connection.row_factory = sqlite3.Row

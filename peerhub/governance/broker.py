@@ -49,6 +49,15 @@ class GovernanceReadUnitOfWork(ReadUnitOfWork, Protocol):
 
         ...
 
+    def list_targets(
+        self,
+        kind: str,
+        scope: str | None = None,
+    ) -> Sequence[TargetState]:
+        """Return targets matching kind and optional scope in stable order."""
+
+        ...
+
     def get_transition_receipt(
         self,
         receipt_id: str,
@@ -416,6 +425,16 @@ class GovernanceBroker:
 
         with self._store.read_unit_of_work() as unit:
             return unit.get_target(target_id)
+
+    def list_targets(
+        self,
+        kind: str,
+        scope: str | None = None,
+    ) -> Sequence[TargetState]:
+        """Return a consistent read snapshot matching kind and scope."""
+
+        with self._store.read_unit_of_work() as unit:
+            return unit.list_targets(kind, scope)
 
     def get_outbox_event(
         self,

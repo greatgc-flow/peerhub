@@ -19,6 +19,7 @@ from peerhub.governance.contract import (
     MutationDisposition,
     MutationRequest,
     OutboxState,
+    TargetState,
 )
 from peerhub.persistence.sqlite import SqliteStateStore
 from peerhub.runtime import create_runtime
@@ -222,3 +223,53 @@ def test_concurrent_same_revision_submissions_have_one_winner(
 
     pending = brokers[0].recover_pending_effects()
     assert len(pending) == 1
+
+
+def _write_target(store: SqliteStateStore, target_id: str, state: dict) -> None:
+    with store.unit_of_work() as unit:
+        assert unit.compare_and_set_target(
+            None,
+            TargetState(target_id=target_id, revision=1, state=state, updated_at=1),
+        )
+        unit.commit()
+
+
+def test_list_targets_by_kind_and_scope(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _write_target(store, "task:one", {"kind": "task", "scope": "room-a"})
+    _write_target(store, "task:two", {"kind": "task", "scope": "room-b"})
+    _write_target(store, "lesson:one", {"kind": "lesson", "scope": "room-a"})
+    broker = GovernanceBroker(store, clock=FakeClock([1]), ids=FakeIdSource([]))
+
+    assert [target.target_id for target in broker.list_targets("task")] == ["task:one", "task:two"]
+    assert [target.target_id for target in broker.list_targets("task", "room-a")] == ["task:one"]
+
+
+def test_list_targets_empty_when_no_match(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    broker = GovernanceBroker(store, clock=FakeClock([1]), ids=FakeIdSource([]))
+    assert broker.list_targets("missing") == ()
+
+
+def test_list_targets_reflects_mixed_updates(tmp_path: Path) -> None:
+    store = _store(tmp_path)
+    _write_target(store, "task:one", {"kind": "task", "scope": "room-a"})
+    _write_target(store, "task:two", {"kind": "task", "scope": "room-a"})
+    with store.unit_of_work() as unit:
+        first = unit.get_target("task:one")
+        second = unit.get_target("task:two")
+        assert first is not None and second is not None
+        assert unit.compare_and_set_target(
+            first,
+            TargetState(target_id=first.target_id, revision=2, state={"kind": "lesson", "scope": "room-a"}, updated_at=2),
+        )
+        assert unit.compare_and_set_target(
+            second,
+            TargetState(target_id=second.target_id, revision=2, state={"kind": "task", "scope": "room-b"}, updated_at=2),
+        )
+        unit.commit()
+    broker = GovernanceBroker(store, clock=FakeClock([1]), ids=FakeIdSource([]))
+
+    assert broker.list_targets("task", "room-a") == ()
+    assert [target.target_id for target in broker.list_targets("task", "room-b")] == ["task:two"]
+    assert [target.target_id for target in broker.list_targets("lesson", "room-a")] == ["task:one"]
