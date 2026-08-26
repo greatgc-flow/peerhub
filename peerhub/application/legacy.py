@@ -251,6 +251,40 @@ class ConsensusCheckCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class NewTopicCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.topic.create"
+    submission: SubmissionMetadata
+    thread_id: str
+    room_id: str
+    subject: str
+    creator_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"thread_id": self.thread_id, "room_id": self.room_id, "subject": self.subject, "creator_id": self.creator_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ClearRoomCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.room.clear"
+    submission: SubmissionMetadata
+    old_room_id: str
+    new_room_id: str
+    subject: str
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"old_room_id": self.old_room_id, "new_room_id": self.new_room_id, "subject": self.subject, "actor_id": self.actor_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class TaskCheckpointCommand(Command[Any]):
     method: ClassVar[str] = "coordination.task.checkpoint"
     submission: SubmissionMetadata
@@ -403,6 +437,22 @@ class LegacyTranslator:
             return TranslatedCommand(command=ConsensusCheckCommand(
                 submission=submission,
                 round_id=str(call.arguments.get("round_id", "")),
+            ))
+        if call.action == "new-topic":
+            return TranslatedCommand(command=NewTopicCommand(
+                submission=submission,
+                thread_id=str(call.arguments.get("thread_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                subject=str(call.arguments.get("subject", "")),
+                creator_id=str(call.arguments.get("creator_id", "")),
+            ))
+        if call.action == "clear-room":
+            return TranslatedCommand(command=ClearRoomCommand(
+                submission=submission,
+                old_room_id=str(call.arguments.get("old_room_id", "")),
+                new_room_id=str(call.arguments.get("new_room_id", "")),
+                subject=str(call.arguments.get("subject", "")),
+                actor_id=str(call.arguments.get("actor_id", "")),
             ))
         if call.action == "task-checkpoint":
             return TranslatedCommand(command=TaskCheckpointCommand(
