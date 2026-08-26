@@ -50,6 +50,12 @@ from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
+from peerhub.dispatch.duty_lease import (
+    DutyLeaseCloseRequest,
+    DutyLeaseCoordinator,
+    DutyOwnerIdentity,
+)
+from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 
 class SystemClock(Clock):
@@ -735,6 +741,43 @@ def _run_room(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_duty(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            coordinator = DutyLeaseCoordinator(runtime.state_store, clock=context.clock, ids=context.ids)
+            service = TerminalDutyService(coordinator, default_heartbeat_timeout_ms=parsed.heartbeat_timeout_ms if hasattr(parsed, "heartbeat_timeout_ms") else 60_000)
+            owner = cast(DutyOwnerIdentity, DutyOwnerIdentity(parsed.instance_id, parsed.profile_id) if hasattr(parsed, "instance_id") else None)
+            if parsed.duty_action == "claim":
+                lease = service.claim_terminal_duty(parsed.room_id, owner, parsed.owner_principal_id, parsed.authority_epoch)
+            elif parsed.duty_action == "heartbeat":
+                lease = service.send_heartbeat(parsed.lease_id, parsed.room_id, owner, parsed.term, parsed.authority_epoch)
+            elif parsed.duty_action == "close":
+                lease = coordinator.close_lease(DutyLeaseCloseRequest(parsed.lease_id, parsed.room_id, "terminal-duty", owner, parsed.term, parsed.authority_epoch))
+            else:
+                holder = service.active_terminal_holder(parsed.room_id)
+                if parsed.json:
+                    print(json.dumps(_json_safe({"room_id": parsed.room_id, "owner": None if holder is None else {"instance_id": holder.instance_id, "profile_id": holder.profile_id}})))
+                else:
+                    print(f"Terminal duty for room {parsed.room_id}: UNHELD" if holder is None else f"Terminal duty for room {parsed.room_id}: held by {holder.instance_id}/{holder.profile_id}")
+                return 0
+            payload = {"lease_id": lease.lease_id, "room_id": lease.room_id, "role": lease.role, "owner": {"instance_id": lease.owner.instance_id, "profile_id": lease.owner.profile_id}, "owner_principal_id": lease.owner_principal_id, "authority_epoch": lease.authority_epoch, "term": lease.term, "state": lease.state.value, "heartbeat_expires_at": lease.heartbeat_expires_at}
+            if parsed.json:
+                print(json.dumps(payload))
+            elif parsed.duty_action == "claim":
+                print(f"Terminal duty claimed for room {lease.room_id} (lease={lease.lease_id}, epoch={lease.authority_epoch})")
+            elif parsed.duty_action == "heartbeat":
+                print(f"Heartbeat sent for lease {lease.lease_id}")
+            else:
+                print(f"Terminal duty lease {lease.lease_id} closed")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub duty: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -918,6 +961,23 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required)
         command_parser.add_argument("--json", action="store_true")
 
+    duty_parser = subparsers.add_parser("duty", help="Manage terminal duty")
+    duty_subparsers = duty_parser.add_subparsers(dest="duty_action", required=True)
+    duty_specs = {
+        "claim": [("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--owner-principal-id", True), ("--authority-epoch", True)],
+        "heartbeat": [("--lease-id", True), ("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--term", True), ("--authority-epoch", True)],
+        "close": [("--lease-id", True), ("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--term", True), ("--authority-epoch", True)],
+        "status": [("--room-id", True)],
+    }
+    for action, arguments in duty_specs.items():
+        command_parser = duty_subparsers.add_parser(action)
+        command_parser.add_argument("--workspace", default=".")
+        for name, required in arguments:
+            command_parser.add_argument(name, required=required, type=int if name in {"--term", "--authority-epoch"} else str)
+        if action == "claim":
+            command_parser.add_argument("--heartbeat-timeout-ms", type=int, default=60_000)
+        command_parser.add_argument("--json", action="store_true")
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "statusline":
@@ -934,6 +994,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "room":
         return _run_room(parsed)
+
+    if parsed.command == "duty":
+        return _run_duty(parsed)
 
     if parsed.command == "diag":
         return _run_diag(parsed)
