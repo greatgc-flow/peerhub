@@ -47,6 +47,7 @@ from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import ProcessSupervisor
 from peerhub.runtime import create_runtime
 from peerhub.governance.consensus import ConsensusService
+from peerhub.governance.tasks import TaskService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 
 class SystemClock(Clock):
@@ -596,6 +597,55 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_task(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = TaskService(runtime.governance_broker, clock=context.clock, ids=context.ids)
+            action = parsed.task_action
+            if action == "create":
+                submission = service.create(task_id=parsed.task_id, summary=parsed.summary, spec=parsed.spec, creator_id=parsed.creator, room_id=parsed.room_id or None)
+            elif action == "claim-start":
+                submission = service.claim_start(parsed.task_id, actor_id=parsed.actor, request_id=parsed.request_id, coordinator=parsed.coordinator, attempt_id=parsed.attempt_id)
+            elif action == "checkpoint":
+                submission = service.checkpoint(parsed.task_id, actor_id=parsed.actor, checkpoint_id=parsed.checkpoint_id, stage=parsed.stage, request_id=parsed.request_id, attempt_id=parsed.attempt_id, resume_token_ref=parsed.resume_token or None, completed_units=tuple(x for x in parsed.completed.split(",") if x), remaining_units=tuple(x for x in parsed.remaining.split(",") if x))
+            elif action == "complete":
+                submission = service.complete(parsed.task_id, actor_id=parsed.actor)
+            elif action == "fail":
+                submission = service.fail(parsed.task_id, actor_id=parsed.actor, failure_class=parsed.failure_class, reason=parsed.reason)
+            elif action == "cancel":
+                submission = service.cancel(parsed.task_id, actor_id=parsed.actor, reason=parsed.reason)
+            else:
+                target = runtime.governance_broker.get_target(parsed.task_id)
+                if target is None:
+                    raise RecordNotFoundError("task", parsed.task_id)
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(f"Task {parsed.task_id}: state={target.state['state']}")
+                return 0
+            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            assert target is not None
+            state = cast(dict[str, Any], target.state)
+            payload = _json_safe(target.state)
+            if parsed.json:
+                print(json.dumps(payload))
+            else:
+                verb = {"create": "created", "claim-start": "started", "checkpoint": "checkpointed", "complete": "completed", "fail": "failed", "cancel": "cancelled"}[action]
+                print(f"Task {parsed.task_id} {verb} (state={state['state']})")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub task: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -719,6 +769,24 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument("--actor", required=True)
             command_parser.add_argument("--choice", required=True, choices=("agree", "disagree"))
 
+    task_parser = subparsers.add_parser("task", help="Manage task lifecycles")
+    task_subparsers = task_parser.add_subparsers(dest="task_action", required=True)
+    task_specs = {
+        "create": ([("--task-id", True), ("--summary", True), ("--spec", True), ("--creator", True), ("--room-id", False)],),
+        "claim-start": ([("--task-id", True), ("--actor", True), ("--request-id", True), ("--coordinator", True), ("--attempt-id", True)],),
+        "checkpoint": ([("--task-id", True), ("--actor", True), ("--checkpoint-id", True), ("--stage", True), ("--request-id", True), ("--attempt-id", True), ("--resume-token", False), ("--completed", False), ("--remaining", False)],),
+        "complete": ([("--task-id", True), ("--actor", True)],),
+        "fail": ([("--task-id", True), ("--actor", True), ("--failure-class", True), ("--reason", True)],),
+        "cancel": ([("--task-id", True), ("--actor", True), ("--reason", True)],),
+        "status": ([("--task-id", True)],),
+    }
+    for action, (arguments,) in task_specs.items():
+        command_parser = task_subparsers.add_parser(action)
+        command_parser.add_argument("--workspace", default=".")
+        for name, required in arguments:
+            command_parser.add_argument(name, required=required, default="")
+        command_parser.add_argument("--json", action="store_true")
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "statusline":
@@ -726,6 +794,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "consensus":
         return _run_consensus(parsed)
+
+    if parsed.command == "task":
+        return _run_task(parsed)
 
     if parsed.command == "diag":
         return _run_diag(parsed)
