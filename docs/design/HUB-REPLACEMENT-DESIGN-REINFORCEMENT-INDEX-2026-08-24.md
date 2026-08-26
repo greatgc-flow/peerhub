@@ -1,5 +1,19 @@
 # hub.py Replacement — 7-Category Design Reinforcement Index (2026-08-24)
 
+> **★★★★ FINAL 2026-08-26: `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md`
+> is now the authoritative closure of the entire design-reinforcement effort.**
+> All 53 remaining open items across all 7 gaps were compiled, 52 ratified by
+> consistency-based reasoning (cx, cross-checked by terminal), the one
+> genuine business-judgment item (gap-5 approval authority model) was
+> answered by the user (named/designated user), and the one real shared
+> implementation prerequisite (governed-mutation broker has zero
+> listing/query capability — confirmed via direct source read) is scoped as
+> its own small infrastructure task, not an open design question.
+> **Verdict: all 7 gap categories are TDD-ready; no outstanding item blocks
+> starting implementation.** Read that doc before treating any older
+> "Unresolved" list in an individual gap doc as still open — this
+> ratification supersedes them.
+
 > **★ MOST IMPORTANT DOC IN THIS SET: `HUB-REPLACEMENT-CRITICAL-FINDING-LEGACY-CATALOG-2026-08-24.md`.**
 > `peerhub/application/legacy.py` already has a `LEGACY_CATALOG` dict
 > mapping ~90 of hub.py's real legacy actions to real native target-method
