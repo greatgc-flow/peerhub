@@ -507,3 +507,152 @@ A2A now tracked as a documented future-interop item at the same status
 as MCP** (Section 4 above): adopt later as an adapter, near-zero cost to
 the kernel, real interop upside deferred until an actual opaque
 third-party peer use case exists.
+
+---
+
+## 11. Extensibility stress test against 3 currently-popular external agent tools (2026-08-26, terminal + cx)
+
+User request: rather than more standards-protocol theory, actually stress
+the adapter-extensibility claim (Section 9: "`peer_kind` is already an
+open key, not a closed enumeration") against real, currently-trendy
+external agent tools. Three were picked to cover different shapes:
+**OpenCode** (dominant open-source CLI coding agent, already peerhub's
+own hypothetical example in Section 9), **Goose** (Block, Apache-2.0,
+Linux Foundation Agentic AI governance), **OpenClaw** (renamed from a
+Claude-adjacent name in Jan 2026 after an Anthropic trademark request;
+self-hosted autonomous-agent gateway). Methodology: terminal drafted an
+analysis grounded in direct reads of `peerhub/adapters/contract.py` and
+`peerhub/core/execution.py`, cx cross-checked every factual claim against
+each tool's own current docs (not training-data recall), terminal then
+independently re-verified the one claim cx flagged as unconfirmed via a
+live fetch. Two real errors were caught and corrected in this process —
+recorded below, not silently fixed, per this session's citation-discipline
+convention.
+
+**Real peerhub constraint (grounds everything below)**: `TransportKind`
+is closed to exactly `PIPE`/`PTY` today — both process-spawn transports.
+`InvocationPlan` requires `argv` (non-empty), makes `stdin_payload`
+optional, and the whole `PeerAdapter` contract (`plan_invocation` →
+spawn → `new_decoder`/`interpret_output`) is synchronous: one bounded
+invocation, wait for a terminal result. `HttpInvocation` exists only as
+"ratified direction, not implemented" (Section 5).
+
+### OpenCode — trivially adaptable, zero core changes
+
+`opencode run <message>` is a one-shot CLI call. **Correction**: the
+terminal's first pass claimed no stdin support; cx verified against
+OpenCode's own CLI reference that stdin piping IS supported
+(`echo "..." | opencode run`), alongside the positional-arg form — the
+terminal's original claim was stale/wrong, not cx's. A direct
+`RealOpenCodeAdapter` is straightforwardly possible today: `PIPE`/`PTY`
+transport, `argv` or `stdin_payload` carrying the prompt, no peerhub core
+change required. **Naming-collision note worth preserving**: OpenCode
+also has a separate `opencode acp` server mode (stdin/stdout ndjson) —
+this "ACP" is **Zed's Agent Client Protocol** (editor/client integration),
+a third distinct meaning of the "ACP" acronym in this space, unrelated to
+both IBM's (now A2A-absorbed) Agent Communication Protocol and to A2A
+itself. Do not conflate the three in any future doc.
+
+### Goose — trivially adaptable, AND double-validates the interop surface
+
+`goose run --no-session -t "<task>"` — same argv-based headless shape,
+same conclusion as OpenCode: a direct `RealGooseAdapter` needs no core
+changes. Additionally, Goose ships MCP as its primary extension model
+(70+ built-in extensions, 1700+ community MCP servers) and exposes the
+same Zed ACP server mode; a third-party MCP↔A2A bridge exists for it
+too. **cx's refinement (adopted)**: this validates the adapter-registry
+extensibility claim, but does **not** prove a direct adapter and an
+MCP/A2A-bridge path are interchangeable — a direct adapter gives
+process-level control, local workspace binding, exact exit-status
+semantics, and precise resource limits that a standards-bridge path
+would not. Which to use depends on whether peerhub wants operator-grade
+control (direct adapter) or is content treating Goose as an external
+standards-speaking agent (bridge). Both paths are real and available;
+neither is proven to be strictly better in general.
+
+### OpenClaw — the real architectural seam, but not a current blocker
+
+**Correction (important)**: the terminal's first draft cited a specific
+`POST /workflow/start` + callback-URL REST contract as an established
+fact. cx flagged this as unconfirmed against OpenClaw's own official
+docs and downgraded it to `TEST NEEDED` rather than accepting it — the
+terminal then independently re-verified via a live fetch of
+`docs.openclaw.ai`: confirmed real are a persistent self-hosted Gateway
+("single source of truth for sessions, routing, and channel
+connections"), a Web Control UI, multi-agent routing, and webhooks
+mentioned under "Capabilities" with no further endpoint detail on that
+page; the specific `/workflow/start` shape is **not** confirmed by
+primary docs and must not be treated as fact without a source that
+actually shows it. This is exactly the "verify peer citations, don't
+propagate an unverified claim" discipline working as intended — the
+terminal's own first-pass research was the source of the unverified
+claim here, not cx.
+
+What IS confirmed: OpenClaw's real automation surface is
+gateway/session/webhook-shaped, not spawn-one-process-and-wait. This is
+materially different from peerhub's current `PIPE`/`PTY` + synchronous
+`InvocationPlan` model.
+
+**cx's architectural refinement (adopted over the terminal's original
+"just build HttpInvocation" framing)**: even granting OpenClaw needs an
+HTTP-capable transport, `HttpInvocation` alone is insufficient, because
+there are two genuinely different patterns being conflated:
+
+- **request/response HTTP** — `HttpInvocation` models this fine (send a
+  request, get a response body back synchronously or via simple polling).
+- **submit-now, complete-later** — a remote correlation ID comes back
+  immediately, and the real completion arrives later via an independent
+  callback/webhook. A synchronous `InvocationPlan` cannot represent this
+  shape at all; it needs a separate pair of concepts:
+
+```text
+HttpSubmitPlan
+  outbound request, remote correlation ID,
+  callback/auth requirements, timeout/cancellation policy
+
+WebhookReceiver / CompletionIngress
+  authenticated callback, correlation lookup,
+  idempotent completion event, task-state CAS transition
+```
+
+The callback must never mutate peerhub state directly — it should enter
+through a brokered completion event with correlation, authentication,
+replay protection, and CAS enforcement, with gap-5's task lifecycle (not
+the adapter/transport layer) owning eventual completion. This is a clean
+fit with gap-5's already-ratified schema: an externally-delivered
+completion signal is structurally the same shape as any other task
+transition, already CAS-gated.
+
+**Is this worth building now?** No — for the current real use case
+(3 known, operator-controlled adapters), building HTTP+webhook
+infrastructure now would expand peerhub's authority and security surface
+ahead of an actual deployment need. Same conclusion pattern as A2A's
+"opaque third-party agent" case: a real, documented future requirement,
+not current TDD scope.
+
+### Verdict
+
+peerhub's real architecture generalizes cleanly to OpenCode and Goose
+today, through the existing adapter contract, with zero core changes —
+directly confirming Section 9's "open key" extensibility claim, not just
+in theory but against 2 of the most-used tools in this category right
+now. It does **not** generalize to OpenClaw's gateway/webhook shape
+without a genuine extension to the invocation/completion model — a real
+architectural seam, correctly surfaced by this exercise, but **not a
+TDD blocker**: `HttpInvocation` stays a documented future direction
+(now justified by a concrete example instead of only a hypothetical
+local-LLM one), not promoted to mandatory TDD scope.
+
+**One new pre-TDD design constraint, added as a result of this
+exercise**: any future externally-delivered task completion (OpenClaw-
+style webhook, or anything else async) must be representable as an
+authenticated, idempotent, CAS-checked task event — never a direct state
+mutation from an inbound callback. This is a natural, zero-cost extension
+of gap-5's already-ratified task schema (an external completion signal
+is just another CAS-gated transition), not a new mechanism.
+
+**Missing comparison, flagged by cx, not yet done**: an IDE-hosted agent
+(e.g. Cline/Roo Code) would stress a third shape — long-lived
+editor/session integration rather than CLI-once or gateway/webhook.
+OpenCode's and Goose's own ACP (Zed protocol) modes give partial coverage
+of this category already. Useful follow-up, not required before TDD.

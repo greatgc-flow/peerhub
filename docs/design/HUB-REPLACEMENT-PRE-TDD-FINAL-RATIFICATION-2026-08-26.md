@@ -95,6 +95,20 @@ Agent Skills were surveyed and confirmed correctly out of scope (agent
 discovery/identity/knowledge-packaging concerns, not peerhub's
 coordination-kernel domain). **This does not change the verdict below.**
 
+A follow-up extensibility stress test (`OSS-ADOPTION-STRATEGY-2026-08-15.md`
+Section 11) checked peerhub's real adapter contract against 3 currently-
+popular external agent tools (OpenCode, Goose, OpenClaw). OpenCode and
+Goose confirm the existing adapter model generalizes with zero core
+changes. OpenClaw's gateway/webhook shape does not fit the current
+`PIPE`/`PTY`-only, synchronous `InvocationPlan` model — a real
+architectural seam, but not a TDD blocker (same "real future requirement,
+not current scope" pattern as A2A). One new pre-TDD design constraint was
+added: any future externally-delivered task completion must be an
+authenticated, idempotent, CAS-checked task event, never a direct state
+mutation from an inbound callback — a zero-cost, already-compatible
+extension of gap-5's ratified schema. **Still no change to the verdict
+below.**
+
 ## Verdict
 
 **All 7 gap categories are now TDD-ready.** Every item that could be resolved by design-consistency reasoning has been; the single genuine business-judgment item has been decided by the user; the one real remaining prerequisite (broker listing capability) is a small, clearly-scoped, shared infrastructure task, not an open design question. Remaining "exact field name"/"exact schema micro-detail" items across the gap docs are correctly left for implementation time — forcing them now would be guessing without benefit, consistent with this session's own "safe to defer to implementation" bucket criterion.
