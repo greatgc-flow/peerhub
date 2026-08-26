@@ -96,6 +96,29 @@ class RoomsService:
         }
         return self._submit(thread_id, 0, creator_id, "thread.create", state)
 
+    def clear_room(
+        self,
+        old_room_id: str,
+        *,
+        new_room_id: str,
+        subject: str,
+        actor_id: str,
+    ) -> MutationSubmission:
+        old_room = self._broker.get_target(old_room_id)
+        if old_room is None:
+            raise RecordNotFoundError("room", old_room_id)
+        if old_room.state.get("kind") != "room":
+            raise InvalidMutationError("target is not a room")
+        # Legacy clear-room starts a wholly fresh room boundary. The old
+        # target is intentionally read-only: its history remains retained.
+        return self.create_room(
+            room_id=new_room_id,
+            topic_id=subject,
+            title=subject,
+            creator_id=actor_id,
+            participants=(),
+        )
+
     def append_message(
         self,
         *,
