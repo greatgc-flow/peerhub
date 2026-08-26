@@ -52,6 +52,7 @@ from peerhub.dispatch.contract import (
     SessionBindingKey,
     SessionBindingSnapshot,
 )
+from peerhub.dispatch.duty_lease import DutyLeaseSnapshot
 from peerhub.governance.contract import (
     CommandBinding,
     EffectReceipt,
@@ -521,6 +522,10 @@ class SqliteReadUnitOfWork:
     def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
         """Return one lease by ID."""
         return self.dispatch.get_lease(lease_id)
+
+    def get_duty_lease(self, lease_id: str): return self.dispatch.get_duty_lease(lease_id)
+    def get_active_duty_lease(self, room_id: str, role: str): return self.dispatch.get_active_duty_lease(room_id, role)
+    def get_latest_duty_lease(self, room_id: str, role: str): return self.dispatch.get_latest_duty_lease(room_id, role)
 
     def get_request(self, command_id: CommandID | str) -> RequestSnapshot | None:
         """Return one request by ID."""
@@ -1189,6 +1194,13 @@ class SqliteUnitOfWork:
     def get_lease(self, lease_id: str) -> LeaseSnapshot | None:
         """Return a lease snapshot by ID."""
         return self.dispatch.get_lease(lease_id)
+
+    def get_duty_lease(self, lease_id: str): return self.dispatch.get_duty_lease(lease_id)
+    def get_active_duty_lease(self, room_id: str, role: str): return self.dispatch.get_active_duty_lease(room_id, role)
+    def get_latest_duty_lease(self, room_id: str, role: str): return self.dispatch.get_latest_duty_lease(room_id, role)
+    def mark_duty_lease_expired(self, lease_id: str, updated_at: int) -> None: return self.dispatch.mark_duty_lease_expired(lease_id, updated_at)
+    def insert_duty_lease(self, snapshot: DutyLeaseSnapshot) -> None: return self.dispatch.insert_duty_lease(snapshot)
+    def update_duty_lease_heartbeat(self, lease_id: str, heartbeat_expires_at: int, updated_at: int) -> None: return self.dispatch.update_duty_lease_heartbeat(lease_id, heartbeat_expires_at, updated_at)
 
     def add_lease(self, lease: LeaseSnapshot) -> None:
         """Insert a new lease snapshot."""

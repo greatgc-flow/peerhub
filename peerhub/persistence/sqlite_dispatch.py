@@ -57,6 +57,7 @@ from peerhub.dispatch.contract import (
     SessionRotationGenerationSnapshot,
     TerminalClassification,
 )
+from peerhub.dispatch.duty_lease import DutyLeaseSnapshot, DutyLeaseState, DutyOwnerIdentity
 
 def _completion_contract_data(
     contract: CompletionContract,
@@ -259,6 +260,38 @@ def _ask_result_from_raw(raw: str) -> AskResult:
 class SqliteDispatchRepository:
     def __init__(self, db_factory: Callable[[], sqlite3.Connection]) -> None:  # pyright: ignore[reportUnknownParameterType]
         self._db = db_factory  # pyright: ignore[reportUnknownMemberType]
+
+    @staticmethod
+    def _duty_snapshot(row: sqlite3.Row) -> DutyLeaseSnapshot:
+        return DutyLeaseSnapshot(
+            row["lease_id"], row["room_id"], row["role"],
+            DutyOwnerIdentity(row["owner_instance_id"], row["owner_profile_id"]),
+            row["owner_principal_id"], row["authority_epoch"], row["term"],
+            row["challenge_until"], DutyLeaseState(row["state"]),
+            row["heartbeat_expires_at"], row["created_at"], row["updated_at"],
+            row["consecutive_terms_held"],
+        )
+
+    def get_duty_lease(self, lease_id: str) -> DutyLeaseSnapshot | None:
+        row = self._db().execute("SELECT * FROM duty_leases WHERE lease_id = :lease_id", {"lease_id": lease_id}).fetchone()
+        return None if row is None else self._duty_snapshot(row)
+
+    def get_active_duty_lease(self, room_id: str, role: str) -> DutyLeaseSnapshot | None:
+        row = self._db().execute("SELECT * FROM duty_leases WHERE room_id = :room_id AND role = :role AND state = 'ACTIVE'", {"room_id": room_id, "role": role}).fetchone()
+        return None if row is None else self._duty_snapshot(row)
+
+    def get_latest_duty_lease(self, room_id: str, role: str) -> DutyLeaseSnapshot | None:
+        row = self._db().execute("SELECT * FROM duty_leases WHERE room_id = :room_id AND role = :role ORDER BY authority_epoch DESC LIMIT 1", {"room_id": room_id, "role": role}).fetchone()
+        return None if row is None else self._duty_snapshot(row)
+
+    def mark_duty_lease_expired(self, lease_id: str, updated_at: int) -> None:
+        self._db().execute("UPDATE duty_leases SET state = 'EXPIRED', updated_at = :updated_at WHERE lease_id = :lease_id", {"updated_at": updated_at, "lease_id": lease_id})
+
+    def insert_duty_lease(self, snapshot: DutyLeaseSnapshot) -> None:
+        self._db().execute("""INSERT INTO duty_leases (lease_id, room_id, role, owner_instance_id, owner_profile_id, owner_principal_id, authority_epoch, term, challenge_until, state, heartbeat_expires_at, created_at, updated_at, consecutive_terms_held) VALUES (:lease_id, :room_id, :role, :owner_instance_id, :owner_profile_id, :owner_principal_id, :authority_epoch, :term, :challenge_until, :state, :heartbeat_expires_at, :created_at, :updated_at, :consecutive_terms_held)""", {"lease_id": snapshot.lease_id, "room_id": snapshot.room_id, "role": snapshot.role, "owner_instance_id": snapshot.owner.instance_id, "owner_profile_id": snapshot.owner.profile_id, "owner_principal_id": snapshot.owner_principal_id, "authority_epoch": snapshot.authority_epoch, "term": snapshot.term, "challenge_until": snapshot.challenge_until, "state": snapshot.state.value, "heartbeat_expires_at": snapshot.heartbeat_expires_at, "created_at": snapshot.created_at, "updated_at": snapshot.updated_at, "consecutive_terms_held": snapshot.consecutive_terms_held})
+
+    def update_duty_lease_heartbeat(self, lease_id: str, heartbeat_expires_at: int, updated_at: int) -> None:
+        self._db().execute("UPDATE duty_leases SET heartbeat_expires_at = :heartbeat_expires_at, updated_at = :updated_at WHERE lease_id = :lease_id", {"heartbeat_expires_at": heartbeat_expires_at, "updated_at": updated_at, "lease_id": lease_id})
 
     def get_client_request_binding(
         self,
