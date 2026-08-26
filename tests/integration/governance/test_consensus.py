@@ -164,3 +164,45 @@ def test_stale_vote_raises_stale_revision(tmp_path: Path) -> None:
             choice="agree",
             expected_revision=1,
         )
+
+
+def _quorum_round(service: ConsensusService, round_id: str = "round-ops") -> None:
+    service.propose(round_id=round_id, title="Choose", question="Which?", body="body",
+                   proposer_id="peer-a", required_participants=("peer-a", "peer-b"),
+                   eligible_participants=("peer-a", "peer-b"), risk="normal", source_hash="sha256:test")
+    service.cast_vote(round_id, actor_id="peer-a", choice="agree")
+    service.cast_vote(round_id, actor_id="peer-b", choice="agree")
+
+
+def test_final_call_ack_completes_and_resolves(tmp_path: Path) -> None:
+    service, broker = _service(tmp_path)
+    _quorum_round(service)
+    service.final_call_ack("round-ops", actor_id="peer-a", ack=True)
+    service.final_call_ack("round-ops", actor_id="peer-b", ack=True)
+    state = broker.get_target("round-ops").state  # type: ignore[union-attr]
+    assert state["phase"] == "resolved" and state["resolution"]["decision_hash"]
+
+
+def test_false_ack_leaves_final_call_and_timeout_escalates(tmp_path: Path) -> None:
+    service, broker = _service(tmp_path)
+    _quorum_round(service)
+    service.final_call_ack("round-ops", actor_id="peer-a", ack=False)
+    service.mark_timeout("round-ops", "deadline exceeded")
+    state = broker.get_target("round-ops").state  # type: ignore[union-attr]
+    assert state["phase"] == "final_call" and state["escalation"]["tier"] == 0
+
+
+def test_escalation_resolve_and_abandon_are_terminal(tmp_path: Path) -> None:
+    service, broker = _service(tmp_path)
+    service.propose(round_id="round-escalate", title="x", question="q", body="b", proposer_id="peer-a",
+                    required_participants=("peer-a",), eligible_participants=("peer-a",), risk="normal", source_hash="s")
+    service.request_escalation("round-escalate", "needs human", "peer-a", 0, "human-tier-0")
+    service.resolve("round-escalate", "approved", "human:one", "human decision")
+    assert broker.get_target("round-escalate").state["status"] == "resolved"  # type: ignore[union-attr]
+    with pytest.raises(InvalidMutationError):
+        service.abandon("round-escalate", "late", "too late", "human:one")
+
+    service.propose(round_id="round-abandon", title="x", question="q", body="b", proposer_id="peer-a",
+                    required_participants=("peer-a",), eligible_participants=("peer-a",), risk="normal", source_hash="s")
+    service.abandon("round-abandon", "cancelled", "cancel", "peer-a")
+    assert broker.get_target("round-abandon").state["phase"] == "abandoned"  # type: ignore[union-attr]
