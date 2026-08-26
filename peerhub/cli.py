@@ -1,6 +1,7 @@
 """Command-line interface for PeerHub."""
 
 import argparse
+import hashlib
 import json
 import os
 import sqlite3
@@ -8,10 +9,11 @@ import sys
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from peerhub.persistence.sqlite import SqliteReadUnitOfWork
@@ -44,6 +46,8 @@ from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import ProcessSupervisor
 from peerhub.runtime import create_runtime
+from peerhub.governance.consensus import ConsensusService
+from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 
 class SystemClock(Clock):
     """Real system clock for production use."""
@@ -509,6 +513,89 @@ def _run_broadcast(parsed: argparse.Namespace) -> int:
         return 0 if result.disposition == "all_completed" else 1
 
 
+def _json_safe(value: Any) -> Any:
+    """Recursively convert frozen TargetState.state values (Mapping/tuple,
+    from core.protocol.freeze_json_mapping) into plain dict/list so
+    json.dumps doesn't choke on a nested mappingproxy -- dict(x) alone only
+    converts the top level, not values nested inside it."""
+    if isinstance(value, Mapping):
+        items = cast("Mapping[Any, Any]", value).items()
+        return {key: _json_safe(item) for key, item in items}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in cast("list[Any] | tuple[Any, ...]", value)]
+    return value
+
+
+def _run_consensus(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    # No pre-check on paths.database_path.exists() here: create_runtime()
+    # below already calls state_store.initialize(), which creates the
+    # database on first use. `propose` legitimately needs to be able to
+    # initialize a fresh workspace; `vote`/`status` on a nonexistent round
+    # in a fresh (or existing) database correctly fall through to the real
+    # RecordNotFoundError path below, a more accurate error than a blanket
+    # "workspace uninitialized" would be either way.
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = ConsensusService(runtime.governance_broker, clock=context.clock, ids=context.ids)
+            if parsed.consensus_action == "propose":
+                required = tuple(item for item in parsed.required.split(",") if item)
+                eligible = tuple(item for item in parsed.eligible.split(",") if item)
+                submission = service.propose(
+                    round_id=parsed.round_id,
+                    title=parsed.title,
+                    question=parsed.question,
+                    body=parsed.body,
+                    proposer_id=parsed.proposer,
+                    required_participants=required,
+                    eligible_participants=eligible,
+                    risk=parsed.risk,
+                    source_hash="sha256:" + hashlib.sha256(parsed.body.encode()).hexdigest(),
+                )
+                target = runtime.governance_broker.get_target(submission.receipt.target_id)
+                assert target is not None
+                state = cast(dict[str, Any], target.state)
+                quorum = cast(dict[str, Any], state["quorum"])
+                payload: dict[str, Any] = {"round_id": parsed.round_id, "phase": state["phase"], "quorum_required": quorum["required_votes"]}
+                if parsed.json:
+                    print(json.dumps(_json_safe(payload)))
+                else:
+                    print(f"Consensus round {parsed.round_id} proposed (phase={payload['phase']}, quorum required={payload['quorum_required']})")
+                return 0
+            if parsed.consensus_action == "vote":
+                submission = service.cast_vote(parsed.round_id, actor_id=parsed.actor, choice=parsed.choice)
+                target = runtime.governance_broker.get_target(submission.receipt.target_id)
+                assert target is not None
+                state = cast(dict[str, Any], target.state)
+                payload: dict[str, Any] = {"round_id": parsed.round_id, "phase": state["phase"], "quorum": state["quorum"]}
+                if parsed.json:
+                    print(json.dumps(_json_safe(payload)))
+                else:
+                    quorum = payload["quorum"]
+                    print(f"Consensus vote recorded for {parsed.round_id} (phase={payload['phase']}, votes={quorum['counted_votes']}/{quorum['required_votes']}, quorum reached={quorum['reached']})")
+                return 0
+            target = runtime.governance_broker.get_target(parsed.round_id)
+            if target is None:
+                raise RecordNotFoundError("consensus-round", parsed.round_id)
+            if parsed.json:
+                print(json.dumps(_json_safe(target.state)))
+            else:
+                state = cast(dict[str, Any], target.state)
+                quorum = cast(dict[str, Any], state["quorum"])
+                print(f"Consensus round {parsed.round_id}: phase={state['phase']}, votes={quorum['counted_votes']}/{quorum['required_votes']}, quorum reached={quorum['reached']}")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub consensus: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -610,10 +697,35 @@ def main(args: list[str] | None = None) -> int:
         help="Path to workspace root",
     )
 
+    consensus_parser = subparsers.add_parser("consensus", help="Manage consensus rounds")
+    consensus_subparsers = consensus_parser.add_subparsers(dest="consensus_action", required=True)
+    propose_parser = consensus_subparsers.add_parser("propose")
+    propose_parser.add_argument("--workspace", default=".")
+    propose_parser.add_argument("--round-id", required=True)
+    propose_parser.add_argument("--title", required=True)
+    propose_parser.add_argument("--question", required=True)
+    propose_parser.add_argument("--body", required=True)
+    propose_parser.add_argument("--proposer", required=True)
+    propose_parser.add_argument("--required", required=True)
+    propose_parser.add_argument("--eligible", required=True)
+    propose_parser.add_argument("--risk", default="normal")
+    propose_parser.add_argument("--json", action="store_true")
+    for action in ("vote", "status"):
+        command_parser = consensus_subparsers.add_parser(action)
+        command_parser.add_argument("--workspace", default=".")
+        command_parser.add_argument("--round-id", required=True)
+        command_parser.add_argument("--json", action="store_true")
+        if action == "vote":
+            command_parser.add_argument("--actor", required=True)
+            command_parser.add_argument("--choice", required=True, choices=("agree", "disagree"))
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "statusline":
         return _run_statusline(parsed)
+
+    if parsed.command == "consensus":
+        return _run_consensus(parsed)
 
     if parsed.command == "diag":
         return _run_diag(parsed)
