@@ -48,6 +48,7 @@ from peerhub.dispatch.process import ProcessSupervisor
 from peerhub.runtime import create_runtime
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
+from peerhub.governance.lessons import LessonService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 
 class SystemClock(Clock):
@@ -646,6 +647,49 @@ def _run_task(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_lesson(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = LessonService(runtime.governance_broker, clock=context.clock, ids=context.ids)
+            action = parsed.lesson_action
+            if action == "propose":
+                submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id)
+            elif action == "approve":
+                submission = service.approve(parsed.lesson_id, approved_by_actor_id=parsed.approved_by, authority_target_id=parsed.authority_target_id)
+            elif action == "activate":
+                submission = service.activate(parsed.lesson_id, actor_id=parsed.actor)
+            elif action == "retire":
+                submission = service.retire(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason)
+            elif action == "supersede":
+                submission = service.supersede(parsed.lesson_id, actor_id=parsed.actor, replacement_lesson_id=parsed.replacement_lesson_id)
+            elif action == "quarantine":
+                submission = service.quarantine(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason, evidence=parsed.evidence)
+            else:
+                target = runtime.governance_broker.get_target(f"lesson:{parsed.lesson_id}")
+                if target is None:
+                    raise RecordNotFoundError("lesson", parsed.lesson_id)
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(f"Lesson {parsed.lesson_id}: lifecycle={target.state['lifecycle']}")
+                return 0
+            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            assert target is not None
+            state = cast(dict[str, Any], target.state)
+            if parsed.json:
+                print(json.dumps(_json_safe(target.state)))
+            else:
+                verb = {"propose": "proposed", "approve": "approved", "activate": "activated", "retire": "retired", "supersede": "superseded", "quarantine": "quarantined"}[action]
+                print(f"Lesson {parsed.lesson_id} {verb} (lifecycle={state['lifecycle']})")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub lesson: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -787,6 +831,32 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required, default="")
         command_parser.add_argument("--json", action="store_true")
 
+    lesson_parser = subparsers.add_parser("lesson", help="Manage governance lessons")
+    lesson_subparsers = lesson_parser.add_subparsers(dest="lesson_action", required=True)
+    lesson_specs = {
+        "propose": [("--lesson-id", True), ("--title", True), ("--rule", True), ("--category", True), ("--severity", True), ("--proposer", True), ("--affected", True), ("--scope-kind", False), ("--workspace-id", False)],
+        "approve": [("--lesson-id", True), ("--approved-by", True), ("--authority-target-id", False)],
+        "activate": [("--lesson-id", True), ("--actor", True)],
+        "retire": [("--lesson-id", True), ("--actor", True), ("--reason", False)],
+        "supersede": [("--lesson-id", True), ("--actor", True), ("--replacement-lesson-id", True)],
+        "quarantine": [("--lesson-id", True), ("--actor", True), ("--reason", True), ("--evidence", True)],
+        "status": [("--lesson-id", True)],
+    }
+    for action, arguments in lesson_specs.items():
+        command_parser = lesson_subparsers.add_parser(action)
+        command_parser.add_argument("--workspace", default=".")
+        for name, required in arguments:
+            if name in {"--workspace-id", "--authority-target-id"}:
+                default = None
+            elif name == "--reason" and action == "retire":
+                default = "MANUAL"
+            elif name == "--scope-kind":
+                default = "global"
+            else:
+                default = ""
+            command_parser.add_argument(name, required=required, default=default)
+        command_parser.add_argument("--json", action="store_true")
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "statusline":
@@ -797,6 +867,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "task":
         return _run_task(parsed)
+
+    if parsed.command == "lesson":
+        return _run_lesson(parsed)
 
     if parsed.command == "diag":
         return _run_diag(parsed)
