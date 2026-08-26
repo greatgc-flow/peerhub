@@ -176,7 +176,7 @@ the old lease eventually expires and the room stays recoverable.
 5. Is duty exclusive globally per room, or can routing/governance/execution have separate duties?
 6. Exact timeout/sweep configuration for duty leases?
 7. Does expired duty auto-trigger reassignment, or only make reassignment possible?
-8. What does legacy `clear-room` actually currently delete/reset (needs checking real hub.py behavior)?
+8. ~~What does legacy `clear-room` actually currently delete/reset~~ — **RESOLVED 2026-08-26**, see "CONFIRMED" section above: deletes nothing, mints a new room + resets pointer fields + clears live peer session bindings only.
 9. Exact legacy handoff fields and serialization rules?
 10. Are thread reactions toggles, append-only events, or immutable acknowledgements?
 11. Should `context-fill` return Markdown, structured JSON, or both?
@@ -198,9 +198,10 @@ state while retaining a generated human-readable continuity projection for
 startup/recovery/export/compat. Adopt native continuity operations for
 session lifecycle/threads/duty/checkpoints/context-fill, legacy commands
 translated through gap-1's versioned compat envelope. **Defer** exact
-schema names, timeout values, legacy `clear-room` semantics, handoff-field
+schema names, timeout values, handoff-field
 compatibility, and projection retention limits pending inspection of
-peerhub's real source (the 16 items above).
+peerhub's real source (the remaining 15 items above; item 8, legacy
+`clear-room` semantics, is now resolved — see the CONFIRMED section above).
 
 ## RECONCILIATION AGAINST REAL SOURCE (2026-08-24)
 
@@ -411,6 +412,32 @@ the topic. Whether a new topic creates a new room / mutates the existing
 room / creates a room generation is a lifecycle-POLICY decision, not
 inferable from the storage schema alone.
 
+### CONFIRMED (2026-08-26, direct real `hub.py` source read): exact `clear-room` semantics
+
+Read `action_clear_room()`, `P:\_sys\core\hub.py:3577-3605`, directly —
+this was previously "not determinable from source alone" because that
+read hadn't actually been done yet; it is fully determinable, and the
+existing safe-default guess above is **confirmed correct**:
+
+`clear-room` does **NOT** delete anything. It: (1) mints a brand-new
+`room_id` (`_short_id("room-")`); (2) resets only the ephemeral pointer
+fields on `state.json` — `room_id`, `members` (re-keyed to fresh
+per-member session IDs via `_new_member_sids`), `mission`, `blocked`,
+`phase="clear-room"`; (3) writes a **new** handoff file under
+`sessions/{new_room}/` (GOAL=subject, one ACTIVE_THREADS line noting
+`clear-room from {old_room}`); (4) calls `_clear_peer_sessions(pid,
+"clear-room:{new_room}", ai_root)` for every routable peer — this clears
+each peer's own *live session binding*, not any history. The **old**
+room's directory and handoff file are never touched, moved, or deleted.
+
+Native mapping this confirms: `clear-room` = allocate a new room
+`TargetState` + reset an "active room pointer" field elsewhere (session/
+duty-lease layer, not the room target itself) + release each peer's live
+session binding for the new reason string. The old room's `TargetState`
+is left exactly as-is — no archive/delete operation is needed to
+replicate this legacy behavior; a real bug would be introduced if the
+native version deleted or archived the old room, since legacy never did.
+
 ### Unresolved (needs more source access or explicit policy decision)
 
 Whether message targets are physically stored in the same backend/table
@@ -420,8 +447,6 @@ confirmed — this whole design assumes it does); whether message ordering
 must be strictly contiguous/globally serialized; whether edits/deletes/
 reactions/attachments/redactions are required; whether room-membership
 changes need CAS on the room target or a separate membership target;
-exact `clear-room` behavioral semantics (delete/archive/detach — genuine
-runtime behavior, not determinable from source alone); does a topic
-change create a new room, mutate the existing one, or create a room
-generation; retention/pagination/indexing/garbage-collection policy for
-message targets.
+does a topic change create a new room, mutate the existing one, or
+create a room generation; retention/pagination/indexing/garbage-collection
+policy for message targets.

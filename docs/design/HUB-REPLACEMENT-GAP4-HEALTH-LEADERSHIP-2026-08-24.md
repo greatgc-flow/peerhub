@@ -424,19 +424,74 @@ a new lease ID + fencing epoch atomically; a challenger does NOT acquire
 the role merely because `challenge_until` passed — acquisition still
 needs the expiry/recovery rule AND a strictly newer term.**
 
+### CONFIRMED (2026-08-26, direct real `hub.py` source read): exact challenge protocol
+
+Read `action_leader_claim()` / `action_leader_yield()`,
+`P:\_sys\core\hub.py:8698-8793`, directly — answers all three parts of
+the "exact challenge protocol" question below, plus surfaces one real
+authority rule (AP-20) the design hadn't captured yet:
+
+- **Who may challenge**: any peer that is not the current claimant, by
+  simply calling leader-claim again — no membership/eligibility filter
+  beyond that.
+- **Can an incumbent veto**: **no.** There is no incumbent-veto code path.
+  While `now < challenge_until`, a second claim is unconditionally
+  accepted and overwrites the pending claim (logged as `CHALLENGE:
+  {agent} is challenging {current_leader}'s pending claim`). **Real
+  discrepancy worth flagging**: the inline comment above this branch says
+  "Score 기반 경합" (score-based contention), but the actual code has no
+  scoring — it is a bare last-writer-wins overwrite. This is a
+  comment/behavior mismatch in the legacy system itself, not a
+  misunderstanding on our part. **Policy decision needed**: should
+  peerhub's native version faithfully replicate the current toothless
+  overwrite-on-challenge behavior (byte-for-byte legacy fidelity), or
+  actually implement the score-based arbitration the legacy comment
+  describes but the legacy code never built (a genuine behavior
+  improvement, not just a port)?
+- **Is the challenge window advisory or mandatory**: **mandatory as an
+  outer gate, permissive inside it.** Outside the window (`challenge_until`
+  absent or expired), a claim is only accepted if the incumbent's health
+  is `RED` or `STALE`; otherwise `sys.exit(1)` with "still active and
+  healthy." Inside the window, any claim is accepted with no further
+  check. So the window mandatorily blocks claims against a healthy
+  incumbent, but does nothing to arbitrate between challengers once open.
+- **New rule not previously in this design — AP-20 Coordinator Monopoly
+  Guard**: before granting a claim, `hub.py` checks the last
+  `yield_failure_threshold` (config: `protocol.json["leader_election"]
+  ["yield_failure_threshold"]`, default 3) entries of `coordinator_history`;
+  if all of them are the same claiming peer, the claim is rejected
+  outright (`sys.exit(1)`, logged via `_record_ap20_runtime_directive`) —
+  a peer cannot hold N consecutive terms without an intervening yield to
+  someone else. **This must be carried into the native `DutyLeaseCoordinator`
+  design as a required precondition on `create`/`claim`**, not just on
+  `renew` — it was missing from the field list above and needs adding
+  (e.g. a `recent_holders: list[tuple[peer_id, term]]` check, or an
+  explicit `consecutive_terms` counter on the duty-lease projection).
+- **Yield safety hook (confirmed, not previously documented)**:
+  `action_leader_yield` checkpoints active tasks first (`_checkpoint_active_tasks`)
+  whenever the yield `reason` contains any of `context/health/rate/limit/
+  failure/degraded` — a pressure-yield triggers a checkpoint-before-release;
+  a plain/manual yield does not. Native duty-lease `release` should
+  preserve this same conditional-checkpoint behavior, not drop it as an
+  unmodeled side effect.
+
 ### Unresolved (needs more source or explicit policy decision)
 
 `SessionLeaseCoordinator`'s actual method BODIES weren't available this
-round (only signatures were used) — its real design doesn't establish
-leadership-specific election semantics, so this remains a genuinely new
-design, not a reconciliation. Should `term` and `authority_epoch` be
+round for the LEASE (not leadership) side (only signatures were used) —
+its real design doesn't establish leadership-specific election semantics
+beyond what's now confirmed above, so the lease-fencing mechanics (not
+the challenge protocol, now resolved) remain a genuinely new design, not
+a reconciliation. Should `term` and `authority_epoch` be
 identical/related/independently-monotonic? (cx's recommendation: keep
 both — `authority_epoch` fences stale records, `term` identifies the
 leadership generation). Does duty ownership need process-incarnation-
 binding (optional `ProcessBirthIdentity`) beyond the confirmed
-`(instance_id, profile_id)` identity? Exact challenge protocol (who may
-challenge, can an incumbent veto, is the challenge window advisory or
-mandatory)? Recovery-evidence fields/receipt reuse for duty leases not
-yet defined. Should leadership's slower election state be a separate
-`TargetState` or fields on `DutyLeaseSnapshot`? (cx recommends: separate
-conceptual state, one dedicated lease record as the liveness authority.)
+`(instance_id, profile_id)` identity? Recovery-evidence fields/receipt
+reuse for duty leases not yet defined. Should leadership's slower
+election state be a separate `TargetState` or fields on
+`DutyLeaseSnapshot`? (cx recommends: separate conceptual state, one
+dedicated lease record as the liveness authority.) Should the native
+version fix the score-vs-overwrite comment/behavior mismatch above, or
+faithfully port the current overwrite behavior (explicit user policy
+call, flagged above)?
