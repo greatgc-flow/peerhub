@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
+from typing import cast
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
@@ -135,6 +136,51 @@ class LessonService:
             "lessons-activate",
             state,
         )
+
+    def retire(self, lesson_id: str, *, actor_id: str, reason: str = "MANUAL", expected_revision: int | None = None) -> MutationSubmission:
+        target, state = self._load(lesson_id, {"ACTIVE"})
+        timestamp = self._clock.now()
+        validity = dict(cast(dict[str, JsonValue], state["validity"]))
+        validity.update({"retired_at": timestamp, "retirement_reason": reason})
+        state["validity"] = validity
+        state["lifecycle"] = "RETIRED"
+        return self._submit(f"lesson:{lesson_id}", target.revision if expected_revision is None else expected_revision, actor_id, "lessons-retire", state)
+
+    def supersede(self, lesson_id: str, *, actor_id: str, replacement_lesson_id: str, expected_revision: int | None = None) -> MutationSubmission:
+        target, state = self._load(lesson_id, {"ACTIVE"})
+        validity = dict(cast(dict[str, JsonValue], state["validity"]))
+        validity["superseded_by"] = replacement_lesson_id
+        state["validity"] = validity
+        state["lifecycle"] = "SUPERSEDED"
+        return self._submit(f"lesson:{lesson_id}", target.revision if expected_revision is None else expected_revision, actor_id, "lessons-supersede", state)
+
+    def quarantine(self, lesson_id: str, *, actor_id: str, reason: str, evidence: str, expected_revision: int | None = None) -> MutationSubmission:
+        target, state = self._load(lesson_id, {"PROPOSED", "ACTIVE"})
+        state["lifecycle"] = "QUARANTINED"
+        state["quarantine"] = {"reason": reason, "evidence": evidence, "actor_id": actor_id, "quarantined_at": self._clock.now()}
+        return self._submit(f"lesson:{lesson_id}", target.revision if expected_revision is None else expected_revision, actor_id, "lessons-quarantine", state)
+
+    def record_delivery_pending(self, lesson_id: str, peer_id: str, *, delivery_method: str = "broadcast", actor_id: str = "peerhub") -> MutationSubmission:
+        state: dict[str, JsonValue] = {
+            "schema": "peerhub.lesson-delivery.v1", "kind": "lesson-delivery", "scope": lesson_id,
+            "lesson_id": lesson_id, "peer_id": peer_id, "status": "PENDING", "delivery_revision": 0,
+            "delivered_at": None, "delivery_method": delivery_method,
+            "delivery_evidence": {"command_id": None, "correlation_id": None, "result_sha256": None},
+        }
+        return self._submit(f"lesson-delivery:{lesson_id}:{peer_id}", 0, actor_id, "lesson.delivery_pending", state)
+
+    def record_delivery_complete(self, lesson_id: str, peer_id: str, *, command_id: str, correlation_id: str, actor_id: str = "peerhub") -> MutationSubmission:
+        target = self._broker.get_target(f"lesson-delivery:{lesson_id}:{peer_id}")
+        if target is None:
+            raise RecordNotFoundError("lesson-delivery", peer_id)
+        state = dict(target.state)
+        if state.get("status") != "PENDING":
+            raise InvalidMutationError("delivery is not pending")
+        timestamp = self._clock.now()
+        evidence = {"command_id": command_id, "correlation_id": correlation_id}
+        result_hash = "sha256:" + hashlib.sha256(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        state.update({"status": "DELIVERED", "delivery_revision": 1, "delivered_at": timestamp, "delivery_evidence": {**evidence, "result_sha256": result_hash}})
+        return self._submit(target.target_id, target.revision, actor_id, "lesson.delivery_complete", state)
 
     def _load(
         self, lesson_id: str, allowed: set[str]
