@@ -112,7 +112,7 @@ peerhub authority kernel  <- owns: capability leases, fencing, atomic retry
                              authorization, durable command state, consensus
         |
         +-- transport:  ProcessInvocation | HttpInvocation
-        +-- interop:    MCP surface
+        +-- interop:    MCP surface | A2A surface (see Section 10 -- added 2026-08-26)
         +-- provider health/quota/routing input:  LiteLLM
         +-- inner execution engines (optional, per-attempt):
               CLI adapters | LangGraph graphs | OpenHands SDK | ...
@@ -382,3 +382,128 @@ session.
 | `peer_kind` | Already an open key, not a closed enumeration | None needed |
 | Enforcement floor | Mechanism (evidence-provider Protocol) already extensible | None now; the *policy* content for HTTP peers stays deferred per Section 4.1 |
 | Adapter registry | Real small gap: closed module-level dict | Small additive patch proposed (registration function), scheduled as its own small increment |
+
+---
+
+## 10. A2A (Agent2Agent) evaluation (2026-08-26, terminal + cx)
+
+This section was never part of the original 2026-08-15 debate — it was
+added later, pre-TDD, once the hub.py-replacement gap-1..7 design set
+(see `HUB-REPLACEMENT-*` docs) had converged and the terminal noticed
+this doc's own interop diagram (Section 4) only accounts for MCP, never
+evaluating A2A at all (confirmed via full-repo grep — zero prior
+mentions). Given gap-5's task lifecycle and gap-2's consensus/coordinator
+design were *just* ratified as TDD-ready, and A2A's domain (agent-to-agent
+task delegation) genuinely overlaps with both — unlike MCP, which only
+concerns tool/resource exposure — this got a real evaluation with the
+same Position-A/Position-B + primary-source-verification rigor as
+Section 3 above, rather than being waved through by analogy to MCP.
+
+**Facts (web-verified 2026-08-26, not training-data recall — this is a
+fast-moving area)**: A2A is Linux Foundation-governed, reached v1.0 in
+2026, 150+ supporting organizations (Google, Microsoft, AWS, Salesforce,
+SAP, ServiceNow, Workday, IBM), ~23% enterprise adoption vs MCP's ~78%.
+IBM's competing "Agent Communication Protocol" (ACP) merged INTO A2A in
+August 2025 under LF AI & Data — ACP is deprecated/absorbed, so
+evaluating A2A covers that lineage too. Core mechanics: Agent Cards
+(capability/reachability metadata, optionally cryptographically signed),
+JSON-RPC 2.0 / gRPC / HTTP+JSON transport, an 8-state Task lifecycle
+(`submitted, working, input_required, auth_required, completed, failed,
+canceled, rejected`). Verified directly against
+[A2A's key-concepts doc](https://github.com/a2aproject/A2A/blob/main/docs/topics/key-concepts.md):
+Agent Cards are "a JSON document that serves as a digital business card
+for initial discovery and interaction setup," and A2A explicitly targets
+agents that are "*opaque* (black-box)" to the client — internal workings,
+memory, and tools not exposed. That opacity premise is the load-bearing
+fact for the verdict below.
+
+### Verdict: same shape as MCP — external interoperability layer, outside the authority kernel; TDD-ready verdict stands, no gap-5/gap-2 schema change required
+
+```text
+PeerHub authority kernel
+  TargetState / CAS / leases / broker / consensus
+          |
+PeerHub task coordinator
+          |
+A2A adapter: Agent Card + auth + task projection + streaming/push
+```
+
+**Why Position A (adapter, not foundation) holds**, even though A2A's
+domain overlaps peerhub's own more than MCP's did: peerhub's 3 real
+adapters (`RealAgyAdapter`/`RealClaudeAdapter`/`RealCodexAdapter`) are
+hand-built and fully known/controlled by one operator — not opaque
+third-party agents from other organizations, which is A2A's entire
+reason to exist. CAS, fencing, leases, mutation authorization, and
+consensus rules are operator-local authority mechanisms A2A does not
+define replacements for. A2A's task states are intentionally coarse and
+externally observable by design; peerhub's internal checkpoints,
+failover, lease binding, and consensus evidence should stay
+peerhub-private regardless.
+
+**Position B was taken seriously, not strawmanned**: if peerhub ever
+becomes an inter-organizational agent gateway, or must delegate to an
+arbitrary third-party A2A agent nobody hand-adapted, native A2A
+ingress/egress would reduce integration friction. But a 4th opaque A2A
+peer would need *an* adapter either way (the alternative to an A2A
+adapter isn't "no adapter," it's "a different bespoke adapter") — which
+settles the question in Position A's favor by itself: keep peerhub's own
+protocol authoritative, add one A2A adapter when/if that use case
+actually arrives, rather than replacing the kernel's own model with A2A's
+now on spec.
+
+**gap-5 (task) impact**: no schema change required. The existing state,
+timestamps, and failure/approval references are sufficient for a later
+projection function, entirely external to the schema:
+`CREATED/READY/RUNNING/CHECKPOINTED/FAILOVER_PENDING -> working` (or
+`submitted` pre-execution); `AWAITING_APPROVAL -> input_required` or
+`auth_required` depending on which kind of gate it is;
+`SUCCEEDED->completed`, `FAILED->failed`, `CANCELLED->canceled`. A2A's
+own `Task` object already carries metadata/history/artifacts fields, so
+peerhub IDs/revision/provenance can ride in A2A metadata without a
+peerhub-side change. One real implementation requirement for whenever
+this adapter is built (not a schema migration): the projection must be
+revision-aware, reading one consistent `TargetState` snapshot and never
+inferring an external terminal state from a stale one.
+
+**gap-2 (consensus) impact**: not materially altered. Agent Cards overlap
+peerhub's adapter registry only at the discovery/capability-description
+boundary ("what does this remote endpoint claim to provide" vs. "which
+controlled local adapter should receive this work") — A2A must never
+determine active voters, quorum, coordinator authority, lease ownership,
+fencing, proposal ratification, or human-override authority; those stay
+peerhub governance decisions regardless of whether a future adapter
+exposes a governed peerhub service as an Agent Card.
+
+**Adjacent standards, evaluated and confirmed lower-priority** (surveyed
+alongside A2A/MCP, none change the verdict above): **AGNTCY/OASF**
+(Cisco/LangChain/LlamaIndex coalition; an agent capability/discovery
+schema, the "DNS for agents" — overlaps Agent Cards conceptually, lower
+adoption than A2A; revisit only if peerhub ever needs multi-registry
+discovery). **ANP** (Agent Network Protocol; DID-based cross-org agent
+identity/trust — no relevant trust boundary exists in peerhub's current
+single-operator model). **Agent Skills** (Anthropic-originated, opened as
+a cross-platform standard Dec 2025 — a *knowledge-packaging* format, "a
+folder of instructions/scripts that teaches an agent how to approach a
+category of work"; a genuinely different axis from runtime
+delegation/authority/transport, not a competitor to MCP or A2A, and not
+peerhub's coordination-kernel concern).
+
+### Pre-TDD acceptance criteria added (design notes only, not schema changes)
+
+1. gap-5 retains stable task IDs, timestamps, and approval/failure
+   references, and observable revision/state transitions (already true
+   of the ratified schema — nothing to change, just confirmed as a
+   requirement going forward).
+2. A future A2A adapter must be able to map every terminal and
+   interrupted peerhub state without inventing new authority semantics.
+3. A2A metadata/extension fields may carry peerhub correlation IDs and
+   revision provenance when the adapter is eventually built.
+4. Agent Cards are treated as discovery/capability documents only —
+   never as peerhub authority or voter configuration, now or later.
+
+**This does not reopen gap-5 or gap-2. The pre-TDD TDD-ready verdict
+(`HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md`) stands, with
+A2A now tracked as a documented future-interop item at the same status
+as MCP** (Section 4 above): adopt later as an adapter, near-zero cost to
+the kernel, real interop upside deferred until an actual opaque
+third-party peer use case exists.

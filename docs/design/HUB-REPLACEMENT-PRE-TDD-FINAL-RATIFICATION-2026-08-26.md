@@ -79,6 +79,22 @@ Full item-by-item ratification (grounded in real-source consistency, e.g. reusin
 
 **This is not gap-2/3/5/6/7-specific design work — it's a small, shared, one-time piece of real peerhub infrastructure that should land BEFORE (or very early alongside) TDD starts on any of those five gaps**, since all of them depend on it for "list active X" behavior. Track it as its own implementation task, not folded into any single gap's TDD scope.
 
+## Standards-interop check (added 2026-08-26, after this doc's original verdict)
+
+Before starting TDD, the user asked whether A2A/MCP/other standard agent
+protocols needed consideration. Full evaluation (real web-verified facts,
+Position-A/Position-B debate, primary-source citation check) is in
+`OSS-ADOPTION-STRATEGY-2026-08-15.md` Section 10. **Verdict: no impact.**
+MCP was already resolved in that doc's original 2026-08-15 round
+(adapter outside the kernel). A2A — never previously evaluated, and a
+closer domain overlap with gap-2/gap-5 than MCP had — was evaluated fresh
+and resolved the same way: an optional future adapter/projection layer
+outside peerhub's authority kernel, zero schema changes needed to gap-5's
+task `TargetState` or gap-2's consensus design. AGNTCY/OASF, ANP, and
+Agent Skills were surveyed and confirmed correctly out of scope (agent
+discovery/identity/knowledge-packaging concerns, not peerhub's
+coordination-kernel domain). **This does not change the verdict below.**
+
 ## Verdict
 
 **All 7 gap categories are now TDD-ready.** Every item that could be resolved by design-consistency reasoning has been; the single genuine business-judgment item has been decided by the user; the one real remaining prerequisite (broker listing capability) is a small, clearly-scoped, shared infrastructure task, not an open design question. Remaining "exact field name"/"exact schema micro-detail" items across the gap docs are correctly left for implementation time — forcing them now would be guessing without benefit, consistent with this session's own "safe to defer to implementation" bucket criterion.
