@@ -57,7 +57,7 @@ from peerhub.dispatch.contract import (
     SessionRotationGenerationSnapshot,
     TerminalClassification,
 )
-from peerhub.dispatch.duty_lease import DutyLeaseSnapshot, DutyLeaseState, DutyOwnerIdentity
+from peerhub.dispatch.duty_lease import DutyLeaseSnapshot, DutyLeaseState, DutyOwnerIdentity, DutyRecoveryReceipt
 
 def _completion_contract_data(
     contract: CompletionContract,
@@ -292,6 +292,12 @@ class SqliteDispatchRepository:
 
     def update_duty_lease_heartbeat(self, lease_id: str, heartbeat_expires_at: int, updated_at: int) -> None:
         self._db().execute("UPDATE duty_leases SET heartbeat_expires_at = :heartbeat_expires_at, updated_at = :updated_at WHERE lease_id = :lease_id", {"heartbeat_expires_at": heartbeat_expires_at, "updated_at": updated_at, "lease_id": lease_id})
+
+    def release_duty_lease(self, lease_id: str, updated_at: int) -> None:
+        self._db().execute("UPDATE duty_leases SET state = 'RELEASED', updated_at = :updated_at WHERE lease_id = :lease_id", {"updated_at": updated_at, "lease_id": lease_id})
+
+    def insert_duty_recovery_receipt(self, receipt_id: str, receipt: DutyRecoveryReceipt) -> None:
+        self._db().execute("INSERT INTO duty_lease_recovery_receipts VALUES (:id, :lease, :at, :actor, :trigger, :digest, :policy, :revision)", {"id": receipt_id, "lease": receipt.lease_id, "at": receipt.recovered_at, "actor": receipt.recovery_actor_principal_id, "trigger": receipt.trigger, "digest": receipt.evidence_digest, "policy": receipt.policy_id, "revision": receipt.policy_revision})
 
     def get_client_request_binding(
         self,

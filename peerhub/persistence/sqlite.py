@@ -52,7 +52,7 @@ from peerhub.dispatch.contract import (
     SessionBindingKey,
     SessionBindingSnapshot,
 )
-from peerhub.dispatch.duty_lease import DutyLeaseSnapshot
+from peerhub.dispatch.duty_lease import DutyLeaseSnapshot, DutyRecoveryReceipt
 from peerhub.governance.contract import (
     CommandBinding,
     EffectReceipt,
@@ -1201,6 +1201,8 @@ class SqliteUnitOfWork:
     def mark_duty_lease_expired(self, lease_id: str, updated_at: int) -> None: return self.dispatch.mark_duty_lease_expired(lease_id, updated_at)
     def insert_duty_lease(self, snapshot: DutyLeaseSnapshot) -> None: return self.dispatch.insert_duty_lease(snapshot)
     def update_duty_lease_heartbeat(self, lease_id: str, heartbeat_expires_at: int, updated_at: int) -> None: return self.dispatch.update_duty_lease_heartbeat(lease_id, heartbeat_expires_at, updated_at)
+    def release_duty_lease(self, lease_id: str, updated_at: int) -> None: return self.dispatch.release_duty_lease(lease_id, updated_at)
+    def insert_duty_recovery_receipt(self, receipt_id: str, receipt: DutyRecoveryReceipt) -> None: return self.dispatch.insert_duty_recovery_receipt(receipt_id, receipt)
 
     def add_lease(self, lease: LeaseSnapshot) -> None:
         """Insert a new lease snapshot."""

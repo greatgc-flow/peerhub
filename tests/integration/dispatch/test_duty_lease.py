@@ -8,6 +8,7 @@ from fakes import FakeClock, FakeIdSource
 from peerhub.core.errors import InvalidMutationError
 from peerhub.dispatch.duty_lease import (
     DutyLeaseCoordinator, DutyLeaseCreateRequest, DutyLeaseRenewRequest,
+    DutyLeaseCloseRequest, DutyLeaseFenceCheckRequest,
     DutyOwnerIdentity,
 )
 from peerhub.persistence.sqlite import SqliteStateStore
@@ -46,3 +47,18 @@ def test_active_duplicate_and_ap20_monopoly_are_rejected(tmp_path: Path) -> None
     with pytest.raises(InvalidMutationError, match="AP-20"):
         coordinator.create_lease(_request(epoch=3))
 
+
+def test_close_recovery_and_fence_validation(tmp_path: Path) -> None:
+    coordinator = _coordinator(tmp_path)
+    lease = coordinator.create_lease(_request())
+    closed = coordinator.close_lease(DutyLeaseCloseRequest(lease.lease_id, lease.room_id, lease.role, lease.owner, lease.term, lease.authority_epoch))
+    assert closed.state.value == "RELEASED"
+    ok, reasons = coordinator.validate_lease_fence(DutyLeaseFenceCheckRequest(lease.lease_id, lease.room_id, lease.role, lease.owner, lease.term, lease.authority_epoch))
+    assert not ok and "state_not_active" in reasons
+
+    coordinator._clock = FakeClock([1000])
+    live = coordinator.create_lease(_request(owner=DutyOwnerIdentity("i-2", "cx.standard"), epoch=2))
+    coordinator._clock = FakeClock([2000])
+    recovered, receipt = coordinator.expire_and_recover_lease(live.lease_id, recovery_actor_principal_id="human:a", trigger="HEARTBEAT_TIMEOUT", evidence_digest="sha256:e", policy_id="p", policy_revision="1")
+    assert recovered.state.value == "EXPIRED"
+    assert receipt.lease_id == live.lease_id

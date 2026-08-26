@@ -44,6 +44,24 @@ class DutyLeaseRenewRequest:
     term: int
     authority_epoch: int
 
+@dataclass(frozen=True)
+class DutyLeaseCloseRequest(DutyLeaseRenewRequest):
+    pass
+
+@dataclass(frozen=True)
+class DutyLeaseFenceCheckRequest(DutyLeaseRenewRequest):
+    pass
+
+@dataclass(frozen=True)
+class DutyRecoveryReceipt:
+    lease_id: str
+    recovered_at: int
+    recovery_actor_principal_id: str
+    trigger: str
+    evidence_digest: str
+    policy_id: str
+    policy_revision: str
+
 
 @dataclass(frozen=True)
 class DutyLeaseSnapshot:
@@ -70,6 +88,8 @@ class DutyLeaseUnitOfWork(Protocol):
     def insert_duty_lease(self, snapshot: DutyLeaseSnapshot) -> None: ...
     def update_duty_lease_heartbeat(self, lease_id: str, heartbeat_expires_at: int, updated_at: int) -> None: ...
     def get_duty_lease(self, lease_id: str) -> DutyLeaseSnapshot | None: ...
+    def release_duty_lease(self, lease_id: str, updated_at: int) -> None: ...
+    def insert_duty_recovery_receipt(self, receipt_id: str, receipt: DutyRecoveryReceipt) -> None: ...
 
 
 class DutyLeaseCoordinator:
@@ -136,3 +156,49 @@ class DutyLeaseCoordinator:
             row.authority_epoch, row.term, row.challenge_until, row.state,
             now + heartbeat_timeout_ms, row.created_at, now, row.consecutive_terms_held,
         )
+
+    def close_lease(self, request: DutyLeaseCloseRequest) -> DutyLeaseSnapshot:
+        now = self._clock.now()
+        with self._store.unit_of_work() as unit:
+            unit = cast(DutyLeaseUnitOfWork, unit)
+            row = unit.get_duty_lease(request.lease_id)
+            self._require_fence(row, request)
+            assert row is not None
+            unit.release_duty_lease(request.lease_id, now)
+            unit.commit()
+        return DutyLeaseSnapshot(row.lease_id, row.room_id, row.role, row.owner, row.owner_principal_id, row.authority_epoch, row.term, row.challenge_until, DutyLeaseState.RELEASED, row.heartbeat_expires_at, row.created_at, now, row.consecutive_terms_held)
+
+    def expire_and_recover_lease(self, lease_id: str, *, recovery_actor_principal_id: str, trigger: str, evidence_digest: str, policy_id: str, policy_revision: str) -> tuple[DutyLeaseSnapshot, DutyRecoveryReceipt]:
+        now = self._clock.now()
+        with self._store.unit_of_work() as unit:
+            unit = cast(DutyLeaseUnitOfWork, unit)
+            row = unit.get_duty_lease(lease_id)
+            if row is None:
+                raise RecordNotFoundError("duty_lease", lease_id)
+            if row.state != DutyLeaseState.ACTIVE or row.heartbeat_expires_at >= now:
+                raise InvalidMutationError("duty lease is not expired")
+            unit.mark_duty_lease_expired(lease_id, now)
+            receipt = DutyRecoveryReceipt(lease_id, now, recovery_actor_principal_id, trigger, evidence_digest, policy_id, policy_revision)
+            unit.insert_duty_recovery_receipt(self._ids.new_id("duty-recovery"), receipt)
+            unit.commit()
+        return DutyLeaseSnapshot(row.lease_id, row.room_id, row.role, row.owner, row.owner_principal_id, row.authority_epoch, row.term, row.challenge_until, DutyLeaseState.EXPIRED, row.heartbeat_expires_at, row.created_at, now, row.consecutive_terms_held), receipt
+
+    def validate_lease_fence(self, request: DutyLeaseFenceCheckRequest) -> tuple[bool, tuple[str, ...]]:
+        with self._store.read_unit_of_work() as unit:
+            row = cast(DutyLeaseUnitOfWork, unit).get_duty_lease(request.lease_id)
+        if row is None:
+            return False, ("lease_not_found",)
+        reasons: list[str] = []
+        if row.state != DutyLeaseState.ACTIVE: reasons.append("state_not_active")
+        if row.room_id != request.room_id or row.role != request.role: reasons.append("scope_mismatch")
+        if row.owner != request.owner: reasons.append("owner_mismatch")
+        if row.term != request.term: reasons.append("term_mismatch")
+        if row.authority_epoch != request.authority_epoch: reasons.append("epoch_mismatch")
+        return not reasons, tuple(reasons)
+
+    @staticmethod
+    def _require_fence(row: DutyLeaseSnapshot | None, request: DutyLeaseRenewRequest) -> None:
+        if row is None:
+            raise RecordNotFoundError("duty_lease", request.lease_id)
+        if row.state != DutyLeaseState.ACTIVE or row.room_id != request.room_id or row.role != request.role or row.owner != request.owner or row.term != request.term or row.authority_epoch != request.authority_epoch:
+            raise InvalidMutationError("duty lease fence mismatch")
