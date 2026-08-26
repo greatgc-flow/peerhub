@@ -23,6 +23,11 @@ def _optional_int(value: JsonValue | None) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def _int_or_zero(value: JsonValue | None) -> int:
+    parsed = _optional_int(value)
+    return parsed if parsed is not None else 0
+
+
 @dataclass(frozen=True)
 class LegacyActionCall:
     action: str
@@ -285,6 +290,71 @@ class ClearRoomCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class LeaderClaimCommand(Command[Any]):
+    method: ClassVar[str] = "routing.leadership.claim"
+    submission: SubmissionMetadata
+    room_id: str
+    instance_id: str
+    profile_id: str
+    owner_principal_id: str
+    authority_epoch: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"room_id": self.room_id, "instance_id": self.instance_id, "profile_id": self.profile_id, "owner_principal_id": self.owner_principal_id, "authority_epoch": self.authority_epoch}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class LeaderYieldCommand(Command[Any]):
+    method: ClassVar[str] = "routing.leadership.yield"
+    submission: SubmissionMetadata
+    lease_id: str
+    room_id: str
+    instance_id: str
+    profile_id: str
+    term: int
+    authority_epoch: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"lease_id": self.lease_id, "room_id": self.room_id, "instance_id": self.instance_id, "profile_id": self.profile_id, "term": self.term, "authority_epoch": self.authority_epoch}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalHandoffCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.terminal.handoff"
+    submission: SubmissionMetadata
+    current_lease_id: str
+    room_id: str
+    current_instance_id: str
+    current_profile_id: str
+    term: int
+    authority_epoch: int
+    new_instance_id: str
+    new_profile_id: str
+    new_owner_principal_id: str
+    new_authority_epoch: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"current_lease_id": self.current_lease_id, "room_id": self.room_id, "current_instance_id": self.current_instance_id, "current_profile_id": self.current_profile_id, "term": self.term, "authority_epoch": self.authority_epoch, "new_instance_id": self.new_instance_id, "new_profile_id": self.new_profile_id, "new_owner_principal_id": self.new_owner_principal_id, "new_authority_epoch": self.new_authority_epoch}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalHeartbeatCommand(LeaderYieldCommand):
+    method: ClassVar[str] = "coordination.terminal.heartbeat"
+
+
+@dataclass(frozen=True, slots=True)
 class TaskCheckpointCommand(Command[Any]):
     method: ClassVar[str] = "coordination.task.checkpoint"
     submission: SubmissionMetadata
@@ -454,6 +524,13 @@ class LegacyTranslator:
                 subject=str(call.arguments.get("subject", "")),
                 actor_id=str(call.arguments.get("actor_id", "")),
             ))
+        if call.action == "leader-claim":
+            return TranslatedCommand(command=LeaderClaimCommand(submission=submission, room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), owner_principal_id=str(call.arguments.get("owner_principal_id", "")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
+        if call.action in {"leader-yield", "terminal-heartbeat"}:
+            command_type = LeaderYieldCommand if call.action == "leader-yield" else TerminalHeartbeatCommand
+            return TranslatedCommand(command=command_type(submission=submission, lease_id=str(call.arguments.get("lease_id", "")), room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
+        if call.action == "terminal-handoff":
+            return TranslatedCommand(command=TerminalHandoffCommand(submission=submission, current_lease_id=str(call.arguments.get("current_lease_id", "")), room_id=str(call.arguments.get("room_id", "")), current_instance_id=str(call.arguments.get("current_instance_id", "")), current_profile_id=str(call.arguments.get("current_profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch")), new_instance_id=str(call.arguments.get("new_instance_id", "")), new_profile_id=str(call.arguments.get("new_profile_id", "")), new_owner_principal_id=str(call.arguments.get("new_owner_principal_id", "")), new_authority_epoch=_int_or_zero(call.arguments.get("new_authority_epoch"))))
         if call.action == "task-checkpoint":
             return TranslatedCommand(command=TaskCheckpointCommand(
                 submission=submission, task_id=str(call.arguments.get("task_id", "")), actor_id=str(call.arguments.get("actor_id", "")), checkpoint_id=str(call.arguments.get("checkpoint_id", "")), stage=str(call.arguments.get("stage", "")), request_id=str(call.arguments.get("request_id", "")), attempt_id=str(call.arguments.get("attempt_id", "")), resume_token_ref=str(call.arguments["resume_token_ref"]) if call.arguments.get("resume_token_ref") is not None else None, completed_units=_string_tuple(call.arguments.get("completed_units")), remaining_units=_string_tuple(call.arguments.get("remaining_units")), expected_revision=_optional_int(call.arguments.get("expected_revision")),
