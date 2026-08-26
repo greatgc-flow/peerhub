@@ -4,7 +4,9 @@
 
 ## What's real now
 
-16 commits (`e60c4c4`..`6d1ee1e`), all independently verified by the terminal (full `pytest -q` + `pyright` after every commit, not just cx's own report — see "Verification discipline" below). Test suite: **1066 passed**, 1 known pre-existing unrelated failure (`test_generate_manifest.py`'s committed hub.py hash snapshot, stale before this session started, tracked separately, not a peerhub regression).
+18 commits (`e60c4c4`..`e9dfbb7`), all independently verified by the terminal (full `pytest -q` + `pyright` after every commit, not just cx's own report — see "Verification discipline" below). Test suite: **1068 passed**, 1 known pre-existing unrelated failure (`test_generate_manifest.py`'s committed hub.py hash snapshot, stale before this session started, tracked separately, not a peerhub regression).
+
+**First real end-to-end CLI path now exists**: `peerhub consensus propose|vote|status` (see gap-1 row below) — a real, runnable command, not just Python/test-callable code. This is the first CLI-layer work in this whole TDD pass.
 
 | Gap | Status | Real modules |
 |---|---|---|
@@ -15,7 +17,7 @@
 | **gap-5** task lifecycle | Complete | `peerhub/governance/tasks.py` — create, claim_start, checkpoint, request_approval, approval_granted/rejected, request_failover, complete, fail, cancel |
 | **gap-6** governance/lessons | Complete | `peerhub/governance/lessons.py` — propose, approve, activate, retire, supersede, quarantine, record_delivery_pending/complete |
 | **gap-7** diagnostics | Read-path + row formatters | `peerhub/governance/activity.py` — list_active_{consensus_rounds,tasks,lessons}; `peerhub/telemetry/domain_rows.py` — format_consensus_row/format_task_row(_narrow)/format_duty_row |
-| **gap-1** compat/cutover | Not started | No code yet — this is the largest remaining gap |
+| **gap-1** compat/cutover | Started | `peerhub consensus propose\|vote\|status` real CLI subcommands wired to `ConsensusService`, real `--json` output. Legacy-name translation (`consensus-propose` → `consensus propose`, per `LEGACY_CATALOG`) and every other domain's CLI wiring (rooms/tasks/lessons/duty-lease) not started — this is still the largest remaining gap by volume |
 
 ## What's NOT done yet (real, not hypothetical, gaps)
 
