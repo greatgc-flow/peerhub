@@ -119,6 +119,13 @@ Legacy mapping (adapter parses legacy args → versioned native request envelope
 9. **Human override representation** — record as first-class resolution events; exact identity/auth/required-reason fields need ratification.
 10. **Persistence/recovery guarantees** — should follow peerhub's existing request/attempt guarantees rather than being invented here; needs confirmation, not new design.
 
+**All 10 items above are now resolved** — items 1-6 later in this same
+document ("Ratification of open items 1-6"), items 7-10 via
+`HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md` (the
+authoritative final status for every item across all 7 gap docs). This
+numbered list is kept as the original framing of the question, not a
+currently-open item list.
+
 ## Ratification recommendation
 
 Ratify NOW: consensus is a peerhub-native aggregate over existing
@@ -140,7 +147,7 @@ resolved against the actual live `protocol.md`/`protocol.json` text.
 5. **Forced-escalation authority**: RESOLVED — Human (Tier 0) exclusively; "no peer can override" (§4.6 Tiebreak). Disagree and timeout both escalate to Human (Tier 0) specifically, never to a peer or the coordinator.
 6. **Final Call semantics**: RESOLVED — a distinct post-quorum step, not itself a vote: proposer sends "Any additional feedback or missed context?", all peers reply ACK/Proceed or raise concerns, round finalizes only after all ACKs received (§4.5, INV-02). Mandatory at R:8+.
 
-**Still open** (7, 8, 9's exact recording format, 10) — not covered in the sections read; need a further check against protocol.md's other sections or protocol.json before final ratification.
+**Still open at the time this paragraph was written** (7, 8, 9's exact recording format, 10) — since resolved: #7 (coordinator identity/failover) by reusing `DutyLeaseCreateRequest`, #8 (vote correction) by the "3 more ratification items resolved" section below (allowed via a new `cast_vote` mutation, only pre-Final-Call), #9 (human-override representation) and #10 (persistence/recovery) both by `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md` items 15/17. See that doc for the authoritative current status of every item in this section — it supersedes this paragraph.
 
 **New rules found, not in `cx`'s draft — must be added to the design**:
 - **Retroactive veto**: NONE for procedurally valid rounds — a gate-OPEN voter who didn't vote `disagree` before FINALIZE cannot retroactively block. Exception: a finalization that violates a higher-order invariant (INV-01~19) may be voided by Human (§4.4, "Quorum Authority Principle").

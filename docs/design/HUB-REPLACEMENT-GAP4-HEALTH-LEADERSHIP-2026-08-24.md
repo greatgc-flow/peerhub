@@ -236,7 +236,10 @@ not object identity — doesn't resolve peer-ID vs node-ID vs
 installation-ID vs fingerprint vs composite. `EvidenceSubject`,
 `HealthScopeBinding`, `HealthScopeMembershipSnapshot` look more relevant
 to identity/scope-membership but their fields weren't inspected yet —
-**still open, needs a follow-up field-level read.**
+**RESOLVED later in this same document, see "FIELD-LEVEL CONFIRMATION"
+below: canonical identity is a composite `(instance_id, profile_id)`
+pair.** (Left as a historical record of the open question at the time
+it was written, not a currently-open item.)
 
 ### `SessionLeaseCoordinator` for leadership — reuse the substrate, NOT a complete leadership implementation
 
