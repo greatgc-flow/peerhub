@@ -139,7 +139,7 @@ Adapter follows gap-1's boundary + versioned JSON envelope.
 | `thread-new` | `thread.create` | — |
 | `thread-append` | `thread.message.append` | Idempotent, author/session provenance. |
 | `thread-react` | `thread.reaction.append` | Append/toggle a uniquely-keyed reaction per declared semantics. |
-| `thread-promote` | `thread.promote` | Attach thread to a request/proposal/consensus round; no implicit vote/finalization. |
+| `thread-promote` | `thread.promote` | ~~Attach thread to a request/proposal/consensus round; no implicit vote/finalization.~~ **CORRECTED 2026-08-28** (see PEERHUB-BACKLOG-2026-08-27.md's Tier 3 ratification, item 3): this row was written without consulting `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` §7, which specifies the REAL legacy behavior — promotes a mailbox MESSAGE (`msg_id`) into a durable thread, unrelated to consensus/proposal attachment. Verified directly against the parity ledger. The "attach to governance object" idea in this row was a guess, not a citation, and turned out wrong. |
 | `terminal-handoff` | `duty.handoff` | Release/transfer duty lease via fencing + durable handoff events. |
 | `terminal-duty-sweep` | `duty.sweep` | Expire stale leases, fence holders, no auto-replay. |
 | `terminal-heartbeat` | `duty.heartbeat` | Renew lease, reject stale fencing tokens. |
