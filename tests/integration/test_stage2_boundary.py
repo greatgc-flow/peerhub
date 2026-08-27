@@ -14,7 +14,10 @@ from peerhub.core.protocol import CommandEnvelope, CommandSuccess, CommandFailur
 from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
 from peerhub.core.context import PathLayout
-from peerhub.dispatch.duty_lease import DutyOwnerIdentity
+from peerhub.dispatch.duty_lease import (
+    DutyLeaseCreateRequest,
+    DutyOwnerIdentity,
+)
 from peerhub.dispatch.room_session import (
     RoomSessionOpenRequest,
     RoomSessionState,
@@ -160,6 +163,238 @@ def test_legacy_terminal_close_translates_and_executes(runtime_setup) -> None:
     assert isinstance(translated, TranslatedCommand)
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.duty_lease_coordinator.get_lease(lease.lease_id).state.value == "RELEASED"
+
+
+def test_terminal_close_can_end_duty_and_room_session(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    owner = DutyOwnerIdentity("instance-close", "profile-close")
+    lease = runtime.terminal_duty_service.claim_terminal_duty(
+        "room-close-both", owner, "peer-close", 1
+    )
+    session = runtime.room_participation_coordinator.open_session(
+        RoomSessionOpenRequest(
+            workspace_scope_id="workspace-close",
+            room_id="room-close-both",
+            actor_principal_id="peer-close",
+            owner=owner,
+            session_fingerprint="fingerprint-close-both",
+            heartbeat_timeout_ms=5_000,
+        )
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "terminal-close",
+            {
+                "lease_id": lease.lease_id,
+                "room_id": lease.room_id,
+                "instance_id": owner.instance_id,
+                "profile_id": owner.profile_id,
+                "term": lease.term,
+                "authority_epoch": lease.authority_epoch,
+                "close_session": True,
+                "session_id": session.session_id,
+                "session_generation": session.session_generation,
+                "workspace_scope_id": session.workspace_scope_id,
+                "actor_principal_id": session.actor_principal_id,
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["duty_close"]["status"] == "ok"
+    assert outcome.result["session_close"]["status"] == "ok"
+    assert (
+        runtime.duty_lease_coordinator.get_lease(lease.lease_id).state.value
+        == "RELEASED"
+    )
+    persisted = runtime.room_participation_coordinator.get_session(
+        session.session_id
+    )
+    assert persisted is not None
+    assert persisted.state is RoomSessionState.ENDED
+
+
+def test_terminal_close_reports_session_failure_after_duty_close_and_retries(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    owner = DutyOwnerIdentity("instance-partial", "profile-partial")
+    lease = runtime.terminal_duty_service.claim_terminal_duty(
+        "room-close-partial", owner, "peer-partial", 1
+    )
+    session = runtime.room_participation_coordinator.open_session(
+        RoomSessionOpenRequest(
+            workspace_scope_id="workspace-partial",
+            room_id="room-close-partial",
+            actor_principal_id="peer-partial",
+            owner=owner,
+            session_fingerprint="fingerprint-partial",
+            heartbeat_timeout_ms=5_000,
+        )
+    )
+
+    def translated_close(generation: int):
+        translated = LegacyTranslator().translate(
+            LegacyActionCall(
+                "terminal-close",
+                {
+                    "lease_id": lease.lease_id,
+                    "room_id": lease.room_id,
+                    "instance_id": owner.instance_id,
+                    "profile_id": owner.profile_id,
+                    "term": lease.term,
+                    "authority_epoch": lease.authority_epoch,
+                    "close_session": True,
+                    "session_id": session.session_id,
+                    "session_generation": generation,
+                    "workspace_scope_id": session.workspace_scope_id,
+                    "actor_principal_id": session.actor_principal_id,
+                },
+            ),
+            _legacy_submission(),
+        )
+        assert isinstance(translated, TranslatedCommand)
+        return translated
+
+    failed = client.submit(
+        translated_close(session.session_generation + 1).command
+    )
+    assert isinstance(failed, CommandSuccess)
+    assert failed.result["duty_close"]["status"] == "ok"
+    assert failed.result["session_close"]["status"] == "failed"
+    assert (
+        runtime.duty_lease_coordinator.get_lease(lease.lease_id).state.value
+        == "RELEASED"
+    )
+    still_active = runtime.room_participation_coordinator.get_session(
+        session.session_id
+    )
+    assert still_active is not None
+    assert still_active.state is RoomSessionState.ACTIVE
+
+    retried = client.submit(
+        translated_close(session.session_generation).command
+    )
+    assert isinstance(retried, CommandSuccess)
+    assert retried.result["duty_close"]["status"] == "ok"
+    assert retried.result["session_close"]["status"] == "ok"
+    ended = runtime.room_participation_coordinator.get_session(
+        session.session_id
+    )
+    assert ended is not None
+    assert ended.state is RoomSessionState.ENDED
+
+
+def test_legacy_terminal_duty_sweep_expires_only_timed_out_lease(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    expired = runtime.duty_lease_coordinator.create_lease(
+        DutyLeaseCreateRequest(
+            room_id="room-sweep-expired",
+            role="terminal-duty",
+            owner=DutyOwnerIdentity("instance-expired", "profile-expired"),
+            owner_principal_id="peer-expired",
+            heartbeat_timeout_ms=1,
+            authority_epoch=1,
+        )
+    )
+    active = runtime.duty_lease_coordinator.create_lease(
+        DutyLeaseCreateRequest(
+            room_id="room-sweep-active",
+            role="terminal-duty",
+            owner=DutyOwnerIdentity("instance-active", "profile-active"),
+            owner_principal_id="peer-active",
+            heartbeat_timeout_ms=5_000,
+            authority_epoch=1,
+        )
+    )
+    runtime.duty_lease_coordinator._clock = type(
+        "SweepClock", (), {"now": lambda self: 1_002}
+    )()
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "terminal-duty-sweep",
+            {
+                "role": "terminal-duty",
+                "recovery_actor_principal_id": "system:sweep",
+                "trigger": "HEARTBEAT_TIMEOUT",
+                "evidence_digest": "sha256:sweep-evidence",
+                "policy_id": "terminal-duty-recovery",
+                "policy_revision": "1",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["expired_count"] == 1
+    assert outcome.result["leases"][0]["lease_id"] == expired.lease_id
+    assert (
+        runtime.duty_lease_coordinator.get_lease(expired.lease_id).state.value
+        == "EXPIRED"
+    )
+    assert (
+        runtime.duty_lease_coordinator.get_lease(active.lease_id).state.value
+        == "ACTIVE"
+    )
+
+
+def test_legacy_thread_append_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-append",
+        topic_id="topic-append",
+        title="Append Room",
+        creator_id="peer-author",
+        participants=(),
+    )
+    runtime.rooms_service.create_thread(
+        thread_id="thread-append",
+        room_id="room-append",
+        subject="Append Topic",
+        creator_id="peer-author",
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "thread-append",
+            {
+                "message_id": "message-append-1",
+                "room_id": "room-append",
+                "thread_id": "thread-append",
+                "author_id": "peer-author",
+                "body": "A durable appended message",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    message = runtime.rooms_service.get_target("message:message-append-1")
+    assert message is not None
+    assert message.state["thread_id"] == "thread-append"
+    assert message.state["body"] == "A durable appended message"
+
+
+def test_legacy_lesson_broadcast_stays_unbacked_without_broadcast_semantics(
+) -> None:
+    outcome = LegacyTranslator().translate(
+        LegacyActionCall(
+            "lesson-broadcast",
+            {"lesson_id": "lesson-1", "peer_id": "peer-1"},
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(outcome, KnownLegacyActionNotBacked)
+    assert outcome.target_method == "coordination.lesson.broadcast"
 
 
 def test_legacy_init_session_translates_and_executes(runtime_setup) -> None:

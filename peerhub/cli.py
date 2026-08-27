@@ -51,7 +51,7 @@ from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
 from peerhub.dispatch.duty_lease import (
-    DutyLeaseCoordinator,
+    DutyLeaseSnapshot,
     DutyOwnerIdentity,
 )
 from peerhub.dispatch.room_session import (
@@ -807,7 +807,7 @@ def _run_duty(parsed: argparse.Namespace) -> int:
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
-            coordinator = DutyLeaseCoordinator(runtime.state_store, clock=context.clock, ids=context.ids)
+            coordinator = runtime.duty_lease_coordinator
             service = TerminalDutyService(coordinator, default_heartbeat_timeout_ms=parsed.heartbeat_timeout_ms if hasattr(parsed, "heartbeat_timeout_ms") else 60_000)
             owner = cast(DutyOwnerIdentity, DutyOwnerIdentity(parsed.instance_id, parsed.profile_id) if hasattr(parsed, "instance_id") else None)
             if parsed.duty_action == "claim":
@@ -815,7 +815,102 @@ def _run_duty(parsed: argparse.Namespace) -> int:
             elif parsed.duty_action == "heartbeat":
                 lease = service.send_heartbeat(parsed.lease_id, parsed.room_id, owner, parsed.term, parsed.authority_epoch)
             elif parsed.duty_action == "close":
+                if parsed.close_session and (
+                    not parsed.session_id
+                    or parsed.session_generation is None
+                    or parsed.session_generation < 1
+                    or not parsed.workspace_scope_id
+                    or not parsed.actor_principal_id
+                ):
+                    raise ValueError(
+                        "--close-session requires --session-id, "
+                        "--session-generation, --workspace-scope-id, "
+                        "and --actor-principal-id"
+                    )
                 lease = service.close_terminal_duty(parsed.lease_id, parsed.room_id, owner, parsed.term, parsed.authority_epoch)
+                if parsed.close_session:
+                    duty_close: dict[str, Any] = {
+                        "status": "ok",
+                        "lease": _duty_lease_payload(lease),
+                    }
+                    try:
+                        session = runtime.room_participation_coordinator.end_session(
+                            RoomSessionEndRequest(
+                                session_id=parsed.session_id,
+                                session_generation=parsed.session_generation,
+                                workspace_scope_id=parsed.workspace_scope_id,
+                                room_id=parsed.room_id,
+                                actor_principal_id=parsed.actor_principal_id,
+                                owner=owner,
+                            )
+                        )
+                    except (
+                        InvalidMutationError,
+                        RecordNotFoundError,
+                        ValueError,
+                    ) as exc:
+                        result = {
+                            "duty_close": duty_close,
+                            "session_close": {
+                                "status": "failed",
+                                "reason": f"{type(exc).__name__}: {exc}",
+                            },
+                        }
+                        if parsed.json:
+                            print(json.dumps(result))
+                        else:
+                            print(
+                                f"Terminal duty lease {lease.lease_id} closed"
+                            )
+                            print(
+                                f"Room session close failed: {exc}",
+                                file=sys.stderr,
+                            )
+                        return 2
+                    result = {
+                        "duty_close": duty_close,
+                        "session_close": {
+                            "status": "ok",
+                            "session_id": session.session_id,
+                            "session_generation": (
+                                session.session_generation
+                            ),
+                            "state": session.state.value,
+                        },
+                    }
+                    if parsed.json:
+                        print(json.dumps(result))
+                    else:
+                        print(
+                            f"Terminal duty lease {lease.lease_id} closed"
+                        )
+                        print(f"Room session {session.session_id} ended")
+                    return 0
+            elif parsed.duty_action == "sweep":
+                leases = coordinator.sweep_expired_leases(
+                    parsed.role,
+                    recovery_actor_principal_id=(
+                        parsed.recovery_actor_principal_id
+                    ),
+                    trigger=parsed.trigger,
+                    evidence_digest=parsed.evidence_digest,
+                    policy_id=parsed.policy_id,
+                    policy_revision=parsed.policy_revision,
+                )
+                result = {
+                    "expired_count": len(leases),
+                    "leases": [
+                        _duty_lease_payload(item) for item in leases
+                    ],
+                }
+                if parsed.json:
+                    print(json.dumps(result))
+                else:
+                    print(
+                        f"Expired {len(leases)} {parsed.role} duty "
+                        "lease(s)"
+                    )
+                return 0
             else:
                 holder = service.active_terminal_holder(parsed.room_id)
                 if parsed.json:
@@ -823,7 +918,7 @@ def _run_duty(parsed: argparse.Namespace) -> int:
                 else:
                     print(f"Terminal duty for room {parsed.room_id}: UNHELD" if holder is None else f"Terminal duty for room {parsed.room_id}: held by {holder.instance_id}/{holder.profile_id}")
                 return 0
-            payload = {"lease_id": lease.lease_id, "room_id": lease.room_id, "role": lease.role, "owner": {"instance_id": lease.owner.instance_id, "profile_id": lease.owner.profile_id}, "owner_principal_id": lease.owner_principal_id, "authority_epoch": lease.authority_epoch, "term": lease.term, "state": lease.state.value, "heartbeat_expires_at": lease.heartbeat_expires_at}
+            payload = _duty_lease_payload(lease)
             if parsed.json:
                 print(json.dumps(payload))
             elif parsed.duty_action == "claim":
@@ -836,6 +931,23 @@ def _run_duty(parsed: argparse.Namespace) -> int:
     except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
         print(f"peerhub duty: {exc}", file=sys.stderr)
         return 2
+
+
+def _duty_lease_payload(lease: DutyLeaseSnapshot) -> dict[str, Any]:
+    return {
+        "lease_id": lease.lease_id,
+        "room_id": lease.room_id,
+        "role": lease.role,
+        "owner": {
+            "instance_id": lease.owner.instance_id,
+            "profile_id": lease.owner.profile_id,
+        },
+        "owner_principal_id": lease.owner_principal_id,
+        "authority_epoch": lease.authority_epoch,
+        "term": lease.term,
+        "state": lease.state.value,
+        "heartbeat_expires_at": lease.heartbeat_expires_at,
+    }
 
 
 def _room_session_payload(session: RoomSessionSnapshot) -> dict[str, Any]:
@@ -1195,12 +1307,14 @@ def main(args: list[str] | None = None) -> int:
         "claim": [("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--owner-principal-id", True), ("--authority-epoch", True)],
         "heartbeat": [("--lease-id", True), ("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--term", True), ("--authority-epoch", True)],
         "close": [("--lease-id", True), ("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--term", True), ("--authority-epoch", True)],
+        "sweep": [("--role", False), ("--recovery-actor-principal-id", True), ("--trigger", False), ("--evidence-digest", True), ("--policy-id", True), ("--policy-revision", True)],
         "status": [("--room-id", True)],
     }
     duty_subcommand_help = {
         "claim": "Claim terminal duty for a room",
         "heartbeat": "Renew (heartbeat) an active terminal-duty lease",
         "close": "Voluntarily release an active terminal-duty lease",
+        "sweep": "Expire and record recovery for timed-out duty leases",
         "status": "Show who currently holds terminal duty for a room",
     }
     duty_arg_help = {
@@ -1211,14 +1325,63 @@ def main(args: list[str] | None = None) -> int:
         "--owner-principal-id": "Principal ID that authorized this owner to hold duty",
         "--authority-epoch": "Fencing token; must strictly increase on each new claim",
         "--term": "Opaque leadership-generation token from the current lease (not a timestamp)",
+        "--role": "Duty role to sweep across all rooms (default: terminal-duty)",
+        "--recovery-actor-principal-id": "Principal recording recovery of each expired lease",
+        "--trigger": "Recovery trigger recorded on each receipt (default: HEARTBEAT_TIMEOUT)",
+        "--evidence-digest": "Evidence digest supporting this expiry sweep",
+        "--policy-id": "Recovery policy identifier governing this sweep",
+        "--policy-revision": "Recovery policy revision governing this sweep",
+        "--close-session": "Also end the independently fenced room-participation session",
+        "--session-id": "Room-participation session identifier to end",
+        "--session-generation": "Monotonic generation of the room-participation session",
+        "--workspace-scope-id": "Workspace scope owning the room-participation session",
+        "--actor-principal-id": "Actor principal owning the room-participation session",
     }
     for action, arguments in duty_specs.items():
         command_parser = duty_subparsers.add_parser(action, help=duty_subcommand_help[action])
         command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
         for name, required in arguments:
-            command_parser.add_argument(name, required=required, type=int if name in {"--term", "--authority-epoch"} else str, help=duty_arg_help[name])
+            default = (
+                "terminal-duty" if name == "--role"
+                else "HEARTBEAT_TIMEOUT" if name == "--trigger"
+                else None
+            )
+            command_parser.add_argument(
+                name,
+                required=required,
+                default=default,
+                type=int if name in {"--term", "--authority-epoch"} else str,
+                help=duty_arg_help[name],
+            )
         if action == "claim":
             command_parser.add_argument("--heartbeat-timeout-ms", type=int, default=60_000, help="Heartbeat timeout in milliseconds (default: 60000)")
+        if action == "close":
+            command_parser.add_argument(
+                "--close-session",
+                action="store_true",
+                help=duty_arg_help["--close-session"],
+            )
+            command_parser.add_argument(
+                "--session-id",
+                default="",
+                help=duty_arg_help["--session-id"],
+            )
+            command_parser.add_argument(
+                "--session-generation",
+                type=int,
+                default=None,
+                help=duty_arg_help["--session-generation"],
+            )
+            command_parser.add_argument(
+                "--workspace-scope-id",
+                default="",
+                help=duty_arg_help["--workspace-scope-id"],
+            )
+            command_parser.add_argument(
+                "--actor-principal-id",
+                default="",
+                help=duty_arg_help["--actor-principal-id"],
+            )
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     session_parser = subparsers.add_parser(

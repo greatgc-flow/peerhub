@@ -78,3 +78,31 @@ def test_handoff_rejects_non_holder_without_releasing_lease(tmp_path: Path) -> N
         )
 
     assert service.active_terminal_holder("room-1") == current
+
+
+def test_close_is_retry_safe_for_the_same_released_fence(
+    tmp_path: Path,
+) -> None:
+    service, _ = _service(tmp_path)
+    owner = DutyOwnerIdentity("instance-1", "cx.standard")
+    lease = service.claim_terminal_duty(
+        "room-1", owner, "principal-1", 1
+    )
+
+    closed = service.close_terminal_duty(
+        lease.lease_id,
+        lease.room_id,
+        owner,
+        lease.term,
+        lease.authority_epoch,
+    )
+    retried = service.close_terminal_duty(
+        lease.lease_id,
+        lease.room_id,
+        owner,
+        lease.term,
+        lease.authority_epoch,
+    )
+
+    assert closed.state.value == "RELEASED"
+    assert retried == closed

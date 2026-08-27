@@ -84,6 +84,9 @@ class DutyLeaseUnitOfWork(Protocol):
     def commit(self) -> None: ...
     def get_active_duty_lease(self, room_id: str, role: str) -> DutyLeaseSnapshot | None: ...
     def get_latest_duty_lease(self, room_id: str, role: str) -> DutyLeaseSnapshot | None: ...
+    def list_expired_duty_leases(
+        self, role: str, as_of: int
+    ) -> tuple[DutyLeaseSnapshot, ...]: ...
     def mark_duty_lease_expired(self, lease_id: str, updated_at: int) -> None: ...
     def insert_duty_lease(self, snapshot: DutyLeaseSnapshot) -> None: ...
     def update_duty_lease_heartbeat(self, lease_id: str, heartbeat_expires_at: int, updated_at: int) -> None: ...
@@ -182,6 +185,39 @@ class DutyLeaseCoordinator:
             unit.insert_duty_recovery_receipt(self._ids.new_id("duty-recovery"), receipt)
             unit.commit()
         return DutyLeaseSnapshot(row.lease_id, row.room_id, row.role, row.owner, row.owner_principal_id, row.authority_epoch, row.term, row.challenge_until, DutyLeaseState.EXPIRED, row.heartbeat_expires_at, row.created_at, now, row.consecutive_terms_held), receipt
+
+    def sweep_expired_leases(
+        self,
+        role: str,
+        *,
+        recovery_actor_principal_id: str,
+        trigger: str,
+        evidence_digest: str,
+        policy_id: str,
+        policy_revision: str,
+    ) -> tuple[DutyLeaseSnapshot, ...]:
+        """Expire and recover every timed-out active lease for one role."""
+
+        as_of = self._clock.now()
+        with self._store.read_unit_of_work() as unit:
+            candidates = cast(
+                DutyLeaseUnitOfWork, unit
+            ).list_expired_duty_leases(role, as_of)
+
+        recovered: list[DutyLeaseSnapshot] = []
+        for candidate in candidates:
+            snapshot, _ = self.expire_and_recover_lease(
+                candidate.lease_id,
+                recovery_actor_principal_id=(
+                    recovery_actor_principal_id
+                ),
+                trigger=trigger,
+                evidence_digest=evidence_digest,
+                policy_id=policy_id,
+                policy_revision=policy_revision,
+            )
+            recovered.append(snapshot)
+        return tuple(recovered)
 
     def validate_lease_fence(self, request: DutyLeaseFenceCheckRequest) -> tuple[bool, tuple[str, ...]]:
         with self._store.read_unit_of_work() as unit:

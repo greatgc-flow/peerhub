@@ -531,6 +531,7 @@ class SqliteReadUnitOfWork:
     def get_duty_lease(self, lease_id: str): return self.dispatch.get_duty_lease(lease_id)
     def get_active_duty_lease(self, room_id: str, role: str): return self.dispatch.get_active_duty_lease(room_id, role)
     def get_latest_duty_lease(self, room_id: str, role: str): return self.dispatch.get_latest_duty_lease(room_id, role)
+    def list_expired_duty_leases(self, role: str, as_of: int): return self.dispatch.list_expired_duty_leases(role, as_of)
 
     def get_room_session(
         self, session_id: str
@@ -1240,6 +1241,7 @@ class SqliteUnitOfWork:
     def get_duty_lease(self, lease_id: str): return self.dispatch.get_duty_lease(lease_id)
     def get_active_duty_lease(self, room_id: str, role: str): return self.dispatch.get_active_duty_lease(room_id, role)
     def get_latest_duty_lease(self, room_id: str, role: str): return self.dispatch.get_latest_duty_lease(room_id, role)
+    def list_expired_duty_leases(self, role: str, as_of: int): return self.dispatch.list_expired_duty_leases(role, as_of)
     def mark_duty_lease_expired(self, lease_id: str, updated_at: int) -> None: return self.dispatch.mark_duty_lease_expired(lease_id, updated_at)
     def insert_duty_lease(self, snapshot: DutyLeaseSnapshot) -> None: return self.dispatch.insert_duty_lease(snapshot)
     def update_duty_lease_heartbeat(self, lease_id: str, heartbeat_expires_at: int, updated_at: int) -> None: return self.dispatch.update_duty_lease_heartbeat(lease_id, heartbeat_expires_at, updated_at)

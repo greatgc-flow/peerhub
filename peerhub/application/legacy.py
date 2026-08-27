@@ -28,6 +28,10 @@ def _int_or_zero(value: JsonValue | None) -> int:
     return parsed if parsed is not None else 0
 
 
+def _bool_or_false(value: JsonValue | None) -> bool:
+    return value if isinstance(value, bool) else False
+
+
 @dataclass(frozen=True)
 class LegacyActionCall:
     action: str
@@ -353,6 +357,30 @@ class NewTopicCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class ThreadAppendCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.thread.append"
+    submission: SubmissionMetadata
+    message_id: str
+    room_id: str
+    thread_id: str
+    author_id: str
+    body: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "message_id": self.message_id,
+            "room_id": self.room_id,
+            "thread_id": self.thread_id,
+            "author_id": self.author_id,
+            "body": self.body,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class ClearRoomCommand(Command[Any]):
     method: ClassVar[str] = "coordination.room.clear"
     submission: SubmissionMetadata
@@ -436,6 +464,49 @@ class TerminalHeartbeatCommand(LeaderYieldCommand):
 @dataclass(frozen=True, slots=True)
 class TerminalCloseCommand(LeaderYieldCommand):
     method: ClassVar[str] = "coordination.terminal.close"
+    close_session: bool = False
+    session_id: str = ""
+    session_generation: int = 0
+    workspace_scope_id: str = ""
+    actor_principal_id: str = ""
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            **LeaderYieldCommand.encode_params(self),
+            "close_session": self.close_session,
+            "session_id": self.session_id,
+            "session_generation": self.session_generation,
+            "workspace_scope_id": self.workspace_scope_id,
+            "actor_principal_id": self.actor_principal_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalDutySweepCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.terminal.duty_sweep"
+    submission: SubmissionMetadata
+    role: str
+    recovery_actor_principal_id: str
+    trigger: str
+    evidence_digest: str
+    policy_id: str
+    policy_revision: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "role": self.role,
+            "recovery_actor_principal_id": (
+                self.recovery_actor_principal_id
+            ),
+            "trigger": self.trigger,
+            "evidence_digest": self.evidence_digest,
+            "policy_id": self.policy_id,
+            "policy_revision": self.policy_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -646,6 +717,15 @@ class LegacyTranslator:
                 subject=str(call.arguments.get("subject", "")),
                 creator_id=str(call.arguments.get("creator_id", "")),
             ))
+        if call.action == "thread-append":
+            return TranslatedCommand(command=ThreadAppendCommand(
+                submission=submission,
+                message_id=str(call.arguments.get("message_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                thread_id=str(call.arguments.get("thread_id", "")),
+                author_id=str(call.arguments.get("author_id", "")),
+                body=str(call.arguments.get("body", "")),
+            ))
         if call.action == "clear-room":
             return TranslatedCommand(command=ClearRoomCommand(
                 submission=submission,
@@ -662,7 +742,51 @@ class LegacyTranslator:
         if call.action == "terminal-handoff":
             return TranslatedCommand(command=TerminalHandoffCommand(submission=submission, current_lease_id=str(call.arguments.get("current_lease_id", "")), room_id=str(call.arguments.get("room_id", "")), current_instance_id=str(call.arguments.get("current_instance_id", "")), current_profile_id=str(call.arguments.get("current_profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch")), new_instance_id=str(call.arguments.get("new_instance_id", "")), new_profile_id=str(call.arguments.get("new_profile_id", "")), new_owner_principal_id=str(call.arguments.get("new_owner_principal_id", "")), new_authority_epoch=_int_or_zero(call.arguments.get("new_authority_epoch"))))
         if call.action == "terminal-close":
-            return TranslatedCommand(command=TerminalCloseCommand(submission=submission, lease_id=str(call.arguments.get("lease_id", "")), room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
+            return TranslatedCommand(command=TerminalCloseCommand(
+                submission=submission,
+                lease_id=str(call.arguments.get("lease_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                instance_id=str(call.arguments.get("instance_id", "")),
+                profile_id=str(call.arguments.get("profile_id", "")),
+                term=_int_or_zero(call.arguments.get("term")),
+                authority_epoch=_int_or_zero(
+                    call.arguments.get("authority_epoch")
+                ),
+                close_session=_bool_or_false(
+                    call.arguments.get("close_session")
+                ),
+                session_id=str(call.arguments.get("session_id", "")),
+                session_generation=_int_or_zero(
+                    call.arguments.get("session_generation")
+                ),
+                workspace_scope_id=str(
+                    call.arguments.get("workspace_scope_id", "")
+                ),
+                actor_principal_id=str(
+                    call.arguments.get("actor_principal_id", "")
+                ),
+            ))
+        if call.action == "terminal-duty-sweep":
+            return TranslatedCommand(command=TerminalDutySweepCommand(
+                submission=submission,
+                role=str(call.arguments.get("role", "terminal-duty")),
+                recovery_actor_principal_id=str(call.arguments.get(
+                    "recovery_actor_principal_id",
+                    submission.actor_id or "peerhub",
+                )),
+                trigger=str(call.arguments.get(
+                    "trigger", "HEARTBEAT_TIMEOUT"
+                )),
+                evidence_digest=str(call.arguments.get(
+                    "evidence_digest", "legacy:terminal-duty-sweep"
+                )),
+                policy_id=str(call.arguments.get(
+                    "policy_id", "terminal-duty-sweep"
+                )),
+                policy_revision=str(call.arguments.get(
+                    "policy_revision", "1"
+                )),
+            ))
         if call.action == "task-checkpoint":
             return TranslatedCommand(command=TaskCheckpointCommand(
                 submission=submission, task_id=str(call.arguments.get("task_id", "")), actor_id=str(call.arguments.get("actor_id", "")), checkpoint_id=str(call.arguments.get("checkpoint_id", "")), stage=str(call.arguments.get("stage", "")), request_id=str(call.arguments.get("request_id", "")), attempt_id=str(call.arguments.get("attempt_id", "")), resume_token_ref=str(call.arguments["resume_token_ref"]) if call.arguments.get("resume_token_ref") is not None else None, completed_units=_string_tuple(call.arguments.get("completed_units")), remaining_units=_string_tuple(call.arguments.get("remaining_units")), expected_revision=_optional_int(call.arguments.get("expected_revision")),

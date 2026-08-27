@@ -289,6 +289,22 @@ class SqliteDispatchRepository:
         row = self._db().execute("SELECT * FROM duty_leases WHERE room_id = :room_id AND role = :role ORDER BY authority_epoch DESC LIMIT 1", {"room_id": room_id, "role": role}).fetchone()
         return None if row is None else self._duty_snapshot(row)
 
+    def list_expired_duty_leases(
+        self, role: str, as_of: int
+    ) -> tuple[DutyLeaseSnapshot, ...]:
+        rows = self._db().execute(
+            """
+            SELECT *
+            FROM duty_leases
+            WHERE role = :role
+              AND state = 'ACTIVE'
+              AND heartbeat_expires_at < :as_of
+            ORDER BY heartbeat_expires_at, room_id, lease_id
+            """,
+            {"role": role, "as_of": as_of},
+        ).fetchall()
+        return tuple(self._duty_snapshot(row) for row in rows)
+
     def mark_duty_lease_expired(self, lease_id: str, updated_at: int) -> None:
         self._db().execute("UPDATE duty_leases SET state = 'EXPIRED', updated_at = :updated_at WHERE lease_id = :lease_id", {"updated_at": updated_at, "lease_id": lease_id})
 

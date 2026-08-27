@@ -62,3 +62,32 @@ def test_close_recovery_and_fence_validation(tmp_path: Path) -> None:
     recovered, receipt = coordinator.expire_and_recover_lease(live.lease_id, recovery_actor_principal_id="human:a", trigger="HEARTBEAT_TIMEOUT", evidence_digest="sha256:e", policy_id="p", policy_revision="1")
     assert recovered.state.value == "EXPIRED"
     assert receipt.lease_id == live.lease_id
+
+
+def test_sweep_expires_only_timed_out_active_leases(tmp_path: Path) -> None:
+    coordinator = _coordinator(tmp_path)
+    expired = coordinator.create_lease(_request())
+    active = coordinator.create_lease(
+        DutyLeaseCreateRequest(
+            "room-2",
+            "terminal-duty",
+            DutyOwnerIdentity("i-2", "ag.standard"),
+            "principal-2",
+            5_000,
+            1,
+        )
+    )
+    coordinator._clock = FakeClock([200, 200])
+
+    swept = coordinator.sweep_expired_leases(
+        "terminal-duty",
+        recovery_actor_principal_id="system:sweep",
+        trigger="HEARTBEAT_TIMEOUT",
+        evidence_digest="sha256:sweep",
+        policy_id="terminal-duty-recovery",
+        policy_revision="1",
+    )
+
+    assert tuple(lease.lease_id for lease in swept) == (expired.lease_id,)
+    assert coordinator.get_lease(expired.lease_id).state.value == "EXPIRED"
+    assert coordinator.get_lease(active.lease_id).state.value == "ACTIVE"

@@ -10,6 +10,7 @@ from peerhub.dispatch.duty_lease import (
     DutyLeaseFenceCheckRequest,
     DutyLeaseRenewRequest,
     DutyLeaseSnapshot,
+    DutyLeaseState,
     DutyOwnerIdentity,
 )
 
@@ -68,6 +69,20 @@ class TerminalDutyService:
         self, lease_id: str, room_id: str, owner: DutyOwnerIdentity,
         term: int, authority_epoch: int,
     ) -> DutyLeaseSnapshot:
+        existing = self._coordinator.get_lease(lease_id)
+        if existing is not None and existing.state is DutyLeaseState.RELEASED:
+            matching_release = (
+                existing.room_id == room_id
+                and existing.role == "terminal-duty"
+                and existing.owner == owner
+                and existing.term == term
+                and existing.authority_epoch == authority_epoch
+            )
+            if matching_release:
+                # terminal-close may be retried after its independent room
+                # session close failed. The same fenced release is complete.
+                return existing
+
         request = DutyLeaseFenceCheckRequest(
             lease_id, room_id, "terminal-duty", owner, term, authority_epoch
         )
