@@ -17,6 +17,11 @@ from .core.context import RuntimeContext
 from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
 from .governance.consensus import ConsensusService
+from .governance.tasks import TaskService
+from .governance.lessons import LessonService
+from .governance.rooms import RoomsService
+from .dispatch.duty_lease import DutyLeaseCoordinator
+from .dispatch.terminal_duty import TerminalDutyService
 from .health.contract import HealthPolicy, HealthScopeMembershipSnapshot
 from .health.service import HealthService
 from .persistence.sqlite import SqliteStateStore
@@ -32,6 +37,11 @@ class Runtime:
     state_store: SqliteStateStore
     governance_broker: GovernanceBroker
     consensus_service: ConsensusService
+    task_service: TaskService
+    lesson_service: LessonService
+    rooms_service: RoomsService
+    duty_lease_coordinator: DutyLeaseCoordinator
+    terminal_duty_service: TerminalDutyService
     dispatch_service: DispatchService
     peer_adapter: PeerAdapter
 
@@ -87,6 +97,11 @@ def create_runtime(
     consensus_service = ConsensusService(
         governance_broker, clock=context.clock, ids=context.ids
     )
+    task_service = TaskService(governance_broker, clock=context.clock, ids=context.ids)
+    lesson_service = LessonService(governance_broker, clock=context.clock, ids=context.ids)
+    rooms_service = RoomsService(governance_broker, clock=context.clock, ids=context.ids)
+    duty_lease_coordinator = DutyLeaseCoordinator(state_store, clock=context.clock, ids=context.ids)
+    terminal_duty_service = TerminalDutyService(duty_lease_coordinator)
     dispatch_service = DispatchService(
         state_store,
         clock=context.clock,
@@ -172,6 +187,11 @@ def create_runtime(
         dispatch=dispatch_service,
         admission_provider=admission_provider,
         consensus=consensus_service,
+        task=task_service,
+        lesson=lesson_service,
+        room=rooms_service,
+        duty=duty_lease_coordinator,
+        terminal_duty=terminal_duty_service,
     )
 
     # Note: session-rotation wiring is deliberately deferred pending a proper unit-of-work-sharing design.
@@ -181,6 +201,11 @@ def create_runtime(
         state_store=state_store,
         governance_broker=governance_broker,
         consensus_service=consensus_service,
+        task_service=task_service,
+        lesson_service=lesson_service,
+        rooms_service=rooms_service,
+        duty_lease_coordinator=duty_lease_coordinator,
+        terminal_duty_service=terminal_duty_service,
         dispatch_service=dispatch_service,
         peer_adapter=peer_adapter,
         telemetry_projector=telemetry_projector,

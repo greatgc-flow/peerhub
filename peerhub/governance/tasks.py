@@ -76,6 +76,9 @@ class TaskService:
         }
         return self._submit(task_id, 0, creator_id, "task.create", state)
 
+    def get_target(self, task_id: str) -> TargetState | None:
+        return self._broker.get_target(task_id)
+
     def claim_start(
         self,
         task_id: str,

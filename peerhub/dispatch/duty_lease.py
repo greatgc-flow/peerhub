@@ -201,6 +201,10 @@ class DutyLeaseCoordinator:
         with self._store.read_unit_of_work() as unit:
             return cast(DutyLeaseUnitOfWork, unit).get_active_duty_lease(room_id, role)
 
+    def get_lease(self, lease_id: str) -> DutyLeaseSnapshot | None:
+        with self._store.read_unit_of_work() as unit:
+            return cast(DutyLeaseUnitOfWork, unit).get_duty_lease(lease_id)
+
     @staticmethod
     def _require_fence(row: DutyLeaseSnapshot | None, request: DutyLeaseRenewRequest) -> None:
         if row is None:

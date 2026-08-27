@@ -49,8 +49,17 @@ from peerhub.application.commands import (
     SubmissionMetadata,
 )
 from peerhub.governance.consensus import ConsensusService
+from peerhub.governance.tasks import TaskService
+from peerhub.governance.lessons import LessonService
+from peerhub.governance.rooms import RoomsService
+from peerhub.dispatch.duty_lease import DutyLeaseCoordinator, DutyOwnerIdentity, DutyLeaseCloseRequest, DutyLeaseCreateRequest
+from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
+    NewTopicCommand, ClearRoomCommand, LeaderClaimCommand, LeaderYieldCommand,
+    TerminalHandoffCommand, TerminalHeartbeatCommand, TaskCheckpointCommand,
+    TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
+    LessonActivateCommand, LessonRetireCommand,
 )
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
@@ -252,6 +261,9 @@ class ApplicationAPI:
         dispatch: DispatchService,
         admission_provider: AdmissionInputsProvider | None = None,
         consensus: ConsensusService | None = None,
+        task: TaskService | None = None, lesson: LessonService | None = None,
+        room: RoomsService | None = None, duty: DutyLeaseCoordinator | None = None,
+        terminal_duty: TerminalDutyService | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -262,6 +274,10 @@ class ApplicationAPI:
         self._register_builtins()
         if consensus is not None:
             self._register_consensus(consensus)
+        if task is not None: self._register_task(task)
+        if lesson is not None: self._register_lesson(lesson)
+        if room is not None: self._register_room(room)
+        if duty is not None and terminal_duty is not None: self._register_duty(duty, terminal_duty)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -304,6 +320,85 @@ class ApplicationAPI:
         self.register(CommandDescriptor("consensus.round.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_propose, lambda c, _: service.propose(round_id=c.round_id, title=c.title, question=c.question, body=c.body, proposer_id=c.proposer_id, required_participants=c.required_participants, eligible_participants=c.eligible_participants, risk=c.risk, source_hash=c.source_hash), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("consensus.vote.cast", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_vote, lambda c, _: service.cast_vote(c.round_id, actor_id=c.actor_id, choice=c.choice), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("consensus.round.read", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, decode_check, lambda c, _: service.get_target(c.round_id), lambda r: {"target_id": r.target_id, "revision": r.revision, "state": r.state}, CommandAvailability.AVAILABLE))
+
+    def _register_task(self, s: TaskService) -> None:
+        def text(p: Mapping[str, JsonValue], n: str) -> str:
+            if not isinstance(p[n], str): raise ValueError(f"{n} must be a string")
+            return cast(str, p[n])
+        def integer(p: Mapping[str, JsonValue], n: str) -> int | None:
+            if p[n] is not None and (not isinstance(p[n], int) or isinstance(p[n], bool)): raise ValueError(f"{n} must be an integer or null")
+            return cast(int | None, p[n])
+        def strings(p: Mapping[str, JsonValue], n: str) -> tuple[str, ...]:
+            v=p[n]
+            if not isinstance(v,(list,tuple)) or not all(isinstance(x,str) for x in v): raise ValueError(f"{n} must be a sequence of strings")
+            return tuple(cast(str,x) for x in v)
+        def checkpoint(e: CommandEnvelope) -> TaskCheckpointCommand:
+            p=e.params; return TaskCheckpointCommand(self._submission(e),text(p,"task_id"),text(p,"actor_id"),text(p,"checkpoint_id"),text(p,"stage"),text(p,"request_id"),text(p,"attempt_id"),None if p["resume_token_ref"] is None else text(p,"resume_token_ref"),strings(p,"completed_units"),strings(p,"remaining_units"),integer(p,"expected_revision"))
+        def status(e: CommandEnvelope) -> TaskStatusCommand:
+            return TaskStatusCommand(self._submission(e), text(e.params,"task_id"))
+        def failover(e: CommandEnvelope) -> TaskFailoverCommand:
+            p=e.params; return TaskFailoverCommand(self._submission(e),text(p,"task_id"),text(p,"to_actor_id"),text(p,"reason"),integer(p,"expected_revision"))
+        self.register(CommandDescriptor("coordination.task.checkpoint", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, checkpoint, lambda c,_: s.checkpoint(task_id=c.task_id,actor_id=c.actor_id,checkpoint_id=c.checkpoint_id,stage=c.stage,request_id=c.request_id,attempt_id=c.attempt_id,resume_token_ref=c.resume_token_ref,completed_units=c.completed_units,remaining_units=c.remaining_units,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("coordination.task.status", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, status, lambda c,_: s.get_target(c.task_id), lambda r: {"target_id":r.target_id,"revision":r.revision,"state":r.state}, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("coordination.task.failover", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, failover, lambda c,_: s.request_failover(c.task_id,to_actor_id=c.to_actor_id,reason=c.reason,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
+
+    def _register_lesson(self, s: LessonService) -> None:
+        def text(p: Mapping[str, JsonValue], n: str) -> str:
+            if not isinstance(p[n], str): raise ValueError(f"{n} must be a string")
+            return cast(str,p[n])
+        def integer(p: Mapping[str, JsonValue], n: str) -> int | None:
+            if p[n] is not None and (not isinstance(p[n],int) or isinstance(p[n],bool)): raise ValueError(f"{n} must be an integer or null")
+            return cast(int|None,p[n])
+        def strings(p: Mapping[str, JsonValue], n: str) -> tuple[str,...]:
+            v=p[n]
+            if not isinstance(v,(list,tuple)) or not all(isinstance(x,str) for x in v): raise ValueError(f"{n} must be a sequence of strings")
+            return tuple(cast(str,x) for x in v)
+        def propose(e: CommandEnvelope) -> LessonProposeCommand:
+            p=e.params; return LessonProposeCommand(self._submission(e),text(p,"lesson_id"),text(p,"title"),text(p,"rule"),text(p,"category"),text(p,"severity"),text(p,"proposer_id"),strings(p,"affected_peers"),text(p,"scope_kind"),None if p["workspace_id"] is None else text(p,"workspace_id"))
+        def activate(e: CommandEnvelope) -> LessonActivateCommand:
+            p=e.params; return LessonActivateCommand(self._submission(e),text(p,"lesson_id"),text(p,"actor_id"),integer(p,"expected_revision"))
+        def retire(e: CommandEnvelope) -> LessonRetireCommand:
+            p=e.params; return LessonRetireCommand(self._submission(e),text(p,"lesson_id"),text(p,"actor_id"),text(p,"reason"),integer(p,"expected_revision"))
+        self.register(CommandDescriptor("governance.lesson.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, propose, lambda c,_:s.propose(lesson_id=c.lesson_id,title=c.title,rule=c.rule,category=c.category,severity=c.severity,proposer_id=c.proposer_id,affected_peers=c.affected_peers,scope_kind=c.scope_kind,workspace_id=c.workspace_id), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("governance.lesson.activate", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, activate, lambda c,_:s.activate(c.lesson_id,actor_id=c.actor_id,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("governance.lesson.retire", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, retire, lambda c,_:s.retire(c.lesson_id,actor_id=c.actor_id,reason=c.reason,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
+
+    def _register_room(self, s: RoomsService) -> None:
+        def text(e: CommandEnvelope, n: str) -> str:
+            v=e.params[n]
+            if not isinstance(v,str): raise ValueError(f"{n} must be a string")
+            return v
+        def topic(e: CommandEnvelope) -> NewTopicCommand:
+            return NewTopicCommand(self._submission(e),text(e,"thread_id"),text(e,"room_id"),text(e,"subject"),text(e,"creator_id"))
+        def clear(e: CommandEnvelope) -> ClearRoomCommand:
+            return ClearRoomCommand(self._submission(e),text(e,"old_room_id"),text(e,"new_room_id"),text(e,"subject"),text(e,"actor_id"))
+        self.register(CommandDescriptor("coordination.topic.create", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, topic, lambda c,_:s.create_thread(thread_id=c.thread_id,room_id=c.room_id,subject=c.subject,creator_id=c.creator_id), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("coordination.room.clear", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, clear, lambda c,_:s.clear_room(c.old_room_id,new_room_id=c.new_room_id,subject=c.subject,actor_id=c.actor_id), self._receipt, CommandAvailability.AVAILABLE))
+
+    def _register_duty(self, d: DutyLeaseCoordinator, t: TerminalDutyService) -> None:
+        def text(e: CommandEnvelope,n: str) -> str:
+            v=e.params[n]
+            if not isinstance(v,str): raise ValueError(f"{n} must be a string")
+            return v
+        def integer(e: CommandEnvelope,n: str) -> int:
+            v=e.params[n]
+            if not isinstance(v,int) or isinstance(v,bool): raise ValueError(f"{n} must be an integer")
+            return v
+        def owner(c: LeaderClaimCommand | LeaderYieldCommand | TerminalHeartbeatCommand) -> DutyOwnerIdentity:
+            return DutyOwnerIdentity(c.instance_id,c.profile_id)
+        def claim(e: CommandEnvelope) -> LeaderClaimCommand:
+            return LeaderClaimCommand(self._submission(e),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),text(e,"owner_principal_id"),integer(e,"authority_epoch"))
+        def yielding(e: CommandEnvelope) -> LeaderYieldCommand:
+            return LeaderYieldCommand(self._submission(e),text(e,"lease_id"),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),integer(e,"term"),integer(e,"authority_epoch"))
+        def handoff(e: CommandEnvelope) -> TerminalHandoffCommand:
+            return TerminalHandoffCommand(self._submission(e),text(e,"current_lease_id"),text(e,"room_id"),text(e,"current_instance_id"),text(e,"current_profile_id"),integer(e,"term"),integer(e,"authority_epoch"),text(e,"new_instance_id"),text(e,"new_profile_id"),text(e,"new_owner_principal_id"),integer(e,"new_authority_epoch"))
+        def heartbeat(e: CommandEnvelope) -> TerminalHeartbeatCommand:
+            return TerminalHeartbeatCommand(self._submission(e),text(e,"lease_id"),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),integer(e,"term"),integer(e,"authority_epoch"))
+        def enc(r: Any) -> Mapping[str, JsonValue]: return {"lease_id":r.lease_id,"room_id":r.room_id,"role":r.role,"state":r.state.value,"term":r.term,"authority_epoch":r.authority_epoch}
+        self.register(CommandDescriptor("routing.leadership.claim", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, claim, lambda c,_:d.create_lease(DutyLeaseCreateRequest(c.room_id,"leader",DutyOwnerIdentity(c.instance_id,c.profile_id),c.owner_principal_id,60000,c.authority_epoch)), enc, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("routing.leadership.yield", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, yielding, lambda c,_:d.close_lease(DutyLeaseCloseRequest(c.lease_id,c.room_id,"leader",owner(c),c.term,c.authority_epoch)), enc, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("coordination.terminal.handoff", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, handoff, lambda c,_:t.handoff_terminal_duty(c.current_lease_id,c.room_id,DutyOwnerIdentity(c.current_instance_id,c.current_profile_id),c.term,c.authority_epoch,DutyOwnerIdentity(c.new_instance_id,c.new_profile_id),c.new_owner_principal_id,c.new_authority_epoch), enc, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("coordination.terminal.heartbeat", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, heartbeat, lambda c,_:t.send_heartbeat(c.lease_id,c.room_id,owner(c),c.term,c.authority_epoch), enc, CommandAvailability.AVAILABLE))
 
     def register(self, descriptor: CommandDescriptor[Any, Any]) -> None:  # pyright: ignore[reportInvalidTypeArguments]
         if descriptor.method in self._registry:

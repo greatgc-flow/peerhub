@@ -9,7 +9,7 @@ from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 from peerhub.core.protocol import CommandID, JsonValue
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission
+from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
 
 
 class RoomsService:
@@ -19,6 +19,9 @@ class RoomsService:
         self._broker = broker
         self._clock = clock
         self._ids = ids
+
+    def get_target(self, target_id: str) -> TargetState | None:
+        return self._broker.get_target(target_id)
 
     def create_room(
         self,

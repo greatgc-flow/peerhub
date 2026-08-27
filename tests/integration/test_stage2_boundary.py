@@ -21,10 +21,15 @@ class FakeClock:
     def now(self) -> int: return 1000
 
 class FakeIdSource:
+    def __init__(self) -> None:
+        self._counts: dict[str, int] = {}
+
     def new_id(self, namespace: str) -> str:
-        # The persistence contract requires outbox IDs to be UUIDv4.  Keep
-        # this fake constant-by-namespace while honoring that wire contract.
-        return deterministic_uuid4(namespace) if namespace == "outbox-event" else f"{namespace}-123"
+        count = self._counts.get(namespace, 0) + 1
+        self._counts[namespace] = count
+        token = f"{namespace}-{count}"
+        # The persistence contract requires outbox IDs to be UUIDv4.
+        return deterministic_uuid4(token) if namespace == "outbox-event" else token
 
 
 def test_admit_dispatch_payload_requires_capability_tier() -> None:
@@ -124,6 +129,47 @@ def test_legacy_consensus_propose_translates_and_executes(tmp_path: Path) -> Non
             target = runtime.governance_broker.get_target("round-1")
             assert target is not None
             assert target.state["proposal"]["title"] == "Title"
+
+
+def _legacy_submission() -> SubmissionMetadata:
+    return SubmissionMetadata("req-extra", "corr-extra", "client-1", "peer-1", {}, "idem-extra", None, None, 1000)
+
+
+def test_legacy_task_checkpoint_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.task_service.create(task_id="task-1", summary="s", spec="x", creator_id="peer-1")
+    runtime.task_service.claim_start("task-1", actor_id="peer-1", request_id="r", coordinator="c", attempt_id="a")
+    translated = LegacyTranslator().translate(LegacyActionCall("task-checkpoint", {"task_id":"task-1","actor_id":"peer-1","checkpoint_id":"cp","stage":"one","request_id":"r","attempt_id":"a","resume_token_ref":None,"completed_units":[],"remaining_units":[]}), _legacy_submission())
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(client.submit(translated.command), CommandSuccess)
+    assert runtime.task_service.get_target("task-1").state["state"] == "CHECKPOINTED"
+
+
+def test_legacy_lesson_propose_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    translated = LegacyTranslator().translate(LegacyActionCall("lessons-propose", {"lesson_id":"lesson-1","title":"T","rule":"R","category":"c","severity":"low","proposer_id":"peer-1","affected_peers":[]}), _legacy_submission())
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(client.submit(translated.command), CommandSuccess)
+    assert runtime.lesson_service.get_target("lesson-1").state["lifecycle"] == "PROPOSED"
+
+
+def test_legacy_room_topic_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(room_id="room-1", topic_id="t", title="Room", creator_id="peer-1", participants=())
+    translated = LegacyTranslator().translate(LegacyActionCall("new-topic", {"thread_id":"thread-1","room_id":"room-1","subject":"Topic","creator_id":"peer-1"}), _legacy_submission())
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(client.submit(translated.command), CommandSuccess)
+    assert runtime.rooms_service.get_target("thread-1").state["subject"] == "Topic"
+
+
+def test_legacy_leader_claim_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    translated = LegacyTranslator().translate(LegacyActionCall("leader-claim", {"room_id":"room-1","instance_id":"inst-1","profile_id":"peer","owner_principal_id":"peer-1","authority_epoch":1}), _legacy_submission())
+    assert isinstance(translated, TranslatedCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    lease_id = outcome.result["lease_id"]
+    assert runtime.duty_lease_coordinator.get_lease(lease_id).state.value == "ACTIVE"
 
 
 @pytest.fixture

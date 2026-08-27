@@ -23,6 +23,9 @@ class LessonService:
         self._clock = clock
         self._ids = ids
 
+    def get_target(self, lesson_id: str) -> TargetState | None:
+        return self._broker.get_target(f"lesson:{lesson_id}")
+
     def propose(
         self,
         *,
