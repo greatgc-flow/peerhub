@@ -254,6 +254,18 @@ class ConsensusCheckCommand(Command[Any]):
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
 
+@dataclass(frozen=True, slots=True)
+class ConsensusSweepCommand(Command[Any]):
+    method: ClassVar[str] = "consensus.round.sweep"
+    submission: SubmissionMetadata
+    round_id: str
+    reason: str
+    expected_revision: int | None
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"round_id": self.round_id, "reason": self.reason, "expected_revision": self.expected_revision}
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any: return value
+
 
 @dataclass(frozen=True, slots=True)
 class NewTopicCommand(Command[Any]):
@@ -407,6 +419,19 @@ class TaskFailoverCommand(Command[Any]):
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
 
+@dataclass(frozen=True, slots=True)
+class ApprovalRequestCommand(Command[Any]):
+    method: ClassVar[str] = "governance.approval.request"
+    submission: SubmissionMetadata
+    task_id: str
+    requester_id: str
+    approval_id: str
+    approver_id: str
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"task_id": self.task_id, "requester_id": self.requester_id, "approval_id": self.approval_id, "approver_id": self.approver_id}
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any: return value
+
 
 @dataclass(frozen=True, slots=True)
 class LessonProposeCommand(Command[Any]):
@@ -462,6 +487,15 @@ class LessonRetireCommand(Command[Any]):
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
 
+@dataclass(frozen=True, slots=True)
+class LessonsListCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.list"
+    submission: SubmissionMetadata
+    scope: str | None
+    def encode_params(self) -> Mapping[str, JsonValue]: return {"scope": self.scope}
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any: return value
+
 
 class LegacyTranslator:
     def translate(
@@ -508,6 +542,8 @@ class LegacyTranslator:
                 submission=submission,
                 round_id=str(call.arguments.get("round_id", "")),
             ))
+        if call.action == "consensus-sweep":
+            return TranslatedCommand(command=ConsensusSweepCommand(submission, str(call.arguments.get("round_id", "")), str(call.arguments.get("reason", "")), _optional_int(call.arguments.get("expected_revision"))))
         if call.action == "new-topic":
             return TranslatedCommand(command=NewTopicCommand(
                 submission=submission,
@@ -539,12 +575,17 @@ class LegacyTranslator:
             return TranslatedCommand(command=TaskStatusCommand(submission=submission, task_id=str(call.arguments.get("task_id", ""))))
         if call.action == "task-failover":
             return TranslatedCommand(command=TaskFailoverCommand(submission=submission, task_id=str(call.arguments.get("task_id", "")), to_actor_id=str(call.arguments.get("to_actor_id", "")), reason=str(call.arguments.get("reason", "")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
+        if call.action == "approval-request":
+            return TranslatedCommand(command=ApprovalRequestCommand(submission, str(call.arguments.get("task_id", "")), str(call.arguments.get("requester_id", "")), str(call.arguments.get("approval_id", "")), str(call.arguments.get("approver_id", ""))))
         if call.action == "lessons-propose":
             return TranslatedCommand(command=LessonProposeCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), title=str(call.arguments.get("title", "")), rule=str(call.arguments.get("rule", "")), category=str(call.arguments.get("category", "")), severity=str(call.arguments.get("severity", "")), proposer_id=str(call.arguments.get("proposer_id", "")), affected_peers=_string_tuple(call.arguments.get("affected_peers")), scope_kind=str(call.arguments.get("scope_kind", "global")), workspace_id=str(call.arguments["workspace_id"]) if call.arguments.get("workspace_id") is not None else None))
         if call.action == "lessons-activate":
             return TranslatedCommand(command=LessonActivateCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
         if call.action == "lessons-retire":
             return TranslatedCommand(command=LessonRetireCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), reason=str(call.arguments.get("reason", "MANUAL")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
+        if call.action == "lessons-list":
+            value = call.arguments.get("scope")
+            return TranslatedCommand(command=LessonsListCommand(submission, None if value is None else str(value)))
             
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,

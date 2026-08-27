@@ -189,6 +189,7 @@ def create_runtime(
         consensus=consensus_service,
         task=task_service,
         lesson=lesson_service,
+        lesson_broker=governance_broker,
         room=rooms_service,
         duty=duty_lease_coordinator,
         terminal_duty=terminal_duty_service,

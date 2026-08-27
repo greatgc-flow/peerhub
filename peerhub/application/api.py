@@ -1,6 +1,6 @@
 """Public API registry, validation boundary, and command submission."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 import math
@@ -52,6 +52,8 @@ from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
+from peerhub.governance.activity import list_active_lessons
+from peerhub.governance.broker import GovernanceBroker
 from peerhub.dispatch.duty_lease import DutyLeaseCoordinator, DutyOwnerIdentity, DutyLeaseCloseRequest, DutyLeaseCreateRequest
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
@@ -59,7 +61,8 @@ from peerhub.application.legacy import (
     NewTopicCommand, ClearRoomCommand, LeaderClaimCommand, LeaderYieldCommand,
     TerminalHandoffCommand, TerminalHeartbeatCommand, TaskCheckpointCommand,
     TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
-    LessonActivateCommand, LessonRetireCommand,
+    LessonActivateCommand, LessonRetireCommand, ApprovalRequestCommand,
+    ConsensusSweepCommand, LessonsListCommand,
 )
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
@@ -262,6 +265,7 @@ class ApplicationAPI:
         admission_provider: AdmissionInputsProvider | None = None,
         consensus: ConsensusService | None = None,
         task: TaskService | None = None, lesson: LessonService | None = None,
+        lesson_broker: GovernanceBroker | None = None,
         room: RoomsService | None = None, duty: DutyLeaseCoordinator | None = None,
         terminal_duty: TerminalDutyService | None = None,
     ) -> None:
@@ -275,7 +279,7 @@ class ApplicationAPI:
         if consensus is not None:
             self._register_consensus(consensus)
         if task is not None: self._register_task(task)
-        if lesson is not None: self._register_lesson(lesson)
+        if lesson is not None and lesson_broker is not None: self._register_lesson(lesson, lesson_broker)
         if room is not None: self._register_room(room)
         if duty is not None and terminal_duty is not None: self._register_duty(duty, terminal_duty)
 
@@ -320,6 +324,12 @@ class ApplicationAPI:
         self.register(CommandDescriptor("consensus.round.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_propose, lambda c, _: service.propose(round_id=c.round_id, title=c.title, question=c.question, body=c.body, proposer_id=c.proposer_id, required_participants=c.required_participants, eligible_participants=c.eligible_participants, risk=c.risk, source_hash=c.source_hash), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("consensus.vote.cast", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_vote, lambda c, _: service.cast_vote(c.round_id, actor_id=c.actor_id, choice=c.choice), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("consensus.round.read", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, decode_check, lambda c, _: service.get_target(c.round_id), lambda r: {"target_id": r.target_id, "revision": r.revision, "state": r.state}, CommandAvailability.AVAILABLE))
+        def decode_sweep(e: CommandEnvelope) -> ConsensusSweepCommand:
+            p=e.params; reason=p["reason"]; revision=p["expected_revision"]
+            if not isinstance(p["round_id"],str) or not isinstance(reason,str): raise ValueError("round_id and reason must be strings")
+            if revision is not None and (not isinstance(revision,int) or isinstance(revision,bool)): raise ValueError("expected_revision must be an integer or null")
+            return ConsensusSweepCommand(self._submission(e),p["round_id"],reason,revision)
+        self.register(CommandDescriptor("consensus.round.sweep", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_sweep, lambda c,_:service.mark_timeout(c.round_id,c.reason,c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
 
     def _register_task(self, s: TaskService) -> None:
         def text(p: Mapping[str, JsonValue], n: str) -> str:
@@ -341,8 +351,17 @@ class ApplicationAPI:
         self.register(CommandDescriptor("coordination.task.checkpoint", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, checkpoint, lambda c,_: s.checkpoint(task_id=c.task_id,actor_id=c.actor_id,checkpoint_id=c.checkpoint_id,stage=c.stage,request_id=c.request_id,attempt_id=c.attempt_id,resume_token_ref=c.resume_token_ref,completed_units=c.completed_units,remaining_units=c.remaining_units,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.task.status", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, status, lambda c,_: s.get_target(c.task_id), lambda r: {"target_id":r.target_id,"revision":r.revision,"state":r.state}, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.task.failover", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, failover, lambda c,_: s.request_failover(c.task_id,to_actor_id=c.to_actor_id,reason=c.reason,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
+        def approval(e: CommandEnvelope) -> ApprovalRequestCommand:
+            p=e.params
+            vals: list[str] = []
+            for n in ("task_id","requester_id","approval_id","approver_id"):
+                value = p[n]
+                if not isinstance(value,str): raise ValueError(f"{n} must be a string")
+                vals.append(value)
+            return ApprovalRequestCommand(self._submission(e),*vals)
+        self.register(CommandDescriptor("governance.approval.request", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, approval, lambda c,_: s.request_approval(c.task_id,requester_id=c.requester_id,approval_id=c.approval_id,approver_id=c.approver_id), self._receipt, CommandAvailability.AVAILABLE))
 
-    def _register_lesson(self, s: LessonService) -> None:
+    def _register_lesson(self, s: LessonService, broker: GovernanceBroker) -> None:
         def text(p: Mapping[str, JsonValue], n: str) -> str:
             if not isinstance(p[n], str): raise ValueError(f"{n} must be a string")
             return cast(str,p[n])
@@ -362,6 +381,14 @@ class ApplicationAPI:
         self.register(CommandDescriptor("governance.lesson.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, propose, lambda c,_:s.propose(lesson_id=c.lesson_id,title=c.title,rule=c.rule,category=c.category,severity=c.severity,proposer_id=c.proposer_id,affected_peers=c.affected_peers,scope_kind=c.scope_kind,workspace_id=c.workspace_id), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("governance.lesson.activate", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, activate, lambda c,_:s.activate(c.lesson_id,actor_id=c.actor_id,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("governance.lesson.retire", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, retire, lambda c,_:s.retire(c.lesson_id,actor_id=c.actor_id,reason=c.reason,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
+        def lessons_list(e: CommandEnvelope) -> LessonsListCommand:
+            value=e.params["scope"]
+            if value is not None and not isinstance(value,str): raise ValueError("scope must be a string or null")
+            return LessonsListCommand(self._submission(e),value)
+        def encode_lessons(results: Sequence[Any]) -> Mapping[str, JsonValue]:
+            lessons = [{"target_id": r.target_id, "revision": r.revision, "state": r.state} for r in results]
+            return {"lessons": cast(JsonValue, lessons)}
+        self.register(CommandDescriptor("governance.lesson.list", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, lessons_list, lambda c,_:list_active_lessons(broker,c.scope), encode_lessons, CommandAvailability.AVAILABLE))
 
     def _register_room(self, s: RoomsService) -> None:
         def text(e: CommandEnvelope, n: str) -> str:

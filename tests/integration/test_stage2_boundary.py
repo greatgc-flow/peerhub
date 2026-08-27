@@ -143,6 +143,37 @@ def test_legacy_leader_claim_translates_and_executes(runtime_setup) -> None:
     assert runtime.duty_lease_coordinator.get_lease(lease_id).state.value == "ACTIVE"
 
 
+def test_legacy_approval_request_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.task_service.create(task_id="approval-task", summary="s", spec="x", creator_id="peer-1")
+    runtime.task_service.claim_start("approval-task", actor_id="peer-1", request_id="r", coordinator="c", attempt_id="a")
+    translated = LegacyTranslator().translate(LegacyActionCall("approval-request", {"task_id":"approval-task","requester_id":"peer-1","approval_id":"approval-1","approver_id":"peer-2"}), _legacy_submission())
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(client.submit(translated.command), CommandSuccess)
+    assert runtime.governance_broker.get_target("approval:approval-1").state["status"] == "PENDING"
+
+
+def test_legacy_consensus_sweep_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.consensus_service.propose(round_id="sweep-round", title="t", question="q", body="b", proposer_id="peer-1", required_participants=("peer-1", "peer-2"), eligible_participants=("peer-1", "peer-2"), risk="normal", source_hash="h")
+    translated = LegacyTranslator().translate(LegacyActionCall("consensus-sweep", {"round_id":"sweep-round","reason":"stalled"}), _legacy_submission())
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(client.submit(translated.command), CommandSuccess)
+    assert runtime.consensus_service.get_target("sweep-round").state["timeout_evidence"]["reason"] == "stalled"
+
+
+def test_legacy_lessons_list_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.lesson_service.propose(lesson_id="listed-lesson", title="T", rule="R", category="c", severity="low", proposer_id="peer-1", affected_peers=())
+    runtime.lesson_service.approve("listed-lesson", approved_by_actor_id="peer-1")
+    runtime.lesson_service.activate("listed-lesson", actor_id="peer-1")
+    translated = LegacyTranslator().translate(LegacyActionCall("lessons-list", {}), _legacy_submission())
+    assert isinstance(translated, TranslatedCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert any(item["target_id"] == "lesson:listed-lesson" for item in outcome.result["lessons"])
+
+
 def test_admit_success(runtime_setup, monkeypatch):
     rt, client, caller = runtime_setup
     
