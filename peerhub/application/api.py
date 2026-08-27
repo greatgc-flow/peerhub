@@ -38,6 +38,10 @@ from peerhub.dispatch.contract import CompletionContract, CompletionContractKind
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import DispatchService
 from peerhub.application.workflows import ApplicationWorkflows
+from peerhub.application.lesson_broadcast import (
+    LessonBroadcastCoordinator,
+    LessonBroadcastResult,
+)
 from peerhub.application.commands import (
     Command,
     AdmitDispatch,
@@ -79,7 +83,8 @@ from peerhub.application.legacy import (
     TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
     TerminalDutySweepCommand, TaskCheckpointCommand,
     TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
-    LessonActivateCommand, LessonRetireCommand, ApprovalRequestCommand,
+    LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
+    ApprovalRequestCommand,
     ConsensusSweepCommand, LessonsListCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
 )
@@ -307,7 +312,8 @@ class ApplicationAPI:
         if consensus is not None:
             self._register_consensus(consensus)
         if task is not None: self._register_task(task)
-        if lesson is not None and lesson_broker is not None: self._register_lesson(lesson, lesson_broker)
+        if lesson is not None and lesson_broker is not None:
+            self._register_lesson(lesson, lesson_broker, room)
         if room is not None: self._register_room(room)
         if duty is not None and terminal_duty is not None:
             self._register_duty(duty, terminal_duty, room_session)
@@ -391,7 +397,12 @@ class ApplicationAPI:
             return ApprovalRequestCommand(self._submission(e),*vals)
         self.register(CommandDescriptor("governance.approval.request", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, approval, lambda c,_: s.request_approval(c.task_id,requester_id=c.requester_id,approval_id=c.approval_id,approver_id=c.approver_id), self._receipt, CommandAvailability.AVAILABLE))
 
-    def _register_lesson(self, s: LessonService, broker: GovernanceBroker) -> None:
+    def _register_lesson(
+        self,
+        s: LessonService,
+        broker: GovernanceBroker,
+        room: RoomsService | None,
+    ) -> None:
         def text(p: Mapping[str, JsonValue], n: str) -> str:
             if not isinstance(p[n], str): raise ValueError(f"{n} must be a string")
             return cast(str,p[n])
@@ -419,6 +430,48 @@ class ApplicationAPI:
             lessons = [{"target_id": r.target_id, "revision": r.revision, "state": r.state} for r in results]
             return {"lessons": cast(JsonValue, lessons)}
         self.register(CommandDescriptor("governance.lesson.list", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, lessons_list, lambda c,_:list_active_lessons(broker,c.scope), encode_lessons, CommandAvailability.AVAILABLE))
+        if room is not None:
+            coordinator = LessonBroadcastCoordinator(
+                broker=broker,
+                lessons=s,
+                rooms=room,
+            )
+            def broadcast(e: CommandEnvelope) -> LessonBroadcastCommand:
+                return LessonBroadcastCommand(
+                    self._submission(e),
+                    text(e.params, "lesson_id"),
+                    text(e.params, "room_id"),
+                    text(e.params, "sender_instance_id"),
+                    text(e.params, "sender_profile_id"),
+                )
+            def encode_broadcast(
+                result: LessonBroadcastResult,
+            ) -> Mapping[str, JsonValue]:
+                return {
+                    "campaign_id": result.campaign_id,
+                    "campaign_target_id": result.campaign_target_id,
+                    "lesson_id": result.lesson_id,
+                    "room_id": result.room_id,
+                    "recipient_profile_ids": result.recipient_profile_ids,
+                    "inbox_message_target_ids": result.inbox_message_target_ids,
+                    "delivery_target_ids": result.delivery_target_ids,
+                }
+            self.register(CommandDescriptor(
+                "coordination.lesson.broadcast",
+                Mutability.MUTATING,
+                ScopeKind.ANY,
+                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+                broadcast,
+                lambda c, _: coordinator.broadcast(
+                    lesson_id=c.lesson_id,
+                    room_id=c.room_id,
+                    sender_instance_id=c.sender_instance_id,
+                    sender_profile_id=c.sender_profile_id,
+                    created_at=c.submission.client_timestamp,
+                ),
+                encode_broadcast,
+                CommandAvailability.AVAILABLE,
+            ))
 
     def _register_room(self, s: RoomsService) -> None:
         def text(e: CommandEnvelope, n: str) -> str:

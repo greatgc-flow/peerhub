@@ -43,6 +43,23 @@ class RoomsService:
     def get_target(self, target_id: str) -> TargetState | None:
         return self._broker.get_target(target_id)
 
+    def list_participants(
+        self,
+        room_id: str,
+    ) -> Sequence[Mapping[str, JsonValue]]:
+        """Return the immutable participant snapshot for one existing room."""
+
+        room = self._require_room(room_id)
+        participants = room.state.get("participants")
+        if not isinstance(participants, (list, tuple)):
+            raise InvalidMutationError("room participants are malformed")
+        if not all(isinstance(participant, Mapping) for participant in participants):
+            raise InvalidMutationError("room participants are malformed")
+        return tuple(
+            cast(Mapping[str, JsonValue], participant)
+            for participant in participants
+        )
+
     def create_room(
         self,
         *,

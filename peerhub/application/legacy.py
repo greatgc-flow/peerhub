@@ -813,6 +813,29 @@ class LessonRetireCommand(Command[Any]):
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
 
+
+@dataclass(frozen=True, slots=True)
+class LessonBroadcastCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.lesson.broadcast"
+    submission: SubmissionMetadata
+    lesson_id: str
+    room_id: str
+    sender_instance_id: str
+    sender_profile_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "lesson_id": self.lesson_id,
+            "room_id": self.room_id,
+            "sender_instance_id": self.sender_instance_id,
+            "sender_profile_id": self.sender_profile_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 @dataclass(frozen=True, slots=True)
 class LessonsListCommand(Command[Any]):
     method: ClassVar[str] = "governance.lesson.list"
@@ -1145,6 +1168,18 @@ class LegacyTranslator:
             return TranslatedCommand(command=LessonActivateCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
         if call.action == "lessons-retire":
             return TranslatedCommand(command=LessonRetireCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), reason=str(call.arguments.get("reason", "MANUAL")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
+        if call.action == "lesson-broadcast":
+            return TranslatedCommand(command=LessonBroadcastCommand(
+                submission=submission,
+                lesson_id=str(call.arguments.get("lesson_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                sender_instance_id=str(
+                    call.arguments.get("sender_instance_id", "")
+                ),
+                sender_profile_id=str(
+                    call.arguments.get("sender_profile_id", "")
+                ),
+            ))
         if call.action == "lessons-list":
             value = call.arguments.get("scope")
             return TranslatedCommand(command=LessonsListCommand(submission, None if value is None else str(value)))

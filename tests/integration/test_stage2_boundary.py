@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -897,18 +897,63 @@ def test_thread_react_rejects_unknown_action(runtime_setup) -> None:
     assert outcome.error.code is ErrorCode.INVALID_PARAMS
 
 
-def test_legacy_lesson_broadcast_stays_unbacked_without_broadcast_semantics(
+def test_legacy_lesson_broadcast_translates_and_delivers_to_room_members(
+    runtime_setup,
 ) -> None:
-    outcome = LegacyTranslator().translate(
+    runtime, client, _ = runtime_setup
+    runtime.lesson_service.propose(
+        lesson_id="broadcast-lesson",
+        title="Broadcast title",
+        rule="Broadcast rule",
+        category="verification",
+        severity="LOW",
+        proposer_id="sender",
+        affected_peers=(),
+    )
+    runtime.lesson_service.approve(
+        "broadcast-lesson",
+        approved_by_actor_id="human:reviewer",
+    )
+    runtime.lesson_service.activate("broadcast-lesson", actor_id="sender")
+    runtime.rooms_service.create_room(
+        room_id="broadcast-room",
+        topic_id="broadcast-topic",
+        title="Broadcast Room",
+        creator_id="sender",
+        participants=("sender", "peer-b", "peer-c"),
+    )
+    translated = LegacyTranslator().translate(
         LegacyActionCall(
             "lesson-broadcast",
-            {"lesson_id": "lesson-1", "peer_id": "peer-1"},
+            {
+                "lesson_id": "broadcast-lesson",
+                "room_id": "broadcast-room",
+                "sender_instance_id": "sender",
+                "sender_profile_id": "sender",
+            },
         ),
         _legacy_submission(),
     )
 
-    assert isinstance(outcome, KnownLegacyActionNotBacked)
-    assert outcome.target_method == "coordination.lesson.broadcast"
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, LessonBroadcastCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["recipient_profile_ids"] == ("peer-b", "peer-c")
+
+    for peer_id in ("peer-b", "peer-c"):
+        inbox = runtime.rooms_service.check_inbox(
+            room_id="broadcast-room",
+            caller_instance_id=peer_id,
+            caller_profile_id=peer_id,
+        )
+        assert len(inbox) == 1
+        assert inbox[0].state["message_type"] == "LESSON"
+        delivery = runtime.governance_broker.get_target(
+            f"lesson-delivery:broadcast-lesson:{peer_id}"
+        )
+        assert delivery is not None
+        assert delivery.state["status"] == "PENDING"
 
 
 def test_legacy_init_session_translates_and_executes(runtime_setup) -> None:

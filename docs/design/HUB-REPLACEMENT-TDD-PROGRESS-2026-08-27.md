@@ -167,3 +167,13 @@ Follow-up to the mailbox core round. `peerhub room send|check-inbox|mark-read|pr
 Independently re-verified by the terminal through the FULL CLI stack, not just cx's own in-memory `LegacyTranslator -> Client -> ApplicationAPI -> RoomsService` smoke: created a room with 3 participants, sent 2 different private messages via the real CLI, confirmed each recipient's `check-inbox` shows only their own mail and the sender's own inbox is empty -- the privacy property proven at the service layer last round now proven through the entire real command-line path too.
 
 34 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 30). pytest -q: 1136 passed (only the known pre-existing failure). pyright: 0 new errors.
+
+## `lesson-broadcast`: the last ready Tier 3 item, done
+
+`RoomsService.list_participants()` added; a new `peerhub/application/lesson_broadcast.py` module orchestrates -- validates the lesson is `ACTIVE`, excludes the sender from the room's real participant list, creates a `lesson-broadcast:<id>` campaign record, delivers a real mailbox message via `send_message()` to each recipient AND records `record_delivery_pending()` for each (immediate per-recipient delivery, matching real legacy behavior). Confirmed `LessonService` has zero new dependency on room storage (`peerhub/governance/lessons.py`'s imports checked directly -- no `rooms` import added).
+
+Independently re-verified by the terminal through the real CLI, not just cx's own smoke test: broadcasting with a sender identity that actually matches a real room participant correctly excludes that sender (delivers to the other 2 of 3 participants, not all 3 -- the terminal's first manual attempt used a sender identity that DIDN'T match any room participant, which trivially "worked" without proving exclusion; re-ran with a matching identity to actually test the exclusion logic); broadcasting an unactivated (`PROPOSED`) lesson is correctly rejected (exit 2, clear error) rather than silently succeeding.
+
+35 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 34). pytest -q: 1138 passed (only the known pre-existing failure). pyright: 0 new errors.
+
+**Tier 3 is now 6 of 7 closed.** Only `arbiter-review` remains -- real legacy behavior invokes an external arbiter in an isolated subprocess, genuinely new infrastructure this session hasn't built yet, needs its own dedicated round rather than a same-batch wiring pass.

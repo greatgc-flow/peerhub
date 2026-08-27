@@ -35,6 +35,7 @@ from peerhub.application.direct_ask import (
     DirectAskResult,
     execute_direct_ask,
 )
+from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
 from peerhub.core.identity import (
@@ -735,6 +736,40 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                 submission = service.supersede(parsed.lesson_id, actor_id=parsed.actor, replacement_lesson_id=parsed.replacement_lesson_id)
             elif action == "quarantine":
                 submission = service.quarantine(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason, evidence=parsed.evidence)
+            elif action == "broadcast":
+                result = LessonBroadcastCoordinator(
+                    broker=runtime.governance_broker,
+                    lessons=service,
+                    rooms=runtime.rooms_service,
+                ).broadcast(
+                    lesson_id=parsed.lesson_id,
+                    room_id=parsed.room_id,
+                    sender_instance_id=parsed.sender_instance_id,
+                    sender_profile_id=parsed.sender_profile_id,
+                    created_at=context.clock.now(),
+                )
+                payload = {
+                    "campaign_id": result.campaign_id,
+                    "campaign_target_id": result.campaign_target_id,
+                    "lesson_id": result.lesson_id,
+                    "room_id": result.room_id,
+                    "recipient_profile_ids": result.recipient_profile_ids,
+                    "inbox_message_target_ids": result.inbox_message_target_ids,
+                    "delivery_target_ids": result.delivery_target_ids,
+                }
+                if parsed.json:
+                    print(json.dumps(_json_safe(payload)))
+                elif result.recipient_profile_ids:
+                    print(
+                        f"LESSON-BROADCAST {parsed.lesson_id} -> "
+                        f"{','.join(result.recipient_profile_ids)}"
+                    )
+                else:
+                    print(
+                        f"LESSON-BROADCAST {parsed.lesson_id} | no targets "
+                        "(no other room members)"
+                    )
+                return 0
             else:
                 target = runtime.governance_broker.get_target(f"lesson:{parsed.lesson_id}")
                 if target is None:
@@ -1356,6 +1391,7 @@ def main(args: list[str] | None = None) -> int:
         "retire": [("--lesson-id", True), ("--actor", True), ("--reason", False)],
         "supersede": [("--lesson-id", True), ("--actor", True), ("--replacement-lesson-id", True)],
         "quarantine": [("--lesson-id", True), ("--actor", True), ("--reason", True), ("--evidence", True)],
+        "broadcast": [("--lesson-id", True), ("--room-id", True), ("--sender-instance-id", True), ("--sender-profile-id", True)],
         "status": [("--lesson-id", True)],
     }
     lesson_subcommand_help = {
@@ -1365,6 +1401,7 @@ def main(args: list[str] | None = None) -> int:
         "retire": "Retire an active lesson",
         "supersede": "Mark an active lesson as superseded by a replacement lesson",
         "quarantine": "Quarantine a lesson due to a correctness/evidence concern",
+        "broadcast": "Immediately deliver an active lesson to every other room participant",
         "status": "Show the current state of a lesson",
     }
     lesson_arg_help = {
@@ -1383,6 +1420,9 @@ def main(args: list[str] | None = None) -> int:
         "--reason": "Human-readable reason for this action (default for retire: MANUAL)",
         "--replacement-lesson-id": "Lesson ID that supersedes this one",
         "--evidence": "Evidence supporting the quarantine decision",
+        "--room-id": "Room whose participants should receive this lesson",
+        "--sender-instance-id": "Sending participant's terminal instance identifier",
+        "--sender-profile-id": "Sending participant's profile identifier",
     }
     for action, arguments in lesson_specs.items():
         command_parser = lesson_subparsers.add_parser(action, help=lesson_subcommand_help[action])
