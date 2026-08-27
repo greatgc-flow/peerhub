@@ -555,3 +555,126 @@ formatters); `--domains --json` combines with the existing `--json` mode.
 Per cx's addition: domain-collection must be failure-isolated — if the
 governance workspace/database is unavailable, that must not break the
 existing peer-CLI-quota telemetry the rest of `diag` already provides.
+
+## RATIFIED (2026-08-27): room-participation sessions (`init-session`/`end-session`) get a NEW dedicated coordinator, not a reuse of `SessionLeaseCoordinator` or `DutyLeaseCoordinator`
+
+Closes the architecture gap recorded in
+`docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md` item 7. One
+critique round: cc drafted a position after directly confirming how
+deeply `command_id`/`attempt_id` are baked into `SessionLeaseCoordinator`'s
+real fence-validation logic (`peerhub/dispatch/model.py`, 10+ sites); cx
+pushed back with more precise reasoning grounded in further direct source
+reads (migrations, `contract.py`, `sqlite_dispatch.py`) and corrected one
+overstatement (`DutyLeaseCoordinator` has no actual fencing-token field —
+it compares lease/owner/term/authority_epoch, not a separate token).
+Converged in one round.
+
+**1. New coordinator, reusing patterns not domain models.** Working name
+`RoomParticipationCoordinator` (cx's naming — `RoomSessionCoordinator`
+was rejected as too easily confused with the existing provider/execution
+"session" machinery). Real reasons a `SessionLeaseCoordinator` reuse is
+wrong (stronger than "needs nullable fields," which overstates the
+mechanical blocker — sentinel `command_id`/`attempt_id` values are
+possible, migration 0003 has no FK forcing a real command/attempt to
+exist): `command_id`/`attempt_id`/owner-identity/revision/fencing-token
+are compared as *security-authoritative* fence dimensions
+(`peerhub/dispatch/model.py`); every ACTIVE/RENEWED execution lease
+requires real OS process-birth identity, which a human/browser/remote
+room participant doesn't have; `close_lease()` doesn't retire the
+`SessionBindingSnapshot`, so immediate reopening under the same key can
+stay blocked until the old heartbeat timestamp naturally expires;
+synthetic sentinel leases would inflate the dispatch-wide active-lease
+count query, which has no lease-kind discriminator. A direct
+`DutyLeaseCoordinator` reuse is also wrong: its real DB constraint is one
+ACTIVE row per `(room_id, role)` — exclusive by design — but a room
+naturally has many concurrently active participant sessions. The new
+coordinator/table reuses the proven STRUCTURAL PATTERN both existing
+coordinators already established (dedicated unit-of-work, clock, ID
+source, timeout-based heartbeat renewal, partial-unique-index,
+recovery-receipt shape) — not either one's literal domain model.
+
+**2. Uniqueness key.** `(workspace_scope_id, room_id, actor_principal_id,
+instance_id, profile_id)`, with a partial unique index applying only to
+ACTIVE rows (so ended/expired/abandoned rows remain distinct historical
+intervals, never blocking a fresh session). `session_fingerprint` is
+compared DATA on the row, not part of the key — putting it in the key
+would let fingerprint drift silently evade the retirement it's supposed
+to trigger. `actor_id`/`actor_principal_id` must be bound to the
+authenticated caller identity, never trusted merely because it arrived
+as a command parameter.
+
+**3. `instance_id` granularity — resolved now, not deferred.** cx
+correctly flagged this as a real open premise (does `instance_id` mean
+one terminal incarnation, or a stable peer identity that legitimately
+spans multiple simultaneous tabs/processes, which would need an
+additional `client_incarnation_id` in the key to avoid rejecting real
+concurrency). Ratified: `instance_id` means one terminal incarnation,
+matching how it's already used everywhere else in this exact codebase
+(`DutyOwnerIdentity`, `SessionBindingKey`) with no separate incarnation
+concept. Per the same "don't design speculatively" discipline already
+applied to gap-3's retention/GC policy: if a real multi-tab/multi-process
+concurrency need surfaces later, add `client_incarnation_id` then, with
+real evidence driving the schema change — not now.
+
+**4. Fencing — lightweight, not a DutyLease-style transplant.** An
+immutable `session_id` plus a monotonic `session_generation` is the
+fence: every heartbeat/end/resume carries the exact `session_id`, owner
+identity, and `session_generation`; updates are conditional on that
+identity + ACTIVE state + not-yet-expired; retirement/replacement and
+close are transactional; an expired row is never resurrected by a late
+heartbeat — recovery goes through the explicit create/resume lifecycle
+instead. This is real protection against a stale caller without
+synchronizing a changing fencing token on every heartbeat (which a full
+dispatch-style fence-tuple would require).
+
+**5. Independent from dispatch-attempt leases — confirmed, not just
+assumed.** Ending a room-participation session must NEVER close or
+cancel an in-flight `SessionLeaseCoordinator`-tracked dispatch-attempt
+lease. Concrete consequences, all ratified as-is: cancelling an in-flight
+dispatch requires its own explicit dispatch-cancel operation, never an
+implicit side effect of session end; any link from an attempt back to
+the room session that originated it is named `origin_room_session_id`
+and is PROVENANCE, never ownership; if the terminal process itself dies,
+the dispatch supervisor's own process-liveness path handles the
+execution lease, not the room-session coordinator; a dispatch result that
+completes after its originating session has ended must remain durably
+discoverable through mailbox/context continuity, never silently
+discarded with the connection; `terminal-close --close-session` (the
+seam already left open in the ratified `terminal-close` implementation,
+see `HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md` item 8) reports the
+duty-close and the room-session-close outcomes independently, exactly
+matching item 5's earlier terminal-close ratification.
+
+**6. New items surfaced by this round, also ratified:**
+   - **Heartbeat driver**: the command surface only ever specified an
+     explicit heartbeat for terminal duty; non-duty room participants had
+     no specified way to stay live. Ratified: a new native `session.heartbeat`
+     command, mirroring `terminal.heartbeat`'s existing shape — explicit
+     and simple, not inferred from unrelated activity (which would be
+     implicit and fragile).
+   - **Room `TargetState`'s `session_bindings` field**: would become a
+     second, conflicting source of truth once a dedicated table is
+     authoritative for sessions. Ratified: `session_bindings` is an
+     explicitly-declared REBUILDABLE PROJECTION on the room target, kept
+     opportunistically in sync — never authoritative — matching the exact
+     same operational-state-vs-projection split already ratified for the
+     handoff.md file and for `message_projection` on rooms/threads.
+   - **`init-session` idempotency**: a compatible duplicate call (same
+     identity tuple, no fingerprint drift, not expired) converges on
+     returning the EXISTING session — an idempotent no-op, never an
+     error. Fingerprint drift or expiry triggers one atomic
+     retire-then-create-exactly-one-successor transaction. This reuses
+     the exact proven transactional shape `SessionLeaseCoordinator.
+     create_session_and_lease()` already implements for its own binding
+     key (check existing → expired? → CAS-replace or reject) — not a new
+     pattern.
+   - **Events**: open/resume/retire/end/expire/abandon transitions are
+     real append-only continuity events, matching gap-3's own general
+     events-plus-projection discipline. Heartbeats themselves do NOT each
+     emit an event — that would be excessive volume for a frequent
+     operation — they just update the liveness row.
+
+Implementation of `RoomParticipationCoordinator` (or whatever its real
+final name becomes at build time) is now unblocked under the same
+architecture-before-implementation discipline this session has followed
+throughout.
