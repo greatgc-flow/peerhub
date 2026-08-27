@@ -145,6 +145,157 @@ def test_append_message_creates_separate_immutable_target(tmp_path: Path) -> Non
     assert thread.revision == 1
 
 
+def test_mailbox_delivery_is_private_read_only_and_cursor_scoped(
+    tmp_path: Path,
+) -> None:
+    service, broker = _service(tmp_path)
+    service.create_room(
+        room_id="room-mailbox",
+        topic_id="topic-mailbox",
+        title="Mailbox",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b", "peer-c"),
+    )
+    to_b = service.send_message(
+        room_id="room-mailbox",
+        sender_instance_id="peer-a",
+        sender_profile_id="profile-a",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        body="Only peer-b can read this",
+        correlation_id="broadcast-01",
+    )
+    to_a = service.send_message(
+        room_id="room-mailbox",
+        sender_instance_id="peer-b",
+        sender_profile_id="profile-b",
+        recipient_instance_id="peer-a",
+        recipient_profile_id="profile-a",
+        body="Only peer-a can read this",
+        correlation_id="broadcast-01",
+    )
+
+    inbox_for_a = service.check_inbox(
+        room_id="room-mailbox",
+        caller_instance_id="peer-a",
+        caller_profile_id="profile-a",
+    )
+    inbox_for_b = service.check_inbox(
+        room_id="room-mailbox",
+        caller_instance_id="peer-b",
+        caller_profile_id="profile-b",
+    )
+    inbox_for_c = service.check_inbox(
+        room_id="room-mailbox",
+        caller_instance_id="peer-c",
+        caller_profile_id="profile-c",
+    )
+
+    assert tuple(message.state["body"] for message in inbox_for_a) == (
+        "Only peer-a can read this",
+    )
+    assert tuple(message.state["body"] for message in inbox_for_b) == (
+        "Only peer-b can read this",
+    )
+    assert inbox_for_c == ()
+    assert inbox_for_a[0].state["correlation_id"] == "broadcast-01"
+    assert inbox_for_b[0].state["correlation_id"] == "broadcast-01"
+    # check_inbox is read-only: it must not create or advance a cursor.
+    assert broker.get_target("inbox-cursor:room-mailbox:peer-a:profile-a") is None
+    assert broker.get_target("inbox-cursor:room-mailbox:peer-b:profile-b") is None
+
+    read = service.mark_read(
+        room_id="room-mailbox",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        up_through_sequence=1,
+    )
+    assert read.receipt.target_id == "inbox-cursor:room-mailbox:peer-b:profile-b"
+    assert service.check_inbox(
+        room_id="room-mailbox",
+        caller_instance_id="peer-b",
+        caller_profile_id="profile-b",
+    ) == ()
+    all_for_b = service.check_inbox(
+        room_id="room-mailbox",
+        caller_instance_id="peer-b",
+        caller_profile_id="profile-b",
+        include_read=True,
+    )
+    cursor = broker.get_target("inbox-cursor:room-mailbox:peer-b:profile-b")
+    assert tuple(message.state["body"] for message in all_for_b) == (
+        "Only peer-b can read this",
+    )
+    assert cursor is not None
+    assert cursor.state["read_through_sequence"] == 1
+    assert cursor.state["last_read_message_id"] == to_b.receipt.target_id.removeprefix(
+        "inbox-message:"
+    )
+    cursor_state_before_repeat = cursor.state
+    service.mark_read(
+        room_id="room-mailbox",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        up_through_sequence=1,
+    )
+    cursor_after_repeat = broker.get_target(
+        "inbox-cursor:room-mailbox:peer-b:profile-b"
+    )
+    assert cursor_after_repeat is not None
+    assert cursor_after_repeat.state == cursor_state_before_repeat
+    assert to_a.receipt.target_id.startswith("inbox-message:")
+
+
+def test_promote_mailbox_message_creates_thread_message_and_marks_source(
+    tmp_path: Path,
+) -> None:
+    service, broker = _service(tmp_path)
+    service.create_room(
+        room_id="room-promote",
+        topic_id="topic-promote",
+        title="Promotion",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b"),
+    )
+    service.create_thread(
+        thread_id="thread-decisions",
+        room_id="room-promote",
+        subject="Decisions",
+        creator_id="peer-a",
+    )
+    delivery = service.send_message(
+        room_id="room-promote",
+        sender_instance_id="peer-a",
+        sender_profile_id="profile-a",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        body="Promote this decision",
+    )
+    inbox_message_id = delivery.receipt.target_id.removeprefix("inbox-message:")
+
+    promotion = service.promote_message(
+        message_id=inbox_message_id,
+        room_id="room-promote",
+        thread_id="thread-decisions",
+        actor_id="peer-b",
+    )
+
+    source = broker.get_target(delivery.receipt.target_id)
+    thread_messages = broker.list_targets("message", "room-promote")
+    assert promotion.receipt.target_id == delivery.receipt.target_id
+    assert source is not None
+    assert source.revision == 2
+    assert source.state["promoted_to"] == "thread-decisions"
+    assert len(thread_messages) == 1
+    promoted = thread_messages[0]
+    assert promoted.state["thread_id"] == "thread-decisions"
+    assert promoted.state["message_type"] == "MSG_PROMOTED"
+    assert promoted.state["body"] == "Promote this decision"
+    assert promoted.state["metadata"] == {
+        "promoted_from_inbox_message_id": inbox_message_id,
+    }
+
+
 def test_reactions_append_events_and_keep_current_state_projection(tmp_path: Path) -> None:
     service, broker = _service(tmp_path)
     service.create_room(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
@@ -149,6 +150,8 @@ class RoomsService:
         thread_id: str,
         author_id: str,
         body: str,
+        message_type: str = "text",
+        metadata: Mapping[str, JsonValue] | None = None,
     ) -> MutationSubmission:
         thread = self._broker.get_target(thread_id)
         if thread is None:
@@ -177,13 +180,271 @@ class RoomsService:
             "sequence": sequence,
             "author": {"instance_id": author_id, "profile_id": author_id},
             "created_at": timestamp,
-            "message_type": "text",
+            "message_type": message_type,
             "body": body,
             "reply_to": None,
-            "metadata": {},
+            "metadata": {} if metadata is None else dict(metadata),
         }
         return self._submit(
             f"message:{message_id}", 0, author_id, "message.append", state
+        )
+
+    def send_message(
+        self,
+        *,
+        room_id: str,
+        sender_instance_id: str,
+        sender_profile_id: str,
+        recipient_instance_id: str,
+        recipient_profile_id: str,
+        body: str,
+        message_type: str = "MSG",
+        thread_ref: str | None = None,
+        resource_ref: str | None = None,
+        correlation_id: str | None = None,
+    ) -> MutationSubmission:
+        """Deliver one private, durable mailbox message to one recipient.
+
+        A broadcast coordinator may call this primitive once per recipient
+        with a shared ``correlation_id``.  Mailbox messages are deliberately
+        separate from public thread messages.
+        """
+
+        self._require_room(room_id)
+        self._require_nonempty_text(sender_instance_id, "sender_instance_id")
+        self._require_nonempty_text(sender_profile_id, "sender_profile_id")
+        self._require_nonempty_text(recipient_instance_id, "recipient_instance_id")
+        self._require_nonempty_text(recipient_profile_id, "recipient_profile_id")
+        self._require_nonempty_text(body, "body")
+        self._require_nonempty_text(message_type, "message_type")
+        if thread_ref is not None:
+            self._require_nonempty_text(thread_ref, "thread_ref")
+        if resource_ref is not None:
+            self._require_nonempty_text(resource_ref, "resource_ref")
+        if correlation_id is not None:
+            self._require_nonempty_text(correlation_id, "correlation_id")
+
+        # KNOWN LIMITATION: Like thread-message sequences, delivery sequence
+        # allocation is a scoped scan rather than a CAS-protected counter.
+        # Concurrent writers for one recipient could select the same sequence.
+        # This matches the accepted single-dispatcher limitation of
+        # ``append_message`` until a dedicated allocator is introduced.
+        existing = self._broker.list_targets("inbox-message", room_id)
+        sequence = 1 + max(
+            (
+                self._inbox_sequence_for_recipient(
+                    target.state,
+                    recipient_instance_id,
+                    recipient_profile_id,
+                )
+                for target in existing
+            ),
+            default=0,
+        )
+        message_id = self._ids.new_id("inbox-message")
+        delivery_correlation_id = correlation_id or self._ids.new_id(
+            "inbox-correlation"
+        )
+        timestamp = self._clock.now()
+        state: dict[str, JsonValue] = {
+            "kind": "inbox-message",
+            "scope": room_id,
+            "schema_version": 1,
+            "message_id": message_id,
+            "room_id": room_id,
+            "sender": {
+                "instance_id": sender_instance_id,
+                "profile_id": sender_profile_id,
+            },
+            "recipient": {
+                "instance_id": recipient_instance_id,
+                "profile_id": recipient_profile_id,
+            },
+            "sequence": sequence,
+            "body": body,
+            "message_type": message_type,
+            "thread_ref": thread_ref,
+            "resource_ref": resource_ref,
+            "correlation_id": delivery_correlation_id,
+            "created_at": timestamp,
+            "promoted_to": None,
+        }
+        return self._submit(
+            f"inbox-message:{message_id}",
+            0,
+            sender_instance_id,
+            "inbox.message.send",
+            state,
+            correlation_id=delivery_correlation_id,
+        )
+
+    def check_inbox(
+        self,
+        *,
+        room_id: str,
+        caller_instance_id: str,
+        caller_profile_id: str,
+        include_read: bool = False,
+    ) -> Sequence[TargetState]:
+        """Return this caller's mailbox messages without advancing its cursor."""
+
+        self._require_room(room_id)
+        self._require_nonempty_text(caller_instance_id, "caller_instance_id")
+        self._require_nonempty_text(caller_profile_id, "caller_profile_id")
+        if type(include_read) is not bool:
+            raise ValueError("include_read must be a boolean")
+
+        cursor = self._broker.get_target(
+            self._inbox_cursor_target_id(
+                room_id,
+                caller_instance_id,
+                caller_profile_id,
+            )
+        )
+        read_through_sequence = self._cursor_read_through_sequence(cursor)
+        messages = tuple(
+            target
+            for target in self._broker.list_targets("inbox-message", room_id)
+            # The recipient check is intentional authorization enforcement:
+            # the generic target broker has no per-target read authorization.
+            # This v1 read method queries only the caller's own inbox.
+            if self._identity_matches(
+                target.state.get("recipient"),
+                caller_instance_id,
+                caller_profile_id,
+            )
+            and (
+                include_read
+                or self._inbox_message_sequence(target) > read_through_sequence
+            )
+        )
+        return tuple(sorted(messages, key=self._inbox_message_sort_key))
+
+    def mark_read(
+        self,
+        *,
+        room_id: str,
+        recipient_instance_id: str,
+        recipient_profile_id: str,
+        up_through_sequence: int,
+    ) -> MutationSubmission:
+        """Advance one recipient's mailbox high-water-mark cursor.
+
+        This v1 operation intentionally accepts only a delivery sequence.
+        It represents all messages through that sequence as read, rather than
+        legacy's sparse, out-of-order per-message acknowledgements.
+        """
+
+        self._require_room(room_id)
+        self._require_nonempty_text(recipient_instance_id, "recipient_instance_id")
+        self._require_nonempty_text(recipient_profile_id, "recipient_profile_id")
+        if type(up_through_sequence) is not int or up_through_sequence < 0:
+            raise ValueError("up_through_sequence must be a nonnegative integer")
+
+        target_id = self._inbox_cursor_target_id(
+            room_id,
+            recipient_instance_id,
+            recipient_profile_id,
+        )
+        current = self._broker.get_target(target_id)
+        current_sequence = self._cursor_read_through_sequence(current)
+        next_sequence = max(current_sequence, up_through_sequence)
+        current_last_message_id = self._cursor_last_read_message_id(current)
+        last_read_message_id = current_last_message_id
+        if next_sequence > current_sequence:
+            delivered = tuple(
+                target
+                for target in self._broker.list_targets("inbox-message", room_id)
+                if self._identity_matches(
+                    target.state.get("recipient"),
+                    recipient_instance_id,
+                    recipient_profile_id,
+                )
+                and self._inbox_message_sequence(target) <= next_sequence
+            )
+            if delivered:
+                last_read_message_id = self._inbox_message_id(
+                    max(delivered, key=self._inbox_message_sort_key)
+                )
+
+        if current is not None and next_sequence == current_sequence:
+            # A repeated/lower acknowledgement is a cursor no-op.  The
+            # broker still returns a normal submission receipt, but the
+            # projection's stored state (including ``updated_at``) is kept
+            # byte-for-byte stable.
+            state: dict[str, JsonValue] = dict(current.state)
+        else:
+            state = {
+                "kind": "inbox-cursor",
+                "scope": room_id,
+                "schema_version": 1,
+                "room_id": room_id,
+                "recipient": {
+                    "instance_id": recipient_instance_id,
+                    "profile_id": recipient_profile_id,
+                },
+                "read_through_sequence": next_sequence,
+                "last_read_message_id": last_read_message_id,
+                "updated_at": self._clock.now(),
+            }
+        return self._submit(
+            target_id,
+            0 if current is None else current.revision,
+            recipient_instance_id,
+            "inbox.cursor.advance",
+            state,
+        )
+
+    def promote_message(
+        self,
+        *,
+        message_id: str,
+        room_id: str,
+        thread_id: str,
+        actor_id: str,
+    ) -> MutationSubmission:
+        """Copy one inbox delivery to a thread and mark its promotion link."""
+
+        self._require_nonempty_text(message_id, "message_id")
+        self._require_nonempty_text(actor_id, "actor_id")
+        inbox_message = self._broker.get_target(f"inbox-message:{message_id}")
+        if inbox_message is None:
+            raise RecordNotFoundError("inbox-message", message_id)
+        if (
+            inbox_message.state.get("kind") != "inbox-message"
+            or inbox_message.state.get("room_id") != room_id
+        ):
+            raise InvalidMutationError("inbox message is not in the requested room")
+
+        sender = inbox_message.state.get("sender")
+        body = inbox_message.state.get("body")
+        if not isinstance(sender, Mapping) or not isinstance(body, str):
+            raise InvalidMutationError("inbox message is malformed")
+        sender_instance_id = sender.get("instance_id")
+        if not isinstance(sender_instance_id, str) or not sender_instance_id:
+            raise InvalidMutationError("inbox message sender is malformed")
+
+        promoted_message_id = self._ids.new_id("message")
+        self.append_message(
+            message_id=promoted_message_id,
+            room_id=room_id,
+            thread_id=thread_id,
+            author_id=sender_instance_id,
+            body=body,
+            message_type="MSG_PROMOTED",
+            metadata={"promoted_from_inbox_message_id": message_id},
+        )
+
+        promoted_state = dict(inbox_message.state)
+        # The delivery payload and identities stay immutable.  This is the
+        # sole mutable field in the inbox-message target family.
+        promoted_state["promoted_to"] = thread_id
+        return self._submit(
+            inbox_message.target_id,
+            inbox_message.revision,
+            actor_id,
+            "inbox.message.promote",
+            promoted_state,
         )
 
     def react(
@@ -592,6 +853,103 @@ class RoomsService:
     def _room_goal_target_id(room_id: str) -> str:
         return f"room-goal:{room_id}"
 
+    @classmethod
+    def _inbox_cursor_target_id(
+        cls,
+        room_id: str,
+        recipient_instance_id: str,
+        recipient_profile_id: str,
+    ) -> str:
+        return (
+            f"inbox-cursor:{room_id}:"
+            f"{cls._actor_key(recipient_instance_id, recipient_profile_id)}"
+        )
+
+    @staticmethod
+    def _identity_matches(
+        identity: object,
+        instance_id: str,
+        profile_id: str,
+    ) -> bool:
+        if not isinstance(identity, Mapping):
+            return False
+        typed_identity = cast(Mapping[str, JsonValue], identity)
+        return (
+            typed_identity.get("instance_id") == instance_id
+            and typed_identity.get("profile_id") == profile_id
+        )
+
+    @staticmethod
+    def _inbox_message_sequence(target: TargetState) -> int:
+        sequence = target.state.get("sequence")
+        return (
+            sequence
+            if isinstance(sequence, int) and not isinstance(sequence, bool)
+            else 0
+        )
+
+    @staticmethod
+    def _inbox_message_id(target: TargetState) -> str | None:
+        message_id = target.state.get("message_id")
+        return message_id if isinstance(message_id, str) else None
+
+    @classmethod
+    def _inbox_message_sort_key(cls, target: TargetState) -> tuple[int, int, str]:
+        created_at = target.state.get("created_at")
+        timestamp = (
+            created_at
+            if isinstance(created_at, int) and not isinstance(created_at, bool)
+            else target.updated_at
+        )
+        return (
+            cls._inbox_message_sequence(target),
+            timestamp,
+            cls._inbox_message_id(target) or target.target_id,
+        )
+
+    @classmethod
+    def _inbox_sequence_for_recipient(
+        cls,
+        state: Mapping[str, JsonValue],
+        recipient_instance_id: str,
+        recipient_profile_id: str,
+    ) -> int:
+        if not cls._identity_matches(
+            state.get("recipient"),
+            recipient_instance_id,
+            recipient_profile_id,
+        ):
+            return 0
+        sequence = state.get("sequence")
+        return (
+            sequence
+            if isinstance(sequence, int) and not isinstance(sequence, bool)
+            else 0
+        )
+
+    @staticmethod
+    def _cursor_read_through_sequence(cursor: TargetState | None) -> int:
+        if cursor is None:
+            return 0
+        sequence = cursor.state.get("read_through_sequence")
+        return (
+            sequence
+            if isinstance(sequence, int) and not isinstance(sequence, bool)
+            else 0
+        )
+
+    @staticmethod
+    def _cursor_last_read_message_id(cursor: TargetState | None) -> str | None:
+        if cursor is None:
+            return None
+        message_id = cursor.state.get("last_read_message_id")
+        return message_id if isinstance(message_id, str) else None
+
+    @staticmethod
+    def _require_nonempty_text(value: str, name: str) -> None:
+        if type(value) is not str or not value:
+            raise ValueError(f"{name} must be a nonempty string")
+
     @staticmethod
     def _continuity_note_sort_key(
         target: TargetState,
@@ -734,13 +1092,19 @@ class RoomsService:
         actor_id: str,
         operation: str,
         desired_state: dict[str, JsonValue],
+        *,
+        correlation_id: str | None = None,
     ) -> MutationSubmission:
         request_id = self._ids.new_id("rooms-request")
         return self._broker.submit(
             MutationRequest(
                 request_id=request_id,
                 command_id=CommandID(self._ids.new_id("rooms-command")),
-                correlation_id=self._ids.new_id("rooms-correlation"),
+                correlation_id=(
+                    self._ids.new_id("rooms-correlation")
+                    if correlation_id is None
+                    else correlation_id
+                ),
                 client_id="peerhub.rooms",
                 command_type=operation,
                 idempotency_key=request_id,
