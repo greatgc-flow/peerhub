@@ -71,6 +71,8 @@ peerhub --version
 
 # Real-time multi-peer quota telemetry, headroom matrix, and active failover routing targets
 peerhub diag
+# Add a governed-domain state section (consensus/task/lesson) to the same command
+peerhub diag --domains --workspace ./my-workspace
 
 # Check a workspace (read-only; reports "uninitialized" if no database yet)
 peerhub status --workspace ./my-workspace

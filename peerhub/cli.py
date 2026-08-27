@@ -56,6 +56,7 @@ from peerhub.dispatch.duty_lease import (
 )
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
+from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row
 
 class SystemClock(Clock):
     """Real system clock for production use."""
@@ -355,6 +356,41 @@ def _run_diag(parsed: argparse.Namespace) -> int:
         workspace_root=workspace_root,
         usage_projections=projections,
     )
+
+    def with_domains(snapshot: dict[str, Any]) -> dict[str, Any]:
+        if not getattr(parsed, "domains", False):
+            return snapshot
+        try:
+            from peerhub.governance.activity import (
+                list_active_consensus_rounds,
+                list_active_lessons,
+                list_active_tasks,
+            )
+            paths = PathLayout.for_workspace(workspace_root)
+
+            context = RuntimeContext(
+                workspace_home_id=_detect_workspace_home_id(
+                    paths.database_path, workspace_root.name
+                ),
+                paths=paths,
+                clock=SystemClock(),
+                ids=UuidSource(),
+            )
+            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+                now = int(time.time())
+                consensus = list_active_consensus_rounds(runtime.governance_broker)
+                tasks = list_active_tasks(runtime.governance_broker)
+                lessons = list_active_lessons(runtime.governance_broker)
+                domain_data = {
+                    "consensus": [{"target_id": t.target_id, "revision": t.revision, "state": dict(t.state), "summary": format_consensus_row(dict(t.state), now)} for t in consensus],
+                    "tasks": [{"target_id": t.target_id, "revision": t.revision, "state": dict(t.state), "summary": format_task_row(dict(t.state))} for t in tasks],
+                    "lessons": [{"target_id": t.target_id, "revision": t.revision, "state": dict(t.state)} for t in lessons],
+                    "duty_leases": {"status": "unavailable", "reason": "cross-room duty lease enumeration is not implemented"},
+                }
+                snapshot["domains"] = _json_safe(domain_data)
+        except Exception as exc:
+            snapshot["domains"] = {"status": "unavailable", "reason": f"governance state unavailable: {exc}"}
+        return snapshot
     if parsed.live:
         try:
             import msvcrt
@@ -370,11 +406,13 @@ def _run_diag(parsed: argparse.Namespace) -> int:
                     sys.stdout.write("\033[2J\033[H")
                     sys.stdout.flush()
 
-                snapshot = presenter.collect_live_snapshot()
+                snapshot = with_domains(presenter.collect_live_snapshot())
                 if parsed.json:
                     print(json.dumps(snapshot, indent=2))
                 else:
                     rendered = presenter.render(snapshot)
+                    if getattr(parsed, "domains", False):
+                        rendered += "\n\nGOVERNED DOMAINS\n" + _render_domain_section(snapshot["domains"])
                     print(rendered)
                     print(presenter._c(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
 
@@ -393,12 +431,28 @@ def _run_diag(parsed: argparse.Namespace) -> int:
             return 0
         return 0
     else:
-        snapshot = presenter.collect_live_snapshot()
+        snapshot = with_domains(presenter.collect_live_snapshot())
         if parsed.json:
             print(json.dumps(snapshot, indent=2))
         else:
-            print(presenter.render(snapshot))
+            rendered = presenter.render(snapshot)
+            if getattr(parsed, "domains", False):
+                rendered += "\n\nGOVERNED DOMAINS\n" + _render_domain_section(snapshot["domains"])
+            print(rendered)
         return 0
+
+
+def _render_domain_section(domains: Mapping[str, Any]) -> str:
+    if domains.get("status") == "unavailable":
+        return str(domains.get("reason", "governance state unavailable"))
+    lines: list[str] = []
+    for name in ("consensus", "tasks", "lessons"):
+        rows = cast(list[Mapping[str, Any]], domains.get(name, []))
+        lines.append(name.upper() + ": " + str(len(rows)))
+        for row in rows:
+            lines.append("  " + str(row.get("summary", row.get("target_id", "unknown"))))
+    lines.append("DUTY LEASES: unavailable (cross-room enumeration not implemented)")
+    return "\n".join(lines)
 
 
 def _detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
@@ -799,6 +853,7 @@ def main(args: list[str] | None = None) -> int:
     diag_parser.add_argument("--fresh", action="store_true", help="Bypass telemetry cache")
     diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
     diag_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    diag_parser.add_argument("--domains", action="store_true", help="Include a governed-domain state section (consensus/task/lesson) alongside peer-CLI telemetry")
 
     # Broadcast subcommand
     broadcast_parser = subparsers.add_parser("broadcast", help="Broadcast one prompt to multiple peers")
