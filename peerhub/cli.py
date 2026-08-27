@@ -796,6 +796,23 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 else:
                     print(checkpoint["markdown"])
                 return 0
+            elif action == "context-fill":
+                selected_sections = (
+                    None
+                    if parsed.sections is None
+                    else tuple(
+                        section.strip()
+                        for section in parsed.sections.split(",")
+                        if section.strip()
+                    )
+                )
+                context_envelope = service.context_fill(
+                    parsed.room_id,
+                    session_id=parsed.session_id,
+                    sections=selected_sections,
+                )
+                print(json.dumps(_json_safe(context_envelope)))
+                return 0
             elif action == "clear":
                 submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
             elif action == "rebuild-session-bindings":
@@ -1318,6 +1335,7 @@ def main(args: list[str] | None = None) -> int:
         "unreact": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
         "append-handoff": [("--room-id", True), ("--section", True), ("--text", True), ("--actor", True)],
         "checkpoint": [("--room-id", True), ("--actor", False)],
+        "context-fill": [("--room-id", True), ("--session-id", True), ("--sections", False)],
         "clear": [("--room-id", True), ("--new-room-id", True), ("--subject", True), ("--actor", True)],
         "rebuild-session-bindings": [("--room-id", True)],
         "status": [("--room-id", True)],
@@ -1330,6 +1348,7 @@ def main(args: list[str] | None = None) -> int:
         "unreact": "Remove this peer's active reaction from a message",
         "append-handoff": "Append an immutable note to the room's continuity history",
         "checkpoint": "Generate and record the room's bounded handoff projection",
+        "context-fill": "Read bounded room continuity for an LLM context window",
         "clear": "Start a fresh room boundary; the old room is preserved untouched",
         "rebuild-session-bindings": "Rebuild the room's session-binding projection from active sessions",
         "status": "Show the current state of a room",
@@ -1347,6 +1366,8 @@ def main(args: list[str] | None = None) -> int:
         "--body": "Message body text",
         "--section": "Handoff section receiving the note",
         "--text": "Continuity note text to append",
+        "--session-id": "Session identifier echoed in the context envelope",
+        "--sections": "Comma-separated exact section names; omit to return all six",
         "--actor-instance-id": "Reacting peer's terminal instance identifier",
         "--actor-profile-id": "Reacting peer's profile identifier",
         "--reaction-type": "Reaction label or emoji to add or remove (for example ACK or 👍)",

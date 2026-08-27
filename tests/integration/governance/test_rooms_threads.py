@@ -7,7 +7,7 @@ import pytest
 from fakes import FakeClock, FakeIdSource
 from peerhub.core.errors import InvalidMutationError
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.rooms import RoomsService
+from peerhub.governance.rooms import HANDOFF_SECTIONS, RoomsService
 from peerhub.persistence.sqlite import SqliteStateStore
 
 
@@ -360,3 +360,84 @@ def test_checkpoint_total_budget_trims_recent_completed_first(
     assert checkpoint["sections"]["RECENT_COMPLETED"]["items"] == ()
     assert checkpoint["sections"]["RECENT_COMPLETED"]["truncated"] is True
     assert checkpoint["sections"]["GOAL"]["truncated"] is False
+
+
+def test_context_fill_reuses_projection_filters_sections_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    service, broker = _service(tmp_path)
+    service.create_room(
+        room_id="room-context",
+        topic_id="topic-context",
+        title="Context",
+        creator_id="peer-a",
+        participants=(),
+    )
+    service.set_room_goal(
+        room_id="room-context",
+        goal="Build bounded startup context",
+        actor_id="peer-a",
+    )
+    for index in range(1, 7):
+        service.append_handoff_note(
+            room_id="room-context",
+            section="RECENT_COMPLETED",
+            text=f"context-completed-{index}",
+            actor_id="peer-a",
+        )
+    service.append_handoff_note(
+        room_id="room-context",
+        section="KEY_DECISIONS",
+        text="Reuse the checkpoint projection",
+        actor_id="peer-a",
+    )
+
+    note_count = len(broker.list_targets("continuity-note", "room-context"))
+    all_sections = service.context_fill(
+        "room-context",
+        session_id="unregistered-session-metadata",
+    )
+    filtered = service.context_fill(
+        "room-context",
+        session_id="unregistered-session-metadata",
+        sections=("KEY_DECISIONS", "GOAL"),
+    )
+
+    assert all_sections["room_id"] == "room-context"
+    assert all_sections["session_id"] == "unregistered-session-metadata"
+    assert tuple(all_sections["sections"]) == HANDOFF_SECTIONS
+    assert all_sections["sections"]["RECENT_COMPLETED"]["items"] == (
+        "context-completed-2",
+        "context-completed-3",
+        "context-completed-4",
+        "context-completed-5",
+        "context-completed-6",
+    )
+    assert all_sections["truncated"] is True
+    assert all_sections["truncated_sections"] == ("RECENT_COMPLETED",)
+    assert tuple(filtered["sections"]) == ("KEY_DECISIONS", "GOAL")
+    assert filtered["sections"]["KEY_DECISIONS"]["items"] == (
+        "Reuse the checkpoint projection",
+    )
+    assert filtered["truncated"] is False
+    assert "markdown" not in filtered
+    assert "checkpoint_id" not in filtered
+    assert len(broker.list_targets("checkpoint-created", "room-context")) == 0
+    assert len(broker.list_targets("continuity-note", "room-context")) == note_count
+
+    service.checkpoint("room-context", actor_id="peer-a")
+    service.context_fill(
+        "room-context",
+        session_id="unregistered-session-metadata",
+    )
+    assert len(broker.list_targets("checkpoint-created", "room-context")) == 1
+    assert len(broker.list_targets("continuity-note", "room-context")) == note_count
+
+    with pytest.raises(ValueError, match="session_id"):
+        service.context_fill("room-context", session_id="")
+    with pytest.raises(ValueError, match="unknown context section"):
+        service.context_fill(
+            "room-context",
+            session_id="session",
+            sections=("DECISIONS",),
+        )

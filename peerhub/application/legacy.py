@@ -418,6 +418,26 @@ class ContinuityCheckpointCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class ContextFillCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.context.fill"
+    submission: SubmissionMetadata
+    room_id: str
+    session_id: str
+    sections: tuple[str, ...] | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "session_id": self.session_id,
+            "sections": self.sections,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class ThreadReactCommand(Command[Any]):
     method: ClassVar[str] = "coordination.thread.react"
     submission: SubmissionMetadata
@@ -825,6 +845,56 @@ class LegacyTranslator:
                         "actor_id", submission.actor_id or "peerhub"
                     )
                 ),
+            ))
+        if call.action == "context-fill":
+            session_id = call.arguments.get("session_id")
+            if not isinstance(session_id, str) or not session_id:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="session_id must be a nonempty string",
+                )
+            raw_sections = call.arguments.get("sections")
+            if raw_sections is None:
+                sections: tuple[str, ...] | None = None
+            elif isinstance(raw_sections, str):
+                sections = tuple(
+                    section.strip()
+                    for section in raw_sections.split(",")
+                    if section.strip()
+                )
+            elif isinstance(raw_sections, (list, tuple)) and all(
+                isinstance(section, str) for section in raw_sections
+            ):
+                sections = tuple(str(section) for section in raw_sections)
+            else:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="sections must be a sequence of strings",
+                )
+            valid_sections = {
+                "GOAL",
+                "RECENT_COMPLETED",
+                "PENDING_ISSUES",
+                "KEY_DECISIONS",
+                "CONSENSUS_HISTORY",
+                "ACTIVE_THREADS",
+            }
+            if sections is not None and (
+                not sections
+                or any(section not in valid_sections for section in sections)
+                or len(set(sections)) != len(sections)
+            ):
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason=(
+                        "sections must contain unique, exact handoff section names"
+                    ),
+                )
+            return TranslatedCommand(command=ContextFillCommand(
+                submission=submission,
+                room_id=str(call.arguments.get("room_id", "")),
+                session_id=session_id,
+                sections=sections,
             ))
         if call.action == "thread-react":
             action = str(call.arguments.get("action", "ADD"))

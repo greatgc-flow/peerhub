@@ -72,7 +72,7 @@ from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
     NewTopicCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
-    AppendHandoffCommand, ContinuityCheckpointCommand,
+    AppendHandoffCommand, ContinuityCheckpointCommand, ContextFillCommand,
     LeaderClaimCommand, LeaderYieldCommand,
     TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
     TerminalDutySweepCommand, TaskCheckpointCommand,
@@ -459,6 +459,40 @@ class ApplicationAPI:
                 text(e, "room_id"),
                 text(e, "actor_id"),
             )
+        def context_fill(e: CommandEnvelope) -> ContextFillCommand:
+            session_id = text(e, "session_id")
+            if not session_id:
+                raise ValueError("session_id must be a nonempty string")
+            raw_sections = e.params["sections"]
+            if raw_sections is None:
+                sections: tuple[str, ...] | None = None
+            elif isinstance(raw_sections, (list, tuple)) and all(
+                isinstance(section, str) for section in raw_sections
+            ):
+                sections = tuple(cast(str, section) for section in raw_sections)
+            else:
+                raise ValueError("sections must be a sequence of strings or null")
+            if sections is not None:
+                if not sections:
+                    raise ValueError("sections must not be empty")
+                valid_sections = {
+                    "GOAL",
+                    "RECENT_COMPLETED",
+                    "PENDING_ISSUES",
+                    "KEY_DECISIONS",
+                    "CONSENSUS_HISTORY",
+                    "ACTIVE_THREADS",
+                }
+                if any(section not in valid_sections for section in sections):
+                    raise ValueError("sections contains an unknown section name")
+                if len(set(sections)) != len(sections):
+                    raise ValueError("sections must not contain duplicates")
+            return ContextFillCommand(
+                self._submission(e),
+                text(e, "room_id"),
+                session_id,
+                sections,
+            )
         def encode_checkpoint(
             result: Mapping[str, JsonValue],
         ) -> Mapping[str, JsonValue]:
@@ -542,6 +576,20 @@ class ApplicationAPI:
                 actor_id=c.actor_id,
                 idempotency_key=c.submission.idempotency_key,
                 idempotency_scope=c.submission.client_id,
+            ),
+            encode_checkpoint,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.context.fill",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            context_fill,
+            lambda c, _: s.context_fill(
+                c.room_id,
+                session_id=c.session_id,
+                sections=c.sections,
             ),
             encode_checkpoint,
             CommandAvailability.AVAILABLE,

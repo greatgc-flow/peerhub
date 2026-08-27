@@ -353,6 +353,82 @@ class RoomsService:
                 raise InvalidMutationError("stored checkpoint event is malformed")
             return stored
 
+        projection = self._build_continuity_projection(room)
+        result: dict[str, JsonValue] = {"checkpoint_id": checkpoint_id}
+        result.update(projection)
+        result["created_at"] = self._clock.now()
+        event_state: dict[str, JsonValue] = {
+            "kind": "checkpoint-created",
+            "scope": room_id,
+            "schema_version": 1,
+            "event_id": checkpoint_id,
+            "room_id": room_id,
+            "actor_id": actor_id,
+            "created_at": result["created_at"],
+            "as_of_event_seq": result["as_of_event_seq"],
+            "checkpoint": result,
+        }
+        self._submit(
+            event_target_id,
+            0,
+            actor_id,
+            "continuity.checkpoint_created",
+            event_state,
+        )
+        return result
+
+    def context_fill(
+        self,
+        room_id: str,
+        *,
+        session_id: str,
+        sections: Sequence[str] | None = None,
+    ) -> Mapping[str, JsonValue]:
+        """Return bounded room continuity without recording an event.
+
+        ``session_id`` is echoed as context provenance.  It is deliberately
+        not validated against ``RoomParticipationCoordinator`` so this read
+        model remains independent of the room-session lifecycle store.
+        """
+
+        if type(session_id) is not str or not session_id:
+            raise ValueError("session_id must be a nonempty string")
+        selected_sections = self._validate_context_sections(sections)
+        room = self._require_room(room_id)
+        projection = self._build_continuity_projection(room)
+        projected_sections = projection["sections"]
+        if not isinstance(projected_sections, Mapping):
+            raise RuntimeError("continuity projection sections are malformed")
+
+        filtered_sections: dict[str, JsonValue] = {}
+        truncated_sections: list[str] = []
+        for section in selected_sections:
+            payload = projected_sections.get(section)
+            if not isinstance(payload, Mapping):
+                raise RuntimeError(
+                    f"continuity projection section {section} is malformed"
+                )
+            filtered_sections[section] = payload
+            if payload.get("truncated") is True:
+                truncated_sections.append(section)
+
+        return {
+            "room_id": room_id,
+            "session_id": session_id,
+            "as_of_event_seq": projection["as_of_event_seq"],
+            "sections": filtered_sections,
+            "truncated": bool(truncated_sections),
+            "truncated_sections": tuple(truncated_sections),
+            "source": projection["source"],
+        }
+
+    def _build_continuity_projection(
+        self,
+        room: TargetState,
+    ) -> dict[str, JsonValue]:
+        """Aggregate the shared checkpoint/context-fill read projection."""
+
+        room_id = room.target_id
         goal_target = self._broker.get_target(self._room_goal_target_id(room_id))
         goal = ""
         goal_revision = 0
@@ -437,9 +513,7 @@ class RoomsService:
                 "source_count": source_counts[section],
             }
 
-        created_at = self._clock.now()
-        result: dict[str, JsonValue] = {
-            "checkpoint_id": checkpoint_id,
+        return {
             "room_id": room_id,
             # This is the position in the authoritative continuity-note
             # stream.  The governance broker does not expose a global room
@@ -459,27 +533,31 @@ class RoomsService:
                 if section in truncated_sections
             ),
             "markdown": markdown,
-            "created_at": created_at,
         }
-        event_state: dict[str, JsonValue] = {
-            "kind": "checkpoint-created",
-            "scope": room_id,
-            "schema_version": 1,
-            "event_id": checkpoint_id,
-            "room_id": room_id,
-            "actor_id": actor_id,
-            "created_at": created_at,
-            "as_of_event_seq": as_of_event_seq,
-            "checkpoint": result,
-        }
-        self._submit(
-            event_target_id,
-            0,
-            actor_id,
-            "continuity.checkpoint_created",
-            event_state,
+
+    @staticmethod
+    def _validate_context_sections(
+        sections: Sequence[str] | None,
+    ) -> tuple[str, ...]:
+        if sections is None:
+            return HANDOFF_SECTIONS
+        if isinstance(sections, str):
+            raise ValueError("sections must be a sequence of section names")
+        selected = tuple(sections)
+        if not selected:
+            raise ValueError("sections must contain at least one section name")
+        if not all(type(section) is str for section in selected):
+            raise ValueError("sections must contain only strings")
+        unknown = tuple(
+            section for section in selected if section not in HANDOFF_SECTIONS
         )
-        return result
+        if unknown:
+            raise ValueError(
+                "unknown context section(s): " + ", ".join(unknown)
+            )
+        if len(set(selected)) != len(selected):
+            raise ValueError("sections must not contain duplicates")
+        return selected
 
     @staticmethod
     def _render_handoff_markdown(

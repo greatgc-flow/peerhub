@@ -178,3 +178,59 @@ def test_cli_room_append_handoff_and_checkpoint_exports(
     assert "## GOAL" in markdown
     assert "## RECENT_COMPLETED" in markdown
     assert "- cli-completed-6" in markdown
+
+
+def test_cli_room_context_fill_emits_filtered_json_without_writes(
+    tmp_path: Path, capsys
+) -> None:
+    workspace = ["--workspace", str(tmp_path)]
+    assert main([
+        "room", "create", *workspace,
+        "--room-id", "room-context",
+        "--topic-id", "topic-context",
+        "--title", "Context Room",
+        "--creator", "cx",
+        "--participants", "cx",
+        "--json",
+    ]) == 0
+    capsys.readouterr()
+
+    context = RuntimeContext(
+        workspace_home_id=tmp_path.name,
+        paths=PathLayout.for_workspace(tmp_path),
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime.rooms_service.set_room_goal(
+            room_id="room-context",
+            goal="Provide startup context",
+            actor_id="cx",
+        )
+        runtime.rooms_service.append_handoff_note(
+            room_id="room-context",
+            section="ACTIVE_THREADS",
+            text="thread-context",
+            actor_id="cx",
+        )
+
+    assert main([
+        "room", "context-fill", *workspace,
+        "--room-id", "room-context",
+        "--session-id", "session-metadata",
+        "--sections", "GOAL,ACTIVE_THREADS",
+    ]) == 0
+    envelope = json.loads(capsys.readouterr().out)
+    assert envelope["session_id"] == "session-metadata"
+    assert list(envelope["sections"]) == ["GOAL", "ACTIVE_THREADS"]
+    assert envelope["sections"]["GOAL"]["value"] == (
+        "Provide startup context"
+    )
+    assert envelope["sections"]["ACTIVE_THREADS"]["items"] == [
+        "thread-context"
+    ]
+
+    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        assert runtime.governance_broker.list_targets(
+            "checkpoint-created", "room-context"
+        ) == ()

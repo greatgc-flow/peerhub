@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -446,6 +446,61 @@ def test_legacy_append_handoff_and_checkpoint_execute_end_to_end(
     )
     assert len(notes) == 1
     assert len(checkpoints) == 1
+
+
+def test_legacy_context_fill_translates_and_executes_read_only(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-context-fill",
+        topic_id="topic-context-fill",
+        title="Context Fill Room",
+        creator_id="peer-1",
+        participants=(),
+    )
+    runtime.rooms_service.set_room_goal(
+        room_id="room-context-fill",
+        goal="Fill the startup context",
+        actor_id="peer-1",
+    )
+    runtime.rooms_service.append_handoff_note(
+        room_id="room-context-fill",
+        section="PENDING_ISSUES",
+        text="Run the terminal suite",
+        actor_id="peer-1",
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "context-fill",
+            {
+                "room_id": "room-context-fill",
+                "session_id": "metadata-only-session",
+                "sections": ("GOAL", "PENDING_ISSUES"),
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ContextFillCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.state == "COMPLETED"
+    assert outcome.result["session_id"] == "metadata-only-session"
+    assert tuple(outcome.result["sections"]) == (
+        "GOAL",
+        "PENDING_ISSUES",
+    )
+    assert outcome.result["sections"]["GOAL"]["value"] == (
+        "Fill the startup context"
+    )
+    assert outcome.result["sections"]["PENDING_ISSUES"]["items"] == (
+        "Run the terminal suite",
+    )
+    assert runtime.governance_broker.list_targets(
+        "checkpoint-created", "room-context-fill"
+    ) == ()
 
 
 def test_legacy_thread_react_translates_and_executes(runtime_setup) -> None:
