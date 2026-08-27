@@ -881,25 +881,25 @@ def main(args: list[str] | None = None) -> int:
 
     consensus_parser = subparsers.add_parser("consensus", help="Manage consensus rounds")
     consensus_subparsers = consensus_parser.add_subparsers(dest="consensus_action", required=True)
-    propose_parser = consensus_subparsers.add_parser("propose")
-    propose_parser.add_argument("--workspace", default=".")
-    propose_parser.add_argument("--round-id", required=True)
-    propose_parser.add_argument("--title", required=True)
-    propose_parser.add_argument("--question", required=True)
-    propose_parser.add_argument("--body", required=True)
-    propose_parser.add_argument("--proposer", required=True)
-    propose_parser.add_argument("--required", required=True)
-    propose_parser.add_argument("--eligible", required=True)
-    propose_parser.add_argument("--risk", default="normal")
-    propose_parser.add_argument("--json", action="store_true")
+    propose_parser = consensus_subparsers.add_parser("propose", help="Propose a new consensus round")
+    propose_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+    propose_parser.add_argument("--round-id", required=True, help="Consensus round identifier")
+    propose_parser.add_argument("--title", required=True, help="Short proposal title")
+    propose_parser.add_argument("--question", required=True, help="Question for participants")
+    propose_parser.add_argument("--body", required=True, help="Proposal details")
+    propose_parser.add_argument("--proposer", required=True, help="Proposer peer ID")
+    propose_parser.add_argument("--required", required=True, help="Comma-separated peer IDs required for quorum (for example: cc,cx,ag)")
+    propose_parser.add_argument("--eligible", required=True, help="Comma-separated eligible peer IDs")
+    propose_parser.add_argument("--risk", default="normal", help="Risk tier used for quorum calculation (default: normal)")
+    propose_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     for action in ("vote", "status"):
-        command_parser = consensus_subparsers.add_parser(action)
-        command_parser.add_argument("--workspace", default=".")
-        command_parser.add_argument("--round-id", required=True)
-        command_parser.add_argument("--json", action="store_true")
+        command_parser = consensus_subparsers.add_parser(action, help="Cast a vote" if action == "vote" else "Read a consensus round")
+        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        command_parser.add_argument("--round-id", required=True, help="Consensus round identifier")
+        command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
         if action == "vote":
-            command_parser.add_argument("--actor", required=True)
-            command_parser.add_argument("--choice", required=True, choices=("agree", "disagree"))
+            command_parser.add_argument("--actor", required=True, help="Voting peer ID")
+            command_parser.add_argument("--choice", required=True, choices=("agree", "disagree"), help="Vote choice")
 
     task_parser = subparsers.add_parser("task", help="Manage task lifecycles")
     task_subparsers = task_parser.add_subparsers(dest="task_action", required=True)
@@ -912,12 +912,39 @@ def main(args: list[str] | None = None) -> int:
         "cancel": ([("--task-id", True), ("--actor", True), ("--reason", True)],),
         "status": ([("--task-id", True)],),
     }
+    task_subcommand_help = {
+        "create": "Create a new task",
+        "claim-start": "Bind an executor and start running a task",
+        "checkpoint": "Record a resumable checkpoint for a running task",
+        "complete": "Mark a running task as succeeded",
+        "fail": "Mark a task as failed, recording a failure class and reason",
+        "cancel": "Cancel a task before it reaches a terminal state",
+        "status": "Show the current state of a task",
+    }
+    task_arg_help = {
+        "--task-id": "Task identifier",
+        "--summary": "Short one-line summary of the task's objective",
+        "--spec": "Full task specification / instructions",
+        "--creator": "Peer ID creating the task",
+        "--room-id": "Room this task belongs to (omit for no room scope)",
+        "--actor": "Peer ID performing this action",
+        "--request-id": "Dispatch request ID bound to this task",
+        "--coordinator": "Peer ID coordinating this task's execution",
+        "--attempt-id": "Dispatch attempt ID bound to this task",
+        "--checkpoint-id": "Identifier for this checkpoint",
+        "--stage": "Name of the task stage this checkpoint captures",
+        "--resume-token": "Opaque token an executor can use to resume from this checkpoint",
+        "--completed": "Comma-separated completed unit IDs (e.g. unit-1,unit-2)",
+        "--remaining": "Comma-separated remaining unit IDs (e.g. unit-3,unit-4)",
+        "--failure-class": "Category of failure (e.g. timeout, validation_error)",
+        "--reason": "Human-readable reason for this action",
+    }
     for action, (arguments,) in task_specs.items():
-        command_parser = task_subparsers.add_parser(action)
-        command_parser.add_argument("--workspace", default=".")
+        command_parser = task_subparsers.add_parser(action, help=task_subcommand_help[action])
+        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
         for name, required in arguments:
-            command_parser.add_argument(name, required=required, default="")
-        command_parser.add_argument("--json", action="store_true")
+            command_parser.add_argument(name, required=required, default="", help=task_arg_help[name])
+        command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     lesson_parser = subparsers.add_parser("lesson", help="Manage governance lessons")
     lesson_subparsers = lesson_parser.add_subparsers(dest="lesson_action", required=True)
@@ -930,9 +957,35 @@ def main(args: list[str] | None = None) -> int:
         "quarantine": [("--lesson-id", True), ("--actor", True), ("--reason", True), ("--evidence", True)],
         "status": [("--lesson-id", True)],
     }
+    lesson_subcommand_help = {
+        "propose": "Propose a new governance lesson",
+        "approve": "Approve a proposed lesson, authorizing later activation",
+        "activate": "Activate an approved lesson (requires prior approval)",
+        "retire": "Retire an active lesson",
+        "supersede": "Mark an active lesson as superseded by a replacement lesson",
+        "quarantine": "Quarantine a lesson due to a correctness/evidence concern",
+        "status": "Show the current state of a lesson",
+    }
+    lesson_arg_help = {
+        "--lesson-id": "Lesson identifier",
+        "--title": "Short one-line lesson title",
+        "--rule": "The rule or guidance this lesson establishes",
+        "--category": "Lesson category (e.g. runtime-reality, process)",
+        "--severity": "Severity level (e.g. LOW, MEDIUM, HIGH)",
+        "--proposer": "Peer ID proposing this lesson",
+        "--affected": "Comma-separated affected peer IDs (e.g. cc,cx,ag)",
+        "--scope-kind": "Scope kind for this lesson (default: global)",
+        "--workspace-id": "Workspace ID this lesson applies to, if scope-kind is not global",
+        "--approved-by": "Actor ID approving this lesson",
+        "--authority-target-id": "Reference to the consensus round or authority record backing this approval",
+        "--actor": "Peer ID performing this action",
+        "--reason": "Human-readable reason for this action (default for retire: MANUAL)",
+        "--replacement-lesson-id": "Lesson ID that supersedes this one",
+        "--evidence": "Evidence supporting the quarantine decision",
+    }
     for action, arguments in lesson_specs.items():
-        command_parser = lesson_subparsers.add_parser(action)
-        command_parser.add_argument("--workspace", default=".")
+        command_parser = lesson_subparsers.add_parser(action, help=lesson_subcommand_help[action])
+        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
         for name, required in arguments:
             if name in {"--workspace-id", "--authority-target-id"}:
                 default = None
@@ -942,8 +995,8 @@ def main(args: list[str] | None = None) -> int:
                 default = "global"
             else:
                 default = ""
-            command_parser.add_argument(name, required=required, default=default)
-        command_parser.add_argument("--json", action="store_true")
+            command_parser.add_argument(name, required=required, default=default, help=lesson_arg_help[name])
+        command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
@@ -954,12 +1007,33 @@ def main(args: list[str] | None = None) -> int:
         "clear": [("--room-id", True), ("--new-room-id", True), ("--subject", True), ("--actor", True)],
         "status": [("--room-id", True)],
     }
+    room_subcommand_help = {
+        "create": "Create a new room",
+        "create-thread": "Create a new thread inside an existing room",
+        "append-message": "Append a message to a thread",
+        "clear": "Start a fresh room boundary; the old room is preserved untouched",
+        "status": "Show the current state of a room",
+    }
+    room_arg_help = {
+        "--room-id": "Room identifier",
+        "--topic-id": "Topic identifier for this room",
+        "--title": "Room title",
+        "--creator": "Peer ID creating this room/thread",
+        "--participants": "Comma-separated participant peer IDs (e.g. cc,cx,ag)",
+        "--thread-id": "Thread identifier",
+        "--subject": "Thread subject, or the new room's subject when clearing",
+        "--message-id": "Message identifier",
+        "--author": "Peer ID authoring this message",
+        "--body": "Message body text",
+        "--new-room-id": "Identifier for the fresh room created by clear",
+        "--actor": "Peer ID performing this action",
+    }
     for action, arguments in room_specs.items():
-        command_parser = room_subparsers.add_parser(action)
-        command_parser.add_argument("--workspace", default=".")
+        command_parser = room_subparsers.add_parser(action, help=room_subcommand_help[action])
+        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
         for name, required in arguments:
-            command_parser.add_argument(name, required=required)
-        command_parser.add_argument("--json", action="store_true")
+            command_parser.add_argument(name, required=required, help=room_arg_help[name])
+        command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     duty_parser = subparsers.add_parser("duty", help="Manage terminal duty")
     duty_subparsers = duty_parser.add_subparsers(dest="duty_action", required=True)
@@ -969,14 +1043,29 @@ def main(args: list[str] | None = None) -> int:
         "close": [("--lease-id", True), ("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--term", True), ("--authority-epoch", True)],
         "status": [("--room-id", True)],
     }
+    duty_subcommand_help = {
+        "claim": "Claim terminal duty for a room",
+        "heartbeat": "Renew (heartbeat) an active terminal-duty lease",
+        "close": "Voluntarily release an active terminal-duty lease",
+        "status": "Show who currently holds terminal duty for a room",
+    }
+    duty_arg_help = {
+        "--room-id": "Room this duty lease is scoped to",
+        "--lease-id": "Duty lease identifier (from a prior claim)",
+        "--instance-id": "Owner's instance ID (part of the composite peer identity)",
+        "--profile-id": "Owner's profile ID (part of the composite peer identity)",
+        "--owner-principal-id": "Principal ID that authorized this owner to hold duty",
+        "--authority-epoch": "Fencing token; must strictly increase on each new claim",
+        "--term": "Opaque leadership-generation token from the current lease (not a timestamp)",
+    }
     for action, arguments in duty_specs.items():
-        command_parser = duty_subparsers.add_parser(action)
-        command_parser.add_argument("--workspace", default=".")
+        command_parser = duty_subparsers.add_parser(action, help=duty_subcommand_help[action])
+        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
         for name, required in arguments:
-            command_parser.add_argument(name, required=required, type=int if name in {"--term", "--authority-epoch"} else str)
+            command_parser.add_argument(name, required=required, type=int if name in {"--term", "--authority-epoch"} else str, help=duty_arg_help[name])
         if action == "claim":
-            command_parser.add_argument("--heartbeat-timeout-ms", type=int, default=60_000)
-        command_parser.add_argument("--json", action="store_true")
+            command_parser.add_argument("--heartbeat-timeout-ms", type=int, default=60_000, help="Heartbeat timeout in milliseconds (default: 60000)")
+        command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     parsed = parser.parse_args(args)
 

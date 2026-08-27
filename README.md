@@ -39,7 +39,7 @@ A lightweight, installable coordination layer for orchestrating multiple AI CLI 
 
 See [`docs/design/HUB-REPLACEMENT-ROADMAP-2026-08-09.md`](docs/design/HUB-REPLACEMENT-ROADMAP-2026-08-09.md) for the full phased plan toward functional hub.py parity, and [`docs/design/PEERHUB-P-DRIVE-ISOLATION-2026-08-09.md`](docs/design/PEERHUB-P-DRIVE-ISOLATION-2026-08-09.md) for how peerhub's own runtime state relates to (and is deliberately isolated from) the wider P: development environment this repo happens to live inside during development.
 
-**hub.py-replacement TDD (2026-08-27, in progress)**: real, tested code now exists for gap-2 (consensus), gap-4 (duty-lease), gap-5 (task lifecycle), gap-6 (governance/lessons) in full, and gap-3/gap-7 partially — see [`docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`](docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md) for exactly what's real vs. still missing (gap-1's compat layer hasn't been started; none of this is wired into the CLI yet). This is genuinely new code on `peerhub/governance/*.py` and `peerhub/dispatch/{duty_lease,terminal_duty}.py`, not a design update.
+**hub.py-replacement TDD (2026-08-27, in progress)**: real, tested code now exists for gap-2 (consensus), gap-4 (duty-lease), gap-5 (task lifecycle), gap-6 (governance/lessons) in full, and gap-3/gap-7 partially. **All 5 domains now have real, runnable CLI commands** — `peerhub consensus|task|lesson|room|duty`, see "Try it" below — and `LegacyTranslator` (`peerhub/application/legacy.py`) translates 15 of ~90 legacy `hub.py` action names into typed wire commands for these same domains. See [`docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`](docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md) for exactly what's real vs. still missing — notably, the legacy-translation layer has no execution dispatcher yet, so translated legacy commands don't yet run end-to-end (the native CLI commands do).
 
 **hub.py-replacement design phase (2026-08-23 to 2026-08-26): DESIGN-complete, TDD-ready.** The 7 functional categories `hub.py` covers beyond basic dispatch — compat/cutover strategy, consensus, session/room/thread continuity, health/leadership/duty-lease, task lifecycle/approval, governance/learning, and diagnostics parity — each now have either a concrete `TargetState` JSON schema or a concrete dedicated design, all converged and ratified (52 of 53 remaining open items resolved by design-consistency reasoning, 1 genuine business decision resolved by the user, 1 shared infrastructure prerequisite scoped as its own task). Start at [`docs/design/HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md`](docs/design/HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md) (supersedes older per-doc "Unresolved" lists), then [`docs/design/HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-2026-08-24.md`](docs/design/HUB-REPLACEMENT-DESIGN-REINFORCEMENT-INDEX-2026-08-24.md) for the full per-gap breakdown. None of this design work has been implemented yet — the "Implemented" list above is still the accurate description of what real code exists today.
 
@@ -82,6 +82,17 @@ peerhub ask cx "..." --capability-tier WORKTREE_WRITE --json              # stru
 
 # Multi-peer broadcast coordination across peers with unified consensus
 peerhub broadcast "reply with exactly: pong" --peers ag,cx --capability-tier READ_ONLY
+
+# Propose a consensus round
+peerhub consensus propose --round-id r1 --title "Ship" --question "Ready?" --body "Decide" --proposer cx --required cx,ag --eligible cx,ag
+# Create a task
+peerhub task create --task-id t1 --summary "Ship" --spec "Do it" --creator cx
+# Propose a governance lesson
+peerhub lesson propose --lesson-id l1 --title "Rule" --rule "Do this" --category ops --severity HIGH --proposer cx --affected cx,ag
+# Create a room
+peerhub room create --room-id room1 --topic-id topic1 --title "Work" --creator cx --participants cx,ag
+# Claim terminal duty
+peerhub duty claim --room-id room1 --instance-id i1 --profile-id cx.standard --owner-principal-id p1 --authority-epoch 1
 ```
 
 `ask` accepts `--capability-tier` (required: READ_ONLY, WORKTREE_WRITE, GIT_MUTATE, REMOTE_MUTATE),
