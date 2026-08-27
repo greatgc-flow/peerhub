@@ -159,3 +159,11 @@ The non-negotiable privacy requirement (the generic broker has no per-target rea
 `mark_read` is a pure high-water-mark cursor (v1 scope, per the ratification -- legacy's exact per-message out-of-order acknowledgement is explicitly deferred), verified idempotent (a repeat call past an already-passed sequence leaves the stored cursor state byte-identical). `promote_message` creates a real `MSG_PROMOTED` thread message carrying `promoted_from_inbox_message_id` and CAS-updates the source inbox-message's `promoted_to` field (revision bumps; body/sender/recipient stay immutable) -- verified with a real end-to-end scenario (send -> promote -> confirm both the new thread message and the marked source).
 
 pytest -q: 1132 passed (only the known pre-existing failure). pyright: 0 new errors (repo-wide baseline unchanged at 136). CLI + legacy translation + execution-dispatcher wiring remains an explicit follow-up -- doesn't move the 30/90 `LEGACY_CATALOG` count yet.
+
+## Mailbox wiring round: `send`/`check`/`mark-read`/`thread-promote` -- CLI + legacy + dispatcher
+
+Follow-up to the mailbox core round. `peerhub room send|check-inbox|mark-read|promote-message` are real CLI commands with real per-argument help text; all 4 legacy actions now translate through `LegacyTranslator` and execute through `ApplicationAPI`. `coordination.message.check`'s read-only descriptor wraps its `Sequence[TargetState]` result as `{"messages": [...]}`, reusing the exact pattern already fixed for `lessons-list` earlier this session (every `encode_result_fn` must return a `Mapping`, never a bare list -- this file's own established convention by now, and this round correctly followed it without repeating the earlier bug).
+
+Independently re-verified by the terminal through the FULL CLI stack, not just cx's own in-memory `LegacyTranslator -> Client -> ApplicationAPI -> RoomsService` smoke: created a room with 3 participants, sent 2 different private messages via the real CLI, confirmed each recipient's `check-inbox` shows only their own mail and the sender's own inbox is empty -- the privacy property proven at the service layer last round now proven through the entire real command-line path too.
+
+34 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 30). pytest -q: 1136 passed (only the known pre-existing failure). pyright: 0 new errors.

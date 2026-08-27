@@ -381,6 +381,106 @@ class ThreadAppendCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class MessageSendCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.message.send"
+    submission: SubmissionMetadata
+    room_id: str
+    sender_instance_id: str
+    sender_profile_id: str
+    recipient_instance_id: str
+    recipient_profile_id: str
+    body: str
+    message_type: str = "MSG"
+    thread_ref: str | None = None
+    resource_ref: str | None = None
+    correlation_id: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "sender_instance_id": self.sender_instance_id,
+            "sender_profile_id": self.sender_profile_id,
+            "recipient_instance_id": self.recipient_instance_id,
+            "recipient_profile_id": self.recipient_profile_id,
+            "body": self.body,
+            "message_type": self.message_type,
+            "thread_ref": self.thread_ref,
+            "resource_ref": self.resource_ref,
+            "correlation_id": self.correlation_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class MessageCheckCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.message.check"
+    submission: SubmissionMetadata
+    room_id: str
+    caller_instance_id: str
+    caller_profile_id: str
+    include_read: bool = False
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "caller_instance_id": self.caller_instance_id,
+            "caller_profile_id": self.caller_profile_id,
+            "include_read": self.include_read,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class MessageMarkReadCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.message.mark_read"
+    submission: SubmissionMetadata
+    room_id: str
+    recipient_instance_id: str
+    recipient_profile_id: str
+    up_through_sequence: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "recipient_instance_id": self.recipient_instance_id,
+            "recipient_profile_id": self.recipient_profile_id,
+            "up_through_sequence": self.up_through_sequence,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadPromoteCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.thread.promote"
+    submission: SubmissionMetadata
+    message_id: str
+    room_id: str
+    thread_id: str
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "message_id": self.message_id,
+            "room_id": self.room_id,
+            "thread_id": self.thread_id,
+            "actor_id": self.actor_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class AppendHandoffCommand(Command[Any]):
     method: ClassVar[str] = "coordination.handoff.append"
     submission: SubmissionMetadata
@@ -808,6 +908,58 @@ class LegacyTranslator:
                 thread_id=str(call.arguments.get("thread_id", "")),
                 author_id=str(call.arguments.get("author_id", "")),
                 body=str(call.arguments.get("body", "")),
+            ))
+        if call.action == "send":
+            return TranslatedCommand(command=MessageSendCommand(
+                submission=submission,
+                room_id=str(call.arguments.get("room_id", "")),
+                sender_instance_id=str(call.arguments.get("sender_instance_id", "")),
+                sender_profile_id=str(call.arguments.get("sender_profile_id", "")),
+                recipient_instance_id=str(call.arguments.get("recipient_instance_id", "")),
+                recipient_profile_id=str(call.arguments.get("recipient_profile_id", "")),
+                body=str(call.arguments.get("body", "")),
+                message_type=str(call.arguments.get("message_type", "MSG")),
+                thread_ref=(
+                    None
+                    if call.arguments.get("thread_ref") is None
+                    else str(call.arguments.get("thread_ref"))
+                ),
+                resource_ref=(
+                    None
+                    if call.arguments.get("resource_ref") is None
+                    else str(call.arguments.get("resource_ref"))
+                ),
+                correlation_id=(
+                    None
+                    if call.arguments.get("correlation_id") is None
+                    else str(call.arguments.get("correlation_id"))
+                ),
+            ))
+        if call.action == "check":
+            return TranslatedCommand(command=MessageCheckCommand(
+                submission=submission,
+                room_id=str(call.arguments.get("room_id", "")),
+                caller_instance_id=str(call.arguments.get("caller_instance_id", "")),
+                caller_profile_id=str(call.arguments.get("caller_profile_id", "")),
+                include_read=_bool_or_false(call.arguments.get("include_read")),
+            ))
+        if call.action == "mark-read":
+            return TranslatedCommand(command=MessageMarkReadCommand(
+                submission=submission,
+                room_id=str(call.arguments.get("room_id", "")),
+                recipient_instance_id=str(call.arguments.get("recipient_instance_id", "")),
+                recipient_profile_id=str(call.arguments.get("recipient_profile_id", "")),
+                up_through_sequence=_int_or_zero(
+                    call.arguments.get("up_through_sequence")
+                ),
+            ))
+        if call.action == "thread-promote":
+            return TranslatedCommand(command=ThreadPromoteCommand(
+                submission=submission,
+                message_id=str(call.arguments.get("message_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                thread_id=str(call.arguments.get("thread_id", "")),
+                actor_id=str(call.arguments.get("actor_id", "")),
             ))
         if call.action == "append-handoff":
             section = str(call.arguments.get("section", ""))

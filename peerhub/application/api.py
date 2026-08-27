@@ -72,6 +72,8 @@ from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
     NewTopicCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
+    MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand,
+    ThreadPromoteCommand,
     AppendHandoffCommand, ContinuityCheckpointCommand, ContextFillCommand,
     LeaderClaimCommand, LeaderYieldCommand,
     TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
@@ -434,6 +436,71 @@ class ApplicationAPI:
                 text(e, "author_id"),
                 text(e, "body"),
             )
+        def optional_text(e: CommandEnvelope, n: str) -> str | None:
+            value = e.params[n]
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{n} must be a string or null")
+            return value
+        def boolean(e: CommandEnvelope, n: str) -> bool:
+            value = e.params[n]
+            if not isinstance(value, bool):
+                raise ValueError(f"{n} must be a boolean")
+            return value
+        def integer(e: CommandEnvelope, n: str) -> int:
+            value = e.params[n]
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{n} must be an integer")
+            return value
+        def send(e: CommandEnvelope) -> MessageSendCommand:
+            return MessageSendCommand(
+                self._submission(e),
+                text(e, "room_id"),
+                text(e, "sender_instance_id"),
+                text(e, "sender_profile_id"),
+                text(e, "recipient_instance_id"),
+                text(e, "recipient_profile_id"),
+                text(e, "body"),
+                text(e, "message_type"),
+                optional_text(e, "thread_ref"),
+                optional_text(e, "resource_ref"),
+                optional_text(e, "correlation_id"),
+            )
+        def check_inbox(e: CommandEnvelope) -> MessageCheckCommand:
+            return MessageCheckCommand(
+                self._submission(e),
+                text(e, "room_id"),
+                text(e, "caller_instance_id"),
+                text(e, "caller_profile_id"),
+                boolean(e, "include_read"),
+            )
+        def mark_read(e: CommandEnvelope) -> MessageMarkReadCommand:
+            return MessageMarkReadCommand(
+                self._submission(e),
+                text(e, "room_id"),
+                text(e, "recipient_instance_id"),
+                text(e, "recipient_profile_id"),
+                integer(e, "up_through_sequence"),
+            )
+        def promote(e: CommandEnvelope) -> ThreadPromoteCommand:
+            return ThreadPromoteCommand(
+                self._submission(e),
+                text(e, "message_id"),
+                text(e, "room_id"),
+                text(e, "thread_id"),
+                text(e, "actor_id"),
+            )
+        def encode_inbox_messages(
+            results: Sequence[Any],
+        ) -> Mapping[str, JsonValue]:
+            messages = [
+                {
+                    "target_id": result.target_id,
+                    "revision": result.revision,
+                    "state": result.state,
+                }
+                for result in results
+            ]
+            return {"messages": cast(JsonValue, messages)}
         def append_handoff(e: CommandEnvelope) -> AppendHandoffCommand:
             section = text(e, "section")
             if section not in {
@@ -536,6 +603,72 @@ class ApplicationAPI:
                 thread_id=c.thread_id,
                 author_id=c.author_id,
                 body=c.body,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.message.send",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            send,
+            lambda c, _: s.send_message(
+                room_id=c.room_id,
+                sender_instance_id=c.sender_instance_id,
+                sender_profile_id=c.sender_profile_id,
+                recipient_instance_id=c.recipient_instance_id,
+                recipient_profile_id=c.recipient_profile_id,
+                body=c.body,
+                message_type=c.message_type,
+                thread_ref=c.thread_ref,
+                resource_ref=c.resource_ref,
+                correlation_id=c.correlation_id,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.message.check",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            check_inbox,
+            lambda c, _: s.check_inbox(
+                room_id=c.room_id,
+                caller_instance_id=c.caller_instance_id,
+                caller_profile_id=c.caller_profile_id,
+                include_read=c.include_read,
+            ),
+            encode_inbox_messages,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.message.mark_read",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            mark_read,
+            lambda c, _: s.mark_read(
+                room_id=c.room_id,
+                recipient_instance_id=c.recipient_instance_id,
+                recipient_profile_id=c.recipient_profile_id,
+                up_through_sequence=c.up_through_sequence,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.thread.promote",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            promote,
+            lambda c, _: s.promote_message(
+                message_id=c.message_id,
+                room_id=c.room_id,
+                thread_id=c.thread_id,
+                actor_id=c.actor_id,
             ),
             self._receipt,
             CommandAvailability.AVAILABLE,

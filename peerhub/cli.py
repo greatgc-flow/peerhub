@@ -772,6 +772,64 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 submission = service.create_thread(thread_id=parsed.thread_id, room_id=parsed.room_id, subject=parsed.subject, creator_id=parsed.creator)
             elif action == "append-message":
                 submission = service.append_message(message_id=parsed.message_id, room_id=parsed.room_id, thread_id=parsed.thread_id, author_id=parsed.author, body=parsed.body)
+            elif action == "send":
+                submission = service.send_message(
+                    room_id=parsed.room_id,
+                    sender_instance_id=parsed.sender_instance_id,
+                    sender_profile_id=parsed.sender_profile_id,
+                    recipient_instance_id=parsed.recipient_instance_id,
+                    recipient_profile_id=parsed.recipient_profile_id,
+                    body=parsed.body,
+                    message_type=parsed.message_type,
+                    thread_ref=parsed.thread_ref,
+                    resource_ref=parsed.resource_ref,
+                    correlation_id=parsed.correlation_id,
+                )
+            elif action == "check-inbox":
+                messages = service.check_inbox(
+                    room_id=parsed.room_id,
+                    caller_instance_id=parsed.caller_instance_id,
+                    caller_profile_id=parsed.caller_profile_id,
+                    include_read=parsed.include_read,
+                )
+                result = {
+                    "messages": [
+                        {
+                            "target_id": message.target_id,
+                            "revision": message.revision,
+                            "state": message.state,
+                        }
+                        for message in messages
+                    ]
+                }
+                if parsed.json:
+                    print(json.dumps(_json_safe(result)))
+                else:
+                    print(
+                        f"Inbox for {parsed.caller_instance_id}/"
+                        f"{parsed.caller_profile_id}: {len(messages)} message(s)"
+                    )
+                    for message in messages:
+                        print(
+                            f"- [{message.state['sequence']}] "
+                            f"{message.state['message_type']}: "
+                            f"{message.state['body']}"
+                        )
+                return 0
+            elif action == "mark-read":
+                submission = service.mark_read(
+                    room_id=parsed.room_id,
+                    recipient_instance_id=parsed.recipient_instance_id,
+                    recipient_profile_id=parsed.recipient_profile_id,
+                    up_through_sequence=parsed.up_through_sequence,
+                )
+            elif action == "promote-message":
+                submission = service.promote_message(
+                    message_id=parsed.message_id,
+                    room_id=parsed.room_id,
+                    thread_id=parsed.thread_id,
+                    actor_id=parsed.actor,
+                )
             elif action == "react":
                 submission = service.react(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
             elif action == "unreact":
@@ -841,6 +899,22 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 print(f"Thread {parsed.thread_id} created in room {parsed.room_id}")
             elif action == "append-message":
                 print(f"Message {parsed.message_id} appended to thread {parsed.thread_id} (sequence={state['sequence']})")
+            elif action == "send":
+                print(
+                    f"Mailbox message delivered to "
+                    f"{parsed.recipient_instance_id}/{parsed.recipient_profile_id} "
+                    f"(sequence={state['sequence']})"
+                )
+            elif action == "mark-read":
+                print(
+                    f"Inbox marked read through sequence "
+                    f"{state['read_through_sequence']}"
+                )
+            elif action == "promote-message":
+                print(
+                    f"Mailbox message {parsed.message_id} promoted to "
+                    f"thread {parsed.thread_id}"
+                )
             elif action == "react":
                 print(f"Reaction {parsed.reaction_type} added to message {parsed.message_id}")
             elif action == "unreact":
@@ -1331,6 +1405,10 @@ def main(args: list[str] | None = None) -> int:
         "create": [("--room-id", True), ("--topic-id", True), ("--title", True), ("--creator", True), ("--participants", True)],
         "create-thread": [("--thread-id", True), ("--room-id", True), ("--subject", True), ("--creator", True)],
         "append-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--author", True), ("--body", True)],
+        "send": [("--room-id", True), ("--sender-instance-id", True), ("--sender-profile-id", True), ("--recipient-instance-id", True), ("--recipient-profile-id", True), ("--body", True), ("--message-type", False), ("--thread-ref", False), ("--resource-ref", False), ("--correlation-id", False)],
+        "check-inbox": [("--room-id", True), ("--caller-instance-id", True), ("--caller-profile-id", True), ("--include-read", False)],
+        "mark-read": [("--room-id", True), ("--recipient-instance-id", True), ("--recipient-profile-id", True), ("--up-through-sequence", True)],
+        "promote-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--actor", True)],
         "react": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
         "unreact": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
         "append-handoff": [("--room-id", True), ("--section", True), ("--text", True), ("--actor", True)],
@@ -1344,6 +1422,10 @@ def main(args: list[str] | None = None) -> int:
         "create": "Create a new room",
         "create-thread": "Create a new thread inside an existing room",
         "append-message": "Append a message to a thread",
+        "send": "Deliver one private mailbox message to a room recipient",
+        "check-inbox": "Read this caller's private mailbox without marking messages read",
+        "mark-read": "Advance one recipient's mailbox read cursor through a delivery sequence",
+        "promote-message": "Copy one mailbox message into a thread and record the promotion",
         "react": "Record this peer's active reaction to a message",
         "unreact": "Remove this peer's active reaction from a message",
         "append-handoff": "Append an immutable note to the room's continuity history",
@@ -1364,6 +1446,18 @@ def main(args: list[str] | None = None) -> int:
         "--message-id": "Message identifier",
         "--author": "Peer ID authoring this message",
         "--body": "Message body text",
+        "--sender-instance-id": "Sending peer's terminal instance identifier",
+        "--sender-profile-id": "Sending peer's profile identifier",
+        "--recipient-instance-id": "Recipient terminal instance identifier",
+        "--recipient-profile-id": "Recipient profile identifier",
+        "--caller-instance-id": "Checking peer's terminal instance identifier",
+        "--caller-profile-id": "Checking peer's profile identifier",
+        "--message-type": "Mailbox message type (default: MSG)",
+        "--thread-ref": "Optional related thread identifier",
+        "--resource-ref": "Optional opaque related resource reference",
+        "--correlation-id": "Optional shared correlation ID for related deliveries",
+        "--include-read": "Include messages at or below the current read cursor",
+        "--up-through-sequence": "Delivery sequence through which to mark this inbox read",
         "--section": "Handoff section receiving the note",
         "--text": "Continuity note text to append",
         "--session-id": "Session identifier echoed in the context envelope",
@@ -1383,6 +1477,26 @@ def main(args: list[str] | None = None) -> int:
                     name,
                     required=required,
                     choices=HANDOFF_LIST_SECTIONS,
+                    help=room_arg_help[name],
+                )
+            elif action == "check-inbox" and name == "--include-read":
+                command_parser.add_argument(
+                    name,
+                    action="store_true",
+                    help=room_arg_help[name],
+                )
+            elif action == "mark-read" and name == "--up-through-sequence":
+                command_parser.add_argument(
+                    name,
+                    required=required,
+                    type=int,
+                    help=room_arg_help[name],
+                )
+            elif action == "send" and name == "--message-type":
+                command_parser.add_argument(
+                    name,
+                    required=required,
+                    default="MSG",
                     help=room_arg_help[name],
                 )
             else:

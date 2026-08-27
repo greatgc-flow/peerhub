@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -381,6 +381,201 @@ def test_legacy_thread_append_translates_and_executes(runtime_setup) -> None:
     assert message is not None
     assert message.state["thread_id"] == "thread-append"
     assert message.state["body"] == "A durable appended message"
+
+
+def test_legacy_send_translates_and_persists_mailbox_delivery(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-mail-send",
+        topic_id="topic-mail-send",
+        title="Mailbox Send",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b"),
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "send",
+            {
+                "room_id": "room-mail-send",
+                "sender_instance_id": "peer-a-terminal",
+                "sender_profile_id": "peer-a",
+                "recipient_instance_id": "peer-b-terminal",
+                "recipient_profile_id": "peer-b",
+                "body": "A private delivery",
+                "message_type": "MSG",
+                "correlation_id": "mail-correlation-1",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, MessageSendCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    target_id = str(outcome.result["target_id"])
+    message = runtime.governance_broker.get_target(target_id)
+    assert message is not None
+    assert message.state["kind"] == "inbox-message"
+    assert message.state["body"] == "A private delivery"
+    assert message.state["recipient"] == {
+        "instance_id": "peer-b-terminal",
+        "profile_id": "peer-b",
+    }
+    assert message.state["correlation_id"] == "mail-correlation-1"
+
+
+def test_legacy_check_returns_only_the_callers_private_messages(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-mail-check",
+        topic_id="topic-mail-check",
+        title="Mailbox Check",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b", "peer-c"),
+    )
+    runtime.rooms_service.send_message(
+        room_id="room-mail-check",
+        sender_instance_id="peer-a-terminal",
+        sender_profile_id="peer-a",
+        recipient_instance_id="peer-b-terminal",
+        recipient_profile_id="peer-b",
+        body="Only peer-b sees this",
+    )
+    runtime.rooms_service.send_message(
+        room_id="room-mail-check",
+        sender_instance_id="peer-a-terminal",
+        sender_profile_id="peer-a",
+        recipient_instance_id="peer-c-terminal",
+        recipient_profile_id="peer-c",
+        body="Only peer-c sees this",
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "check",
+            {
+                "room_id": "room-mail-check",
+                "caller_instance_id": "peer-b-terminal",
+                "caller_profile_id": "peer-b",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, MessageCheckCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    messages = outcome.result["messages"]
+    assert len(messages) == 1
+    assert messages[0]["state"]["body"] == "Only peer-b sees this"
+    assert messages[0]["state"]["recipient"] == {
+        "instance_id": "peer-b-terminal",
+        "profile_id": "peer-b",
+    }
+
+
+def test_legacy_mark_read_translates_and_advances_cursor(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-mail-read",
+        topic_id="topic-mail-read",
+        title="Mailbox Read",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b"),
+    )
+    runtime.rooms_service.send_message(
+        room_id="room-mail-read",
+        sender_instance_id="peer-a-terminal",
+        sender_profile_id="peer-a",
+        recipient_instance_id="peer-b-terminal",
+        recipient_profile_id="peer-b",
+        body="Mark this read",
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "mark-read",
+            {
+                "room_id": "room-mail-read",
+                "recipient_instance_id": "peer-b-terminal",
+                "recipient_profile_id": "peer-b",
+                "up_through_sequence": 1,
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, MessageMarkReadCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["target_id"] == (
+        "inbox-cursor:room-mail-read:peer-b-terminal:peer-b"
+    )
+    assert runtime.rooms_service.check_inbox(
+        room_id="room-mail-read",
+        caller_instance_id="peer-b-terminal",
+        caller_profile_id="peer-b",
+    ) == ()
+
+
+def test_legacy_thread_promote_translates_and_marks_mailbox_source(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-mail-promote",
+        topic_id="topic-mail-promote",
+        title="Mailbox Promotion",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b"),
+    )
+    runtime.rooms_service.create_thread(
+        thread_id="thread-mail-promote",
+        room_id="room-mail-promote",
+        subject="Decisions",
+        creator_id="peer-a",
+    )
+    delivery = runtime.rooms_service.send_message(
+        room_id="room-mail-promote",
+        sender_instance_id="peer-a-terminal",
+        sender_profile_id="peer-a",
+        recipient_instance_id="peer-b-terminal",
+        recipient_profile_id="peer-b",
+        body="Promote this delivery",
+    )
+    message_id = delivery.receipt.target_id.removeprefix("inbox-message:")
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "thread-promote",
+            {
+                "message_id": message_id,
+                "room_id": "room-mail-promote",
+                "thread_id": "thread-mail-promote",
+                "actor_id": "peer-b",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ThreadPromoteCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    source = runtime.governance_broker.get_target(delivery.receipt.target_id)
+    promoted = runtime.governance_broker.list_targets(
+        "message", "room-mail-promote"
+    )
+    assert source is not None
+    assert source.state["promoted_to"] == "thread-mail-promote"
+    assert len(promoted) == 1
+    assert promoted[0].state["metadata"] == {
+        "promoted_from_inbox_message_id": message_id,
+    }
 
 
 def test_legacy_append_handoff_and_checkpoint_execute_end_to_end(
