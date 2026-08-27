@@ -59,7 +59,7 @@ from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
     NewTopicCommand, ClearRoomCommand, LeaderClaimCommand, LeaderYieldCommand,
-    TerminalHandoffCommand, TerminalHeartbeatCommand, TaskCheckpointCommand,
+    TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand, TaskCheckpointCommand,
     TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, ApprovalRequestCommand,
     ConsensusSweepCommand, LessonsListCommand,
@@ -421,11 +421,14 @@ class ApplicationAPI:
             return TerminalHandoffCommand(self._submission(e),text(e,"current_lease_id"),text(e,"room_id"),text(e,"current_instance_id"),text(e,"current_profile_id"),integer(e,"term"),integer(e,"authority_epoch"),text(e,"new_instance_id"),text(e,"new_profile_id"),text(e,"new_owner_principal_id"),integer(e,"new_authority_epoch"))
         def heartbeat(e: CommandEnvelope) -> TerminalHeartbeatCommand:
             return TerminalHeartbeatCommand(self._submission(e),text(e,"lease_id"),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),integer(e,"term"),integer(e,"authority_epoch"))
+        def close(e: CommandEnvelope) -> TerminalCloseCommand:
+            return TerminalCloseCommand(self._submission(e),text(e,"lease_id"),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),integer(e,"term"),integer(e,"authority_epoch"))
         def enc(r: Any) -> Mapping[str, JsonValue]: return {"lease_id":r.lease_id,"room_id":r.room_id,"role":r.role,"state":r.state.value,"term":r.term,"authority_epoch":r.authority_epoch}
         self.register(CommandDescriptor("routing.leadership.claim", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, claim, lambda c,_:d.create_lease(DutyLeaseCreateRequest(c.room_id,"leader",DutyOwnerIdentity(c.instance_id,c.profile_id),c.owner_principal_id,60000,c.authority_epoch)), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("routing.leadership.yield", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, yielding, lambda c,_:d.close_lease(DutyLeaseCloseRequest(c.lease_id,c.room_id,"leader",owner(c),c.term,c.authority_epoch)), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.terminal.handoff", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, handoff, lambda c,_:t.handoff_terminal_duty(c.current_lease_id,c.room_id,DutyOwnerIdentity(c.current_instance_id,c.current_profile_id),c.term,c.authority_epoch,DutyOwnerIdentity(c.new_instance_id,c.new_profile_id),c.new_owner_principal_id,c.new_authority_epoch), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.terminal.heartbeat", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, heartbeat, lambda c,_:t.send_heartbeat(c.lease_id,c.room_id,owner(c),c.term,c.authority_epoch), enc, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("coordination.terminal.close", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, close, lambda c,_:t.close_terminal_duty(c.lease_id,c.room_id,DutyOwnerIdentity(c.instance_id,c.profile_id),c.term,c.authority_epoch), enc, CommandAvailability.AVAILABLE))
 
     def register(self, descriptor: CommandDescriptor[Any, Any]) -> None:  # pyright: ignore[reportInvalidTypeArguments]
         if descriptor.method in self._registry:

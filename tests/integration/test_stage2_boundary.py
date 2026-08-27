@@ -14,6 +14,7 @@ from peerhub.core.protocol import CommandEnvelope, CommandSuccess, CommandFailur
 from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
 from peerhub.core.context import PathLayout
+from peerhub.dispatch.duty_lease import DutyOwnerIdentity
 from tests.integration.conftest import FakeClock, FakeIdSource
 
 
@@ -141,6 +142,20 @@ def test_legacy_leader_claim_translates_and_executes(runtime_setup) -> None:
     assert isinstance(outcome, CommandSuccess)
     lease_id = outcome.result["lease_id"]
     assert runtime.duty_lease_coordinator.get_lease(lease_id).state.value == "ACTIVE"
+
+
+def test_legacy_terminal_close_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    lease = runtime.terminal_duty_service.claim_terminal_duty(
+        "room-close", DutyOwnerIdentity("instance-1", "profile-1"), "peer-1", 1
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall("terminal-close", {"lease_id": lease.lease_id, "room_id": "room-close", "instance_id": "instance-1", "profile_id": "profile-1", "term": lease.term, "authority_epoch": lease.authority_epoch}),
+        _legacy_submission(),
+    )
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(client.submit(translated.command), CommandSuccess)
+    assert runtime.duty_lease_coordinator.get_lease(lease.lease_id).state.value == "RELEASED"
 
 
 def test_legacy_approval_request_translates_and_executes(runtime_setup) -> None:

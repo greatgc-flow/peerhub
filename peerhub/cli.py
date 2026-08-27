@@ -51,7 +51,6 @@ from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
 from peerhub.dispatch.duty_lease import (
-    DutyLeaseCloseRequest,
     DutyLeaseCoordinator,
     DutyOwnerIdentity,
 )
@@ -755,7 +754,7 @@ def _run_duty(parsed: argparse.Namespace) -> int:
             elif parsed.duty_action == "heartbeat":
                 lease = service.send_heartbeat(parsed.lease_id, parsed.room_id, owner, parsed.term, parsed.authority_epoch)
             elif parsed.duty_action == "close":
-                lease = coordinator.close_lease(DutyLeaseCloseRequest(parsed.lease_id, parsed.room_id, "terminal-duty", owner, parsed.term, parsed.authority_epoch))
+                lease = service.close_terminal_duty(parsed.lease_id, parsed.room_id, owner, parsed.term, parsed.authority_epoch)
             else:
                 holder = service.active_terminal_holder(parsed.room_id)
                 if parsed.json:

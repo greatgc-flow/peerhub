@@ -365,6 +365,10 @@ class TerminalHandoffCommand(Command[Any]):
 class TerminalHeartbeatCommand(LeaderYieldCommand):
     method: ClassVar[str] = "coordination.terminal.heartbeat"
 
+@dataclass(frozen=True, slots=True)
+class TerminalCloseCommand(LeaderYieldCommand):
+    method: ClassVar[str] = "coordination.terminal.close"
+
 
 @dataclass(frozen=True, slots=True)
 class TaskCheckpointCommand(Command[Any]):
@@ -567,6 +571,8 @@ class LegacyTranslator:
             return TranslatedCommand(command=command_type(submission=submission, lease_id=str(call.arguments.get("lease_id", "")), room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
         if call.action == "terminal-handoff":
             return TranslatedCommand(command=TerminalHandoffCommand(submission=submission, current_lease_id=str(call.arguments.get("current_lease_id", "")), room_id=str(call.arguments.get("room_id", "")), current_instance_id=str(call.arguments.get("current_instance_id", "")), current_profile_id=str(call.arguments.get("current_profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch")), new_instance_id=str(call.arguments.get("new_instance_id", "")), new_profile_id=str(call.arguments.get("new_profile_id", "")), new_owner_principal_id=str(call.arguments.get("new_owner_principal_id", "")), new_authority_epoch=_int_or_zero(call.arguments.get("new_authority_epoch"))))
+        if call.action == "terminal-close":
+            return TranslatedCommand(command=TerminalCloseCommand(submission=submission, lease_id=str(call.arguments.get("lease_id", "")), room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
         if call.action == "task-checkpoint":
             return TranslatedCommand(command=TaskCheckpointCommand(
                 submission=submission, task_id=str(call.arguments.get("task_id", "")), actor_id=str(call.arguments.get("actor_id", "")), checkpoint_id=str(call.arguments.get("checkpoint_id", "")), stage=str(call.arguments.get("stage", "")), request_id=str(call.arguments.get("request_id", "")), attempt_id=str(call.arguments.get("attempt_id", "")), resume_token_ref=str(call.arguments["resume_token_ref"]) if call.arguments.get("resume_token_ref") is not None else None, completed_units=_string_tuple(call.arguments.get("completed_units")), remaining_units=_string_tuple(call.arguments.get("remaining_units")), expected_revision=_optional_int(call.arguments.get("expected_revision")),

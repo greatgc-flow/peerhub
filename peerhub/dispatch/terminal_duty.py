@@ -64,6 +64,24 @@ class TerminalDutyService:
             heartbeat_timeout_ms=self._default_heartbeat_timeout_ms,
         )
 
+    def close_terminal_duty(
+        self, lease_id: str, room_id: str, owner: DutyOwnerIdentity,
+        term: int, authority_epoch: int,
+    ) -> DutyLeaseSnapshot:
+        request = DutyLeaseFenceCheckRequest(
+            lease_id, room_id, "terminal-duty", owner, term, authority_epoch
+        )
+        valid, reasons = self._coordinator.validate_lease_fence(request)
+        if not valid:
+            raise InvalidMutationError(
+                f"cannot close terminal duty: {', '.join(reasons)}"
+            )
+        return self._coordinator.close_lease(
+            DutyLeaseCloseRequest(
+                lease_id, room_id, "terminal-duty", owner, term, authority_epoch
+            )
+        )
+
     def handoff_terminal_duty(
         self,
         current_lease_id: str,
