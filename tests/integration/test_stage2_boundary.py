@@ -13,23 +13,8 @@ from peerhub.dispatch.capability import CapabilityTier
 from peerhub.core.protocol import CommandEnvelope, CommandSuccess, CommandFailure, ErrorCode, PROTOCOL_MAJOR, PROTOCOL_MINOR, SCHEMA_VERSION, IdempotencyDisposition
 from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
-from peerhub.core.context import Clock, IdSource, PathLayout
-from tests.fakes import deterministic_uuid4
-
-
-class FakeClock:
-    def now(self) -> int: return 1000
-
-class FakeIdSource:
-    def __init__(self) -> None:
-        self._counts: dict[str, int] = {}
-
-    def new_id(self, namespace: str) -> str:
-        count = self._counts.get(namespace, 0) + 1
-        self._counts[namespace] = count
-        token = f"{namespace}-{count}"
-        # The persistence contract requires outbox IDs to be UUIDv4.
-        return deterministic_uuid4(token) if namespace == "outbox-event" else token
+from peerhub.core.context import PathLayout
+from tests.integration.conftest import FakeClock, FakeIdSource
 
 
 def test_admit_dispatch_payload_requires_capability_tier() -> None:
@@ -84,20 +69,6 @@ def test_admit_dispatch_payload_accepts_every_declared_capability_tier() -> None
             {"required_capability_tier": tier.name}
         )
         assert payload.required_capability_tier is tier
-
-
-class FakeAdmissionProvider:
-    def resolve(self, command: AdmitDispatch, caller: RequestContext) -> AdmissionInputs:
-        class FakeInputs:
-            route_request_factory = lambda snap: None # fake
-            dispatch_policy_revision = 1
-            session_id = "sess-1"
-            owner_principal_id = caller.principal
-            owner_instance_id = "inst-1"
-            authority_epoch = 1
-            heartbeat_timeout_ms = 5000
-            owner_peer_id = "peer-1"
-        return FakeInputs()
 
 
 def test_legacy_consensus_propose_translates_and_executes(tmp_path: Path) -> None:
@@ -170,25 +141,6 @@ def test_legacy_leader_claim_translates_and_executes(runtime_setup) -> None:
     assert isinstance(outcome, CommandSuccess)
     lease_id = outcome.result["lease_id"]
     assert runtime.duty_lease_coordinator.get_lease(lease_id).state.value == "ACTIVE"
-
-
-@pytest.fixture
-def runtime_setup(tmp_path: Path):
-    layout = PathLayout.for_workspace(tmp_path)
-    context = RuntimeContext(
-        workspace_home_id="home-1",
-        paths=layout,
-        clock=FakeClock(),
-        ids=FakeIdSource(),
-    )
-    # The default create_runtime gives us the composed services
-    rt = create_runtime(context, admission_provider=FakeAdmissionProvider())
-    
-    caller = RequestContext(principal="user-1", client_id="client-1")
-    client = Client(rt.application_api, caller=caller)
-    
-    yield rt, client, caller
-    rt.close()
 
 
 def test_admit_success(runtime_setup, monkeypatch):
