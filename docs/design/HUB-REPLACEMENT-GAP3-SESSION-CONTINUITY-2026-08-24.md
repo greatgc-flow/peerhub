@@ -1,4 +1,4 @@
-# Gap 3 Design: Session/Room/Thread/Handoff Continuity (DRAFT — architecture proposed, 16 items need ratification)
+# Gap 3 Design: Session/Room/Thread/Handoff Continuity (RATIFIED 2026-08-27 — all 16 open items closed; see bottom of file)
 
 Status: first-round draft from `cx`, 2026-08-24. Covers `init-session`,
 `end-session`, `send`, `mark-read`, `new-topic`, `clear-room`, `thread-new`,
@@ -450,3 +450,108 @@ changes need CAS on the room target or a separate membership target;
 does a topic change create a new room, mutate the existing one, or
 create a room generation; retention/pagination/indexing/garbage-collection
 policy for message targets.
+
+## RATIFIED (2026-08-27): the remaining 6 open questions, closed via a dialectical cc/cx round
+
+Room/thread/message (this doc's earlier schema design) are already built
+and out of scope here. Of the original 16 open questions, 10 were already
+resolved earlier in this doc (clear-room, handoff fields, room/topic/
+thread distinction, etc.) or answered by code actually built this session
+(duty-lease exclusivity/timeout/sweep, via the real `DutyLeaseCoordinator`).
+The remaining 6 went through one real critique round (cc drafted positions
+grounded in this doc's own text + a direct read of legacy `_LIMITS` in
+`P:\_sys\core\hub.py`; cx pushed back with a stronger alternative on one
+item and concrete refinements on the rest; no unresolved disagreement
+remained after one round). Ratified:
+
+1. **Thread reactions** (open Q10): NOT a single mutable-status `TargetState`
+   per reaction (cc's initial draft — rejected). Ratified per cx's
+   counter-position: immutable, append-only reaction EVENTS keyed by
+   `(message_id, actor_key, reaction_type, event_id)`, plus a maintained
+   "current reaction" projection for fast "who currently reacted?" reads.
+   Toggle-off emits a removal event and updates the projection; never a
+   physical delete. Matches this doc's own §5 append-only-events-plus-
+   projection pattern more closely than a CAS status flip would. Exact
+   persistence mechanism for the "current" projection (its own dedicated
+   target vs. computed on read via a broker scan, mirroring how room/
+   thread sequence numbers are already computed) is left to implementation
+   time, not a blocking design choice.
+2. **`context-fill` result shape** (open Q11): one authoritative JSON
+   envelope (`room_id`, `session_id`, `as_of_event_seq`, `sections`,
+   truncation/provenance metadata) as the sole backend contract — no
+   separate Markdown backend path. The CLI renders it as Markdown/plain
+   text for human display; `--json` emits the same envelope raw. Per cx's
+   refinement, sections are NOT opaque strings where truncation/item-count
+   matters — list-shaped sections carry `{"items": [...], "truncated":
+   bool}`, matching the `Mapping[str, JsonValue]` result-encoding
+   convention already established this session for every read-only
+   `CommandDescriptor`.
+3. **Startup section set + limits** (open Q12): exactly the 6 legacy
+   sections — `GOAL, RECENT_COMPLETED, PENDING_ISSUES, KEY_DECISIONS,
+   CONSENSUS_HISTORY, ACTIVE_THREADS` (the §3 example command's 5-section
+   list is a documentation bug missing `recent_completed` — corrected
+   here, not intentional narrowing). Limits ported 1:1 as real legacy
+   defaults, read directly from `P:\_sys\core\hub.py`'s `_LIMITS` dict, not
+   reinvented: `handoff_max_chars=12000` (total text budget, applied as a
+   post-render safety trim — legacy trims `RECENT_COMPLETED` first when
+   over budget, see `hub.py:1316`), `handoff_max_completed=5`,
+   `handoff_max_issues=3`, `handoff_max_decisions=3`,
+   `handoff_max_consensus=10`, `handoff_max_threads=5` (all five are
+   pre-render item-count caps — a list is sliced to its last N items
+   before rendering), `GOAL` uncapped as a single scalar. Per cx's
+   scope-discipline refinement: these are fixed protocol defaults for now,
+   NOT workspace-configurable — a config-driven tuning knob is explicitly
+   deferred future work, not part of this ratification.
+4. **Handoff projection necessity** (open Q13): required as a first-class
+   generated (never authoritative) capability — this doc's own §3 already
+   argues it serves inspection/recovery/portability/debugging, not just
+   legacy compat, and that reasoning is adopted as-is. Per cx's refinement:
+   "required" means deterministic, versioned, and re-generatable on demand
+   from the real authoritative event log/projections — NOT necessarily
+   written synchronously on every single mutation. A stale or missing
+   generated handoff file is a recoverable inconvenience, never data loss,
+   since the event log/projections remain the actual source of truth.
+5. **`terminal-close` scope** (open Q14): the doc's own command-surface
+   table already answers this (`terminal-close → duty.release (+ optional
+   session.close)`) — ratified as-is: default releases ONLY the duty
+   lease; `--close-session` is an explicit opt-in, consistent with
+   `end-session` never implicitly cascading to a room close elsewhere in
+   this doc. Per cx's addition: if duty release succeeds but the optional
+   session close fails, the command must report both outcomes
+   independently (not collapse into one pass/fail) and remain safely
+   retryable.
+6. **Room retention policy** (open Q3): indefinite retention by default
+   (`"retention": {"mode": "retained"}`, matching the already-built schema
+   and the CONFIRMED real `clear-room` behavior, which never deletes the
+   old room). Explicit archival is a human/governance action moving a
+   room's `status` to `ARCHIVED` — never automatic. An automatic GC/expiry
+   policy is explicitly deferred pending real evidence of storage growth
+   becoming an operational problem, not designed speculatively now. Per
+   cx's addition, ratified as required NOW regardless (cheap, non-blocking
+   safety rails, not the GC algorithm itself): expose storage/record
+   count + age metrics for observability; make the retention policy field
+   explicit in schema/config even while only `retained` is supported;
+   prohibit any implicit deletion via ordinary projection-maintenance
+   code paths; reserve archival/GC as its own separately-ratified future
+   operation with its own authorization/audit/recovery semantics.
+
+These 6 are now unblocked for implementation under the same
+architecture-before-implementation discipline this session has followed
+throughout — see `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`
+for the resulting implementation work.
+
+## RATIFIED (2026-08-27): gap-7 `peerhub diag` unification (separate from gap-3, decided in the same round)
+
+Ratified: option A3 — a `--domains` flag on the existing `peerhub diag`
+command, not a merge into the default view (rejected: mixes two
+unrelated telemetry audiences/refresh-rates/failure-modes into one
+default output) and not a brand-new separate command (rejected for now:
+adds a second surface to remember for a single flag's worth of value;
+revisit only if governed-domain diagnostics grows into a substantial
+dashboard with filtering/mutation-links of its own). Default `peerhub
+diag` output is unchanged; `peerhub diag --domains` adds a governed-
+domain section (consensus/task/duty rows via `domain_rows.py`'s existing
+formatters); `--domains --json` combines with the existing `--json` mode.
+Per cx's addition: domain-collection must be failure-isolated — if the
+governance workspace/database is unavailable, that must not break the
+existing peer-CLI-quota telemetry the rest of `diag` already provides.
