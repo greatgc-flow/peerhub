@@ -23,6 +23,11 @@ class ConsensusService:
         self._clock = clock
         self._ids = ids
 
+    def get_target(self, round_id: str) -> TargetState | None:
+        """Read a consensus round without exposing the broker internals."""
+
+        return self._broker.get_target(round_id)
+
     @staticmethod
     def _quorum_required(participant_count: int, risk: str) -> int:
         if participant_count < 1:

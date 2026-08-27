@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, ConsensusProposeCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -14,6 +14,7 @@ from peerhub.core.protocol import CommandEnvelope, CommandSuccess, CommandFailur
 from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
 from peerhub.core.context import Clock, IdSource, PathLayout
+from tests.fakes import deterministic_uuid4
 
 
 class FakeClock:
@@ -21,7 +22,9 @@ class FakeClock:
 
 class FakeIdSource:
     def new_id(self, namespace: str) -> str:
-        return f"{namespace}-123"
+        # The persistence contract requires outbox IDs to be UUIDv4.  Keep
+        # this fake constant-by-namespace while honoring that wire contract.
+        return deterministic_uuid4(namespace) if namespace == "outbox-event" else f"{namespace}-123"
 
 
 def test_admit_dispatch_payload_requires_capability_tier() -> None:
@@ -90,6 +93,37 @@ class FakeAdmissionProvider:
             heartbeat_timeout_ms = 5000
             owner_peer_id = "peer-1"
         return FakeInputs()
+
+
+def test_legacy_consensus_propose_translates_and_executes(tmp_path: Path) -> None:
+    layout = PathLayout.for_workspace(tmp_path)
+    context = RuntimeContext("home-1", layout, FakeClock(), FakeIdSource())
+    with create_runtime(context) as runtime:
+            caller = RequestContext(principal="user-1", client_id="client-1")
+            client = Client(runtime.application_api, caller=caller)
+            submission = SubmissionMetadata(
+                client_request_id="req-1", correlation_id="corr-1", client_id="client-1",
+                actor_id="peer-1", scope={}, idempotency_key="idem-1",
+                expected_policy_revision=None, expected_configuration_revision=None,
+                client_timestamp=1000,
+            )
+            translated = LegacyTranslator().translate(
+            LegacyActionCall("consensus-propose", {
+                "round_id": "round-1", "title": "Title", "question": "Question",
+                "body": "Body", "proposer_id": "peer-1",
+                "required_participants": ["peer-1", "peer-2"],
+                "eligible_participants": ["peer-1", "peer-2"],
+                "risk": "normal", "source_hash": "hash",
+            }),
+            submission,
+        )
+            assert isinstance(translated, TranslatedCommand)
+            assert isinstance(translated.command, ConsensusProposeCommand)
+            outcome = client.submit(translated.command)
+            assert isinstance(outcome, CommandSuccess)
+            target = runtime.governance_broker.get_target("round-1")
+            assert target is not None
+            assert target.state["proposal"]["title"] == "Title"
 
 
 @pytest.fixture

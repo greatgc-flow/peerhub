@@ -48,6 +48,10 @@ from peerhub.application.commands import (
     DispatchLeaseView,
     SubmissionMetadata,
 )
+from peerhub.governance.consensus import ConsensusService
+from peerhub.application.legacy import (
+    ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
+)
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
 R = TypeVar("R")  # pyright: ignore[reportUnknownVariableType]
@@ -247,13 +251,59 @@ class ApplicationAPI:
         workflows: ApplicationWorkflows,
         dispatch: DispatchService,
         admission_provider: AdmissionInputsProvider | None = None,
+        consensus: ConsensusService | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
         self._admission_provider = admission_provider
+        self._consensus = consensus
         self._registry: dict[str, CommandDescriptor[Any, Any]] = {}  # pyright: ignore[reportInvalidTypeArguments]
         
         self._register_builtins()
+        if consensus is not None:
+            self._register_consensus(consensus)
+
+    @staticmethod
+    def _submission(env: CommandEnvelope) -> SubmissionMetadata:
+        return SubmissionMetadata(env.client_request_id, env.correlation_id,
+            env.client_id, env.actor_id, env.scope, env.idempotency_key,
+            env.expected_policy_revision, env.expected_configuration_revision,
+            env.client_timestamp)
+
+    @staticmethod
+    def _receipt(result: Any) -> Mapping[str, JsonValue]:
+        receipt = result.receipt
+        return {"receipt_id": receipt.receipt_id, "target_id": receipt.target_id,
+                "previous_revision": receipt.previous_revision,
+                "next_revision": receipt.next_revision,
+                "status": receipt.status.value}
+
+    def _register_consensus(self, service: ConsensusService) -> None:
+        def string_tuple(params: Mapping[str, JsonValue], name: str) -> tuple[str, ...]:
+            value = params[name]
+            if not isinstance(value, (list, tuple)) or not all(
+                isinstance(item, str) for item in value
+            ):
+                raise ValueError(f"{name} must be a sequence of strings")
+            return tuple(cast(str, item) for item in value)
+
+        def decode_propose(e: CommandEnvelope) -> ConsensusProposeCommand:
+            p = e.params
+            return ConsensusProposeCommand(
+                self._submission(e), str(p["round_id"]), str(p["title"]),
+                str(p["question"]), str(p["body"]), str(p["proposer_id"]),
+                string_tuple(p, "required_participants"),
+                string_tuple(p, "eligible_participants"), str(p["risk"]),
+                str(p["source_hash"]),
+            )
+        def decode_vote(e: CommandEnvelope) -> ConsensusVoteCommand:
+            p = e.params
+            return ConsensusVoteCommand(self._submission(e), str(p["round_id"]), str(p["actor_id"]), str(p["choice"]))
+        def decode_check(e: CommandEnvelope) -> ConsensusCheckCommand:
+            return ConsensusCheckCommand(self._submission(e), str(e.params["round_id"]))
+        self.register(CommandDescriptor("consensus.round.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_propose, lambda c, _: service.propose(round_id=c.round_id, title=c.title, question=c.question, body=c.body, proposer_id=c.proposer_id, required_participants=c.required_participants, eligible_participants=c.eligible_participants, risk=c.risk, source_hash=c.source_hash), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("consensus.vote.cast", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_vote, lambda c, _: service.cast_vote(c.round_id, actor_id=c.actor_id, choice=c.choice), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("consensus.round.read", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, decode_check, lambda c, _: service.get_target(c.round_id), lambda r: {"target_id": r.target_id, "revision": r.revision, "state": r.state}, CommandAvailability.AVAILABLE))
 
     def register(self, descriptor: CommandDescriptor[Any, Any]) -> None:  # pyright: ignore[reportInvalidTypeArguments]
         if descriptor.method in self._registry:
@@ -766,4 +816,3 @@ class ApplicationAPI:
                     details={"exception": type(exc).__name__},
                 ),
             )
-

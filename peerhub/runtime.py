@@ -16,6 +16,7 @@ from .application.workflows import ApplicationWorkflows
 from .core.context import RuntimeContext
 from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
+from .governance.consensus import ConsensusService
 from .health.contract import HealthPolicy, HealthScopeMembershipSnapshot
 from .health.service import HealthService
 from .persistence.sqlite import SqliteStateStore
@@ -30,6 +31,7 @@ class Runtime:
     context: RuntimeContext
     state_store: SqliteStateStore
     governance_broker: GovernanceBroker
+    consensus_service: ConsensusService
     dispatch_service: DispatchService
     peer_adapter: PeerAdapter
 
@@ -81,6 +83,9 @@ def create_runtime(
         state_store,
         clock=context.clock,
         ids=context.ids,
+    )
+    consensus_service = ConsensusService(
+        governance_broker, clock=context.clock, ids=context.ids
     )
     dispatch_service = DispatchService(
         state_store,
@@ -166,6 +171,7 @@ def create_runtime(
         workflows=application_workflows,
         dispatch=dispatch_service,
         admission_provider=admission_provider,
+        consensus=consensus_service,
     )
 
     # Note: session-rotation wiring is deliberately deferred pending a proper unit-of-work-sharing design.
@@ -174,6 +180,7 @@ def create_runtime(
         context=context,
         state_store=state_store,
         governance_broker=governance_broker,
+        consensus_service=consensus_service,
         dispatch_service=dispatch_service,
         peer_adapter=peer_adapter,
         telemetry_projector=telemetry_projector,
@@ -182,4 +189,3 @@ def create_runtime(
         application_workflows=application_workflows,
         application_api=application_api,
     )
-

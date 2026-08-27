@@ -2,6 +2,14 @@
 
 > Status doc, not a design doc — records what's actually implemented and tested, as of the commits listed below, so anyone picking this up doesn't have to reconstruct it from git log. Supersedes nothing; `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md` remains the design-closure record.
 
+## Execution dispatcher investigation
+
+Investigation completed before implementation (2026-08-27). The README's typed boundary is real: `peerhub/application/api.py` defines `ApplicationAPI`, and `peerhub/client.py` defines `Client`. `Client.submit(Command)` reconstructs a strict `CommandEnvelope` and calls `ApplicationAPI.submit()`. `ApplicationAPI` has a real `method -> CommandDescriptor` registry, performs protocol/method/availability/idempotency/decode/auth validation, then invokes the descriptor's `handle` callable and encodes its result.
+
+That dispatcher is not wired to the legacy translator or the five domain services. `ApplicationAPI._register_builtins()` registers only the existing dispatch admission/request/lease operations. The `SubmitDispatch`, `SubmitManyDispatch`, and `SubmitCoordinatorDispatch` classes in `peerhub/application/legacy.py` are translation targets, but no descriptors for `dispatch.submit`, `dispatch.submit_many`, or `dispatch.submit_coordinator` are registered. A repository-wide search also found no consumer that takes `TranslatedCommand` and calls `Client.submit()` (or `ApplicationAPI.submit()`). Therefore the three pre-existing backed legacy actions do not execute through this typed path; their historical working behavior is a separate legacy/hub dispatch path, not evidence of a peerhub `TranslatedCommand` execution path.
+
+Conclusion: a real generic dispatcher exists at `ApplicationAPI.submit()`, but its handler-registration surface is currently unconnected to `LegacyTranslator` and the domain services. The clear, smallest supported path is to add descriptors to this existing registry and invoke it through `Client.submit()`; no new dispatcher framework is needed. Before broad wiring, this round will prove the path with the three consensus commands only, with an end-to-end test that translates and executes `consensus-propose` against the real consensus service. The remaining twelve translated commands remain explicitly follow-up work.
+
 ## What's real now
 
 29 commits (`e60c4c4`..`39b46c9`), all independently verified by the terminal (full `pytest -q` + `pyright` after every commit, not just cx's own report — see "Verification discipline" below). Test suite: **1080 passed**, 1 known pre-existing unrelated failure (`test_generate_manifest.py`'s committed hub.py hash snapshot, stale before this session started) + occasional pre-existing flakiness in one real multi-threaded CAS-race test under full-suite load (`test_two_real_callers_race_at_attempt_creation_one_loses_cleanly`, passes cleanly in isolation, unrelated to any change this session).
