@@ -49,7 +49,7 @@ from peerhub.runtime import create_runtime
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
-from peerhub.governance.rooms import RoomsService
+from peerhub.governance.rooms import HANDOFF_LIST_SECTIONS, RoomsService
 from peerhub.governance.activity import rebuild_room_session_bindings
 from peerhub.dispatch.duty_lease import (
     DutyLeaseSnapshot,
@@ -776,6 +776,26 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 submission = service.react(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
             elif action == "unreact":
                 submission = service.unreact(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
+            elif action == "append-handoff":
+                submission = service.append_handoff_note(
+                    room_id=parsed.room_id,
+                    section=parsed.section,
+                    text=parsed.text,
+                    actor_id=parsed.actor,
+                )
+            elif action == "checkpoint":
+                checkpoint = service.checkpoint(
+                    parsed.room_id,
+                    actor_id=parsed.actor or "peerhub",
+                )
+                export_format = parsed.export or (
+                    "json" if parsed.json else "markdown"
+                )
+                if export_format == "json":
+                    print(json.dumps(_json_safe(checkpoint)))
+                else:
+                    print(checkpoint["markdown"])
+                return 0
             elif action == "clear":
                 submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
             elif action == "rebuild-session-bindings":
@@ -808,6 +828,11 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 print(f"Reaction {parsed.reaction_type} added to message {parsed.message_id}")
             elif action == "unreact":
                 print(f"Reaction {parsed.reaction_type} removed from message {parsed.message_id}")
+            elif action == "append-handoff":
+                print(
+                    f"Handoff note appended to {parsed.section} "
+                    f"for room {parsed.room_id}"
+                )
             elif action == "clear":
                 print(f"Room {parsed.room_id} cleared -> new room {parsed.new_room_id}")
             elif action == "rebuild-session-bindings":
@@ -1291,6 +1316,8 @@ def main(args: list[str] | None = None) -> int:
         "append-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--author", True), ("--body", True)],
         "react": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
         "unreact": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
+        "append-handoff": [("--room-id", True), ("--section", True), ("--text", True), ("--actor", True)],
+        "checkpoint": [("--room-id", True), ("--actor", False)],
         "clear": [("--room-id", True), ("--new-room-id", True), ("--subject", True), ("--actor", True)],
         "rebuild-session-bindings": [("--room-id", True)],
         "status": [("--room-id", True)],
@@ -1301,6 +1328,8 @@ def main(args: list[str] | None = None) -> int:
         "append-message": "Append a message to a thread",
         "react": "Record this peer's active reaction to a message",
         "unreact": "Remove this peer's active reaction from a message",
+        "append-handoff": "Append an immutable note to the room's continuity history",
+        "checkpoint": "Generate and record the room's bounded handoff projection",
         "clear": "Start a fresh room boundary; the old room is preserved untouched",
         "rebuild-session-bindings": "Rebuild the room's session-binding projection from active sessions",
         "status": "Show the current state of a room",
@@ -1316,6 +1345,8 @@ def main(args: list[str] | None = None) -> int:
         "--message-id": "Message identifier",
         "--author": "Peer ID authoring this message",
         "--body": "Message body text",
+        "--section": "Handoff section receiving the note",
+        "--text": "Continuity note text to append",
         "--actor-instance-id": "Reacting peer's terminal instance identifier",
         "--actor-profile-id": "Reacting peer's profile identifier",
         "--reaction-type": "Reaction label or emoji to add or remove (for example ACK or 👍)",
@@ -1326,7 +1357,25 @@ def main(args: list[str] | None = None) -> int:
         command_parser = room_subparsers.add_parser(action, help=room_subcommand_help[action])
         command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
         for name, required in arguments:
-            command_parser.add_argument(name, required=required, help=room_arg_help[name])
+            if action == "append-handoff" and name == "--section":
+                command_parser.add_argument(
+                    name,
+                    required=required,
+                    choices=HANDOFF_LIST_SECTIONS,
+                    help=room_arg_help[name],
+                )
+            else:
+                command_parser.add_argument(name, required=required, help=room_arg_help[name])
+        if action == "checkpoint":
+            command_parser.add_argument(
+                "--export",
+                choices=("markdown", "json"),
+                default=None,
+                help=(
+                    "Export format; defaults to Markdown, or JSON when "
+                    "--json is supplied"
+                ),
+            )
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     duty_parser = subparsers.add_parser("duty", help="Manage terminal duty")

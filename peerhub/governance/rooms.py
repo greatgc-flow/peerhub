@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping, Sequence
 
 from peerhub.core.context import Clock, IdSource
@@ -10,6 +11,24 @@ from peerhub.core.protocol import CommandID, JsonValue
 
 from .broker import GovernanceBroker
 from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
+
+
+HANDOFF_LIST_SECTIONS = (
+    "RECENT_COMPLETED",
+    "PENDING_ISSUES",
+    "KEY_DECISIONS",
+    "CONSENSUS_HISTORY",
+    "ACTIVE_THREADS",
+)
+HANDOFF_SECTIONS = ("GOAL", *HANDOFF_LIST_SECTIONS)
+HANDOFF_SECTION_LIMITS = {
+    "RECENT_COMPLETED": 5,
+    "PENDING_ISSUES": 3,
+    "KEY_DECISIONS": 3,
+    "CONSENSUS_HISTORY": 10,
+    "ACTIVE_THREADS": 5,
+}
+HANDOFF_MAX_CHARS = 12_000
 
 
 class RoomsService:
@@ -224,6 +243,311 @@ class RoomsService:
                 reaction_type,
             )
         )
+
+    def append_handoff_note(
+        self,
+        *,
+        room_id: str,
+        section: str,
+        text: str,
+        actor_id: str,
+    ) -> MutationSubmission:
+        """Append one immutable note to a room's continuity event stream."""
+
+        self._require_room(room_id)
+        if section not in HANDOFF_LIST_SECTIONS:
+            raise InvalidMutationError(
+                "section must be one of " + ", ".join(HANDOFF_LIST_SECTIONS)
+            )
+        if not text:
+            raise InvalidMutationError("handoff note text must be nonempty")
+
+        existing_notes = self._broker.list_targets("continuity-note", room_id)
+        sequence = 1 + max(
+            (self._continuity_note_sequence(target) for target in existing_notes),
+            default=0,
+        )
+        note_id = self._ids.new_id("continuity-note")
+        state: dict[str, JsonValue] = {
+            "kind": "continuity-note",
+            "scope": room_id,
+            "schema_version": 1,
+            "note_id": note_id,
+            "room_id": room_id,
+            "section": section,
+            "text": text,
+            "actor_id": actor_id,
+            "created_at": self._clock.now(),
+            "sequence": sequence,
+        }
+        return self._submit(
+            f"continuity-note:{note_id}",
+            0,
+            actor_id,
+            "continuity.note.append",
+            state,
+        )
+
+    def set_room_goal(
+        self,
+        *,
+        room_id: str,
+        goal: str,
+        actor_id: str,
+    ) -> MutationSubmission:
+        """Set the room's scalar GOAL projection independently of notes."""
+
+        self._require_room(room_id)
+        target_id = self._room_goal_target_id(room_id)
+        current = self._broker.get_target(target_id)
+        state: dict[str, JsonValue] = {
+            "kind": "room-goal",
+            "scope": room_id,
+            "schema_version": 1,
+            "room_id": room_id,
+            "goal": goal,
+            "actor_id": actor_id,
+            "updated_at": self._clock.now(),
+        }
+        return self._submit(
+            target_id,
+            0 if current is None else current.revision,
+            actor_id,
+            "continuity.goal.set",
+            state,
+        )
+
+    def checkpoint(
+        self,
+        room_id: str,
+        *,
+        actor_id: str = "peerhub",
+        idempotency_key: str | None = None,
+        idempotency_scope: str = "peerhub",
+    ) -> Mapping[str, JsonValue]:
+        """Generate and record a bounded handoff projection for one room.
+
+        Continuity notes remain authoritative.  The snapshot embedded in the
+        immutable checkpoint event is a reproducible export, not a mutable
+        source of truth.
+        """
+
+        room = self._require_room(room_id)
+        checkpoint_id = self._checkpoint_id(
+            idempotency_key,
+            idempotency_scope=idempotency_scope,
+        )
+        event_target_id = f"checkpoint-created:{checkpoint_id}"
+        existing = self._broker.get_target(event_target_id)
+        if existing is not None:
+            if (
+                existing.state.get("kind") != "checkpoint-created"
+                or existing.state.get("room_id") != room_id
+                or existing.state.get("actor_id") != actor_id
+            ):
+                raise InvalidMutationError(
+                    "checkpoint idempotency key is already bound to different parameters"
+                )
+            stored = existing.state.get("checkpoint")
+            if not isinstance(stored, Mapping):
+                raise InvalidMutationError("stored checkpoint event is malformed")
+            return stored
+
+        goal_target = self._broker.get_target(self._room_goal_target_id(room_id))
+        goal = ""
+        goal_revision = 0
+        if goal_target is not None:
+            stored_goal = goal_target.state.get("goal")
+            if isinstance(stored_goal, str):
+                goal = stored_goal
+            goal_revision = goal_target.revision
+
+        note_targets = tuple(
+            sorted(
+                self._broker.list_targets("continuity-note", room_id),
+                key=self._continuity_note_sort_key,
+            )
+        )
+        as_of_event_seq = max(
+            (self._continuity_note_sequence(target) for target in note_targets),
+            default=0,
+        )
+        source_items: dict[str, list[str]] = {
+            section: [] for section in HANDOFF_LIST_SECTIONS
+        }
+        for target in note_targets:
+            section = target.state.get("section")
+            text = target.state.get("text")
+            if (
+                isinstance(section, str)
+                and section in source_items
+                and isinstance(text, str)
+            ):
+                source_items[section].append(text)
+
+        items: dict[str, list[str]] = {}
+        truncated_sections: set[str] = set()
+        source_counts: dict[str, int] = {}
+        for section in HANDOFF_LIST_SECTIONS:
+            section_items = source_items[section]
+            source_counts[section] = len(section_items)
+            limit = HANDOFF_SECTION_LIMITS[section]
+            if len(section_items) > limit:
+                truncated_sections.add(section)
+            items[section] = list(section_items[-limit:])
+
+        markdown = self._render_handoff_markdown(goal, items)
+        # The legacy policy trims RECENT_COMPLETED first.  If that cannot
+        # satisfy the total budget, discard the oldest retained entries from
+        # the other bounded sections, then trim the scalar GOAL as a final
+        # safety valve.  Durable source notes are never changed.
+        budget_order = (
+            "RECENT_COMPLETED",
+            "CONSENSUS_HISTORY",
+            "ACTIVE_THREADS",
+            "PENDING_ISSUES",
+            "KEY_DECISIONS",
+        )
+        while len(markdown) > HANDOFF_MAX_CHARS:
+            trimmed = False
+            for section in budget_order:
+                if items[section]:
+                    items[section].pop(0)
+                    truncated_sections.add(section)
+                    trimmed = True
+                    break
+            if not trimmed:
+                overflow = len(markdown) - HANDOFF_MAX_CHARS
+                if not goal:
+                    break
+                goal = goal[: max(0, len(goal) - overflow)]
+                truncated_sections.add("GOAL")
+            markdown = self._render_handoff_markdown(goal, items)
+
+        section_payload: dict[str, JsonValue] = {
+            "GOAL": {
+                "value": goal,
+                "truncated": "GOAL" in truncated_sections,
+            }
+        }
+        for section in HANDOFF_LIST_SECTIONS:
+            section_payload[section] = {
+                "items": tuple(items[section]),
+                "truncated": section in truncated_sections,
+                "source_count": source_counts[section],
+            }
+
+        created_at = self._clock.now()
+        result: dict[str, JsonValue] = {
+            "checkpoint_id": checkpoint_id,
+            "room_id": room_id,
+            # This is the position in the authoritative continuity-note
+            # stream.  The governance broker does not expose a global room
+            # event sequence, so the source stream and position are explicit.
+            "as_of_event_seq": as_of_event_seq,
+            "source": {
+                "kind": "continuity-note",
+                "room_revision": room.revision,
+                "goal_revision": goal_revision,
+                "note_count": len(note_targets),
+            },
+            "sections": section_payload,
+            "truncated": bool(truncated_sections),
+            "truncated_sections": tuple(
+                section
+                for section in HANDOFF_SECTIONS
+                if section in truncated_sections
+            ),
+            "markdown": markdown,
+            "created_at": created_at,
+        }
+        event_state: dict[str, JsonValue] = {
+            "kind": "checkpoint-created",
+            "scope": room_id,
+            "schema_version": 1,
+            "event_id": checkpoint_id,
+            "room_id": room_id,
+            "actor_id": actor_id,
+            "created_at": created_at,
+            "as_of_event_seq": as_of_event_seq,
+            "checkpoint": result,
+        }
+        self._submit(
+            event_target_id,
+            0,
+            actor_id,
+            "continuity.checkpoint_created",
+            event_state,
+        )
+        return result
+
+    @staticmethod
+    def _render_handoff_markdown(
+        goal: str,
+        items: Mapping[str, Sequence[str]],
+    ) -> str:
+        lines = ["## GOAL"]
+        if goal:
+            lines.append(goal)
+        for section in HANDOFF_LIST_SECTIONS:
+            lines.extend(("", f"## {section}"))
+            lines.extend(f"- {item}" for item in items[section])
+        return "\n".join(lines)
+
+    def _checkpoint_id(
+        self,
+        idempotency_key: str | None,
+        *,
+        idempotency_scope: str,
+    ) -> str:
+        if idempotency_key:
+            digest = hashlib.sha256(
+                (
+                    "coordination.checkpoint.create\0"
+                    f"{idempotency_scope}\0{idempotency_key}"
+                ).encode("utf-8")
+            ).hexdigest()
+            return digest[:32]
+        return self._ids.new_id("checkpoint-created")
+
+    @staticmethod
+    def _room_goal_target_id(room_id: str) -> str:
+        return f"room-goal:{room_id}"
+
+    @staticmethod
+    def _continuity_note_sort_key(
+        target: TargetState,
+    ) -> tuple[int, int, str]:
+        sequence = RoomsService._continuity_note_sequence(target)
+        created_at = target.state.get("created_at")
+        timestamp = (
+            created_at
+            if isinstance(created_at, int) and not isinstance(created_at, bool)
+            else target.updated_at
+        )
+        note_id = target.state.get("note_id")
+        return (
+            sequence,
+            timestamp,
+            note_id if isinstance(note_id, str) else target.target_id,
+        )
+
+    @staticmethod
+    def _continuity_note_sequence(target: TargetState) -> int:
+        sequence = target.state.get("sequence")
+        return (
+            sequence
+            if isinstance(sequence, int) and not isinstance(sequence, bool)
+            else 0
+        )
+
+    def _require_room(self, room_id: str) -> TargetState:
+        room = self._broker.get_target(room_id)
+        if room is None:
+            raise RecordNotFoundError("room", room_id)
+        if room.state.get("kind") != "room":
+            raise InvalidMutationError("target is not a room")
+        return room
 
     def _record_reaction(
         self,

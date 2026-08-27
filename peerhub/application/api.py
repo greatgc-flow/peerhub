@@ -72,6 +72,7 @@ from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
     NewTopicCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
+    AppendHandoffCommand, ContinuityCheckpointCommand,
     LeaderClaimCommand, LeaderYieldCommand,
     TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
     TerminalDutySweepCommand, TaskCheckpointCommand,
@@ -433,6 +434,35 @@ class ApplicationAPI:
                 text(e, "author_id"),
                 text(e, "body"),
             )
+        def append_handoff(e: CommandEnvelope) -> AppendHandoffCommand:
+            section = text(e, "section")
+            if section not in {
+                "RECENT_COMPLETED",
+                "PENDING_ISSUES",
+                "KEY_DECISIONS",
+                "CONSENSUS_HISTORY",
+                "ACTIVE_THREADS",
+            }:
+                raise ValueError(
+                    "section must be a supported append-only handoff section"
+                )
+            return AppendHandoffCommand(
+                self._submission(e),
+                text(e, "room_id"),
+                section,
+                text(e, "text"),
+                text(e, "actor_id"),
+            )
+        def checkpoint(e: CommandEnvelope) -> ContinuityCheckpointCommand:
+            return ContinuityCheckpointCommand(
+                self._submission(e),
+                text(e, "room_id"),
+                text(e, "actor_id"),
+            )
+        def encode_checkpoint(
+            result: Mapping[str, JsonValue],
+        ) -> Mapping[str, JsonValue]:
+            return result
         def react(e: CommandEnvelope) -> ThreadReactCommand:
             action = text(e, "action")
             if action not in {"ADD", "REMOVE"}:
@@ -484,6 +514,36 @@ class ApplicationAPI:
             react,
             lambda c, _: record_reaction(c),
             self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.handoff.append",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            append_handoff,
+            lambda c, _: s.append_handoff_note(
+                room_id=c.room_id,
+                section=c.section,
+                text=c.text,
+                actor_id=c.actor_id,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.checkpoint.create",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            checkpoint,
+            lambda c, _: s.checkpoint(
+                c.room_id,
+                actor_id=c.actor_id,
+                idempotency_key=c.submission.idempotency_key,
+                idempotency_scope=c.submission.client_id,
+            ),
+            encode_checkpoint,
             CommandAvailability.AVAILABLE,
         ))
         self.register(CommandDescriptor("coordination.room.clear", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, clear, lambda c,_:s.clear_room(c.old_room_id,new_room_id=c.new_room_id,subject=c.subject,actor_id=c.actor_id), self._receipt, CommandAvailability.AVAILABLE))

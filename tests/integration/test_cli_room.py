@@ -110,3 +110,71 @@ def test_cli_room_react_unreact_react_round_trip(
         "ADD",
         "REMOVE",
     ]
+
+
+def test_cli_room_append_handoff_and_checkpoint_exports(
+    tmp_path: Path, capsys
+) -> None:
+    def run_json(args: list[str]) -> dict:
+        assert main(args + ["--json"]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    workspace = ["--workspace", str(tmp_path)]
+    run_json([
+        "room", "create", *workspace,
+        "--room-id", "room-handoff",
+        "--topic-id", "topic-handoff",
+        "--title", "Handoff Room",
+        "--creator", "cx",
+        "--participants", "cx",
+    ])
+
+    context = RuntimeContext(
+        workspace_home_id=tmp_path.name,
+        paths=PathLayout.for_workspace(tmp_path),
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime.rooms_service.set_room_goal(
+            room_id="room-handoff",
+            goal="Finish checkpoint support",
+            actor_id="cx",
+        )
+
+    for index in range(1, 7):
+        note = run_json([
+            "room", "append-handoff", *workspace,
+            "--room-id", "room-handoff",
+            "--section", "RECENT_COMPLETED",
+            "--text", f"cli-completed-{index}",
+            "--actor", "cx",
+        ])
+        assert note["kind"] == "continuity-note"
+
+    checkpoint = run_json([
+        "room", "checkpoint", *workspace,
+        "--room-id", "room-handoff",
+        "--actor", "cx",
+    ])
+    assert checkpoint["sections"]["GOAL"]["value"] == (
+        "Finish checkpoint support"
+    )
+    assert checkpoint["sections"]["RECENT_COMPLETED"]["items"] == [
+        "cli-completed-2",
+        "cli-completed-3",
+        "cli-completed-4",
+        "cli-completed-5",
+        "cli-completed-6",
+    ]
+
+    assert main([
+        "room", "checkpoint", *workspace,
+        "--room-id", "room-handoff",
+        "--actor", "cx",
+        "--export", "markdown",
+    ]) == 0
+    markdown = capsys.readouterr().out
+    assert "## GOAL" in markdown
+    assert "## RECENT_COMPLETED" in markdown
+    assert "- cli-completed-6" in markdown

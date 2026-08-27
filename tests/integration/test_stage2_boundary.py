@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, ConsensusProposeCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -381,6 +381,71 @@ def test_legacy_thread_append_translates_and_executes(runtime_setup) -> None:
     assert message is not None
     assert message.state["thread_id"] == "thread-append"
     assert message.state["body"] == "A durable appended message"
+
+
+def test_legacy_append_handoff_and_checkpoint_execute_end_to_end(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-handoff",
+        topic_id="topic-handoff",
+        title="Handoff Room",
+        creator_id="peer-1",
+        participants=(),
+    )
+    runtime.rooms_service.set_room_goal(
+        room_id="room-handoff",
+        goal="Preserve room continuity",
+        actor_id="peer-1",
+    )
+    append_translation = LegacyTranslator().translate(
+        LegacyActionCall(
+            "append-handoff",
+            {
+                "room_id": "room-handoff",
+                "section": "KEY_DECISIONS",
+                "text": "Use append-only continuity notes",
+                "actor_id": "peer-1",
+            },
+        ),
+        _legacy_submission(),
+    )
+    assert isinstance(append_translation, TranslatedCommand)
+    assert isinstance(append_translation.command, AppendHandoffCommand)
+    assert isinstance(client.submit(append_translation.command), CommandSuccess)
+
+    checkpoint_translation = LegacyTranslator().translate(
+        LegacyActionCall(
+            "checkpoint",
+            {"room_id": "room-handoff", "actor_id": "peer-1"},
+        ),
+        _legacy_submission(),
+    )
+    assert isinstance(checkpoint_translation, TranslatedCommand)
+    assert isinstance(
+        checkpoint_translation.command, ContinuityCheckpointCommand
+    )
+    outcome = client.submit(checkpoint_translation.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["sections"]["GOAL"]["value"] == (
+        "Preserve room continuity"
+    )
+    assert outcome.result["sections"]["KEY_DECISIONS"]["items"] == (
+        "Use append-only continuity notes",
+    )
+    assert "## KEY_DECISIONS" in outcome.result["markdown"]
+    replay = client.submit(checkpoint_translation.command)
+    assert isinstance(replay, CommandSuccess)
+    assert replay.result == outcome.result
+    notes = runtime.governance_broker.list_targets(
+        "continuity-note", "room-handoff"
+    )
+    checkpoints = runtime.governance_broker.list_targets(
+        "checkpoint-created", "room-handoff"
+    )
+    assert len(notes) == 1
+    assert len(checkpoints) == 1
 
 
 def test_legacy_thread_react_translates_and_executes(runtime_setup) -> None:

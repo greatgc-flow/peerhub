@@ -381,6 +381,43 @@ class ThreadAppendCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class AppendHandoffCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.handoff.append"
+    submission: SubmissionMetadata
+    room_id: str
+    section: str
+    text: str
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "section": self.section,
+            "text": self.text,
+            "actor_id": self.actor_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ContinuityCheckpointCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.checkpoint.create"
+    submission: SubmissionMetadata
+    room_id: str
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"room_id": self.room_id, "actor_id": self.actor_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class ThreadReactCommand(Command[Any]):
     method: ClassVar[str] = "coordination.thread.react"
     submission: SubmissionMetadata
@@ -751,6 +788,43 @@ class LegacyTranslator:
                 thread_id=str(call.arguments.get("thread_id", "")),
                 author_id=str(call.arguments.get("author_id", "")),
                 body=str(call.arguments.get("body", "")),
+            ))
+        if call.action == "append-handoff":
+            section = str(call.arguments.get("section", ""))
+            if section not in {
+                "RECENT_COMPLETED",
+                "PENDING_ISSUES",
+                "KEY_DECISIONS",
+                "CONSENSUS_HISTORY",
+                "ACTIVE_THREADS",
+            }:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason=(
+                        "section must be RECENT_COMPLETED, PENDING_ISSUES, "
+                        "KEY_DECISIONS, CONSENSUS_HISTORY, or ACTIVE_THREADS"
+                    ),
+                )
+            return TranslatedCommand(command=AppendHandoffCommand(
+                submission=submission,
+                room_id=str(call.arguments.get("room_id", "")),
+                section=section,
+                text=str(call.arguments.get("text", "")),
+                actor_id=str(
+                    call.arguments.get(
+                        "actor_id", submission.actor_id or "peerhub"
+                    )
+                ),
+            ))
+        if call.action == "checkpoint":
+            return TranslatedCommand(command=ContinuityCheckpointCommand(
+                submission=submission,
+                room_id=str(call.arguments.get("room_id", "")),
+                actor_id=str(
+                    call.arguments.get(
+                        "actor_id", submission.actor_id or "peerhub"
+                    )
+                ),
             ))
         if call.action == "thread-react":
             action = str(call.arguments.get("action", "ADD"))
