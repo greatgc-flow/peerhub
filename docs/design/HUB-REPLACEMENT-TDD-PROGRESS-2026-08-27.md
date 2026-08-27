@@ -109,3 +109,13 @@ First real Tier 2 item -- ratified design, needs new component code, not just wi
 One trivial regression from the fix: a pre-existing test (`test_thread_react_translates_all_reaction_fields`, written the round before) asserted an exact `encode_params()` dict without the new `action` key -- fixed directly by the terminal (added `"action": "ADD"` to the expected dict) rather than a round-trip, since it's a 1-line test-literal update, not a design or logic question.
 
 27 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 26). Full suite: pytest -q 1122 passed (only the known pre-existing failure), pyright 0 new errors (repo-wide baseline unchanged at 136).
+
+## Tier 2 round: `room.session_bindings` wiring
+
+Second Tier 2 item, not a `LEGACY_CATALOG` action so doesn't move the translated-action count. Design decision made by the terminal (the ratification deliberately left the exact mechanism open "for a future round to wire up" -- this was that round): implemented as an ON-DEMAND rebuild, not a synchronous push from `RoomParticipationCoordinator.open_session()`/`heartbeat()`/`end_session()` -- keeps the two coordinators independent, matching the session-lifecycle ratification's own insistence that they stay decoupled.
+
+`governance.activity.rebuild_room_session_bindings(broker, room_id, active_sessions)` (peerhub/governance/activity.py) reads the current room `TargetState`, replaces ONLY the `session_bindings` field via a CAS-governed submit, preserves every other field. `RoomParticipationCoordinator.list_active_sessions(room_id)` (new) supplies the session list without either coordinator depending on the other. Exposed as `peerhub room rebuild-session-bindings --room-id ROOM_ID`.
+
+Manually verified end-to-end against a real workspace (not just unit tests, on both cx's side and the terminal's own separate run): opened 2 sessions from different participants in the same room, rebuilt, both appeared as bindings; closed 1, rebuilt again, only the survivor remained; every other room field (title, participants, thread_ids, retention, status) stayed untouched by the rebuild. Clean round -- pytest -q 1123 passed (only the known pre-existing failure), pyright 0 new errors (`cli.py` unchanged at its 10-error baseline, repo-wide baseline unchanged at 136).
+
+Tier 2 is now 2 of 4 closed. `context-fill` and `checkpoint`/`append-handoff` (the handoff-projection generator) remain -- the biggest, most interdependent pieces left in the backlog's Tier 2.

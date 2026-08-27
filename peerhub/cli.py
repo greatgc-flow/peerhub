@@ -50,6 +50,7 @@ from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
+from peerhub.governance.activity import rebuild_room_session_bindings
 from peerhub.dispatch.duty_lease import (
     DutyLeaseSnapshot,
     DutyOwnerIdentity,
@@ -777,6 +778,14 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 submission = service.unreact(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
             elif action == "clear":
                 submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
+            elif action == "rebuild-session-bindings":
+                submission = rebuild_room_session_bindings(
+                    runtime.governance_broker,
+                    parsed.room_id,
+                    runtime.room_participation_coordinator.list_active_sessions(
+                        parsed.room_id
+                    ),
+                )
             else:
                 target = runtime.governance_broker.get_target(parsed.room_id)
                 if target is None:
@@ -801,6 +810,8 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 print(f"Reaction {parsed.reaction_type} removed from message {parsed.message_id}")
             elif action == "clear":
                 print(f"Room {parsed.room_id} cleared -> new room {parsed.new_room_id}")
+            elif action == "rebuild-session-bindings":
+                print(f"Room {parsed.room_id} session bindings rebuilt")
             else:
                 print(f"Room {parsed.room_id} created")
             return 0
@@ -1281,6 +1292,7 @@ def main(args: list[str] | None = None) -> int:
         "react": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
         "unreact": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
         "clear": [("--room-id", True), ("--new-room-id", True), ("--subject", True), ("--actor", True)],
+        "rebuild-session-bindings": [("--room-id", True)],
         "status": [("--room-id", True)],
     }
     room_subcommand_help = {
@@ -1290,6 +1302,7 @@ def main(args: list[str] | None = None) -> int:
         "react": "Record this peer's active reaction to a message",
         "unreact": "Remove this peer's active reaction from a message",
         "clear": "Start a fresh room boundary; the old room is preserved untouched",
+        "rebuild-session-bindings": "Rebuild the room's session-binding projection from active sessions",
         "status": "Show the current state of a room",
     }
     room_arg_help = {

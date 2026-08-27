@@ -554,6 +554,11 @@ class SqliteReadUnitOfWork:
             profile_id,
         )
 
+    def list_active_room_sessions(
+        self, room_id: str
+    ) -> tuple[RoomSessionSnapshot, ...]:
+        return self.dispatch.list_active_room_sessions(room_id)
+
     def get_latest_room_session(
         self,
         workspace_scope_id: str,
@@ -1268,6 +1273,11 @@ class SqliteUnitOfWork:
             instance_id,
             profile_id,
         )
+
+    def list_active_room_sessions(
+        self, room_id: str
+    ) -> tuple[RoomSessionSnapshot, ...]:
+        return self.dispatch.list_active_room_sessions(room_id)
 
     def get_latest_room_session(
         self,

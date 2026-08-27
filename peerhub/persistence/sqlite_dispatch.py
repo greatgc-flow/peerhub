@@ -381,6 +381,21 @@ class SqliteDispatchRepository:
         ).fetchone()
         return None if row is None else self._room_session_snapshot(row)
 
+    def list_active_room_sessions(
+        self, room_id: str
+    ) -> tuple[RoomSessionSnapshot, ...]:
+        rows = self._db().execute(
+            """
+            SELECT *
+            FROM room_participation_sessions
+            WHERE room_id = :room_id
+              AND state = 'ACTIVE'
+            ORDER BY created_at, session_id
+            """,
+            {"room_id": room_id},
+        ).fetchall()
+        return tuple(self._room_session_snapshot(row) for row in rows)
+
     def get_latest_room_session(
         self,
         workspace_scope_id: str,

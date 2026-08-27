@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import StrEnum
+from collections.abc import Sequence
 from typing import Any, Protocol, cast
 
 from peerhub.core.context import Clock, IdSource
@@ -93,6 +94,10 @@ class RoomParticipationUnitOfWork(Protocol):
         instance_id: str,
         profile_id: str,
     ) -> RoomSessionSnapshot | None: ...
+
+    def list_active_room_sessions(
+        self, room_id: str
+    ) -> Sequence[RoomSessionSnapshot]: ...
 
     def get_latest_room_session(
         self,
@@ -325,6 +330,23 @@ class RoomParticipationCoordinator:
         if session is None or session.heartbeat_expires_at < now:
             return None
         return session
+
+    def list_active_sessions(self, room_id: str) -> Sequence[RoomSessionSnapshot]:
+        """Return the currently live sessions for one room.
+
+        The persistence state is authoritative, while callers may rebuild
+        secondary projections from this short-lived read snapshot.
+        """
+        now = self._clock.now()
+        with self._store.read_unit_of_work() as unit:
+            sessions = cast(
+                RoomParticipationUnitOfWork, unit
+            ).list_active_room_sessions(room_id)
+        return tuple(
+            session
+            for session in sessions
+            if session.heartbeat_expires_at >= now
+        )
 
     def _record_event(
         self,
