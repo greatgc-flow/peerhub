@@ -140,3 +140,95 @@ def test_append_message_creates_separate_immutable_target(tmp_path: Path) -> Non
     assert message.state["sequence"] == 1
     assert message.state["body"] == "Hello"
     assert thread.revision == 1
+
+
+def test_reactions_append_events_and_keep_current_state_projection(tmp_path: Path) -> None:
+    service, broker = _service(tmp_path)
+    service.create_room(
+        room_id="room-01",
+        topic_id="topic-01",
+        title="Architecture",
+        creator_id="peer-a",
+        participants=("peer-a",),
+    )
+    service.create_thread(
+        thread_id="thread-01",
+        room_id="room-01",
+        subject="Decisions",
+        creator_id="peer-a",
+    )
+    service.append_message(
+        message_id="message-01",
+        room_id="room-01",
+        thread_id="thread-01",
+        author_id="peer-a",
+        body="Hello",
+    )
+
+    submission = service.react(
+        message_id="message-01",
+        room_id="room-01",
+        actor_instance_id="peer-a",
+        actor_profile_id="default",
+        reaction_type="ACK",
+    )
+    state = service.get_reaction_state(
+        "message-01", "peer-a", "default", "ACK"
+    )
+    events = broker.list_targets("reaction-event", "room-01")
+    assert submission.receipt.target_id.startswith("reaction-state:")
+    assert state is not None
+    assert state.revision == 1
+    assert state.state["status"] == "ACTIVE"
+    assert state.state["latest_action"] == "ADD"
+    assert len(events) == 1
+    assert events[0].revision == 1
+    assert events[0].state["action"] == "ADD"
+
+    service.react(
+        message_id="message-01",
+        room_id="room-01",
+        actor_instance_id="peer-a",
+        actor_profile_id="default",
+        reaction_type="ACK",
+    )
+    state = service.get_reaction_state(
+        "message-01", "peer-a", "default", "ACK"
+    )
+    assert state is not None
+    assert state.revision == 2
+    assert state.state["status"] == "ACTIVE"
+    assert len(broker.list_targets("reaction-event", "room-01")) == 2
+
+    service.unreact(
+        message_id="message-01",
+        room_id="room-01",
+        actor_instance_id="peer-a",
+        actor_profile_id="default",
+        reaction_type="ACK",
+    )
+    state = service.get_reaction_state(
+        "message-01", "peer-a", "default", "ACK"
+    )
+    events = broker.list_targets("reaction-event", "room-01")
+    assert state is not None
+    assert state.revision == 3
+    assert state.state["status"] == "REMOVED"
+    assert events[-1].state["action"] == "REMOVE"
+
+    service.react(
+        message_id="message-01",
+        room_id="room-01",
+        actor_instance_id="peer-a",
+        actor_profile_id="default",
+        reaction_type="ACK",
+    )
+    state = service.get_reaction_state(
+        "message-01", "peer-a", "default", "ACK"
+    )
+    events = broker.list_targets("reaction-event", "room-01")
+    assert state is not None
+    assert state.revision == 4
+    assert state.state["status"] == "ACTIVE"
+    assert events[-1].state["action"] == "ADD"
+    assert len(events) == 4

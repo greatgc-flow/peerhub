@@ -381,6 +381,32 @@ class ThreadAppendCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class ThreadReactCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.thread.react"
+    submission: SubmissionMetadata
+    message_id: str
+    room_id: str
+    actor_instance_id: str
+    actor_profile_id: str
+    reaction_type: str
+    action: str = "ADD"
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "message_id": self.message_id,
+            "room_id": self.room_id,
+            "actor_instance_id": self.actor_instance_id,
+            "actor_profile_id": self.actor_profile_id,
+            "reaction_type": self.reaction_type,
+            "action": self.action,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class ClearRoomCommand(Command[Any]):
     method: ClassVar[str] = "coordination.room.clear"
     submission: SubmissionMetadata
@@ -725,6 +751,26 @@ class LegacyTranslator:
                 thread_id=str(call.arguments.get("thread_id", "")),
                 author_id=str(call.arguments.get("author_id", "")),
                 body=str(call.arguments.get("body", "")),
+            ))
+        if call.action == "thread-react":
+            action = str(call.arguments.get("action", "ADD"))
+            if action not in {"ADD", "REMOVE"}:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="action must be ADD or REMOVE",
+                )
+            return TranslatedCommand(command=ThreadReactCommand(
+                submission=submission,
+                message_id=str(call.arguments.get("message_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                actor_instance_id=str(
+                    call.arguments.get("actor_instance_id", "")
+                ),
+                actor_profile_id=str(
+                    call.arguments.get("actor_profile_id", "")
+                ),
+                reaction_type=str(call.arguments.get("reaction_type", "")),
+                action=action,
             ))
         if call.action == "clear-room":
             return TranslatedCommand(command=ClearRoomCommand(

@@ -771,6 +771,10 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 submission = service.create_thread(thread_id=parsed.thread_id, room_id=parsed.room_id, subject=parsed.subject, creator_id=parsed.creator)
             elif action == "append-message":
                 submission = service.append_message(message_id=parsed.message_id, room_id=parsed.room_id, thread_id=parsed.thread_id, author_id=parsed.author, body=parsed.body)
+            elif action == "react":
+                submission = service.react(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
+            elif action == "unreact":
+                submission = service.unreact(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
             elif action == "clear":
                 submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
             else:
@@ -791,6 +795,10 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 print(f"Thread {parsed.thread_id} created in room {parsed.room_id}")
             elif action == "append-message":
                 print(f"Message {parsed.message_id} appended to thread {parsed.thread_id} (sequence={state['sequence']})")
+            elif action == "react":
+                print(f"Reaction {parsed.reaction_type} added to message {parsed.message_id}")
+            elif action == "unreact":
+                print(f"Reaction {parsed.reaction_type} removed from message {parsed.message_id}")
             elif action == "clear":
                 print(f"Room {parsed.room_id} cleared -> new room {parsed.new_room_id}")
             else:
@@ -1270,6 +1278,8 @@ def main(args: list[str] | None = None) -> int:
         "create": [("--room-id", True), ("--topic-id", True), ("--title", True), ("--creator", True), ("--participants", True)],
         "create-thread": [("--thread-id", True), ("--room-id", True), ("--subject", True), ("--creator", True)],
         "append-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--author", True), ("--body", True)],
+        "react": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
+        "unreact": [("--message-id", True), ("--room-id", True), ("--actor-instance-id", True), ("--actor-profile-id", True), ("--reaction-type", True)],
         "clear": [("--room-id", True), ("--new-room-id", True), ("--subject", True), ("--actor", True)],
         "status": [("--room-id", True)],
     }
@@ -1277,6 +1287,8 @@ def main(args: list[str] | None = None) -> int:
         "create": "Create a new room",
         "create-thread": "Create a new thread inside an existing room",
         "append-message": "Append a message to a thread",
+        "react": "Record this peer's active reaction to a message",
+        "unreact": "Remove this peer's active reaction from a message",
         "clear": "Start a fresh room boundary; the old room is preserved untouched",
         "status": "Show the current state of a room",
     }
@@ -1291,6 +1303,9 @@ def main(args: list[str] | None = None) -> int:
         "--message-id": "Message identifier",
         "--author": "Peer ID authoring this message",
         "--body": "Message body text",
+        "--actor-instance-id": "Reacting peer's terminal instance identifier",
+        "--actor-profile-id": "Reacting peer's profile identifier",
+        "--reaction-type": "Reaction label or emoji to add or remove (for example ACK or 👍)",
         "--new-room-id": "Identifier for the fresh room created by clear",
         "--actor": "Peer ID performing this action",
     }

@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, ConsensusProposeCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, ConsensusProposeCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -381,6 +381,205 @@ def test_legacy_thread_append_translates_and_executes(runtime_setup) -> None:
     assert message is not None
     assert message.state["thread_id"] == "thread-append"
     assert message.state["body"] == "A durable appended message"
+
+
+def test_legacy_thread_react_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-react",
+        topic_id="topic-react",
+        title="React Room",
+        creator_id="peer-author",
+        participants=(),
+    )
+    runtime.rooms_service.create_thread(
+        thread_id="thread-react",
+        room_id="room-react",
+        subject="React Topic",
+        creator_id="peer-author",
+    )
+    runtime.rooms_service.append_message(
+        message_id="message-react-1",
+        room_id="room-react",
+        thread_id="thread-react",
+        author_id="peer-author",
+        body="A message that can be acknowledged",
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "thread-react",
+            {
+                "message_id": "message-react-1",
+                "room_id": "room-react",
+                "actor_instance_id": "peer-reader-terminal",
+                "actor_profile_id": "peer-reader",
+                "reaction_type": "ACK",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    state = runtime.rooms_service.get_reaction_state(
+        "message-react-1",
+        "peer-reader-terminal",
+        "peer-reader",
+        "ACK",
+    )
+    events = runtime.governance_broker.list_targets("reaction-event", "room-react")
+    assert state is not None
+    assert state.state["status"] == "ACTIVE"
+    assert len(events) == 1
+    assert events[0].state["action"] == "ADD"
+
+
+def test_legacy_thread_react_remove_dispatches_to_unreact(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-unreact-legacy",
+        topic_id="topic-unreact-legacy",
+        title="Legacy Unreact Room",
+        creator_id="peer-author",
+        participants=(),
+    )
+    runtime.rooms_service.create_thread(
+        thread_id="thread-unreact-legacy",
+        room_id="room-unreact-legacy",
+        subject="Legacy Unreact Topic",
+        creator_id="peer-author",
+    )
+    runtime.rooms_service.append_message(
+        message_id="message-unreact-legacy",
+        room_id="room-unreact-legacy",
+        thread_id="thread-unreact-legacy",
+        author_id="peer-author",
+        body="Remove a reaction from this message",
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "thread-react",
+            {
+                "message_id": "message-unreact-legacy",
+                "room_id": "room-unreact-legacy",
+                "actor_instance_id": "peer-reader-terminal",
+                "actor_profile_id": "peer-reader",
+                "reaction_type": "ACK",
+                "action": "REMOVE",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ThreadReactCommand)
+    assert translated.command.action == "REMOVE"
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    state = runtime.rooms_service.get_reaction_state(
+        "message-unreact-legacy",
+        "peer-reader-terminal",
+        "peer-reader",
+        "ACK",
+    )
+    events = runtime.governance_broker.list_targets(
+        "reaction-event", "room-unreact-legacy"
+    )
+    assert state is not None
+    assert state.state["status"] == "REMOVED"
+    assert len(events) == 1
+    assert events[0].state["action"] == "REMOVE"
+
+
+def test_native_thread_react_remove_executes_through_client(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-unreact-native",
+        topic_id="topic-unreact-native",
+        title="Native Unreact Room",
+        creator_id="peer-author",
+        participants=(),
+    )
+    runtime.rooms_service.create_thread(
+        thread_id="thread-unreact-native",
+        room_id="room-unreact-native",
+        subject="Native Unreact Topic",
+        creator_id="peer-author",
+    )
+    runtime.rooms_service.append_message(
+        message_id="message-unreact-native",
+        room_id="room-unreact-native",
+        thread_id="thread-unreact-native",
+        author_id="peer-author",
+        body="Native REMOVE reaches the service",
+    )
+    runtime.rooms_service.react(
+        message_id="message-unreact-native",
+        room_id="room-unreact-native",
+        actor_instance_id="peer-reader-terminal",
+        actor_profile_id="peer-reader",
+        reaction_type="ACK",
+    )
+    command = ThreadReactCommand(
+        submission=_legacy_submission(),
+        message_id="message-unreact-native",
+        room_id="room-unreact-native",
+        actor_instance_id="peer-reader-terminal",
+        actor_profile_id="peer-reader",
+        reaction_type="ACK",
+        action="REMOVE",
+    )
+
+    outcome = client.submit(command)
+
+    assert isinstance(outcome, CommandSuccess)
+    state = runtime.rooms_service.get_reaction_state(
+        "message-unreact-native",
+        "peer-reader-terminal",
+        "peer-reader",
+        "ACK",
+    )
+    assert state is not None
+    assert state.state["status"] == "REMOVED"
+    assert state.state["latest_action"] == "REMOVE"
+
+
+def test_thread_react_rejects_unknown_action(runtime_setup) -> None:
+    _, client, _ = runtime_setup
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "thread-react",
+            {
+                "message_id": "message-invalid-action",
+                "room_id": "room-invalid-action",
+                "actor_instance_id": "peer-reader-terminal",
+                "actor_profile_id": "peer-reader",
+                "reaction_type": "ACK",
+                "action": "TOGGLE",
+            },
+        ),
+        _legacy_submission(),
+    )
+    assert isinstance(translated, InvalidLegacyArguments)
+    assert translated.reason == "action must be ADD or REMOVE"
+
+    native = ThreadReactCommand(
+        submission=_legacy_submission(),
+        message_id="message-invalid-action",
+        room_id="room-invalid-action",
+        actor_instance_id="peer-reader-terminal",
+        actor_profile_id="peer-reader",
+        reaction_type="ACK",
+        action="TOGGLE",
+    )
+    outcome = client.submit(native)
+    assert isinstance(outcome, CommandFailure)
+    assert outcome.error.code is ErrorCode.INVALID_PARAMS
 
 
 def test_legacy_lesson_broadcast_stays_unbacked_without_broadcast_semantics(

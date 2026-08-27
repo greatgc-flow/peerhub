@@ -167,6 +167,157 @@ class RoomsService:
             f"message:{message_id}", 0, author_id, "message.append", state
         )
 
+    def react(
+        self,
+        *,
+        message_id: str,
+        room_id: str,
+        actor_instance_id: str,
+        actor_profile_id: str,
+        reaction_type: str,
+    ) -> MutationSubmission:
+        """Append an ADD reaction event and refresh its current projection."""
+
+        return self._record_reaction(
+            message_id=message_id,
+            room_id=room_id,
+            actor_instance_id=actor_instance_id,
+            actor_profile_id=actor_profile_id,
+            reaction_type=reaction_type,
+            action="ADD",
+        )
+
+    def unreact(
+        self,
+        *,
+        message_id: str,
+        room_id: str,
+        actor_instance_id: str,
+        actor_profile_id: str,
+        reaction_type: str,
+    ) -> MutationSubmission:
+        """Append a REMOVE reaction event and retain a removed projection."""
+
+        return self._record_reaction(
+            message_id=message_id,
+            room_id=room_id,
+            actor_instance_id=actor_instance_id,
+            actor_profile_id=actor_profile_id,
+            reaction_type=reaction_type,
+            action="REMOVE",
+        )
+
+    def get_reaction_state(
+        self,
+        message_id: str,
+        actor_instance_id: str,
+        actor_profile_id: str,
+        reaction_type: str,
+    ) -> TargetState | None:
+        """Return this actor's current projection for one message reaction."""
+
+        return self._broker.get_target(
+            self._reaction_state_target_id(
+                message_id,
+                actor_instance_id,
+                actor_profile_id,
+                reaction_type,
+            )
+        )
+
+    def _record_reaction(
+        self,
+        *,
+        message_id: str,
+        room_id: str,
+        actor_instance_id: str,
+        actor_profile_id: str,
+        reaction_type: str,
+        action: str,
+    ) -> MutationSubmission:
+        message = self._broker.get_target(f"message:{message_id}")
+        if message is None:
+            raise RecordNotFoundError("message", message_id)
+        if (
+            message.state.get("kind") != "message"
+            or message.state.get("room_id") != room_id
+        ):
+            raise InvalidMutationError("message is not in the requested room")
+
+        timestamp = self._clock.now()
+        actor = {
+            "instance_id": actor_instance_id,
+            "profile_id": actor_profile_id,
+        }
+        actor_key = self._actor_key(actor_instance_id, actor_profile_id)
+        event_id = self._ids.new_id("reaction-event")
+        event_state: dict[str, JsonValue] = {
+            "kind": "reaction-event",
+            "scope": room_id,
+            "schema_version": 1,
+            "event_id": event_id,
+            "message_id": message_id,
+            "room_id": room_id,
+            "actor": actor,
+            "actor_key": actor_key,
+            "reaction_type": reaction_type,
+            "action": action,
+            "created_at": timestamp,
+        }
+        self._submit(
+            f"reaction-event:{event_id}",
+            0,
+            actor_instance_id,
+            "reaction.event.append",
+            event_state,
+        )
+
+        state_target_id = self._reaction_state_target_id(
+            message_id,
+            actor_instance_id,
+            actor_profile_id,
+            reaction_type,
+        )
+        current = self._broker.get_target(state_target_id)
+        projection_state: dict[str, JsonValue] = {
+            "kind": "reaction-state",
+            "scope": room_id,
+            "schema_version": 1,
+            "message_id": message_id,
+            "room_id": room_id,
+            "actor": actor,
+            "actor_key": actor_key,
+            "reaction_type": reaction_type,
+            "status": "ACTIVE" if action == "ADD" else "REMOVED",
+            "latest_event_id": event_id,
+            "latest_action": action,
+            "latest_event_at": timestamp,
+        }
+        return self._submit(
+            state_target_id,
+            0 if current is None else current.revision,
+            actor_instance_id,
+            "reaction.state.project",
+            projection_state,
+        )
+
+    @staticmethod
+    def _actor_key(actor_instance_id: str, actor_profile_id: str) -> str:
+        return f"{actor_instance_id}:{actor_profile_id}"
+
+    @classmethod
+    def _reaction_state_target_id(
+        cls,
+        message_id: str,
+        actor_instance_id: str,
+        actor_profile_id: str,
+        reaction_type: str,
+    ) -> str:
+        return (
+            f"reaction-state:{message_id}:{cls._actor_key(actor_instance_id, actor_profile_id)}"
+            f":{reaction_type}"
+        )
+
     @staticmethod
     def _sequence_for_thread(state: Mapping[str, JsonValue], thread_id: str) -> int:
         if state.get("thread_id") != thread_id:

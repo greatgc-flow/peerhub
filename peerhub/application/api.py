@@ -71,7 +71,7 @@ from peerhub.dispatch.room_session import (
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
-    NewTopicCommand, ThreadAppendCommand, ClearRoomCommand,
+    NewTopicCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
     LeaderClaimCommand, LeaderYieldCommand,
     TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
     TerminalDutySweepCommand, TaskCheckpointCommand,
@@ -433,6 +433,30 @@ class ApplicationAPI:
                 text(e, "author_id"),
                 text(e, "body"),
             )
+        def react(e: CommandEnvelope) -> ThreadReactCommand:
+            action = text(e, "action")
+            if action not in {"ADD", "REMOVE"}:
+                raise ValueError("action must be ADD or REMOVE")
+            return ThreadReactCommand(
+                self._submission(e),
+                text(e, "message_id"),
+                text(e, "room_id"),
+                text(e, "actor_instance_id"),
+                text(e, "actor_profile_id"),
+                text(e, "reaction_type"),
+                action,
+            )
+        def record_reaction(command: ThreadReactCommand):
+            operation = (
+                s.react if command.action == "ADD" else s.unreact
+            )
+            return operation(
+                message_id=command.message_id,
+                room_id=command.room_id,
+                actor_instance_id=command.actor_instance_id,
+                actor_profile_id=command.actor_profile_id,
+                reaction_type=command.reaction_type,
+            )
         def clear(e: CommandEnvelope) -> ClearRoomCommand:
             return ClearRoomCommand(self._submission(e),text(e,"old_room_id"),text(e,"new_room_id"),text(e,"subject"),text(e,"actor_id"))
         self.register(CommandDescriptor("coordination.topic.create", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, topic, lambda c,_:s.create_thread(thread_id=c.thread_id,room_id=c.room_id,subject=c.subject,creator_id=c.creator_id), self._receipt, CommandAvailability.AVAILABLE))
@@ -449,6 +473,16 @@ class ApplicationAPI:
                 author_id=c.author_id,
                 body=c.body,
             ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.thread.react",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            react,
+            lambda c, _: record_reaction(c),
             self._receipt,
             CommandAvailability.AVAILABLE,
         ))
