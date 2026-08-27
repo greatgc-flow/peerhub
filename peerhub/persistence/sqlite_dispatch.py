@@ -58,6 +58,11 @@ from peerhub.dispatch.contract import (
     TerminalClassification,
 )
 from peerhub.dispatch.duty_lease import DutyLeaseSnapshot, DutyLeaseState, DutyOwnerIdentity, DutyRecoveryReceipt
+from peerhub.dispatch.room_session import (
+    RoomSessionEvent,
+    RoomSessionSnapshot,
+    RoomSessionState,
+)
 
 def _completion_contract_data(
     contract: CompletionContract,
@@ -298,6 +303,259 @@ class SqliteDispatchRepository:
 
     def insert_duty_recovery_receipt(self, receipt_id: str, receipt: DutyRecoveryReceipt) -> None:
         self._db().execute("INSERT INTO duty_lease_recovery_receipts VALUES (:id, :lease, :at, :actor, :trigger, :digest, :policy, :revision)", {"id": receipt_id, "lease": receipt.lease_id, "at": receipt.recovered_at, "actor": receipt.recovery_actor_principal_id, "trigger": receipt.trigger, "digest": receipt.evidence_digest, "policy": receipt.policy_id, "revision": receipt.policy_revision})
+
+    @staticmethod
+    def _room_session_snapshot(row: sqlite3.Row) -> RoomSessionSnapshot:
+        return RoomSessionSnapshot(
+            session_id=row["session_id"],
+            workspace_scope_id=row["workspace_scope_id"],
+            room_id=row["room_id"],
+            actor_principal_id=row["actor_principal_id"],
+            owner=DutyOwnerIdentity(
+                row["owner_instance_id"], row["owner_profile_id"]
+            ),
+            session_fingerprint=row["session_fingerprint"],
+            session_generation=row["session_generation"],
+            resume_parent_session_id=row["resume_parent_session_id"],
+            state=RoomSessionState(row["state"]),
+            heartbeat_expires_at=row["heartbeat_expires_at"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    def get_room_session(
+        self, session_id: str
+    ) -> RoomSessionSnapshot | None:
+        row = self._db().execute(
+            """
+            SELECT *
+            FROM room_participation_sessions
+            WHERE session_id = :session_id
+            """,
+            {"session_id": session_id},
+        ).fetchone()
+        return None if row is None else self._room_session_snapshot(row)
+
+    def get_active_room_session(
+        self,
+        workspace_scope_id: str,
+        room_id: str,
+        actor_principal_id: str,
+        instance_id: str,
+        profile_id: str,
+    ) -> RoomSessionSnapshot | None:
+        row = self._db().execute(
+            """
+            SELECT *
+            FROM room_participation_sessions
+            WHERE workspace_scope_id = :workspace_scope_id
+              AND room_id = :room_id
+              AND actor_principal_id = :actor_principal_id
+              AND owner_instance_id = :instance_id
+              AND owner_profile_id = :profile_id
+              AND state = 'ACTIVE'
+            """,
+            {
+                "workspace_scope_id": workspace_scope_id,
+                "room_id": room_id,
+                "actor_principal_id": actor_principal_id,
+                "instance_id": instance_id,
+                "profile_id": profile_id,
+            },
+        ).fetchone()
+        return None if row is None else self._room_session_snapshot(row)
+
+    def get_latest_room_session(
+        self,
+        workspace_scope_id: str,
+        room_id: str,
+        actor_principal_id: str,
+        instance_id: str,
+        profile_id: str,
+    ) -> RoomSessionSnapshot | None:
+        row = self._db().execute(
+            """
+            SELECT *
+            FROM room_participation_sessions
+            WHERE workspace_scope_id = :workspace_scope_id
+              AND room_id = :room_id
+              AND actor_principal_id = :actor_principal_id
+              AND owner_instance_id = :instance_id
+              AND owner_profile_id = :profile_id
+            ORDER BY session_generation DESC
+            LIMIT 1
+            """,
+            {
+                "workspace_scope_id": workspace_scope_id,
+                "room_id": room_id,
+                "actor_principal_id": actor_principal_id,
+                "instance_id": instance_id,
+                "profile_id": profile_id,
+            },
+        ).fetchone()
+        return None if row is None else self._room_session_snapshot(row)
+
+    def insert_room_session(self, snapshot: RoomSessionSnapshot) -> None:
+        self._db().execute(
+            """
+            INSERT INTO room_participation_sessions (
+                session_id,
+                workspace_scope_id,
+                room_id,
+                actor_principal_id,
+                owner_instance_id,
+                owner_profile_id,
+                session_fingerprint,
+                session_generation,
+                resume_parent_session_id,
+                state,
+                heartbeat_expires_at,
+                created_at,
+                updated_at
+            ) VALUES (
+                :session_id,
+                :workspace_scope_id,
+                :room_id,
+                :actor_principal_id,
+                :owner_instance_id,
+                :owner_profile_id,
+                :session_fingerprint,
+                :session_generation,
+                :resume_parent_session_id,
+                :state,
+                :heartbeat_expires_at,
+                :created_at,
+                :updated_at
+            )
+            """,
+            {
+                "session_id": snapshot.session_id,
+                "workspace_scope_id": snapshot.workspace_scope_id,
+                "room_id": snapshot.room_id,
+                "actor_principal_id": snapshot.actor_principal_id,
+                "owner_instance_id": snapshot.owner.instance_id,
+                "owner_profile_id": snapshot.owner.profile_id,
+                "session_fingerprint": snapshot.session_fingerprint,
+                "session_generation": snapshot.session_generation,
+                "resume_parent_session_id": (
+                    snapshot.resume_parent_session_id
+                ),
+                "state": snapshot.state.value,
+                "heartbeat_expires_at": snapshot.heartbeat_expires_at,
+                "created_at": snapshot.created_at,
+                "updated_at": snapshot.updated_at,
+            },
+        )
+
+    def update_room_session_heartbeat(
+        self,
+        current: RoomSessionSnapshot,
+        heartbeat_expires_at: int,
+        updated_at: int,
+    ) -> bool:
+        cursor = self._db().execute(
+            """
+            UPDATE room_participation_sessions
+            SET heartbeat_expires_at = :heartbeat_expires_at,
+                updated_at = :updated_at
+            WHERE session_id = :session_id
+              AND workspace_scope_id = :workspace_scope_id
+              AND room_id = :room_id
+              AND actor_principal_id = :actor_principal_id
+              AND owner_instance_id = :owner_instance_id
+              AND owner_profile_id = :owner_profile_id
+              AND session_generation = :session_generation
+              AND state = 'ACTIVE'
+              AND heartbeat_expires_at = :expected_heartbeat_expires_at
+              AND heartbeat_expires_at >= :updated_at
+            """,
+            {
+                "session_id": current.session_id,
+                "workspace_scope_id": current.workspace_scope_id,
+                "room_id": current.room_id,
+                "actor_principal_id": current.actor_principal_id,
+                "owner_instance_id": current.owner.instance_id,
+                "owner_profile_id": current.owner.profile_id,
+                "session_generation": current.session_generation,
+                "expected_heartbeat_expires_at": (
+                    current.heartbeat_expires_at
+                ),
+                "heartbeat_expires_at": heartbeat_expires_at,
+                "updated_at": updated_at,
+            },
+        )
+        return cursor.rowcount == 1
+
+    def transition_room_session(
+        self,
+        current: RoomSessionSnapshot,
+        state: RoomSessionState,
+        updated_at: int,
+        *,
+        allow_expired: bool = False,
+    ) -> bool:
+        cursor = self._db().execute(
+            """
+            UPDATE room_participation_sessions
+            SET state = :state,
+                updated_at = :updated_at
+            WHERE session_id = :session_id
+              AND workspace_scope_id = :workspace_scope_id
+              AND room_id = :room_id
+              AND actor_principal_id = :actor_principal_id
+              AND owner_instance_id = :owner_instance_id
+              AND owner_profile_id = :owner_profile_id
+              AND session_generation = :session_generation
+              AND state = 'ACTIVE'
+              AND heartbeat_expires_at = :expected_heartbeat_expires_at
+              AND (
+                  :allow_expired = 1
+                  OR heartbeat_expires_at >= :updated_at
+              )
+            """,
+            {
+                "session_id": current.session_id,
+                "workspace_scope_id": current.workspace_scope_id,
+                "room_id": current.room_id,
+                "actor_principal_id": current.actor_principal_id,
+                "owner_instance_id": current.owner.instance_id,
+                "owner_profile_id": current.owner.profile_id,
+                "session_generation": current.session_generation,
+                "expected_heartbeat_expires_at": (
+                    current.heartbeat_expires_at
+                ),
+                "state": state.value,
+                "updated_at": updated_at,
+                "allow_expired": int(allow_expired),
+            },
+        )
+        return cursor.rowcount == 1
+
+    def insert_room_session_event(self, event: RoomSessionEvent) -> None:
+        self._db().execute(
+            """
+            INSERT INTO room_session_events (
+                event_id,
+                session_id,
+                event_type,
+                at,
+                actor_principal_id
+            ) VALUES (
+                :event_id,
+                :session_id,
+                :event_type,
+                :at,
+                :actor_principal_id
+            )
+            """,
+            {
+                "event_id": event.event_id,
+                "session_id": event.session_id,
+                "event_type": event.event_type.value,
+                "at": event.at,
+                "actor_principal_id": event.actor_principal_id,
+            },
+        )
 
     def get_client_request_binding(
         self,
