@@ -85,7 +85,7 @@ from peerhub.application.legacy import (
     TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
     ApprovalRequestCommand,
-    ConsensusSweepCommand, LessonsListCommand,
+    ConsensusSweepCommand, LessonsListCommand, ProposalListCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
 )
 
@@ -310,7 +310,7 @@ class ApplicationAPI:
         
         self._register_builtins()
         if consensus is not None:
-            self._register_consensus(consensus)
+            self._register_consensus(consensus, lesson_broker)
         if task is not None: self._register_task(task)
         if lesson is not None and lesson_broker is not None:
             self._register_lesson(lesson, lesson_broker, room)
@@ -334,7 +334,11 @@ class ApplicationAPI:
                 "next_revision": receipt.next_revision,
                 "status": receipt.status.value}
 
-    def _register_consensus(self, service: ConsensusService) -> None:
+    def _register_consensus(
+        self,
+        service: ConsensusService,
+        broker: GovernanceBroker | None,
+    ) -> None:
         def string_tuple(params: Mapping[str, JsonValue], name: str) -> tuple[str, ...]:
             value = params[name]
             if not isinstance(value, (list, tuple)) or not all(
@@ -366,6 +370,33 @@ class ApplicationAPI:
             if revision is not None and (not isinstance(revision,int) or isinstance(revision,bool)): raise ValueError("expected_revision must be an integer or null")
             return ConsensusSweepCommand(self._submission(e),p["round_id"],reason,revision)
         self.register(CommandDescriptor("consensus.round.sweep", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_sweep, lambda c,_:service.mark_timeout(c.round_id,c.reason,c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
+        if broker is not None:
+            def decode_proposal_list(e: CommandEnvelope) -> ProposalListCommand:
+                return ProposalListCommand(self._submission(e))
+
+            def encode_proposals(results: Sequence[Any]) -> Mapping[str, JsonValue]:
+                proposals = [
+                    {
+                        "target_id": result.target_id,
+                        "revision": result.revision,
+                        "state": result.state,
+                    }
+                    for result in results
+                ]
+                return {"proposals": cast(JsonValue, proposals)}
+
+            self.register(CommandDescriptor(
+                "governance.proposal.list",
+                Mutability.READ_ONLY,
+                ScopeKind.ANY,
+                IdempotencyPolicy.READ_ONLY,
+                decode_proposal_list,
+                lambda _command, _context: broker.list_targets(
+                    "consensus-round", None
+                ),
+                encode_proposals,
+                CommandAvailability.AVAILABLE,
+            ))
 
     def _register_task(self, s: TaskService) -> None:
         def text(p: Mapping[str, JsonValue], n: str) -> str:

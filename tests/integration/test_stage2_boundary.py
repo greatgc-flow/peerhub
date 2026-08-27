@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -1097,6 +1097,70 @@ def test_legacy_lessons_list_translates_and_executes(runtime_setup) -> None:
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert any(item["target_id"] == "lesson:listed-lesson" for item in outcome.result["lessons"])
+
+
+def test_native_proposal_list_includes_open_and_resolved_rounds(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    service = runtime.consensus_service
+    participants = ("peer-1", "peer-2")
+    for round_id in ("proposal-open", "proposal-resolved"):
+        service.propose(
+            round_id=round_id,
+            title=round_id,
+            question="Ready?",
+            body="Body",
+            proposer_id="peer-1",
+            required_participants=participants,
+            eligible_participants=participants,
+            risk="normal",
+            source_hash=f"sha256:{round_id}",
+        )
+    service.cast_vote("proposal-resolved", actor_id="peer-1", choice="agree")
+    service.cast_vote("proposal-resolved", actor_id="peer-2", choice="agree")
+    service.final_call_ack("proposal-resolved", actor_id="peer-1", ack=True)
+    service.final_call_ack("proposal-resolved", actor_id="peer-2", ack=True)
+
+    outcome = client.submit(ProposalListCommand(_legacy_submission()))
+
+    assert isinstance(outcome, CommandSuccess)
+    proposals = outcome.result["proposals"]
+    assert {item["target_id"] for item in proposals} == {
+        "proposal-open",
+        "proposal-resolved",
+    }
+    resolved = next(
+        item for item in proposals if item["target_id"] == "proposal-resolved"
+    )
+    assert resolved["state"]["status"] == "resolved"
+
+
+def test_legacy_proposal_list_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.consensus_service.propose(
+        round_id="legacy-proposal-list",
+        title="List me",
+        question="Visible?",
+        body="Body",
+        proposer_id="peer-1",
+        required_participants=("peer-1", "peer-2"),
+        eligible_participants=("peer-1", "peer-2"),
+        risk="normal",
+        source_hash="sha256:legacy-proposal-list",
+    )
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall("proposal-list", {}),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ProposalListCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert any(
+        item["target_id"] == "legacy-proposal-list"
+        for item in outcome.result["proposals"]
+    )
 
 
 def test_admit_success(runtime_setup, monkeypatch):

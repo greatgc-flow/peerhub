@@ -49,3 +49,21 @@ def test_cli_consensus_status_not_found_returns_nonzero(tmp_path: Path, capsys) 
     ]) == 2
     assert "not found" in capsys.readouterr().err
 
+
+def test_cli_consensus_list_returns_all_rounds(tmp_path: Path, capsys) -> None:
+    assert main(_propose_args(tmp_path)) == 0
+    capsys.readouterr()
+
+    second = _propose_args(tmp_path)
+    second[second.index("round-cli")] = "round-cli-second"
+    assert main(second) == 0
+    capsys.readouterr()
+
+    assert main([
+        "consensus", "list", "--workspace", str(tmp_path), "--json",
+    ]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert {proposal["target_id"] for proposal in payload["proposals"]} == {
+        "round-cli",
+        "round-cli-second",
+    }

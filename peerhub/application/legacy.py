@@ -846,6 +846,19 @@ class LessonsListCommand(Command[Any]):
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any: return value
 
 
+@dataclass(frozen=True, slots=True)
+class ProposalListCommand(Command[Any]):
+    method: ClassVar[str] = "governance.proposal.list"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 class LegacyTranslator:
     def translate(
         self,
@@ -1183,6 +1196,8 @@ class LegacyTranslator:
         if call.action == "lessons-list":
             value = call.arguments.get("scope")
             return TranslatedCommand(command=LessonsListCommand(submission, None if value is None else str(value)))
+        if call.action == "proposal-list":
+            return TranslatedCommand(command=ProposalListCommand(submission))
             
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,

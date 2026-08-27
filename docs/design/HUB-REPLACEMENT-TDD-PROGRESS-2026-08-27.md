@@ -177,3 +177,11 @@ Independently re-verified by the terminal through the real CLI, not just cx's ow
 35 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 34). pytest -q: 1138 passed (only the known pre-existing failure). pyright: 0 new errors.
 
 **Tier 3 is now 6 of 7 closed.** Only `arbiter-review` remains -- real legacy behavior invokes an external arbiter in an isolated subprocess, genuinely new infrastructure this session hasn't built yet, needs its own dedicated round rather than a same-batch wiring pass.
+
+## Tier 4 scouting round, then `proposal-list` -- one real quick win found and shipped
+
+Research-only pass (docs/design/PEERHUB-BACKLOG-2026-08-27.md's "Scouting round" section has the full detail) cross-referenced Tier 4's ~55 remaining actions against real service signatures and lifecycle semantics, not just matching names. Result: honest and mostly negative -- `lesson-inject`, `proposal-add`/`vote`, `health-precheck`/`check-gate`/`discover`, `peer-quarantine`/`recover`, `lease-status`/`sweep`, `broker-submit`/`drain`/`status`, and the artifact/file-lock/role actions were all investigated and explicitly rejected (wrong mutability class, different authority model, different lifecycle, or a real missing schema decision) -- not assumed hard without checking, actually checked.
+
+One genuine find: `proposal-list` -> `GovernanceBroker.list_targets("consensus-round", None)`, a pure read needing only a descriptor + legacy branch + CLI + encoder. Implemented same round: `peerhub consensus list`, wired as `governance.proposal.list` (READ_ONLY, `{"proposals": [...]}`, reusing the `lessons-list` pattern correctly this time -- no bare-list regression). Independently re-verified by the terminal: proposed 2 rounds, drove one to `quorum_reached` via real votes, listed both -- confirms the real `list_targets` scan is used, not the active-only helper that would have silently hidden the resolved one.
+
+36 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 35). pytest -q: 1141 passed (only the known pre-existing failure). pyright: 0 new errors.

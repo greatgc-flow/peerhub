@@ -652,6 +652,40 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     quorum = payload["quorum"]
                     print(f"Consensus vote recorded for {parsed.round_id} (phase={payload['phase']}, votes={quorum['counted_votes']}/{quorum['required_votes']}, quorum reached={quorum['reached']})")
                 return 0
+            if parsed.consensus_action == "list":
+                targets = runtime.governance_broker.list_targets(
+                    "consensus-round", None
+                )
+                proposals = [
+                    {
+                        "target_id": target.target_id,
+                        "revision": target.revision,
+                        "state": target.state,
+                    }
+                    for target in targets
+                ]
+                if parsed.json:
+                    print(json.dumps(_json_safe({"proposals": proposals})))
+                elif not proposals:
+                    print("No consensus proposals found.")
+                else:
+                    print("Consensus proposals:")
+                    for proposal in proposals:
+                        state = cast(Mapping[str, Any], proposal["state"])
+                        votes = cast(Mapping[str, Any], state.get("votes", {}))
+                        participants = cast(
+                            Mapping[str, Any], state.get("participants", {})
+                        )
+                        required = cast(
+                            tuple[Any, ...] | list[Any],
+                            participants.get("required", ()),
+                        )
+                        print(
+                            f"{proposal['target_id']}: phase={state.get('phase', 'unknown')}, "
+                            f"status={state.get('status', 'unknown')}, "
+                            f"votes={len(votes)}/{len(required)}"
+                        )
+                return 0
             target = runtime.governance_broker.get_target(parsed.round_id)
             if target is None:
                 raise RecordNotFoundError("consensus-round", parsed.round_id)
@@ -1328,6 +1362,20 @@ def main(args: list[str] | None = None) -> int:
     propose_parser.add_argument("--eligible", required=True, help="Comma-separated eligible peer IDs")
     propose_parser.add_argument("--risk", default="normal", help="Risk tier used for quorum calculation (default: normal)")
     propose_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    list_parser = consensus_subparsers.add_parser(
+        "list",
+        help="List every consensus proposal, including resolved rounds",
+    )
+    list_parser.add_argument(
+        "--workspace",
+        default=".",
+        help="Path to the workspace root containing consensus state",
+    )
+    list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON",
+    )
     for action in ("vote", "status"):
         command_parser = consensus_subparsers.add_parser(action, help="Cast a vote" if action == "vote" else "Read a consensus round")
         command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
