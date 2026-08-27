@@ -268,6 +268,74 @@ class ConsensusSweepCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class SessionOpenCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.session.open"
+    submission: SubmissionMetadata
+    workspace_scope_id: str
+    room_id: str
+    actor_principal_id: str
+    instance_id: str
+    profile_id: str
+    session_fingerprint: str
+    heartbeat_timeout_ms: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "workspace_scope_id": self.workspace_scope_id,
+            "room_id": self.room_id,
+            "actor_principal_id": self.actor_principal_id,
+            "instance_id": self.instance_id,
+            "profile_id": self.profile_id,
+            "session_fingerprint": self.session_fingerprint,
+            "heartbeat_timeout_ms": self.heartbeat_timeout_ms,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class SessionCloseCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.session.close"
+    submission: SubmissionMetadata
+    session_id: str
+    session_generation: int
+    workspace_scope_id: str
+    room_id: str
+    actor_principal_id: str
+    instance_id: str
+    profile_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "session_id": self.session_id,
+            "session_generation": self.session_generation,
+            "workspace_scope_id": self.workspace_scope_id,
+            "room_id": self.room_id,
+            "actor_principal_id": self.actor_principal_id,
+            "instance_id": self.instance_id,
+            "profile_id": self.profile_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class SessionHeartbeatCommand(SessionCloseCommand):
+    method: ClassVar[str] = "coordination.session.heartbeat"
+    heartbeat_timeout_ms: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            **SessionCloseCommand.encode_params(self),
+            "heartbeat_timeout_ms": self.heartbeat_timeout_ms,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class NewTopicCommand(Command[Any]):
     method: ClassVar[str] = "coordination.topic.create"
     submission: SubmissionMetadata
@@ -548,6 +616,28 @@ class LegacyTranslator:
             ))
         if call.action == "consensus-sweep":
             return TranslatedCommand(command=ConsensusSweepCommand(submission, str(call.arguments.get("round_id", "")), str(call.arguments.get("reason", "")), _optional_int(call.arguments.get("expected_revision"))))
+        if call.action == "init-session":
+            return TranslatedCommand(command=SessionOpenCommand(
+                submission=submission,
+                workspace_scope_id=str(call.arguments.get("workspace_scope_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                actor_principal_id=str(call.arguments.get("actor_principal_id", "")),
+                instance_id=str(call.arguments.get("instance_id", "")),
+                profile_id=str(call.arguments.get("profile_id", "")),
+                session_fingerprint=str(call.arguments.get("session_fingerprint", "")),
+                heartbeat_timeout_ms=_int_or_zero(call.arguments.get("heartbeat_timeout_ms")),
+            ))
+        if call.action == "end-session":
+            return TranslatedCommand(command=SessionCloseCommand(
+                submission=submission,
+                session_id=str(call.arguments.get("session_id", "")),
+                session_generation=_int_or_zero(call.arguments.get("session_generation")),
+                workspace_scope_id=str(call.arguments.get("workspace_scope_id", "")),
+                room_id=str(call.arguments.get("room_id", "")),
+                actor_principal_id=str(call.arguments.get("actor_principal_id", "")),
+                instance_id=str(call.arguments.get("instance_id", "")),
+                profile_id=str(call.arguments.get("profile_id", "")),
+            ))
         if call.action == "new-topic":
             return TranslatedCommand(command=NewTopicCommand(
                 submission=submission,

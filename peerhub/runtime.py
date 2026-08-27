@@ -21,6 +21,7 @@ from .governance.tasks import TaskService
 from .governance.lessons import LessonService
 from .governance.rooms import RoomsService
 from .dispatch.duty_lease import DutyLeaseCoordinator
+from .dispatch.room_session import RoomParticipationCoordinator
 from .dispatch.terminal_duty import TerminalDutyService
 from .health.contract import HealthPolicy, HealthScopeMembershipSnapshot
 from .health.service import HealthService
@@ -42,6 +43,7 @@ class Runtime:
     rooms_service: RoomsService
     duty_lease_coordinator: DutyLeaseCoordinator
     terminal_duty_service: TerminalDutyService
+    room_participation_coordinator: RoomParticipationCoordinator
     dispatch_service: DispatchService
     peer_adapter: PeerAdapter
 
@@ -102,6 +104,11 @@ def create_runtime(
     rooms_service = RoomsService(governance_broker, clock=context.clock, ids=context.ids)
     duty_lease_coordinator = DutyLeaseCoordinator(state_store, clock=context.clock, ids=context.ids)
     terminal_duty_service = TerminalDutyService(duty_lease_coordinator)
+    room_participation_coordinator = RoomParticipationCoordinator(
+        state_store,
+        clock=context.clock,
+        ids=context.ids,
+    )
     dispatch_service = DispatchService(
         state_store,
         clock=context.clock,
@@ -193,9 +200,8 @@ def create_runtime(
         room=rooms_service,
         duty=duty_lease_coordinator,
         terminal_duty=terminal_duty_service,
+        room_session=room_participation_coordinator,
     )
-
-    # Note: session-rotation wiring is deliberately deferred pending a proper unit-of-work-sharing design.
 
     return Runtime(
         context=context,
@@ -207,6 +213,7 @@ def create_runtime(
         rooms_service=rooms_service,
         duty_lease_coordinator=duty_lease_coordinator,
         terminal_duty_service=terminal_duty_service,
+        room_participation_coordinator=room_participation_coordinator,
         dispatch_service=dispatch_service,
         peer_adapter=peer_adapter,
         telemetry_projector=telemetry_projector,

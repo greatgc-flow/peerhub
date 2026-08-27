@@ -54,6 +54,13 @@ from peerhub.dispatch.duty_lease import (
     DutyLeaseCoordinator,
     DutyOwnerIdentity,
 )
+from peerhub.dispatch.room_session import (
+    RoomParticipationCoordinator,
+    RoomSessionEndRequest,
+    RoomSessionHeartbeatRequest,
+    RoomSessionOpenRequest,
+    RoomSessionSnapshot,
+)
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row
@@ -831,6 +838,99 @@ def _run_duty(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _room_session_payload(session: RoomSessionSnapshot) -> dict[str, Any]:
+    return {
+        "session_id": session.session_id,
+        "workspace_scope_id": session.workspace_scope_id,
+        "room_id": session.room_id,
+        "actor_principal_id": session.actor_principal_id,
+        "owner": {
+            "instance_id": session.owner.instance_id,
+            "profile_id": session.owner.profile_id,
+        },
+        "session_fingerprint": session.session_fingerprint,
+        "session_generation": session.session_generation,
+        "resume_parent_session_id": session.resume_parent_session_id,
+        "state": session.state.value,
+        "heartbeat_expires_at": session.heartbeat_expires_at,
+        "created_at": session.created_at,
+        "updated_at": session.updated_at,
+    }
+
+
+def _run_session(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            coordinator = RoomParticipationCoordinator(
+                runtime.state_store,
+                clock=context.clock,
+                ids=context.ids,
+            )
+            owner = DutyOwnerIdentity(parsed.instance_id, parsed.profile_id)
+            if parsed.session_action == "open":
+                session = coordinator.open_session(
+                    RoomSessionOpenRequest(
+                        workspace_scope_id=parsed.workspace_scope_id,
+                        room_id=parsed.room_id,
+                        actor_principal_id=parsed.actor_principal_id,
+                        owner=owner,
+                        session_fingerprint=parsed.session_fingerprint,
+                        heartbeat_timeout_ms=parsed.heartbeat_timeout_ms,
+                    )
+                )
+            else:
+                if parsed.session_action == "heartbeat":
+                    session = coordinator.heartbeat(
+                        RoomSessionHeartbeatRequest(
+                            session_id=parsed.session_id,
+                            session_generation=parsed.session_generation,
+                            workspace_scope_id=parsed.workspace_scope_id,
+                            room_id=parsed.room_id,
+                            actor_principal_id=parsed.actor_principal_id,
+                            owner=owner,
+                        ),
+                        heartbeat_timeout_ms=parsed.heartbeat_timeout_ms,
+                    )
+                else:
+                    session = coordinator.end_session(
+                        RoomSessionEndRequest(
+                            session_id=parsed.session_id,
+                            session_generation=parsed.session_generation,
+                            workspace_scope_id=parsed.workspace_scope_id,
+                            room_id=parsed.room_id,
+                            actor_principal_id=parsed.actor_principal_id,
+                            owner=owner,
+                        )
+                    )
+
+            if parsed.json:
+                print(json.dumps(_room_session_payload(session)))
+            elif parsed.session_action == "open":
+                print(
+                    f"Room session opened for {session.room_id} "
+                    f"(session={session.session_id}, "
+                    f"generation={session.session_generation})"
+                )
+            elif parsed.session_action == "heartbeat":
+                print(f"Heartbeat sent for room session {session.session_id}")
+            else:
+                print(f"Room session {session.session_id} closed")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub session: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
     parser.add_argument("--version", action="version", version=version("peerhub"))
@@ -1121,6 +1221,87 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument("--heartbeat-timeout-ms", type=int, default=60_000, help="Heartbeat timeout in milliseconds (default: 60000)")
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
+    session_parser = subparsers.add_parser(
+        "session", help="Manage room-participation sessions"
+    )
+    session_subparsers = session_parser.add_subparsers(
+        dest="session_action", required=True
+    )
+    session_specs = {
+        "open": [
+            ("--workspace-scope-id", True),
+            ("--room-id", True),
+            ("--actor-principal-id", True),
+            ("--instance-id", True),
+            ("--profile-id", True),
+            ("--session-fingerprint", True),
+        ],
+        "heartbeat": [
+            ("--session-id", True),
+            ("--session-generation", True),
+            ("--workspace-scope-id", True),
+            ("--room-id", True),
+            ("--actor-principal-id", True),
+            ("--instance-id", True),
+            ("--profile-id", True),
+        ],
+        "close": [
+            ("--session-id", True),
+            ("--session-generation", True),
+            ("--workspace-scope-id", True),
+            ("--room-id", True),
+            ("--actor-principal-id", True),
+            ("--instance-id", True),
+            ("--profile-id", True),
+        ],
+    }
+    session_subcommand_help = {
+        "open": "Open or resume this peer's participation in a room",
+        "heartbeat": "Renew an active room-participation session",
+        "close": "End an active room-participation session",
+    }
+    session_arg_help = {
+        "--session-id": "Room-session identifier returned by session open",
+        "--session-generation": "Current session-generation fencing token",
+        "--workspace-scope-id": "Workspace scope that owns the room",
+        "--room-id": "Room in which this peer is participating",
+        "--actor-principal-id": "Principal represented by this session",
+        "--instance-id": "Participant instance ID used in the session fence",
+        "--profile-id": "Participant profile ID used in the session fence",
+        "--session-fingerprint": "Stable fingerprint used to detect a resumable or replaced session",
+    }
+    for action, arguments in session_specs.items():
+        command_parser = session_subparsers.add_parser(
+            action, help=session_subcommand_help[action]
+        )
+        command_parser.add_argument(
+            "--workspace",
+            default=".",
+            help="Path to the workspace root containing PeerHub state",
+        )
+        for name, required in arguments:
+            command_parser.add_argument(
+                name,
+                required=required,
+                type=int if name == "--session-generation" else str,
+                help=session_arg_help[name],
+            )
+        if action in {"open", "heartbeat"}:
+            command_parser.add_argument(
+                "--heartbeat-timeout-ms",
+                type=int,
+                default=60_000,
+                help=(
+                    "Milliseconds of liveness granted by this operation "
+                    "(default: 60000)"
+                ),
+            )
+        command_parser.add_argument(
+            "--json",
+            action="store_true",
+            help="Emit the complete persisted session snapshot as JSON",
+        )
+
     parsed = parser.parse_args(args)
 
     if parsed.command == "statusline":
@@ -1140,6 +1321,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "duty":
         return _run_duty(parsed)
+
+    if parsed.command == "session":
+        return _run_session(parsed)
 
     if parsed.command == "diag":
         return _run_diag(parsed)

@@ -55,6 +55,13 @@ from peerhub.governance.rooms import RoomsService
 from peerhub.governance.activity import list_active_lessons
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.dispatch.duty_lease import DutyLeaseCoordinator, DutyOwnerIdentity, DutyLeaseCloseRequest, DutyLeaseCreateRequest
+from peerhub.dispatch.room_session import (
+    RoomParticipationCoordinator,
+    RoomSessionEndRequest,
+    RoomSessionHeartbeatRequest,
+    RoomSessionOpenRequest,
+    RoomSessionSnapshot,
+)
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
@@ -63,6 +70,7 @@ from peerhub.application.legacy import (
     TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, ApprovalRequestCommand,
     ConsensusSweepCommand, LessonsListCommand,
+    SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
 )
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
@@ -268,6 +276,7 @@ class ApplicationAPI:
         lesson_broker: GovernanceBroker | None = None,
         room: RoomsService | None = None, duty: DutyLeaseCoordinator | None = None,
         terminal_duty: TerminalDutyService | None = None,
+        room_session: RoomParticipationCoordinator | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -282,6 +291,7 @@ class ApplicationAPI:
         if lesson is not None and lesson_broker is not None: self._register_lesson(lesson, lesson_broker)
         if room is not None: self._register_room(room)
         if duty is not None and terminal_duty is not None: self._register_duty(duty, terminal_duty)
+        if room_session is not None: self._register_room_session(room_session)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -429,6 +439,145 @@ class ApplicationAPI:
         self.register(CommandDescriptor("coordination.terminal.handoff", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, handoff, lambda c,_:t.handoff_terminal_duty(c.current_lease_id,c.room_id,DutyOwnerIdentity(c.current_instance_id,c.current_profile_id),c.term,c.authority_epoch,DutyOwnerIdentity(c.new_instance_id,c.new_profile_id),c.new_owner_principal_id,c.new_authority_epoch), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.terminal.heartbeat", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, heartbeat, lambda c,_:t.send_heartbeat(c.lease_id,c.room_id,owner(c),c.term,c.authority_epoch), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.terminal.close", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, close, lambda c,_:t.close_terminal_duty(c.lease_id,c.room_id,DutyOwnerIdentity(c.instance_id,c.profile_id),c.term,c.authority_epoch), enc, CommandAvailability.AVAILABLE))
+
+    def _register_room_session(
+        self, coordinator: RoomParticipationCoordinator
+    ) -> None:
+        def text(envelope: CommandEnvelope, name: str) -> str:
+            value = envelope.params[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def integer(envelope: CommandEnvelope, name: str) -> int:
+            value = envelope.params[name]
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise ValueError(f"{name} must be an integer")
+            return value
+
+        def owner(
+            command: SessionOpenCommand | SessionCloseCommand,
+        ) -> DutyOwnerIdentity:
+            return DutyOwnerIdentity(command.instance_id, command.profile_id)
+
+        def decode_open(envelope: CommandEnvelope) -> SessionOpenCommand:
+            return SessionOpenCommand(
+                self._submission(envelope),
+                text(envelope, "workspace_scope_id"),
+                text(envelope, "room_id"),
+                text(envelope, "actor_principal_id"),
+                text(envelope, "instance_id"),
+                text(envelope, "profile_id"),
+                text(envelope, "session_fingerprint"),
+                integer(envelope, "heartbeat_timeout_ms"),
+            )
+
+        def decode_close(envelope: CommandEnvelope) -> SessionCloseCommand:
+            return SessionCloseCommand(
+                self._submission(envelope),
+                text(envelope, "session_id"),
+                integer(envelope, "session_generation"),
+                text(envelope, "workspace_scope_id"),
+                text(envelope, "room_id"),
+                text(envelope, "actor_principal_id"),
+                text(envelope, "instance_id"),
+                text(envelope, "profile_id"),
+            )
+
+        def decode_heartbeat(
+            envelope: CommandEnvelope,
+        ) -> SessionHeartbeatCommand:
+            return SessionHeartbeatCommand(
+                self._submission(envelope),
+                text(envelope, "session_id"),
+                integer(envelope, "session_generation"),
+                text(envelope, "workspace_scope_id"),
+                text(envelope, "room_id"),
+                text(envelope, "actor_principal_id"),
+                text(envelope, "instance_id"),
+                text(envelope, "profile_id"),
+                integer(envelope, "heartbeat_timeout_ms"),
+            )
+
+        def encode_snapshot(
+            snapshot: RoomSessionSnapshot,
+        ) -> Mapping[str, JsonValue]:
+            return {
+                "session_id": snapshot.session_id,
+                "workspace_scope_id": snapshot.workspace_scope_id,
+                "room_id": snapshot.room_id,
+                "actor_principal_id": snapshot.actor_principal_id,
+                "owner": {
+                    "instance_id": snapshot.owner.instance_id,
+                    "profile_id": snapshot.owner.profile_id,
+                },
+                "session_fingerprint": snapshot.session_fingerprint,
+                "session_generation": snapshot.session_generation,
+                "resume_parent_session_id": snapshot.resume_parent_session_id,
+                "state": snapshot.state.value,
+                "heartbeat_expires_at": snapshot.heartbeat_expires_at,
+                "created_at": snapshot.created_at,
+                "updated_at": snapshot.updated_at,
+            }
+
+        self.register(CommandDescriptor(
+            "coordination.session.open",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_open,
+            lambda command, _: coordinator.open_session(
+                RoomSessionOpenRequest(
+                    workspace_scope_id=command.workspace_scope_id,
+                    room_id=command.room_id,
+                    actor_principal_id=command.actor_principal_id,
+                    owner=owner(command),
+                    session_fingerprint=command.session_fingerprint,
+                    heartbeat_timeout_ms=command.heartbeat_timeout_ms,
+                )
+            ),
+            encode_snapshot,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.session.close",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_close,
+            lambda command, _: coordinator.end_session(
+                RoomSessionEndRequest(
+                    session_id=command.session_id,
+                    session_generation=command.session_generation,
+                    workspace_scope_id=command.workspace_scope_id,
+                    room_id=command.room_id,
+                    actor_principal_id=command.actor_principal_id,
+                    owner=owner(command),
+                )
+            ),
+            encode_snapshot,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.session.heartbeat",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_heartbeat,
+            lambda command, _: coordinator.heartbeat(
+                RoomSessionHeartbeatRequest(
+                    session_id=command.session_id,
+                    session_generation=command.session_generation,
+                    workspace_scope_id=command.workspace_scope_id,
+                    room_id=command.room_id,
+                    actor_principal_id=command.actor_principal_id,
+                    owner=owner(command),
+                ),
+                heartbeat_timeout_ms=command.heartbeat_timeout_ms,
+            ),
+            encode_snapshot,
+            CommandAvailability.AVAILABLE,
+        ))
 
     def register(self, descriptor: CommandDescriptor[Any, Any]) -> None:  # pyright: ignore[reportInvalidTypeArguments]
         if descriptor.method in self._registry:

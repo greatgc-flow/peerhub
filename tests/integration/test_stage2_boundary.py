@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, ConsensusProposeCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, ConsensusProposeCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
@@ -15,6 +15,10 @@ from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
 from peerhub.core.context import PathLayout
 from peerhub.dispatch.duty_lease import DutyOwnerIdentity
+from peerhub.dispatch.room_session import (
+    RoomSessionOpenRequest,
+    RoomSessionState,
+)
 from tests.integration.conftest import FakeClock, FakeIdSource
 
 
@@ -156,6 +160,118 @@ def test_legacy_terminal_close_translates_and_executes(runtime_setup) -> None:
     assert isinstance(translated, TranslatedCommand)
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.duty_lease_coordinator.get_lease(lease.lease_id).state.value == "RELEASED"
+
+
+def test_legacy_init_session_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "init-session",
+            {
+                "workspace_scope_id": "workspace-1",
+                "room_id": "room-session-1",
+                "actor_principal_id": "peer-1",
+                "instance_id": "instance-1",
+                "profile_id": "cx.standard",
+                "session_fingerprint": "fingerprint-1",
+                "heartbeat_timeout_ms": 5_000,
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, SessionOpenCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["state"] == "ACTIVE"
+    assert outcome.result["owner"] == {
+        "instance_id": "instance-1",
+        "profile_id": "cx.standard",
+    }
+    session = runtime.room_participation_coordinator.get_session(
+        str(outcome.result["session_id"])
+    )
+    assert session is not None
+    assert session.state is RoomSessionState.ACTIVE
+
+
+def test_legacy_end_session_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    owner = DutyOwnerIdentity("instance-1", "cx.standard")
+    session = runtime.room_participation_coordinator.open_session(
+        RoomSessionOpenRequest(
+            workspace_scope_id="workspace-1",
+            room_id="room-session-close",
+            actor_principal_id="peer-1",
+            owner=owner,
+            session_fingerprint="fingerprint-close",
+            heartbeat_timeout_ms=5_000,
+        )
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "end-session",
+            {
+                "session_id": session.session_id,
+                "session_generation": session.session_generation,
+                "workspace_scope_id": session.workspace_scope_id,
+                "room_id": session.room_id,
+                "actor_principal_id": session.actor_principal_id,
+                "instance_id": owner.instance_id,
+                "profile_id": owner.profile_id,
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, SessionCloseCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["state"] == "ENDED"
+    persisted = runtime.room_participation_coordinator.get_session(
+        session.session_id
+    )
+    assert persisted is not None
+    assert persisted.state is RoomSessionState.ENDED
+
+
+def test_native_session_heartbeat_executes_through_client(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    owner = DutyOwnerIdentity("instance-1", "cx.standard")
+    session = runtime.room_participation_coordinator.open_session(
+        RoomSessionOpenRequest(
+            workspace_scope_id="workspace-1",
+            room_id="room-session-heartbeat",
+            actor_principal_id="peer-1",
+            owner=owner,
+            session_fingerprint="fingerprint-heartbeat",
+            heartbeat_timeout_ms=5_000,
+        )
+    )
+    command = SessionHeartbeatCommand(
+        submission=_legacy_submission(),
+        session_id=session.session_id,
+        session_generation=session.session_generation,
+        workspace_scope_id=session.workspace_scope_id,
+        room_id=session.room_id,
+        actor_principal_id=session.actor_principal_id,
+        instance_id=owner.instance_id,
+        profile_id=owner.profile_id,
+        heartbeat_timeout_ms=10_000,
+    )
+
+    outcome = client.submit(command)
+
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["state"] == "ACTIVE"
+    assert outcome.result["heartbeat_expires_at"] == 11_000
+    persisted = runtime.room_participation_coordinator.get_session(
+        session.session_id
+    )
+    assert persisted is not None
+    assert persisted.heartbeat_expires_at == 11_000
 
 
 def test_legacy_approval_request_translates_and_executes(runtime_setup) -> None:
