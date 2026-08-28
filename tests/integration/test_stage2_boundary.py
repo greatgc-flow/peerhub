@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -1255,6 +1255,53 @@ def test_legacy_arbiter_review_translates_and_executes(tmp_path: Path) -> None:
         round_after = runtime.consensus_service.get_target("legacy-arbiter-review")
         assert round_after is not None
         assert round_after.state["arbiter_opinion"]["verdict"] == "APPROVE"
+
+
+def test_legacy_list_nodes_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall("list-nodes", {}), _legacy_submission()
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ListNodesCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert {item["state"]["node_id"] for item in outcome.result["nodes"]} == {
+        "ag",
+        "cc",
+        "cx",
+    }
+
+
+def test_legacy_register_node_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "register-node",
+            {"node_id": "legacy-worker-1", "peer_kind": "cc", "actor_id": "peer-1"},
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, RegisterNodeCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["target_id"] == "peer-node:legacy-worker-1"
+
+    translated_list = LegacyTranslator().translate(
+        LegacyActionCall("list-nodes", {}), _legacy_submission()
+    )
+    assert isinstance(translated_list, TranslatedCommand)
+    listed = client.submit(translated_list.command)
+    assert isinstance(listed, CommandSuccess)
+    assert any(
+        item["state"]["node_id"] == "legacy-worker-1"
+        for item in listed.result["nodes"]
+    )
 
 
 def test_admit_success(runtime_setup, monkeypatch):

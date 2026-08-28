@@ -873,6 +873,45 @@ class ArbiterReviewCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class RegisterNodeCommand(Command[Any]):
+    method: ClassVar[str] = "configuration.instance.register"
+    submission: SubmissionMetadata
+    node_id: str
+    peer_kind: str
+    profile_id: str | None
+    tier: int
+    node_type: str
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "node_id": self.node_id,
+            "peer_kind": self.peer_kind,
+            "profile_id": self.profile_id,
+            "tier": self.tier,
+            "node_type": self.node_type,
+            "actor_id": self.actor_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ListNodesCommand(Command[Any]):
+    method: ClassVar[str] = "configuration.instance.list"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 class LegacyTranslator:
     def translate(
         self,
@@ -1217,6 +1256,18 @@ class LegacyTranslator:
                 submission=submission,
                 round_id=str(call.arguments.get("round_id", "")),
             ))
+        if call.action == "register-node":
+            return TranslatedCommand(command=RegisterNodeCommand(
+                submission=submission,
+                node_id=str(call.arguments.get("node_id", "")),
+                peer_kind=str(call.arguments.get("peer_kind", "")),
+                profile_id=str(call.arguments["profile_id"]) if call.arguments.get("profile_id") is not None else None,
+                tier=_int_or_zero(call.arguments.get("tier")) if "tier" in call.arguments and call.arguments["tier"] is not None else 4,
+                node_type=str(call.arguments.get("node_type", "agent")),
+                actor_id=str(call.arguments.get("actor_id", "")),
+            ))
+        if call.action == "list-nodes":
+            return TranslatedCommand(command=ListNodesCommand(submission))
             
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,

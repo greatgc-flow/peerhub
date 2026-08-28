@@ -88,7 +88,9 @@ from peerhub.application.legacy import (
     ApprovalRequestCommand,
     ConsensusSweepCommand, LessonsListCommand, ProposalListCommand, ArbiterReviewCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
+    RegisterNodeCommand, ListNodesCommand,
 )
+from peerhub.application.peer_registry import PeerRegistryService
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
 R = TypeVar("R")  # pyright: ignore[reportUnknownVariableType]
@@ -304,6 +306,7 @@ class ApplicationAPI:
         terminal_duty: TerminalDutyService | None = None,
         room_session: RoomParticipationCoordinator | None = None,
         arbiter: ArbiterReviewCoordinator | None = None,
+        peer_registry: PeerRegistryService | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -321,6 +324,7 @@ class ApplicationAPI:
         if duty is not None and terminal_duty is not None:
             self._register_duty(duty, terminal_duty, room_session)
         if room_session is not None: self._register_room_session(room_session)
+        if peer_registry is not None: self._register_peer_registry(peer_registry)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -1148,6 +1152,82 @@ class ApplicationAPI:
                 heartbeat_timeout_ms=command.heartbeat_timeout_ms,
             ),
             encode_snapshot,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_peer_registry(self, service: PeerRegistryService) -> None:
+        def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
+            value = envelope.params.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string or null")
+            return value
+
+        def decode_register(envelope: CommandEnvelope) -> RegisterNodeCommand:
+            p = envelope.params
+            node_id = p["node_id"]
+            peer_kind = p["peer_kind"]
+            node_type = p.get("node_type", "agent")
+            tier = p.get("tier", 4)
+            actor_id = p["actor_id"]
+            if not isinstance(node_id, str) or not isinstance(peer_kind, str):
+                raise ValueError("node_id and peer_kind must be strings")
+            if not isinstance(node_type, str):
+                raise ValueError("node_type must be a string")
+            if not isinstance(tier, int) or isinstance(tier, bool):
+                raise ValueError("tier must be an integer")
+            if not isinstance(actor_id, str):
+                raise ValueError("actor_id must be a string")
+            return RegisterNodeCommand(
+                self._submission(envelope),
+                node_id,
+                peer_kind,
+                optional_text(envelope, "profile_id"),
+                tier,
+                node_type,
+                actor_id,
+            )
+
+        def decode_list(envelope: CommandEnvelope) -> ListNodesCommand:
+            return ListNodesCommand(self._submission(envelope))
+
+        def encode_nodes(results: Sequence[Any]) -> Mapping[str, JsonValue]:
+            nodes = [
+                {
+                    "target_id": result.target_id,
+                    "revision": result.revision,
+                    "state": result.state,
+                }
+                for result in results
+            ]
+            return {"nodes": cast(JsonValue, nodes)}
+
+        self.register(CommandDescriptor(
+            "configuration.instance.register",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_register,
+            lambda c, ctx: service.register_node(
+                node_id=c.node_id,
+                peer_kind=c.peer_kind,
+                profile_id=c.profile_id,
+                tier=c.tier,
+                node_type=c.node_type,
+                actor_id=c.actor_id,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "configuration.instance.list",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_list,
+            lambda c, ctx: service.list_nodes(),
+            encode_nodes,
             CommandAvailability.AVAILABLE,
         ))
 

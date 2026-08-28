@@ -36,6 +36,7 @@ from peerhub.application.direct_ask import (
     execute_direct_ask,
 )
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
+from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
 from peerhub.core.identity import (
@@ -839,6 +840,45 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_node(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = PeerRegistryService(runtime.governance_broker, clock=context.clock, ids=context.ids)
+            if parsed.node_action == "register":
+                submission = service.register_node(
+                    node_id=parsed.node_id,
+                    peer_kind=parsed.peer_kind,
+                    profile_id=parsed.profile_id,
+                    tier=parsed.tier,
+                    node_type=parsed.node_type,
+                    actor_id=parsed.actor,
+                )
+                target = runtime.governance_broker.get_target(submission.receipt.target_id)
+                assert target is not None
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(f"Node {parsed.node_id} registered (peer_kind={target.state['peer_kind']}, profile_id={target.state['profile_id']})")
+                return 0
+            nodes = service.list_nodes()
+            if parsed.json:
+                print(json.dumps(_json_safe({"nodes": [{"target_id": n.target_id, "revision": n.revision, "state": n.state} for n in nodes]})))
+            elif not nodes:
+                print("No nodes registered.")
+            else:
+                print("Nodes:")
+                for n in nodes:
+                    state = cast(Mapping[str, Any], n.state)
+                    print(f"{state['node_id']}: peer_kind={state['peer_kind']}, profile_id={state['profile_id']}, source={state.get('source', 'registered')}")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub node: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_room(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -1518,6 +1558,21 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required, default=default, help=lesson_arg_help[name])
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
+    node_parser = subparsers.add_parser("node", help="Manage the peer node registry")
+    node_subparsers = node_parser.add_subparsers(dest="node_action", required=True)
+    node_register_parser = node_subparsers.add_parser("register", help="Register a peer node, binding it to an existing adapter kind + profile")
+    node_register_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+    node_register_parser.add_argument("--node-id", required=True, help="Node identifier (must not collide with a base adapter kind or CLI alias)")
+    node_register_parser.add_argument("--peer-kind", required=True, help="Adapter kind or CLI alias this node binds to (e.g. cc, cx, ag)")
+    node_register_parser.add_argument("--profile-id", default=None, help="Profile ID on that adapter (auto-selected if the adapter declares exactly one)")
+    node_register_parser.add_argument("--tier", type=int, default=4, help="Display-only tier value (default: 4, no authority)")
+    node_register_parser.add_argument("--node-type", default="agent", help="Node type (validated free text, default: agent)")
+    node_register_parser.add_argument("--actor", required=True, help="Peer ID performing this registration")
+    node_register_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    node_list_parser = node_subparsers.add_parser("list", help="List all peer nodes (base adapter-registry nodes plus registered ones)")
+    node_list_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+    node_list_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
     room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
     room_specs = {
@@ -1809,6 +1864,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "lesson":
         return _run_lesson(parsed)
+
+    if parsed.command == "node":
+        return _run_node(parsed)
 
     if parsed.command == "room":
         return _run_room(parsed)
