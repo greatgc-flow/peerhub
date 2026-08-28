@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 import hashlib
 import json
+import re
 from typing import cast
 
 from peerhub.core.context import Clock, IdSource
-from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
+from peerhub.core.errors import (
+    InvalidMutationError,
+    RecordNotFoundError,
+    StaleRevisionError,
+)
 from peerhub.core.protocol import CommandID, JsonValue
 
 from .broker import GovernanceBroker
@@ -374,6 +379,131 @@ class ConsensusService:
             desired_state=state,
         )
 
+    def record_arbiter_opinion(
+        self,
+        round_id: str,
+        *,
+        request_target_id: str,
+        opinion_target_id: str,
+        actor_id: str,
+    ) -> MutationSubmission | None:
+        """Attach the first valid arbiter opinion without changing resolution.
+
+        The application layer owns creation of the immutable request and
+        opinion targets.  Consensus owns only validation of those records and
+        the canonical reference on the round.  A repeated call for the same
+        opinion is idempotent; a different valid opinion never replaces the
+        first one.
+        """
+
+        request_target = self._broker.get_target(request_target_id)
+        if request_target is None:
+            raise RecordNotFoundError("arbiter-review", request_target_id)
+        opinion_target = self._broker.get_target(opinion_target_id)
+        if opinion_target is None:
+            raise RecordNotFoundError("arbiter-opinion", opinion_target_id)
+
+        request_state = request_target.state
+        opinion_state = opinion_target.state
+        review_id = _required_text(request_state, "review_id")
+        expected_request_id = f"arbiter-review:{round_id}:{review_id}"
+        expected_opinion_id = f"arbiter-opinion:{round_id}:{review_id}"
+        if (
+            request_target_id != expected_request_id
+            or opinion_target_id != expected_opinion_id
+            or request_state.get("kind") != "arbiter-review"
+            or opinion_state.get("kind") != "arbiter-opinion"
+            or request_state.get("round_id") != round_id
+            or opinion_state.get("round_id") != round_id
+            or opinion_state.get("review_id") != review_id
+            or opinion_state.get("request_target_id") != request_target_id
+        ):
+            raise InvalidMutationError(
+                "arbiter request and opinion target identities do not match"
+            )
+
+        candidate = _required_mapping(request_state, "candidate")
+        returned_by = _required_mapping(opinion_state, "returned_by")
+        candidate_peer = _required_text(candidate, "peer_name")
+        candidate_profile = _required_text(candidate, "profile_id")
+        if (
+            _required_text(returned_by, "peer_name") != candidate_peer
+            or _required_text(returned_by, "profile_id")
+            != candidate_profile
+        ):
+            raise InvalidMutationError(
+                "arbiter opinion peer/profile does not match the frozen request"
+            )
+
+        dispatch = _required_mapping(opinion_state, "dispatch")
+        if dispatch.get("state") != "SUCCEEDED_VERIFIED":
+            raise InvalidMutationError(
+                "arbiter opinion dispatch is not SUCCEEDED_VERIFIED"
+            )
+        response_text = opinion_state.get("response_text")
+        if not isinstance(response_text, str):
+            raise InvalidMutationError("arbiter opinion response_text is invalid")
+        parsed_verdict = _strict_arbiter_verdict(response_text)
+        if (
+            parsed_verdict is None
+            or opinion_state.get("parsed_verdict") != parsed_verdict
+        ):
+            raise InvalidMutationError(
+                "arbiter opinion does not contain a syntactically valid verdict"
+            )
+
+        for _ in range(8):
+            target = self._broker.get_target(round_id)
+            if target is None:
+                raise RecordNotFoundError("consensus-round", round_id)
+            state = dict(target.state)
+            if state.get("status") != "resolved":
+                raise InvalidMutationError(
+                    "arbiter opinions require a resolved consensus round"
+                )
+            current = state.get("arbiter_opinion")
+            if current is not None:
+                if not isinstance(current, Mapping):
+                    raise InvalidMutationError(
+                        "consensus round arbiter_opinion is invalid"
+                    )
+                # First valid canonical opinion wins.  Later valid immutable
+                # opinions remain evidence but never replace that reference.
+                return None
+
+            audit = dict(_required_mapping(state, "audit"))
+            state["arbiter_opinion"] = {
+                "request_target_id": request_target_id,
+                "opinion_target_id": opinion_target_id,
+                "review_id": review_id,
+                "verdict": parsed_verdict,
+                "peer_name": candidate_peer,
+                "profile_id": candidate_profile,
+                "recorded_at": _required_nonnegative_int(
+                    opinion_state,
+                    "recorded_at",
+                ),
+            }
+            self._finish(
+                state,
+                audit,
+                "record_arbiter_opinion",
+                actor_id,
+            )
+            try:
+                return self._submit(
+                    target_id=round_id,
+                    expected_revision=target.revision,
+                    actor_id=actor_id,
+                    operation="consensus.record_arbiter_opinion",
+                    desired_state=state,
+                )
+            except StaleRevisionError:
+                continue
+        raise InvalidMutationError(
+            "consensus round changed repeatedly while recording arbiter opinion"
+        )
+
     def _submit(
         self,
         *,
@@ -401,3 +531,46 @@ class ConsensusService:
                 effect_intent=EffectIntent(kind="consensus.noop", payload={}),
             )
         )
+
+
+def _required_mapping(
+    value: Mapping[str, JsonValue],
+    field: str,
+) -> Mapping[str, JsonValue]:
+    result = value.get(field)
+    if not isinstance(result, Mapping):
+        raise InvalidMutationError(f"{field} must be an object")
+    return result
+
+
+def _required_text(value: Mapping[str, JsonValue], field: str) -> str:
+    result = value.get(field)
+    if not isinstance(result, str) or not result.strip():
+        raise InvalidMutationError(f"{field} must be a non-empty string")
+    return result
+
+
+def _required_nonnegative_int(
+    value: Mapping[str, JsonValue],
+    field: str,
+) -> int:
+    result = value.get(field)
+    if type(result) is not int or result < 0:
+        raise InvalidMutationError(f"{field} must be a nonnegative integer")
+    return result
+
+
+_ARBITER_VERDICT = re.compile(
+    r"VERDICT:\s*(APPROVE|REJECT)",
+    re.IGNORECASE,
+)
+
+
+def _strict_arbiter_verdict(response_text: str) -> str | None:
+    for line in response_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = _ARBITER_VERDICT.fullmatch(stripped)
+        return match.group(1).upper() if match is not None else None
+    return None
