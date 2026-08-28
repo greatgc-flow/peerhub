@@ -6,11 +6,14 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand
+from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.contract import RequestState
 from peerhub.core.protocol import CommandEnvelope, CommandSuccess, CommandFailure, ErrorCode, PROTOCOL_MAJOR, PROTOCOL_MINOR, SCHEMA_VERSION, IdempotencyDisposition
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime, RuntimeContext
 from peerhub.core.context import PathLayout
@@ -1161,6 +1164,97 @@ def test_legacy_proposal_list_translates_and_executes(runtime_setup) -> None:
         item["target_id"] == "legacy-proposal-list"
         for item in outcome.result["proposals"]
     )
+
+
+class _FakeArbiterExecutor:
+    """Stands in for execute_direct_ask so this test never spawns a real peer process."""
+
+    def __init__(self, response_text: str) -> None:
+        self.response_text = response_text
+        self.requests: list[DirectAskRequest] = []
+
+    def __call__(
+        self,
+        request: DirectAskRequest,
+        *,
+        clock: Any,
+        ids: Any,
+        authenticated_subject: AuthenticatedSubject,
+    ) -> DirectAskResult:
+        del clock, ids, authenticated_subject
+        self.requests.append(request)
+        return DirectAskResult(
+            command_id="ask-command-1",
+            attempt_id="ask-attempt-1",
+            peer_kind="cc",
+            profile_id="cc.deepthink",
+            response_text=self.response_text,
+            request_state=RequestState.SUCCEEDED_VERIFIED,
+            error_code=None,
+            execution_certainty=None,
+        )
+
+
+def test_legacy_arbiter_review_translates_and_executes(tmp_path: Path) -> None:
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir()
+    (config_dir / "arbiter.json").write_text(
+        '{"enabled": true, "triggers": ["dissent"]}',
+        encoding="utf-8",
+    )
+
+    fake_executor = _FakeArbiterExecutor("VERDICT: APPROVE")
+    layout = PathLayout.for_workspace(tmp_path)
+    context = RuntimeContext("home-1", layout, FakeClock(), FakeIdSource())
+    with create_runtime(context, arbiter_executor=fake_executor) as runtime:
+        caller = RequestContext(principal="user-1", client_id="client-1")
+        client = Client(runtime.application_api, caller=caller)
+
+        runtime.consensus_service.propose(
+            round_id="legacy-arbiter-review",
+            title="Deploy?",
+            question="Should we deploy?",
+            body="Review the rollout evidence and decide.",
+            proposer_id="peer-1",
+            required_participants=("peer-1", "peer-2"),
+            eligible_participants=("peer-1", "peer-2"),
+            risk="normal",
+            source_hash="sha256:legacy-arbiter-review",
+        )
+        runtime.consensus_service.cast_vote(
+            "legacy-arbiter-review", actor_id="peer-1", choice="agree"
+        )
+        runtime.consensus_service.cast_vote(
+            "legacy-arbiter-review", actor_id="peer-2", choice="disagree"
+        )
+        target = runtime.consensus_service.get_target("legacy-arbiter-review")
+        assert target is not None
+        if target.state["phase"] != "quorum_reached":
+            runtime.consensus_service.request_escalation(
+                "legacy-arbiter-review", "dissenting vote", "peer-1", 0, "human-tier-0",
+            )
+        runtime.consensus_service.resolve(
+            "legacy-arbiter-review", "approved", "human:reviewer", "manual resolution",
+        )
+
+        translated = LegacyTranslator().translate(
+            LegacyActionCall("arbiter-review", {"round_id": "legacy-arbiter-review"}),
+            _legacy_submission(),
+        )
+
+        assert isinstance(translated, TranslatedCommand)
+        assert isinstance(translated.command, ArbiterReviewCommand)
+        outcome = client.submit(translated.command)
+        assert isinstance(outcome, CommandSuccess)
+        assert outcome.result["fired"] is True
+        assert outcome.result["parsed_verdict"] == "APPROVE"
+        assert fake_executor.requests, (
+            "arbiter review must dispatch through the injected fake executor, "
+            "never spawn a real peer process during a test"
+        )
+        round_after = runtime.consensus_service.get_target("legacy-arbiter-review")
+        assert round_after is not None
+        assert round_after.state["arbiter_opinion"]["verdict"] == "APPROVE"
 
 
 def test_admit_success(runtime_setup, monkeypatch):

@@ -859,6 +859,20 @@ class ProposalListCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class ArbiterReviewCommand(Command[Any]):
+    method: ClassVar[str] = "consensus.arbiter.review"
+    submission: SubmissionMetadata
+    round_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"round_id": self.round_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 class LegacyTranslator:
     def translate(
         self,
@@ -1198,6 +1212,11 @@ class LegacyTranslator:
             return TranslatedCommand(command=LessonsListCommand(submission, None if value is None else str(value)))
         if call.action == "proposal-list":
             return TranslatedCommand(command=ProposalListCommand(submission))
+        if call.action == "arbiter-review":
+            return TranslatedCommand(command=ArbiterReviewCommand(
+                submission=submission,
+                round_id=str(call.arguments.get("round_id", "")),
+            ))
             
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,

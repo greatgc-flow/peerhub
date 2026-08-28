@@ -686,6 +686,18 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                             f"votes={len(votes)}/{len(required)}"
                         )
                 return 0
+            if parsed.consensus_action == "arbiter-review":
+                result = runtime.arbiter_coordinator.review(parsed.round_id)
+                if parsed.json:
+                    print(json.dumps(_json_safe(result)))
+                else:
+                    fired = result.get("fired")
+                    reason = result.get("reason")
+                    print(f"Arbiter review for round {parsed.round_id}: fired={fired}, reason={reason}")
+                    if fired:
+                        print(f"  Verdict: {result.get('parsed_verdict', 'unknown')}")
+                        print(f"  Canonical attached: {result.get('canonical', False)}")
+                return 0
             target = runtime.governance_broker.get_target(parsed.round_id)
             if target is None:
                 raise RecordNotFoundError("consensus-round", parsed.round_id)
@@ -1372,6 +1384,25 @@ def main(args: list[str] | None = None) -> int:
         help="Path to the workspace root containing consensus state",
     )
     list_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit machine-readable JSON",
+    )
+    arbiter_review_parser = consensus_subparsers.add_parser(
+        "arbiter-review",
+        help="Run final arbiter review on a consensus round",
+    )
+    arbiter_review_parser.add_argument(
+        "--workspace",
+        default=".",
+        help="Path to the workspace root",
+    )
+    arbiter_review_parser.add_argument(
+        "--round-id",
+        required=True,
+        help="Consensus round identifier",
+    )
+    arbiter_review_parser.add_argument(
         "--json",
         action="store_true",
         help="Emit machine-readable JSON",

@@ -29,7 +29,6 @@ from peerhub.routing.contract import (
 )
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
 from peerhub.telemetry.contract import UsageMeasurement
-from peerhub.runtime import create_runtime
 from peerhub.dispatch.materializer import ArtifactMaterializer
 
 
@@ -161,7 +160,9 @@ def execute_direct_ask(
     )
     
     admission_config = build_direct_ask_admission_config(target, clock=clock, ids=ids)
-    
+
+    from peerhub.runtime import create_runtime  # local: avoids a runtime<->arbiter_review<->direct_ask import cycle
+
     runtime = create_runtime(
         context,
         admission_config=admission_config,

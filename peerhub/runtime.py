@@ -28,6 +28,8 @@ from .health.service import HealthService
 from .persistence.sqlite import SqliteStateStore
 from .routing.service import RoutingService
 from .telemetry.projections import TelemetryProjector
+from .application.arbiter_review import ArbiterReviewCoordinator, ArbiterExecutor
+from .application.direct_ask import execute_direct_ask
 
 
 @dataclass
@@ -50,6 +52,7 @@ class Runtime:
     telemetry_projector: TelemetryProjector
     health_service: HealthService
     routing_service: RoutingService
+    arbiter_coordinator: ArbiterReviewCoordinator
     application_workflows: ApplicationWorkflows
     application_api: ApplicationAPI
 
@@ -80,6 +83,7 @@ def create_runtime(
     admission_provider: AdmissionInputsProvider | None = None,
     adapter_peer_kind: str = "fake",
     admission_config: "DirectAskAdmissionConfig | None" = None,
+    arbiter_executor: ArbiterExecutor | None = None,
 ) -> Runtime:
     """Create the composed Phase 1 runtime."""
 
@@ -189,6 +193,29 @@ def create_runtime(
         peer_adapter=peer_adapter,
     )
 
+    from peerhub.core.identity import LocalProcessCallerIdentityProvider, AuthenticatedSubject
+    subject = LocalProcessCallerIdentityProvider().resolve()
+    if subject is None:
+        subject = AuthenticatedSubject("system", "runtime")
+
+    # Not every RuntimeContext.paths in the test suite is a full PathLayout
+    # (some minimal doubles only implement database_path); derive workspace_root
+    # from database_path using the same layout PathLayout.for_workspace builds
+    # rather than requiring every caller to carry the attribute.
+    arbiter_workspace_root = getattr(
+        context.paths, "workspace_root", None
+    ) or context.paths.database_path.parent.parent
+
+    arbiter_coordinator = ArbiterReviewCoordinator(
+        broker=governance_broker,
+        consensus=consensus_service,
+        workspace_root=arbiter_workspace_root,
+        clock=context.clock,
+        ids=context.ids,
+        authenticated_subject=subject,
+        executor=arbiter_executor or execute_direct_ask,
+    )
+
     application_api = ApplicationAPI(
         workflows=application_workflows,
         dispatch=dispatch_service,
@@ -201,6 +228,7 @@ def create_runtime(
         duty=duty_lease_coordinator,
         terminal_duty=terminal_duty_service,
         room_session=room_participation_coordinator,
+        arbiter=arbiter_coordinator,
     )
 
     return Runtime(
@@ -219,6 +247,7 @@ def create_runtime(
         telemetry_projector=telemetry_projector,
         health_service=health_service,
         routing_service=routing_service,
+        arbiter_coordinator=arbiter_coordinator,
         application_workflows=application_workflows,
         application_api=application_api,
     )

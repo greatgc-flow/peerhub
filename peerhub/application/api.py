@@ -42,6 +42,7 @@ from peerhub.application.lesson_broadcast import (
     LessonBroadcastCoordinator,
     LessonBroadcastResult,
 )
+from peerhub.application.arbiter_review import ArbiterReviewCoordinator
 from peerhub.application.commands import (
     Command,
     AdmitDispatch,
@@ -85,7 +86,7 @@ from peerhub.application.legacy import (
     TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
     ApprovalRequestCommand,
-    ConsensusSweepCommand, LessonsListCommand, ProposalListCommand,
+    ConsensusSweepCommand, LessonsListCommand, ProposalListCommand, ArbiterReviewCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
 )
 
@@ -298,9 +299,11 @@ class ApplicationAPI:
         consensus: ConsensusService | None = None,
         task: TaskService | None = None, lesson: LessonService | None = None,
         lesson_broker: GovernanceBroker | None = None,
-        room: RoomsService | None = None, duty: DutyLeaseCoordinator | None = None,
+        room: RoomsService | None = None,
+        duty: DutyLeaseCoordinator | None = None,
         terminal_duty: TerminalDutyService | None = None,
         room_session: RoomParticipationCoordinator | None = None,
+        arbiter: ArbiterReviewCoordinator | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -310,7 +313,7 @@ class ApplicationAPI:
         
         self._register_builtins()
         if consensus is not None:
-            self._register_consensus(consensus, lesson_broker)
+            self._register_consensus(consensus, lesson_broker, arbiter)
         if task is not None: self._register_task(task)
         if lesson is not None and lesson_broker is not None:
             self._register_lesson(lesson, lesson_broker, room)
@@ -338,6 +341,7 @@ class ApplicationAPI:
         self,
         service: ConsensusService,
         broker: GovernanceBroker | None,
+        arbiter: ArbiterReviewCoordinator | None,
     ) -> None:
         def string_tuple(params: Mapping[str, JsonValue], name: str) -> tuple[str, ...]:
             value = params[name]
@@ -395,6 +399,20 @@ class ApplicationAPI:
                     "consensus-round", None
                 ),
                 encode_proposals,
+                CommandAvailability.AVAILABLE,
+            ))
+            
+        if arbiter is not None:
+            def decode_arbiter_review(e: CommandEnvelope) -> ArbiterReviewCommand:
+                return ArbiterReviewCommand(self._submission(e), str(e.params["round_id"]))
+            self.register(CommandDescriptor(
+                "consensus.arbiter.review",
+                Mutability.MUTATING,
+                ScopeKind.ANY,
+                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+                decode_arbiter_review,
+                lambda c, _: arbiter.review(c.round_id),
+                lambda r: dict(r),
                 CommandAvailability.AVAILABLE,
             ))
 
