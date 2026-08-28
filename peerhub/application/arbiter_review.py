@@ -34,7 +34,11 @@ from peerhub.governance.contract import EffectIntent, MutationRequest
 
 ARBITER_BUDGET_TARGET_ID = "arbiter-budget:workspace"
 # Deliberate working substitute for legacy's known-broken ``cc.fable``.
-_DEFAULT_PROFILE_ID = "cc.deepthink"
+# Must match a profile_id the real Claude adapter actually declares
+# (peerhub/adapters/claude_adapter.py's _CLAUDE_PROFILE) -- "cc.deepthink"
+# does not exist there and would make every enabled review fail with
+# ProfileNotFoundError; "cc.standard" is the adapter's one real profile.
+_DEFAULT_PROFILE_ID = "cc.standard"
 _PROMPT_LIMIT = 1200
 _VERDICT = re.compile(r"VERDICT:\s*(APPROVE|REJECT)", re.IGNORECASE)
 

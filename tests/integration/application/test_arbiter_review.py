@@ -54,7 +54,7 @@ class FakeExecutor:
             command_id=f"ask-command-{len(self.requests)}",
             attempt_id=f"ask-attempt-{len(self.requests)}",
             peer_kind="cc",
-            profile_id="cc.deepthink",
+            profile_id=request.profile_id,
             response_text=next(self._responses),
             request_state=RequestState.SUCCEEDED_VERIFIED,
             error_code=None,
@@ -364,7 +364,7 @@ def test_verified_success_records_all_evidence_and_keeps_resolution(
     round_target = consensus.get_target("round-success")
     assert request is not None and request.state["candidate"] == {
         "peer_name": "cc",
-        "profile_id": "cc.deepthink",
+        "profile_id": "cc.standard",
     }
     assert request.state["dissent"][0]["choice"] == "disagree"
     assert opinion is not None

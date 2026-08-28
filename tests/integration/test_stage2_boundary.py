@@ -1187,7 +1187,7 @@ class _FakeArbiterExecutor:
             command_id="ask-command-1",
             attempt_id="ask-attempt-1",
             peer_kind="cc",
-            profile_id="cc.deepthink",
+            profile_id=request.profile_id,
             response_text=self.response_text,
             request_state=RequestState.SUCCEEDED_VERIFIED,
             error_code=None,
