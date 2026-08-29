@@ -91,6 +91,7 @@ from peerhub.application.legacy import (
     RegisterNodeCommand, ListNodesCommand,
     AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
     FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
+    ReportErrorCommand,
 )
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.role_assignment import (
@@ -98,6 +99,7 @@ from peerhub.application.role_assignment import (
     RoleReleaseResult,
 )
 from peerhub.governance.feedback import FeedbackService
+from peerhub.governance.operational_errors import OperationalErrorService
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
 R = TypeVar("R")  # pyright: ignore[reportUnknownVariableType]
@@ -316,6 +318,7 @@ class ApplicationAPI:
         peer_registry: PeerRegistryService | None = None,
         role_assignment: RoleAssignmentService | None = None,
         feedback: FeedbackService | None = None,
+        operational_errors: OperationalErrorService | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -338,6 +341,8 @@ class ApplicationAPI:
             self._register_role_assignment(role_assignment)
         if feedback is not None:
             self._register_feedback(feedback)
+        if operational_errors is not None:
+            self._register_operational_errors(operational_errors)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -1443,6 +1448,51 @@ class ApplicationAPI:
                 status=c.status,
                 owner=c.owner,
                 actor_id=c.actor_id,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_operational_errors(
+        self,
+        service: OperationalErrorService,
+    ) -> None:
+        def required_text(envelope: CommandEnvelope, name: str) -> str:
+            value = envelope.params[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def decode_report(envelope: CommandEnvelope) -> ReportErrorCommand:
+            threshold = envelope.params.get("threshold", 3)
+            if not isinstance(threshold, int) or isinstance(threshold, bool):
+                raise ValueError("threshold must be an integer")
+            detail = envelope.params.get("detail", "")
+            if not isinstance(detail, str):
+                raise ValueError("detail must be a string")
+            return ReportErrorCommand(
+                submission=self._submission(envelope),
+                peer_key=required_text(envelope, "peer_key"),
+                pattern=required_text(envelope, "pattern"),
+                severity=required_text(envelope, "severity"),
+                detail=detail,
+                actor_id=required_text(envelope, "actor_id"),
+                threshold=threshold,
+            )
+
+        self.register(CommandDescriptor(
+            "telemetry.error.record",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_report,
+            lambda command, _: service.report_error(
+                peer_key=command.peer_key,
+                pattern=command.pattern,
+                severity=command.severity,
+                detail=command.detail,
+                actor_id=command.actor_id,
+                threshold=command.threshold,
             ),
             self._receipt,
             CommandAvailability.AVAILABLE,

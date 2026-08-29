@@ -1056,6 +1056,32 @@ class FeedbackResolveCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class ReportErrorCommand(Command[Any]):
+    method: ClassVar[str] = "telemetry.error.record"
+    submission: SubmissionMetadata
+    peer_key: str
+    pattern: str
+    severity: str
+    detail: str
+    actor_id: str
+    threshold: int = 3
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "peer_key": self.peer_key,
+            "pattern": self.pattern,
+            "severity": self.severity,
+            "detail": self.detail,
+            "actor_id": self.actor_id,
+            "threshold": self.threshold,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 class LegacyTranslator:
     def translate(
         self,
@@ -1453,6 +1479,29 @@ class LegacyTranslator:
                     call.arguments, ("actor_id",), submission.actor_id or ""
                 ),
                 owner=owner,
+            ))
+        if call.action == "report-error":
+            threshold_value = call.arguments.get("threshold")
+            return TranslatedCommand(command=ReportErrorCommand(
+                submission=submission,
+                peer_key=_first_text(
+                    call.arguments, ("peer_key", "peer", "agent"), "unknown"
+                ),
+                pattern=_first_text(
+                    call.arguments, ("pattern", "reason"), "unknown"
+                ),
+                severity=_first_text(
+                    call.arguments, ("severity",), "warn"
+                ),
+                detail=_first_text(call.arguments, ("detail",), ""),
+                actor_id=_first_text(
+                    call.arguments, ("actor_id",), submission.actor_id or ""
+                ),
+                threshold=(
+                    3
+                    if threshold_value is None
+                    else _int_or_zero(threshold_value)
+                ),
             ))
         if call.action == "assign-role":
             peer_node_id = call.arguments.get(

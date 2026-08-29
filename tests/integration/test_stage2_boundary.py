@@ -1,12 +1,14 @@
 """Tests for Stage 2 command boundary."""
 
+import hashlib
+
 import pytest
 from pathlib import Path
 from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -2132,3 +2134,60 @@ def test_legacy_feedback_resolve_translates_and_executes(runtime_setup) -> None:
     assert resolved.state["status"] == "dismissed"
     assert resolved.state["owner"] == "cx"
     assert resolved.state["resolved_at"] == 1000
+
+
+def test_legacy_report_error_aliases_translate_and_execute(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "report-error",
+            {
+                "agent": "cx",
+                "reason": "sandbox violation",
+                "severity": "error",
+                "detail": "write denied",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ReportErrorCommand)
+    assert translated.command.peer_key == "cx"
+    assert translated.command.pattern == "sandbox violation"
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+
+    pattern_hash = hashlib.sha256(b"sandbox violation").hexdigest()
+    target_id = f"operational-error-series:cx:{pattern_hash}"
+    assert outcome.result["target_id"] == target_id
+    series = runtime.governance_broker.get_target(target_id)
+    assert series is not None
+    assert series.state["count"] == 1
+    assert series.state["reports"][0]["detail"] == "write denied"
+
+
+def test_legacy_report_error_applies_defaults(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    translated = LegacyTranslator().translate(
+        LegacyActionCall("report-error", {}), _legacy_submission()
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ReportErrorCommand)
+    assert translated.command.peer_key == "unknown"
+    assert translated.command.pattern == "unknown"
+    assert translated.command.severity == "warn"
+    assert translated.command.detail == ""
+    assert translated.command.threshold == 3
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+
+    pattern_hash = hashlib.sha256(b"unknown").hexdigest()
+    target = runtime.governance_broker.get_target(
+        f"operational-error-series:unknown:{pattern_hash}"
+    )
+    assert target is not None
+    assert target.state["reports"][0]["severity"] == "warn"

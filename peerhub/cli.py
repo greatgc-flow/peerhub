@@ -1048,6 +1048,46 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_error(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            submission = runtime.operational_error_service.report_error(
+                peer_key=parsed.peer,
+                pattern=parsed.pattern,
+                severity=parsed.severity,
+                detail=parsed.detail,
+                actor_id=parsed.actor,
+                threshold=parsed.threshold,
+            )
+            target = runtime.governance_broker.get_target(
+                submission.receipt.target_id
+            )
+            assert target is not None
+            if parsed.json:
+                print(json.dumps(_json_safe(target.state)))
+            else:
+                print(
+                    "Operational error recorded "
+                    f"(peer={target.state['peer_key']}, "
+                    f"pattern={target.state['pattern']}, "
+                    f"count={target.state['count']})"
+                )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub error: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_room(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -1874,6 +1914,49 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
 
+    error_parser = subparsers.add_parser(
+        "error", help="Record durable operational-error evidence"
+    )
+    error_subparsers = error_parser.add_subparsers(
+        dest="error_action", required=True
+    )
+    error_report_parser = error_subparsers.add_parser(
+        "report", help="Append one report to an operational-error series"
+    )
+    error_report_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    error_report_parser.add_argument(
+        "--peer",
+        default="unknown",
+        help="Peer key associated with the failure (default: unknown)",
+    )
+    error_report_parser.add_argument(
+        "--pattern",
+        default="unknown",
+        help="Stable failure pattern used to group reports (default: unknown)",
+    )
+    error_report_parser.add_argument(
+        "--severity",
+        default="warn",
+        help="Severity recorded on this report (default: warn)",
+    )
+    error_report_parser.add_argument(
+        "--detail", default="", help="Additional failure detail (may be empty)"
+    )
+    error_report_parser.add_argument(
+        "--actor", required=True, help="Peer ID recording this report"
+    )
+    error_report_parser.add_argument(
+        "--threshold",
+        type=int,
+        default=3,
+        help="Positive report count that begins review requests (default: 3)",
+    )
+    error_report_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
     room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
     room_specs = {
@@ -2174,6 +2257,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "feedback":
         return _run_feedback(parsed)
+
+    if parsed.command == "error":
+        return _run_error(parsed)
 
     if parsed.command == "room":
         return _run_room(parsed)
