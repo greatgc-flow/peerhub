@@ -31,6 +31,7 @@ from .telemetry.projections import TelemetryProjector
 from .application.arbiter_review import ArbiterReviewCoordinator, ArbiterExecutor
 from .application.direct_ask import execute_direct_ask
 from .application.peer_registry import PeerRegistryService
+from .application.role_assignment import RoleAssignmentService
 
 
 @dataclass
@@ -55,6 +56,7 @@ class Runtime:
     routing_service: RoutingService
     arbiter_coordinator: ArbiterReviewCoordinator
     peer_registry_service: PeerRegistryService
+    role_assignment_service: RoleAssignmentService
     application_workflows: ApplicationWorkflows
     application_api: ApplicationAPI
 
@@ -223,6 +225,13 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    role_assignment_service = RoleAssignmentService(
+        governance_broker,
+        peer_registry=peer_registry_service,
+        health=health_service,
+        clock=context.clock,
+        ids=context.ids,
+    )
 
     application_api = ApplicationAPI(
         workflows=application_workflows,
@@ -238,6 +247,7 @@ def create_runtime(
         room_session=room_participation_coordinator,
         arbiter=arbiter_coordinator,
         peer_registry=peer_registry_service,
+        role_assignment=role_assignment_service,
     )
 
     return Runtime(
@@ -258,6 +268,7 @@ def create_runtime(
         routing_service=routing_service,
         arbiter_coordinator=arbiter_coordinator,
         peer_registry_service=peer_registry_service,
+        role_assignment_service=role_assignment_service,
         application_workflows=application_workflows,
         application_api=application_api,
     )

@@ -912,6 +912,59 @@ class ListNodesCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class AssignRoleCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.role.assign"
+    submission: SubmissionMetadata
+    role: str
+    peer_node_id: str
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "role": self.role,
+            "peer_node_id": self.peer_node_id,
+            "actor_id": self.actor_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ReleaseRoleCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.role.release"
+    submission: SubmissionMetadata
+    role: str
+    actor_id: str
+    peer_node_id: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "role": self.role,
+            "actor_id": self.actor_id,
+            "peer_node_id": self.peer_node_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class RoleStatusCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.role.status"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 class LegacyTranslator:
     def translate(
         self,
@@ -1268,6 +1321,39 @@ class LegacyTranslator:
             ))
         if call.action == "list-nodes":
             return TranslatedCommand(command=ListNodesCommand(submission))
+        if call.action == "assign-role":
+            peer_node_id = call.arguments.get(
+                "peer_node_id", call.arguments.get("peer", "")
+            )
+            return TranslatedCommand(command=AssignRoleCommand(
+                submission=submission,
+                role=str(call.arguments.get("role", "")),
+                peer_node_id=str(peer_node_id),
+                actor_id=str(
+                    call.arguments.get("actor_id", submission.actor_id)
+                ),
+            ))
+        if call.action == "release-role":
+            peer_node_id = call.arguments.get("peer_node_id")
+            if peer_node_id is None:
+                peer_node_id = (
+                    call.arguments.get("peer")
+                    or call.arguments.get("agent")
+                )
+            return TranslatedCommand(command=ReleaseRoleCommand(
+                submission=submission,
+                role=str(call.arguments.get("role", "")),
+                actor_id=str(
+                    call.arguments.get("actor_id", submission.actor_id)
+                ),
+                peer_node_id=(
+                    None
+                    if peer_node_id is None or peer_node_id == ""
+                    else str(peer_node_id)
+                ),
+            ))
+        if call.action == "role-status":
+            return TranslatedCommand(command=RoleStatusCommand(submission))
             
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,

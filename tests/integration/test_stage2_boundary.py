@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -1302,6 +1302,86 @@ def test_legacy_register_node_translates_and_executes(runtime_setup) -> None:
         item["state"]["node_id"] == "legacy-worker-1"
         for item in listed.result["nodes"]
     )
+
+
+def test_legacy_assign_role_and_role_status_translate_and_execute(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "assign-role",
+            {"role": "implementer", "peer": "cc"},
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, AssignRoleCommand)
+    assert translated.command.peer_node_id == "cc"
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["target_id"] == "role-assignment:implementer"
+
+    status_translation = LegacyTranslator().translate(
+        LegacyActionCall("role-status", {}), _legacy_submission()
+    )
+    assert isinstance(status_translation, TranslatedCommand)
+    assert isinstance(status_translation.command, RoleStatusCommand)
+    status = client.submit(status_translation.command)
+    assert isinstance(status, CommandSuccess)
+    assert [item["state"]["role"] for item in status.result["roles"]] == [
+        "implementer"
+    ]
+    assert status.result["roles"][0]["state"]["peer_node_id"] == "cc"
+
+
+def test_legacy_release_role_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.role_assignment_service.assign_role(
+        role="implementer", peer_node_id="cc", actor_id="peer-1"
+    )
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "release-role",
+            {"role": "implementer", "agent": "cc"},
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ReleaseRoleCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["disposition"] == "RELEASED"
+    assert runtime.role_assignment_service.get_role("implementer") is None
+
+
+def test_legacy_release_unassigned_role_is_a_successful_noop(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "release-role", {"role": "observer"}
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result == {
+        "disposition": "NOT_ASSIGNED",
+        "receipt": None,
+        "target": None,
+    }
+    assert runtime.governance_broker.get_target(
+        "role-assignment:observer"
+    ) is None
 
 
 def test_admit_success(runtime_setup, monkeypatch):

@@ -89,8 +89,13 @@ from peerhub.application.legacy import (
     ConsensusSweepCommand, LessonsListCommand, ProposalListCommand, ArbiterReviewCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
     RegisterNodeCommand, ListNodesCommand,
+    AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
 )
 from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.role_assignment import (
+    RoleAssignmentService,
+    RoleReleaseResult,
+)
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
 R = TypeVar("R")  # pyright: ignore[reportUnknownVariableType]
@@ -307,6 +312,7 @@ class ApplicationAPI:
         room_session: RoomParticipationCoordinator | None = None,
         arbiter: ArbiterReviewCoordinator | None = None,
         peer_registry: PeerRegistryService | None = None,
+        role_assignment: RoleAssignmentService | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -325,6 +331,8 @@ class ApplicationAPI:
             self._register_duty(duty, terminal_duty, room_session)
         if room_session is not None: self._register_room_session(room_session)
         if peer_registry is not None: self._register_peer_registry(peer_registry)
+        if role_assignment is not None:
+            self._register_role_assignment(role_assignment)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -1228,6 +1236,111 @@ class ApplicationAPI:
             decode_list,
             lambda c, ctx: service.list_nodes(),
             encode_nodes,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_role_assignment(self, service: RoleAssignmentService) -> None:
+        def required_text(envelope: CommandEnvelope, name: str) -> str:
+            value = envelope.params[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
+            value = envelope.params.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string or null")
+            return value
+
+        def decode_assign(envelope: CommandEnvelope) -> AssignRoleCommand:
+            return AssignRoleCommand(
+                submission=self._submission(envelope),
+                role=required_text(envelope, "role"),
+                peer_node_id=required_text(envelope, "peer_node_id"),
+                actor_id=required_text(envelope, "actor_id"),
+            )
+
+        def decode_release(envelope: CommandEnvelope) -> ReleaseRoleCommand:
+            return ReleaseRoleCommand(
+                submission=self._submission(envelope),
+                role=required_text(envelope, "role"),
+                actor_id=required_text(envelope, "actor_id"),
+                peer_node_id=optional_text(envelope, "peer_node_id"),
+            )
+
+        def decode_status(envelope: CommandEnvelope) -> RoleStatusCommand:
+            return RoleStatusCommand(self._submission(envelope))
+
+        def encode_roles(results: Sequence[Any]) -> Mapping[str, JsonValue]:
+            roles = [
+                {
+                    "target_id": result.target_id,
+                    "revision": result.revision,
+                    "state": result.state,
+                }
+                for result in results
+            ]
+            return {"roles": cast(JsonValue, roles)}
+
+        def encode_release(result: RoleReleaseResult) -> Mapping[str, JsonValue]:
+            receipt = (
+                None
+                if result.submission is None
+                else dict(self._receipt(result.submission))
+            )
+            target = (
+                None
+                if result.target is None
+                else {
+                    "target_id": result.target.target_id,
+                    "revision": result.target.revision,
+                    "state": result.target.state,
+                }
+            )
+            return {
+                "disposition": result.disposition.value,
+                "receipt": cast(JsonValue, receipt),
+                "target": cast(JsonValue, target),
+            }
+
+        self.register(CommandDescriptor(
+            "coordination.role.assign",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_assign,
+            lambda c, _: service.assign_role(
+                role=c.role,
+                peer_node_id=c.peer_node_id,
+                actor_id=c.actor_id,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.role.release",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_release,
+            lambda c, _: service.release_role(
+                role=c.role,
+                actor_id=c.actor_id,
+                peer_node_id=c.peer_node_id,
+            ),
+            encode_release,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.role.status",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_status,
+            lambda c, _: service.list_roles(),
+            encode_roles,
             CommandAvailability.AVAILABLE,
         ))
 

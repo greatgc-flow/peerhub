@@ -37,6 +37,7 @@ from peerhub.application.direct_ask import (
 )
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
 from peerhub.core.identity import (
@@ -879,6 +880,88 @@ def _run_node(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_role(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = runtime.role_assignment_service
+            if parsed.role_action == "assign":
+                submission = service.assign_role(
+                    role=parsed.role,
+                    peer_node_id=parsed.peer_node_id,
+                    actor_id=parsed.actor,
+                )
+                target = runtime.governance_broker.get_target(
+                    submission.receipt.target_id
+                )
+                assert target is not None
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(
+                        f"Role {parsed.role} assigned to "
+                        f"{parsed.peer_node_id}"
+                    )
+                return 0
+            if parsed.role_action == "release":
+                result = service.release_role(
+                    role=parsed.role,
+                    actor_id=parsed.actor,
+                    peer_node_id=parsed.peer_node_id,
+                )
+                if parsed.json:
+                    target = None if result.target is None else {
+                        "target_id": result.target.target_id,
+                        "revision": result.target.revision,
+                        "state": result.target.state,
+                    }
+                    print(json.dumps(_json_safe({
+                        "disposition": result.disposition.value,
+                        "target": target,
+                    })))
+                elif result.disposition is RoleReleaseDisposition.NOT_ASSIGNED:
+                    print(f"Warning: role {parsed.role} is not assigned.")
+                else:
+                    print(f"Role {parsed.role} released.")
+                return 0
+
+            roles = service.list_roles()
+            payload = {
+                "roles": [
+                    {
+                        "target_id": target.target_id,
+                        "revision": target.revision,
+                        "state": target.state,
+                    }
+                    for target in roles
+                ]
+            }
+            if parsed.json:
+                print(json.dumps(_json_safe(payload)))
+            elif not roles:
+                print("No roles assigned.")
+            else:
+                print("Role assignments:")
+                for target in roles:
+                    print(
+                        f"{target.state['role']}: "
+                        f"{target.state['peer_node_id']}"
+                    )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub role: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_room(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -1573,6 +1656,62 @@ def main(args: list[str] | None = None) -> int:
     node_list_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
     node_list_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
+    role_parser = subparsers.add_parser(
+        "role", help="Manage durable workspace role assignments"
+    )
+    role_subparsers = role_parser.add_subparsers(
+        dest="role_action", required=True
+    )
+    role_assign_parser = role_subparsers.add_parser(
+        "assign", help="Assign or reassign one durable role to a peer node"
+    )
+    role_assign_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    role_assign_parser.add_argument(
+        "--role", required=True, help="Workspace-level role name to assign"
+    )
+    role_assign_parser.add_argument(
+        "--peer-node-id",
+        required=True,
+        help="Registered or base adapter node that will own the role",
+    )
+    role_assign_parser.add_argument(
+        "--actor", required=True, help="Peer ID performing the assignment"
+    )
+    role_assign_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    role_release_parser = role_subparsers.add_parser(
+        "release", help="Release a durable role assignment"
+    )
+    role_release_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    role_release_parser.add_argument(
+        "--role", required=True, help="Workspace-level role name to release"
+    )
+    role_release_parser.add_argument(
+        "--actor", required=True, help="Peer ID performing the release"
+    )
+    role_release_parser.add_argument(
+        "--peer-node-id",
+        default=None,
+        help="Optional current-owner assertion; mismatches are rejected",
+    )
+    role_release_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    role_status_parser = role_subparsers.add_parser(
+        "status", help="List all currently active role assignments"
+    )
+    role_status_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    role_status_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
     room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
     room_specs = {
@@ -1867,6 +2006,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "node":
         return _run_node(parsed)
+
+    if parsed.command == "role":
+        return _run_role(parsed)
 
     if parsed.command == "room":
         return _run_room(parsed)
