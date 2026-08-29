@@ -120,9 +120,12 @@ class PeerRegistryService:
 
     def get_node(self, node_id: str) -> TargetState:
         target = self._broker.get_target(f"peer-node:{node_id}")
-        if target is None:
-            raise RecordNotFoundError("peer-node", node_id)
-        return target
+        if target is not None:
+            return target
+        base = self._base_node(node_id)
+        if base is not None:
+            return base
+        raise RecordNotFoundError("peer-node", node_id)
 
     def _base_node(self, node_id: str) -> TargetState | None:
         try:

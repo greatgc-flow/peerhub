@@ -268,6 +268,29 @@ class HealthService:
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
 
+    @property
+    def policy(self) -> HealthPolicy:
+        """The policy this service was constructed with (read-only)."""
+
+        return self._policy
+
+    def get_health_projection(
+        self,
+        instance_id: str,
+        profile_id: str,
+    ) -> HealthProjectionSnapshot | None:
+        """Read-through lookup of a pair's current health projection.
+
+        Deliberately does not call ``_require_configured_pair``: membership
+        governs who may *produce* evidence over the injected population, not
+        whether durable, already-persisted state may be read. Callers that
+        gate on health (e.g. role assignment) must treat ``None`` as "no
+        evidence yet" per legacy parity, not as an error.
+        """
+
+        with self._store.unit_of_work() as unit:
+            return unit.get_health_projection(instance_id, profile_id)
+
     def _require_policy(
         self,
         unit: HealthUnitOfWork,

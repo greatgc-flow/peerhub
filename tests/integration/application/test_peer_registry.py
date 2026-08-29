@@ -48,6 +48,17 @@ def test_list_nodes_on_a_fresh_workspace_returns_only_the_base_adapters(
     }
 
 
+def test_get_node_falls_back_to_a_base_node_not_yet_registered(
+    tmp_path: Path,
+) -> None:
+    service, _, _ = _service(tmp_path)
+
+    node = service.get_node("cc")
+
+    assert node.state["node_id"] == "cc"
+    assert node.state["source"] == "adapter-registry"
+
+
 def test_register_node_appears_in_list_alongside_base_nodes(tmp_path: Path) -> None:
     service, _, _ = _service(tmp_path)
 
