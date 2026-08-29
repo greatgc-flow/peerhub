@@ -90,12 +90,14 @@ from peerhub.application.legacy import (
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
     RegisterNodeCommand, ListNodesCommand,
     AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
+    FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
 )
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.role_assignment import (
     RoleAssignmentService,
     RoleReleaseResult,
 )
+from peerhub.governance.feedback import FeedbackService
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
 R = TypeVar("R")  # pyright: ignore[reportUnknownVariableType]
@@ -313,6 +315,7 @@ class ApplicationAPI:
         arbiter: ArbiterReviewCoordinator | None = None,
         peer_registry: PeerRegistryService | None = None,
         role_assignment: RoleAssignmentService | None = None,
+        feedback: FeedbackService | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -333,6 +336,8 @@ class ApplicationAPI:
         if peer_registry is not None: self._register_peer_registry(peer_registry)
         if role_assignment is not None:
             self._register_role_assignment(role_assignment)
+        if feedback is not None:
+            self._register_feedback(feedback)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -1341,6 +1346,105 @@ class ApplicationAPI:
             decode_status,
             lambda c, _: service.list_roles(),
             encode_roles,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_feedback(self, service: FeedbackService) -> None:
+        def required_text(envelope: CommandEnvelope, name: str) -> str:
+            value = envelope.params[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
+            value = envelope.params.get(name)
+            if value is None:
+                return None
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string or null")
+            return value
+
+        def decode_add(envelope: CommandEnvelope) -> FeedbackAddCommand:
+            detail = envelope.params.get("detail", "")
+            if not isinstance(detail, str):
+                raise ValueError("detail must be a string")
+            return FeedbackAddCommand(
+                submission=self._submission(envelope),
+                source_peer=required_text(envelope, "source_peer"),
+                category=required_text(envelope, "category"),
+                severity=required_text(envelope, "severity"),
+                title=required_text(envelope, "title"),
+                detail=detail,
+                actor_id=required_text(envelope, "actor_id"),
+            )
+
+        def decode_list(envelope: CommandEnvelope) -> FeedbackListCommand:
+            return FeedbackListCommand(self._submission(envelope))
+
+        def decode_resolve(
+            envelope: CommandEnvelope,
+        ) -> FeedbackResolveCommand:
+            return FeedbackResolveCommand(
+                submission=self._submission(envelope),
+                feedback_id=required_text(envelope, "feedback_id"),
+                status=required_text(envelope, "status"),
+                actor_id=required_text(envelope, "actor_id"),
+                owner=optional_text(envelope, "owner"),
+            )
+
+        def encode_feedback(
+            results: Sequence[Any],
+        ) -> Mapping[str, JsonValue]:
+            items = [
+                {
+                    "target_id": result.target_id,
+                    "revision": result.revision,
+                    "state": result.state,
+                }
+                for result in results
+            ]
+            return {"feedback": cast(JsonValue, items)}
+
+        self.register(CommandDescriptor(
+            "governance.feedback.create",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_add,
+            lambda c, _: service.add_feedback(
+                source_peer=c.source_peer,
+                category=c.category,
+                severity=c.severity,
+                title=c.title,
+                detail=c.detail,
+                actor_id=c.actor_id,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "governance.feedback.list",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_list,
+            lambda c, _: service.list_feedback(),
+            encode_feedback,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "governance.feedback.resolve",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_resolve,
+            lambda c, _: service.resolve_feedback(
+                c.feedback_id,
+                status=c.status,
+                owner=c.owner,
+                actor_id=c.actor_id,
+            ),
+            self._receipt,
             CommandAvailability.AVAILABLE,
         ))
 

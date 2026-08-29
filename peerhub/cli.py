@@ -962,6 +962,92 @@ def _run_role(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_feedback(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = runtime.feedback_service
+            if parsed.feedback_action == "add":
+                submission = service.add_feedback(
+                    source_peer=parsed.source_peer,
+                    category=parsed.category,
+                    severity=parsed.severity,
+                    title=parsed.title,
+                    detail=parsed.detail,
+                    actor_id=parsed.actor,
+                )
+                target = runtime.governance_broker.get_target(
+                    submission.receipt.target_id
+                )
+                assert target is not None
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(
+                        f"Feedback {target.state['feedback_id']} added "
+                        f"(peer={target.state['source_peer']}, "
+                        f"title={target.state['title']})"
+                    )
+                return 0
+
+            if parsed.feedback_action == "resolve":
+                submission = service.resolve_feedback(
+                    parsed.feedback_id,
+                    status=parsed.status,
+                    owner=parsed.owner,
+                    actor_id=parsed.actor,
+                )
+                target = runtime.governance_broker.get_target(
+                    submission.receipt.target_id
+                )
+                assert target is not None
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(
+                        f"Feedback {parsed.feedback_id} resolved "
+                        f"(status={target.state['status']})"
+                    )
+                return 0
+
+            items = service.list_feedback()
+            if parsed.json:
+                print(json.dumps(_json_safe({
+                    "feedback": [
+                        {
+                            "target_id": item.target_id,
+                            "revision": item.revision,
+                            "state": item.state,
+                        }
+                        for item in items
+                    ]
+                })))
+            elif not items:
+                print("No feedback records found.")
+            else:
+                print("id\tstatus\tseverity\tcategory\ttitle")
+                for item in items:
+                    state = cast(Mapping[str, Any], item.state)
+                    print(
+                        f"{state['feedback_id']}\t{state['status']}\t"
+                        f"{state['severity']}\t{state['category']}\t"
+                        f"{state['title']}"
+                    )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub feedback: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_room(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -1712,6 +1798,82 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
 
+    feedback_parser = subparsers.add_parser(
+        "feedback", help="Manage the governance feedback journal"
+    )
+    feedback_subparsers = feedback_parser.add_subparsers(
+        dest="feedback_action", required=True
+    )
+    feedback_add_parser = feedback_subparsers.add_parser(
+        "add", help="Append one new feedback item with a fresh GAP ID"
+    )
+    feedback_add_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    feedback_add_parser.add_argument(
+        "--source-peer",
+        default="unknown",
+        help="Peer this feedback came from (default: unknown)",
+    )
+    feedback_add_parser.add_argument(
+        "--category",
+        default="other",
+        help="Feedback category (free text, default: other)",
+    )
+    feedback_add_parser.add_argument(
+        "--severity",
+        default="medium",
+        help="Feedback severity (free text, default: medium)",
+    )
+    feedback_add_parser.add_argument(
+        "--title",
+        default="unknown gap",
+        help="Short feedback title (default: unknown gap)",
+    )
+    feedback_add_parser.add_argument(
+        "--detail", default="", help="Longer feedback detail (may be empty)"
+    )
+    feedback_add_parser.add_argument(
+        "--actor", required=True, help="Peer ID recording this feedback"
+    )
+    feedback_add_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    feedback_list_parser = feedback_subparsers.add_parser(
+        "list", help="List every feedback item, resolved ones included"
+    )
+    feedback_list_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    feedback_list_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    feedback_resolve_parser = feedback_subparsers.add_parser(
+        "resolve", help="Set one feedback item's status and refresh its timestamps"
+    )
+    feedback_resolve_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    feedback_resolve_parser.add_argument(
+        "--feedback-id", required=True, help="GAP ID to resolve"
+    )
+    feedback_resolve_parser.add_argument(
+        "--status",
+        required=True,
+        help="New status (validated free text, e.g. done or dismissed)",
+    )
+    feedback_resolve_parser.add_argument(
+        "--owner",
+        default=None,
+        help="Optional owner; omitting it preserves the existing owner",
+    )
+    feedback_resolve_parser.add_argument(
+        "--actor", required=True, help="Peer ID performing the resolution"
+    )
+    feedback_resolve_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
     room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
     room_specs = {
@@ -2009,6 +2171,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "role":
         return _run_role(parsed)
+
+    if parsed.command == "feedback":
+        return _run_feedback(parsed)
 
     if parsed.command == "room":
         return _run_room(parsed)

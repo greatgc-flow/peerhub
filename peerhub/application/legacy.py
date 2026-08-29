@@ -32,6 +32,36 @@ def _bool_or_false(value: JsonValue | None) -> bool:
     return value if isinstance(value, bool) else False
 
 
+def _optional_first_text(
+    arguments: Mapping[str, JsonValue],
+    names: tuple[str, ...],
+) -> str | None:
+    """Return the first supplied non-empty alias value, or None.
+
+    Legacy actions accept several spellings for one field (``--peer``/
+    ``--from``, ``--subject``/``--msg``, ``--feedback-id``/``--round-id``)
+    and pick the first that is actually set.
+    """
+
+    for name in names:
+        value = arguments.get(name)
+        if value is None:
+            continue
+        text = str(value)
+        if text:
+            return text
+    return None
+
+
+def _first_text(
+    arguments: Mapping[str, JsonValue],
+    names: tuple[str, ...],
+    default: str,
+) -> str:
+    resolved = _optional_first_text(arguments, names)
+    return default if resolved is None else resolved
+
+
 @dataclass(frozen=True)
 class LegacyActionCall:
     action: str
@@ -965,6 +995,67 @@ class RoleStatusCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class FeedbackAddCommand(Command[Any]):
+    method: ClassVar[str] = "governance.feedback.create"
+    submission: SubmissionMetadata
+    source_peer: str
+    category: str
+    severity: str
+    title: str
+    detail: str
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "source_peer": self.source_peer,
+            "category": self.category,
+            "severity": self.severity,
+            "title": self.title,
+            "detail": self.detail,
+            "actor_id": self.actor_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackListCommand(Command[Any]):
+    method: ClassVar[str] = "governance.feedback.list"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackResolveCommand(Command[Any]):
+    method: ClassVar[str] = "governance.feedback.resolve"
+    submission: SubmissionMetadata
+    feedback_id: str
+    status: str
+    actor_id: str
+    owner: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "feedback_id": self.feedback_id,
+            "status": self.status,
+            "actor_id": self.actor_id,
+            "owner": self.owner,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 class LegacyTranslator:
     def translate(
         self,
@@ -1321,6 +1412,48 @@ class LegacyTranslator:
             ))
         if call.action == "list-nodes":
             return TranslatedCommand(command=ListNodesCommand(submission))
+        if call.action == "feedback-add":
+            # Legacy resolves --peer/--from and --subject/--msg at its CLI
+            # layer and supplies the defaults there, so they belong in this
+            # translation rather than in the domain service.
+            source_peer = _first_text(
+                call.arguments, ("source_peer", "peer", "from"), "unknown"
+            )
+            title = _first_text(
+                call.arguments, ("title", "subject", "msg"), "unknown gap"
+            )
+            return TranslatedCommand(command=FeedbackAddCommand(
+                submission=submission,
+                source_peer=source_peer,
+                category=_first_text(
+                    call.arguments, ("category",), "other"
+                ),
+                severity=_first_text(
+                    call.arguments, ("severity",), "medium"
+                ),
+                title=title,
+                detail=_first_text(call.arguments, ("detail",), ""),
+                actor_id=_first_text(
+                    call.arguments, ("actor_id",), submission.actor_id or ""
+                ),
+            ))
+        if call.action == "feedback-list":
+            return TranslatedCommand(command=FeedbackListCommand(submission))
+        if call.action == "feedback-resolve":
+            owner = _optional_first_text(
+                call.arguments, ("owner", "agent", "peer")
+            )
+            return TranslatedCommand(command=FeedbackResolveCommand(
+                submission=submission,
+                feedback_id=_first_text(
+                    call.arguments, ("feedback_id", "round_id"), ""
+                ),
+                status=_first_text(call.arguments, ("status",), "done"),
+                actor_id=_first_text(
+                    call.arguments, ("actor_id",), submission.actor_id or ""
+                ),
+                owner=owner,
+            ))
         if call.action == "assign-role":
             peer_node_id = call.arguments.get(
                 "peer_node_id", call.arguments.get("peer", "")

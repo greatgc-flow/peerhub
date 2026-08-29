@@ -18,6 +18,7 @@ from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
 from .governance.consensus import ConsensusService
 from .governance.tasks import TaskService
+from .governance.feedback import FeedbackService
 from .governance.lessons import LessonService
 from .governance.rooms import RoomsService
 from .dispatch.duty_lease import DutyLeaseCoordinator
@@ -57,6 +58,7 @@ class Runtime:
     arbiter_coordinator: ArbiterReviewCoordinator
     peer_registry_service: PeerRegistryService
     role_assignment_service: RoleAssignmentService
+    feedback_service: FeedbackService
     application_workflows: ApplicationWorkflows
     application_api: ApplicationAPI
 
@@ -225,6 +227,12 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+
+    feedback_service = FeedbackService(
+        governance_broker,
+        clock=context.clock,
+        ids=context.ids,
+    )
     role_assignment_service = RoleAssignmentService(
         governance_broker,
         peer_registry=peer_registry_service,
@@ -248,6 +256,7 @@ def create_runtime(
         arbiter=arbiter_coordinator,
         peer_registry=peer_registry_service,
         role_assignment=role_assignment_service,
+        feedback=feedback_service,
     )
 
     return Runtime(
@@ -269,6 +278,7 @@ def create_runtime(
         arbiter_coordinator=arbiter_coordinator,
         peer_registry_service=peer_registry_service,
         role_assignment_service=role_assignment_service,
+        feedback_service=feedback_service,
         application_workflows=application_workflows,
         application_api=application_api,
     )

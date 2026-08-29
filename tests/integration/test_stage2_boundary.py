@@ -6,7 +6,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -2036,3 +2036,99 @@ def test_admit_route_exhausted(runtime_setup):
     
     assert isinstance(outcome, CommandFailure)
     assert outcome.error.code == ErrorCode.INTERNAL_ERROR
+
+
+def test_legacy_feedback_add_and_list_translate_and_execute(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "feedback-add",
+            {
+                "peer": "cc",
+                "category": "tooling",
+                "severity": "high",
+                "subject": "CLI flag parse error",
+                "detail": "details here",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, FeedbackAddCommand)
+    # --peer/--subject are legacy aliases resolved during translation.
+    assert translated.command.source_peer == "cc"
+    assert translated.command.title == "CLI flag parse error"
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    # The integration FakeClock is fixed at 1000 (1970-01-01T00:16:40Z).
+    assert outcome.result["target_id"] == "feedback:GAP-19700101-001"
+
+    translated_list = LegacyTranslator().translate(
+        LegacyActionCall("feedback-list", {}), _legacy_submission()
+    )
+    assert isinstance(translated_list, TranslatedCommand)
+    assert isinstance(translated_list.command, FeedbackListCommand)
+    listed = client.submit(translated_list.command)
+    assert isinstance(listed, CommandSuccess)
+    assert [item["state"]["feedback_id"] for item in listed.result["feedback"]] == [
+        "GAP-19700101-001"
+    ]
+    assert listed.result["feedback"][0]["state"]["status"] == "open"
+
+
+def test_legacy_feedback_add_applies_legacy_defaults(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall("feedback-add", {}), _legacy_submission()
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, FeedbackAddCommand)
+    assert translated.command.source_peer == "unknown"
+    assert translated.command.category == "other"
+    assert translated.command.severity == "medium"
+    assert translated.command.title == "unknown gap"
+    assert translated.command.detail == ""
+    assert isinstance(client.submit(translated.command), CommandSuccess)
+
+
+def test_legacy_feedback_resolve_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.feedback_service.add_feedback(
+        source_peer="cc",
+        category="tooling",
+        severity="high",
+        title="CLI flag parse error",
+        detail="",
+        actor_id="peer-1",
+    )
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "feedback-resolve",
+            {
+                "feedback_id": "GAP-19700101-001",
+                "status": "dismissed",
+                "agent": "cx",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, FeedbackResolveCommand)
+    # --agent is legacy's owner alias.
+    assert translated.command.owner == "cx"
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["target_id"] == "feedback:GAP-19700101-001"
+
+    resolved = runtime.feedback_service.get_feedback("GAP-19700101-001")
+    assert resolved.state["status"] == "dismissed"
+    assert resolved.state["owner"] == "cx"
+    assert resolved.state["resolved_at"] == 1000
