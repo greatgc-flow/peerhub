@@ -612,16 +612,27 @@ class ClearRoomCommand(Command[Any]):
 
 @dataclass(frozen=True, slots=True)
 class LeaderClaimCommand(Command[Any]):
+    """Workspace-global leadership claim.
+
+    Replaces an earlier room-scoped duty-lease shape (room_id/instance_id/
+    profile_id/owner_principal_id/authority_epoch) that implemented the
+    wrong semantic entirely -- see the LeadershipService ratification.
+    """
+
     method: ClassVar[str] = "routing.leadership.claim"
     submission: SubmissionMetadata
-    room_id: str
-    instance_id: str
-    profile_id: str
-    owner_principal_id: str
-    authority_epoch: int
+    peer_node_id: str
+    actor_id: str
+    reason: str = ""
+    domain: str = ""
 
     def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"room_id": self.room_id, "instance_id": self.instance_id, "profile_id": self.profile_id, "owner_principal_id": self.owner_principal_id, "authority_epoch": self.authority_epoch}
+        return {
+            "peer_node_id": self.peer_node_id,
+            "actor_id": self.actor_id,
+            "reason": self.reason,
+            "domain": self.domain,
+        }
 
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
@@ -630,17 +641,20 @@ class LeaderClaimCommand(Command[Any]):
 
 @dataclass(frozen=True, slots=True)
 class LeaderYieldCommand(Command[Any]):
+    """Workspace-global leadership yield (vacates unconditionally)."""
+
     method: ClassVar[str] = "routing.leadership.yield"
     submission: SubmissionMetadata
-    lease_id: str
-    room_id: str
-    instance_id: str
-    profile_id: str
-    term: int
-    authority_epoch: int
+    yielding_peer_id: str
+    actor_id: str
+    reason: str = ""
 
     def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"lease_id": self.lease_id, "room_id": self.room_id, "instance_id": self.instance_id, "profile_id": self.profile_id, "term": self.term, "authority_epoch": self.authority_epoch}
+        return {
+            "yielding_peer_id": self.yielding_peer_id,
+            "actor_id": self.actor_id,
+            "reason": self.reason,
+        }
 
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
@@ -671,11 +685,34 @@ class TerminalHandoffCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
-class TerminalHeartbeatCommand(LeaderYieldCommand):
+class TerminalHeartbeatCommand(Command[Any]):
+    """Room-scoped terminal-duty lease heartbeat.
+
+    Previously inherited these six fields from the old room-scoped
+    LeaderYieldCommand. That name now carries workspace-global leadership
+    fields instead, so the duty-lease shape lives here (and in its
+    TerminalCloseCommand subclass) unchanged.
+    """
+
     method: ClassVar[str] = "coordination.terminal.heartbeat"
+    submission: SubmissionMetadata
+    lease_id: str
+    room_id: str
+    instance_id: str
+    profile_id: str
+    term: int
+    authority_epoch: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"lease_id": self.lease_id, "room_id": self.room_id, "instance_id": self.instance_id, "profile_id": self.profile_id, "term": self.term, "authority_epoch": self.authority_epoch}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
 
 @dataclass(frozen=True, slots=True)
-class TerminalCloseCommand(LeaderYieldCommand):
+class TerminalCloseCommand(TerminalHeartbeatCommand):
     method: ClassVar[str] = "coordination.terminal.close"
     close_session: bool = False
     session_id: str = ""
@@ -685,7 +722,7 @@ class TerminalCloseCommand(LeaderYieldCommand):
 
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {
-            **LeaderYieldCommand.encode_params(self),
+            **TerminalHeartbeatCommand.encode_params(self),
             "close_session": self.close_session,
             "session_id": self.session_id,
             "session_generation": self.session_generation,
@@ -1336,10 +1373,36 @@ class LegacyTranslator:
                 actor_id=str(call.arguments.get("actor_id", "")),
             ))
         if call.action == "leader-claim":
-            return TranslatedCommand(command=LeaderClaimCommand(submission=submission, room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), owner_principal_id=str(call.arguments.get("owner_principal_id", "")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
-        if call.action in {"leader-yield", "terminal-heartbeat"}:
-            command_type = LeaderYieldCommand if call.action == "leader-yield" else TerminalHeartbeatCommand
-            return TranslatedCommand(command=command_type(submission=submission, lease_id=str(call.arguments.get("lease_id", "")), room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
+            # Legacy CLI shape: --agent (default "unknown"),
+            # --reason/--detail, --needs for the domain.
+            return TranslatedCommand(command=LeaderClaimCommand(
+                submission=submission,
+                peer_node_id=_first_text(
+                    call.arguments,
+                    ("peer_node_id", "agent", "peer"),
+                    "unknown",
+                ),
+                actor_id=_first_text(
+                    call.arguments, ("actor_id",), submission.actor_id or ""
+                ),
+                reason=_first_text(call.arguments, ("reason", "detail"), ""),
+                domain=_first_text(call.arguments, ("domain", "needs"), ""),
+            ))
+        if call.action == "leader-yield":
+            return TranslatedCommand(command=LeaderYieldCommand(
+                submission=submission,
+                yielding_peer_id=_first_text(
+                    call.arguments,
+                    ("yielding_peer_id", "agent", "peer"),
+                    "unknown",
+                ),
+                actor_id=_first_text(
+                    call.arguments, ("actor_id",), submission.actor_id or ""
+                ),
+                reason=_first_text(call.arguments, ("reason", "detail"), ""),
+            ))
+        if call.action == "terminal-heartbeat":
+            return TranslatedCommand(command=TerminalHeartbeatCommand(submission=submission, lease_id=str(call.arguments.get("lease_id", "")), room_id=str(call.arguments.get("room_id", "")), instance_id=str(call.arguments.get("instance_id", "")), profile_id=str(call.arguments.get("profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch"))))
         if call.action == "terminal-handoff":
             return TranslatedCommand(command=TerminalHandoffCommand(submission=submission, current_lease_id=str(call.arguments.get("current_lease_id", "")), room_id=str(call.arguments.get("room_id", "")), current_instance_id=str(call.arguments.get("current_instance_id", "")), current_profile_id=str(call.arguments.get("current_profile_id", "")), term=_int_or_zero(call.arguments.get("term")), authority_epoch=_int_or_zero(call.arguments.get("authority_epoch")), new_instance_id=str(call.arguments.get("new_instance_id", "")), new_profile_id=str(call.arguments.get("new_profile_id", "")), new_owner_principal_id=str(call.arguments.get("new_owner_principal_id", "")), new_authority_epoch=_int_or_zero(call.arguments.get("new_authority_epoch"))))
         if call.action == "terminal-close":

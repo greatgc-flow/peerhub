@@ -61,8 +61,6 @@ from peerhub.governance.activity import list_active_lessons
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.dispatch.duty_lease import (
     DutyLeaseCoordinator,
-    DutyLeaseCloseRequest,
-    DutyLeaseCreateRequest,
     DutyLeaseSnapshot,
     DutyOwnerIdentity,
 )
@@ -97,6 +95,11 @@ from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.role_assignment import (
     RoleAssignmentService,
     RoleReleaseResult,
+)
+from peerhub.application.leadership import (
+    LeadershipClaimResult,
+    LeadershipService,
+    LeadershipYieldResult,
 )
 from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
@@ -317,6 +320,7 @@ class ApplicationAPI:
         arbiter: ArbiterReviewCoordinator | None = None,
         peer_registry: PeerRegistryService | None = None,
         role_assignment: RoleAssignmentService | None = None,
+        leadership: LeadershipService | None = None,
         feedback: FeedbackService | None = None,
         operational_errors: OperationalErrorService | None = None,
     ) -> None:
@@ -339,6 +343,8 @@ class ApplicationAPI:
         if peer_registry is not None: self._register_peer_registry(peer_registry)
         if role_assignment is not None:
             self._register_role_assignment(role_assignment)
+        if leadership is not None:
+            self._register_leadership(leadership)
         if feedback is not None:
             self._register_feedback(feedback)
         if operational_errors is not None:
@@ -882,12 +888,8 @@ class ApplicationAPI:
             if not isinstance(v, int) or isinstance(v, bool):
                 raise ValueError(f"{n} must be an integer")
             return v
-        def owner(c: LeaderClaimCommand | LeaderYieldCommand | TerminalHeartbeatCommand) -> DutyOwnerIdentity:
+        def owner(c: TerminalHeartbeatCommand) -> DutyOwnerIdentity:
             return DutyOwnerIdentity(c.instance_id,c.profile_id)
-        def claim(e: CommandEnvelope) -> LeaderClaimCommand:
-            return LeaderClaimCommand(self._submission(e),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),text(e,"owner_principal_id"),integer(e,"authority_epoch"))
-        def yielding(e: CommandEnvelope) -> LeaderYieldCommand:
-            return LeaderYieldCommand(self._submission(e),text(e,"lease_id"),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),integer(e,"term"),integer(e,"authority_epoch"))
         def handoff(e: CommandEnvelope) -> TerminalHandoffCommand:
             return TerminalHandoffCommand(self._submission(e),text(e,"current_lease_id"),text(e,"room_id"),text(e,"current_instance_id"),text(e,"current_profile_id"),integer(e,"term"),integer(e,"authority_epoch"),text(e,"new_instance_id"),text(e,"new_profile_id"),text(e,"new_owner_principal_id"),integer(e,"new_authority_epoch"))
         def heartbeat(e: CommandEnvelope) -> TerminalHeartbeatCommand:
@@ -1000,8 +1002,6 @@ class ApplicationAPI:
                 "expired_count": len(encoded),
                 "leases": cast(JsonValue, encoded),
             }
-        self.register(CommandDescriptor("routing.leadership.claim", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, claim, lambda c,_:d.create_lease(DutyLeaseCreateRequest(c.room_id,"leader",DutyOwnerIdentity(c.instance_id,c.profile_id),c.owner_principal_id,60000,c.authority_epoch)), enc, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("routing.leadership.yield", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, yielding, lambda c,_:d.close_lease(DutyLeaseCloseRequest(c.lease_id,c.room_id,"leader",owner(c),c.term,c.authority_epoch)), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.terminal.handoff", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, handoff, lambda c,_:t.handoff_terminal_duty(c.current_lease_id,c.room_id,DutyOwnerIdentity(c.current_instance_id,c.current_profile_id),c.term,c.authority_epoch,DutyOwnerIdentity(c.new_instance_id,c.new_profile_id),c.new_owner_principal_id,c.new_authority_epoch), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("coordination.terminal.heartbeat", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, heartbeat, lambda c,_:t.send_heartbeat(c.lease_id,c.room_id,owner(c),c.term,c.authority_epoch), enc, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor(
@@ -1351,6 +1351,89 @@ class ApplicationAPI:
             decode_status,
             lambda c, _: service.list_roles(),
             encode_roles,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_leadership(self, service: LeadershipService) -> None:
+        def required_text(envelope: CommandEnvelope, name: str) -> str:
+            value = envelope.params[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def optional_text(envelope: CommandEnvelope, name: str) -> str:
+            value = envelope.params.get(name, "")
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def decode_claim(envelope: CommandEnvelope) -> LeaderClaimCommand:
+            return LeaderClaimCommand(
+                submission=self._submission(envelope),
+                peer_node_id=required_text(envelope, "peer_node_id"),
+                actor_id=required_text(envelope, "actor_id"),
+                reason=optional_text(envelope, "reason"),
+                domain=optional_text(envelope, "domain"),
+            )
+
+        def decode_yield(envelope: CommandEnvelope) -> LeaderYieldCommand:
+            return LeaderYieldCommand(
+                submission=self._submission(envelope),
+                yielding_peer_id=required_text(envelope, "yielding_peer_id"),
+                actor_id=required_text(envelope, "actor_id"),
+                reason=optional_text(envelope, "reason"),
+            )
+
+        def encode_claim(
+            result: LeadershipClaimResult,
+        ) -> Mapping[str, JsonValue]:
+            return {
+                **self._receipt(result.submission),
+                "disposition": result.disposition.value,
+                "status": result.target.state.get("status"),
+                "term": result.target.state.get("term"),
+                "claim_id": result.target.state.get("claim_id"),
+                "challenge_until": result.target.state.get("challenge_until"),
+            }
+
+        def encode_yield(
+            result: LeadershipYieldResult,
+        ) -> Mapping[str, JsonValue]:
+            return {
+                **self._receipt(result.submission),
+                "owner_mismatch": result.owner_mismatch,
+                "previous_leader_peer_node_id": (
+                    result.previous_leader_peer_node_id
+                ),
+            }
+
+        self.register(CommandDescriptor(
+            "routing.leadership.claim",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_claim,
+            lambda c, _: service.claim_leadership(
+                peer_node_id=c.peer_node_id,
+                actor_id=c.actor_id,
+                reason=c.reason,
+                domain=c.domain,
+            ),
+            encode_claim,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "routing.leadership.yield",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_yield,
+            lambda c, _: service.yield_leadership(
+                yielding_peer_id=c.yielding_peer_id,
+                actor_id=c.actor_id,
+                reason=c.reason,
+            ),
+            encode_yield,
             CommandAvailability.AVAILABLE,
         ))
 

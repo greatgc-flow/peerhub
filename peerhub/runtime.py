@@ -34,6 +34,7 @@ from .application.arbiter_review import ArbiterReviewCoordinator, ArbiterExecuto
 from .application.direct_ask import execute_direct_ask
 from .application.peer_registry import PeerRegistryService
 from .application.role_assignment import RoleAssignmentService
+from .application.leadership import LeadershipService
 
 
 @dataclass
@@ -59,6 +60,7 @@ class Runtime:
     arbiter_coordinator: ArbiterReviewCoordinator
     peer_registry_service: PeerRegistryService
     role_assignment_service: RoleAssignmentService
+    leadership_service: LeadershipService
     feedback_service: FeedbackService
     operational_error_service: OperationalErrorService
     application_workflows: ApplicationWorkflows
@@ -247,6 +249,13 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    leadership_service = LeadershipService(
+        governance_broker,
+        peer_registry=peer_registry_service,
+        health=health_service,
+        clock=context.clock,
+        ids=context.ids,
+    )
 
     application_api = ApplicationAPI(
         workflows=application_workflows,
@@ -263,6 +272,7 @@ def create_runtime(
         arbiter=arbiter_coordinator,
         peer_registry=peer_registry_service,
         role_assignment=role_assignment_service,
+        leadership=leadership_service,
         feedback=feedback_service,
         operational_errors=operational_error_service,
     )
@@ -286,6 +296,7 @@ def create_runtime(
         arbiter_coordinator=arbiter_coordinator,
         peer_registry_service=peer_registry_service,
         role_assignment_service=role_assignment_service,
+        leadership_service=leadership_service,
         feedback_service=feedback_service,
         operational_error_service=operational_error_service,
         application_workflows=application_workflows,

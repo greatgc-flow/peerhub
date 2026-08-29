@@ -8,7 +8,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -148,12 +148,58 @@ def test_legacy_room_topic_translates_and_executes(runtime_setup) -> None:
 
 def test_legacy_leader_claim_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
-    translated = LegacyTranslator().translate(LegacyActionCall("leader-claim", {"room_id":"room-1","instance_id":"inst-1","profile_id":"peer","owner_principal_id":"peer-1","authority_epoch":1}), _legacy_submission())
+
+    # Legacy shape: --agent for the peer, --reason/--detail, --needs
+    # for the domain. Workspace-global; no room_id concept at all.
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "leader-claim",
+            {"agent": "cc", "reason": "planning_round", "needs": "design"},
+        ),
+        _legacy_submission(),
+    )
     assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, LeaderClaimCommand)
+    assert translated.command.peer_node_id == "cc"
+    assert translated.command.reason == "planning_round"
+    assert translated.command.domain == "design"
+
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
-    lease_id = outcome.result["lease_id"]
-    assert runtime.duty_lease_coordinator.get_lease(lease_id).state.value == "ACTIVE"
+    assert outcome.result["target_id"] == "leadership:workspace"
+    assert outcome.result["disposition"] == "VACANT_CLAIM"
+    assert outcome.result["status"] == "PENDING"
+
+    target = runtime.leadership_service.get_current_leader()
+    assert target is not None
+    assert target.state["leader"]["peer_node_id"] == "cc"
+    assert target.state["domain"] == "design"
+    assert target.state["reason"] == "planning_round"
+
+
+def test_legacy_leader_yield_translates_and_executes(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.leadership_service.claim_leadership(
+        peer_node_id="cc", actor_id="peer-1"
+    )
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "leader-yield", {"agent": "cx", "detail": "context_exhausted"}
+        ),
+        _legacy_submission(),
+    )
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, LeaderYieldCommand)
+    assert translated.command.yielding_peer_id == "cx"
+    assert translated.command.reason == "context_exhausted"
+
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    # A non-leader yielding is a warning, never an error.
+    assert outcome.result["owner_mismatch"] is True
+    assert outcome.result["previous_leader_peer_node_id"] == "cc"
+    assert runtime.leadership_service.get_current_leader() is None
 
 
 def test_legacy_terminal_close_translates_and_executes(runtime_setup) -> None:

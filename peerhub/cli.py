@@ -962,6 +962,102 @@ def _run_role(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_leadership(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = runtime.leadership_service
+            if parsed.leadership_action == "claim":
+                result = service.claim_leadership(
+                    peer_node_id=parsed.peer_node_id,
+                    actor_id=parsed.actor,
+                    reason=parsed.reason,
+                    domain=parsed.domain,
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe({
+                        "disposition": result.disposition.value,
+                        "target": {
+                            "target_id": result.target.target_id,
+                            "revision": result.target.revision,
+                            "state": result.target.state,
+                        },
+                    })))
+                else:
+                    print(
+                        f"Leadership claimed by {parsed.peer_node_id} "
+                        f"(status={result.target.state['status']}, "
+                        f"disposition={result.disposition.value}, "
+                        f"challenge_until="
+                        f"{result.target.state['challenge_until']})"
+                    )
+                return 0
+
+            if parsed.leadership_action == "yield":
+                outcome = service.yield_leadership(
+                    yielding_peer_id=parsed.peer_node_id,
+                    actor_id=parsed.actor,
+                    reason=parsed.reason,
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe({
+                        "owner_mismatch": outcome.owner_mismatch,
+                        "previous_leader_peer_node_id": (
+                            outcome.previous_leader_peer_node_id
+                        ),
+                    })))
+                else:
+                    if outcome.owner_mismatch:
+                        print(
+                            f"Warning: {parsed.peer_node_id} yielded "
+                            f"leadership, but the current leader is "
+                            f"{outcome.previous_leader_peer_node_id}.",
+                            file=sys.stderr,
+                        )
+                    print(
+                        f"Leadership yielded by {parsed.peer_node_id} "
+                        f"(status=VACANT)"
+                    )
+                return 0
+
+            target = service.get_leadership()
+            if parsed.json:
+                payload = None if target is None else {
+                    "target_id": target.target_id,
+                    "revision": target.revision,
+                    "state": target.state,
+                }
+                print(json.dumps(_json_safe({"leadership": payload})))
+            elif target is None:
+                print("No leadership record.")
+            else:
+                state = cast(Mapping[str, Any], target.state)
+                leader = cast(
+                    "Mapping[str, Any] | None", state.get("leader")
+                )
+                holder = (
+                    "-" if leader is None else str(leader.get("peer_node_id"))
+                )
+                print("status\tpeer_node_id\tterm\tchallenge_until")
+                print(
+                    f"{state['status']}\t{holder}\t{state['term']}\t"
+                    f"{state['challenge_until']}"
+                )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub leadership: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_feedback(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -1838,6 +1934,65 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
 
+    leadership_parser = subparsers.add_parser(
+        "leadership", help="Manage the workspace-global leadership slot"
+    )
+    leadership_subparsers = leadership_parser.add_subparsers(
+        dest="leadership_action", required=True
+    )
+    leadership_claim_parser = leadership_subparsers.add_parser(
+        "claim", help="Claim leadership, opening a challenge window"
+    )
+    leadership_claim_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    leadership_claim_parser.add_argument(
+        "--peer-node-id",
+        required=True,
+        help="Registered or base adapter node claiming leadership",
+    )
+    leadership_claim_parser.add_argument(
+        "--actor", required=True, help="Peer ID performing the claim"
+    )
+    leadership_claim_parser.add_argument(
+        "--reason", default="", help="Claim reason (default: manual_claim)"
+    )
+    leadership_claim_parser.add_argument(
+        "--domain",
+        default="",
+        help="Leadership domain (defaults to the reason, then general)",
+    )
+    leadership_claim_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    leadership_yield_parser = leadership_subparsers.add_parser(
+        "yield", help="Vacate leadership (always succeeds)"
+    )
+    leadership_yield_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    leadership_yield_parser.add_argument(
+        "--peer-node-id", required=True, help="Peer yielding leadership"
+    )
+    leadership_yield_parser.add_argument(
+        "--actor", required=True, help="Peer ID performing the yield"
+    )
+    leadership_yield_parser.add_argument(
+        "--reason", default="", help="Yield reason (default: none)"
+    )
+    leadership_yield_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    leadership_status_parser = leadership_subparsers.add_parser(
+        "status", help="Show the current leadership record"
+    )
+    leadership_status_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    leadership_status_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
     feedback_parser = subparsers.add_parser(
         "feedback", help="Manage the governance feedback journal"
     )
@@ -2254,6 +2409,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "role":
         return _run_role(parsed)
+
+    if parsed.command == "leadership":
+        return _run_leadership(parsed)
 
     if parsed.command == "feedback":
         return _run_feedback(parsed)
