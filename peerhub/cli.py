@@ -1210,6 +1210,48 @@ def _run_error(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_alert(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            result = runtime.alert_raise_coordinator.raise_alert(
+                room_id=parsed.room_id,
+                raiser_instance_id=parsed.raiser_instance_id,
+                raiser_profile_id=parsed.raiser_profile_id,
+                severity=parsed.severity,
+                message=parsed.message,
+            )
+            payload = {
+                "alert_id": result.alert_id,
+                "alert_target_id": result.alert_target_id,
+                "room_id": result.room_id,
+                "recipient_profile_ids": result.recipient_profile_ids,
+                "inbox_message_target_ids": (
+                    result.inbox_message_target_ids
+                ),
+            }
+            if parsed.json:
+                print(json.dumps(_json_safe(payload)))
+            else:
+                print(
+                    f"[HUB] !!! {parsed.severity.upper()} ALERT RAISED by "
+                    f"{parsed.raiser_profile_id} !!!: {parsed.message}"
+                )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub alert: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_room(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -2138,6 +2180,47 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
 
+    alert_parser = subparsers.add_parser(
+        "alert", help="Raise durable alerts for live room participants"
+    )
+    alert_subparsers = alert_parser.add_subparsers(
+        dest="alert_action", required=True
+    )
+    alert_raise_parser = alert_subparsers.add_parser(
+        "raise", help="Overwrite the room's current alert and notify peers"
+    )
+    alert_raise_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    alert_raise_parser.add_argument(
+        "--room-id", required=True, help="Room whose live members receive the alert"
+    )
+    alert_raise_parser.add_argument(
+        "--raiser-instance-id",
+        required=True,
+        help="Raising participant's terminal instance identifier",
+    )
+    alert_raise_parser.add_argument(
+        "--raiser-profile-id",
+        required=True,
+        help="Raising participant's profile identifier",
+    )
+    alert_raise_parser.add_argument(
+        "--severity",
+        default="P1",
+        help="Alert severity, P0 or P1 (default: P1)",
+    )
+    alert_raise_parser.add_argument(
+        "--message",
+        "--msg",
+        dest="message",
+        default="",
+        help="Alert message (may be empty)",
+    )
+    alert_raise_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
     room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
     room_specs = {
@@ -2444,6 +2527,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "error":
         return _run_error(parsed)
+
+    if parsed.command == "alert":
+        return _run_alert(parsed)
 
     if parsed.command == "room":
         return _run_room(parsed)

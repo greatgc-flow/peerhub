@@ -42,6 +42,10 @@ from peerhub.application.lesson_broadcast import (
     LessonBroadcastCoordinator,
     LessonBroadcastResult,
 )
+from peerhub.application.alert_raise import (
+    AlertRaiseCoordinator,
+    AlertRaiseResult,
+)
 from peerhub.application.arbiter_review import ArbiterReviewCoordinator
 from peerhub.application.commands import (
     Command,
@@ -89,7 +93,7 @@ from peerhub.application.legacy import (
     RegisterNodeCommand, ListNodesCommand,
     AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
     FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
-    ReportErrorCommand,
+    ReportErrorCommand, AlertRaiseCommand,
 )
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.role_assignment import (
@@ -323,6 +327,7 @@ class ApplicationAPI:
         leadership: LeadershipService | None = None,
         feedback: FeedbackService | None = None,
         operational_errors: OperationalErrorService | None = None,
+        alert_raise: AlertRaiseCoordinator | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -349,6 +354,8 @@ class ApplicationAPI:
             self._register_feedback(feedback)
         if operational_errors is not None:
             self._register_operational_errors(operational_errors)
+        if alert_raise is not None:
+            self._register_alert_raise(alert_raise)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -1189,6 +1196,66 @@ class ApplicationAPI:
                 heartbeat_timeout_ms=command.heartbeat_timeout_ms,
             ),
             encode_snapshot,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_alert_raise(
+        self,
+        coordinator: AlertRaiseCoordinator,
+    ) -> None:
+        def required_text(
+            envelope: CommandEnvelope,
+            name: str,
+        ) -> str:
+            value = envelope.params[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def decode_alert(envelope: CommandEnvelope) -> AlertRaiseCommand:
+            return AlertRaiseCommand(
+                submission=self._submission(envelope),
+                room_id=required_text(envelope, "room_id"),
+                raiser_instance_id=required_text(
+                    envelope, "raiser_instance_id"
+                ),
+                raiser_profile_id=required_text(
+                    envelope, "raiser_profile_id"
+                ),
+                severity=required_text(envelope, "severity"),
+                message=required_text(envelope, "message"),
+            )
+
+        def encode_result(
+            result: AlertRaiseResult,
+        ) -> Mapping[str, JsonValue]:
+            return {
+                "alert_id": result.alert_id,
+                "alert_target_id": result.alert_target_id,
+                "room_id": result.room_id,
+                "recipient_profile_ids": result.recipient_profile_ids,
+                "inbox_message_target_ids": (
+                    result.inbox_message_target_ids
+                ),
+            }
+
+        self.register(CommandDescriptor(
+            "coordination.alert.raise",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            # Like telemetry.error.record, each call is a deliberate new
+            # mutation. The boundary still requires a per-call key; the
+            # coordinator itself allocates fresh governance request IDs.
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_alert,
+            lambda command, _: coordinator.raise_alert(
+                room_id=command.room_id,
+                raiser_instance_id=command.raiser_instance_id,
+                raiser_profile_id=command.raiser_profile_id,
+                severity=command.severity,
+                message=command.message,
+            ),
+            encode_result,
             CommandAvailability.AVAILABLE,
         ))
 

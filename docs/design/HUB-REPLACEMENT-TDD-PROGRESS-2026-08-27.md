@@ -386,3 +386,14 @@ Fully implemented and wired the lesson-inject legacy action. The full round proc
 The mappingproxy-vs-dict bug is a durable knowledge-asset finding for this codebase: real persisted governance state is mappingproxy, not dict -- any future code reading TargetState.state sub-objects must use isinstance(x, collections.abc.Mapping), never isinstance(x, dict). The final verified state has full suite 1254 passed (only pre-existing unrelated manifest test fails) and 0 new pyright errors.
 
 45 of the 90 LEGACY_CATALOG actions now translate and execute end-to-end (up from 44).
+
+
+### 2026-08-30 (`alert-raise` DONE)
+
+Implemented the independently critiqued and ratified `alert-raise` design end to end. The new application-layer `AlertRaiseCoordinator` writes one overwrite-on-raise `room-alert:{room_id}` current slot with a bounded 16-attempt CAS retry, refreshes live room sessions and the target revision on every attempt, retains the winning session snapshot for both `ack_pending` and delivery, deduplicates recipient identities, excludes the exact raiser, and sends durable `ALERT` inbox messages with `priority="CRITICAL"`. `RoomsService.send_message()` gained the additive optional `priority` field with a `None` default, preserving existing API and lesson-broadcast callers.
+
+The full surface is wired: `AlertRaiseCommand` and legacy `alert-raise` translation (implicit current-room context plus `agent`/`from`, severity and message aliases/defaults), `coordination.alert.raise` in `ApplicationAPI` using the same mutating/idempotency classification as the deliberately append-every-call operational-error command, runtime composition, and `peerhub alert raise`. SQLite-backed integration tests prove basic state and fan-out, supported/unsupported severities, empty-message compatibility, singleton overwrite, duplicate-session suppression, a genuine intervening governance write followed by a successful CAS retry with refreshed membership, CLI execution, and legacy translation/execution through the real command bus.
+
+46 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 45), because `alert-raise` no longer falls through to `KnownLegacyActionNotBacked` and now completes a real persisted command-bus execution for the first time.
+
+Final verification for this round: `pytest -q` completed with **1264 passed, 1 failed, 9 deselected, 13 subtests passed**; the sole failure is the allowed pre-existing unrelated `test_committed_manifest_snapshot_is_valid`. Pyright reports 0 diagnostics across all touched non-CLI source files under the repository's real virtualenv configuration, and `cli.py` remains exactly at its pre-existing 10-diagnostic baseline (0 new diagnostics).

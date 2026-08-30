@@ -62,6 +62,32 @@ def _first_text(
     return default if resolved is None else resolved
 
 
+def _legacy_room_id(
+    arguments: Mapping[str, JsonValue],
+    scope: Mapping[str, JsonValue],
+) -> str:
+    """Resolve legacy's implicit current room from call context or scope."""
+
+    names = ("room_id", "room", "current_room", "current-room")
+    direct = _optional_first_text(arguments, names)
+    if direct is not None:
+        return direct
+    context = arguments.get("context")
+    if isinstance(context, Mapping):
+        contextual = _optional_first_text(context, names)
+        if contextual is not None:
+            return contextual
+    scoped = _optional_first_text(scope, names)
+    if scoped is not None:
+        return scoped
+    scope_context = scope.get("context")
+    if isinstance(scope_context, Mapping):
+        scoped_contextual = _optional_first_text(scope_context, names)
+        if scoped_contextual is not None:
+            return scoped_contextual
+    return ""
+
+
 @dataclass(frozen=True)
 class LegacyActionCall:
     action: str
@@ -932,6 +958,30 @@ class LessonBroadcastCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class AlertRaiseCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.alert.raise"
+    submission: SubmissionMetadata
+    room_id: str
+    raiser_instance_id: str
+    raiser_profile_id: str
+    severity: str
+    message: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "raiser_instance_id": self.raiser_instance_id,
+            "raiser_profile_id": self.raiser_profile_id,
+            "severity": self.severity,
+            "message": self.message,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class LessonsListCommand(Command[Any]):
     method: ClassVar[str] = "governance.lesson.list"
     submission: SubmissionMetadata
@@ -1516,6 +1566,32 @@ class LegacyTranslator:
                 ),
                 sender_profile_id=str(
                     call.arguments.get("sender_profile_id", "")
+                ),
+            ))
+        if call.action == "alert-raise":
+            legacy_raiser = _first_text(
+                call.arguments,
+                ("agent", "from", "peer"),
+                "unknown",
+            )
+            return TranslatedCommand(command=AlertRaiseCommand(
+                submission=submission,
+                room_id=_legacy_room_id(call.arguments, submission.scope),
+                raiser_instance_id=_first_text(
+                    call.arguments,
+                    ("raiser_instance_id", "instance_id"),
+                    legacy_raiser,
+                ),
+                raiser_profile_id=_first_text(
+                    call.arguments,
+                    ("raiser_profile_id", "profile_id"),
+                    legacy_raiser,
+                ),
+                severity=_first_text(
+                    call.arguments, ("severity",), "P1"
+                ),
+                message=_first_text(
+                    call.arguments, ("msg", "message"), ""
                 ),
             ))
         if call.action == "lessons-list":

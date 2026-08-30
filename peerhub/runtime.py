@@ -35,6 +35,7 @@ from .application.direct_ask import execute_direct_ask
 from .application.peer_registry import PeerRegistryService
 from .application.role_assignment import RoleAssignmentService
 from .application.leadership import LeadershipService
+from .application.alert_raise import AlertRaiseCoordinator
 
 
 @dataclass
@@ -63,6 +64,7 @@ class Runtime:
     leadership_service: LeadershipService
     feedback_service: FeedbackService
     operational_error_service: OperationalErrorService
+    alert_raise_coordinator: AlertRaiseCoordinator
     application_workflows: ApplicationWorkflows
     application_api: ApplicationAPI
 
@@ -256,6 +258,13 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    alert_raise_coordinator = AlertRaiseCoordinator(
+        governance_broker,
+        rooms=rooms_service,
+        room_sessions=room_participation_coordinator,
+        clock=context.clock,
+        ids=context.ids,
+    )
 
     application_api = ApplicationAPI(
         workflows=application_workflows,
@@ -275,6 +284,7 @@ def create_runtime(
         leadership=leadership_service,
         feedback=feedback_service,
         operational_errors=operational_error_service,
+        alert_raise=alert_raise_coordinator,
     )
 
     return Runtime(
@@ -299,6 +309,7 @@ def create_runtime(
         leadership_service=leadership_service,
         feedback_service=feedback_service,
         operational_error_service=operational_error_service,
+        alert_raise_coordinator=alert_raise_coordinator,
         application_workflows=application_workflows,
         application_api=application_api,
     )

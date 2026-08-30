@@ -219,6 +219,7 @@ class RoomsService:
         thread_ref: str | None = None,
         resource_ref: str | None = None,
         correlation_id: str | None = None,
+        priority: str | None = None,
     ) -> MutationSubmission:
         """Deliver one private, durable mailbox message to one recipient.
 
@@ -240,6 +241,8 @@ class RoomsService:
             self._require_nonempty_text(resource_ref, "resource_ref")
         if correlation_id is not None:
             self._require_nonempty_text(correlation_id, "correlation_id")
+        if priority is not None:
+            self._require_nonempty_text(priority, "priority")
 
         # KNOWN LIMITATION: Like thread-message sequences, delivery sequence
         # allocation is a scoped scan rather than a CAS-protected counter.
@@ -283,6 +286,7 @@ class RoomsService:
             "thread_ref": thread_ref,
             "resource_ref": resource_ref,
             "correlation_id": delivery_correlation_id,
+            "priority": priority,
             "created_at": timestamp,
             "promoted_to": None,
         }

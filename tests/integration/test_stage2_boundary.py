@@ -9,6 +9,7 @@ from typing import Any
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
 from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
+from peerhub.application.legacy import AlertRaiseCommand
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -2237,3 +2238,70 @@ def test_legacy_report_error_applies_defaults(runtime_setup) -> None:
     )
     assert target is not None
     assert target.state["reports"][0]["severity"] == "warn"
+
+
+def test_legacy_alert_raise_translates_and_executes_end_to_end(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-legacy-alert",
+        topic_id="topic-legacy-alert",
+        title="Legacy alert room",
+        creator_id="raiser",
+        participants=("raiser", "recipient"),
+    )
+    for actor, instance_id, profile_id in (
+        ("raiser-principal", "raiser", "raiser"),
+        ("recipient-principal", "recipient", "recipient"),
+    ):
+        runtime.room_participation_coordinator.open_session(
+            RoomSessionOpenRequest(
+                workspace_scope_id="workspace-1",
+                room_id="room-legacy-alert",
+                actor_principal_id=actor,
+                owner=DutyOwnerIdentity(instance_id, profile_id),
+                session_fingerprint=f"fingerprint-{actor}",
+                heartbeat_timeout_ms=5_000,
+            )
+        )
+
+    translated = LegacyTranslator().translate(
+        LegacyActionCall(
+            "alert-raise",
+            {
+                "context": {"current_room": "room-legacy-alert"},
+                "from": "raiser",
+                "message": "command bus alert",
+            },
+        ),
+        _legacy_submission(),
+    )
+
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, AlertRaiseCommand)
+    assert translated.command.room_id == "room-legacy-alert"
+    assert translated.command.raiser_instance_id == "raiser"
+    assert translated.command.raiser_profile_id == "raiser"
+    assert translated.command.severity == "P1"
+    assert translated.command.message == "command bus alert"
+
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert outcome.result["alert_target_id"] == (
+        "room-alert:room-legacy-alert"
+    )
+    assert outcome.result["recipient_profile_ids"] == ("recipient",)
+    target = runtime.governance_broker.get_target(
+        "room-alert:room-legacy-alert"
+    )
+    assert target is not None
+    assert target.state["severity"] == "P1"
+    assert target.state["message"] == "command bus alert"
+    inbox = runtime.rooms_service.check_inbox(
+        room_id="room-legacy-alert",
+        caller_instance_id="recipient",
+        caller_profile_id="recipient",
+    )
+    assert len(inbox) == 1
+    assert inbox[0].state["priority"] == "CRITICAL"

@@ -200,6 +200,8 @@ def test_mailbox_delivery_is_private_read_only_and_cursor_scoped(
     assert inbox_for_c == ()
     assert inbox_for_a[0].state["correlation_id"] == "broadcast-01"
     assert inbox_for_b[0].state["correlation_id"] == "broadcast-01"
+    assert inbox_for_a[0].state["priority"] is None
+    assert inbox_for_b[0].state["priority"] is None
     # check_inbox is read-only: it must not create or advance a cursor.
     assert broker.get_target("inbox-cursor:room-mailbox:peer-a:profile-a") is None
     assert broker.get_target("inbox-cursor:room-mailbox:peer-b:profile-b") is None
