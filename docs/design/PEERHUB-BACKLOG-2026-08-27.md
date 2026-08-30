@@ -227,6 +227,26 @@ Only after the alert target commits, use that same winning live-session snapshot
 
 Explicit non-goals for the first parity slice: no dedup key, evidence trigger, alert classes, proposal creation, external paging, health-circuit mutation, governance-command admission gate, ACK/resolve/suppress methods, or claim that mailbox read acknowledgement clears `ack_pending`. A later native alert-lifecycle round may add those under the already-ratified ownership policy, but folding them into `alert-raise` now would turn a small faithful gap into the different, much larger gap-6 concept.
 
+
+
+#### Critique (ag.deepthink, 2026-08-30)
+
+Independent read-only verification pass over the proposed `alert-raise` candidate design.
+
+1. **Legacy citations**: CONFIRMED. Direct inspection of `P:\_sys\core\hub.py` verifies the claims:
+   - `action_alert_raise` (lines 8983-9005) blindly overwrites `state["alert_active"]` inside `_get_lock()`. No deduplication exists.
+   - `_log_p2p` (lines 1131-1142) prints strictly to `sys.stderr` and does not write to any persistent log file.
+   - `state.blocked` is set in `action_alert_raise` (line 8996) and occasionally cleared by other commands, but it is purely informational (appended to system prompt context or printed to stdout). No command gate ever reads `state.get("blocked")` to prevent execution.
+2. **Peerhub substrate**: CONFIRMED. 
+   - `RoomParticipationCoordinator.list_active_sessions()` exists at `peerhub/dispatch/room_session.py:311` and returns live heartbeat-fresh session snapshots. This is definitively the correct recipient source for live alerting, as opposed to `RoomsService.list_participants()` which returns the static immutable roster.
+   - `RoomsService.send_message()` (in `peerhub/governance/rooms.py:209-296`) lacks a `priority` field in its signature and `inbox-message` state schema.
+3. **Architectural Placement**: CONFIRMED. `peerhub/application/alert_raise.py` is the correct layer. It coordinates three discrete components (governance broker for the singleton target, room sessions for live recipients, and rooms service for fan-out), exactly matching the precedent set by `LessonBroadcastCoordinator`.
+4. **CAS-retry Singleton Pattern**: CONFIRMED. Because `room-alert:{room_id}` is a shared singleton slot, concurrent callers will race. In legacy `hub.py`, the filesystem lock serialized these writes, guaranteeing every alert would overwrite the slot and send messages. If peerhub failed on the first CAS conflict without retrying, concurrent alerts would be dropped. The 16-attempt bounded retry correctly preserves legacy's guaranteed-overwrite semantics.
+5. **Additive Priority Field**: CONFIRMED. Adding `priority: str | None = None` to `send_message()` is a safe additive change. Existing callers in `lesson_broadcast.py`, `api.py`, and `cli.py` will omit it and continue defaulting to `None`.
+6. **Scope Creep / Gaps**: CONFIRMED NO CREEP. The candidate design correctly initializes `ack_pending` with the session identities but explicitly refuses to build an ACK/resolve mechanism. Legacy `hub.py` initialized this array but never built a way to clear it; the proposed design accurately captures this inert state. 
+
+**Overall Verdict**: READY FOR IMPLEMENTATION. The design accurately maps the exact legacy behavior (and its quirks) into peerhub's native substrate without introducing scope creep or inventing new semantics.
+
 ### Scouting round (2026-08-28): mostly confirmed genuinely undesigned, one real find
 
 Research-only pass (no implementation) explicitly looking for more "Tier 1 in disguise" candidates in Tier 4, cross-referencing every plausible-sounding action name against real service method signatures and lifecycle semantics (not just matching nouns). Result: Tier 4's difficulty assessment above holds up under scrutiny -- most near-matches were investigated and explicitly rejected on real evidence, not just assumed hard.
