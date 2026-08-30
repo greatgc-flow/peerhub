@@ -346,3 +346,21 @@ Following up on the Health Cluster investigation (Gap 5), cx.deepthink (fresh se
 2. **Gap B (Evidence Producer outside bootstrap):** RESEARCH-STAGE / BLOCKED. A HealthRevalidationCoordinator was proposed to run probes. However, cc.deepthink identified a genuine manual-quarantine deadlock: a manually quarantined circuit cannot be un-stuck because `authorize_recovery() strictly requires RECOVERY_REQUIRED state, but manual quarantine evaluates to QUARANTINED permanently. The design is blocked pending a core policy decision on how an operator authorizes a re-validation probe against a manually quarantined circuit.
 
 See docs/design/HUB-REPLACEMENT-GAP7-HEALTH-FRESHNESS-AND-EVIDENCE-PRODUCER-2026-08-30.md for the full design. Gap A is scoped to be shipped independently first.
+
+## Health Freshness: Gap A Implemented (2026-08-30)
+
+Gap A (Centralized Read-Time Freshness) has been fully implemented, tested, and committed (`75ff364`).
+
+**Implementation Details:**
+- Added `HealthService.read_health_projection(..., evaluated_at)` backed by a pure `evaluate_projection_at()` reducer.
+- Fixed `freeze_admission_snapshot()`, `role_assignment.py`, and `leadership.py` to use the new read-time evaluated projection.
+- Fixed `direct_ask.py` to correctly check `availability_state` in addition to `admission_state`.
+- Fixed the inert unit mismatch in `bootstrap.py`.
+
+**Testing & Fixes:**
+During implementation, 8 pre-existing tests initially regressed because their fixtures directly constructed `HealthProjectionSnapshot` objects with `readiness_observation_id=None`. While valid under the old contract, this was unrealistic under the new contract since production now explicitly links a real readiness observation for freshness evaluation. This was properly fixed by updating the test fixtures to seed and link real evidence, rather than weakening the strictness of the new reducer.
+
+**Final Status:**
+- Tests: 1243 passed, only the pre-existing unrelated manifest-snapshot test fails.
+- Pyright: 0 new errors.
+- Gap B (Health-Evidence Producer outside bootstrap) remains separately blocked and unchanged.

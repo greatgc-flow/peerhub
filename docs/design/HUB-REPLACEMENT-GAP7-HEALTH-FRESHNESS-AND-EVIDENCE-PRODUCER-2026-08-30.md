@@ -5,7 +5,9 @@ Research by `cx.deepthink` (fresh session), independent critique by `cc.deepthin
 
 This doc formalizes the two critical underlying gaps surfaced during the Gap 5 Health Cluster investigation (`docs/design/HUB-REPLACEMENT-GAP5-HEALTH-CLUSTER-2026-08-30.md`).
 
-## Gap A -- Centralized read-time freshness (READY FOR IMPLEMENTATION)
+## Gap A -- Centralized read-time freshness (IMPLEMENTED (commit 75ff364))
+
+**Status Update:** Fully implemented, tested, and committed to main (`75ff364`). Tests pass (1243 passed, only the pre-existing unrelated manifest test fails) with 0 new pyright errors. During implementation, 8 pre-existing tests initially regressed because their fixtures constructed `HealthProjectionSnapshot` directly with `readiness_observation_id=None` (valid under the old contract, but unrealistic now since production always links a real readiness observation). This was fixed by updating the test fixtures to seed real linked evidence, maintaining the new reducer's strictness.
 
 Two real bugs expose peerhub to trusting unboundedly stale evidence:
 1. **Direct-ask eligibility ignores `availability_state` entirely** (`peerhub/application/direct_ask.py:80-88` matches only on `instance_id`/`profile_id`/`entry.admission_state.value == "OPEN"`). A fix that only degrades `availability_state` to `STALE` would be completely inert for routing; staleness must also degrade effective *admission*.
