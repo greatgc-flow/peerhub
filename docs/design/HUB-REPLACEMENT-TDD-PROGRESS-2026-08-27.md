@@ -336,3 +336,13 @@ Key findings that overturned the initial proposal:
 ode_id, a literal "rotating" fallback will crash unless explicit resolution semantics are designed.
 
 **Ratified Outcome**: Implementation is **BLOCKED**. The design was captured in docs/design/HUB-REPLACEMENT-GAP6-CAPABILITY-MATCHING-2026-08-30.md along with a strict 7-item minimum hardening checklist (including tie-breaking keys, richer discover-capable schema, and explicit missing-evidence semantics) that must be resolved in a future design round before any code is written.
+
+## Health Freshness and Evidence Producer: Gap A Ratified, Gap B Blocked (2026-08-30)
+
+Following up on the Health Cluster investigation (Gap 5), cx.deepthink (fresh session) researched the two underlying blockers: centralized read-time freshness and the lack of a health-evidence producer outside bootstrap. cc.deepthink then performed an independent critique, confirming most claims but providing crucial corrections to the proposed solutions.
+
+**Outcome:**
+1. **Gap A (Centralized Read-Time Freshness):** Fully ratified and READY FOR IMPLEMENTATION. The design adds HealthService.read_health_projection(..., evaluated_at) to evaluate freshness at read time. cc.deepthink corrected the proposal to require a signature change to evaluate_readiness_evidence() (rather than naive reuse) and explicitly mandated a monotonic worst-of rule so circuit-derived admission severity is not accidentally lost.
+2. **Gap B (Evidence Producer outside bootstrap):** RESEARCH-STAGE / BLOCKED. A HealthRevalidationCoordinator was proposed to run probes. However, cc.deepthink identified a genuine manual-quarantine deadlock: a manually quarantined circuit cannot be un-stuck because `authorize_recovery() strictly requires RECOVERY_REQUIRED state, but manual quarantine evaluates to QUARANTINED permanently. The design is blocked pending a core policy decision on how an operator authorizes a re-validation probe against a manually quarantined circuit.
+
+See docs/design/HUB-REPLACEMENT-GAP7-HEALTH-FRESHNESS-AND-EVIDENCE-PRODUCER-2026-08-30.md for the full design. Gap A is scoped to be shipped independently first.
