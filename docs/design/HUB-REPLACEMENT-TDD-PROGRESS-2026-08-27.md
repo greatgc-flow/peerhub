@@ -364,3 +364,9 @@ During implementation, 8 pre-existing tests initially regressed because their fi
 - Tests: 1243 passed, only the pre-existing unrelated manifest-snapshot test fails.
 - Pyright: 0 new errors.
 - Gap B (Health-Evidence Producer outside bootstrap) remains separately blocked and unchanged.
+
+## Lesson Inject Design Round (2026-08-30)
+
+A full research and critique round was conducted for the `lesson-inject` legacy action. Initial research by `ag.deepthink` was critiqued by `cx.deepthink` (fresh session), yielding a "REVISE BEFORE RATIFICATION" verdict. The critique uncovered a material substrate error in the original proposal (which advocated duplicating broker filtering despite the pre-existence of `peerhub.governance.activity.list_active_lessons()`) alongside several legacy parity discrepancies.
+
+The finalized design is documented in `docs/design/HUB-REPLACEMENT-GAP8-LESSON-INJECT-2026-08-30.md`. It outlines a 3-layer decomposition (selection via the existing helper, an application coordinator for applicability, and a pure testable renderer for limits), plus necessary schema and policy additions. The design is explicitly marked as "DESIGN REVISED, MOSTLY RATIFIED" as it still requires resolution on 2 open sub-questions (global-plus-workspace selection wrapper and `affected_peers` empty-list semantics) before it is ready for implementation.
