@@ -405,9 +405,10 @@ class LeadershipService:
                 "leadership leader binding has malformed health identity"
             )
 
-        projection = self._health.get_health_projection(
+        projection = self._health.read_health_projection(
             incumbent_peer_kind,
             incumbent_profile_id,
+            evaluated_at=now,
         )
         if projection is None:
             # Absent evidence PROTECTS the incumbent. Same deny-list shape as
@@ -420,21 +421,18 @@ class LeadershipService:
                 admission_state=None,
             )
 
-        stale_at_read = (
-            now - projection.updated_at
-            > self._health.policy.readiness_freshness_seconds
-        )
+        stale_at_read = projection.stale_at_read
         replaceable = (
             stale_at_read
-            or projection.availability_state in self._DENIED_AVAILABILITY
-            or projection.admission_state in self._DENIED_ADMISSION
+            or projection.effective_availability_state in self._DENIED_AVAILABILITY
+            or projection.effective_admission_state in self._DENIED_ADMISSION
         )
         if not replaceable:
             raise LeadershipIncumbentProtectedError(
                 peer_node_id,
                 incumbent,
-                availability_state=projection.availability_state,
-                admission_state=projection.admission_state,
+                availability_state=projection.effective_availability_state,
+                admission_state=projection.effective_admission_state,
             )
 
         return (
@@ -444,10 +442,10 @@ class LeadershipService:
                     LeadershipClaimDisposition.FAILED_INCUMBENT_TAKEOVER.value
                 ),
                 "incumbent_peer_node_id": incumbent,
-                "projection_id": projection.projection_id,
-                "projection_revision": projection.revision,
-                "availability_state": projection.availability_state.value,
-                "admission_state": projection.admission_state.value,
+                "projection_id": projection.projection.projection_id,
+                "projection_revision": projection.projection.revision,
+                "availability_state": projection.effective_availability_state.value,
+                "admission_state": projection.effective_admission_state.value,
                 "stale_at_read": stale_at_read,
             },
         )

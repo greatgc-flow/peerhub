@@ -76,13 +76,16 @@ class _DirectAskRouteRequestFactory:
     def __call__(self, admission_snapshot: AdmissionSnapshot, /) -> RouteRequest:
         now = self.clock.now()
         
-        # Check eligibility from admission_snapshot
+        # Check eligibility from admission_snapshot -- both admission and
+        # availability must be acceptable (bug #1: previously only checked
+        # admission_state, meaning stale evidence had no effect on routing).
         eligible = False
         for entry in admission_snapshot.entries:
             if (
                 entry.instance_id == self.target.peer_kind 
                 and entry.profile_id == self.target.profile.profile_id
                 and entry.admission_state.value == "OPEN"
+                and entry.availability_state.value not in ("STALE", "UNAVAILABLE")
             ):
                 eligible = True
                 break

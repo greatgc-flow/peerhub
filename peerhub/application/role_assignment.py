@@ -173,34 +173,33 @@ class RoleAssignmentService:
         )
 
         now = self._clock.now()
-        projection = self._health.get_health_projection(
+        health_read = self._health.read_health_projection(
             peer_kind,
             profile_id,
+            evaluated_at=now,
         )
-        if projection is not None:
-            is_stale = (
-                now - projection.updated_at
-                > self._health.policy.readiness_freshness_seconds
-            )
+        if health_read is not None:
+            is_stale = health_read.stale_at_read
             if (
                 is_stale
-                or projection.availability_state
+                or health_read.effective_availability_state
                 in self._DENIED_AVAILABILITY
-                or projection.admission_state in self._DENIED_ADMISSION
+                or health_read.effective_admission_state in self._DENIED_ADMISSION
             ):
                 raise RoleAssigneeUnavailableError(
                     normalized_peer_node_id,
-                    projection.availability_state,
-                    projection.admission_state,
+                    health_read.effective_availability_state,
+                    health_read.effective_admission_state,
                     stale=is_stale,
                 )
+            projection = health_read.projection
             health_basis: dict[str, JsonValue] = {
                 "projection_id": projection.projection_id,
                 "projection_revision": projection.revision,
                 "availability_state": (
-                    projection.availability_state.value
+                    health_read.effective_availability_state.value
                 ),
-                "admission_state": projection.admission_state.value,
+                "admission_state": health_read.effective_admission_state.value,
             }
         else:
             # Legacy UNKNOWN health is fail-open. Keep absence explicit rather

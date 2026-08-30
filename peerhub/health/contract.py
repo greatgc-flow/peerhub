@@ -684,6 +684,55 @@ class HealthProjectionSnapshot:
 
 
 @dataclass(frozen=True)
+class HealthProjectionRead:
+    """Read-time computed view of a stored health projection.
+
+    Evaluates freshness at an arbitrary ``evaluated_at`` timestamp,
+    anchoring staleness on the referenced readiness observation's actual
+    observation/validity time -- NOT on ``projection.updated_at``.
+    Never mutates the stored projection.
+    """
+
+    projection: HealthProjectionSnapshot
+    effective_availability_state: AvailabilityState
+    effective_admission_state: AdmissionState
+    stale_at_read: bool
+    evaluated_at: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.projection,
+            HealthProjectionSnapshot,
+        ):
+            raise ValueError(
+                "projection must be HealthProjectionSnapshot"
+            )
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.effective_availability_state,
+            AvailabilityState,
+        ):
+            raise ValueError(
+                "effective_availability_state must be "
+                "AvailabilityState"
+            )
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.effective_admission_state,
+            AdmissionState,
+        ):
+            raise ValueError(
+                "effective_admission_state must be AdmissionState"
+            )
+        if type(self.stale_at_read) is not bool:
+            raise ValueError(
+                "stale_at_read must be a boolean"
+            )
+        _require_nonnegative(
+            self.evaluated_at,
+            "evaluated_at",
+        )
+
+
+@dataclass(frozen=True)
 class RecoveryProbeGrant:
     """Single-use CAS-claimed authorization for one recovery probe."""
 

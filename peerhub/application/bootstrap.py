@@ -105,7 +105,15 @@ def build_broadcast_admission_config(
                 value=ReadinessMeasurement(
                     runtime_revision=rt_rev,
                     issued_at=now,
-                    valid_until=now + 86400000,
+                    # Fixed: was 86400000 (ms-shaped) in a seconds clock.
+                    # Now consistent with readiness_freshness_seconds=86400.
+                    # TODO(Gap 7): Three separate "one day" constants serve
+                    # different purposes (policy.readiness_freshness_seconds,
+                    # evidence.freshness_ttl, measurement.valid_until). A
+                    # full consolidation to one authoritative source is
+                    # deferred pending scope review; see
+                    # HUB-REPLACEMENT-GAP7-HEALTH-FRESHNESS-AND-EVIDENCE-PRODUCER-2026-08-30.md.
+                    valid_until=now + 86400,
                     integrity_verified=True,
                 ),
             ),
@@ -219,7 +227,11 @@ def build_direct_ask_admission_config(
             value=ReadinessMeasurement(
                 runtime_revision=runtime_revision,
                 issued_at=now,
-                valid_until=now + 86400000,
+                # Fixed: was 86400000 (ms-shaped) in a seconds clock.
+                # Now consistent with readiness_freshness_seconds=86400.
+                # TODO(Gap 7): see build_broadcast_admission_config for
+                # the full consolidation note.
+                valid_until=now + 86400,
                 integrity_verified=True,
             )
         )

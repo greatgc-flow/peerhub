@@ -35,6 +35,7 @@ from .contract import (
     EvidenceSubject,
     HealthCircuitSnapshot,
     HealthPolicy,
+    HealthProjectionRead,
     HealthProjectionSnapshot,
     HealthScopeMembershipSnapshot,
     HealthStageObservation,
@@ -68,6 +69,7 @@ from .model import (
     compose_health_projection_evidence_refs,
     derive_policy_action,
     evaluate_cooldown as reduce_evaluate_cooldown,
+    evaluate_projection_at,
     evaluate_readiness_evidence,
     freeze_admission_snapshot as reduce_freeze_admission,
     resolve_admission_state,
@@ -95,6 +97,14 @@ class HealthUnitOfWork(UnitOfWork, Protocol):
         observed: ReadinessObserved,
     ) -> None:
         """Insert one immutable readiness observation."""
+
+        ...
+
+    def get_readiness_observation(
+        self,
+        observation_id: str,
+    ) -> ReadinessObserved | None:
+        """Return a readiness observation by observation ID."""
 
         ...
 
@@ -274,22 +284,69 @@ class HealthService:
 
         return self._policy
 
-    def get_health_projection(
+    def _get_stored_health_projection(
         self,
         instance_id: str,
         profile_id: str,
     ) -> HealthProjectionSnapshot | None:
-        """Read-through lookup of a pair's current health projection.
+        """Raw read-through of a pair's stored health projection.
+
+        Internal/audit callers that genuinely need the raw persisted
+        state should use this method.  Application-layer code MUST use
+        ``read_health_projection`` instead to get freshness-evaluated
+        effective states.
 
         Deliberately does not call ``_require_configured_pair``: membership
         governs who may *produce* evidence over the injected population, not
-        whether durable, already-persisted state may be read. Callers that
-        gate on health (e.g. role assignment) must treat ``None`` as "no
-        evidence yet" per legacy parity, not as an error.
+        whether durable, already-persisted state may be read.
         """
 
         with self._store.unit_of_work() as unit:
             return unit.get_health_projection(instance_id, profile_id)
+
+    def read_health_projection(
+        self,
+        instance_id: str,
+        profile_id: str,
+        *,
+        evaluated_at: int | None = None,
+    ) -> HealthProjectionRead | None:
+        """Authoritative read API with read-time freshness evaluation.
+
+        Returns ``None`` when no projection exists (preserving the
+        existing fail-open behaviour for callers).  Defaults
+        ``evaluated_at`` to the current clock if not passed.
+
+        Evaluates freshness via ``evaluate_projection_at`` -- the pure
+        reducer that anchors staleness on the referenced readiness
+        observation's actual observation time, never on
+        ``projection.updated_at``.
+        """
+
+        if evaluated_at is None:
+            evaluated_at = self._clock.now()
+
+        with self._store.unit_of_work() as unit:
+            projection = unit.get_health_projection(
+                instance_id, profile_id
+            )
+            if projection is None:
+                return None
+
+            # Look up the referenced readiness observation so the
+            # reducer can anchor staleness on evidence time.
+            readiness: ReadinessObserved | None = None
+            if projection.readiness_observation_id is not None:
+                readiness = unit.get_readiness_observation(
+                    projection.readiness_observation_id
+                )
+
+            return evaluate_projection_at(
+                projection,
+                readiness,
+                policy=self._policy,
+                evaluated_at=evaluated_at,
+            )
 
     def _require_policy(
         self,
@@ -1283,6 +1340,21 @@ class HealthService:
                 self._require_projection_baseline(
                     projection
                 )
+
+                # Evaluate freshness at the snapshot's captured
+                # timestamp so effective states reflect staleness.
+                readiness: ReadinessObserved | None = None
+                if projection.readiness_observation_id is not None:
+                    readiness = unit.get_readiness_observation(
+                        projection.readiness_observation_id
+                    )
+                read = evaluate_projection_at(
+                    projection,
+                    readiness,
+                    policy=self._policy,
+                    evaluated_at=timestamp,
+                )
+
                 entries.append(
                     AdmissionSnapshotEntry(
                         instance_id=instance_id,
@@ -1294,10 +1366,10 @@ class HealthService:
                             projection.revision
                         ),
                         availability_state=(
-                            projection.availability_state
+                            read.effective_availability_state
                         ),
                         admission_state=(
-                            projection.admission_state
+                            read.effective_admission_state
                         ),
                         evidence_refs=(
                             projection.evidence_refs

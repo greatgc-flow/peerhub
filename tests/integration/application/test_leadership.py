@@ -26,6 +26,13 @@ from peerhub.health.contract import (
 from peerhub.health.service import HealthService
 from peerhub.persistence.sqlite import SqliteStateStore
 from peerhub.telemetry.projections import TelemetryProjector
+from peerhub.telemetry.contract import (
+    EvidenceRef,
+    EvidenceState,
+    EvidenceValue,
+    ReadinessMeasurement,
+    ReadinessObserved,
+)
 from tests.fakes import SequentialIdSource
 
 _START = 10_000
@@ -108,24 +115,49 @@ def _seed_projection(
     admission: AdmissionState = AdmissionState.OPEN,
     updated_at: int = _START,
 ) -> None:
+    import uuid
+    obs_id = "obs-" + uuid.uuid4().hex[:8]
+    valid_until = updated_at + 3600
+    readiness = ReadinessObserved(
+        observation_id=obs_id,
+        instance_id=instance_id,
+        profile_id=profile_id,
+        evidence=EvidenceValue(
+            state=EvidenceState.MEASURED,
+            source_tag="test",
+            provider_id="test",
+            provider_version="1",
+            observed_at=updated_at,
+            captured_at=updated_at,
+            freshness_ttl=3600,
+            evidence_ref=EvidenceRef("sha256:00"),
+            value=ReadinessMeasurement(
+                runtime_revision="rev",
+                issued_at=updated_at,
+                valid_until=valid_until,
+                integrity_verified=True,
+            )
+        )
+    )
     projection = HealthProjectionSnapshot(
         projection_id=f"health-projection-{instance_id}",
         instance_id=instance_id,
         profile_id=profile_id,
         availability_state=availability,
         admission_state=admission,
-        readiness_observation_id=None,
+        readiness_observation_id=obs_id,
         operational_projection_id=None,
         operational_projection_revision=None,
         policy_id="leadership-health-v1",
         policy_revision=1,
         cooldown_until=None,
-        evidence_refs=(),
+        evidence_refs=(obs_id,),
         revision=1,
         created_at=updated_at,
         updated_at=updated_at,
     )
     with store.unit_of_work() as unit:
+        unit.add_readiness_observation(readiness)
         unit.add_health_projection(projection)
         unit.commit()
 

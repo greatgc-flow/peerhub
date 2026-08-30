@@ -23,6 +23,7 @@ from peerhub.health.contract import (
     HealthCircuitSnapshot,
     HealthFailureClassification,
     HealthPolicy,
+    HealthProjectionRead,
     HealthProjectionSnapshot,
     HealthStage,
     HealthStageObservation,
@@ -132,6 +133,82 @@ def evaluate_readiness_evidence(
         reason_code=None,
         revalidation_action=None,
         zero_dispatch_calls=False,
+    )
+
+
+def evaluate_projection_at(
+    projection: HealthProjectionSnapshot,
+    readiness: ReadinessObserved | None,
+    *,
+    policy: HealthPolicy,
+    evaluated_at: int,
+) -> HealthProjectionRead:
+    """Pure read-time freshness evaluation over a stored projection.
+
+    Anchors staleness on the referenced readiness observation's actual
+    observation time, NOT on ``projection.updated_at`` (which can
+    advance on circuit-state changes without any new readiness
+    observation -- bug #2).
+
+    Monotonic worst-of rule: the effective admission state is the WORSE
+    of (a) the readiness-derived effective admission from the staleness
+    check, and (b) whatever circuit-derived admission state is already
+    stored on the projection.  Uses ``_ADMISSION_STATE_PRECEDENCE`` so
+    a QUARANTINED/COOLDOWN circuit-derived state can never be
+    accidentally downgraded to RECOVERY_REQUIRED by a stale-evidence
+    re-derivation.
+
+    Never mutates the stored/persisted projection.
+    """
+    # Determine staleness from the actual readiness evidence clock.
+    # Defense-in-depth: also honour measurement.valid_until if present,
+    # using min(valid_until, observed_at + readiness_freshness_seconds)
+    # so both evidence expiry AND policy freshness are respected.
+    stale_at_read = False
+
+    if readiness is not None and readiness.evidence.observed_at is not None:
+        evidence_observed_at = readiness.evidence.observed_at
+        freshness_deadline = evidence_observed_at + policy.readiness_freshness_seconds
+
+        # Also honour the measurement's own validity window if available.
+        measurement = readiness.evidence.value
+        if measurement is not None and hasattr(measurement, "valid_until"):
+            # Defense-in-depth: both policy TTL and evidence-declared validity
+            # must be satisfied. See Gap 7 design doc inert-unit-inconsistency note.
+            freshness_deadline = min(freshness_deadline, measurement.valid_until)
+
+        if evaluated_at > freshness_deadline:
+            stale_at_read = True
+    elif readiness is None:
+        # No readiness evidence at all -- treat as stale.
+        stale_at_read = True
+
+    if stale_at_read:
+        # Stale evidence: degrade availability and compute readiness-
+        # derived admission.
+        effective_availability = AvailabilityState.STALE
+        readiness_derived_admission = AdmissionState.RECOVERY_REQUIRED
+    else:
+        # Fresh: preserve the stored projection's states as baseline.
+        effective_availability = projection.availability_state
+        readiness_derived_admission = projection.admission_state
+
+    # Monotonic worst-of rule: pick the worse of readiness-derived
+    # admission and the circuit-derived admission already stored on
+    # the projection.  Reuse _ADMISSION_STATE_PRECEDENCE (the real
+    # severity ladder at model.py:66-72).
+    stored_admission = projection.admission_state
+    effective_admission = max(
+        (readiness_derived_admission, stored_admission),
+        key=_ADMISSION_STATE_PRECEDENCE.__getitem__,
+    )
+
+    return HealthProjectionRead(
+        projection=projection,
+        effective_availability_state=effective_availability,
+        effective_admission_state=effective_admission,
+        stale_at_read=stale_at_read,
+        evaluated_at=evaluated_at,
     )
 
 
