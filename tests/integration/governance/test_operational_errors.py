@@ -217,3 +217,14 @@ def test_empty_detail_is_allowed_and_threshold_must_be_positive(
         _report(service, threshold=0)
     with pytest.raises(ValueError, match="threshold must be a positive"):
         _report(service, threshold=True)  # pyright: ignore[reportArgumentType]
+
+def test_report_error_rejects_empty_strings(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path)
+    with pytest.raises(ValueError):
+        service.report_error(peer_key="", pattern="p", severity="s", detail="d", actor_id="a")
+    with pytest.raises(ValueError):
+        service.report_error(peer_key="pk", pattern="", severity="s", detail="d", actor_id="a")
+    with pytest.raises(ValueError):
+        service.report_error(peer_key="pk", pattern="p", severity="", detail="d", actor_id="a")
+    with pytest.raises(ValueError):
+        service.report_error(peer_key="pk", pattern="p", severity="s", detail="d", actor_id="")

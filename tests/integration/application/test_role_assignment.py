@@ -432,3 +432,23 @@ def test_release_hides_role_but_preserves_released_target(
     assert repeated.submission is None
     assert repeated.target == persisted
     assert _governance_event_count(store) == before_events
+
+def test_assign_role_rejects_empty_strings(
+    services: tuple[
+        RoleAssignmentService,
+        GovernanceBroker,
+        HealthService,
+        SqliteStateStore,
+        FixedClock,
+    ],
+) -> None:
+    service, _, _, _, _ = services
+    
+    with pytest.raises(ValueError):
+        service.assign_role(role="", peer_node_id="cc", actor_id="operator-1")
+        
+    with pytest.raises(ValueError):
+        service.assign_role(role="implementer", peer_node_id="", actor_id="operator-1")
+        
+    with pytest.raises(ValueError):
+        service.assign_role(role="implementer", peer_node_id="cc", actor_id="")

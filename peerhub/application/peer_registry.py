@@ -7,7 +7,7 @@ from collections.abc import Sequence
 from peerhub.adapters.registry import resolve_peer_target
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
-from peerhub.core.protocol import CommandID, JsonValue
+from peerhub.core.protocol import CommandID, JsonValue, require_text
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
 
@@ -79,6 +79,8 @@ class PeerRegistryService:
         node_type: str = "agent",
         actor_id: str,
     ) -> MutationSubmission:
+        node_id = require_text(node_id, "node_id")
+        actor_id = require_text(actor_id, "actor_id")
         if node_type == "virtual":
             raise InvalidMutationError("node_type 'virtual' is not supported")
         if _is_known_cli_name(node_id):

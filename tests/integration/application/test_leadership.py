@@ -563,3 +563,37 @@ def test_get_current_leader_hides_vacant_records(services) -> None:
     assert service.get_current_leader() is None
     # The record itself is still readable.
     assert service.get_leadership() is not None
+
+def test_claim_and_yield_reject_empty_strings(services) -> None:
+    service, _, _, _ = services
+    with pytest.raises(ValueError):
+        service.claim_leadership(peer_node_id="", actor_id="operator-1")
+    with pytest.raises(ValueError):
+        service.claim_leadership(peer_node_id="cc", actor_id="")
+    with pytest.raises(ValueError):
+        service.yield_leadership(yielding_peer_id="", actor_id="operator-1")
+    with pytest.raises(ValueError):
+        service.yield_leadership(yielding_peer_id="cc", actor_id="")
+
+def test_ap20_does_not_reject_interspersed_claims(services) -> None:
+    service, _, _, clock = services
+    
+    # 2 terms for cc
+    service.claim_leadership(peer_node_id="cc", actor_id="operator-1")
+    clock.advance(5)
+    service.claim_leadership(peer_node_id="cc", actor_id="operator-1")
+    clock.advance(5)
+    
+    # 1 term for cx (breaks streak)
+    service.claim_leadership(peer_node_id="cx", actor_id="operator-2")
+    clock.advance(5)
+    
+    # 2 terms for cc
+    service.claim_leadership(peer_node_id="cc", actor_id="operator-1")
+    clock.advance(5)
+    service.claim_leadership(peer_node_id="cc", actor_id="operator-1")
+    clock.advance(5)
+    
+    # this makes it 5 claims total, but no run of 3 for cc. It should succeed.
+    result = service.claim_leadership(peer_node_id="cc", actor_id="operator-1")
+    assert getattr(result, "disposition", None) is not None

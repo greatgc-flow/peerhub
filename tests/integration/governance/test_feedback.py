@@ -223,3 +223,44 @@ def test_status_still_rejects_empty_text(tmp_path: Path) -> None:
         service.resolve_feedback(
             "GAP-20260829-001", status="   ", actor_id="cc"
         )
+
+from peerhub.governance.contract import MutationRequest, EffectIntent
+from peerhub.core.protocol import CommandID
+
+def test_add_feedback_rejects_empty_strings(tmp_path: Path) -> None:
+    service, _ = _service(tmp_path)
+    with pytest.raises(ValueError):
+        service.add_feedback(source_peer="", category="c", severity="s", title="t", detail="d", actor_id="a")
+    with pytest.raises(ValueError):
+        service.add_feedback(source_peer="sp", category="", severity="s", title="t", detail="d", actor_id="a")
+    with pytest.raises(ValueError):
+        service.add_feedback(source_peer="sp", category="c", severity="", title="t", detail="d", actor_id="a")
+    with pytest.raises(ValueError):
+        service.add_feedback(source_peer="sp", category="c", severity="s", title="", detail="d", actor_id="a")
+    with pytest.raises(ValueError):
+        service.add_feedback(source_peer="sp", category="c", severity="s", title="t", detail="d", actor_id="")
+
+def test_add_feedback_surfaces_stale_revision_error_on_collision(tmp_path: Path) -> None:
+    from peerhub.core.errors import StaleRevisionError
+    service, broker = _service(tmp_path)
+    now = service._clock.now()
+    feedback_id = service._next_feedback_id(service._utc_date_token(now))
+    broker.submit(
+        MutationRequest(
+            request_id="fake-request",
+            command_id=CommandID("fake-command"),
+            correlation_id="fake-correlation",
+            client_id="test",
+            command_type="test.inject",
+            idempotency_key="fake-request",
+            actor_id="test",
+            policy_revision="test-v1",
+            target_id=f"feedback:{feedback_id}",
+            expected_revision=0,
+            operation="test.inject",
+            desired_state={"feedback_id": feedback_id},
+            effect_intent=EffectIntent(kind="test.noop", payload={}),
+        )
+    )
+    with pytest.raises(StaleRevisionError):
+        _add(service)
