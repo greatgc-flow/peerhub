@@ -556,3 +556,29 @@ Independent read-only verification pass. Every citation below was re-derived dir
 **Overall verdict: NEEDS REVISION -- small and mechanical, no further research round required.** The core model is right and independently confirmed against real source: durable and non-expiring, per-resource targets, no-retry CAS, `governance/` placement, and a bare unvalidated `owner` string. Two defects would produce real bugs if implemented as written (missing `kind` silently empties `list_active_locks()`; `scope` overloads the persistence partition column), one is a genuine parity miss (same-owner re-lock must update `scope`), and one is an unstated but load-bearing legacy behavior (the ownerless force-unlock). Fix those four in the design text -- plus the smaller items 5-9 as implementation notes -- and this is ready to hand to an implementation round.
 
 **Implementation update (2026-08-30): DONE.** Implemented in `peerhub/governance/file_locks.py`, `peerhub/application/api.py`, `peerhub/application/legacy.py`, and `peerhub/cli.py` exactly per the critique's fixes (hard-delete on release, same-owner lock scope update, unstated admin-override, disposition enums, domain-specific errors). Verified end-to-end with tests (`tests/integration/test_file_locks.py`). The strictly-correct `LEGACY_CATALOG` count advances from 46/90 to 49/90 (`file-lock`, `file-unlock`, `lock-status`).
+
+### Manual-quarantine authorization policy REVISED (2026-08-30)
+
+**Scope Correction:** This revised proposal addresses the deadlock specifically for manually-quarantined circuits. In accordance with the critique, we are explicitly removing the scope expansion that would have bypassed `COOLDOWN` for automatic circuits. The `authorize_administrative_recovery()` method will exclusively target non-automatic `QUARANTINED` circuits (i.e., those with `MANUAL` or higher authority class). Automatic circuits will continue to use the existing `authorize_recovery()` path unchanged.
+
+**Design Updates:**
+
+1. **Explicit Precedence Ladder Logic:**
+   The `QuarantineAuthorityClass` enum does not natively provide dominance ordering. We will introduce a new pure comparison function in `peerhub/health/model.py` (e.g., `def dominates(a: QuarantineAuthorityClass, b: QuarantineAuthorityClass) -> bool:`) that explicitly encodes the hierarchy: `AUTOMATIC < MANUAL < POLICY < SECURITY`. This freezes the authority matrix rather than relying on enum declaration order.
+
+2. **Durable Administrative Authorization Marker and Recomputation Fix:**
+   To resolve the blocking bug where `_aggregate_for_pair` in `peerhub/health/service.py` reverted the projection, `RecoveryProbeGrant` will be extended to store `authorization_mode` (e.g., `AUTOMATIC` vs `ADMINISTRATIVE`) and `authorized_circuit_revision`. 
+   The `valid_live_grant` check in `_aggregate_for_pair` must be modified to:
+   - Require `live_grant.authorized_circuit_revision == circuit.revision`.
+   - Treat the grant as `PROBE_AUTHORIZED` if it's an `AUTOMATIC` grant on a `RECOVERY_REQUIRED` circuit, **or** if it's an `ADMINISTRATIVE` grant on a `QUARANTINED` circuit. This explicitly instructs the recomputation logic to respect the administrative bypass and not silently revert to `QUARANTINED`.
+
+3. **Authenticated Authorization Mechanism:**
+   We will remove the caller-asserted `target_authority_class` string parameter. Instead, `authorize_administrative_recovery()` will accept an `AuthenticatedSubject` (from `peerhub/core/identity.py`) and a typed authority capability object (e.g., `QuarantineAuthorityCapability`) issued from a trusted application boundary. The capability maps the verified principal to a permitted `QuarantineAuthorityClass`. This provides real authorization matching the precedent set by role assignment and leader election, rejecting unsupported claims fail-closed.
+
+4. **Budget Window and Per-Circuit Pacing:**
+   The budget will be implemented as an anchored 5-hour window via an `AdministrativeRecoveryBudgetManager` (mirroring `ArbiterBudgetManager`), not just a loose limit field.
+   - **Exhaustion:** If the budget is exhausted, the method will reject the attempt with a clear `budget_exceeded` error (no silent failures).
+   - **Per-Circuit Pacing:** We will add a per-circuit single-flight lease/unresolved-attempt rule. If an administrative probe fails, a specific administrative cooldown (separate from the budget) must elapse before another administrative authorization can be attempted on that same circuit, effectively blocking operators from spam-retrying a failing probe.
+
+5. **Shared Probe Pipeline:**
+   `authorize_recovery()` and `authorize_administrative_recovery()` will remain distinct public APIs to prevent accidental sweeping. Both will delegate to a shared internal helper for transaction atomicity, fault injection, and grant/projection construction, avoiding duplicated core logic while keeping the entry points secure.
