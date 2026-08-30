@@ -293,6 +293,40 @@ Liveness is a bare `os.kill(pid, 0)` (`_pid_alive`, `P:/_sys/core/hub.py:8098-81
 
 *Known parity deviations to record up front*, since `lease-status`/`lease-sweep` output cannot be byte-parity: legacy's three statuses (`open`/`expired`/`invalid_timestamp`) do not map onto PeerHub's ten-value `LeaseState` enum; and `invalid_timestamp` **cannot occur** in PeerHub at all, because `heartbeat_expires_at` is a schema-checked `INTEGER ... CHECK (heartbeat_expires_at >= 0)` (`peerhub/persistence/migrations/0003_command_request_attempt.sql:118-119`), so the entire quarantine branch and its `fix-lease-sweep-inv-01` fixture are structurally unreachable -- a deviation, not a bug. Legacy's `peer_id` maps to `owner_peer_id`; legacy's `ask_id`/`room_id`/`ask_query_file` have no lease-table column and would come from the joined command/session rows if the report needs them.
 
+### Manual-quarantine authorization policy PROPOSED (2026-08-30)
+
+**Recommendation: Option C (Budget-gated administrative authorization with authority-class matching).**
+
+Instead of inventing a new RBAC privilege system (which peerhub does not have) or dangerously overloading the automated `authorize_recovery()` path to ignore cooldowns, we should follow the established permission pattern from `arbiter-review`: **budget gating**. Furthermore, we borrow the state-based protection pattern from `LeadershipService` (which protects incumbents based on state) by using a **QuarantineAuthorityClass precedence ladder** (`AUTOMATIC < MANUAL < POLICY < SECURITY`).
+
+**Design:**
+Create a distinct, explicitly-named method on `HealthService`:
+`authorize_administrative_recovery(self, instance_id: str, profile_id: str, scope: PolicyScope, subject: str, *, authorized_by: str, target_authority_class: QuarantineAuthorityClass) -> RecoveryProbeAuthorization`
+
+1. **Preconditions & Authorization:**
+   - Evaluates the circuit's existing `quarantine_authority_class` against the requested `target_authority_class`. If the circuit's class dominates the requested class (e.g., circuit is `SECURITY` but caller asserts `MANUAL`), reject it. This protects higher-order quarantines without needing RBAC user roles.
+   - Bypasses the `AdmissionState.RECOVERY_REQUIRED` check. Because this is an explicit administrative override, it accepts `QUARANTINED` (manual) and `COOLDOWN` (automatic) circuits.
+   - **The Budget Gate:** To prevent probe-spam abuse, it must acquire a slot from an `AdministrativeRecoveryBudgetManager` using the already-defined `policy.administrative_recovery_probe_limit` (fulfilling the deferred check noted in `peerhub/health/model.py`'s `authorize_recovery_probe`). If the budget is exceeded, the authorization is rejected.
+
+2. **State read/written:**
+   - Reads the existing projection, circuit, policy, and a new CAS-backed budget target (e.g., `health-budget:administrative-recovery`).
+   - Writes the budget consumption, inserts the unconsumed `RecoveryProbeGrant` (1 probe), and CAS-updates the projection to `PROBE_AUTHORIZED` via the existing `reduce_authorize_recovery()` pure reducer.
+
+3. **Success vs. Failure Pipeline Interaction:**
+   - This keeps the *authorization* paths fully separate (automated sweeps call `authorize_recovery` and respect cooldowns; operators call `authorize_administrative_recovery` and spend budget).
+   - Once authorized, it feeds into the **exact same recovery pipeline**. The grant is claimed via `claim_recovery_probe` and evaluated via `apply_recovery_probe_result`.
+   - On probe success, the reducer transitions the circuit to `CIRCUIT_CLOSED`, safely lifting the manual quarantine *because real health evidence was provided*.
+   - On probe failure, the grant is exhausted, backoff increments, and the circuit's state re-evaluates (remaining `QUARANTINED` since its authority class is unchanged).
+
+**Tradeoffs of alternatives considered:**
+- **Option A (Distinct gate with just an operator reason):** Fails to mitigate the risk of probe-spam/abuse without a budget limit, and doesn't explicitly handle hierarchical quarantines (like `SECURITY` vs `MANUAL`).
+- **Option B (Extending `authorize_recovery` to accept `QUARANTINED`):** Blurs the lines dangerously. An automated `health-sweep` could accidentally lift a manual quarantine if it just scanned for all non-open circuits, and applying budget logic conditionally inside a single method creates branching hazards.
+
+**Explicitly OUT of scope for this decision:**
+- The design and placement of the `HealthRevalidationCoordinator` (the application-layer piece that actually executes the probe).
+- The definition of the exact budget window duration (requires its own policy configuration like `arbiter-review`'s 5-hour window).
+- Any "break-glass" mechanism to write `HEALTHY` directly without a probe. As ratified in `docs/design/phase0/RUNTIME-HEALTH-DRIFT-2026-07-28.md` (lines 45-55), recovery *cannot write HEALTHY directly*; it must produce a successful probe.
+
 No further Tier 4 work queued for now, at the user's direction -- most of the remaining ~45 unbacked actions have turned out to be either real per-domain design work (`report-error`'s health-authority bridge, `elect-leader`'s capability-scoring, `status`'s cross-domain aggregation) or host-level tooling this session has now repeatedly and consistently found doesn't belong in peerhub's domain model at all (8 confirmed instances across three separate scouting rounds: `freshness-sweep`, `append-log`, `archive-file`, `preflight`, `context-hash`, `profile-validate`, `transient-scan`, `update-signatures`). The clearest remaining tractable item, if picked back up, is `report-error`'s append-and-count half (the auto-quarantine half needs the same health-authority-bridge design work already identified as blocking).
 - **Host-level / P:-environment-specific** (5 actions, **worth questioning whether these belong in peerhub's domain model at all**): `directive-add/list/clear`, `credit-status`, `credit-consume` — these read like they're about the P: portable environment's own host integration, not a generic peerhub concept. Resolve "does peerhub own this or does it stay host-side" before designing, not after.
 - **Alert** (1 action): `alert-raise` — standalone, undesigned.
