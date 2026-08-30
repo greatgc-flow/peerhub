@@ -66,7 +66,7 @@ from peerhub.dispatch.room_session import (
     RoomSessionSnapshot,
 )
 from peerhub.dispatch.terminal_duty import TerminalDutyService
-from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
+from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, PeerHubError
 from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row
 
 class SystemClock(Clock):
@@ -1946,6 +1946,55 @@ def main(args: list[str] | None = None) -> int:
     node_list_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
     node_list_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
+    lock_parser = subparsers.add_parser(
+        "lock", help="Manage durable file locks"
+    )
+    lock_subparsers = lock_parser.add_subparsers(
+        dest="lock_action", required=True
+    )
+    lock_acquire_parser = lock_subparsers.add_parser(
+        "acquire", help="Acquire a file lock"
+    )
+    lock_acquire_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    lock_acquire_parser.add_argument(
+        "--name", required=True, help="Path or name of the file to lock"
+    )
+    lock_acquire_parser.add_argument(
+        "--owner", required=True, help="Peer ID acquiring the lock"
+    )
+    lock_acquire_parser.add_argument(
+        "--scope", default="file", help="Lock scope (legacy)"
+    )
+    lock_acquire_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    lock_release_parser = lock_subparsers.add_parser(
+        "release", help="Release a file lock"
+    )
+    lock_release_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    lock_release_parser.add_argument(
+        "--name", required=True, help="Path or name of the file to unlock"
+    )
+    lock_release_parser.add_argument(
+        "--owner", help="Peer ID that currently owns the lock (optional)"
+    )
+    lock_release_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    lock_status_parser = lock_subparsers.add_parser(
+        "status", help="List active file locks"
+    )
+    lock_status_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    lock_status_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
     role_parser = subparsers.add_parser(
         "role", help="Manage durable workspace role assignments"
     )
@@ -2516,6 +2565,9 @@ def main(args: list[str] | None = None) -> int:
     if parsed.command == "node":
         return _run_node(parsed)
 
+    if parsed.command == "lock":
+        return _run_lock(parsed)
+
     if parsed.command == "role":
         return _run_role(parsed)
 
@@ -2602,3 +2654,85 @@ def main(args: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+def _run_lock(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = runtime.file_lock_service
+            if parsed.lock_action == "acquire":
+                submission = service.lock_file(
+                    name=parsed.name,
+                    owner=parsed.owner,
+                    lock_scope=parsed.scope,
+                )
+                target = runtime.governance_broker.get_target(
+                    submission.receipt.target_id
+                )
+                assert target is not None
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(f"File {parsed.name} locked by {parsed.owner}.")
+                return 0
+            if parsed.lock_action == "release":
+                from peerhub.governance.file_locks import FileUnlockDisposition
+                result = service.unlock_file(
+                    name=parsed.name,
+                    owner=parsed.owner,
+                )
+                if parsed.json:
+                    target = None if result.target is None else {
+                        "target_id": result.target.target_id,
+                        "revision": result.target.revision,
+                        "state": result.target.state,
+                    }
+                    print(json.dumps(_json_safe({
+                        "disposition": result.disposition.value,
+                        "target": target,
+                    })))
+                elif result.disposition is FileUnlockDisposition.NOT_LOCKED:
+                    print(f"Warning: file {parsed.name} is not locked.")
+                else:
+                    print(f"File {parsed.name} unlocked.")
+                return 0
+
+            # status
+            locks = service.list_active_locks()
+            if parsed.json:
+                payload = {
+                    "items": [
+                        {
+                            "target_id": target.target_id,
+                            "revision": target.revision,
+                            "state": target.state,
+                        }
+                        for target in locks
+                    ]
+                }
+                print(json.dumps(_json_safe(payload)))
+                return 0
+                
+            if not locks:
+                print("No active file locks.")
+            else:
+                print("name\towner\tscope\tlocked_at")
+                for target in locks:
+                    state = target.state
+                    name = state.get("name", "")
+                    owner = state.get("owner", "")
+                    scope = state.get("lock_scope", "")
+                    locked_at = state.get("locked_at", "")
+                    print(f"{name}\t{owner}\t{scope}\t{locked_at}")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError, PeerHubError) as exc:
+        print(f"peerhub lock: {exc}", file=sys.stderr)
+        return 2

@@ -93,6 +93,7 @@ from peerhub.application.legacy import (
     RegisterNodeCommand, ListNodesCommand,
     AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
     FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
+    LockAcquireCommand, LockReleaseCommand, LockStatusCommand,
     ReportErrorCommand, AlertRaiseCommand,
 )
 from peerhub.application.peer_registry import PeerRegistryService
@@ -107,6 +108,9 @@ from peerhub.application.leadership import (
 )
 from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
+from peerhub.governance.file_locks import FileLockService, FileUnlockResult
+from peerhub.governance.contract import TargetState
+
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
 R = TypeVar("R")  # pyright: ignore[reportUnknownVariableType]
@@ -326,6 +330,7 @@ class ApplicationAPI:
         role_assignment: RoleAssignmentService | None = None,
         leadership: LeadershipService | None = None,
         feedback: FeedbackService | None = None,
+        file_locks: FileLockService | None = None,
         operational_errors: OperationalErrorService | None = None,
         alert_raise: AlertRaiseCoordinator | None = None,
     ) -> None:
@@ -352,6 +357,9 @@ class ApplicationAPI:
             self._register_leadership(leadership)
         if feedback is not None:
             self._register_feedback(feedback)
+        if file_locks is not None:
+            self._register_file_locks(file_locks)
+
         if operational_errors is not None:
             self._register_operational_errors(operational_errors)
         if alert_raise is not None:
@@ -1619,6 +1627,91 @@ class ApplicationAPI:
                 actor_id=c.actor_id,
             ),
             self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_file_locks(self, service: FileLockService) -> None:
+        def decode_acquire(envelope: CommandEnvelope) -> LockAcquireCommand:
+            return LockAcquireCommand(
+                submission=self._submission(envelope),
+                name=str(envelope.params.get("name", "")),
+                owner=str(envelope.params.get("owner", "")),
+                lock_scope=str(envelope.params.get("lock_scope", "file")),
+            )
+
+        def decode_release(envelope: CommandEnvelope) -> LockReleaseCommand:
+            owner = envelope.params.get("owner")
+            return LockReleaseCommand(
+                submission=self._submission(envelope),
+                name=str(envelope.params.get("name", "")),
+                owner=str(owner) if owner is not None else None,
+            )
+
+        def decode_status(envelope: CommandEnvelope) -> LockStatusCommand:
+            return LockStatusCommand(self._submission(envelope))
+
+        self.register(CommandDescriptor(
+            "governance.lock.acquire",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_acquire,
+            lambda c, _: service.lock_file(name=c.name, owner=c.owner, lock_scope=c.lock_scope),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def encode_release(result: FileUnlockResult) -> Mapping[str, JsonValue]:
+            receipt = (
+                None
+                if result.submission is None
+                else dict(self._receipt(result.submission))
+            )
+            target = (
+                None
+                if result.target is None
+                else {
+                    "target_id": result.target.target_id,
+                    "revision": result.target.revision,
+                    "state": result.target.state,
+                }
+            )
+            return {
+                "disposition": result.disposition.value,
+                "receipt": receipt,
+                "target": target,
+            }
+
+        self.register(CommandDescriptor(
+            "governance.lock.release",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_release,
+            lambda c, _: service.unlock_file(name=c.name, owner=c.owner),
+            encode_release,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def encode_status(items: Sequence[TargetState]) -> Mapping[str, JsonValue]:
+            encoded = [
+                {
+                    "target_id": r.target_id,
+                    "revision": r.revision,
+                    "state": r.state,
+                }
+                for r in items
+            ]
+            return {"items": cast(JsonValue, encoded)}
+
+        self.register(CommandDescriptor(
+            "governance.lock.status",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_status,
+            lambda c, _: service.list_active_locks(),
+            encode_status,
             CommandAvailability.AVAILABLE,
         ))
 

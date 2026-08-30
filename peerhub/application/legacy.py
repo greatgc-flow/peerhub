@@ -1109,6 +1109,54 @@ class RoleStatusCommand(Command[Any]):
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
 
+@dataclass(frozen=True, slots=True)
+class LockAcquireCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lock.acquire"
+    submission: SubmissionMetadata
+    name: str
+    owner: str
+    lock_scope: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "name": self.name,
+            "owner": self.owner,
+            "lock_scope": self.lock_scope,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+@dataclass(frozen=True, slots=True)
+class LockReleaseCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lock.release"
+    submission: SubmissionMetadata
+    name: str
+    owner: str | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "name": self.name,
+            "owner": self.owner,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+@dataclass(frozen=True, slots=True)
+class LockStatusCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lock.status"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
 
 @dataclass(frozen=True, slots=True)
 class FeedbackAddCommand(Command[Any]):
@@ -1715,6 +1763,27 @@ class LegacyTranslator:
         if call.action == "role-status":
             return TranslatedCommand(command=RoleStatusCommand(submission))
             
+        if call.action == "file-lock":
+            name = str(call.arguments.get("name", ""))
+            owner = str(call.arguments.get("owner", ""))
+            lock_scope = str(call.arguments.get("scope", "file"))
+            return TranslatedCommand(command=LockAcquireCommand(
+                submission=submission,
+                name=name,
+                owner=owner,
+                lock_scope=lock_scope,
+            ))
+        if call.action == "file-unlock":
+            name = str(call.arguments.get("name", ""))
+            owner = call.arguments.get("owner")
+            return TranslatedCommand(command=LockReleaseCommand(
+                submission=submission,
+                name=name,
+                owner=str(owner) if owner is not None else None,
+            ))
+        if call.action == "lock-status":
+            return TranslatedCommand(command=LockStatusCommand(submission))
+
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,
             target_method=target,

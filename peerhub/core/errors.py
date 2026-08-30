@@ -501,6 +501,33 @@ class RecoveryProbeGrantConflictError(PeerHubError):
         )
 
 
+class FileLockConflictError(PeerHubError):
+    """The file is currently locked by a different owner."""
+    error_code = ErrorCode.UNIQUE_CONSTRAINT_VIOLATED
+
+    def __init__(self, name: str, current_owner: str) -> None:
+        self.name = name
+        self.current_owner = current_owner
+        super().__init__(
+            f"File {name!r} is already locked by {current_owner!r}",
+            details={"name": name, "current_owner": current_owner},
+        )
+
+
+class FileLockOwnershipMismatchError(PeerHubError):
+    """The file lock is held by a different owner."""
+    error_code = ErrorCode.ACTOR_UNAUTHORIZED
+
+    def __init__(self, name: str, current_owner: str, requested_owner: str) -> None:
+        self.name = name
+        self.current_owner = current_owner
+        self.requested_owner = requested_owner
+        super().__init__(
+            f"File {name!r} is locked by {current_owner!r}, cannot unlock as {requested_owner!r}",
+            details={"name": name, "current_owner": current_owner, "requested_owner": requested_owner},
+        )
+
+
 class WorkspaceIdentityMismatchError(PeerHubError):
     """A database belongs to a different workspace identity."""
 

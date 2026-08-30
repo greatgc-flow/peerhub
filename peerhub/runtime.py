@@ -19,6 +19,7 @@ from .governance.broker import GovernanceBroker
 from .governance.consensus import ConsensusService
 from .governance.tasks import TaskService
 from .governance.feedback import FeedbackService
+from .governance.file_locks import FileLockService
 from .governance.operational_errors import OperationalErrorService
 from .governance.lessons import LessonService
 from .governance.rooms import RoomsService
@@ -63,6 +64,7 @@ class Runtime:
     role_assignment_service: RoleAssignmentService
     leadership_service: LeadershipService
     feedback_service: FeedbackService
+    file_lock_service: FileLockService
     operational_error_service: OperationalErrorService
     alert_raise_coordinator: AlertRaiseCoordinator
     application_workflows: ApplicationWorkflows
@@ -239,6 +241,11 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    file_lock_service = FileLockService(
+        governance_broker,
+        clock=context.clock,
+        ids=context.ids,
+    )
     operational_error_service = OperationalErrorService(
         governance_broker,
         clock=context.clock,
@@ -283,6 +290,7 @@ def create_runtime(
         role_assignment=role_assignment_service,
         leadership=leadership_service,
         feedback=feedback_service,
+        file_locks=file_lock_service,
         operational_errors=operational_error_service,
         alert_raise=alert_raise_coordinator,
     )
@@ -308,6 +316,7 @@ def create_runtime(
         role_assignment_service=role_assignment_service,
         leadership_service=leadership_service,
         feedback_service=feedback_service,
+        file_lock_service=file_lock_service,
         operational_error_service=operational_error_service,
         alert_raise_coordinator=alert_raise_coordinator,
         application_workflows=application_workflows,

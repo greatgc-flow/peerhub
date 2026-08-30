@@ -397,3 +397,24 @@ The full surface is wired: `AlertRaiseCommand` and legacy `alert-raise` translat
 46 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 45), because `alert-raise` no longer falls through to `KnownLegacyActionNotBacked` and now completes a real persisted command-bus execution for the first time.
 
 Final verification for this round: `pytest -q` completed with **1264 passed, 1 failed, 9 deselected, 13 subtests passed**; the sole failure is the allowed pre-existing unrelated `test_committed_manifest_snapshot_is_valid`. Pyright reports 0 diagnostics across all touched non-CLI source files under the repository's real virtualenv configuration, and `cli.py` remains exactly at its pre-existing 10-diagnostic baseline (0 new diagnostics).
+
+### Round (2026-08-30, late): Locks implementation
+
+**Goal:** Implement the 
+locks domain (\`file-lock\/\`file-unlock\/\lock-status\) fully in peerhub.
+
+**Implementation details:**
+Implemented exactly as ratified with the critique fixes applied.
+- The state uses a hard-delete approach on unlock (setting state={}) mirroring the legacy pop behavior.
+- Idempotent same-owner re-lock preserves the original \locked_at\ while updating the \lock_scope\.
+- \lock-status\ output faithfully matches the legacy TSV format and handles the empty state with the exact string \No
+active
+file
+locks.\.
+- Unstated admin-override in legacy is preserved: unlock with no owner argument force-releases regardless of the actual owner.
+
+**Verification:**
+pytest -q tests/integration/test_file_locks.py confirms end-to-end translation, execution, and behavioral invariants (7 tests passed). Pyright shows 0 new errors. 
+
+**Progress:** 49 of the 90 \LEGACY_CATALOG\ actions now translate and execute end-to-end (up from 46). The three new mapped actions are \`file-lock\ (\governance.lock.acquire\), \`file-unlock\ (\governance.lock.release\), and \lock-status\ (\governance.lock.status\).
+
