@@ -96,7 +96,7 @@ Following the consolidated backlog doc's own readiness tiers: completed all 3 re
 - **`thread-append`**: wired to the pre-existing `RoomsService.append_message()` -- pure mechanical wiring, no new code beyond the translator branch and descriptor.
 - **`lesson-broadcast`**: investigated and deliberately left unbacked. Real legacy behavior discovers every other room member and sends each one a mailbox message; `LessonService.record_delivery_pending(lesson_id, peer_id, ...)` only marks ONE peer's delivery pending -- a genuine cardinality mismatch the backlog doc's own "confirm before wiring, don't assume" caution was written to catch. A new regression test (`test_legacy_lesson_broadcast_stays_unbacked_without_broadcast_semantics`) documents this is intentional, not a gap. Moved to the backlog's Tier 3 (needs a real design decision on which layer owns "discover room members").
 
-26 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 24). Another clean-verification round: independent terminal checks (pytest -q: 1115 passed, only the known pre-existing manifest-snapshot failure; pyright: 0 new errors, `cli.py` unchanged at its 10-error baseline, repo-wide baseline unchanged at 136 pre-existing unrelated errors) found no bugs beyond what cx itself had already caught and declined (the `lesson-broadcast` mismatch).
+24 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 22). Another clean-verification round: independent terminal checks (pytest -q: 1115 passed, only the known pre-existing manifest-snapshot failure; pyright: 0 new errors, `cli.py` unchanged at its 10-error baseline, repo-wide baseline unchanged at 136 pre-existing unrelated errors) found no bugs beyond what cx itself had already caught and declined (the `lesson-broadcast` mismatch).
 
 ## Tier 2 round: `thread-react`
 
@@ -108,7 +108,7 @@ First real Tier 2 item -- ratified design, needs new component code, not just wi
 
 One trivial regression from the fix: a pre-existing test (`test_thread_react_translates_all_reaction_fields`, written the round before) asserted an exact `encode_params()` dict without the new `action` key -- fixed directly by the terminal (added `"action": "ADD"` to the expected dict) rather than a round-trip, since it's a 1-line test-literal update, not a design or logic question.
 
-27 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 26). Full suite: pytest -q 1122 passed (only the known pre-existing failure), pyright 0 new errors (repo-wide baseline unchanged at 136).
+25 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 24). Full suite: pytest -q 1122 passed (only the known pre-existing failure), pyright 0 new errors (repo-wide baseline unchanged at 136).
 
 ## Tier 2 round: `room.session_bindings` wiring
 
@@ -128,7 +128,7 @@ Third Tier 2 item, and the biggest one -- explicitly scoped to exclude `context-
 
 Manually verified end-to-end by the terminal against a real workspace, not just unit tests: appended 6 notes to a 5-item-capped `RECENT_COMPLETED` section via the real CLI, checkpointed, confirmed only items 2-6 survived in order with `truncated: true` correctly reported; confirmed the Markdown export renders real section headers even for empty sections. One small scope gap noted, not a bug: no `peerhub room set-goal` CLI command was requested or built this round (the dispatch only asked for `append-handoff`/`checkpoint` CLI wiring), so `GOAL` currently renders empty with no CLI path to populate it -- flagged in the backlog doc as a small follow-up rather than treated as a defect, since it correctly renders empty rather than erroring.
 
-29 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 27). Clean round: pytest -q 1127 passed (only the known pre-existing failure), pyright 0 new errors (repo-wide baseline unchanged at 136).
+27 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 25). Clean round: pytest -q 1127 passed (only the known pre-existing failure), pyright 0 new errors (repo-wide baseline unchanged at 136).
 
 **Tier 2 is now 3 of 4 closed. Only `context-fill` remains** in the entire backlog's Tier 2 -- and it can now build on the checkpoint/continuity-note core just established rather than starting from nothing.
 
@@ -140,7 +140,7 @@ One real pyright regression caught and fixed directly by the terminal (a 1-line 
 
 Manually verified end-to-end against a real workspace by the terminal (not just cx's own smoke test): default call returns all 6 sections, `--sections PENDING_ISSUES,GOAL` returns exactly those 2 in that order, `session_id` echoed correctly, no Markdown field present, and a follow-up real `checkpoint()` call still worked correctly afterward.
 
-30 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 29). pytest -q: 1130 passed (only the known pre-existing failure). pyright: 0 new errors after the fix (repo-wide baseline unchanged at 136).
+28 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 27). pytest -q: 1130 passed (only the known pre-existing failure). pyright: 0 new errors after the fix (repo-wide baseline unchanged at 136).
 
 **Tier 2 is now fully closed -- all 4 items done.** Next: decide between Tier 3 (needs its own dialectical round per item: `send`, `mark-read`, `thread-promote`, `update-status`, `check`, `arbiter-review`, `lesson-broadcast`) and Tier 4 (entirely undesigned domains: health/admission/routing, governance artifacts/feedback/proposals/locks, config/telemetry misc, host-level actions, alert).
 
@@ -158,7 +158,7 @@ The non-negotiable privacy requirement (the generic broker has no per-target rea
 
 `mark_read` is a pure high-water-mark cursor (v1 scope, per the ratification -- legacy's exact per-message out-of-order acknowledgement is explicitly deferred), verified idempotent (a repeat call past an already-passed sequence leaves the stored cursor state byte-identical). `promote_message` creates a real `MSG_PROMOTED` thread message carrying `promoted_from_inbox_message_id` and CAS-updates the source inbox-message's `promoted_to` field (revision bumps; body/sender/recipient stay immutable) -- verified with a real end-to-end scenario (send -> promote -> confirm both the new thread message and the marked source).
 
-pytest -q: 1132 passed (only the known pre-existing failure). pyright: 0 new errors (repo-wide baseline unchanged at 136). CLI + legacy translation + execution-dispatcher wiring remains an explicit follow-up -- doesn't move the 30/90 `LEGACY_CATALOG` count yet.
+pytest -q: 1132 passed (only the known pre-existing failure). pyright: 0 new errors (repo-wide baseline unchanged at 136). CLI + legacy translation + execution-dispatcher wiring remains an explicit follow-up -- doesn't move the 28/90 `LEGACY_CATALOG` count yet.
 
 ## Mailbox wiring round: `send`/`check`/`mark-read`/`thread-promote` -- CLI + legacy + dispatcher
 
@@ -166,7 +166,7 @@ Follow-up to the mailbox core round. `peerhub room send|check-inbox|mark-read|pr
 
 Independently re-verified by the terminal through the FULL CLI stack, not just cx's own in-memory `LegacyTranslator -> Client -> ApplicationAPI -> RoomsService` smoke: created a room with 3 participants, sent 2 different private messages via the real CLI, confirmed each recipient's `check-inbox` shows only their own mail and the sender's own inbox is empty -- the privacy property proven at the service layer last round now proven through the entire real command-line path too.
 
-34 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 30). pytest -q: 1136 passed (only the known pre-existing failure). pyright: 0 new errors.
+32 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 28). pytest -q: 1136 passed (only the known pre-existing failure). pyright: 0 new errors.
 
 ## `lesson-broadcast`: the last ready Tier 3 item, done
 
@@ -174,7 +174,7 @@ Independently re-verified by the terminal through the FULL CLI stack, not just c
 
 Independently re-verified by the terminal through the real CLI, not just cx's own smoke test: broadcasting with a sender identity that actually matches a real room participant correctly excludes that sender (delivers to the other 2 of 3 participants, not all 3 -- the terminal's first manual attempt used a sender identity that DIDN'T match any room participant, which trivially "worked" without proving exclusion; re-ran with a matching identity to actually test the exclusion logic); broadcasting an unactivated (`PROPOSED`) lesson is correctly rejected (exit 2, clear error) rather than silently succeeding.
 
-35 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 34). pytest -q: 1138 passed (only the known pre-existing failure). pyright: 0 new errors.
+33 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 32). pytest -q: 1138 passed (only the known pre-existing failure). pyright: 0 new errors.
 
 **Tier 3 is now 6 of 7 closed.** Only `arbiter-review` remains -- real legacy behavior invokes an external arbiter in an isolated subprocess, genuinely new infrastructure this session hasn't built yet, needs its own dedicated round rather than a same-batch wiring pass.
 
@@ -184,7 +184,7 @@ Research-only pass (docs/design/PEERHUB-BACKLOG-2026-08-27.md's "Scouting round"
 
 One genuine find: `proposal-list` -> `GovernanceBroker.list_targets("consensus-round", None)`, a pure read needing only a descriptor + legacy branch + CLI + encoder. Implemented same round: `peerhub consensus list`, wired as `governance.proposal.list` (READ_ONLY, `{"proposals": [...]}`, reusing the `lessons-list` pattern correctly this time -- no bare-list regression). Independently re-verified by the terminal: proposed 2 rounds, drove one to `quorum_reached` via real votes, listed both -- confirms the real `list_targets` scan is used, not the active-only helper that would have silently hidden the resolved one.
 
-36 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 35). pytest -q: 1141 passed (only the known pre-existing failure). pyright: 0 new errors.
+34 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 33). pytest -q: 1141 passed (only the known pre-existing failure). pyright: 0 new errors.
 
 ## `arbiter-review`: overturned assessment, then a real core implementation round
 
@@ -194,11 +194,11 @@ Full detail: `docs/design/PEERHUB-BACKLOG-2026-08-27.md`'s "`arbiter-review` RAT
 
 This was a genuinely more complex, novel piece than most rounds this session -- verified with unusual care given cx's sandbox couldn't execute pytest at all this round (0 real test executions on cx's side, purely static/smoke checks). The terminal's own full pytest run (9 real integration tests) was the first actual execution of this code, and included precise state-equality and window-boundary assertions (a rejected 6th budget reservation leaves the target byte-for-byte unchanged; the anchored window resets exactly at the boundary second, not one second early or late) rather than shallow pass/fail checks.
 
-pytest -q: 1150 passed (only the known pre-existing failure). pyright: 0 new errors. CLI + legacy translation + execution-dispatcher wiring remains an explicit follow-up -- doesn't move the 36/90 `LEGACY_CATALOG` count yet.
+pytest -q: 1150 passed (only the known pre-existing failure). pyright: 0 new errors. CLI + legacy translation + execution-dispatcher wiring remains an explicit follow-up -- doesn't move the 34/90 `LEGACY_CATALOG` count yet.
 
 **Tier 3 is now conceptually all 7 items resolved** (6 fully done end-to-end, `arbiter-review`'s core done with wiring as an explicit next round) -- the biggest remaining Tier 3 uncertainty (was this even buildable without new infrastructure?) is closed.
 
-## `arbiter-review` wiring round: CLI + legacy translation + execution-dispatcher (steps 6-8 of 9) -- Tier 3 fully closed, 37/90
+## `arbiter-review` wiring round: CLI + legacy translation + execution-dispatcher (steps 6-8 of 9) -- Tier 3 fully closed, 35/90
 
 Dispatched as a follow-up to the core round above, once ag's G-pool reset gave it full headroom again. Same-shape task: `ArbiterReviewCommand` + a real `if call.action == "arbiter-review":` branch in `legacy.py`, a `consensus.arbiter.review` `CommandDescriptor` in `api.py`, a `peerhub consensus arbiter-review --round-id <id>` CLI subcommand, and `create_runtime()` threading an injectable `arbiter_executor` parameter so tests can inject a fake and never risk spawning a real peer subprocess -- the explicit hard constraint given for this round, since `execute_direct_ask` really does shell out.
 
@@ -213,7 +213,7 @@ The missing step-8 test (`test_legacy_arbiter_review_translates_and_executes` in
 
 Verification: full suite 1151 passed (only the known pre-existing manifest-snapshot failure, unrelated), 0 new pyright errors on every touched file (`cli.py`'s pre-existing 10-error baseline unchanged). Two manual CLI smoke tests beyond the automated suite, specifically because this round carries the real-subprocess risk: `peerhub consensus arbiter-review --round-id <missing>` against a real workspace correctly surfaces `RecordNotFoundError` with exit code 2; the same command against a real, freshly-proposed round with no `.peerhub/arbiter.json` correctly returns `{"fired": false, "reason": "arbiter_disabled"}` with exit code 0 -- both exercised the real CLI/runtime wiring end-to-end without ever touching the real `execute_direct_ask` default, since neither scenario reaches the executor.
 
-37 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 36). **Tier 3 is now fully closed, 7 of 7.**
+35 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 34). **Tier 3 is now fully closed, 7 of 7.**
 
 ## Health/admission/routing scouting + `peer-registry` ratification round, with two incidental findings and a lesson-learned on each
 
@@ -239,11 +239,11 @@ Also wrote the tests that were entirely missing: `tests/integration/application/
 
 Verified: full suite 1162 passed (only the known pre-existing manifest-snapshot failure, unrelated), 0 new pyright errors on every touched file (one real pyright finding along the way -- `peer_registry.py` importing registry.py's private `_CLI_ALIASES` directly, fixed by reusing the same `resolve_peer_target()`-based check `list_nodes()`'s base-row derivation already relied on, rather than reaching across the module boundary for a private name). Manual CLI smoke test on a real workspace: `node list` on nothing registered returns exactly the three base adapters; `node register` succeeds and the node appears in a subsequent `node list --json`; registering `node-id=cc` is correctly rejected as a collision.
 
-39 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 37).
+37 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 35).
 
 **Running lesson across this session's last three killed dispatches:** a killed dispatch's partial output is worth reading closely, not just compiling -- `py_compile`/syntax validity proves nothing about whether imports resolve, whether a referenced method actually exists, or whether the code matches this codebase's real, established conventions rather than a plausible-looking approximation of them. Every real bug found in a killed dispatch's partial work this session (the circular import and `DummyPaths` `AttributeError` in the arbiter-review wiring round; the wrong-module imports, raw `uuid4()`, split idempotency key, and misspelled field here) was only caught by actually importing the module, actually running it against real infrastructure, and actually grep-comparing against a working precedent elsewhere in the codebase -- never by static syntax checking alone.
 
-## Durable role assignments: `assign-role`/`release-role`/`role-status`, 42/90 -- a two-round-ratified design that overturned its own starting assumption
+## Durable role assignments: `assign-role`/`release-role`/`role-status`, 40/90 -- a two-round-ratified design that overturned its own starting assumption
 
 Picked up as the next Tier 4 item per the peer-registry round's own recommendation. Went through the full research-then-critique cycle before any code: cx.deepthink researched first, proposing a fail-*closed* health gate (require a peer to have a real, positive health projection before allowing assign-role) reasoned from "legacy checks health before assigning, so the native equivalent should require real evidence." That premise turned out to be wrong, caught by cc.deepthink's critique tracing the actual legacy `_sys/core/hub.py` source line by line: a peer with no `health.json` on disk resolves to status `"UNKNOWN"`, which is **not** in `_healthy_peer`'s blocked-status set (`{"RED","STALE"}`), so `assign-role` **succeeds** on a workspace that has never run a health check at all. cx's fail-closed design would have been a real, narrower-than-legacy regression, and -- practically -- would have made every `assign-role` call fail permanently under peerhub's own default runtime construction (`create_runtime()` without an explicit `admission_config`, which is what every simple CLI command like `peerhub node register` already uses, builds `HealthService` with genuinely empty membership and no way to ever populate real evidence outside an actual peer dispatch). The terminal independently re-verified the corrected fail-open claim directly against the real legacy source (`_read_peer_health`'s empty-dict default, `_peer_effective_health`'s `"UNKNOWN"` fallback, `_healthy_peer`'s blocked-set check) before accepting the redesign -- this was the single most consequential verification of the session, since building the wrong (fail-closed) version would have shipped a working-looking feature that could never actually assign a role.
 
@@ -253,9 +253,9 @@ Two small prerequisite fixes landed first, in their own commit (`921e938`), befo
 
 The main implementation (`peerhub/application/role_assignment.py` plus the usual legacy/api/runtime/cli wiring, dispatched to cx.deepthink with the fully ratified design handed over verbatim) shipped with **zero bugs found on independent review this round** -- a first for a peer implementation this session; every prior implementation round (arbiter-review wiring, peer-registry) needed at least one real fix after review. Verified thoroughly given the stakes of the fail-open/fail-closed distinction: 16 real pytest cases (parametrized across the full deny-list matrix, staleness, non-idempotent reassignment producing a fresh `assignment_id` and revision bump even on an identical reassignment, ownership-mismatch rejection with zero mutation, and RELEASED-but-still-broker-readable release semantics with a graceful no-op warning on repeat release) all passed on the terminal's own real pytest run (cx's sandbox was ACL-blocked from running pytest again, same recurring issue -- its own "13/13 passed" claims were from a manual direct-execution harness, not pytest, so this really was the first real automated execution). Full suite: 1179 passed (only the known pre-existing manifest-snapshot failure). 0 new pyright errors. A full manual CLI smoke test (`peerhub role assign|status|release`, including a wrong-owner release rejection and a graceful repeat-release warning) matched every ratified legacy-parity behavior exactly.
 
-42 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 39).
+40 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 37).
 
-## Feedback journal: `feedback-add`/`feedback-list`/`feedback-resolve`, 45/90 -- a clean round, and a `P:\` root merge that keeps recurring
+## Feedback journal: `feedback-add`/`feedback-list`/`feedback-resolve`, 43/90 -- a clean round, and a `P:\` root merge that keeps recurring
 
 Continued the Tier 4 survey per user direction into the "Governance artifacts / feedback / proposals / locks" cluster. Most of it (11 of 17 items) already had verdicts from an earlier round's "Rejected near-matches" section; a fresh scouting pass on the remaining 6 (cx.deepthink) found the same "looks buildable from the name, isn't" trap that `freshness-sweep` hit in the health cluster -- `append-log` and `archive-file` both turned out to be generic host/tooling-diagnostic operations (an unstructured script-status log append; a raw arbitrary-file-copy to `_archive/`) with no real peerhub-domain analogue, correctly classified OUT OF SCOPE rather than forced into a design. `report-error` is a genuine gap but its auto-quarantine-at-threshold half would need to fabricate typed health evidence to call `classify_and_open_circuit()`, repeating the already-rejected `peer-quarantine` authority-model mistake -- deferred to its own round. `feedback-add`/`list`/`resolve` came back as a clean, structurally-proven, low-risk gap -- close enough to already-built domains (a `LessonService`/`ConsensusService`-shaped journal) that the two small remaining open questions (UTC vs. host-local date for the ID, enum vs. free-text status) were resolved directly against established house convention rather than spun into a separate critique round, and implementation was dispatched straight from the scouting research.
 
@@ -265,9 +265,9 @@ Zero bugs found on independent review -- the second implementation round in a ro
 
 **Aside, unrelated to peerhub work but recorded for continuity:** the `P:\` root's stalled Engram merge (first hit and fixed earlier this session, see the arbiter/peer-registry rounds' notes) reappeared a second and third time mid-session, each time producing the same `ModuleNotFoundError`/phantom-write governance-guard symptom on an unrelated peer dispatch. Each time, per the user's own standing instruction once this pattern was established ("이번에도 간단히 abort해주세요"), it was fixed the same way -- `git merge --abort` at the P:\ root, confirmed even with origin, no push needed -- without re-asking. `P:\workspace\peerhub` itself was never affected by any of these three occurrences.
 
-45 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 42).
+43 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 40).
 
-## `report-error`: the health-authority-bridge round, 46/90 -- a design a peer proposed, a peer corrected, a peer implemented, and the terminal verified from a blank slate three times
+## `report-error`: the health-authority-bridge round, 44/90 -- a design a peer proposed, a peer corrected, a peer implemented, and the terminal verified from a blank slate three times
 
 Picked back up after the earlier session wrap-up, at the user's clarified request to continue rather than stop. `report-error` was the clearest remaining tractable item from the prior scouting round -- its append-and-count half was always clean, but its auto-quarantine-at-threshold half needed a real answer to "how does a free-form caller-supplied error report legitimately influence peerhub's real, evidence-derived health/circuit authority without faking evidence," the same trap that already got `peer-quarantine` rejected as a false friend.
 
@@ -277,7 +277,7 @@ The implementation (`cx.deepthink` again, same session, implementing its own jus
 
 The recurring `P:\` root Engram-merge phantom-write issue did not resurface this round.
 
-46 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 45).
+44 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 43).
 
 ## A real correctness gap found while scoping `elect-leader`, not fixed: `leader-claim`/`leader-yield` were never actually leadership
 
@@ -289,7 +289,7 @@ This predates this session's TDD-catalog-counting work entirely. `docs/design/HU
 
 At the user's explicit direction, this was documented, not fixed, this session -- see the "FINDING" note at the top of `docs/design/PEERHUB-BACKLOG-2026-08-27.md` for the full record and the recommended next-session approach (a real `LeadershipService` two-round research-then-critique cycle, comparable in size to `role_assignment`'s, starting from `GAP4`'s already-substantial prior analysis rather than from scratch). `elect-leader` itself stays blocked until this is resolved, since its whole design depends on `leader-claim` actually being real leadership.
 
-The `46/90` LEGACY_CATALOG count is unchanged by this finding -- both actions do genuinely translate and execute (`CommandSuccess`, not an error), which is the literal criterion that count has always measured. But it's worth being explicit, for whoever picks this up next: "backed" in that count has always meant "executes end-to-end through the real command bus," not "independently verified to match every real legacy behavior" -- this session's own practice has been to verify new work that way, but this specific pair predates that practice being applied to it.
+The `44/90` LEGACY_CATALOG count is unchanged by this finding -- both actions do genuinely translate and execute (`CommandSuccess`, not an error), which is the literal criterion that count has always measured. But it's worth being explicit, for whoever picks this up next: "backed" in that count has always meant "executes end-to-end through the real command bus," not "independently verified to match every real legacy behavior" -- this session's own practice has been to verify new work that way, but this specific pair predates that practice being applied to it.
 
 ## Fixing `leader-claim`/`leader-yield` for real, overnight: two verified corrections to the terminal's own summary, one caught-on-implementation bug, and a hidden-inheritance landmine dodged
 
