@@ -340,3 +340,20 @@ Research-only round (ag.deepthink; no implementation) covering the 5 actions pre
 **REJECTED FALSE FRIENDS (5):**
 - `directive-add`, `directive-list`, `directive-clear`: These read and append to `_sys/ai/runtime-directives.jsonl` (as specced in `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`, lines 212-242). This is a local, lock-free, unstructured file used by the host agent environment to inject transient prompt instructions. Peerhub already has a robust, coordinated, consensus-governed mechanism for prompt injection: **Lessons** (`lessons-propose`, `lesson-inject`, backed by SQLite `command_ledger`). Replacing `runtime-directives` within peerhub would redundantly recreate lessons. These remain local host-tooling actions.
 - `credit-status`, `credit-consume`: These interact with `CodexAccountClient` to read and irreversibly consume proprietary "rate-limit reset credits" on an upstream service API (`docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`, lines 313-350). While peerhub *observes* quotas (via read-only polling in `telemetry/quota_polling.py` to inform `RoutingService`), actively *redeeming upstream account billing/quota tokens* is a highly peer-specific proprietary host integration. Peerhub coordinates peers; if a peer's quota is exhausted, peerhub routes around it. Redeeming a token to wake the peer up is an upstream account management action, not a peer coordination concept.
+
+### Locks (`file-lock`/`file-unlock`/`lock-status`) RATIFIED (2026-08-30): a genuine new durable lock domain, NOT built on DutyLeaseCoordinator
+
+Research (ag.deepthink) against real Parity Ledger entries (`docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` §§4-6) confirms legacy file-locks are durable and non-expiring. They track a simple `locked_at` timestamp, do not require heartbeats, and are explicitly idempotent upon re-entry by the same owner (preserving the original timestamp). `DutyLeaseCoordinator` is strictly for room-scoped, TTL-expiring, heartbeat-renewed leases with automatic recovery. Forcing file-locks into `DutyLeaseCoordinator` would be the exact same "wrong reuse" trap that broke leadership. A new, distinct lock domain is genuinely needed.
+
+**Placement**: `peerhub/governance/file_locks.py` (a workspace-global coordination registry, not an application-layer routing concern like duty leases).
+
+**Schema**: A per-resource `file-lock:{name}` TargetState family.
+State: `name` (the locked resource), `owner` (the holding peer/agent identity), `scope` (default "file"), `locked_at` (timestamp, preserved on idempotent re-entry), and `status` (`ACTIVE|RELEASED`).
+
+**Methods**:
+- `lock_file(name: str, owner: str, scope: str = "file")`: CAS on `file-lock:{name}`. If absent or `RELEASED`, create/update as `ACTIVE` with `locked_at = now`. If `ACTIVE` and `existing.owner == owner`, return existing unchanged (strictly idempotent, preserves original `locked_at`). If `ACTIVE` and `existing.owner != owner`, raise a lock conflict error.
+- `unlock_file(name: str, owner: str | None = None)`: CAS on `file-lock:{name}`. If absent or `RELEASED`, no-op/warn. If `ACTIVE` and `owner` specified but `existing.owner != owner`, raise an ownership mismatch error. Otherwise, mutate to `status="RELEASED"`.
+- `list_active_locks()`: Scans `file-lock:*` targets for `ACTIVE` locks to format the TSV output for `lock-status`.
+
+**Cross-domain impact on `status`**:
+Building this locks domain will unblock the locks-reporting portion of the legacy `status` action. However, as noted in this document's configuration/telemetry scouting section, `status` is a genuine multi-domain aggregation read (rolling state/mailbox/task-registry/locks/consensus into one report). While locks are a prerequisite, `status` will still require its own dedicated cross-domain wiring and design work once all its dependencies exist.
