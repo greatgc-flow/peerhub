@@ -306,3 +306,33 @@ Independent review this round caught one real, if minor, correctness bug of its 
 Verified end to end: 23 new `LeadershipService` tests, all 100 tests across the three touched test files (including the pre-existing terminal-duty suite, confirming the inheritance fix was clean), full suite 1229 passed (only the known pre-existing manifest-snapshot failure), 0 new pyright errors on every touched file. A real manual CLI smoke test proved the design's single most counterintuitive, load-bearing behavior end-to-end, not just via unit assertions: `cc` claims leadership (`PENDING`), and a claim by `cx` while still inside `cc`'s challenge window correctly *succeeds* (`OPEN_WINDOW_CHALLENGE`) and overwrites the pending claimant, rather than being rejected the way the natural-sounding (but wrong) assumption would predict.
 
 `leader-claim`/`leader-yield` are now real. `elect-leader` remains separately blocked on real capability-matching scoring peerhub still doesn't have (`RoutingService.select_route()` only does boolean eligibility, not scored matching) -- a distinct, separately-scoped prerequisite, not something this round attempted.
+
+## The "Health Cluster" Investigation: False friends, real gaps, and the value of independent critique (2026-08-30)
+
+Researched the remaining four "health cluster" legacy actions: health-update, health-check, peer-status, and health-sweep. This followed the same two-peer research-then-critique discipline used for LeadershipService and elect-leader.
+
+Research (ag.deepthink) initially classified health-update and health-sweep as permanently untranslatable false friends that actively violated peerhub's evidence-based health authority model, while classifying health-check and peer-status as simple, read-only thin view layers that needed no new design.
+
+Critique (cc.deepthink) independently verified every citation against the real hub.py source and **significantly revised** these conclusions, demonstrating exactly why the two-peer review process is mandatory:
+
+1. **health-update is Tractable, not Untranslatable**: While its explicit-status path is an illegitimate self-report, its AUTO mode (lines 8054-8060) correctly derives health from measurement. The real blocker is not philosophical, but architectural: a peer "re-evaluate my own health" request needs to produce a ReadinessObserved event. Peerhub currently only does this during the bootstrap sequence (build_direct_ask_admission_config). This is the exact same **health-evidence-producer gap** already identified during the role_assignment ratification.
+2. **health-check / peer-status are NOT pure read-only views**: peer-status performs an active CLI-presence probe that mutates state on failure (an undesigned gap in peerhub). More critically, health-check --recover (and health-sweep which calls it) force-recovers a stale peer to GREEN (lines 8138-8155), serving as the operator's real mechanism to un-stick a peer whose evidence went stale. Peerhub has read-side gates that block on STALE, but **no capability to clear a stale projection** short of a fresh dispatch. Dropping --recover leaves peerhub strictly less operable than legacy.
+3. **health-sweep exposes a latent staleness bug**: The research claimed peerhub evaluates staleness lazily at read time, making background sweeps obsolete. Critique proved this is only true at two specific call sites (role_assignment.py:183, leadership.py:425). Crucially, HealthService.freeze_admission_snapshot() (line 1260) applies **no freshness check at all**, meaning it will freeze and trust unboundedly stale evidence indefinitely.
+
+**Ratified Outcome**: No new peerhub domain service is needed for these 4 actions themselves. However, this investigation formally surfaced two critical underlying gaps blocking full operational parity: the need to centralize the read-time freshness rule inside HealthService, and the health-evidence-producer gap required to unblock peer re-evaluations and operator --recover interventions. These findings were formalized in a new design note: docs/design/HUB-REPLACEMENT-GAP5-HEALTH-CLUSTER-2026-08-30.md.
+
+## Capability Matching and Leader Election: A blocked design proving the value of the 'No architecture, no implementation' rule (2026-08-30)
+
+Researched the remaining legacy _matching_peers algorithm to design the backend for elect-leader. Initial research (`ag.deepthink) proposed a CapabilityMatchingService that scored peers.
+
+Critique (cx.deepthink, fresh session) conducted an exhaustive independent verification against the real source (795s elapsed) and concluded the design was **NOT READY FOR IMPLEMENTATION**.
+
+Key findings that overturned the initial proposal:
+1. **Scoring accuracy**: The initial draft failed to account for quota hard-exclusions, mischaracterized the AP-20 history penalty vs. the strict 2-term recent-use penalty, and dropped legacy's -5 penalty for STALE peers in favor of a strict deny-list that was too rigid.
+2. **Missing data sources**: Peerhub currently possesses no authoritative functional capability catalog. Capability is strictly transport-level, and peer_registry has no workload tags. Similarly, effort is a dead parameter in peerhub (only *.standard profiles are used), and attempting parity here without a real effort-quality-floor data source is premature.
+3. **Improper absent-evidence handling**: The proposal silently dropped 5 scoring factors (cost, console fit, cold start, etc.) by hardcoding them to 0. This violates peerhub's strict evidence rules (peerhub/core/evidence.py:36-43), which forbid converting absent evidence into synthetic zeros.
+4. **Architectural boundary violations**: While proposing an application-level service was correct, the pure matching reducer must live in the routing domain, isolated from the coordinator that gathers state, to respect RoutingService's strict boundaries.
+5. **Fixture Staleness**: The ledger fixture's "cc" fallback was stale; live orchestration uses "rotating". Because LeadershipService.claim_leadership() requires a valid 
+ode_id, a literal "rotating" fallback will crash unless explicit resolution semantics are designed.
+
+**Ratified Outcome**: Implementation is **BLOCKED**. The design was captured in docs/design/HUB-REPLACEMENT-GAP6-CAPABILITY-MATCHING-2026-08-30.md along with a strict 7-item minimum hardening checklist (including tie-breaking keys, richer discover-capable schema, and explicit missing-evidence semantics) that must be resolved in a future design round before any code is written.
