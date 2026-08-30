@@ -784,6 +784,32 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                 submission = service.supersede(parsed.lesson_id, actor_id=parsed.actor, replacement_lesson_id=parsed.replacement_lesson_id)
             elif action == "quarantine":
                 submission = service.quarantine(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason, evidence=parsed.evidence)
+            elif action == "inject":
+                from peerhub.application.lesson_inject import inject_lessons, LessonInjectionContext, LessonInjectionPolicy
+                
+                os_val: str | None = getattr(parsed, "os", None)
+                shell_val: str | None = getattr(parsed, "shell", None)
+                task_types_str: str | None = getattr(parsed, "task_types", None)
+                tasks: frozenset[str] = (
+                    frozenset(x for x in task_types_str.split(",") if x)
+                    if task_types_str
+                    else frozenset()
+                )
+                
+                # Determine workspace_id. CLI often passes workspace_home_id or we use "default"
+                ws_id = getattr(parsed, "workspace_id", None)
+                if not ws_id:
+                    ws_id = context.workspace_home_id or "default"
+                    
+                ctx = LessonInjectionContext(os=os_val, shell=shell_val, task_types=tasks)
+                policy = LessonInjectionPolicy()
+                result = inject_lessons(broker=runtime.governance_broker, target_peer_id=parsed.target_peer, workspace_id=ws_id, context=ctx, policy=policy)
+                
+                if result:
+                    print(result)
+                else:
+                    print(f"[HUB] No active lessons for peer={parsed.target_peer}")
+                return 0
             elif action == "broadcast":
                 result = LessonBroadcastCoordinator(
                     broker=runtime.governance_broker,

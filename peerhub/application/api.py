@@ -81,7 +81,7 @@ from peerhub.application.legacy import (
     LeaderClaimCommand, LeaderYieldCommand,
     TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
     TerminalDutySweepCommand, TaskCheckpointCommand,
-    TaskStatusCommand, TaskFailoverCommand, LessonProposeCommand,
+    TaskStatusCommand, TaskFailoverCommand, LessonInjectCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
     ApprovalRequestCommand,
     ConsensusSweepCommand, LessonsListCommand, ProposalListCommand, ArbiterReviewCommand,
@@ -490,13 +490,17 @@ class ApplicationAPI:
             v=p[n]
             if not isinstance(v,(list,tuple)) or not all(isinstance(x,str) for x in v): raise ValueError(f"{n} must be a sequence of strings")
             return tuple(cast(str,x) for x in v)
+        def boolean(p: Mapping[str, JsonValue], n: str, default: bool) -> bool:
+            v = p.get(n, default)
+            if not isinstance(v, bool): raise ValueError(f"{n} must be a boolean")
+            return v
         def propose(e: CommandEnvelope) -> LessonProposeCommand:
-            p=e.params; return LessonProposeCommand(self._submission(e),text(p,"lesson_id"),text(p,"title"),text(p,"rule"),text(p,"category"),text(p,"severity"),text(p,"proposer_id"),strings(p,"affected_peers"),text(p,"scope_kind"),None if p["workspace_id"] is None else text(p,"workspace_id"))
+            p=e.params; return LessonProposeCommand(self._submission(e),text(p,"lesson_id"),text(p,"title"),text(p,"rule"),text(p,"category"),text(p,"severity"),text(p,"proposer_id"),strings(p,"affected_peers"),text(p,"scope_kind"),None if p["workspace_id"] is None else text(p,"workspace_id"), boolean(p, "sticky", False), None if p.get("os") is None else strings(p, "os"), None if p.get("shell") is None else strings(p, "shell"), None if p.get("task_types") is None else strings(p, "task_types"))
         def activate(e: CommandEnvelope) -> LessonActivateCommand:
             p=e.params; return LessonActivateCommand(self._submission(e),text(p,"lesson_id"),text(p,"actor_id"),integer(p,"expected_revision"))
         def retire(e: CommandEnvelope) -> LessonRetireCommand:
             p=e.params; return LessonRetireCommand(self._submission(e),text(p,"lesson_id"),text(p,"actor_id"),text(p,"reason"),integer(p,"expected_revision"))
-        self.register(CommandDescriptor("governance.lesson.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, propose, lambda c,_:s.propose(lesson_id=c.lesson_id,title=c.title,rule=c.rule,category=c.category,severity=c.severity,proposer_id=c.proposer_id,affected_peers=c.affected_peers,scope_kind=c.scope_kind,workspace_id=c.workspace_id), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor("governance.lesson.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, propose, lambda c,_:s.propose(lesson_id=c.lesson_id,title=c.title,rule=c.rule,category=c.category,severity=c.severity,proposer_id=c.proposer_id,affected_peers=c.affected_peers,scope_kind=c.scope_kind,workspace_id=c.workspace_id, sticky=c.sticky, os=c.os, shell=c.shell, task_types=c.task_types), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("governance.lesson.activate", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, activate, lambda c,_:s.activate(c.lesson_id,actor_id=c.actor_id,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor("governance.lesson.retire", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, retire, lambda c,_:s.retire(c.lesson_id,actor_id=c.actor_id,reason=c.reason,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
         def lessons_list(e: CommandEnvelope) -> LessonsListCommand:
@@ -506,6 +510,21 @@ class ApplicationAPI:
         def encode_lessons(results: Sequence[Any]) -> Mapping[str, JsonValue]:
             lessons = [{"target_id": r.target_id, "revision": r.revision, "state": r.state} for r in results]
             return {"lessons": cast(JsonValue, lessons)}
+        def inject(e: CommandEnvelope) -> LessonInjectCommand:
+            p=e.params
+            os_val = text(p, "os") if p.get("os") is not None else None
+            shell_val = text(p, "shell") if p.get("shell") is not None else None
+            tasks: frozenset[str] = frozenset(strings(p, "task_types")) if p.get("task_types") is not None else frozenset()
+            return LessonInjectCommand(self._submission(e), text(p, "target_peer_id"), text(p, "workspace_id"), os_val, shell_val, tasks)
+
+        def encode_inject(result: str | None) -> Mapping[str, JsonValue]:
+            return {"injection_block": result}
+
+        # Need to import inject_lessons and the policy/context
+        from peerhub.application.lesson_inject import inject_lessons, LessonInjectionPolicy, LessonInjectionContext
+        policy = LessonInjectionPolicy() # Use default policy
+        self.register(CommandDescriptor("governance.lesson.inject", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, inject, lambda c,_: inject_lessons(broker, target_peer_id=c.target_peer_id, workspace_id=c.workspace_id, context=LessonInjectionContext(os=c.os, shell=c.shell, task_types=c.task_types), policy=policy), encode_inject, CommandAvailability.AVAILABLE))
+
         self.register(CommandDescriptor("governance.lesson.list", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, lessons_list, lambda c,_:list_active_lessons(broker,c.scope), encode_lessons, CommandAvailability.AVAILABLE))
         if room is not None:
             coordinator = LessonBroadcastCoordinator(

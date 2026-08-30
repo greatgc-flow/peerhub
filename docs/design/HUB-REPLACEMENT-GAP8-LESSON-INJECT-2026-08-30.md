@@ -1,7 +1,8 @@
 # Gap 8 Design: Lesson Inject (DESIGN REVISED, MOSTLY RATIFIED)
 
-Status: DESIGN REVISED, MOSTLY RATIFIED -- 2 open sub-questions before implementation.
+Status: IMPLEMENTED.
 Research by `ag.deepthink`, independent critique and correction by `cx.deepthink`, 2026-08-30.
+Implementation done, full suite 1254 passed (only pre-existing unrelated manifest test fails), 0 new pyright errors. Knowledge asset finding: real persisted governance state is `mappingproxy`, not `dict` -- any future code reading `TargetState.state` sub-objects must use `isinstance(x, collections.abc.Mapping)`, never `isinstance(x, dict)`.
 
 This doc formalizes the design investigation for `lesson-inject`, a legacy operation for compiling active lessons into a prompt injection block.
 
@@ -41,14 +42,13 @@ Legacy's `lessons-propose` hardcodes OS/shell/task-type metadata to `None`, but 
 ### Policy / Config Placement
 Configuration limits (`enabled`, `min_severity`, `max_chars`, `max_items`, `critical_always_include`) will live in a new, immutable `LessonInjectionPolicy` injected at the application level, matching `LeadershipPolicy`. It is not promoted into a versioned governance policy like `HealthPolicy` because it controls presentation logic rather than state mutation.
 
-## 4. Required Implementation Prerequisites (Explicit Open Items)
+## 4. Required Implementation Prerequisites (RESOLVED)
 
-Implementation is blocked on resolving the following required items:
-1. **Global-plus-workspace Selection:** The existing `list_active_lessons(broker, workspace_id)` excludes global lessons, while `list_active_lessons(broker, None)` includes active lessons from *every* workspace. Neither is correct for injection ("global OR this specific workspace").
-2. **Empty `affected_peers` Semantics:** Do not add a second peer filter. We must use the existing `affected_peers` field. However, empty-list semantics remain unresolved in the governing design doc (GAP6-GOVERNANCE).
-3. **Applicability Context Source:** `RuntimeContext` lacks OS/shell/task-type fields. The design must specify an explicit, immutable `LessonInjectionContext` parameter provided by the caller.
-4. **Expiry/Recency Filtering Gap:** Legacy filters on both. Peerhub currently only checks `lifecycle == ACTIVE`, and `propose()` hardcodes `validity.expires_at=None`. This gap must be explicitly acknowledged.
-5. **Duplicate-ID Resolution:** Legacy documentation claims workspace overrides global, but actual code discards workspace duplicates, making global win. The design must explicitly choose whether to replicate legacy's buggy behavior or correct it.
+1. **Global-plus-workspace Selection:** `lesson_inject.py` calls `list_active_lessons(broker, None)` exactly ONCE (unscoped), then filters in the coordinator, retaining a lesson iff its scope is either `{"kind": "global", "workspace_id": None}` OR `{"kind": "workspace", "workspace_id": <the requested workspace_id>}`. This correctly reuses the helper's lifecycle filtering unchanged.
+2. **Empty `affected_peers` Semantics:** Absent or empty `affected_peers` means UNIVERSAL applicability (applies to all peers). A nonempty list restricts to only the listed peers. `affected_peers` is the SOLE peer-applicability field -- do not add a separate `applicability.peer_ids` field.
+3. **Applicability Context Source:** `RuntimeContext` lacks OS/shell/task-type fields. An explicit, immutable `LessonInjectionContext` parameter is provided by the caller.
+4. **Expiry/Recency Filtering Gap:** Legacy filters on both. Peerhub currently only checks `lifecycle == ACTIVE`, and `propose()` hardcodes `validity.expires_at=None`. This gap is explicitly acknowledged.
+5. **Duplicate-ID Resolution:** Native peerhub lesson IDs are GLOBALLY unique by construction (every scope maps to the same broker key `lesson:<lesson_id>`). Thus, `lesson_inject.py` needs NO duplicate-resolution logic. (If a future legacy-JSONL importer is built, it should resolve using documented legacy intent—workspace overrides global—as a parity correction, not replicate legacy's loader-order bug).
 6. **Tie Ordering:** Legacy preserves file/load order for severity ties. Peerhub's broker returns ascending target IDs. This represents a deliberate parity deviation (tie-break by ID rather than load order).
 
 ## 5. Boundary-Condition Test List

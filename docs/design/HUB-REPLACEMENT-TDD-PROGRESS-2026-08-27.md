@@ -370,3 +370,19 @@ During implementation, 8 pre-existing tests initially regressed because their fi
 A full research and critique round was conducted for the `lesson-inject` legacy action. Initial research by `ag.deepthink` was critiqued by `cx.deepthink` (fresh session), yielding a "REVISE BEFORE RATIFICATION" verdict. The critique uncovered a material substrate error in the original proposal (which advocated duplicating broker filtering despite the pre-existence of `peerhub.governance.activity.list_active_lessons()`) alongside several legacy parity discrepancies.
 
 The finalized design is documented in `docs/design/HUB-REPLACEMENT-GAP8-LESSON-INJECT-2026-08-30.md`. It outlines a 3-layer decomposition (selection via the existing helper, an application coordinator for applicability, and a pure testable renderer for limits), plus necessary schema and policy additions. The design is explicitly marked as "DESIGN REVISED, MOSTLY RATIFIED" as it still requires resolution on 2 open sub-questions (global-plus-workspace selection wrapper and `affected_peers` empty-list semantics) before it is ready for implementation.
+
+
+### 2026-08-30 (Implementation for Gap 8: lesson-inject)
+
+Fully implemented and wired the lesson-inject legacy action, pushing the LEGACY_CATALOG translation count to 45/90. The design was finalized with global/workspace scoped matching natively through list_active_lessons(broker, scope=None) instead of building redundant DB projections. Added the peerhub lesson inject CLI. LessonInjectionContext handles contextual evaluations like os, shell, and 	ask_types. The test suite confirms end-to-end integration and execution against the SQLite datastore.
+
+45 of the 90 LEGACY_CATALOG actions now translate and execute end-to-end (up from 44).
+
+
+### 2026-08-30 (Implementation for Gap 8: lesson-inject)
+
+Fully implemented and wired the lesson-inject legacy action. The full round proceeded chronologically: research (ag.deepthink) -> critique and correction (cx.deepthink, REVISE BEFORE RATIFICATION) -> 3 open sub-questions resolved focused round -> implementation -> 2 real bugs found and fixed directly by the terminal after a 51-minute dispatch timeout (missing dataclass decorator; missing encode_params/decode_result on a new command class; mappingproxy-vs-dict type-narrowing bug that silently broke new tests). 
+
+The mappingproxy-vs-dict bug is a durable knowledge-asset finding for this codebase: real persisted governance state is mappingproxy, not dict -- any future code reading TargetState.state sub-objects must use isinstance(x, collections.abc.Mapping), never isinstance(x, dict). The final verified state has full suite 1254 passed (only pre-existing unrelated manifest test fails) and 0 new pyright errors.
+
+45 of the 90 LEGACY_CATALOG actions now translate and execute end-to-end (up from 44).

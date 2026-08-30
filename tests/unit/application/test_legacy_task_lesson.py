@@ -39,6 +39,7 @@ def test_task_and_lesson_legacy_actions_translate_with_wire_params() -> None:
     assert propose.command.encode_params() == {
         "lesson_id": "l1", "title": "Title", "rule": "Rule", "category": "cat", "severity": "high",
         "proposer_id": "cx", "affected_peers": ("ag",), "scope_kind": "room", "workspace_id": "w1",
+        "sticky": False, "os": None, "shell": None, "task_types": None,
     }
     activate = translator.translate(LegacyActionCall("lessons-activate", {"lesson_id": "l1", "actor_id": "cx", "expected_revision": 2}), _submission())
     assert isinstance(activate, TranslatedCommand)

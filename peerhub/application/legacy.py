@@ -827,6 +827,30 @@ class ApprovalRequestCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class LessonInjectCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.inject"
+    submission: SubmissionMetadata
+    target_peer_id: str
+    workspace_id: str
+    os: str | None
+    shell: str | None
+    task_types: frozenset[str]
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "target_peer_id": self.target_peer_id,
+            "workspace_id": self.workspace_id,
+            "os": self.os,
+            "shell": self.shell,
+            "task_types": tuple(self.task_types),
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class LessonProposeCommand(Command[Any]):
     method: ClassVar[str] = "governance.lesson.propose"
     submission: SubmissionMetadata
@@ -839,9 +863,13 @@ class LessonProposeCommand(Command[Any]):
     affected_peers: tuple[str, ...]
     scope_kind: str
     workspace_id: str | None
+    sticky: bool
+    os: tuple[str, ...] | None
+    shell: tuple[str, ...] | None
+    task_types: tuple[str, ...] | None
 
     def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"lesson_id": self.lesson_id, "title": self.title, "rule": self.rule, "category": self.category, "severity": self.severity, "proposer_id": self.proposer_id, "affected_peers": self.affected_peers, "scope_kind": self.scope_kind, "workspace_id": self.workspace_id}
+        return {"lesson_id": self.lesson_id, "title": self.title, "rule": self.rule, "category": self.category, "severity": self.severity, "proposer_id": self.proposer_id, "affected_peers": self.affected_peers, "scope_kind": self.scope_kind, "workspace_id": self.workspace_id, "sticky": self.sticky, "os": self.os, "shell": self.shell, "task_types": self.task_types}
 
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
@@ -1462,11 +1490,22 @@ class LegacyTranslator:
         if call.action == "approval-request":
             return TranslatedCommand(command=ApprovalRequestCommand(submission, str(call.arguments.get("task_id", "")), str(call.arguments.get("requester_id", "")), str(call.arguments.get("approval_id", "")), str(call.arguments.get("approver_id", ""))))
         if call.action == "lessons-propose":
-            return TranslatedCommand(command=LessonProposeCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), title=str(call.arguments.get("title", "")), rule=str(call.arguments.get("rule", "")), category=str(call.arguments.get("category", "")), severity=str(call.arguments.get("severity", "")), proposer_id=str(call.arguments.get("proposer_id", "")), affected_peers=_string_tuple(call.arguments.get("affected_peers")), scope_kind=str(call.arguments.get("scope_kind", "global")), workspace_id=str(call.arguments["workspace_id"]) if call.arguments.get("workspace_id") is not None else None))
+            return TranslatedCommand(command=LessonProposeCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), title=str(call.arguments.get("title", "")), rule=str(call.arguments.get("rule", "")), category=str(call.arguments.get("category", "")), severity=str(call.arguments.get("severity", "")), proposer_id=str(call.arguments.get("proposer_id", "")), affected_peers=_string_tuple(call.arguments.get("affected_peers")), scope_kind=str(call.arguments.get("scope_kind", "global")), workspace_id=str(call.arguments["workspace_id"]) if call.arguments.get("workspace_id") is not None else None, sticky=False, os=None, shell=None, task_types=None))
         if call.action == "lessons-activate":
             return TranslatedCommand(command=LessonActivateCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
         if call.action == "lessons-retire":
             return TranslatedCommand(command=LessonRetireCommand(submission=submission, lesson_id=str(call.arguments.get("lesson_id", "")), actor_id=str(call.arguments.get("actor_id", "")), reason=str(call.arguments.get("reason", "MANUAL")), expected_revision=_optional_int(call.arguments.get("expected_revision"))))
+
+        if call.action == "lesson-inject":
+            # Real legacy injects for a specific peer.
+            target_peer = str(call.arguments.get("peer") or call.arguments.get("to") or "cc")
+            # Pull workspace profile contexts if they are passed in. (Usually handled by runtime context)
+            os_val = str(call.arguments.get("os")) if call.arguments.get("os") else None
+            shell_val = str(call.arguments.get("shell")) if call.arguments.get("shell") else None
+            # We don't have task types in env natively, legacy gets it from workspace-profile. 
+            # In peerhub translation, just use what's available or empty.
+            return TranslatedCommand(command=LessonInjectCommand(submission=submission, target_peer_id=target_peer, workspace_id=str(call.arguments.get("workspace_id", "default")), os=os_val, shell=shell_val, task_types=frozenset()))
+
         if call.action == "lesson-broadcast":
             return TranslatedCommand(command=LessonBroadcastCommand(
                 submission=submission,

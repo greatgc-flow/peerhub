@@ -38,6 +38,10 @@ class LessonService:
         affected_peers: Sequence[str],
         scope_kind: str = "global",
         workspace_id: str | None = None,
+        sticky: bool = False,
+        os: Sequence[str] | None = None,
+        shell: Sequence[str] | None = None,
+        task_types: Sequence[str] | None = None,
     ) -> MutationSubmission:
         timestamp = self._clock.now()
         state: dict[str, JsonValue] = {
@@ -51,8 +55,14 @@ class LessonService:
                 "category": category,
                 "severity": severity,
             },
+            "sticky": sticky,
             "scope": {"kind": scope_kind, "workspace_id": workspace_id},
             "affected_peers": tuple(affected_peers),
+            "applicability": {
+                "os": tuple(os) if os is not None else None,
+                "shell": tuple(shell) if shell is not None else None,
+                "task_types": tuple(task_types) if task_types is not None else None,
+            },
             "source_evidence": (),
             "provenance": {
                 "proposer": {"actor_id": proposer_id, "actor_type": "peer"},
