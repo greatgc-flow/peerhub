@@ -66,58 +66,13 @@ def build_broadcast_admission_config(
     hasher = hashlib.sha256()
     hasher.update(b"peerhub.broadcast/v1")
     readiness_list: list[ReadinessObserved] = []
-    now = clock.now()
     
     for target in targets:
         members.append((target.peer_kind, target.profile.profile_id))
         hasher.update(target.peer_kind.encode("utf-8"))
         hasher.update(target.profile.profile_id.encode("utf-8"))
         
-        supervisor = ProcessSupervisor()
-        config = PipeRunnerConfig(
-            argv=(str(target.executable_path), "--version"),
-            cwd=target.executable_path.parent,
-            process_timeout_ms=5000,
-        )
-        try:
-            outcome = run_process(config, supervisor)
-            output_text = outcome.canonical_stream.decode(errors="replace").strip()
-        except Exception:
-            output_text = "fallback_ok"
-        h = hashlib.sha256()
-        h.update(str(target.executable_path).encode("utf-8"))
-        h.update(output_text.encode("utf-8"))
-        rt_rev = h.hexdigest()
-        
-        r = ReadinessObserved(
-            observation_id=ids.new_id("readiness-obs"),
-            instance_id=target.peer_kind,
-            profile_id=target.profile.profile_id,
-            evidence=EvidenceValue(
-                state=EvidenceState.MEASURED,
-                source_tag="cli_live",
-                provider_id="cli-probe",
-                provider_version="1",
-                observed_at=now,
-                captured_at=now,
-                freshness_ttl=86400,
-                evidence_ref=EvidenceRef(f"sha256:{rt_rev}"),
-                value=ReadinessMeasurement(
-                    runtime_revision=rt_rev,
-                    issued_at=now,
-                    # Fixed: was 86400000 (ms-shaped) in a seconds clock.
-                    # Now consistent with readiness_freshness_seconds=86400.
-                    # TODO(Gap 7): Three separate "one day" constants serve
-                    # different purposes (policy.readiness_freshness_seconds,
-                    # evidence.freshness_ttl, measurement.valid_until). A
-                    # full consolidation to one authoritative source is
-                    # deferred pending scope review; see
-                    # HUB-REPLACEMENT-GAP7-HEALTH-FRESHNESS-AND-EVIDENCE-PRODUCER-2026-08-30.md.
-                    valid_until=now + 86400,
-                    integrity_verified=True,
-                ),
-            ),
-        )
+        r = produce_readiness_evidence(target, clock=clock, ids=ids)
         readiness_list.append(r)
         
     config_digest = hasher.hexdigest()
@@ -148,14 +103,14 @@ def build_broadcast_admission_config(
     )
 
 
-def build_direct_ask_admission_config(
+def produce_readiness_evidence(
     target: ResolvedPeerTarget,
     *,
     clock: Clock,
     ids: IdSource,
-) -> DirectAskAdmissionConfig:
-    """Build the direct-ask admission config, including a real readiness probe."""
-    
+) -> ReadinessObserved:
+    """Run a readiness probe and produce evidence."""
+    now = clock.now()
     supervisor = ProcessSupervisor()
     config = PipeRunnerConfig(
         argv=(str(target.executable_path), "--version"),
@@ -166,19 +121,102 @@ def build_direct_ask_admission_config(
     try:
         outcome = run_process(config, supervisor)
     except Exception as exc:
-        raise ReadinessProbeFailedError(f"readiness probe failed to spawn: {exc}") from exc
+        evidence_ref_hash = hashlib.sha256(f"error:spawn_failed:{exc}".encode("utf-8")).hexdigest()
+        return ReadinessObserved(
+            observation_id=ids.new_id("readiness-obs"),
+            instance_id=target.peer_kind,
+            profile_id=target.profile.profile_id,
+            evidence=EvidenceValue(
+                state=EvidenceState.ERROR,
+                source_tag="cli_live",
+                provider_id="cli-probe",
+                provider_version="1",
+                observed_at=None,
+                captured_at=now,
+                freshness_ttl=86400,
+                evidence_ref=EvidenceRef(f"sha256:{evidence_ref_hash}"),
+                value=None,
+            ),
+        )
         
     if outcome.execution_outcome.exit_code != 0:
-        raise ReadinessProbeFailedError(f"readiness probe exited with {outcome.execution_outcome.exit_code}")
+        evidence_ref_hash = hashlib.sha256(f"error:exit_{outcome.execution_outcome.exit_code}".encode("utf-8")).hexdigest()
+        return ReadinessObserved(
+            observation_id=ids.new_id("readiness-obs"),
+            instance_id=target.peer_kind,
+            profile_id=target.profile.profile_id,
+            evidence=EvidenceValue(
+                state=EvidenceState.ERROR,
+                source_tag="cli_live",
+                provider_id="cli-probe",
+                provider_version="1",
+                observed_at=None,
+                captured_at=now,
+                freshness_ttl=86400,
+                evidence_ref=EvidenceRef(f"sha256:{evidence_ref_hash}"),
+                value=None,
+            ),
+        )
         
     output_text = outcome.canonical_stream.decode(errors="replace").strip()
     if not output_text:
-        raise ReadinessProbeFailedError("readiness probe returned no output")
+        evidence_ref_hash = hashlib.sha256(b"error:no_output").hexdigest()
+        return ReadinessObserved(
+            observation_id=ids.new_id("readiness-obs"),
+            instance_id=target.peer_kind,
+            profile_id=target.profile.profile_id,
+            evidence=EvidenceValue(
+                state=EvidenceState.ERROR,
+                source_tag="cli_live",
+                provider_id="cli-probe",
+                provider_version="1",
+                observed_at=None,
+                captured_at=now,
+                freshness_ttl=86400,
+                evidence_ref=EvidenceRef(f"sha256:{evidence_ref_hash}"),
+                value=None,
+            ),
+        )
         
     hasher = hashlib.sha256()
     hasher.update(str(target.executable_path).encode("utf-8"))
     hasher.update(output_text.encode("utf-8"))
     runtime_revision = hasher.hexdigest()
+    
+    return ReadinessObserved(
+        observation_id=ids.new_id("readiness-obs"),
+        instance_id=target.peer_kind,
+        profile_id=target.profile.profile_id,
+        evidence=EvidenceValue(
+            state=EvidenceState.MEASURED,
+            source_tag="cli_live",
+            provider_id="cli-probe",
+            provider_version="1",
+            observed_at=now,
+            captured_at=now,
+            freshness_ttl=86400,
+            evidence_ref=EvidenceRef(f"sha256:{runtime_revision}"),
+            value=ReadinessMeasurement(
+                runtime_revision=runtime_revision,
+                issued_at=now,
+                valid_until=now + 86400,
+                integrity_verified=True,
+            )
+        )
+    )
+
+def build_direct_ask_admission_config(
+    target: ResolvedPeerTarget,
+    *,
+    clock: Clock,
+    ids: IdSource,
+) -> DirectAskAdmissionConfig:
+    """Build the direct-ask admission config, including a real readiness probe."""
+    
+    readiness = produce_readiness_evidence(target, clock=clock, ids=ids)
+    if readiness.evidence.state is EvidenceState.ERROR:
+        # direct-ask preserves the pre-existing error surfacing behavior
+        raise ReadinessProbeFailedError("readiness probe failed or returned no output")
     
     policy = HealthPolicy(
         policy_id="peerhub.direct-ask/v1",
@@ -208,33 +246,6 @@ def build_direct_ask_admission_config(
         configuration_digest=config_digest,
         configured_members=((target.peer_kind, target.profile.profile_id),),
         bindings=(),
-    )
-    
-    now = clock.now()
-    readiness = ReadinessObserved(
-        observation_id=ids.new_id("readiness-obs"),
-        instance_id=target.peer_kind,
-        profile_id=target.profile.profile_id,
-        evidence=EvidenceValue(
-            state=EvidenceState.MEASURED,
-            source_tag="cli_live",
-            provider_id="cli-probe",
-            provider_version="1",
-            observed_at=now,
-            captured_at=now,
-            freshness_ttl=86400,
-            evidence_ref=EvidenceRef(f"sha256:{runtime_revision}"),
-            value=ReadinessMeasurement(
-                runtime_revision=runtime_revision,
-                issued_at=now,
-                # Fixed: was 86400000 (ms-shaped) in a seconds clock.
-                # Now consistent with readiness_freshness_seconds=86400.
-                # TODO(Gap 7): see build_broadcast_admission_config for
-                # the full consolidation note.
-                valid_until=now + 86400,
-                integrity_verified=True,
-            )
-        )
     )
     
     return DirectAskAdmissionConfig(

@@ -156,6 +156,19 @@ def evaluate_readiness_evidence(
             zero_dispatch_calls=False,
         )
 
+    # Branch 1.5: Entrypoint verified only.
+    if evidence.provider_id == "cli-probe":
+        return ReadinessEvaluation(
+            readiness_state=ReadinessState.ENTRYPOINT_VERIFIED,
+            availability_state=AvailabilityState.UNKNOWN,
+            gate_state=ReadinessGateState.CLOSED,
+            admission_decision=AdmissionDecision.REJECTED,
+            provider_effect_permitted=False,
+            reason_code=None,
+            revalidation_action=None,
+            zero_dispatch_calls=False,
+        )
+
     # Branch 1: Fresh, verified, matching runtime revision.
     return ReadinessEvaluation(
         readiness_state=ReadinessState.READY,
@@ -273,6 +286,10 @@ def resolve_admission_state(
             ReadinessState.READY,
             ReadinessGateState.OPEN,
         ): AdmissionState.OPEN,
+        (
+            ReadinessState.ENTRYPOINT_VERIFIED,
+            ReadinessGateState.CLOSED,
+        ): AdmissionState.RECOVERY_REQUIRED,
         (
             ReadinessState.PROBE_INCONCLUSIVE,
             ReadinessGateState.CLOSED,

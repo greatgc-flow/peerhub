@@ -96,6 +96,7 @@ class ReadinessState(str, Enum):
     """Phase 0 readiness-evaluation compatibility vocabulary."""
 
     READY = "READY"
+    ENTRYPOINT_VERIFIED = "ENTRYPOINT_VERIFIED"
     PROBE_INCONCLUSIVE = "PROBE_INCONCLUSIVE"
     READINESS_STALE = "READINESS_STALE"
 

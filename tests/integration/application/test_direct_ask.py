@@ -5,6 +5,22 @@ import sys
 import time
 
 from peerhub.adapters.registry import ResolvedPeerTarget
+from peerhub.application.bootstrap import build_direct_ask_admission_config as _build_direct_ask_admission_config
+
+def build_direct_ask_admission_config(*args, **kwargs):
+    from dataclasses import replace
+    config = _build_direct_ask_admission_config(*args, **kwargs)
+    return replace(
+        config,
+        readiness=replace(
+            config.readiness,
+            evidence=replace(
+                config.readiness.evidence,
+                provider_id="controlled-fake"
+            )
+        )
+    )
+
 from peerhub.application.direct_ask import execute_direct_ask, DirectAskRequest, DirectAskResult
 from peerhub.builtins.fake_adapter import FakePeerAdapter
 from peerhub.core.context import Clock, IdSource, PathLayout
@@ -118,6 +134,10 @@ def test_direct_ask_binds_machine_subject_to_issued_lease(
     monkeypatch.setattr(
         "peerhub.application.direct_ask.resolve_peer_target",
         lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
     )
     subject = AuthenticatedSubject(
         principal_id=r"local-cli:DOMAIN\alice",

@@ -16,7 +16,20 @@ from peerhub.adapters.contract import (
     SessionHint,
 )
 from peerhub.adapters.registry import ResolvedPeerTarget
-from peerhub.application.bootstrap import build_direct_ask_admission_config
+from peerhub.application.bootstrap import build_direct_ask_admission_config as _build_direct_ask_admission_config
+
+def build_direct_ask_admission_config(*args, **kwargs):
+    config = _build_direct_ask_admission_config(*args, **kwargs)
+    return replace(
+        config,
+        readiness=replace(
+            config.readiness,
+            evidence=replace(
+                config.readiness.evidence,
+                provider_id="controlled-fake"
+            )
+        )
+    )
 from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
 from peerhub.builtins.fake_adapter import FakePeerAdapter
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext

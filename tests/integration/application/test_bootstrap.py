@@ -121,7 +121,7 @@ def test_build_direct_ask_admission_config_probe_fails(
         target,
         executable_path=target.executable_path.parent / "does-not-exist-at-all.exe"
     )
-    with pytest.raises(ReadinessProbeFailedError, match="failed to spawn"):
+    with pytest.raises(ReadinessProbeFailedError, match="failed or returned no output"):
         build_direct_ask_admission_config(broken_target, clock=clock, ids=ids)
 
 
@@ -185,13 +185,13 @@ def test_create_runtime_status_cli_behavior(
         runtime.close()
 
 
-def test_create_runtime_health_projection_healthy(
+def test_create_runtime_health_projection_entrypoint_verified(
     tmp_path: Path,
     clock: Clock,
     ids: IdSource,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """End-to-end test proving create_runtime correctly evaluates admission configs to HEALTHY."""
+    """End-to-end test proving create_runtime correctly evaluates --version to ENTRYPOINT_VERIFIED."""
     import peerhub.adapters.registry
     import sys
     monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
@@ -215,8 +215,6 @@ def test_create_runtime_health_projection_healthy(
     # Passing the real built admission config
     runtime = create_runtime(context, admission_config=config)
     try:
-        # If the runtime_revision mismatch bug existed, this would yield UNKNOWN/CLOSED,
-        # or raise RecordNotFoundError if the projection was completely missing.
         snapshot = runtime.health_service.freeze_admission_snapshot()
         
         assert len(snapshot.entries) == 1
@@ -224,9 +222,34 @@ def test_create_runtime_health_projection_healthy(
         
         assert entry.instance_id == "ag"
         
-        # The actual proof of the fix: the probe was successfully evaluated and marked HEALTHY
+        # The actual proof of the fix: the probe was evaluated to UNKNOWN/RECOVERY_REQUIRED
         from peerhub.health.contract import AvailabilityState, AdmissionState
-        assert entry.availability_state == AvailabilityState.HEALTHY
-        assert entry.admission_state == AdmissionState.OPEN
+        assert entry.availability_state == AvailabilityState.UNKNOWN
+        assert entry.admission_state == AdmissionState.RECOVERY_REQUIRED
     finally:
         runtime.close()
+
+
+def test_build_broadcast_admission_config_probe_fails(
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """End-to-end test proving build_broadcast_admission_config does not substitute fallback_ok and produces honest FAILURE evidence."""
+    import peerhub.adapters.registry
+    import sys
+    from pathlib import Path
+    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    
+    target = resolve_peer_target("ag")
+    broken_target = __import__("dataclasses").replace(
+        target,
+        executable_path=target.executable_path.parent / "does-not-exist-at-all.exe"
+    )
+    
+    # Broadcast should NOT raise, it should produce honest failure evidence.
+    from peerhub.application.bootstrap import build_broadcast_admission_config
+    config = build_broadcast_admission_config((broken_target,), clock=clock, ids=ids)
+    
+    assert config.readiness.evidence.state.value == "ERROR"
+    assert config.readiness.evidence.value is None
