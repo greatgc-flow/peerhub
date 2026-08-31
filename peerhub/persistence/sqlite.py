@@ -469,8 +469,15 @@ class SqliteReadUnitOfWork:
             raise RuntimeError(
                 "SQLite read unit of work cannot be re-entered"
             )
-        self._connection = self._store._connect_read()  # pyright: ignore[reportPrivateUsage]
-        self._connection.execute("BEGIN")
+        connection = self._store._connect_read()  # pyright: ignore[reportPrivateUsage]
+        try:
+            connection.execute("BEGIN")
+        except BaseException:
+            # A failed BEGIN means __enter__ itself raises, so Python never
+            # calls __exit__ -- close the connection here or it leaks.
+            connection.close()
+            raise
+        self._connection = connection
         return self
 
     def __exit__(
@@ -780,8 +787,15 @@ class SqliteUnitOfWork:
             raise RuntimeError(
                 "SQLite unit of work cannot be re-entered"
             )
-        self._connection = self._store._connect()  # pyright: ignore[reportPrivateUsage]
-        self._connection.execute("BEGIN IMMEDIATE")
+        connection = self._store._connect()  # pyright: ignore[reportPrivateUsage]
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+        except BaseException:
+            # A failed BEGIN means __enter__ itself raises, so Python never
+            # calls __exit__ -- close the connection here or it leaks.
+            connection.close()
+            raise
+        self._connection = connection
         return self
 
     def __exit__(

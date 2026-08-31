@@ -5,6 +5,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
+
 from fakes import FakeClock, FakeIdSource
 from peerhub.core.context import PathLayout, RuntimeContext
 from peerhub.core.errors import (
@@ -273,3 +275,59 @@ def test_list_targets_reflects_mixed_updates(tmp_path: Path) -> None:
     assert broker.list_targets("task", "room-a") == ()
     assert [target.target_id for target in broker.list_targets("task", "room-b")] == ["task:two"]
     assert [target.target_id for target in broker.list_targets("lesson", "room-a")] == ["task:one"]
+
+
+def test_write_unit_of_work_closes_connection_when_begin_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed BEGIN inside __enter__ must not leak the opened connection.
+
+    Python only calls __exit__ when __enter__ succeeds -- if execute("BEGIN
+    IMMEDIATE") raises, __enter__ itself raises and __exit__ never runs, so
+    a fixed __enter__ must close the connection itself before re-raising,
+    and must not assign a broken connection to self._connection.
+    `sqlite3.Connection` is an immutable C type (its methods can't be
+    monkeypatched), so BEGIN's failure is forced by closing the connection
+    the instant it's created -- executing anything on an already-closed
+    connection raises sqlite3.ProgrammingError, a real, natural failure.
+    """
+    import sqlite3
+
+    store = _store(tmp_path)  # created and initialized before the patch below
+    real_connect = SqliteStateStore._connect
+
+    def closing_connect(self: SqliteStateStore) -> sqlite3.Connection:
+        connection = real_connect(self)
+        connection.close()
+        return connection
+
+    monkeypatch.setattr(SqliteStateStore, "_connect", closing_connect)
+
+    unit = store.unit_of_work()
+    with pytest.raises(sqlite3.ProgrammingError):
+        unit.__enter__()
+
+    assert unit._connection is None  # pyright: ignore[reportPrivateUsage]
+
+
+def test_read_unit_of_work_closes_connection_when_begin_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The read-only unit of work must not leak a connection on a failed BEGIN either."""
+    import sqlite3
+
+    store = _store(tmp_path)  # created and initialized before the patch below
+    real_connect_read = SqliteStateStore._connect_read
+
+    def closing_connect_read(self: SqliteStateStore) -> sqlite3.Connection:
+        connection = real_connect_read(self)
+        connection.close()
+        return connection
+
+    monkeypatch.setattr(SqliteStateStore, "_connect_read", closing_connect_read)
+
+    unit = store.read_unit_of_work()
+    with pytest.raises(sqlite3.ProgrammingError):
+        unit.__enter__()
+
+    assert unit._connection is None  # pyright: ignore[reportPrivateUsage]
