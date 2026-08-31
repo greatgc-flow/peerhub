@@ -244,6 +244,12 @@ def evaluate_projection_at(
     # the projection.  Reuse _ADMISSION_STATE_PRECEDENCE (the real
     # severity ladder at model.py:66-72).
     stored_admission = projection.admission_state
+    
+    # Gap 7 explicit: dynamically clear COOLDOWN to RECOVERY_REQUIRED if time has passed
+    if stored_admission is AdmissionState.COOLDOWN:
+        if projection.cooldown_until is not None and evaluated_at >= projection.cooldown_until:
+            stored_admission = AdmissionState.RECOVERY_REQUIRED
+            
     effective_admission = max(
         (readiness_derived_admission, stored_admission),
         key=_ADMISSION_STATE_PRECEDENCE.__getitem__,

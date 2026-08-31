@@ -145,6 +145,54 @@ def _print_ask_json(result: DirectAskResult) -> None:
     )
 
 
+def _run_health(parsed: argparse.Namespace) -> int:
+    from peerhub.application.health_revalidation import HealthRevalidationCoordinator
+    from peerhub.adapters.registry import resolve_peer_target
+    from peerhub.application.bootstrap import build_direct_ask_admission_config
+
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        target = resolve_peer_target(parsed.peer)
+        admission_config = build_direct_ask_admission_config(target, clock=context.clock, ids=context.ids)
+        with create_runtime(context, adapter_peer_kind=parsed.peer, admission_config=admission_config) as runtime:
+            coordinator = HealthRevalidationCoordinator(
+                registry=runtime.peer_registry_service,
+                health=runtime.health_service,
+                clock=context.clock,
+                ids=context.ids,
+            )
+            caller = require_caller_identity(LocalProcessCallerIdentityProvider())
+            
+            result = coordinator.request_revalidation(
+                peer_node_id=parsed.peer,
+                caller=caller,
+                reason=parsed.reason,
+                requested_at=context.clock.now()
+            )
+            if parsed.json:
+                print(json.dumps({
+                    "probe_outcome": result.probe_outcome.value,
+                    "admission_state": result.admission_state.value,
+                    "availability_state": result.availability_state.value,
+                    "circuit_closed": result.circuit_closed
+                }))
+            else:
+                print(f"Revalidation outcome for {parsed.peer}: probe={result.probe_outcome.value}, "
+                      f"admission={result.admission_state.value}, "
+                      f"availability={result.availability_state.value}, "
+                      f"circuit_closed={result.circuit_closed}")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"peerhub health: {exc}", file=sys.stderr)
+        return 2
+
 def _run_ask(
     parsed: argparse.Namespace,
     *,
@@ -1759,6 +1807,14 @@ def main(args: list[str] | None = None) -> int:
     broadcast_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     broadcast_parser.add_argument("--json", action="store_true", help="Emit JSON")
 
+    health_parser = subparsers.add_parser("health", help="Manage peer health")
+    health_subparsers = health_parser.add_subparsers(dest="health_action", required=True)
+    revalidate_parser = health_subparsers.add_parser("revalidate", help="Trigger health revalidation for a peer")
+    revalidate_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    revalidate_parser.add_argument("--peer", required=True, help="Peer ID to revalidate (e.g. cc)")
+    revalidate_parser.add_argument("--reason", required=True, help="Reason for revalidation")
+    revalidate_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
     ask_parser = subparsers.add_parser(
         "ask",
         help="Send one prompt to a real peer CLI",
@@ -2746,6 +2802,9 @@ def main(args: list[str] | None = None) -> int:
                 _refresh_usage_projections(workspace_root, force=False)
                 with runtime.state_store.read_unit_of_work() as uow:
                     _print_quota_table(uow, parsed.peer)
+
+    if parsed.command == "health":
+        return _run_health(parsed)
 
     if parsed.command == "ask":
         return _run_ask(parsed)
