@@ -21,6 +21,7 @@ from .governance.tasks import TaskService
 from .governance.feedback import FeedbackService
 from .governance.file_locks import FileLockService
 from .governance.operational_errors import OperationalErrorService
+from .application.quarantine_review import QuarantineReviewCoordinator
 from .governance.lessons import LessonService
 from .governance.rooms import RoomsService
 from .dispatch.duty_lease import DutyLeaseCoordinator
@@ -66,6 +67,7 @@ class Runtime:
     feedback_service: FeedbackService
     file_lock_service: FileLockService
     operational_error_service: OperationalErrorService
+    quarantine_review_coordinator: QuarantineReviewCoordinator
     alert_raise_coordinator: AlertRaiseCoordinator
     application_workflows: ApplicationWorkflows
     application_api: ApplicationAPI
@@ -265,6 +267,15 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    from peerhub.application.quarantine_review import QuarantineReviewCoordinator
+    quarantine_review_coordinator = QuarantineReviewCoordinator(
+        governance_broker,
+        peer_registry=peer_registry_service,
+        health=health_service,
+        clock=context.clock,
+        ids=context.ids,
+    )
+
     alert_raise_coordinator = AlertRaiseCoordinator(
         governance_broker,
         rooms=rooms_service,
@@ -319,6 +330,7 @@ def create_runtime(
         feedback_service=feedback_service,
         file_lock_service=file_lock_service,
         operational_error_service=operational_error_service,
+        quarantine_review_coordinator=quarantine_review_coordinator,
         alert_raise_coordinator=alert_raise_coordinator,
         application_workflows=application_workflows,
         application_api=application_api,

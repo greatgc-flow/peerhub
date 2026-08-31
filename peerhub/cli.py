@@ -1278,31 +1278,72 @@ def _run_error(parsed: argparse.Namespace) -> int:
     )
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
-            submission = runtime.operational_error_service.report_error(
-                peer_key=parsed.peer,
-                pattern=parsed.pattern,
-                severity=parsed.severity,
-                detail=parsed.detail,
-                actor_id=parsed.actor,
-                threshold=parsed.threshold,
-            )
-            target = runtime.governance_broker.get_target(
-                submission.receipt.target_id
-            )
-            assert target is not None
-            if parsed.json:
-                print(json.dumps(_json_safe(target.state)))
-            else:
-                print(
-                    "Operational error recorded "
-                    f"(peer={target.state['peer_key']}, "
-                    f"pattern={target.state['pattern']}, "
-                    f"count={target.state['count']})"
+            if parsed.error_action == "report":
+                submission = runtime.operational_error_service.report_error(
+                    peer_key=parsed.peer,
+                    pattern=parsed.pattern,
+                    severity=parsed.severity,
+                    detail=parsed.detail,
+                    actor_id=parsed.actor,
+                    threshold=parsed.threshold,
                 )
-            return 0
+                target = runtime.governance_broker.get_target(
+                    submission.receipt.target_id
+                )
+                assert target is not None
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    print(
+                        "Operational error recorded "
+                        f"(peer={target.state['peer_key']}, "
+                        f"pattern={target.state['pattern']}, "
+                        f"count={target.state['count']})"
+                    )
+                return 0
+            elif parsed.error_action == "review":
+                if parsed.review_action == "list":
+                    reviews = runtime.quarantine_review_coordinator.list_pending_quarantine_reviews()
+                    if getattr(parsed, "json", False):
+                        print(json.dumps([_json_safe(r.state) for r in reviews]))
+                    else:
+                        for r in reviews:
+                            print(
+                                f"{r.state.get('review_id')}\t"
+                                f"{r.state.get('peer_key')}\t"
+                                f"{r.state.get('pattern')}"
+                            )
+                    return 0
+                elif parsed.review_action == "resolve":
+                    from peerhub.core.identity import AuthenticatedSubject
+                    actor = AuthenticatedSubject(
+                        principal_id=parsed.actor,
+                        evidence_source="cli-argument",
+                    )
+                    submission = runtime.quarantine_review_coordinator.resolve_quarantine_review(
+                        parsed.review_id,
+                        decision=parsed.decision,
+                        actor=actor,
+                        reason=parsed.reason,
+                    )
+                    target = runtime.governance_broker.get_target(
+                        submission.receipt.target_id
+                    )
+                    assert target is not None
+                    if parsed.json:
+                        print(json.dumps(_json_safe(target.state)))
+                    else:
+                        print(
+                            "Quarantine review resolved "
+                            f"(id={target.state['review_id']}, "
+                            f"status={target.state['status']})"
+                        )
+                    return 0
     except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
         print(f"peerhub error: {exc}", file=sys.stderr)
         return 2
+
+    return 1
 
 
 def _run_alert(parsed: argparse.Namespace) -> int:
@@ -2384,6 +2425,25 @@ def main(args: list[str] | None = None) -> int:
     error_report_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
+    error_review_parser = error_subparsers.add_parser(
+        "review", help="Review quarantine requests"
+    )
+    error_review_subparsers = error_review_parser.add_subparsers(
+        dest="review_action", required=True
+    )
+
+    error_review_list = error_review_subparsers.add_parser("list")
+    error_review_list.add_argument("--workspace", default=".")
+
+    error_review_resolve = error_review_subparsers.add_parser("resolve")
+    error_review_resolve.add_argument("--workspace", default=".")
+    error_review_resolve.add_argument("--review-id", required=True)
+    error_review_resolve.add_argument(
+        "--decision", required=True, choices=["DISMISS", "ESCALATE"]
+    )
+    error_review_resolve.add_argument("--reason", required=True)
+    error_review_resolve.add_argument("--actor", required=True)
+    error_review_resolve.add_argument("--json", action="store_true")
 
     alert_parser = subparsers.add_parser(
         "alert", help="Raise durable alerts for live room participants"
