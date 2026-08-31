@@ -651,3 +651,32 @@ RESOLUTION: The `RecoveryProbeGrant` will move through the following concrete st
 2. `CLAIMED`: A worker atomically CAS-updates the grant to `CLAIMED` when starting the probe.
 3. `SUCCEEDED` / `FAILED`: The worker applies the probe result, consuming the grant permanently and updating the circuit state.
 4. `EXPIRED`: If a worker crashes between `GRANTED`/`CLAIMED` and execution, the expiration timestamp will elapse. A new grant cannot be issued while an unexpired one exists, preventing parallel probe spam. Once expired, the grant is considered exhausted (failing closed) and the circuit remains quarantined. The operator must request a new authorization (spending another budget slot) to retry. This provides safe partial-failure recovery without requiring resume mechanisms.
+
+## `quarantine-review` Consumer RESEARCH (2026-08-31)
+
+**1. Target Schema**
+The `quarantine-review` target (`peerhub/governance/operational_errors.py:224-249`) carries the following fields:
+- `kind`: "quarantine-review"
+- `scope`: None
+- `schema_version`: 1
+- `review_id`: The computed identifier (e.g. peer_key:pattern_hash:threshold:trigger_count)
+- `peer_key` / `pattern` / `pattern_hash`
+- `threshold` / `trigger_count`
+- `series_target_id` / `series_revision`: Link to the underlying operational-error series
+- `status`: "REQUESTED"
+- `requested_at`: Timestamp of the triggering report
+- `reports_snapshot`: A frozen list of the reports that triggered this review
+- `actor_id`: The actor who submitted the triggering report
+
+**2. Legacy Precedent**
+A grep of `P:/_sys/core/hub.py` confirms there is NO legacy equivalent for "processing a quarantine review." Legacy `hub.py:9532-9533` blindly and immediately executes `action_peer_quarantine` when the threshold is crossed, completely bypassing any review/approval step. The `quarantine-review` target is therefore a genuinely NEW native concept for peerhub, invented strictly to preserve the honest evidence/authority boundary that legacy violated.
+
+**3. Minimal Honest Consumer Sketch**
+Given the confirmed single-operator deployment reality, the simplest, most honest consumer is a **human-in-the-loop CLI operator**. We do not need to invent an automated background daemon to process these. An operator explicitly reviews pending targets and makes a manual decision to either dismiss them or escalate them to administrative recovery. This avoids over-engineering an approval workflow while fully satisfying the authority requirements.
+
+**4. Native Surface Area**
+Grounded in the existing `FeedbackService` (`resolve_feedback()`) precedent, the smallest concrete surface requires:
+- A read method: `list_pending_quarantine_reviews()` (filters for `status == "REQUESTED"`).
+- A resolution method: `resolve_quarantine_review(review_id, *, decision: str, actor_id: str, reason: str)`.
+  - If `decision == "DISMISS"`: Mutates target to `status = "DISMISSED"`, `resolved_at = now`, `resolved_by = actor_id`, `reason = reason`.
+  - If `decision == "ESCALATE"`: Mutates target to `status = "ESCALATED"` and invokes `HealthService.authorize_administrative_recovery(peer_key, ...)` (not `HealthRevalidationCoordinator`, which composes the producer/probe execution around it -- `authorize_administrative_recovery` itself lives on `HealthService`) to formally initiate the newly-landed recovery pipeline.
