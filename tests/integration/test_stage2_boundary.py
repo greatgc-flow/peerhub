@@ -8,7 +8,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, BindProfileCommand, ModelStatusCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
 from peerhub.application.legacy import AlertRaiseCommand
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
@@ -1351,6 +1351,41 @@ def test_legacy_register_node_translates_and_executes(runtime_setup) -> None:
         item["state"]["node_id"] == "legacy-worker-1"
         for item in listed.result["nodes"]
     )
+
+
+def test_native_bind_profile_and_legacy_model_status_execute(runtime_setup) -> None:
+    runtime, client, _ = runtime_setup
+    bind = BindProfileCommand(
+        submission=_legacy_submission(),
+        node_id="cc",
+        profile_id="cc.standard",
+        model_id="claude-opus-test",
+        reasoning_effort="high",
+        actor_id="peer-1",
+    )
+
+    bound = client.submit(bind)
+
+    assert isinstance(bound, CommandSuccess)
+    assert bound.result["target_id"] == (
+        "peer-profile-binding:cc:cc.standard"
+    )
+    translated = LegacyTranslator().translate(
+        LegacyActionCall("model-status", {}),
+        _legacy_submission(),
+    )
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, ModelStatusCommand)
+
+    outcome = client.submit(translated.command)
+
+    assert isinstance(outcome, CommandSuccess)
+    cc_row = next(
+        row for row in outcome.result["models"] if row["peer"] == "cc"
+    )
+    assert cc_row["profile"] == "cc.standard"
+    assert cc_row["model"] == "claude-opus-test"
+    assert cc_row["effort"] == "high"
 
 
 def test_legacy_assign_role_and_role_status_translate_and_execute(

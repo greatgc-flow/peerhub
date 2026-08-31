@@ -36,7 +36,7 @@ from peerhub.application.direct_ask import (
     execute_direct_ask,
 )
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
-from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
@@ -873,7 +873,7 @@ def _run_node(parsed: argparse.Namespace) -> int:
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
-            service = PeerRegistryService(runtime.governance_broker, clock=context.clock, ids=context.ids)
+            service = runtime.peer_registry_service
             if parsed.node_action == "register":
                 submission = service.register_node(
                     node_id=parsed.node_id,
@@ -889,6 +889,53 @@ def _run_node(parsed: argparse.Namespace) -> int:
                     print(json.dumps(_json_safe(target.state)))
                 else:
                     print(f"Node {parsed.node_id} registered (peer_kind={target.state['peer_kind']}, profile_id={target.state['profile_id']})")
+                return 0
+            if parsed.node_action == "bind-profile":
+                submission = service.bind_profile(
+                    node_id=parsed.node_id,
+                    profile_id=parsed.profile_id,
+                    model_id=parsed.model_id,
+                    reasoning_effort=parsed.reasoning_effort,
+                    actor_id=parsed.actor,
+                )
+                target = runtime.governance_broker.get_target(
+                    submission.receipt.target_id
+                )
+                assert target is not None
+                if parsed.json:
+                    print(json.dumps(_json_safe(target.state)))
+                else:
+                    effort = target.state.get("reasoning_effort") or ""
+                    print(
+                        f"Profile {parsed.node_id}/{parsed.profile_id} bound "
+                        f"to model={parsed.model_id}, effort={effort}"
+                    )
+                return 0
+            if parsed.node_action == "model-status":
+                rows = collect_model_status(service, runtime.health_service)
+                if parsed.json:
+                    print(json.dumps(_json_safe({"models": rows})))
+                else:
+                    print(
+                        "peer\tstatus\tprofile\tmodel\teffort\tcost\t"
+                        "context\tcapabilities"
+                    )
+                    for row in rows:
+                        print(
+                            "\t".join(
+                                str(row.get(field, ""))
+                                for field in (
+                                    "peer",
+                                    "status",
+                                    "profile",
+                                    "model",
+                                    "effort",
+                                    "cost",
+                                    "context",
+                                    "capabilities",
+                                )
+                            )
+                        )
                 return 0
             nodes = service.list_nodes()
             if parsed.json:
@@ -1945,6 +1992,59 @@ def main(args: list[str] | None = None) -> int:
     node_list_parser = node_subparsers.add_parser("list", help="List all peer nodes (base adapter-registry nodes plus registered ones)")
     node_list_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
     node_list_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    node_bind_parser = node_subparsers.add_parser(
+        "bind-profile",
+        help="Bind one node/profile pair to its configured model pin",
+    )
+    node_bind_parser.add_argument(
+        "--workspace",
+        default=".",
+        help="Path to the workspace root containing profile bindings",
+    )
+    node_bind_parser.add_argument(
+        "--node-id",
+        required=True,
+        help="Registered or base peer-node identifier owning the binding",
+    )
+    node_bind_parser.add_argument(
+        "--profile-id",
+        required=True,
+        help="Adapter profile identifier being bound",
+    )
+    node_bind_parser.add_argument(
+        "--model-id",
+        required=True,
+        help="Exact configured model identifier for this node/profile pair",
+    )
+    node_bind_parser.add_argument(
+        "--reasoning-effort",
+        default=None,
+        help="Optional configured reasoning-effort value",
+    )
+    node_bind_parser.add_argument(
+        "--actor",
+        required=True,
+        help="Peer or principal updating the profile binding",
+    )
+    node_bind_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit the persisted binding as machine-readable JSON",
+    )
+    node_model_status_parser = node_subparsers.add_parser(
+        "model-status",
+        help="Show configured model pins and current peer health",
+    )
+    node_model_status_parser.add_argument(
+        "--workspace",
+        default=".",
+        help="Path to the workspace root containing model configuration",
+    )
+    node_model_status_parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Emit structured model-status rows as JSON",
+    )
 
     lock_parser = subparsers.add_parser(
         "lock", help="Manage durable file locks"

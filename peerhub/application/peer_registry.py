@@ -4,14 +4,31 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from peerhub.adapters.registry import resolve_peer_target
+from peerhub.adapters.registry import resolve_peer_adapter, resolve_peer_target
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 from peerhub.core.protocol import CommandID, JsonValue, require_text
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
+from peerhub.health.contract import AdmissionState, AvailabilityState
+from peerhub.health.service import HealthService
 
 _BASE_NODE_IDS = ("cc", "ag", "cx")
+
+_LEGACY_STATUS_BY_AVAILABILITY = {
+    AvailabilityState.UNKNOWN: "UNKNOWN",
+    AvailabilityState.PROBING: "UNKNOWN",
+    AvailabilityState.HEALTHY: "GREEN",
+    AvailabilityState.DEGRADED: "YELLOW",
+    AvailabilityState.UNAVAILABLE: "RED",
+    AvailabilityState.STALE: "STALE",
+}
+
+_CLOSED_ADMISSION_STATES = {
+    AdmissionState.COOLDOWN,
+    AdmissionState.RECOVERY_REQUIRED,
+    AdmissionState.QUARANTINED,
+}
 
 
 def _is_known_cli_name(name: str) -> bool:
@@ -173,3 +190,174 @@ class PeerRegistryService:
 
         result.sort(key=lambda item: item.target_id)
         return tuple(result)
+
+    @staticmethod
+    def _profile_binding_target_id(node_id: str, profile_id: str) -> str:
+        return f"peer-profile-binding:{node_id}:{profile_id}"
+
+    def bind_profile(
+        self,
+        *,
+        node_id: str,
+        profile_id: str,
+        model_id: str,
+        reasoning_effort: str | None = None,
+        actor_id: str,
+    ) -> MutationSubmission:
+        """Create or replace one instance/profile model-pin binding."""
+
+        normalized_node_id = require_text(node_id, "node_id")
+        normalized_profile_id = require_text(profile_id, "profile_id")
+        normalized_model_id = require_text(model_id, "model_id")
+        normalized_effort = (
+            None
+            if reasoning_effort is None
+            else require_text(reasoning_effort, "reasoning_effort")
+        )
+        normalized_actor_id = require_text(actor_id, "actor_id")
+        target_id = self._profile_binding_target_id(
+            normalized_node_id,
+            normalized_profile_id,
+        )
+        current = self._broker.get_target(target_id)
+        now = self._clock.now()
+        desired_state: dict[str, JsonValue] = {
+            "kind": "peer-profile-binding",
+            "scope": normalized_node_id,
+            "schema_version": 1,
+            "binding_id": target_id,
+            "node_id": normalized_node_id,
+            "profile_id": normalized_profile_id,
+            "model_id": normalized_model_id,
+            "reasoning_effort": normalized_effort,
+            "updated_at": now,
+            "updated_by": normalized_actor_id,
+        }
+        return self._submit(
+            target_id=target_id,
+            expected_revision=0 if current is None else current.revision,
+            actor_id=normalized_actor_id,
+            operation="peer-registry.profile.bind",
+            desired_state=desired_state,
+        )
+
+    def get_profile_binding(
+        self,
+        node_id: str,
+        profile_id: str,
+    ) -> TargetState | None:
+        normalized_node_id = require_text(node_id, "node_id")
+        normalized_profile_id = require_text(profile_id, "profile_id")
+        return self._broker.get_target(
+            self._profile_binding_target_id(
+                normalized_node_id,
+                normalized_profile_id,
+            )
+        )
+
+    def list_profile_bindings(
+        self,
+        node_id: str | None = None,
+    ) -> Sequence[TargetState]:
+        normalized_node_id = (
+            None if node_id is None else require_text(node_id, "node_id")
+        )
+        return self._broker.list_targets(
+            "peer-profile-binding",
+            normalized_node_id,
+        )
+
+
+def collect_model_status(
+    registry: PeerRegistryService,
+    health: HealthService | None,
+) -> Sequence[dict[str, JsonValue]]:
+    """Join registered nodes, profile bindings, and live health evidence.
+
+    The legacy health profile included vendor-specific context-window and
+    capability fields. Native ``HealthProjectionSnapshot`` deliberately does
+    not persist those fields. Context therefore remains blank until a typed
+    native source exists; adapter-declared capabilities are exposed only when
+    health evidence for the pair exists, preserving legacy's health fallback
+    boundary without making the adapter descriptor a liveness claim.
+    """
+
+    rows: list[dict[str, JsonValue]] = []
+    for node in registry.list_nodes():
+        node_id_value = node.state.get("node_id")
+        peer_kind_value = node.state.get("peer_kind")
+        default_profile_value = node.state.get("profile_id")
+        if not isinstance(node_id_value, str) or not node_id_value:
+            raise InvalidMutationError("peer node has malformed node_id")
+        if not isinstance(peer_kind_value, str) or not peer_kind_value:
+            raise InvalidMutationError("peer node has malformed peer_kind")
+        if not isinstance(default_profile_value, str) or not default_profile_value:
+            raise InvalidMutationError("peer node has malformed profile_id")
+
+        bindings = registry.list_profile_bindings(node_id_value)
+        binding_rows: Sequence[TargetState | None] = (
+            tuple(bindings) if bindings else (None,)
+        )
+        for binding in binding_rows:
+            if binding is None:
+                profile_id = default_profile_value
+                model_id = ""
+                reasoning_effort = ""
+            else:
+                profile_value = binding.state.get("profile_id")
+                model_value = binding.state.get("model_id")
+                effort_value = binding.state.get("reasoning_effort")
+                if not isinstance(profile_value, str) or not profile_value:
+                    raise InvalidMutationError(
+                        "peer profile binding has malformed profile_id"
+                    )
+                if not isinstance(model_value, str) or not model_value:
+                    raise InvalidMutationError(
+                        "peer profile binding has malformed model_id"
+                    )
+                if effort_value is not None and not isinstance(effort_value, str):
+                    raise InvalidMutationError(
+                        "peer profile binding has malformed reasoning_effort"
+                    )
+                profile_id = profile_value
+                model_id = model_value
+                reasoning_effort = effort_value or ""
+
+            health_read = (
+                None
+                if health is None
+                else health.read_health_projection(
+                    peer_kind_value,
+                    profile_id,
+                )
+            )
+            if health_read is None:
+                status = "UNKNOWN"
+                capabilities = ""
+            else:
+                status = (
+                    "RED"
+                    if health_read.effective_admission_state
+                    in _CLOSED_ADMISSION_STATES
+                    else _LEGACY_STATUS_BY_AVAILABILITY[
+                        health_read.effective_availability_state
+                    ]
+                )
+                descriptor = resolve_peer_adapter(peer_kind_value).descriptor
+                capabilities = ",".join(
+                    sorted(capability.value for capability in descriptor.capabilities)
+                )
+
+            rows.append(
+                {
+                    "peer": node_id_value,
+                    "status": status,
+                    "profile": profile_id,
+                    "model": model_id,
+                    "effort": reasoning_effort,
+                    "cost": "",
+                    "context": "",
+                    "capabilities": capabilities,
+                }
+            )
+    return tuple(rows)

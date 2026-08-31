@@ -287,6 +287,7 @@ def create_runtime(
         room_session=room_participation_coordinator,
         arbiter=arbiter_coordinator,
         peer_registry=peer_registry_service,
+        health=health_service,
         role_assignment=role_assignment_service,
         leadership=leadership_service,
         feedback=feedback_service,

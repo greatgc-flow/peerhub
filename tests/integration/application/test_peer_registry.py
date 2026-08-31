@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.peer_registry import (
+    PeerRegistryService,
+    collect_model_status,
+)
 from peerhub.core.context import Clock
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 from peerhub.governance.broker import GovernanceBroker
@@ -158,3 +161,132 @@ def test_get_node_raises_for_an_unregistered_node(tmp_path: Path) -> None:
 
     with pytest.raises(RecordNotFoundError):
         service.get_node("does-not-exist")
+
+
+def test_bind_profile_creates_separate_target_and_register_does_not(
+    tmp_path: Path,
+) -> None:
+    service, broker, clock = _service(tmp_path)
+    service.register_node(
+        node_id="worker-1",
+        peer_kind="cc",
+        actor_id="peer-1",
+    )
+
+    assert service.list_profile_bindings("worker-1") == ()
+
+    submission = service.bind_profile(
+        node_id="worker-1",
+        profile_id="cc.standard",
+        model_id="claude-opus-test",
+        reasoning_effort="high",
+        actor_id="peer-2",
+    )
+
+    binding = broker.get_target(submission.receipt.target_id)
+    assert binding is not None
+    assert binding.target_id == (
+        "peer-profile-binding:worker-1:cc.standard"
+    )
+    assert binding.state == {
+        "kind": "peer-profile-binding",
+        "scope": "worker-1",
+        "schema_version": 1,
+        "binding_id": "peer-profile-binding:worker-1:cc.standard",
+        "node_id": "worker-1",
+        "profile_id": "cc.standard",
+        "model_id": "claude-opus-test",
+        "reasoning_effort": "high",
+        "updated_at": clock.now(),
+        "updated_by": "peer-2",
+    }
+
+
+def test_get_and_list_profile_bindings_support_filtered_and_global_reads(
+    tmp_path: Path,
+) -> None:
+    service, _, _ = _service(tmp_path)
+    service.bind_profile(
+        node_id="worker-1",
+        profile_id="cc.standard",
+        model_id="model-a",
+        actor_id="peer-1",
+    )
+    service.bind_profile(
+        node_id="worker-2",
+        profile_id="cx.standard",
+        model_id="model-b",
+        actor_id="peer-1",
+    )
+
+    binding = service.get_profile_binding("worker-1", "cc.standard")
+    assert binding is not None
+    assert binding.state["model_id"] == "model-a"
+    assert service.get_profile_binding("worker-1", "missing") is None
+    assert [
+        item.state["node_id"]
+        for item in service.list_profile_bindings("worker-1")
+    ] == ["worker-1"]
+    assert [
+        item.state["node_id"] for item in service.list_profile_bindings()
+    ] == ["worker-1", "worker-2"]
+
+
+@pytest.mark.parametrize(
+    ("field", "overrides"),
+    (
+        ("node_id", {"node_id": ""}),
+        ("profile_id", {"profile_id": ""}),
+        ("model_id", {"model_id": ""}),
+    ),
+)
+def test_bind_profile_rejects_empty_required_text(
+    tmp_path: Path,
+    field: str,
+    overrides: dict[str, str],
+) -> None:
+    service, _, _ = _service(tmp_path)
+    arguments = {
+        "node_id": "worker-1",
+        "profile_id": "cc.standard",
+        "model_id": "model-a",
+        "actor_id": "peer-1",
+        **overrides,
+    }
+
+    with pytest.raises(ValueError, match=field):
+        service.bind_profile(**arguments)
+
+
+def test_collect_model_status_reports_bindings_and_blank_unbound_defaults(
+    tmp_path: Path,
+) -> None:
+    service, _, _ = _service(tmp_path)
+    service.register_node(
+        node_id="bound-worker",
+        peer_kind="cc",
+        actor_id="peer-1",
+    )
+    service.register_node(
+        node_id="unbound-worker",
+        peer_kind="cx",
+        actor_id="peer-1",
+    )
+    service.bind_profile(
+        node_id="bound-worker",
+        profile_id="cc.standard",
+        model_id="claude-opus-test",
+        reasoning_effort="high",
+        actor_id="peer-1",
+    )
+
+    rows = collect_model_status(service, health=None)
+    by_peer = {str(row["peer"]): row for row in rows}
+
+    assert by_peer["bound-worker"]["profile"] == "cc.standard"
+    assert by_peer["bound-worker"]["model"] == "claude-opus-test"
+    assert by_peer["bound-worker"]["effort"] == "high"
+    assert by_peer["bound-worker"]["status"] == "UNKNOWN"
+    assert by_peer["unbound-worker"]["profile"] == "cx.standard"
+    assert by_peer["unbound-worker"]["model"] == ""
+    assert by_peer["unbound-worker"]["effort"] == ""

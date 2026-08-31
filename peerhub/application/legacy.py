@@ -1058,6 +1058,43 @@ class ListNodesCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class BindProfileCommand(Command[Any]):
+    method: ClassVar[str] = "configuration.profile.bind"
+    submission: SubmissionMetadata
+    node_id: str
+    profile_id: str
+    model_id: str
+    reasoning_effort: str | None
+    actor_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "node_id": self.node_id,
+            "profile_id": self.profile_id,
+            "model_id": self.model_id,
+            "reasoning_effort": self.reasoning_effort,
+            "actor_id": self.actor_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ModelStatusCommand(Command[Any]):
+    method: ClassVar[str] = "configuration.model.status"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class AssignRoleCommand(Command[Any]):
     method: ClassVar[str] = "coordination.role.assign"
     submission: SubmissionMetadata
@@ -1664,6 +1701,8 @@ class LegacyTranslator:
             ))
         if call.action == "list-nodes":
             return TranslatedCommand(command=ListNodesCommand(submission))
+        if call.action == "model-status":
+            return TranslatedCommand(command=ModelStatusCommand(submission))
         if call.action == "feedback-add":
             # Legacy resolves --peer/--from and --subject/--msg at its CLI
             # layer and supplies the defaults there, so they belong in this

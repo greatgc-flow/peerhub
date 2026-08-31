@@ -90,13 +90,17 @@ from peerhub.application.legacy import (
     ApprovalRequestCommand,
     ConsensusSweepCommand, LessonsListCommand, ProposalListCommand, ArbiterReviewCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
-    RegisterNodeCommand, ListNodesCommand,
+    RegisterNodeCommand, ListNodesCommand, BindProfileCommand,
+    ModelStatusCommand,
     AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
     FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
     LockAcquireCommand, LockReleaseCommand, LockStatusCommand,
     ReportErrorCommand, AlertRaiseCommand,
 )
-from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.peer_registry import (
+    PeerRegistryService,
+    collect_model_status,
+)
 from peerhub.application.role_assignment import (
     RoleAssignmentService,
     RoleReleaseResult,
@@ -110,6 +114,7 @@ from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
 from peerhub.governance.file_locks import FileLockService, FileUnlockResult
 from peerhub.governance.contract import TargetState
+from peerhub.health.service import HealthService
 
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
@@ -327,6 +332,7 @@ class ApplicationAPI:
         room_session: RoomParticipationCoordinator | None = None,
         arbiter: ArbiterReviewCoordinator | None = None,
         peer_registry: PeerRegistryService | None = None,
+        health: HealthService | None = None,
         role_assignment: RoleAssignmentService | None = None,
         leadership: LeadershipService | None = None,
         feedback: FeedbackService | None = None,
@@ -350,7 +356,8 @@ class ApplicationAPI:
         if duty is not None and terminal_duty is not None:
             self._register_duty(duty, terminal_duty, room_session)
         if room_session is not None: self._register_room_session(room_session)
-        if peer_registry is not None: self._register_peer_registry(peer_registry)
+        if peer_registry is not None:
+            self._register_peer_registry(peer_registry, health)
         if role_assignment is not None:
             self._register_role_assignment(role_assignment)
         if leadership is not None:
@@ -1267,7 +1274,11 @@ class ApplicationAPI:
             CommandAvailability.AVAILABLE,
         ))
 
-    def _register_peer_registry(self, service: PeerRegistryService) -> None:
+    def _register_peer_registry(
+        self,
+        service: PeerRegistryService,
+        health: HealthService | None,
+    ) -> None:
         def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
             value = envelope.params.get(name)
             if value is None:
@@ -1304,6 +1315,25 @@ class ApplicationAPI:
         def decode_list(envelope: CommandEnvelope) -> ListNodesCommand:
             return ListNodesCommand(self._submission(envelope))
 
+        def required_text(envelope: CommandEnvelope, name: str) -> str:
+            value = envelope.params[name]
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def decode_bind(envelope: CommandEnvelope) -> BindProfileCommand:
+            return BindProfileCommand(
+                submission=self._submission(envelope),
+                node_id=required_text(envelope, "node_id"),
+                profile_id=required_text(envelope, "profile_id"),
+                model_id=required_text(envelope, "model_id"),
+                reasoning_effort=optional_text(envelope, "reasoning_effort"),
+                actor_id=required_text(envelope, "actor_id"),
+            )
+
+        def decode_model_status(envelope: CommandEnvelope) -> ModelStatusCommand:
+            return ModelStatusCommand(self._submission(envelope))
+
         def encode_nodes(results: Sequence[Any]) -> Mapping[str, JsonValue]:
             nodes = [
                 {
@@ -1314,6 +1344,11 @@ class ApplicationAPI:
                 for result in results
             ]
             return {"nodes": cast(JsonValue, nodes)}
+
+        def encode_models(
+            results: Sequence[Mapping[str, JsonValue]],
+        ) -> Mapping[str, JsonValue]:
+            return {"models": cast(JsonValue, list(results))}
 
         self.register(CommandDescriptor(
             "configuration.instance.register",
@@ -1340,6 +1375,32 @@ class ApplicationAPI:
             decode_list,
             lambda c, ctx: service.list_nodes(),
             encode_nodes,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "configuration.profile.bind",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_bind,
+            lambda c, ctx: service.bind_profile(
+                node_id=c.node_id,
+                profile_id=c.profile_id,
+                model_id=c.model_id,
+                reasoning_effort=c.reasoning_effort,
+                actor_id=c.actor_id,
+            ),
+            self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "configuration.model.status",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_model_status,
+            lambda c, ctx: collect_model_status(service, health),
+            encode_models,
             CommandAvailability.AVAILABLE,
         ))
 

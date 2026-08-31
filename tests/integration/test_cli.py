@@ -222,6 +222,54 @@ def test_cli_status_quota_table(tmp_path: Path, capsys) -> None:
     assert "No quota data recorded yet" in stdout
 
 
+def test_cli_bind_profile_then_model_status_round_trip(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    bind_exit = main(
+        [
+            "node",
+            "bind-profile",
+            "--workspace",
+            str(tmp_path),
+            "--node-id",
+            "cc",
+            "--profile-id",
+            "cc.standard",
+            "--model-id",
+            "claude-opus-test",
+            "--reasoning-effort",
+            "high",
+            "--actor",
+            "peer-1",
+        ]
+    )
+    bind_output = capsys.readouterr()
+
+    assert bind_exit == 0
+    assert "Profile cc/cc.standard bound" in bind_output.out
+
+    status_exit = main(
+        [
+            "node",
+            "model-status",
+            "--workspace",
+            str(tmp_path),
+        ]
+    )
+    status_output = capsys.readouterr()
+
+    assert status_exit == 0
+    assert (
+        "peer\tstatus\tprofile\tmodel\teffort\tcost\tcontext\tcapabilities"
+        in status_output.out
+    )
+    assert (
+        "cc\tUNKNOWN\tcc.standard\tclaude-opus-test\thigh\t\t\t"
+        in status_output.out
+    )
+
+
 
 def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
     subject = AuthenticatedSubject(

@@ -416,5 +416,15 @@ locks.\.
 **Verification:**
 pytest -q tests/integration/test_file_locks.py confirms end-to-end translation, execution, and behavioral invariants (7 tests passed). Pyright shows 0 new errors. 
 
-**Progress:** 49 of the 90 \LEGACY_CATALOG\ actions now translate and execute end-to-end (up from 46). The three new mapped actions are \`file-lock\ (\governance.lock.acquire\), \`file-unlock\ (\governance.lock.release\), and \lock-status\ (\governance.lock.status\).
+**Progress:** 49 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 46). The three new mapped actions are `file-lock` (`governance.lock.acquire`), `file-unlock` (`governance.lock.release`), and `lock-status` (`governance.lock.status`).
+
+### Round (2026-08-31): `PeerProfileBinding` filled in, `model-status` backed (50/90)
+
+`model-status` was previously blocked on `PeerProfileBinding` -- a type ratified in the pre-TDD architecture debate (Round 9, `ARCHITECTURE.md` §6.1a) but never actually built (no table, no service, zero class definitions in `peerhub/`). Research (ag.deepthink) translated the ratified spec into a concrete implementation-ready plan; the implementing dispatch (cx.deepthink) reported `execution_state=uncertain` and got itself rate-limited (session resume failed), but had already completed correct, real work before that -- verified fresh by the terminal since there was no self-reported test output to trust.
+
+Added `peer-profile-binding:{node_id}:{profile_id}` targets plus `PeerRegistryService.bind_profile()`/`get_profile_binding()`/`list_profile_bindings()`. `register_node()` deliberately does not auto-create a binding -- `bind_profile()` is a separate, purely-additive native command with no legacy counterpart of its own, so it doesn't move the `LEGACY_CATALOG` count by itself. `model-status` joins `PeerRegistryService.list_nodes()` with each node's profile binding and falls back to a `HealthService` projection only for capabilities/context, matching real legacy's documented principle (hub.py:11748-11773) that model/effort/cost/context come from the configured profile, not from potentially-stale `health.json` fields.
+
+**Verification:** full suite 1279 passed (only the pre-existing unrelated manifest-snapshot test fails), 0 new pyright errors, all touched files (5 source, 3 test) independently corruption-checked clean.
+
+**Progress:** 50 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 49). The one new mapped action is `model-status` (`configuration.model.status`).
 
