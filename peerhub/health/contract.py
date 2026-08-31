@@ -283,6 +283,26 @@ class HealthPolicy:
 
 
 @dataclass(frozen=True)
+class AdministrativeRecoveryBudgetSnapshot:
+    """Workspace-wide anchored administrative-recovery budget."""
+
+    budget_id: str
+    window_start: int
+    count: int
+    revision: int
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "budget_id",
+            require_text(self.budget_id, "budget_id"),
+        )
+        _require_nonnegative(self.window_start, "window_start")
+        _require_positive(self.count, "count")
+        _require_positive(self.revision, "revision")
+
+
+@dataclass(frozen=True)
 class ReadinessEvaluation:
     """Fixture-domain readiness result plus explicit live-state mapping."""
 

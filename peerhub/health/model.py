@@ -74,7 +74,36 @@ _ADMISSION_STATE_PRECEDENCE = {
     AdmissionState.QUARANTINED: 4,
 }
 
+_QUARANTINE_AUTHORITY_PRECEDENCE = {
+    QuarantineAuthorityClass.AUTOMATIC: 0,
+    QuarantineAuthorityClass.MANUAL: 1,
+    QuarantineAuthorityClass.POLICY: 2,
+    QuarantineAuthorityClass.SECURITY: 3,
+}
+
 _RECOVERY_PROBE_GRANT_TTL_SECONDS = 5 * 60
+
+
+def dominates(
+    authority: QuarantineAuthorityClass,
+    required: QuarantineAuthorityClass,
+) -> bool:
+    """Return whether ``authority`` meets or exceeds ``required``."""
+
+    if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+        authority,
+        QuarantineAuthorityClass,
+    ):
+        raise TypeError("authority must be QuarantineAuthorityClass")
+    if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+        required,
+        QuarantineAuthorityClass,
+    ):
+        raise TypeError("required must be QuarantineAuthorityClass")
+    return (
+        _QUARANTINE_AUTHORITY_PRECEDENCE[authority]
+        >= _QUARANTINE_AUTHORITY_PRECEDENCE[required]
+    )
 
 
 def evaluate_readiness_evidence(

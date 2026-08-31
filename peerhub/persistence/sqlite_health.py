@@ -8,6 +8,7 @@ from typing import Any, Callable
 from peerhub.core.errors import RecoveryProbeGrantConflictError
 from peerhub.core.evidence import EvidenceRef
 from peerhub.health.contract import (
+    AdministrativeRecoveryBudgetSnapshot,
     AdmissionDecision,
     AdmissionSnapshot,
     AdmissionSnapshotEntry,
@@ -158,6 +159,77 @@ class SqliteHealthRepository:
             (policy_id, revision),
         ).fetchone()
         return None if row is None else self._health_policy_from_row(row)
+
+    def get_administrative_recovery_budget(
+        self,
+        budget_id: str,
+    ) -> AdministrativeRecoveryBudgetSnapshot | None:
+        """Return the anchored administrative-recovery budget."""
+
+        row = self._db().execute(
+            """
+            SELECT budget_id, window_start, count, revision
+            FROM administrative_recovery_budgets
+            WHERE budget_id = ?
+            """,
+            (budget_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return AdministrativeRecoveryBudgetSnapshot(
+            budget_id=row["budget_id"],
+            window_start=row["window_start"],
+            count=row["count"],
+            revision=row["revision"],
+        )
+
+    def add_administrative_recovery_budget(
+        self,
+        budget: AdministrativeRecoveryBudgetSnapshot,
+    ) -> None:
+        """Insert the first anchored administrative-recovery window."""
+
+        self._db().execute(
+            """
+            INSERT INTO administrative_recovery_budgets (
+                budget_id,
+                window_start,
+                count,
+                revision
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                budget.budget_id,
+                budget.window_start,
+                budget.count,
+                budget.revision,
+            ),
+        )
+
+    def cas_update_administrative_recovery_budget(
+        self,
+        current: AdministrativeRecoveryBudgetSnapshot,
+        updated: AdministrativeRecoveryBudgetSnapshot,
+    ) -> bool:
+        """CAS-update an anchored administrative-recovery window."""
+
+        if current.budget_id != updated.budget_id:
+            raise ValueError("budget IDs do not match")
+        cursor = self._db().execute(
+            """
+            UPDATE administrative_recovery_budgets
+            SET window_start = ?, count = ?, revision = ?
+            WHERE budget_id = ? AND revision = ?
+            """,
+            (
+                updated.window_start,
+                updated.count,
+                updated.revision,
+                current.budget_id,
+                current.revision,
+            ),
+        )
+        return cursor.rowcount == 1
 
     # ── Slice 4: health projections ──
 

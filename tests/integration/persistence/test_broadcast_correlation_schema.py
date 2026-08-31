@@ -291,7 +291,7 @@ def test_migration_0020_registers_broadcast_schema(
     store.close()
 
     with _connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (29,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (30,)
         assert connection.execute(
             "SELECT name FROM schema_migrations WHERE version = 20"
         ).fetchone() == ("0020_broadcast_correlation",)

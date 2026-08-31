@@ -501,6 +501,29 @@ class RecoveryProbeGrantConflictError(PeerHubError):
         )
 
 
+class AdministrativeRecoveryBudgetExceededError(PeerHubError):
+    """The anchored administrative recovery budget has no free slots."""
+
+    error_code = ErrorCode.ATTEMPT_LIMIT_REACHED
+
+    def __init__(
+        self,
+        *,
+        window_start: int,
+        limit: int,
+    ) -> None:
+        self.window_start = window_start
+        self.limit = limit
+        super().__init__(
+            "administrative recovery budget_exceeded",
+            details={
+                "reason": "budget_exceeded",
+                "window_start": window_start,
+                "limit": limit,
+            },
+        )
+
+
 class FileLockConflictError(PeerHubError):
     """The file is currently locked by a different owner."""
     error_code = ErrorCode.UNIQUE_CONSTRAINT_VIOLATED

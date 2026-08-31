@@ -12,12 +12,17 @@ from typing import Protocol
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
+    AdministrativeRecoveryBudgetExceededError,
     InvalidMutationError,
     RecordNotFoundError,
     RecoveryProbeGrantConflictError,
     StaleRevisionError,
 )
-from peerhub.core.protocol import OperationalFailureCategory
+from peerhub.core.identity import (
+    AuthenticatedSubject,
+    require_authenticated_subject,
+)
+from peerhub.core.protocol import OperationalFailureCategory, require_text
 from peerhub.state.contract import StateStore, UnitOfWork
 from peerhub.telemetry.contract import (
     OperationalProjectionSnapshot,
@@ -26,6 +31,7 @@ from peerhub.telemetry.contract import (
 )
 
 from .contract import (
+    AdministrativeRecoveryBudgetSnapshot,
     AdmissionSnapshot,
     AdmissionSnapshotEntry,
     AdmissionState,
@@ -43,6 +49,7 @@ from .contract import (
     PolicyReceipt,
     PolicyScope,
     ProbeResult,
+    QuarantineAuthorityClass,
     RecoveryAuthorizationMode,
     RecoveryGrantState,
     RecoveryProbeApplication,
@@ -70,6 +77,7 @@ from .model import (
     classify_health_failure,
     compose_health_projection_evidence_refs,
     derive_policy_action,
+    dominates,
     evaluate_cooldown as reduce_evaluate_cooldown,
     evaluate_projection_at,
     evaluate_readiness_evidence,
@@ -81,6 +89,9 @@ from .model import (
 
 InstanceProfilePair = tuple[str, str]
 
+_ADMINISTRATIVE_RECOVERY_BUDGET_ID = "workspace"
+_ADMINISTRATIVE_RECOVERY_WINDOW_SECONDS = 5 * 60 * 60
+
 
 class HealthUnitOfWork(UnitOfWork, Protocol):
     """Persistence operations required by the health service."""
@@ -91,6 +102,31 @@ class HealthUnitOfWork(UnitOfWork, Protocol):
         revision: int,
     ) -> HealthPolicy | None:
         """Return one immutable health-policy revision."""
+
+        ...
+
+    def get_administrative_recovery_budget(
+        self,
+        budget_id: str,
+    ) -> AdministrativeRecoveryBudgetSnapshot | None:
+        """Return the workspace administrative-recovery budget."""
+
+        ...
+
+    def add_administrative_recovery_budget(
+        self,
+        budget: AdministrativeRecoveryBudgetSnapshot,
+    ) -> None:
+        """Insert the first administrative-recovery budget window."""
+
+        ...
+
+    def cas_update_administrative_recovery_budget(
+        self,
+        current: AdministrativeRecoveryBudgetSnapshot,
+        updated: AdministrativeRecoveryBudgetSnapshot,
+    ) -> bool:
+        """CAS-update the administrative-recovery budget window."""
 
         ...
 
@@ -461,6 +497,76 @@ class HealthService:
             0 if latest is None else latest.revision,
         )
 
+    @staticmethod
+    def _raise_administrative_budget_cas(
+        unit: HealthUnitOfWork,
+        current: AdministrativeRecoveryBudgetSnapshot,
+    ) -> None:
+        latest = unit.get_administrative_recovery_budget(
+            current.budget_id
+        )
+        raise StaleRevisionError(
+            f"administrative-recovery-budget:{current.budget_id}",
+            current.revision,
+            0 if latest is None else latest.revision,
+        )
+
+    def _reserve_administrative_recovery_budget(
+        self,
+        unit: HealthUnitOfWork,
+        *,
+        policy: HealthPolicy,
+        requested_at: int,
+    ) -> AdministrativeRecoveryBudgetSnapshot:
+        current = unit.get_administrative_recovery_budget(
+            _ADMINISTRATIVE_RECOVERY_BUDGET_ID
+        )
+        if current is None:
+            created = AdministrativeRecoveryBudgetSnapshot(
+                budget_id=_ADMINISTRATIVE_RECOVERY_BUDGET_ID,
+                window_start=requested_at,
+                count=1,
+                revision=1,
+            )
+            unit.add_administrative_recovery_budget(created)
+            return created
+
+        if requested_at < current.window_start:
+            raise InvalidMutationError(
+                "administrative recovery requested_at precedes "
+                "the active budget window"
+            )
+        if (
+            requested_at
+            >= current.window_start
+            + _ADMINISTRATIVE_RECOVERY_WINDOW_SECONDS
+        ):
+            updated = replace(
+                current,
+                window_start=requested_at,
+                count=1,
+                revision=current.revision + 1,
+            )
+        else:
+            limit = policy.administrative_recovery_probe_limit
+            if current.count >= limit:
+                raise AdministrativeRecoveryBudgetExceededError(
+                    window_start=current.window_start,
+                    limit=limit,
+                )
+            updated = replace(
+                current,
+                count=current.count + 1,
+                revision=current.revision + 1,
+            )
+
+        if not unit.cas_update_administrative_recovery_budget(
+            current,
+            updated,
+        ):
+            self._raise_administrative_budget_cas(unit, current)
+        return updated
+
     def _require_configured_pair(
         self,
         pair: InstanceProfilePair,
@@ -589,19 +695,37 @@ class HealthService:
                     circuit.circuit_id
                 )
             )
+            valid_grant_mode = (
+                live_grant is not None
+                and (
+                    (
+                        live_grant.authorization_mode
+                        is RecoveryAuthorizationMode.AUTOMATIC
+                        and cooldown.admission_state
+                        is AdmissionState.RECOVERY_REQUIRED
+                    )
+                    or (
+                        live_grant.authorization_mode
+                        is RecoveryAuthorizationMode.ADMINISTRATIVE
+                        and cooldown.admission_state
+                        is AdmissionState.QUARANTINED
+                        and dominates(
+                            circuit.quarantine_authority_class,
+                            QuarantineAuthorityClass.MANUAL,
+                        )
+                    )
+                )
+            )
             valid_live_grant = (
                 live_grant is not None
                 and live_grant.state is RecoveryGrantState.GRANTED
-                and live_grant.authorization_mode
-                is RecoveryAuthorizationMode.AUTOMATIC
+                and valid_grant_mode
                 and live_grant.authorized_circuit_revision
                 == circuit.revision
                 and now < live_grant.expires_at
                 and circuit.state is CircuitState.CIRCUIT_OPEN
                 and circuit.receipt is not None
                 and live_grant.receipt == circuit.receipt
-                and cooldown.admission_state
-                is AdmissionState.RECOVERY_REQUIRED
             )
             circuit_states.append(
                 AdmissionState.PROBE_AUTHORIZED
@@ -1184,6 +1308,161 @@ class HealthService:
                     circuit=authorization.circuit,
                     grant=authorization.grant,
                 )
+            )
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return persisted_authorization
+
+    def authorize_administrative_recovery(
+        self,
+        instance_id: str,
+        profile_id: str,
+        scope: PolicyScope = PolicyScope.PROFILE,
+        circuit_subject: str | None = None,
+        *,
+        subject: AuthenticatedSubject,
+        reason: str,
+        requested_at: int | None = None,
+    ) -> RecoveryProbeAuthorization:
+        """Authorize one budgeted probe for a non-automatic quarantine."""
+
+        authenticated = require_authenticated_subject(subject)
+        require_text(reason, "reason")
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            scope,
+            PolicyScope,
+        ):
+            raise ValueError("scope must be PolicyScope")
+        if circuit_subject is None:
+            if scope is not PolicyScope.PROFILE:
+                raise ValueError(
+                    "circuit_subject is required outside profile scope"
+                )
+            resolved_circuit_subject = profile_id
+        else:
+            resolved_circuit_subject = require_text(
+                circuit_subject,
+                "circuit_subject",
+            )
+        timestamp = (
+            self._clock.now()
+            if requested_at is None
+            else requested_at
+        )
+        if type(timestamp) is not int or timestamp < 0:
+            raise ValueError(
+                "requested_at must be a nonnegative integer"
+            )
+
+        pair = (instance_id, profile_id)
+        self._require_configured_pair(pair)
+        members = self._members_for_scope(
+            scope,
+            resolved_circuit_subject,
+        )
+        if pair not in members:
+            raise InvalidMutationError(
+                "authorized probe pair is not affected by "
+                "the requested health circuit"
+            )
+
+        with self._store.unit_of_work() as unit:
+            policy = self._require_policy(unit)
+            projection = self._require_projection(
+                unit,
+                instance_id,
+                profile_id,
+            )
+            self._require_projection_policy(projection, policy)
+            self._require_projection_baseline(projection)
+            circuit = self._require_circuit(
+                unit,
+                scope,
+                resolved_circuit_subject,
+            )
+            circuit_admission = reduce_evaluate_cooldown(
+                circuit,
+                policy=policy,
+                now=timestamp,
+            )
+            if (
+                circuit.state is not CircuitState.CIRCUIT_OPEN
+                or circuit_admission.admission_state
+                is not AdmissionState.QUARANTINED
+                or not dominates(
+                    circuit.quarantine_authority_class,
+                    QuarantineAuthorityClass.MANUAL,
+                )
+            ):
+                raise InvalidMutationError(
+                    "administrative recovery requires an open, "
+                    "non-automatic QUARANTINED circuit"
+                )
+
+            existing = unit.get_live_recovery_probe_grant(
+                circuit.circuit_id
+            )
+            if existing is not None:
+                if timestamp < existing.expires_at:
+                    raise RecoveryProbeGrantConflictError(
+                        circuit.circuit_id,
+                        existing.grant_id,
+                    )
+                expired = replace(
+                    existing,
+                    state=RecoveryGrantState.EXPIRED,
+                    revision=existing.revision + 1,
+                )
+                if not unit.cas_claim_recovery_probe_grant(
+                    existing,
+                    expired,
+                ):
+                    self._raise_grant_cas(unit, existing)
+                self._faults.hit(
+                    FaultPoint.AFTER_RECOVERY_GRANT_CAS
+                )
+
+            self._reserve_administrative_recovery_budget(
+                unit,
+                policy=policy,
+                requested_at=timestamp,
+            )
+            automatic = reduce_authorize_recovery(
+                projection,
+                circuit,
+                grant_id=self._ids.new_id(
+                    "recovery-probe-grant"
+                ),
+                authorized_by=authenticated.principal_id,
+                authorized_at=timestamp,
+                policy=policy,
+            )
+            authorization = replace(
+                automatic,
+                grant=replace(
+                    automatic.grant,
+                    authorization_mode=(
+                        RecoveryAuthorizationMode.ADMINISTRATIVE
+                    ),
+                ),
+            )
+            unit.add_recovery_probe_grant(authorization.grant)
+            self._faults.hit(FaultPoint.AFTER_RECOVERY_GRANT_WRITE)
+
+            projections = self._recompute_members(
+                unit,
+                members,
+                policy=policy,
+                now=timestamp,
+                seed_pair=pair,
+                seed_projection=authorization.projection,
+            )
+            persisted_authorization = RecoveryProbeAuthorization(
+                projection=projections[pair],
+                circuit=authorization.circuit,
+                grant=authorization.grant,
             )
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()

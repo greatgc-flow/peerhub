@@ -69,6 +69,7 @@ from peerhub.governance.contract import (
     TransitionReceipt,
 )
 from peerhub.health.contract import (
+    AdministrativeRecoveryBudgetSnapshot,
     AdmissionSnapshot,
     HealthCircuitSnapshot,
     HealthPolicy,
@@ -1423,6 +1424,34 @@ class SqliteUnitOfWork:
     ) -> HealthPolicy | None:
         """Return a health policy revision by ID and revision number."""
         return self.health.get_health_policy_revision(policy_id, revision)
+
+    def get_administrative_recovery_budget(
+        self,
+        budget_id: str,
+    ) -> AdministrativeRecoveryBudgetSnapshot | None:
+        """Return the anchored administrative-recovery budget."""
+
+        return self.health.get_administrative_recovery_budget(budget_id)
+
+    def add_administrative_recovery_budget(
+        self,
+        budget: AdministrativeRecoveryBudgetSnapshot,
+    ) -> None:
+        """Insert the first anchored administrative-recovery window."""
+
+        return self.health.add_administrative_recovery_budget(budget)
+
+    def cas_update_administrative_recovery_budget(
+        self,
+        current: AdministrativeRecoveryBudgetSnapshot,
+        updated: AdministrativeRecoveryBudgetSnapshot,
+    ) -> bool:
+        """CAS-update an anchored administrative-recovery window."""
+
+        return self.health.cas_update_administrative_recovery_budget(
+            current,
+            updated,
+        )
 
     def add_readiness_observation(
         self,
