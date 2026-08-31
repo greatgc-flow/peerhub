@@ -613,3 +613,19 @@ Independent verification verdict: **REVISION STILL REQUIRED BEFORE RATIFICATION.
 5. **CONFIRMED -- scope is now correct.** Non-automatic open circuits deterministically evaluate to `QUARANTINED` with no retry boundary, while only `AUTOMATIC` circuits follow `COOLDOWN` to `RECOVERY_REQUIRED` (`peerhub/health/model.py:694-735`). The existing public authorization method admits only `RECOVERY_REQUIRED` (`peerhub/health/service.py:1081-1133`). Restricting the new administrative entry point to non-automatic `QUARANTINED` circuits and leaving automatic `COOLDOWN` on `authorize_recovery()` fixes the earlier scope expansion exactly.
 
 **Status: NOT YET RATIFIED.** Close points 3 and 4 by specifying the authority issuer/validator and the reservation/attempt-lease state machines. Points 1, 2, and 5 are ready as written; the distinct public entry points plus shared health-transaction helper remain the right implementation shape.
+
+### Manual-quarantine authorization policy -- final resolution attempt (2026-08-31)
+
+**Gap 1: Single-operator premise**
+FINDING: The single-operator premise is TRUE. Investigation of `peerhub/core/identity.py` confirms that the system models identity via `AuthenticatedSubject`, which is populated by `LocalProcessCallerIdentityProvider` using the OS process owner (`psutil.Process().username()`). There is no concept of multiple distinct human principals with different privilege levels or RBAC roles anywhere in the identity model. The caller is simply "the authenticated local operator".
+
+RESOLUTION: Gap (1) is cleanly resolved by this reframing. We can simplify `authorize_administrative_recovery()` to require only a valid `AuthenticatedSubject` as proof of authorization, eliminating the need for a separate `QuarantineAuthorityCapability`. The `QuarantineAuthorityClass` (AUTOMATIC < MANUAL < POLICY < SECURITY) will strictly describe the properties of the *quarantine itself* (e.g., higher-class quarantines cannot be lifted by lower-class administrative overrides) rather than the caller's privileges. Since there is only one operator class, any authenticated operator is permitted to spend from the administrative recovery budget. The design is now RATIFIED, READY FOR IMPLEMENTATION.
+
+**Gap 2: Budget/lease lifecycle**
+FINDING: For a short-lived, single-use probe grant, a full heartbeat model (like `DutyLeaseCoordinator`) is unnecessary overhead. The pattern that fits best is a fixed-timeout single-flight lease.
+
+RESOLUTION: The `RecoveryProbeGrant` will move through the following concrete state transitions:
+1. `GRANTED`: Created with a fixed expiration timestamp (e.g., `now + 5_minutes`). This serves as the single-flight lease for the circuit.
+2. `CLAIMED`: A worker atomically CAS-updates the grant to `CLAIMED` when starting the probe.
+3. `SUCCEEDED` / `FAILED`: The worker applies the probe result, consuming the grant permanently and updating the circuit state.
+4. `EXPIRED`: If a worker crashes between `GRANTED`/`CLAIMED` and execution, the expiration timestamp will elapse. A new grant cannot be issued while an unexpired one exists, preventing parallel probe spam. Once expired, the grant is considered exhausted (failing closed) and the circuit remains quarantined. The operator must request a new authorization (spending another budget slot) to retry. This provides safe partial-failure recovery without requiring resume mechanisms.
