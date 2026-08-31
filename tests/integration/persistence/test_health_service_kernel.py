@@ -28,6 +28,7 @@ from peerhub.health.contract import (
     PolicyScope,
     ProbeDisposition,
     ProbeResult,
+    RecoveryGrantState,
     RecoveryProbeReceipt,
 )
 from peerhub.health.model import canonical_admission_snapshot_digest
@@ -413,11 +414,49 @@ def test_full_recovery_cycle_authorize_claim_apply_closes_circuit(
         projection = unit.get_health_projection(
             "ag", "ag.default"
         )
+        grant = unit.get_recovery_probe_grant(
+            authorization.grant.grant_id
+        )
 
     assert circuit is not None
     assert circuit.state is CircuitState.CIRCUIT_CLOSED
     assert projection is not None
     assert projection.admission_state is AdmissionState.OPEN
+    assert grant is not None
+    assert grant.state is RecoveryGrantState.SUCCEEDED
+
+
+def test_claim_probe_persists_expired_grant_at_boundary(
+    store: SqliteStateStore,
+) -> None:
+    _open_and_reach_recovery_required(store)
+
+    recovery_service = _service(store, start=2_000)
+    authorization = recovery_service.authorize_recovery(
+        "ag",
+        "ag.default",
+        PolicyScope.PROFILE,
+        "ag.default",
+        authorized_by="administrator",
+    )
+    result = recovery_service.claim_probe(
+        authorization.grant.grant_id,
+        attempt_id="probe-attempt-expired",
+        claimed_at=authorization.grant.expires_at,
+    )
+
+    assert result.disposition is ProbeDisposition.REJECTED
+    assert result.reason == "PROBE_GRANT_EXPIRED"
+    assert result.grant.state is RecoveryGrantState.EXPIRED
+    with store.unit_of_work() as unit:
+        persisted = unit.get_recovery_probe_grant(
+            authorization.grant.grant_id
+        )
+        live = unit.get_live_recovery_probe_grant(
+            authorization.grant.circuit_id
+        )
+    assert persisted == result.grant
+    assert live is None
 
 
 def test_authorize_recovery_conflicts_on_second_live_grant(

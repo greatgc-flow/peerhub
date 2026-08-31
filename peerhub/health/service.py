@@ -42,7 +42,9 @@ from .contract import (
     PolicyAction,
     PolicyReceipt,
     PolicyScope,
-    ProbeDisposition,
+    ProbeResult,
+    RecoveryAuthorizationMode,
+    RecoveryGrantState,
     RecoveryProbeApplication,
     RecoveryProbeAuthorization,
     RecoveryProbeClaimResult,
@@ -180,7 +182,7 @@ class HealthUnitOfWork(UnitOfWork, Protocol):
         self,
         circuit_id: str,
     ) -> RecoveryProbeGrant | None:
-        """Return the sole unconsumed grant for a circuit."""
+        """Return the sole unresolved grant for a circuit."""
 
         ...
 
@@ -189,7 +191,7 @@ class HealthUnitOfWork(UnitOfWork, Protocol):
         current: RecoveryProbeGrant,
         updated: RecoveryProbeGrant,
     ) -> bool:
-        """Contention-safe single-use grant claim."""
+        """Contention-safe recovery-grant lifecycle transition."""
 
         ...
 
@@ -589,6 +591,12 @@ class HealthService:
             )
             valid_live_grant = (
                 live_grant is not None
+                and live_grant.state is RecoveryGrantState.GRANTED
+                and live_grant.authorization_mode
+                is RecoveryAuthorizationMode.AUTOMATIC
+                and live_grant.authorized_circuit_revision
+                == circuit.revision
+                and now < live_grant.expires_at
                 and circuit.state is CircuitState.CIRCUIT_OPEN
                 and circuit.receipt is not None
                 and live_grant.receipt == circuit.receipt
@@ -1207,10 +1215,7 @@ class HealthService:
                 attempt_id=attempt_id,
                 claimed_at=timestamp,
             )
-            if (
-                result.disposition
-                is ProbeDisposition.REJECTED
-            ):
+            if result.grant == current:
                 return result
 
             if not unit.cas_claim_recovery_probe_grant(
@@ -1226,10 +1231,7 @@ class HealthService:
                     attempt_id=attempt_id,
                     claimed_at=timestamp,
                 )
-                if (
-                    contended.disposition
-                    is not ProbeDisposition.REJECTED
-                ):
+                if contended.grant != latest:
                     self._raise_grant_cas(
                         unit,
                         current,
@@ -1276,7 +1278,8 @@ class HealthService:
                     "different health circuit"
                 )
             if (
-                grant.consumed_at is None
+                grant.state is not RecoveryGrantState.CLAIMED
+                or grant.consumed_at is None
                 or grant.consumed_by_attempt_id
                 != receipt.attempt_id
             ):
@@ -1290,6 +1293,20 @@ class HealthService:
                 receipt,
                 updated_at=timestamp,
             )
+            completed_grant = replace(
+                grant,
+                state=(
+                    RecoveryGrantState.SUCCEEDED
+                    if receipt.result is ProbeResult.SUCCESS
+                    else RecoveryGrantState.FAILED
+                ),
+                revision=grant.revision + 1,
+            )
+            if not unit.cas_claim_recovery_probe_grant(
+                grant,
+                completed_grant,
+            ):
+                self._raise_grant_cas(unit, grant)
             unit.add_recovery_probe_receipt(receipt)
             self._faults.hit(
                 FaultPoint.AFTER_RECOVERY_RECEIPT_WRITE

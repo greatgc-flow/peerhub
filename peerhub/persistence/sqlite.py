@@ -1617,7 +1617,7 @@ class SqliteUnitOfWork:
         self,
         circuit_id: str,
     ) -> RecoveryProbeGrant | None:
-        """Return the sole unconsumed grant for a circuit."""
+        """Return the sole unresolved grant for a circuit."""
         return self.health.get_live_recovery_probe_grant(circuit_id)
 
     def cas_claim_recovery_probe_grant(
@@ -1625,7 +1625,7 @@ class SqliteUnitOfWork:
         current: RecoveryProbeGrant,
         updated: RecoveryProbeGrant,
     ) -> bool:
-        """Attempt a contention-safe single-use claim on an unconsumed probe grant."""
+        """Attempt a contention-safe recovery-grant lifecycle transition."""
         return self.health.cas_claim_recovery_probe_grant(current, updated)
 
     def add_recovery_probe_receipt(

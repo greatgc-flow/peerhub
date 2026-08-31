@@ -20,6 +20,7 @@ from peerhub.health.contract import (
     PolicyReceipt,
     PolicyScope,
     ProbeResult,
+    RecoveryGrantState,
     RecoveryProbeReceipt,
 )
 from peerhub.health.service import FaultPoint, HealthService
@@ -360,6 +361,7 @@ def test_claim_probe_cas_fault_rolls_back_grant_claim(
         faulting.claim_probe(
             authorization.grant.grant_id,
             attempt_id="probe-attempt-01",
+            claimed_at=authorization.grant.authorized_at + 1,
         )
 
     with store.unit_of_work() as unit:
@@ -368,7 +370,7 @@ def test_claim_probe_cas_fault_rolls_back_grant_claim(
         )
     assert grant is not None
     assert grant.consumed_at is None
-    assert grant.remaining_probes == 1
+    assert grant.state is RecoveryGrantState.GRANTED
 
 
 @pytest.mark.parametrize(
@@ -443,11 +445,16 @@ def test_apply_probe_result_write_boundaries_roll_back_completely(
         persisted_receipt = unit.get_recovery_probe_receipt(
             "probe-receipt-01"
         )
+        grant = unit.get_recovery_probe_grant(
+            authorization.grant.grant_id
+        )
 
     from peerhub.health.contract import CircuitState
 
     assert circuit.state is CircuitState.CIRCUIT_OPEN
     assert persisted_receipt is None
+    assert grant is not None
+    assert grant.state is RecoveryGrantState.CLAIMED
 
 
 @pytest.mark.parametrize(

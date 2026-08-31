@@ -38,6 +38,8 @@ from peerhub.health.contract import (
     ReadinessEvaluation,
     ReadinessGateState,
     ReadinessState,
+    RecoveryAuthorizationMode,
+    RecoveryGrantState,
     RecoveryProbeApplication,
     RecoveryProbeAuthorization,
     RecoveryProbeClaimResult,
@@ -71,6 +73,8 @@ _ADMISSION_STATE_PRECEDENCE = {
     AdmissionState.COOLDOWN: 3,
     AdmissionState.QUARANTINED: 4,
 }
+
+_RECOVERY_PROBE_GRANT_TTL_SECONDS = 5 * 60
 
 
 def evaluate_readiness_evidence(
@@ -580,7 +584,12 @@ def authorize_recovery_probe(
         receipt=circuit.receipt,
         authorized_by=authorized_by,
         authorized_at=authorized_at,
-        remaining_probes=1,
+        authorization_mode=RecoveryAuthorizationMode.AUTOMATIC,
+        authorized_circuit_revision=circuit.revision,
+        state=RecoveryGrantState.GRANTED,
+        expires_at=(
+            authorized_at + _RECOVERY_PROBE_GRANT_TTL_SECONDS
+        ),
         consumed_at=None,
         consumed_by_attempt_id=None,
         revision=1,
@@ -599,26 +608,39 @@ def claim_recovery_probe(
     claimed_at: int,
 ) -> RecoveryProbeClaimResult:
     """Attempt to claim a single-use recovery probe grant via CAS-style state transition."""
-    if grant.remaining_probes == 1:
-        updated_grant = replace(
+    if grant.state is not RecoveryGrantState.GRANTED:
+        return RecoveryProbeClaimResult(
+            grant=grant,
+            attempt_id=attempt_id,
+            disposition=ProbeDisposition.REJECTED,
+            reason="PROBE_GRANT_EXHAUSTED",
+        )
+
+    if claimed_at >= grant.expires_at:
+        expired_grant = replace(
             grant,
-            remaining_probes=0,
-            consumed_at=claimed_at,
-            consumed_by_attempt_id=attempt_id,
+            state=RecoveryGrantState.EXPIRED,
             revision=grant.revision + 1,
         )
         return RecoveryProbeClaimResult(
-            grant=updated_grant,
+            grant=expired_grant,
             attempt_id=attempt_id,
-            disposition=ProbeDisposition.EXECUTED,
-            reason=None,
+            disposition=ProbeDisposition.REJECTED,
+            reason="PROBE_GRANT_EXPIRED",
         )
 
+    updated_grant = replace(
+        grant,
+        state=RecoveryGrantState.CLAIMED,
+        consumed_at=claimed_at,
+        consumed_by_attempt_id=attempt_id,
+        revision=grant.revision + 1,
+    )
     return RecoveryProbeClaimResult(
-        grant=grant,
+        grant=updated_grant,
         attempt_id=attempt_id,
-        disposition=ProbeDisposition.REJECTED,
-        reason="PROBE_GRANT_EXHAUSTED",
+        disposition=ProbeDisposition.EXECUTED,
+        reason=None,
     )
 
 

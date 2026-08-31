@@ -24,6 +24,8 @@ from peerhub.health.contract import (
     ReadinessEvaluation,
     ReadinessGateState,
     ReadinessState,
+    RecoveryAuthorizationMode,
+    RecoveryGrantState,
     RecoveryProbeGrant,
     RecoveryProbeReceipt,
     RevalidationAction,
@@ -493,7 +495,14 @@ class SqliteHealthRepository:
             receipt=receipt,
             authorized_by=row["authorized_by"],
             authorized_at=row["authorized_at"],
-            remaining_probes=row["remaining_probes"],
+            authorization_mode=RecoveryAuthorizationMode(
+                row["authorization_mode"]
+            ),
+            authorized_circuit_revision=(
+                row["authorized_circuit_revision"]
+            ),
+            state=RecoveryGrantState(row["state"]),
+            expires_at=row["expires_at"],
             consumed_at=row["consumed_at"],
             consumed_by_attempt_id=row["consumed_by_attempt_id"],
             revision=row["revision"],
@@ -526,11 +535,14 @@ class SqliteHealthRepository:
                     receipt_fingerprint,
                     authorized_by,
                     authorized_at,
-                    remaining_probes,
+                    authorization_mode,
+                    authorized_circuit_revision,
+                    state,
+                    expires_at,
                     consumed_at,
                     consumed_by_attempt_id,
                     revision
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     grant.grant_id,
@@ -541,7 +553,10 @@ class SqliteHealthRepository:
                     rcpt.fingerprint,
                     grant.authorized_by,
                     grant.authorized_at,
-                    grant.remaining_probes,
+                    grant.authorization_mode.value,
+                    grant.authorized_circuit_revision,
+                    grant.state.value,
+                    grant.expires_at,
                     grant.consumed_at,
                     grant.consumed_by_attempt_id,
                     grant.revision,
@@ -577,13 +592,13 @@ class SqliteHealthRepository:
         self,
         circuit_id: str,
     ) -> RecoveryProbeGrant | None:
-        """Return the sole unconsumed grant for a circuit."""
+        """Return the sole unresolved grant for a circuit."""
         row = self._db().execute(
             """
             SELECT *
             FROM recovery_probe_grants
             WHERE circuit_id = ?
-              AND consumed_at IS NULL
+              AND state IN ('GRANTED', 'CLAIMED')
             """,
             (circuit_id,),
         ).fetchone()
@@ -605,22 +620,23 @@ class SqliteHealthRepository:
             """
             UPDATE recovery_probe_grants
             SET
-                remaining_probes = ?,
+                state = ?,
                 consumed_at = ?,
                 consumed_by_attempt_id = ?,
                 revision = ?
             WHERE
                 grant_id = ?
                 AND revision = ?
-                AND consumed_at IS NULL
+                AND state = ?
             """,
             (
-                updated.remaining_probes,
+                updated.state.value,
                 updated.consumed_at,
                 updated.consumed_by_attempt_id,
                 updated.revision,
                 current.grant_id,
                 current.revision,
+                current.state.value,
             ),
         )
         return cursor.rowcount == 1

@@ -42,6 +42,8 @@ from peerhub.health.contract import (
     ReadinessGateState,
     ReadinessState,
     RevalidationAction,
+    RecoveryAuthorizationMode,
+    RecoveryGrantState,
     RecoveryProbeReceipt,
 )
 from peerhub.telemetry.contract import (
@@ -990,9 +992,18 @@ class TestPhase0HrCompatibility(unittest.TestCase):
             CircuitState.CIRCUIT_OPEN,
         )
         self.assertEqual(
-            authorization.grant.remaining_probes,
-            1,
+            authorization.grant.authorization_mode,
+            RecoveryAuthorizationMode.AUTOMATIC,
         )
+        self.assertEqual(
+            authorization.grant.authorized_circuit_revision,
+            current_circuit.revision,
+        )
+        self.assertEqual(
+            authorization.grant.state,
+            RecoveryGrantState.GRANTED,
+        )
+        self.assertEqual(authorization.grant.expires_at, 1010)
 
         first = claim_recovery_probe(
             authorization.grant,
@@ -1009,7 +1020,10 @@ class TestPhase0HrCompatibility(unittest.TestCase):
             first.disposition,
             ProbeDisposition.EXECUTED,
         )
-        self.assertEqual(first.grant.remaining_probes, 0)
+        self.assertEqual(
+            first.grant.state,
+            RecoveryGrantState.CLAIMED,
+        )
         self.assertEqual(
             second.disposition,
             ProbeDisposition.REJECTED,
@@ -1019,6 +1033,42 @@ class TestPhase0HrCompatibility(unittest.TestCase):
             "PROBE_GRANT_EXHAUSTED",
         )
         self.assertEqual(second.grant, first.grant)
+
+    def test_hr05_probe_grant_expires_at_claim_boundary(
+        self,
+    ) -> None:
+        from peerhub.health.model import (
+            authorize_recovery_probe,
+            claim_recovery_probe,
+        )
+
+        authorization = authorize_recovery_probe(
+            _projection(),
+            _circuit(),
+            grant_id="grant-HR-05-expired",
+            authorized_by="administrator",
+            authorized_at=710,
+            policy=_policy(),
+        )
+        result = claim_recovery_probe(
+            authorization.grant,
+            attempt_id="probe-attempt-expired",
+            claimed_at=authorization.grant.expires_at,
+        )
+
+        self.assertEqual(
+            result.disposition,
+            ProbeDisposition.REJECTED,
+        )
+        self.assertEqual(result.reason, "PROBE_GRANT_EXPIRED")
+        self.assertEqual(
+            result.grant.state,
+            RecoveryGrantState.EXPIRED,
+        )
+        self.assertEqual(
+            result.grant.revision,
+            authorization.grant.revision + 1,
+        )
 
     def test_hr06_matching_failure_increments_backoff(
         self,

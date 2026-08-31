@@ -16,6 +16,8 @@ from peerhub.health.contract import (
     PolicyReceipt,
     PolicyScope,
     QuarantineAuthorityClass,
+    RecoveryAuthorizationMode,
+    RecoveryGrantState,
     RecoveryProbeGrant,
 )
 from peerhub.persistence.sqlite import SqliteStateStore
@@ -72,7 +74,10 @@ def _grant(
         receipt=_receipt(),
         authorized_by="administrator",
         authorized_at=authorized_at,
-        remaining_probes=1,
+        authorization_mode=RecoveryAuthorizationMode.AUTOMATIC,
+        authorized_circuit_revision=1,
+        state=RecoveryGrantState.GRANTED,
+        expires_at=authorized_at + 300,
         consumed_at=None,
         consumed_by_attempt_id=None,
         revision=1,
@@ -115,7 +120,7 @@ def test_only_one_live_recovery_grant_exists_per_circuit(
         assert persisted_first is not None
         consumed_first = replace(
             persisted_first,
-            remaining_probes=0,
+            state=RecoveryGrantState.CLAIMED,
             consumed_at=102,
             consumed_by_attempt_id="probe-attempt-01",
             revision=persisted_first.revision + 1,
@@ -130,6 +135,27 @@ def test_only_one_live_recovery_grant_exists_per_circuit(
         "grant-recovery-probe-03",
         authorized_at=103,
     )
+    with pytest.raises(RecoveryProbeGrantConflictError):
+        with store.unit_of_work() as unit:
+            unit.add_recovery_probe_grant(replacement)
+            unit.commit()
+
+    with store.unit_of_work() as unit:
+        claimed_first = unit.get_recovery_probe_grant(
+            first.grant_id
+        )
+        assert claimed_first is not None
+        completed_first = replace(
+            claimed_first,
+            state=RecoveryGrantState.SUCCEEDED,
+            revision=claimed_first.revision + 1,
+        )
+        assert unit.cas_claim_recovery_probe_grant(
+            claimed_first,
+            completed_first,
+        )
+        unit.commit()
+
     with store.unit_of_work() as unit:
         unit.add_recovery_probe_grant(replacement)
         unit.commit()
@@ -143,10 +169,10 @@ def test_only_one_live_recovery_grant_exists_per_circuit(
         )
 
     assert stored_first is not None
-    assert stored_first.remaining_probes == 0
+    assert stored_first.state is RecoveryGrantState.SUCCEEDED
     assert stored_first.consumed_at == 102
     assert stored_replacement is not None
-    assert stored_replacement.remaining_probes == 1
+    assert stored_replacement.state is RecoveryGrantState.GRANTED
     assert stored_replacement.consumed_at is None
 
 

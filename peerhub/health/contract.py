@@ -163,6 +163,23 @@ class QuarantineAuthorityClass(str, Enum):
     POLICY = "POLICY"
 
 
+class RecoveryAuthorizationMode(str, Enum):
+    """How a recovery-probe grant was authorized."""
+
+    AUTOMATIC = "AUTOMATIC"
+    ADMINISTRATIVE = "ADMINISTRATIVE"
+
+
+class RecoveryGrantState(str, Enum):
+    """Lifecycle state of a recovery-probe grant."""
+
+    GRANTED = "GRANTED"
+    CLAIMED = "CLAIMED"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+
+
 class ProbeResult(str, Enum):
     """Measured recovery-probe result."""
 
@@ -741,7 +758,10 @@ class RecoveryProbeGrant:
     receipt: PolicyReceipt
     authorized_by: str
     authorized_at: int
-    remaining_probes: int
+    authorization_mode: RecoveryAuthorizationMode
+    authorized_circuit_revision: int
+    state: RecoveryGrantState
+    expires_at: int
     consumed_at: int | None
     consumed_by_attempt_id: str | None
     revision: int
@@ -763,9 +783,26 @@ class RecoveryProbeGrant:
             self.authorized_at,
             "authorized_at",
         )
-        if self.remaining_probes not in {0, 1}:
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.authorization_mode,
+            RecoveryAuthorizationMode,
+        ):
             raise ValueError(
-                "remaining_probes must be zero or one"
+                "authorization_mode must be RecoveryAuthorizationMode"
+            )
+        _require_positive(
+            self.authorized_circuit_revision,
+            "authorized_circuit_revision",
+        )
+        if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
+            self.state,
+            RecoveryGrantState,
+        ):
+            raise ValueError("state must be RecoveryGrantState")
+        _require_nonnegative(self.expires_at, "expires_at")
+        if self.expires_at <= self.authorized_at:
+            raise ValueError(
+                "expires_at must be later than authorized_at"
             )
 
         if (self.consumed_at is None) != (
@@ -789,18 +826,23 @@ class RecoveryProbeGrant:
                 ),
             )
         if (
-            self.remaining_probes == 0
-            and self.consumed_at is None
-        ):
-            raise ValueError(
-                "an exhausted grant must record its claimant"
-            )
-        if (
-            self.remaining_probes == 1
+            self.state is RecoveryGrantState.GRANTED
             and self.consumed_at is not None
         ):
             raise ValueError(
-                "an unconsumed grant cannot record a claimant"
+                "a granted grant cannot record a claimant"
+            )
+        if (
+            self.state
+            in {
+                RecoveryGrantState.CLAIMED,
+                RecoveryGrantState.SUCCEEDED,
+                RecoveryGrantState.FAILED,
+            }
+            and self.consumed_at is None
+        ):
+            raise ValueError(
+                "a claimed or completed grant must record its claimant"
             )
         _require_positive(self.revision, "revision")
 
