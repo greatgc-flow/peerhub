@@ -1,3 +1,14 @@
+
+#### `report-error` Auto-quarantine Gap Assessment (2026-08-31)
+
+**RESEARCH FINDINGS:**
+1. **`HealthService.classify_and_open_circuit()` requirements:** Direct inspection (`peerhub/health/service.py:1057-1072`) confirms this method strictly requires typed evidence (`attempted_trace: tuple[HealthStageObservation, ...] | list[HealthStageObservation]`) and an optional `evidence_subject: EvidenceSubject | None` and `receipt: PolicyReceipt | None`. There is genuinely no legitimate way to construct these types from a free-form `report-error` string (peer_key, pattern, severity, detail, actor_id, count). Doing so would fabricate evidence, repeating the exact authority-model mistake rejected for `peer-quarantine`.
+2. **Legacy `report-error` auto-quarantine behavior:** Legacy (`P:/_sys/core/hub.py:9532-9533`) blindly checks if the threshold is crossed and directly calls `action_peer_quarantine(ai_root, event["peer"], f"operational_error:{event['pattern']}")`. It uses the exact same `peer-quarantine` false-friend machinery which bypasses proper evidence/authority models.
+3. **The honest boundary:** The `OperationalErrorService`'s current behavior of creating a distinct immutable `quarantine-review` target (`peerhub/governance/operational_errors.py:224-249`) already represents the CORRECT honest boundary. A full search of the `peerhub` directory confirms that **nothing consumes `quarantine-review` targets today**. The real gap is not inside `report-error`, but the lack of a review-consumer (a coordinator that reads these targets and routes them to an authority-bearing process like `authorize_administrative_recovery()`).
+
+**VERDICT:**
+There is no legitimate honest mapping from a free-form string to typed evidence without inventing evidence. Therefore, **`report-error`'s auto-quarantine must stay permanently deferred** as originally decided. The review-request creation already implemented is the correct and complete native equivalent. The remaining work belongs to a separate, future review-consumer domain, not `report-error`.
+
 # peerhub Backlog (consolidated, 2026-08-27)
 
 > Single source of truth for "what's left." Supersedes hunting across `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`, the README's status lists, and per-gap design docs to answer "what's next" — those documents remain the detailed record of *why* each decision was made; this one is the current, flat *what's outstanding* list, organized by how ready each item is to pick up. Update this doc's tiers as items move, rather than letting the README's own "Designed but not built" / "Explicitly deferred" / "Not yet implemented" lists drift out of sync again (see the "Known drift caught while writing this doc" note at the bottom — that's exactly the failure mode this doc exists to prevent).
