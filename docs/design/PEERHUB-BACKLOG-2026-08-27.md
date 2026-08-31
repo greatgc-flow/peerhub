@@ -320,6 +320,20 @@ Liveness is a bare `os.kill(pid, 0)` (`_pid_alive`, `P:/_sys/core/hub.py:8098-81
 
 **Update (2026-08-31): Re-assessment of health fan-out gap.** Research confirms this gap remains **genuinely blocked**. The health infrastructure built tonight (`RecoveryProbeGrant` lifecycle, `HealthService.authorize_administrative_recovery`, etc., in `peerhub/health/contract.py` and `peerhub/health/service.py`) provides the pipeline to recover *from* a bad state (`QUARANTINED` / `COOLDOWN` to `OPEN`). However, it does NOT provide the mechanism needed to *put* a profile into a transient bad state with a backoff in the first place. The only existing writer is `HealthService.classify_and_open_circuit` (`peerhub/health/service.py:1057`), which requires a synchronous `attempted_trace` of `HealthStageObservation` (for inline execution failures like `RESOLVE_EXECUTABLE`, `peerhub/health/contract.py:124`), and applies a full circuit trip (`CircuitState.CIRCUIT_OPEN`, `peerhub/health/model.py:472`). This is a fundamentally different mechanism from `process-lease-sweep`'s requirement: a background watchdog that closes a profile's admission gate for a self-clearing backoff without generating a circuit trip or requiring an RPC failure trace. The original finding stands: a distinct writer for transient profile backoffs is still needed.
 
+#### Transient Profile Gate Backoff: Design Sketch and Sizing (2026-08-31)
+
+**RESEARCH FINDINGS:**
+1. **Existing Admission States:** Direct inspection of `peerhub/health/contract.py:85-92` confirms the enum contains `OPEN`, `COOLDOWN`, `RECOVERY_REQUIRED`, `QUARANTINED`, `PROBE_AUTHORIZED`. 
+**Verdict on `COOLDOWN`:** It does NOT fit the "transiently closed, self-clearing to open" requirement. Code in `peerhub/health/model.py:248-251` (`evaluate_projection_at`) explicitly shows that when `COOLDOWN` expires (`evaluated_at >= projection.cooldown_until`), it degrades to `RECOVERY_REQUIRED`. It does not self-clear to `OPEN`; it requires a recovery probe and goes through the full circuit-breaker lifecycle.
+
+2. **The Minimal Honest Addition:** Since no existing state fits, a genuinely new lightweight write path is needed.
+- **What it writes:** A small time-bounded backoff field (e.g., `transient_backoff_until: int | None`, `transient_backoff_reason: str | None`) added directly to `HealthProjectionSnapshot` (or a separate lightweight `ProfileGateBackoffSnapshot`), rather than a full `HealthCircuitSnapshot` with typed evidence/receipts.
+- **What triggers it:** `HealthService` needs a new, distinct method (e.g., `apply_transient_backoff(profile_id, duration_seconds, reason)`). While `process-lease-sweep` is the immediate trigger, the API should be clean enough for any future "pause but don't circuit-break" caller.
+- **Interaction with Recovery:** It completely bypasses the existing recovery/authorization machinery. It does NOT use `authorize_recovery()`. The read path (in `evaluate_projection_at`) would simply evaluate `now < transient_backoff_until`. If true, the gate is treated as closed. Once the timer expires, it self-clears immediately to the baseline admission state (no probe, no grant, no authorization required, matching legacy).
+
+3. **Honest Sizing Verdict: Needs its own multi-round critique cycle.** 
+This is NOT small enough for a single focused implementation round. Modifying the core health projection pipeline (`evaluate_projection_at`, `resolve_admission_state`) is high-risk. The health model is built on strict monotonic worst-of precedence rules and a non-negotiable "no direct healthy write" contract. Introducing a state that *does* self-clear to healthy (even if it's modeled as a separate parallel gate rather than an `AdmissionState`) touches the exact load-bearing assumptions that required multiple rounds for manual-quarantine. Do not force a small implementation; spin up a design/critique round first.
+
 ### Manual-quarantine authorization policy PROPOSED (2026-08-30)
 
 **Recommendation: Option C (Budget-gated administrative authorization with authority-class matching).**
