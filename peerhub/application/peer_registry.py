@@ -361,3 +361,88 @@ def collect_model_status(
                 }
             )
     return tuple(rows)
+
+
+def collect_peer_status(
+    registry: PeerRegistryService,
+    health: HealthService | None,
+    *,
+    node_id: str | None = None,
+    include_all: bool = False,
+    now: int | None = None,
+) -> Sequence[dict[str, JsonValue]]:
+    """Join registered nodes, health projections, and adapter version information."""
+
+    if node_id is not None:
+        try:
+            target_node = registry.get_node(node_id)
+            nodes = [target_node]
+        except RecordNotFoundError:
+            nodes = []
+    else:
+        nodes = list(registry.list_nodes())
+
+    rows: list[dict[str, JsonValue]] = []
+    for node in nodes:
+        node_id_val = str(node.state["node_id"])
+        peer_kind_val = str(node.state["peer_kind"])
+        profile_id_val = str(node.state["profile_id"])
+        lifecycle_val = str(node.state.get("lifecycle", "active"))
+        node_type_val = str(node.state.get("node_type", "agent"))
+
+        health_read = (
+            None
+            if health is None
+            else health.read_health_projection(
+                peer_kind_val,
+                profile_id_val,
+                evaluated_at=now,
+            )
+        )
+        is_backed_off = (
+            False
+            if health is None
+            else health.is_profile_gate_backed_off(
+                profile_id_val,
+                evaluated_at=now if now is not None else health.current_time(),
+            )
+        )
+
+        if health_read is None:
+            health_str = "UNKNOWN"
+            gate_str = "closed"
+        else:
+            if (
+                health_read.effective_admission_state in _CLOSED_ADMISSION_STATES
+                or is_backed_off
+            ):
+                gate_str = "closed"
+            else:
+                gate_str = "enabled"
+
+            if health_read.effective_admission_state in _CLOSED_ADMISSION_STATES:
+                health_str = "RED"
+            else:
+                health_str = _LEGACY_STATUS_BY_AVAILABILITY.get(
+                    health_read.effective_availability_state,
+                    "UNKNOWN",
+                )
+
+        try:
+            target = resolve_peer_target(peer_kind_val, profile_id=profile_id_val)
+            version_val = str(target.adapter.descriptor.adapter_version)
+        except Exception:
+            version_val = "unknown"
+
+        rows.append(
+            {
+                "peer": node_id_val,
+                "lifecycle": lifecycle_val,
+                "gate": gate_str,
+                "health": health_str,
+                "version": version_val,
+                "details": node_type_val,
+            }
+        )
+    return tuple(rows)
+

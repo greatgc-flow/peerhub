@@ -333,6 +333,13 @@ class HealthService:
 
         return self._policy
 
+    def current_time(self) -> int:
+        """The service's injected clock reading, for callers that need
+        to resolve an omitted ``evaluated_at``/``now`` without reaching
+        into the private ``_clock`` attribute."""
+
+        return self._clock.now()
+
     def _get_stored_health_projection(
         self,
         instance_id: str,

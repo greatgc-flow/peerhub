@@ -79,7 +79,7 @@ from peerhub.dispatch.room_session import (
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
-    StatusReadCommand,
+    StatusReadCommand, UpdateStatusCommand,
     NewTopicCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
     MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand,
     ThreadPromoteCommand,
@@ -98,10 +98,21 @@ from peerhub.application.legacy import (
     FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
     LockAcquireCommand, LockReleaseCommand, LockStatusCommand,
     ReportErrorCommand, AlertRaiseCommand,
+    HealthCheckCommand, PeerStatusCommand, PeerRecoverCommand,
+    HealthPrecheckCommand, CheckGateCommand, HealthSweepCommand,
 )
 from peerhub.application.peer_registry import (
     PeerRegistryService,
     collect_model_status,
+    collect_peer_status,
+)
+from peerhub.application.health_revalidation import (
+    HealthRevalidationCoordinator,
+    collect_health_check,
+    execute_peer_recover,
+    collect_health_precheck,
+    collect_check_gate,
+    collect_health_sweep,
 )
 from peerhub.application.role_assignment import (
     RoleAssignmentService,
@@ -341,6 +352,7 @@ class ApplicationAPI:
         file_locks: FileLockService | None = None,
         operational_errors: OperationalErrorService | None = None,
         alert_raise: AlertRaiseCoordinator | None = None,
+        health_revalidation: HealthRevalidationCoordinator | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -359,7 +371,7 @@ class ApplicationAPI:
             self._register_duty(duty, terminal_duty, room_session)
         if room_session is not None: self._register_room_session(room_session)
         if peer_registry is not None:
-            self._register_peer_registry(peer_registry, health)
+            self._register_peer_registry(peer_registry, health, health_revalidation)
         if role_assignment is not None:
             self._register_role_assignment(role_assignment)
         if leadership is not None:
@@ -605,6 +617,26 @@ class ApplicationAPI:
             if not room_id:
                 raise ValueError("room_id must be a nonempty string")
             return StatusReadCommand(self._submission(e), room_id)
+        def update_status(e: CommandEnvelope) -> UpdateStatusCommand:
+            room_id = text(e, "room_id")
+            if not room_id:
+                raise ValueError("room_id must be a nonempty string")
+
+            def optional_update_field(name: str) -> str | None:
+                if name not in e.params:
+                    return None
+                value = e.params[name]
+                if not isinstance(value, str):
+                    raise ValueError(f"{name} must be a string")
+                return value
+
+            return UpdateStatusCommand(
+                self._submission(e),
+                room_id,
+                optional_update_field("mission"),
+                optional_update_field("blocked"),
+                optional_update_field("phase"),
+            )
         def append(e: CommandEnvelope) -> ThreadAppendCommand:
             return ThreadAppendCommand(
                 self._submission(e),
@@ -776,6 +808,32 @@ class ApplicationAPI:
             status,
             lambda c, _: collect_room_status(s, room_id=c.room_id, room_sessions=room_session),
             lambda result: result,
+            CommandAvailability.AVAILABLE,
+        ))
+        def update_room_summary(command: UpdateStatusCommand):
+            fields: dict[str, str] = {}
+            if command.mission is not None:
+                fields["mission"] = command.mission
+            if command.blocked is not None:
+                fields["blocked"] = command.blocked
+            if command.phase is not None:
+                fields["phase"] = command.phase
+            return s.update_room_summary(
+                command.room_id,
+                actor_id=(
+                    command.submission.actor_id
+                    or command.submission.client_id
+                ),
+                **fields,
+            )
+        self.register(CommandDescriptor(
+            "coordination.mission.update",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            update_status,
+            lambda c, _: update_room_summary(c),
+            self._receipt,
             CommandAvailability.AVAILABLE,
         ))
         self.register(CommandDescriptor("coordination.topic.create", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, topic, lambda c,_:s.create_thread(thread_id=c.thread_id,room_id=c.room_id,subject=c.subject,creator_id=c.creator_id), self._receipt, CommandAvailability.AVAILABLE))
@@ -1295,6 +1353,7 @@ class ApplicationAPI:
         self,
         service: PeerRegistryService,
         health: HealthService | None,
+        health_revalidation: HealthRevalidationCoordinator | None = None,
     ) -> None:
         def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
             value = envelope.params.get(name)
@@ -1420,6 +1479,149 @@ class ApplicationAPI:
             encode_models,
             CommandAvailability.AVAILABLE,
         ))
+
+        def decode_peer_status(envelope: CommandEnvelope) -> PeerStatusCommand:
+            node_id = envelope.params.get("node_id")
+            include_all = envelope.params.get("include_all", False)
+            return PeerStatusCommand(
+                submission=self._submission(envelope),
+                node_id=str(node_id) if node_id is not None else None,
+                include_all=bool(include_all),
+            )
+
+        def encode_peer_status(
+            results: Sequence[Mapping[str, JsonValue]],
+        ) -> Mapping[str, JsonValue]:
+            return {"peers": cast(JsonValue, list(results))}
+
+        self.register(CommandDescriptor(
+            "configuration.peer.status",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_peer_status,
+            lambda c, ctx: collect_peer_status(
+                service, health, node_id=c.node_id, include_all=c.include_all
+            ),
+            encode_peer_status,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def decode_health_check(envelope: CommandEnvelope) -> HealthCheckCommand:
+            peer = envelope.params.get("peer")
+            recover = envelope.params.get("recover", False)
+            return HealthCheckCommand(
+                submission=self._submission(envelope),
+                peer=str(peer) if peer is not None else None,
+                recover=bool(recover),
+            )
+
+        self.register(CommandDescriptor(
+            "health.check",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_health_check,
+            lambda c, ctx: collect_health_check(
+                service,
+                health,
+                health_revalidation,
+                AuthenticatedSubject(ctx.principal, "system"),
+                peer=c.peer,
+                recover=c.recover,
+            ),
+            lambda r: r,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def decode_peer_recover(envelope: CommandEnvelope) -> PeerRecoverCommand:
+            peer_id = envelope.params.get("peer_id", "all")
+            reason = envelope.params.get("reason", "manual")
+            return PeerRecoverCommand(
+                submission=self._submission(envelope),
+                peer_id=str(peer_id),
+                reason=str(reason),
+            )
+
+        self.register(CommandDescriptor(
+            "health.peer.recover",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_peer_recover,
+            lambda c, ctx: (
+                execute_peer_recover(
+                    service,
+                    health_revalidation,
+                    AuthenticatedSubject(ctx.principal, "system"),
+                    peer_id=c.peer_id,
+                    reason=c.reason,
+                )
+                if health_revalidation is not None
+                else {"results": ()}
+            ),
+            lambda r: r,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def decode_health_precheck(
+            envelope: CommandEnvelope,
+        ) -> HealthPrecheckCommand:
+            peers = envelope.params.get("peers")
+            needs = envelope.params.get("needs")
+            return HealthPrecheckCommand(
+                submission=self._submission(envelope),
+                peers=str(peers) if peers is not None else None,
+                needs=str(needs) if needs is not None else None,
+            )
+
+        self.register(CommandDescriptor(
+            "health.precheck",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_health_precheck,
+            lambda c, ctx: collect_health_precheck(
+                service, health, peers=c.peers, needs=c.needs
+            ),
+            lambda r: r,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def decode_check_gate(envelope: CommandEnvelope) -> CheckGateCommand:
+            agent = envelope.params.get("agent", "")
+            return CheckGateCommand(
+                submission=self._submission(envelope),
+                agent=str(agent),
+            )
+
+        self.register(CommandDescriptor(
+            "health.gate.check",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_check_gate,
+            lambda c, ctx: collect_check_gate(
+                service, health, agent=c.agent
+            ),
+            lambda r: r,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def decode_health_sweep(envelope: CommandEnvelope) -> HealthSweepCommand:
+            return HealthSweepCommand(submission=self._submission(envelope))
+
+        self.register(CommandDescriptor(
+            "health.sweep",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_health_sweep,
+            lambda c, ctx: collect_health_sweep(service, health),
+            lambda r: r,
+            CommandAvailability.AVAILABLE,
+        ))
+
 
     def _register_role_assignment(self, service: RoleAssignmentService) -> None:
         def required_text(envelope: CommandEnvelope, name: str) -> str:

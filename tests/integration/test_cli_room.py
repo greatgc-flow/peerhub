@@ -100,6 +100,40 @@ def test_cli_room_status_includes_summary_and_room_wide_unread_count(
     ])["unread_count"] == 1
 
 
+def test_cli_room_update_status_preserves_omitted_fields(
+    tmp_path: Path, capsys
+) -> None:
+    def run(args: list[str]) -> dict:
+        assert main(args + ["--json"]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    workspace = ["--workspace", str(tmp_path)]
+    run([
+        "room", "create", *workspace,
+        "--room-id", "room-update-status",
+        "--topic-id", "topic-update-status",
+        "--title", "Update status",
+        "--creator", "peer-a",
+        "--participants", "peer-a",
+    ])
+    initial = run([
+        "room", "update-status", *workspace,
+        "--room-id", "room-update-status",
+        "--mission", "ship update-status",
+        "--blocked", "review pending",
+        "--phase", "implementation",
+    ])
+    assert initial["mission"] == "ship update-status"
+    updated = run([
+        "room", "update-status", *workspace,
+        "--room-id", "room-update-status",
+        "--phase", "verification",
+    ])
+    assert updated["mission"] == "ship update-status"
+    assert updated["blocked"] == "review pending"
+    assert updated["phase"] == "verification"
+
+
 def test_cli_room_react_unreact_react_round_trip(
     tmp_path: Path, capsys
 ) -> None:

@@ -38,6 +38,7 @@ from .application.peer_registry import PeerRegistryService
 from .application.role_assignment import RoleAssignmentService
 from .application.leadership import LeadershipService
 from .application.alert_raise import AlertRaiseCoordinator
+from .application.health_revalidation import HealthRevalidationCoordinator
 
 
 @dataclass
@@ -69,6 +70,7 @@ class Runtime:
     operational_error_service: OperationalErrorService
     quarantine_review_coordinator: QuarantineReviewCoordinator
     alert_raise_coordinator: AlertRaiseCoordinator
+    health_revalidation_coordinator: HealthRevalidationCoordinator
     application_workflows: ApplicationWorkflows
     application_api: ApplicationAPI
 
@@ -284,6 +286,13 @@ def create_runtime(
         ids=context.ids,
     )
 
+    health_revalidation_coordinator = HealthRevalidationCoordinator(
+        peer_registry_service,
+        health_service,
+        clock=context.clock,
+        ids=context.ids,
+    )
+
     application_api = ApplicationAPI(
         workflows=application_workflows,
         dispatch=dispatch_service,
@@ -305,6 +314,7 @@ def create_runtime(
         file_locks=file_lock_service,
         operational_errors=operational_error_service,
         alert_raise=alert_raise_coordinator,
+        health_revalidation=health_revalidation_coordinator,
     )
 
     return Runtime(
@@ -332,6 +342,8 @@ def create_runtime(
         operational_error_service=operational_error_service,
         quarantine_review_coordinator=quarantine_review_coordinator,
         alert_raise_coordinator=alert_raise_coordinator,
+        health_revalidation_coordinator=health_revalidation_coordinator,
         application_workflows=application_workflows,
         application_api=application_api,
     )
+

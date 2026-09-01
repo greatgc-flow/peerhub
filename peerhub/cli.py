@@ -148,7 +148,11 @@ def _print_ask_json(result: DirectAskResult) -> None:
 
 
 def _run_health(parsed: argparse.Namespace) -> int:
-    from peerhub.application.health_revalidation import HealthRevalidationCoordinator
+    from peerhub.application.health_revalidation import (
+        collect_health_check,
+        collect_health_precheck,
+        collect_health_sweep,
+    )
     from peerhub.adapters.registry import resolve_peer_target
     from peerhub.application.bootstrap import build_direct_ask_admission_config
 
@@ -161,37 +165,113 @@ def _run_health(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        target = resolve_peer_target(parsed.peer)
-        admission_config = build_direct_ask_admission_config(target, clock=context.clock, ids=context.ids)
-        with create_runtime(context, adapter_peer_kind=parsed.peer, admission_config=admission_config) as runtime:
-            coordinator = HealthRevalidationCoordinator(
-                registry=runtime.peer_registry_service,
-                health=runtime.health_service,
-                clock=context.clock,
-                ids=context.ids,
-            )
-            caller = require_caller_identity(LocalProcessCallerIdentityProvider())
-            
-            result = coordinator.request_revalidation(
-                peer_node_id=parsed.peer,
-                caller=caller,
-                reason=parsed.reason,
-                requested_at=context.clock.now()
-            )
-            if parsed.json:
-                print(json.dumps({
-                    "probe_outcome": result.probe_outcome.value,
-                    "admission_state": result.admission_state.value,
-                    "availability_state": result.availability_state.value,
-                    "circuit_closed": result.circuit_closed
-                }))
-            else:
-                print(f"Revalidation outcome for {parsed.peer}: probe={result.probe_outcome.value}, "
-                      f"admission={result.admission_state.value}, "
-                      f"availability={result.availability_state.value}, "
-                      f"circuit_closed={result.circuit_closed}")
-            return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError) as exc:
+        if parsed.health_action == "revalidate":
+            target = resolve_peer_target(parsed.peer)
+            admission_config = build_direct_ask_admission_config(target, clock=context.clock, ids=context.ids)
+            with create_runtime(context, adapter_peer_kind=parsed.peer, admission_config=admission_config) as runtime:
+                coordinator = runtime.health_revalidation_coordinator
+                caller = require_caller_identity(LocalProcessCallerIdentityProvider())
+                
+                result = coordinator.request_revalidation(
+                    peer_node_id=parsed.peer,
+                    caller=caller,
+                    reason=parsed.reason,
+                    requested_at=context.clock.now()
+                )
+                if parsed.json:
+                    print(json.dumps({
+                        "probe_outcome": result.probe_outcome.value,
+                        "admission_state": result.admission_state.value,
+                        "availability_state": result.availability_state.value,
+                        "circuit_closed": result.circuit_closed
+                    }))
+                else:
+                    print(f"Revalidation outcome for {parsed.peer}: probe={result.probe_outcome.value}, "
+                          f"admission={result.admission_state.value}, "
+                          f"availability={result.availability_state.value}, "
+                          f"circuit_closed={result.circuit_closed}")
+                return 0
+
+        if parsed.health_action == "check":
+            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+                coordinator = runtime.health_revalidation_coordinator
+                caller = require_caller_identity(LocalProcessCallerIdentityProvider()) if parsed.recover else None
+                result = collect_health_check(
+                    runtime.peer_registry_service,
+                    runtime.health_service,
+                    coordinator if parsed.recover else None,
+                    caller,
+                    peer=parsed.peer,
+                    recover=parsed.recover,
+                    now=context.clock.now(),
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe(result)))
+                else:
+                    raw_peers_data = result.get("peers", ())
+                    peers_data: tuple[JsonValue, ...] = (
+                        raw_peers_data if isinstance(raw_peers_data, tuple) else ()
+                    )
+                    parts: list[str] = []
+                    for p in peers_data:
+                        if isinstance(p, Mapping):
+                            peer_name = str(p.get("peer", ""))
+                            status_val = str(p.get("status", "UNKNOWN"))
+                            parts.append(f"{peer_name}={status_val}")
+                    summary = " ".join(parts)
+                    print(f"[HUB:GATE] HEALTH | {summary}")
+                return 0
+
+        if parsed.health_action == "precheck":
+            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+                result = collect_health_precheck(
+                    runtime.peer_registry_service,
+                    runtime.health_service,
+                    peers=parsed.peer,
+                    needs=parsed.needs,
+                    now=context.clock.now(),
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe(result)))
+                else:
+                    scope = result.get("scope", "all")
+                    if result.get("ok"):
+                        print(f"[HUB] PRE-CHECK OK: scope={scope}")
+                    else:
+                        raw_precheck_peers = result.get("peers", ())
+                        precheck_peers: tuple[JsonValue, ...] = (
+                            raw_precheck_peers
+                            if isinstance(raw_precheck_peers, tuple)
+                            else ()
+                        )
+                        for p in precheck_peers:
+                            if isinstance(p, Mapping) and not p.get("eligible"):
+                                p_name = p.get("peer")
+                                adm = p.get("admission_state")
+                                avail = p.get("availability_state")
+                                print(
+                                    f"[HUB:WARN] Degraded peer: {p_name} "
+                                    f"(admission={adm}, availability={avail})"
+                                )
+                        print(f"[HUB:ERROR] Governance Health Pre-Check FAILED. Scope={scope}")
+                return 0 if result.get("ok") else 1
+
+        if parsed.health_action == "sweep":
+            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+                result = collect_health_sweep(
+                    runtime.peer_registry_service,
+                    runtime.health_service,
+                    now=context.clock.now(),
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe(result)))
+                else:
+                    stale_count = result.get("stale_count", 0)
+                    print(f"[HUB] HEALTH-SWEEP stale={stale_count}")
+                return 0
+
+        return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError) as exc:
         print(f"peerhub health: {exc}", file=sys.stderr)
         return 2
 
@@ -1003,6 +1083,139 @@ def _run_node(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_peer(parsed: argparse.Namespace) -> int:
+    from peerhub.application.peer_registry import collect_peer_status
+    from peerhub.application.health_revalidation import execute_peer_recover
+
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        if parsed.peer_action == "status":
+            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+                rows = collect_peer_status(
+                    runtime.peer_registry_service,
+                    runtime.health_service,
+                    node_id=parsed.peer,
+                    include_all=parsed.all,
+                    now=context.clock.now(),
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe({"peers": rows})))
+                else:
+                    print("PEER\tLIFECYCLE\tGATE\tHEALTH\tVERSION\tDETAILS")
+                    for row in rows:
+                        print(
+                            "\t".join(
+                                str(row.get(field, ""))
+                                for field in (
+                                    "peer",
+                                    "lifecycle",
+                                    "gate",
+                                    "health",
+                                    "version",
+                                    "details",
+                                )
+                            )
+                        )
+                return 0
+
+        if parsed.peer_action == "recover":
+            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+                caller = require_caller_identity(
+                    LocalProcessCallerIdentityProvider()
+                )
+                result = execute_peer_recover(
+                    runtime.peer_registry_service,
+                    runtime.health_revalidation_coordinator,
+                    caller,
+                    peer_id=parsed.peer,
+                    reason=parsed.reason,
+                    now=context.clock.now(),
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe(result)))
+                else:
+                    raw_results = result.get("results", ())
+                    results: tuple[JsonValue, ...] = (
+                        raw_results if isinstance(raw_results, tuple) else ()
+                    )
+                    if len(results) == 1:
+                        item = results[0]
+                        if isinstance(item, Mapping) and item.get("status") == "OK":
+                            print(
+                                f"Revalidation outcome for {item.get('peer')}: "
+                                f"probe={item.get('probe_outcome')}, "
+                                f"admission={item.get('admission_state')}, "
+                                f"availability={item.get('availability_state')}, "
+                                f"circuit_closed={item.get('circuit_closed')}"
+                            )
+                        elif isinstance(item, Mapping):
+                            print(
+                                f"Recovery failed for {item.get('peer')}: "
+                                f"{item.get('error')}",
+                                file=sys.stderr,
+                            )
+                            return 2
+                    else:
+                        print("PEER\tPROBE\tADMISSION\tAVAILABILITY\tCIRCUIT_CLOSED\tSTATUS")
+                        for item in results:
+                            if isinstance(item, Mapping):
+                                print(
+                                    f"{item.get('peer')}\t"
+                                    f"{item.get('probe_outcome', '')}\t"
+                                    f"{item.get('admission_state', '')}\t"
+                                    f"{item.get('availability_state', '')}\t"
+                                    f"{item.get('circuit_closed', '')}\t"
+                                    f"{item.get('status')}"
+                                )
+                return 0
+        return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError) as exc:
+        print(f"peerhub peer: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run_gate(parsed: argparse.Namespace) -> int:
+    from peerhub.application.health_revalidation import collect_check_gate
+
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            result = collect_check_gate(
+                runtime.peer_registry_service,
+                runtime.health_service,
+                agent=parsed.agent,
+                now=context.clock.now(),
+            )
+            if parsed.json:
+                print(json.dumps(_json_safe(result)))
+            else:
+                agent = result.get("agent")
+                gate = result.get("gate")
+                print(f"[GATE] {agent}={gate}")
+            return 0 if result.get("open") else 1
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError) as exc:
+        print(f"peerhub gate: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_role(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -1503,6 +1716,19 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 )
                 print(json.dumps(_json_safe(context_envelope)))
                 return 0
+            elif action == "update-status":
+                fields: dict[str, str] = {}
+                if parsed.mission is not None:
+                    fields["mission"] = parsed.mission
+                if parsed.blocked is not None:
+                    fields["blocked"] = parsed.blocked
+                if parsed.phase is not None:
+                    fields["phase"] = parsed.phase
+                submission = service.update_room_summary(
+                    parsed.room_id,
+                    actor_id=parsed.actor or "peerhub-cli",
+                    **fields,
+                )
             elif action == "clear":
                 submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
             elif action == "rebuild-session-bindings":
@@ -1867,6 +2093,43 @@ def main(args: list[str] | None = None) -> int:
     revalidate_parser.add_argument("--peer", required=True, help="Peer ID to revalidate (e.g. cc)")
     revalidate_parser.add_argument("--reason", required=True, help="Reason for revalidation")
     revalidate_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    health_check_parser = health_subparsers.add_parser("check", help="Inspect or recover peer health")
+    health_check_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    health_check_parser.add_argument("--peer", default=None, help="Target peer node ID (default: all)")
+    health_check_parser.add_argument("--recover", action="store_true", help="Reconcile and revalidate dead circuits")
+    health_check_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    health_precheck_parser = health_subparsers.add_parser("precheck", help="Fail-closed pre-flight governance gate")
+    health_precheck_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    health_precheck_parser.add_argument("--peer", default=None, help="Comma-separated candidate peer IDs")
+    health_precheck_parser.add_argument("--needs", default=None, help="Capability requirements filter")
+    health_precheck_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    health_sweep_parser = health_subparsers.add_parser("sweep", help="Evaluate dynamic staleness across all peers")
+    health_sweep_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    health_sweep_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    peer_parser = subparsers.add_parser("peer", help="Inspect and recover peer nodes")
+    peer_subparsers = peer_parser.add_subparsers(dest="peer_action", required=True)
+    peer_status_parser = peer_subparsers.add_parser("status", help="Show peer lifecycle, gate, health, and adapter versions")
+    peer_status_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    peer_status_parser.add_argument("--peer", default=None, help="Specific peer node ID")
+    peer_status_parser.add_argument("--all", action="store_true", help="Include all registered and base nodes")
+    peer_status_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    peer_recover_parser = peer_subparsers.add_parser("recover", help="Authorize and execute evidence-backed peer recovery")
+    peer_recover_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    peer_recover_parser.add_argument("--peer", required=True, help="Peer node ID to recover, or 'all'")
+    peer_recover_parser.add_argument("--reason", default="manual", help="Recovery reason (default: manual)")
+    peer_recover_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    gate_parser = subparsers.add_parser("gate", help="Check dispatch gate condition for an agent")
+    gate_subparsers = gate_parser.add_subparsers(dest="gate_action", required=True)
+    gate_check_parser = gate_subparsers.add_parser("check", help="Check if gate is open for a named agent")
+    gate_check_parser.add_argument("agent", help="Agent or peer node ID to check")
+    gate_check_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    gate_check_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     ask_parser = subparsers.add_parser(
         "ask",
@@ -2513,6 +2776,7 @@ def main(args: list[str] | None = None) -> int:
         "append-handoff": [("--room-id", True), ("--section", True), ("--text", True), ("--actor", True)],
         "checkpoint": [("--room-id", True), ("--actor", False)],
         "context-fill": [("--room-id", True), ("--session-id", True), ("--sections", False)],
+        "update-status": [("--room-id", True), ("--mission", False), ("--blocked", False), ("--phase", False), ("--actor", False)],
         "clear": [("--room-id", True), ("--new-room-id", True), ("--subject", True), ("--actor", True)],
         "rebuild-session-bindings": [("--room-id", True)],
         "status": [("--room-id", True)],
@@ -2530,6 +2794,7 @@ def main(args: list[str] | None = None) -> int:
         "append-handoff": "Append an immutable note to the room's continuity history",
         "checkpoint": "Generate and record the room's bounded handoff projection",
         "context-fill": "Read bounded room continuity for an LLM context window",
+        "update-status": "Update the room mission, blocked reason, or phase",
         "clear": "Start a fresh room boundary; the old room is preserved untouched",
         "rebuild-session-bindings": "Rebuild the room's session-binding projection from active sessions",
         "status": "Show the current state of a room",
@@ -2561,6 +2826,9 @@ def main(args: list[str] | None = None) -> int:
         "--text": "Continuity note text to append",
         "--session-id": "Session identifier echoed in the context envelope",
         "--sections": "Comma-separated exact section names; omit to return all six",
+        "--mission": "Optional replacement room mission",
+        "--blocked": "Optional replacement blocked reason",
+        "--phase": "Optional replacement room phase",
         "--actor-instance-id": "Reacting peer's terminal instance identifier",
         "--actor-profile-id": "Reacting peer's profile identifier",
         "--reaction-type": "Reaction label or emoji to add or remove (for example ACK or 👍)",
@@ -2877,6 +3145,12 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "health":
         return _run_health(parsed)
+
+    if parsed.command == "peer":
+        return _run_peer(parsed)
+
+    if parsed.command == "gate":
+        return _run_gate(parsed)
 
     if parsed.command == "ask":
         return _run_ask(parsed)

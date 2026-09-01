@@ -53,6 +53,16 @@ def _optional_first_text(
     return None
 
 
+def _optional_legacy_text(
+    arguments: Mapping[str, JsonValue],
+    name: str,
+) -> str | None:
+    """Return an optional legacy text argument without inventing a value."""
+
+    value = arguments.get(name)
+    return None if value is None else str(value)
+
+
 def _first_text(
     arguments: Mapping[str, JsonValue],
     names: tuple[str, ...],
@@ -137,7 +147,7 @@ LEGACY_CATALOG = {
     'update-status': 'coordination.mission.update',
     'check': 'coordination.message.check',
     'status': 'peerhub.status.read',
-    'check-gate': 'health.admission.check',
+    'check-gate': 'health.gate.check',
     'ask': 'dispatch.submit',
     'ask-all': 'dispatch.submit_many',
     'ask-coordinator': 'dispatch.submit_coordinator',
@@ -148,12 +158,12 @@ LEGACY_CATALOG = {
     'register-node': 'configuration.instance.register',
     'list-nodes': 'configuration.instance.list',
     'health-update': 'health.evidence.record',
-    'health-check': 'health.projection.read',
-    'peer-status': 'health.instance.status',
+    'health-check': 'health.check',
+    'peer-status': 'configuration.peer.status',
     'context-fill': 'coordination.context.fill',
     'checkpoint': 'coordination.checkpoint.create',
     'peer-quarantine': 'health.admission.quarantine',
-    'peer-recover': 'health.recovery.authorize_probe',
+    'peer-recover': 'health.peer.recover',
     'new-topic': 'coordination.topic.create',
     'clear-room': 'coordination.room.clear',
     'preflight': 'peerhub.preflight',
@@ -172,8 +182,8 @@ LEGACY_CATALOG = {
     'assign-role': 'coordination.role.assign',
     'release-role': 'coordination.role.release',
     'role-status': 'coordination.role.status',
-    'health-precheck': 'health.admission.precheck',
-    'health-sweep': 'health.projection.sweep',
+    'health-precheck': 'health.precheck',
+    'health-sweep': 'health.sweep',
     'freshness-sweep': 'telemetry.freshness.sweep',
     'terminal-handoff': 'coordination.terminal.handoff',
     'terminal-duty-sweep': 'coordination.terminal.duty_sweep',
@@ -403,6 +413,32 @@ class StatusReadCommand(Command[Any]):
 
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {"room_id": self.room_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateStatusCommand(Command[Any]):
+    """Apply the legacy room-summary fields without clobbering omissions."""
+
+    method: ClassVar[str] = "coordination.mission.update"
+    submission: SubmissionMetadata
+    room_id: str
+    mission: str | None = None
+    blocked: str | None = None
+    phase: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        params: dict[str, JsonValue] = {"room_id": self.room_id}
+        if self.mission is not None:
+            params["mission"] = self.mission
+        if self.blocked is not None:
+            params["blocked"] = self.blocked
+        if self.phase is not None:
+            params["phase"] = self.phase
+        return params
 
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
@@ -1109,6 +1145,108 @@ class ModelStatusCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class PeerStatusCommand(Command[Any]):
+    method: ClassVar[str] = "configuration.peer.status"
+    submission: SubmissionMetadata
+    node_id: str | None = None
+    include_all: bool = False
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "node_id": self.node_id,
+            "include_all": self.include_all,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class HealthCheckCommand(Command[Any]):
+    method: ClassVar[str] = "health.check"
+    submission: SubmissionMetadata
+    peer: str | None = None
+    recover: bool = False
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "peer": self.peer,
+            "recover": self.recover,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class PeerRecoverCommand(Command[Any]):
+    method: ClassVar[str] = "health.peer.recover"
+    submission: SubmissionMetadata
+    peer_id: str
+    reason: str = "manual"
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "peer_id": self.peer_id,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class HealthPrecheckCommand(Command[Any]):
+    method: ClassVar[str] = "health.precheck"
+    submission: SubmissionMetadata
+    peers: str | None = None
+    needs: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "peers": self.peers,
+            "needs": self.needs,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class CheckGateCommand(Command[Any]):
+    method: ClassVar[str] = "health.gate.check"
+    submission: SubmissionMetadata
+    agent: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "agent": self.agent,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class HealthSweepCommand(Command[Any]):
+    method: ClassVar[str] = "health.sweep"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+
+@dataclass(frozen=True, slots=True)
 class AssignRoleCommand(Command[Any]):
     method: ClassVar[str] = "coordination.role.assign"
     submission: SubmissionMetadata
@@ -1334,7 +1472,24 @@ class LegacyTranslator:
                     room_id=room_id,
                 )
             )
-        
+
+        if call.action == "update-status":
+            room_id = _legacy_room_id(call.arguments, submission.scope)
+            if not room_id:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="room_id is required in arguments, context, or scope",
+                )
+            return TranslatedCommand(
+                command=UpdateStatusCommand(
+                    submission=submission,
+                    room_id=room_id,
+                    mission=_optional_legacy_text(call.arguments, "mission"),
+                    blocked=_optional_legacy_text(call.arguments, "blocked"),
+                    phase=_optional_legacy_text(call.arguments, "phase"),
+                )
+            )
+
         if call.action == "ask":
             prompt = str(call.arguments.get("prompt", ""))
             return TranslatedCommand(command=SubmitDispatch(submission=submission, prompt=prompt))
@@ -1864,6 +2019,70 @@ class LegacyTranslator:
             ))
         if call.action == "lock-status":
             return TranslatedCommand(command=LockStatusCommand(submission))
+
+        if call.action == "health-check":
+            peer = _optional_first_text(
+                call.arguments, ("peer", "target", "agent")
+            )
+            recover = _bool_or_false(call.arguments.get("recover"))
+            return TranslatedCommand(command=HealthCheckCommand(
+                submission=submission,
+                peer=peer,
+                recover=recover,
+            ))
+        if call.action == "peer-status":
+            node_id = _optional_first_text(
+                call.arguments, ("peer", "target", "agent", "node_id")
+            )
+            include_all = _bool_or_false(call.arguments.get("all"))
+            return TranslatedCommand(command=PeerStatusCommand(
+                submission=submission,
+                node_id=node_id,
+                include_all=include_all,
+            ))
+        if call.action == "peer-recover":
+            peer_id = _first_text(
+                call.arguments,
+                ("peer", "target", "agent", "peer_id"),
+                "all",
+            )
+            reason = _first_text(
+                call.arguments,
+                ("reason", "detail"),
+                "manual",
+            )
+            return TranslatedCommand(command=PeerRecoverCommand(
+                submission=submission,
+                peer_id=peer_id,
+                reason=reason,
+            ))
+        if call.action == "health-precheck":
+            peers = _optional_first_text(call.arguments, ("peer", "peers"))
+            needs = _optional_first_text(call.arguments, ("needs", "capabilities"))
+            return TranslatedCommand(command=HealthPrecheckCommand(
+                submission=submission,
+                peers=peers,
+                needs=needs,
+            ))
+        if call.action == "check-gate":
+            agent = _first_text(
+                call.arguments,
+                ("agent", "peer", "target"),
+                "",
+            )
+            if not agent:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="agent is required",
+                )
+            return TranslatedCommand(command=CheckGateCommand(
+                submission=submission,
+                agent=agent,
+            ))
+        if call.action == "health-sweep":
+            return TranslatedCommand(command=HealthSweepCommand(
+                submission=submission,
+            ))
 
         return KnownLegacyActionNotBacked(
             legacy_action=call.action,

@@ -9,7 +9,7 @@ archive-file,artifact,governance.artifact.archive,peerhub-v1,required
 update-status,coordination,coordination.mission.update,peerhub-v1,required
 check,coordination,coordination.message.check,peerhub-v1,required
 status,diagnostic,peerhub.status.read,peerhub-v1,required
-check-gate,health,health.admission.check,peerhub-v1,required
+check-gate,health,health.gate.check,peerhub-v1,required
 ask,dispatch,dispatch.submit,peerhub-v1,required
 ask-all,dispatch,dispatch.submit_many,peerhub-v1,required
 ask-coordinator,dispatch,dispatch.submit_coordinator,peerhub-v1,required
@@ -20,12 +20,12 @@ consensus-sweep,consensus,consensus.round.sweep,peerhub-v1,required
 register-node,configuration,configuration.instance.register,peerhub-v1,required
 list-nodes,configuration,configuration.instance.list,peerhub-v1,required
 health-update,health,health.evidence.record,peerhub-v1,required
-health-check,health,health.projection.read,peerhub-v1,required
-peer-status,health,health.instance.status,peerhub-v1,required
+health-check,health,health.check,peerhub-v1,required
+peer-status,health,configuration.peer.status,peerhub-v1,required
 context-fill,coordination,coordination.context.fill,peerhub-v1,required
 checkpoint,coordination,coordination.checkpoint.create,peerhub-v1,required
 peer-quarantine,health,health.admission.quarantine,peerhub-v1,required
-peer-recover,health,health.recovery.authorize_probe,peerhub-v1,required
+peer-recover,health,health.peer.recover,peerhub-v1,required
 new-topic,coordination,coordination.topic.create,peerhub-v1,required
 clear-room,coordination,coordination.room.clear,peerhub-v1,required
 preflight,diagnostic,peerhub.preflight,host-adapter,compatibility-wrapper
@@ -44,8 +44,8 @@ discover,routing,routing.candidate.discover,peerhub-v1,required
 assign-role,coordination,coordination.role.assign,peerhub-v1,required
 release-role,coordination,coordination.role.release,peerhub-v1,required
 role-status,coordination,coordination.role.status,peerhub-v1,required
-health-precheck,health,health.admission.precheck,peerhub-v1,required
-health-sweep,health,health.projection.sweep,peerhub-v1,required
+health-precheck,health,health.precheck,peerhub-v1,required
+health-sweep,health,health.sweep,peerhub-v1,required
 freshness-sweep,telemetry,telemetry.freshness.sweep,peerhub-v1,required
 terminal-handoff,coordination,coordination.terminal.handoff,peerhub-v1,required
 terminal-duty-sweep,coordination,coordination.terminal.duty_sweep,peerhub-v1,required
