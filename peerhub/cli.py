@@ -36,6 +36,7 @@ from peerhub.application.direct_ask import (
     execute_direct_ask,
 )
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
+from peerhub.application.room_broadcast import RoomBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
@@ -1781,6 +1782,40 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     resource_ref=parsed.resource_ref,
                     correlation_id=parsed.correlation_id,
                 )
+            elif action == "broadcast":
+                targets = (
+                    None
+                    if parsed.targets is None
+                    else tuple(
+                        target.strip()
+                        for target in parsed.targets.split(",")
+                        if target.strip()
+                    )
+                )
+                result = RoomBroadcastCoordinator(rooms=service).broadcast(
+                    room_id=parsed.room_id,
+                    from_=parsed.from_,
+                    msg=parsed.msg,
+                    targets=targets,
+                    msg_type=parsed.msg_type,
+                    priority=parsed.priority,
+                )
+                envelope = {
+                    "room_id": result.room_id,
+                    "delivered": result.delivered,
+                }
+                if parsed.json:
+                    print(json.dumps(_json_safe(envelope)))
+                else:
+                    successes = sum(
+                        outcome["status"] == "OK"
+                        for outcome in result.delivered
+                    )
+                    print(
+                        f"Broadcast delivered to {successes}/"
+                        f"{len(result.delivered)} target(s)"
+                    )
+                return 0
             elif action == "check-inbox":
                 messages = service.check_inbox(
                     room_id=parsed.room_id,
@@ -2950,6 +2985,7 @@ def main(args: list[str] | None = None) -> int:
         "create-thread": [("--thread-id", True), ("--room-id", True), ("--subject", True), ("--creator", True)],
         "append-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--author", True), ("--body", True)],
         "send": [("--room-id", True), ("--sender-instance-id", True), ("--sender-profile-id", True), ("--recipient-instance-id", True), ("--recipient-profile-id", True), ("--body", True), ("--message-type", False), ("--thread-ref", False), ("--resource-ref", False), ("--correlation-id", False)],
+        "broadcast": [("--room-id", True), ("--from", True), ("--msg", True), ("--targets", False), ("--type", False), ("--priority", False)],
         "check-inbox": [("--room-id", True), ("--caller-instance-id", True), ("--caller-profile-id", True), ("--include-read", False)],
         "mark-read": [("--room-id", True), ("--recipient-instance-id", True), ("--recipient-profile-id", True), ("--up-through-sequence", True)],
         "promote-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--actor", True)],
@@ -2969,6 +3005,7 @@ def main(args: list[str] | None = None) -> int:
         "create-thread": "Create a new thread inside an existing room",
         "append-message": "Append a message to a thread",
         "send": "Deliver one private mailbox message to a room recipient",
+        "broadcast": "Deliver one fresh mailbox message to each selected room participant",
         "check-inbox": "Read this caller's private mailbox without marking messages read",
         "mark-read": "Advance one recipient's mailbox read cursor through a delivery sequence",
         "promote-message": "Copy one mailbox message into a thread and record the promotion",
@@ -3004,6 +3041,11 @@ def main(args: list[str] | None = None) -> int:
         "--thread-ref": "Optional related thread identifier",
         "--resource-ref": "Optional opaque related resource reference",
         "--correlation-id": "Optional shared correlation ID for related deliveries",
+        "--from": "Sending peer identifier; used as both instance and profile identity",
+        "--msg": "Plain mailbox message body",
+        "--targets": "Optional comma-separated participant instance/profile identifiers",
+        "--type": "Mailbox message type (default: MSG)",
+        "--priority": "Optional mailbox priority",
         "--include-read": "Include messages at or below the current read cursor",
         "--up-through-sequence": "Delivery sequence through which to mark this inbox read",
         "--section": "Handoff section receiving the note",
@@ -3048,6 +3090,21 @@ def main(args: list[str] | None = None) -> int:
                     name,
                     required=required,
                     default="MSG",
+                    help=room_arg_help[name],
+                )
+            elif action == "broadcast" and name == "--type":
+                command_parser.add_argument(
+                    name,
+                    dest="msg_type",
+                    required=required,
+                    default="MSG",
+                    help=room_arg_help[name],
+                )
+            elif action == "broadcast" and name == "--from":
+                command_parser.add_argument(
+                    name,
+                    dest="from_",
+                    required=required,
                     help=room_arg_help[name],
                 )
             elif action == "thread-new" and name == "--creator":

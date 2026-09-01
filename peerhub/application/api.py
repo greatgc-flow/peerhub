@@ -42,6 +42,10 @@ from peerhub.application.lesson_broadcast import (
     LessonBroadcastCoordinator,
     LessonBroadcastResult,
 )
+from peerhub.application.room_broadcast import (
+    RoomBroadcastCoordinator,
+    RoomBroadcastResult,
+)
 from peerhub.application.alert_raise import (
     AlertRaiseCoordinator,
     AlertRaiseResult,
@@ -81,7 +85,7 @@ from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
     StatusReadCommand, UpdateStatusCommand,
     NewTopicCommand, ThreadNewCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
-    MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand,
+    MessageSendCommand, RoomBroadcastCommand, MessageCheckCommand, MessageMarkReadCommand,
     ThreadPromoteCommand,
     AppendHandoffCommand, ContinuityCheckpointCommand, ContextFillCommand,
     LeaderClaimCommand, LeaderYieldCommand,
@@ -694,6 +698,30 @@ class ApplicationAPI:
                 optional_text(e, "resource_ref"),
                 optional_text(e, "correlation_id"),
             )
+        def broadcast(e: CommandEnvelope) -> RoomBroadcastCommand:
+            raw_targets = e.params["targets"]
+            if raw_targets is None:
+                targets = None
+            elif isinstance(raw_targets, (list, tuple)) and all(
+                isinstance(target, str) for target in raw_targets
+            ):
+                targets = tuple(cast(str, target) for target in raw_targets)
+            else:
+                raise ValueError("targets must be a sequence of strings or null")
+            return RoomBroadcastCommand(
+                self._submission(e),
+                text(e, "room_id"),
+                text(e, "from_"),
+                text(e, "msg"),
+                targets,
+                text(e, "msg_type"),
+                optional_text(e, "priority"),
+            )
+        coordinator = RoomBroadcastCoordinator(rooms=s)
+        def encode_broadcast(
+            result: RoomBroadcastResult,
+        ) -> Mapping[str, JsonValue]:
+            return {"room_id": result.room_id, "delivered": result.delivered}
         def check_inbox(e: CommandEnvelope) -> MessageCheckCommand:
             return MessageCheckCommand(
                 self._submission(e),
@@ -919,6 +947,23 @@ class ApplicationAPI:
                 correlation_id=c.correlation_id,
             ),
             self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "coordination.message.broadcast",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            broadcast,
+            lambda c, _: coordinator.broadcast(
+                room_id=c.room_id,
+                from_=c.from_,
+                msg=c.msg,
+                targets=c.targets,
+                msg_type=c.msg_type,
+                priority=c.priority,
+            ),
+            encode_broadcast,
             CommandAvailability.AVAILABLE,
         ))
         self.register(CommandDescriptor(

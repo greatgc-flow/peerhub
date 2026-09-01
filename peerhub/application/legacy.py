@@ -3,7 +3,7 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 import re
-from typing import ClassVar, Generic, TypeVar, Any
+from typing import ClassVar, Generic, TypeVar, Any, cast
 
 from peerhub.core.protocol import JsonValue
 from peerhub.application.commands import (
@@ -542,6 +542,32 @@ class MessageSendCommand(Command[Any]):
             "thread_ref": self.thread_ref,
             "resource_ref": self.resource_ref,
             "correlation_id": self.correlation_id,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class RoomBroadcastCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.message.broadcast"
+    submission: SubmissionMetadata
+    room_id: str
+    from_: str
+    msg: str
+    targets: tuple[str, ...] | None
+    msg_type: str = "MSG"
+    priority: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "from_": self.from_,
+            "msg": self.msg,
+            "targets": self.targets,
+            "msg_type": self.msg_type,
+            "priority": self.priority,
         }
 
     @classmethod
@@ -1696,6 +1722,40 @@ class LegacyTranslator:
                     if call.arguments.get("correlation_id") is None
                     else str(call.arguments.get("correlation_id"))
                 ),
+            ))
+        if call.action == "broadcast":
+            room_id = _legacy_room_id(call.arguments, submission.scope)
+            if not room_id:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="room_id is required in arguments, context, or scope",
+                )
+            msg = _optional_legacy_text(call.arguments, "msg")
+            if not msg:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="broadcast requires --msg",
+                )
+            raw_targets = call.arguments.get("targets")
+            if raw_targets is None:
+                targets = None
+            elif isinstance(raw_targets, (list, tuple)) and all(
+                isinstance(target, str) and target for target in raw_targets
+            ):
+                targets = tuple(cast(str, target) for target in raw_targets)
+            else:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="targets must be a sequence of nonempty strings",
+                )
+            return TranslatedCommand(command=RoomBroadcastCommand(
+                submission=submission,
+                room_id=room_id,
+                from_=_first_text(call.arguments, ("from", "peer"), "cc"),
+                msg=msg,
+                targets=targets,
+                msg_type=_first_text(call.arguments, ("type", "msg_type"), "MSG"),
+                priority=_optional_legacy_text(call.arguments, "priority"),
             ))
         if call.action == "check":
             return TranslatedCommand(command=MessageCheckCommand(

@@ -9,7 +9,7 @@ from typing import Any
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
 from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, StatusReadCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, BindProfileCommand, ModelStatusCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
-from peerhub.application.legacy import AlertRaiseCommand, _legacy_room_id
+from peerhub.application.legacy import AlertRaiseCommand, RoomBroadcastCommand, _legacy_room_id
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -477,6 +477,42 @@ def test_legacy_send_translates_and_persists_mailbox_delivery(
         "profile_id": "peer-b",
     }
     assert message.state["correlation_id"] == "mail-correlation-1"
+
+
+def test_legacy_broadcast_translates_executes_and_validates_arguments(
+    runtime_setup,
+) -> None:
+    runtime, client, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id="room-legacy-broadcast",
+        topic_id="topic-legacy-broadcast",
+        title="Legacy broadcast",
+        creator_id="sender",
+        participants=("sender", "peer-b", "peer-c"),
+    )
+    translator = LegacyTranslator()
+    translated = translator.translate(
+        LegacyActionCall(
+            "broadcast",
+            {"room_id": "room-legacy-broadcast", "from": "sender", "msg": "legacy"},
+        ),
+        _legacy_submission(),
+    )
+    assert isinstance(translated, TranslatedCommand)
+    assert isinstance(translated.command, RoomBroadcastCommand)
+    outcome = client.submit(translated.command)
+    assert isinstance(outcome, CommandSuccess)
+    assert len(outcome.result["delivered"]) == 2
+    assert translator.translate(
+        LegacyActionCall("broadcast", {"room_id": "room-legacy-broadcast"}),
+        _legacy_submission(),
+    ) == InvalidLegacyArguments("broadcast", "broadcast requires --msg")
+    assert translator.translate(
+        LegacyActionCall("broadcast", {"msg": "no room"}),
+        _legacy_submission(),
+    ) == InvalidLegacyArguments(
+        "broadcast", "room_id is required in arguments, context, or scope"
+    )
 
 
 def test_legacy_check_returns_only_the_callers_private_messages(

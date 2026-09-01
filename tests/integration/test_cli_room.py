@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from peerhub.cli import SystemClock, UuidSource, main
 from peerhub.core.context import PathLayout, RuntimeContext
 from peerhub.runtime import create_runtime
@@ -32,6 +34,49 @@ def test_cli_room_create_thread_append_and_clear_preserves_old(tmp_path: Path, c
 def test_cli_room_status_missing_returns_two(tmp_path: Path, capsys) -> None:
     assert main(["room", "status", "--workspace", str(tmp_path), "--room-id", "missing"]) == 2
     assert "not found" in capsys.readouterr().err
+
+
+def test_cli_room_broadcast_and_required_arguments(tmp_path: Path, capsys) -> None:
+    def run(args: list[str]) -> dict:
+        assert main(args + ["--json"]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    workspace = ["--workspace", str(tmp_path)]
+    run([
+        "room", "create", *workspace,
+        "--room-id", "room-broadcast", "--topic-id", "topic",
+        "--title", "Broadcast", "--creator", "sender",
+        "--participants", "sender,peer-b,peer-c",
+    ])
+    result = run([
+        "room", "broadcast", *workspace, "--room-id", "room-broadcast",
+        "--from", "sender", "--msg", "cli message", "--targets", "peer-b",
+        "--type", "NOTICE", "--priority", "HIGH",
+    ])
+    assert result["delivered"][0]["recipient_profile_id"] == "peer-b"
+
+    context = RuntimeContext(
+        workspace_home_id=tmp_path.name,
+        paths=PathLayout.for_workspace(tmp_path),
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        assert len(runtime.rooms_service.check_inbox(
+            room_id="room-broadcast",
+            caller_instance_id="peer-b",
+            caller_profile_id="peer-b",
+        )) == 1
+        assert runtime.rooms_service.check_inbox(
+            room_id="room-broadcast",
+            caller_instance_id="peer-c",
+            caller_profile_id="peer-c",
+        ) == ()
+
+    with pytest.raises(SystemExit, match="2"):
+        main(["room", "broadcast", *workspace, "--from", "sender", "--msg", "x"])
+    with pytest.raises(SystemExit, match="2"):
+        main(["room", "broadcast", *workspace, "--room-id", "room-broadcast", "--from", "sender"])
 
 
 def test_cli_room_status_includes_summary_and_room_wide_unread_count(
