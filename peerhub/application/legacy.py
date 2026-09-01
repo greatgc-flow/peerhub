@@ -1480,6 +1480,57 @@ class RoleStatusCommand(Command[Any]):
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
 
+
+@dataclass(frozen=True, slots=True)
+class ArtifactClaimCommand(Command[Any]):
+    method: ClassVar[str] = "governance.artifact.claim"
+    submission: SubmissionMetadata
+    name: str
+    owner: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"name": self.name, "owner": self.owner}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactStatusCommand(Command[Any]):
+    method: ClassVar[str] = "governance.artifact.status"
+    submission: SubmissionMetadata
+    name: str | None = None
+    peer: str | None = None
+    draft_path: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "name": self.name,
+            "peer": self.peer,
+            "draft_path": self.draft_path,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactFinalizeCommand(Command[Any]):
+    method: ClassVar[str] = "governance.artifact.finalize"
+    submission: SubmissionMetadata
+    name: str
+    file_path: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"name": self.name, "file_path": self.file_path}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 @dataclass(frozen=True, slots=True)
 class LockAcquireCommand(Command[Any]):
     method: ClassVar[str] = "governance.lock.acquire"
@@ -2249,7 +2300,52 @@ class LegacyTranslator:
             ))
         if call.action == "role-status":
             return TranslatedCommand(command=RoleStatusCommand(submission))
-            
+
+        if call.action == "artifact-claim":
+            return TranslatedCommand(command=ArtifactClaimCommand(
+                submission=submission,
+                name=_first_text(
+                    call.arguments,
+                    ("name", "artifact_name"),
+                    "",
+                ),
+                owner=_first_text(
+                    call.arguments,
+                    ("peer", "agent", "owner"),
+                    "unknown",
+                ),
+            ))
+        if call.action == "artifact-status":
+            return TranslatedCommand(command=ArtifactStatusCommand(
+                submission=submission,
+                name=_optional_first_text(
+                    call.arguments,
+                    ("name", "artifact_name"),
+                ),
+                peer=_optional_first_text(
+                    call.arguments,
+                    ("peer", "agent"),
+                ),
+                draft_path=_optional_first_text(
+                    call.arguments,
+                    ("draft_path", "draft-path"),
+                ),
+            ))
+        if call.action == "artifact-finalize":
+            return TranslatedCommand(command=ArtifactFinalizeCommand(
+                submission=submission,
+                name=_first_text(
+                    call.arguments,
+                    ("name", "artifact_name"),
+                    "",
+                ),
+                file_path=_first_text(
+                    call.arguments,
+                    ("file_path", "file"),
+                    "",
+                ),
+            ))
+
         if call.action == "file-lock":
             name = str(call.arguments.get("name", ""))
             owner = str(call.arguments.get("owner", ""))

@@ -2870,6 +2870,72 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
 
+    artifact_parser = subparsers.add_parser(
+        "artifact", help="Manage durable named artifact records"
+    )
+    artifact_subparsers = artifact_parser.add_subparsers(
+        dest="artifact_action", required=True
+    )
+    artifact_claim_parser = artifact_subparsers.add_parser(
+        "claim", help="Claim a named artifact for one peer"
+    )
+    artifact_claim_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    artifact_claim_parser.add_argument(
+        "--name", required=True, help="Durable artifact name"
+    )
+    artifact_claim_parser.add_argument(
+        "--peer",
+        "--agent",
+        dest="peer",
+        default="unknown",
+        help="Peer claiming the artifact (default: unknown)",
+    )
+    artifact_claim_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    artifact_status_parser = artifact_subparsers.add_parser(
+        "status", help="Query artifact records or register a peer draft"
+    )
+    artifact_status_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    artifact_status_parser.add_argument(
+        "--name", help="Optional single artifact name"
+    )
+    artifact_status_parser.add_argument(
+        "--peer",
+        "--agent",
+        dest="peer",
+        help="Peer whose draft path is being registered",
+    )
+    artifact_status_parser.add_argument(
+        "--draft-path", help="Draft path to register for the peer"
+    )
+    artifact_status_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    artifact_finalize_parser = artifact_subparsers.add_parser(
+        "finalize", help="Finalize a claimed artifact from a real file"
+    )
+    artifact_finalize_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    artifact_finalize_parser.add_argument(
+        "--name", required=True, help="Claimed artifact name"
+    )
+    artifact_finalize_parser.add_argument(
+        "--file",
+        "--file-path",
+        dest="file_path",
+        required=True,
+        help="Existing file containing the finalized artifact",
+    )
+    artifact_finalize_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+
     role_parser = subparsers.add_parser(
         "role", help="Manage durable workspace role assignments"
     )
@@ -3499,6 +3565,9 @@ def main(args: list[str] | None = None) -> int:
     if parsed.command == "lock":
         return _run_lock(parsed)
 
+    if parsed.command == "artifact":
+        return _run_artifact(parsed)
+
     if parsed.command == "role":
         return _run_role(parsed)
 
@@ -3681,4 +3750,106 @@ def _run_lock(parsed: argparse.Namespace) -> int:
             return 0
     except (InvalidMutationError, RecordNotFoundError, ValueError, PeerHubError) as exc:
         print(f"peerhub lock: {exc}", file=sys.stderr)
+        return 2
+
+
+def _run_artifact(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = runtime.artifact_record_service
+            if parsed.artifact_action == "claim":
+                result = service.claim(parsed.name, parsed.peer)
+                if parsed.json:
+                    print(json.dumps(_json_safe(result.record.state)))
+                else:
+                    print(
+                        f"[HUB] ARTIFACT-CLAIM {parsed.name} | "
+                        f"owner={parsed.peer}"
+                    )
+                return 0
+
+            if parsed.artifact_action == "status":
+                if parsed.name and parsed.peer and parsed.draft_path:
+                    is_local = service.is_workspace_local(parsed.draft_path)
+                    result = service.register_draft(
+                        parsed.name,
+                        peer=parsed.peer,
+                        draft_path=parsed.draft_path,
+                    )
+                    if not is_local:
+                        print(
+                            "[HUB:WARN] artifact draft path is outside "
+                            f"workspace: {parsed.draft_path}",
+                            file=sys.stderr,
+                        )
+                    if parsed.json:
+                        print(json.dumps(_json_safe(result.record.state)))
+                    else:
+                        print(
+                            f"[HUB] ARTIFACT-DRAFT {parsed.name} | "
+                            f"peer={parsed.peer} | path={parsed.draft_path}"
+                        )
+                    return 0
+
+                status = service.status(parsed.name)
+                if status.single:
+                    payload: Mapping[str, JsonValue] = (
+                        {} if not status.items else status.items[0].state
+                    )
+                    print(
+                        json.dumps(
+                            _json_safe(payload),
+                            indent=None if parsed.json else 2,
+                        )
+                    )
+                    return 0
+
+                if parsed.json:
+                    print(json.dumps(_json_safe({
+                        "items": tuple(
+                            target.state for target in status.items
+                        )
+                    })))
+                elif not status.items:
+                    print("No artifact metadata records found.")
+                else:
+                    print("artifact\towner\tstatus\tclaimed_at")
+                    for target in status.items:
+                        state = target.state
+                        print(
+                            f"{state.get('artifact', '')}\t"
+                            f"{state.get('owner', '')}\t"
+                            f"{state.get('status', '')}\t"
+                            f"{state.get('claimed_at', '')}"
+                        )
+                return 0
+
+            is_local = service.is_workspace_local(parsed.file_path)
+            result = service.finalize(parsed.name, parsed.file_path)
+            if not is_local:
+                print(
+                    "[HUB:WARN] artifact final path is outside workspace: "
+                    f"{parsed.file_path}",
+                    file=sys.stderr,
+                )
+            if parsed.json:
+                print(json.dumps(_json_safe(result.record.state)))
+            else:
+                print(
+                    f"[HUB] ARTIFACT-FINALIZE {parsed.name} | "
+                    f"hash={result.record.state.get('hash', '')}"
+                )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError, PeerHubError) as exc:
+        print(f"peerhub artifact: {exc}", file=sys.stderr)
         return 2

@@ -20,6 +20,7 @@ from .governance.consensus import ConsensusService
 from .governance.tasks import TaskService
 from .governance.feedback import FeedbackService
 from .governance.file_locks import FileLockService
+from .governance.artifact_records import ArtifactRecordService
 from .governance.operational_errors import OperationalErrorService
 from .application.quarantine_review import QuarantineReviewCoordinator
 from .governance.lessons import LessonService
@@ -75,6 +76,7 @@ class Runtime:
     leadership_service: LeadershipService
     feedback_service: FeedbackService
     file_lock_service: FileLockService
+    artifact_record_service: ArtifactRecordService
     operational_error_service: OperationalErrorService
     quarantine_review_coordinator: QuarantineReviewCoordinator
     alert_raise_coordinator: AlertRaiseCoordinator
@@ -289,6 +291,12 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    artifact_record_service = ArtifactRecordService(
+        governance_broker,
+        workspace_root=arbiter_workspace_root,
+        clock=context.clock,
+        ids=context.ids,
+    )
     operational_error_service = OperationalErrorService(
         governance_broker,
         clock=context.clock,
@@ -352,6 +360,7 @@ def create_runtime(
         leadership=leadership_service,
         feedback=feedback_service,
         file_locks=file_lock_service,
+        artifact_records=artifact_record_service,
         operational_errors=operational_error_service,
         alert_raise=alert_raise_coordinator,
         health_revalidation=health_revalidation_coordinator,
@@ -382,6 +391,7 @@ def create_runtime(
         leadership_service=leadership_service,
         feedback_service=feedback_service,
         file_lock_service=file_lock_service,
+        artifact_record_service=artifact_record_service,
         operational_error_service=operational_error_service,
         quarantine_review_coordinator=quarantine_review_coordinator,
         alert_raise_coordinator=alert_raise_coordinator,

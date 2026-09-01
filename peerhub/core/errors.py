@@ -551,6 +551,46 @@ class FileLockOwnershipMismatchError(PeerHubError):
         )
 
 
+class ArtifactClaimConflictError(PeerHubError):
+    """A named artifact has a different owner in its active cycle."""
+
+    error_code = ErrorCode.UNIQUE_CONSTRAINT_VIOLATED
+
+    def __init__(self, name: str, current_owner: str) -> None:
+        self.name = name
+        self.current_owner = current_owner
+        super().__init__(
+            f"artifact {name!r} is already claimed by {current_owner!r}",
+            details={"name": name, "current_owner": current_owner},
+        )
+
+
+class ArtifactNotClaimedError(PeerHubError):
+    """A draft/finalize operation named an artifact with no claim."""
+
+    error_code = ErrorCode.RECORD_NOT_FOUND
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        super().__init__(
+            f"artifact {name!r} has not been claimed yet",
+            details={"name": name},
+        )
+
+
+class ArtifactFileNotFoundError(PeerHubError):
+    """An artifact finalization source path does not exist."""
+
+    error_code = ErrorCode.RECORD_NOT_FOUND
+
+    def __init__(self, file_path: str) -> None:
+        self.file_path = file_path
+        super().__init__(
+            f"file {file_path!r} was not found for finalization",
+            details={"file_path": file_path},
+        )
+
+
 class WorkspaceIdentityMismatchError(PeerHubError):
     """A database belongs to a different workspace identity."""
 

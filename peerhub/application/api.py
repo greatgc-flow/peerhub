@@ -110,6 +110,7 @@ from peerhub.application.legacy import (
     ModelStatusCommand,
     AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
     FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
+    ArtifactClaimCommand, ArtifactStatusCommand, ArtifactFinalizeCommand,
     LockAcquireCommand, LockReleaseCommand, LockStatusCommand,
     ReportErrorCommand, AlertRaiseCommand,
     HealthCheckCommand, PeerStatusCommand, PeerQuarantineCommand, PeerRecoverCommand,
@@ -149,6 +150,11 @@ from peerhub.application.leadership import (
 from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
 from peerhub.governance.file_locks import FileLockService, FileUnlockResult
+from peerhub.governance.artifact_records import (
+    ArtifactMutationResult,
+    ArtifactRecordService,
+    ArtifactStatusResult,
+)
 from peerhub.governance.contract import TargetState
 from peerhub.health.service import HealthService
 
@@ -209,9 +215,12 @@ class _ResourceOwnershipError(Exception):
 @dataclass(frozen=True)
 class CommandDescriptor(Generic[C, R]):  # pyright: ignore[reportUntypedBaseClass]
     method: str
-    mutability: Mutability
+    mutability: Mutability | Callable[[CommandEnvelope], Mutability]
     accepted_scope: ScopeKind
-    idempotency: IdempotencyPolicy
+    idempotency: (
+        IdempotencyPolicy
+        | Callable[[CommandEnvelope], IdempotencyPolicy]
+    )
     decode: Callable[[CommandEnvelope], C]  # pyright: ignore[reportInvalidTypeForm]
     handle: Callable[[C, RequestContext], R]  # pyright: ignore[reportInvalidTypeForm]
     encode_result: Callable[[R], Mapping[str, JsonValue]]  # pyright: ignore[reportInvalidTypeForm]
@@ -374,6 +383,7 @@ class ApplicationAPI:
         leadership: LeadershipService | None = None,
         feedback: FeedbackService | None = None,
         file_locks: FileLockService | None = None,
+        artifact_records: ArtifactRecordService | None = None,
         operational_errors: OperationalErrorService | None = None,
         alert_raise: AlertRaiseCoordinator | None = None,
         health_revalidation: HealthRevalidationCoordinator | None = None,
@@ -410,6 +420,8 @@ class ApplicationAPI:
             self._register_feedback(feedback)
         if file_locks is not None:
             self._register_file_locks(file_locks)
+        if artifact_records is not None:
+            self._register_artifact_records(artifact_records)
 
         if operational_errors is not None:
             self._register_operational_errors(operational_errors)
@@ -2294,6 +2306,136 @@ class ApplicationAPI:
             CommandAvailability.AVAILABLE,
         ))
 
+    def _register_artifact_records(
+        self,
+        service: ArtifactRecordService,
+    ) -> None:
+        def optional_text(
+            envelope: CommandEnvelope,
+            name: str,
+        ) -> str | None:
+            value = envelope.params.get(name)
+            return None if value is None or value == "" else str(value)
+
+        def decode_claim(envelope: CommandEnvelope) -> ArtifactClaimCommand:
+            return ArtifactClaimCommand(
+                submission=self._submission(envelope),
+                name=str(envelope.params.get("name", "")),
+                owner=str(envelope.params.get("owner", "")),
+            )
+
+        def decode_status(envelope: CommandEnvelope) -> ArtifactStatusCommand:
+            return ArtifactStatusCommand(
+                submission=self._submission(envelope),
+                name=optional_text(envelope, "name"),
+                peer=optional_text(envelope, "peer"),
+                draft_path=optional_text(envelope, "draft_path"),
+            )
+
+        def decode_finalize(
+            envelope: CommandEnvelope,
+        ) -> ArtifactFinalizeCommand:
+            return ArtifactFinalizeCommand(
+                submission=self._submission(envelope),
+                name=str(envelope.params.get("name", "")),
+                file_path=str(envelope.params.get("file_path", "")),
+            )
+
+        def is_draft_registration(envelope: CommandEnvelope) -> bool:
+            return all(
+                isinstance(envelope.params.get(name), str)
+                and bool(envelope.params.get(name))
+                for name in ("name", "peer", "draft_path")
+            )
+
+        def status_mutability(envelope: CommandEnvelope) -> Mutability:
+            if is_draft_registration(envelope):
+                return Mutability.MUTATING
+            return Mutability.READ_ONLY
+
+        def status_idempotency(
+            envelope: CommandEnvelope,
+        ) -> IdempotencyPolicy:
+            if is_draft_registration(envelope):
+                return IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
+            return IdempotencyPolicy.READ_ONLY
+
+        def handle_status(
+            command: ArtifactStatusCommand,
+            _: RequestContext,
+        ) -> ArtifactMutationResult | ArtifactStatusResult:
+            if (
+                command.name is not None
+                and command.peer is not None
+                and command.draft_path is not None
+            ):
+                return service.register_draft(
+                    command.name,
+                    peer=command.peer,
+                    draft_path=command.draft_path,
+                )
+            return service.status(command.name)
+
+        def encode_mutation(
+            result: ArtifactMutationResult,
+        ) -> Mapping[str, JsonValue]:
+            return {
+                "receipt": dict(self._receipt(result.submission)),
+                "artifact": result.record.state,
+            }
+
+        def encode_status(
+            result: ArtifactMutationResult | ArtifactStatusResult,
+        ) -> Mapping[str, JsonValue]:
+            if isinstance(result, ArtifactMutationResult):
+                return encode_mutation(result)
+            if result.single:
+                artifact: JsonValue = (
+                    {} if not result.items else result.items[0].state
+                )
+                return {"artifact": artifact}
+            items: tuple[JsonValue, ...] = tuple(
+                target.state for target in result.items
+            )
+            return {"items": items}
+
+        self.register(CommandDescriptor(
+            "governance.artifact.claim",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_claim,
+            lambda command, _: service.claim(
+                command.name,
+                command.owner,
+            ),
+            encode_mutation,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "governance.artifact.status",
+            status_mutability,
+            ScopeKind.ANY,
+            status_idempotency,
+            decode_status,
+            handle_status,
+            encode_status,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "governance.artifact.finalize",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_finalize,
+            lambda command, _: service.finalize(
+                command.name,
+                command.file_path,
+            ),
+            encode_mutation,
+            CommandAvailability.AVAILABLE,
+        ))
+
     def _register_operational_errors(
         self,
         service: OperationalErrorService,
@@ -2767,8 +2909,21 @@ class ApplicationAPI:
                 ),
             )
 
-        # 3. Scope/Idempotency/Params validation
-        if desc.idempotency == IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED and not envelope.idempotency_key:
+        # 3. Scope/Idempotency/Params validation. A command whose wire shape
+        # supports both reads and writes may classify the concrete envelope;
+        # artifact status is read-only unless all draft-registration fields
+        # are present.
+        effective_mutability = (
+            desc.mutability(envelope)
+            if callable(desc.mutability)
+            else desc.mutability
+        )
+        effective_idempotency = (
+            desc.idempotency(envelope)
+            if callable(desc.idempotency)
+            else desc.idempotency
+        )
+        if effective_idempotency == IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED and not envelope.idempotency_key:
             return CommandFailure(
                 ok=False,
                 protocol_major=PROTOCOL_MAJOR,
@@ -2847,7 +3002,7 @@ class ApplicationAPI:
                 diagnostic_id="diag-ok",
                 correlation_id=envelope.correlation_id,
                 command_id=cid,
-                state="ADMITTED" if desc.mutability == Mutability.MUTATING else "COMPLETED",
+                state="ADMITTED" if effective_mutability == Mutability.MUTATING else "COMPLETED",
                 receipt_ref=encoded_res.get("admission_receipt_id") if isinstance(encoded_res.get("admission_receipt_id"), str) else None,  # pyright: ignore[reportArgumentType]
                 policy_revision=None,
                 configuration_revision=None,
