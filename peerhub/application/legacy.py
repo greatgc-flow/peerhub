@@ -396,6 +396,20 @@ class SessionHeartbeatCommand(SessionCloseCommand):
 
 
 @dataclass(frozen=True, slots=True)
+class StatusReadCommand(Command[Any]):
+    method: ClassVar[str] = "peerhub.status.read"
+    submission: SubmissionMetadata
+    room_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"room_id": self.room_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class NewTopicCommand(Command[Any]):
     method: ClassVar[str] = "coordination.topic.create"
     submission: SubmissionMetadata
@@ -1293,13 +1307,18 @@ class LegacyTranslator:
             
         target = LEGACY_CATALOG[call.action]
 
-        if call.action == "status" and not _legacy_room_id(
-            call.arguments,
-            submission.scope,
-        ):
-            return InvalidLegacyArguments(
-                action=call.action,
-                reason="room_id is required in arguments, context, or scope",
+        if call.action == "status":
+            room_id = _legacy_room_id(call.arguments, submission.scope)
+            if not room_id:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="room_id is required in arguments, context, or scope",
+                )
+            return TranslatedCommand(
+                command=StatusReadCommand(
+                    submission=submission,
+                    room_id=room_id,
+                )
             )
         
         if call.action == "ask":

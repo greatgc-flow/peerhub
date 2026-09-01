@@ -452,3 +452,10 @@ The implementing dispatch (ag.deepthink) hit the "killed dispatch may still writ
 
 **Verification:** full suite passed (1312 before the final pyright-cleanup edits; the small follow-up edits were behavior-preserving and independently re-verified against the same test file). 0 new pyright diagnostics after cleanup.
 
+### Round (2026-09-01): core `status` backed (51/90)
+
+Implemented the deliberately minimal, ratified core view for legacy `status`: a read-only `peerhub.status.read` command composes `RoomsService.get_room_summary()` with `RoomsService.count_unread_messages()` and returns the explicit `room_id`, nullable `room_summary` (`mission`, `blocked`, `phase`), and room-wide `unread_count`. The already-ratified explicit-room requirement remains unchanged; no ambient fallback was added. The CLI uses the same application-layer composition through `peerhub room status`. Leader/participants/roles/tasks/consensus/locks were not pulled into this focused round, and the legacy process-lease-sweep side effect remains explicitly waived as host tooling.
+
+**Verification:** focused status coverage passed (`11 passed, 77 deselected`). The complete suite finished with `1 failed, 1336 passed, 9 deselected, 2 warnings, 13 subtests passed in 252.94s (0:04:12)`; the sole failure is the allowed pre-existing `test_committed_manifest_snapshot_is_valid`. Pyright reports 0 new diagnostics in status-touched code; the environment continues to expose the known 10-diagnostic `cli.py` baseline and 52 existing `api.py` diagnostics caused by pyright failing to resolve installed `pydantic`.
+
+**Progress:** 51 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 50). The newly backed action is `status` (`peerhub.status.read`).

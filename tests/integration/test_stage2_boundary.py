@@ -8,7 +8,7 @@ from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, BindProfileCommand, ModelStatusCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
+from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, StatusReadCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, BindProfileCommand, ModelStatusCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
 from peerhub.application.legacy import AlertRaiseCommand, _legacy_room_id
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
@@ -1725,7 +1725,7 @@ def test_legacy_translation_ask():
 
 
 def test_legacy_status_resolves_explicit_room_argument(runtime_setup) -> None:
-    runtime, _, _ = runtime_setup
+    runtime, client, _ = runtime_setup
     for room_id in ("room-explicit", "room-newer"):
         runtime.rooms_service.create_room(
             room_id=room_id,
@@ -1738,6 +1738,20 @@ def test_legacy_status_resolves_explicit_room_argument(runtime_setup) -> None:
         "room_id": "room-explicit",
         "context": {"current_room": "room-newer"},
     }
+    runtime.rooms_service.update_room_summary(
+        "room-explicit",
+        mission="legacy status mission",
+        phase="legacy-status",
+        actor_id="peer-1",
+    )
+    runtime.rooms_service.send_message(
+        room_id="room-explicit",
+        sender_instance_id="peer-1",
+        sender_profile_id="profile-1",
+        recipient_instance_id="peer-2",
+        recipient_profile_id="profile-2",
+        body="legacy status mail",
+    )
 
     assert _legacy_room_id(arguments, {"room": "room-newer"}) == "room-explicit"
     outcome = LegacyTranslator().translate(
@@ -1745,9 +1759,17 @@ def test_legacy_status_resolves_explicit_room_argument(runtime_setup) -> None:
         _legacy_submission(),
     )
 
-    assert isinstance(outcome, KnownLegacyActionNotBacked)
-    assert outcome.legacy_action == "status"
-    assert outcome.target_method == LEGACY_CATALOG["status"]
+    assert isinstance(outcome, TranslatedCommand)
+    assert isinstance(outcome.command, StatusReadCommand)
+    assert outcome.command.room_id == "room-explicit"
+    submitted = client.submit(outcome.command)
+    assert isinstance(submitted, CommandSuccess)
+    assert submitted.result["room_summary"] == {
+        "mission": "legacy status mission",
+        "blocked": None,
+        "phase": "legacy-status",
+    }
+    assert submitted.result["unread_count"] == 1
 
 
 @pytest.mark.parametrize(
@@ -1772,7 +1794,7 @@ def test_legacy_status_resolves_nested_context_and_submission_scope(
     scope,
     expected_room_id,
 ) -> None:
-    runtime, _, _ = runtime_setup
+    runtime, client, _ = runtime_setup
     runtime.rooms_service.create_room(
         room_id=expected_room_id,
         topic_id=f"topic-{expected_room_id}",
@@ -1783,7 +1805,7 @@ def test_legacy_status_resolves_nested_context_and_submission_scope(
     submission = SubmissionMetadata(
         client_request_id="r",
         correlation_id="c",
-        client_id="c1",
+        client_id="client-1",
         actor_id=None,
         scope=scope,
         idempotency_key="i",
@@ -1798,8 +1820,16 @@ def test_legacy_status_resolves_nested_context_and_submission_scope(
         submission,
     )
 
-    assert isinstance(outcome, KnownLegacyActionNotBacked)
-    assert outcome.target_method == LEGACY_CATALOG["status"]
+    assert isinstance(outcome, TranslatedCommand)
+    assert isinstance(outcome.command, StatusReadCommand)
+    assert outcome.command.room_id == expected_room_id
+    submitted = client.submit(outcome.command)
+    assert isinstance(submitted, CommandSuccess)
+    assert submitted.result == {
+        "room_id": expected_room_id,
+        "room_summary": None,
+        "unread_count": 0,
+    }
 
 
 def test_legacy_status_rejects_empty_room_context_without_fallback(

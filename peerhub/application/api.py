@@ -47,6 +47,7 @@ from peerhub.application.alert_raise import (
     AlertRaiseResult,
 )
 from peerhub.application.arbiter_review import ArbiterReviewCoordinator
+from peerhub.application.status import collect_room_status
 from peerhub.application.commands import (
     Command,
     AdmitDispatch,
@@ -78,6 +79,7 @@ from peerhub.dispatch.room_session import (
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
+    StatusReadCommand,
     NewTopicCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
     MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand,
     ThreadPromoteCommand,
@@ -598,6 +600,11 @@ class ApplicationAPI:
             return v
         def topic(e: CommandEnvelope) -> NewTopicCommand:
             return NewTopicCommand(self._submission(e),text(e,"thread_id"),text(e,"room_id"),text(e,"subject"),text(e,"creator_id"))
+        def status(e: CommandEnvelope) -> StatusReadCommand:
+            room_id = text(e, "room_id")
+            if not room_id:
+                raise ValueError("room_id must be a nonempty string")
+            return StatusReadCommand(self._submission(e), room_id)
         def append(e: CommandEnvelope) -> ThreadAppendCommand:
             return ThreadAppendCommand(
                 self._submission(e),
@@ -761,6 +768,16 @@ class ApplicationAPI:
             )
         def clear(e: CommandEnvelope) -> ClearRoomCommand:
             return ClearRoomCommand(self._submission(e),text(e,"old_room_id"),text(e,"new_room_id"),text(e,"subject"),text(e,"actor_id"))
+        self.register(CommandDescriptor(
+            "peerhub.status.read",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            status,
+            lambda c, _: collect_room_status(s, room_id=c.room_id),
+            lambda result: result,
+            CommandAvailability.AVAILABLE,
+        ))
         self.register(CommandDescriptor("coordination.topic.create", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, topic, lambda c,_:s.create_thread(thread_id=c.thread_id,room_id=c.room_id,subject=c.subject,creator_id=c.creator_id), self._receipt, CommandAvailability.AVAILABLE))
         self.register(CommandDescriptor(
             "coordination.thread.append",

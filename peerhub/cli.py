@@ -38,8 +38,10 @@ from peerhub.application.direct_ask import (
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.role_assignment import RoleReleaseDisposition
+from peerhub.application.status import collect_room_status
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
+from peerhub.core.protocol import JsonValue
 from peerhub.core.identity import (
     CallerIdentityProvider,
     LocalProcessCallerIdentityProvider,
@@ -1512,18 +1514,22 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     ),
                 )
             else:
-                target = runtime.governance_broker.get_target(parsed.room_id)
-                if target is None:
-                    raise RecordNotFoundError("room", parsed.room_id)
-                unread_count = service.count_unread_messages(room_id=parsed.room_id)
-                result = dict(target.state)
-                result["unread_count"] = unread_count
+                result = collect_room_status(service, room_id=parsed.room_id)
                 if parsed.json:
                     print(json.dumps(_json_safe(result)))
                 else:
+                    summary = result["room_summary"]
+                    summary_view: Mapping[str, JsonValue] = (
+                        cast(Mapping[str, JsonValue], summary)
+                        if isinstance(summary, Mapping)
+                        else {}
+                    )
                     print(
-                        f"Room {parsed.room_id}: status={target.state['status']}, "
-                        f"unread_count={unread_count}"
+                        f"Room {parsed.room_id}: "
+                        f"mission={summary_view.get('mission') or '-'}, "
+                        f"blocked={summary_view.get('blocked') or '-'}, "
+                        f"phase={summary_view.get('phase') or '-'}, "
+                        f"unread_count={result['unread_count']}"
                     )
                 return 0
             target = runtime.governance_broker.get_target(submission.receipt.target_id)

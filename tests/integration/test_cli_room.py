@@ -34,7 +34,7 @@ def test_cli_room_status_missing_returns_two(tmp_path: Path, capsys) -> None:
     assert "not found" in capsys.readouterr().err
 
 
-def test_cli_room_status_includes_room_wide_unread_count(
+def test_cli_room_status_includes_summary_and_room_wide_unread_count(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -62,10 +62,31 @@ def test_cli_room_status_includes_room_wide_unread_count(
             "--body", f"for {recipient}",
         ])
 
-    assert run([
+    context = RuntimeContext(
+        workspace_home_id=tmp_path.name,
+        paths=PathLayout.for_workspace(tmp_path),
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime.rooms_service.update_room_summary(
+            "room-unread-status",
+            mission="verify status",
+            blocked=None,
+            phase="testing",
+            actor_id="peer-a",
+        )
+
+    status = run([
         "room", "status", *workspace,
         "--room-id", "room-unread-status",
-    ])["unread_count"] == 2
+    ])
+    assert status["room_summary"] == {
+        "mission": "verify status",
+        "blocked": None,
+        "phase": "testing",
+    }
+    assert status["unread_count"] == 2
     run([
         "room", "mark-read", *workspace,
         "--room-id", "room-unread-status",
