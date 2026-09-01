@@ -9,7 +9,7 @@ from typing import Any
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
 from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, BindProfileCommand, ModelStatusCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
-from peerhub.application.legacy import AlertRaiseCommand
+from peerhub.application.legacy import AlertRaiseCommand, _legacy_room_id
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -1724,17 +1724,108 @@ def test_legacy_translation_ask():
     assert out.command.method == "dispatch.submit"
 
 
-def test_legacy_translation_unbacked():
-    translator = LegacyTranslator()
-    sub = SubmissionMetadata(
-        client_request_id="r", correlation_id="c", client_id="c1", actor_id=None, scope={},
-        idempotency_key="i", expected_policy_revision=None, expected_configuration_revision=None, client_timestamp=0
+def test_legacy_status_resolves_explicit_room_argument(runtime_setup) -> None:
+    runtime, _, _ = runtime_setup
+    for room_id in ("room-explicit", "room-newer"):
+        runtime.rooms_service.create_room(
+            room_id=room_id,
+            topic_id=f"topic-{room_id}",
+            title=room_id,
+            creator_id="peer-1",
+            participants=(),
+        )
+    arguments = {
+        "room_id": "room-explicit",
+        "context": {"current_room": "room-newer"},
+    }
+
+    assert _legacy_room_id(arguments, {"room": "room-newer"}) == "room-explicit"
+    outcome = LegacyTranslator().translate(
+        LegacyActionCall(action="status", arguments=arguments),
+        _legacy_submission(),
     )
-    
-    out = translator.translate(LegacyActionCall(action="status", arguments={}), sub)
-    assert isinstance(out, KnownLegacyActionNotBacked)
-    assert out.legacy_action == "status"
-    assert out.target_method == LEGACY_CATALOG["status"]
+
+    assert isinstance(outcome, KnownLegacyActionNotBacked)
+    assert outcome.legacy_action == "status"
+    assert outcome.target_method == LEGACY_CATALOG["status"]
+
+
+@pytest.mark.parametrize(
+    ("arguments", "scope", "expected_room_id"),
+    (
+        (
+            {"context": {"current_room": "room-argument-context"}},
+            {"room_id": "room-scope"},
+            "room-argument-context",
+        ),
+        ({}, {"room": "room-scope"}, "room-scope"),
+        (
+            {},
+            {"context": {"current-room": "room-scope-context"}},
+            "room-scope-context",
+        ),
+    ),
+)
+def test_legacy_status_resolves_nested_context_and_submission_scope(
+    runtime_setup,
+    arguments,
+    scope,
+    expected_room_id,
+) -> None:
+    runtime, _, _ = runtime_setup
+    runtime.rooms_service.create_room(
+        room_id=expected_room_id,
+        topic_id=f"topic-{expected_room_id}",
+        title=expected_room_id,
+        creator_id="peer-1",
+        participants=(),
+    )
+    submission = SubmissionMetadata(
+        client_request_id="r",
+        correlation_id="c",
+        client_id="c1",
+        actor_id=None,
+        scope=scope,
+        idempotency_key="i",
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=0,
+    )
+
+    assert _legacy_room_id(arguments, scope) == expected_room_id
+    outcome = LegacyTranslator().translate(
+        LegacyActionCall(action="status", arguments=arguments),
+        submission,
+    )
+
+    assert isinstance(outcome, KnownLegacyActionNotBacked)
+    assert outcome.target_method == LEGACY_CATALOG["status"]
+
+
+def test_legacy_status_rejects_empty_room_context_without_fallback(
+    runtime_setup,
+) -> None:
+    runtime, _, _ = runtime_setup
+    for room_id in ("room-older", "room-latest"):
+        runtime.rooms_service.create_room(
+            room_id=room_id,
+            topic_id=f"topic-{room_id}",
+            title=room_id,
+            creator_id="peer-1",
+            participants=(),
+        )
+    rooms_before = tuple(runtime.governance_broker.list_targets("room"))
+
+    outcome = LegacyTranslator().translate(
+        LegacyActionCall(action="status", arguments={}),
+        _legacy_submission(),
+    )
+
+    assert outcome == InvalidLegacyArguments(
+        action="status",
+        reason="room_id is required in arguments, context, or scope",
+    )
+    assert tuple(runtime.governance_broker.list_targets("room")) == rooms_before
 
 
 def test_admit_rejected_internal_error(runtime_setup):

@@ -1292,6 +1292,15 @@ class LegacyTranslator:
             return UnknownLegacyAction(action=call.action)
             
         target = LEGACY_CATALOG[call.action]
+
+        if call.action == "status" and not _legacy_room_id(
+            call.arguments,
+            submission.scope,
+        ):
+            return InvalidLegacyArguments(
+                action=call.action,
+                reason="room_id is required in arguments, context, or scope",
+            )
         
         if call.action == "ask":
             prompt = str(call.arguments.get("prompt", ""))
