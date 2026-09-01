@@ -80,7 +80,7 @@ from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
     ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
     StatusReadCommand, UpdateStatusCommand,
-    NewTopicCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
+    NewTopicCommand, ThreadNewCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
     MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand,
     ThreadPromoteCommand,
     AppendHandoffCommand, ContinuityCheckpointCommand, ContextFillCommand,
@@ -107,6 +107,7 @@ from peerhub.application.process_lease_sweep import (
     ProcessLeaseSweepCoordinator,
     ProcessLeaseSweepReport,
 )
+from peerhub.application.thread_new import ThreadNewResult, create_thread_new
 from peerhub.application.peer_registry import (
     PeerRegistryService,
     collect_model_status,
@@ -622,6 +623,14 @@ class ApplicationAPI:
             return v
         def topic(e: CommandEnvelope) -> NewTopicCommand:
             return NewTopicCommand(self._submission(e),text(e,"thread_id"),text(e,"room_id"),text(e,"subject"),text(e,"creator_id"))
+        def thread_new(e: CommandEnvelope) -> ThreadNewCommand:
+            return ThreadNewCommand(
+                self._submission(e),
+                text(e, "thread_id"),
+                text(e, "room_id"),
+                text(e, "subject"),
+                text(e, "creator_id"),
+            )
         def status(e: CommandEnvelope) -> StatusReadCommand:
             room_id = text(e, "room_id")
             if not room_id:
@@ -810,6 +819,18 @@ class ApplicationAPI:
             )
         def clear(e: CommandEnvelope) -> ClearRoomCommand:
             return ClearRoomCommand(self._submission(e),text(e,"old_room_id"),text(e,"new_room_id"),text(e,"subject"),text(e,"actor_id"))
+        def encode_thread_new(result: ThreadNewResult) -> Mapping[str, JsonValue]:
+            receipt = (
+                None
+                if result.submission is None
+                else dict(self._receipt(result.submission))
+            )
+            return {
+                "thread_id": result.thread_id,
+                "created": result.created,
+                "message": result.message,
+                "receipt": cast(JsonValue, receipt),
+            }
         self.register(CommandDescriptor(
             "peerhub.status.read",
             Mutability.READ_ONLY,
@@ -847,6 +868,22 @@ class ApplicationAPI:
             CommandAvailability.AVAILABLE,
         ))
         self.register(CommandDescriptor("coordination.topic.create", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, topic, lambda c,_:s.create_thread(thread_id=c.thread_id,room_id=c.room_id,subject=c.subject,creator_id=c.creator_id), self._receipt, CommandAvailability.AVAILABLE))
+        self.register(CommandDescriptor(
+            "coordination.thread.create",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            thread_new,
+            lambda c, _: create_thread_new(
+                s,
+                thread_id=c.thread_id,
+                room_id=c.room_id,
+                subject=c.subject,
+                creator_id=c.creator_id,
+            ),
+            encode_thread_new,
+            CommandAvailability.AVAILABLE,
+        ))
         self.register(CommandDescriptor(
             "coordination.thread.append",
             Mutability.MUTATING,

@@ -2,6 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+import re
 from typing import ClassVar, Generic, TypeVar, Any
 
 from peerhub.core.protocol import JsonValue
@@ -96,6 +97,12 @@ def _legacy_room_id(
         if scoped_contextual is not None:
             return scoped_contextual
     return ""
+
+
+def legacy_thread_slug(topic: str) -> str:
+    """Match legacy ``thread-new``'s deterministic topic-to-ID conversion."""
+
+    return re.sub(r"[^\w-]", "-", topic.lower())[:40]
 
 
 @dataclass(frozen=True)
@@ -456,6 +463,28 @@ class NewTopicCommand(Command[Any]):
 
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {"thread_id": self.thread_id, "room_id": self.room_id, "subject": self.subject, "creator_id": self.creator_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ThreadNewCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.thread.create"
+    submission: SubmissionMetadata
+    thread_id: str
+    room_id: str
+    subject: str
+    creator_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "thread_id": self.thread_id,
+            "room_id": self.room_id,
+            "subject": self.subject,
+            "creator_id": self.creator_id,
+        }
 
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
@@ -1608,6 +1637,30 @@ class LegacyTranslator:
                 room_id=str(call.arguments.get("room_id", "")),
                 subject=str(call.arguments.get("subject", "")),
                 creator_id=str(call.arguments.get("creator_id", "")),
+            ))
+        if call.action == "thread-new":
+            topic = _optional_legacy_text(call.arguments, "topic")
+            if not topic:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="thread-new requires --topic",
+                )
+            thread_new_room_id = _legacy_room_id(call.arguments, submission.scope)
+            if not thread_new_room_id:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="room_id is required in arguments, context, or scope",
+                )
+            return TranslatedCommand(command=ThreadNewCommand(
+                submission=submission,
+                thread_id=legacy_thread_slug(topic),
+                room_id=thread_new_room_id,
+                subject=topic,
+                creator_id=_first_text(
+                    call.arguments,
+                    ("from", "peer"),
+                    "cc",
+                ),
             ))
         if call.action == "thread-append":
             return TranslatedCommand(command=ThreadAppendCommand(

@@ -39,6 +39,8 @@ from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
+from peerhub.application.legacy import legacy_thread_slug
+from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
 from peerhub.core.protocol import JsonValue
@@ -1740,6 +1742,28 @@ def _run_room(parsed: argparse.Namespace) -> int:
             action = parsed.room_action
             if action == "create":
                 submission = service.create_room(room_id=parsed.room_id, topic_id=parsed.topic_id, title=parsed.title, creator_id=parsed.creator, participants=tuple(x for x in parsed.participants.split(",") if x))
+            elif action == "thread-new":
+                result = create_thread_new(
+                    service,
+                    thread_id=legacy_thread_slug(parsed.topic),
+                    room_id=parsed.room_id,
+                    subject=parsed.topic,
+                    creator_id=parsed.creator or "cc",
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe({
+                        "thread_id": result.thread_id,
+                        "created": result.created,
+                        "message": result.message,
+                    })))
+                elif result.message is not None:
+                    print(f"[HUB] {result.message}")
+                else:
+                    print(
+                        f"[HUB] THREAD-NEW '{result.thread_id}' "
+                        f"| from={parsed.creator} | file={result.thread_id}.jsonl"
+                    )
+                return 0
             elif action == "create-thread":
                 submission = service.create_thread(thread_id=parsed.thread_id, room_id=parsed.room_id, subject=parsed.subject, creator_id=parsed.creator)
             elif action == "append-message":
@@ -2922,6 +2946,7 @@ def main(args: list[str] | None = None) -> int:
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
     room_specs = {
         "create": [("--room-id", True), ("--topic-id", True), ("--title", True), ("--creator", True), ("--participants", True)],
+        "thread-new": [("--room-id", True), ("--topic", True), ("--creator", False)],
         "create-thread": [("--thread-id", True), ("--room-id", True), ("--subject", True), ("--creator", True)],
         "append-message": [("--message-id", True), ("--room-id", True), ("--thread-id", True), ("--author", True), ("--body", True)],
         "send": [("--room-id", True), ("--sender-instance-id", True), ("--sender-profile-id", True), ("--recipient-instance-id", True), ("--recipient-profile-id", True), ("--body", True), ("--message-type", False), ("--thread-ref", False), ("--resource-ref", False), ("--correlation-id", False)],
@@ -2940,6 +2965,7 @@ def main(args: list[str] | None = None) -> int:
     }
     room_subcommand_help = {
         "create": "Create a new room",
+        "thread-new": "Create a legacy-compatible thread inside an existing room",
         "create-thread": "Create a new thread inside an existing room",
         "append-message": "Append a message to a thread",
         "send": "Deliver one private mailbox message to a room recipient",
@@ -2961,6 +2987,7 @@ def main(args: list[str] | None = None) -> int:
         "--topic-id": "Topic identifier for this room",
         "--title": "Room title",
         "--creator": "Peer ID creating this room/thread",
+        "--topic": "Raw thread topic; its legacy slug becomes the thread identifier",
         "--participants": "Comma-separated participant peer IDs (e.g. cc,cx,ag)",
         "--thread-id": "Thread identifier",
         "--subject": "Thread subject, or the new room's subject when clearing",
@@ -3021,6 +3048,13 @@ def main(args: list[str] | None = None) -> int:
                     name,
                     required=required,
                     default="MSG",
+                    help=room_arg_help[name],
+                )
+            elif action == "thread-new" and name == "--creator":
+                command_parser.add_argument(
+                    name,
+                    required=required,
+                    default="cc",
                     help=room_arg_help[name],
                 )
             else:
