@@ -1368,6 +1368,36 @@ class SqliteDispatchRepository:
             if (lease := self.get_lease(str(row["lease_id"]))) is not None
         )
 
+    def list_expired_leases(
+        self,
+        as_of: int,
+        *,
+        limit: int = 100,
+    ) -> tuple[LeaseSnapshot, ...]:
+        """Return expired active lifecycle leases in deterministic order."""
+
+        if type(as_of) is not int or as_of < 0:
+            raise ValueError("as_of must be a nonnegative integer")
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
+
+        rows = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            """
+            SELECT lease_id
+            FROM leases
+            WHERE state IN ('RESERVED', 'ACTIVE', 'RENEWED')
+              AND heartbeat_expires_at < ?
+            ORDER BY heartbeat_expires_at, lease_id
+            LIMIT ?
+            """,
+            (as_of, limit),
+        ).fetchall()
+        return tuple(
+            lease
+            for row in rows
+            if (lease := self.get_lease(str(row["lease_id"]))) is not None
+        )
+
     def cas_update_lease(
         self,
         current: LeaseSnapshot,

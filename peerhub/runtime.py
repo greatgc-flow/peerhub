@@ -39,6 +39,9 @@ from .application.role_assignment import RoleAssignmentService
 from .application.leadership import LeadershipService
 from .application.alert_raise import AlertRaiseCoordinator
 from .application.health_revalidation import HealthRevalidationCoordinator
+from .application.process_lease_sweep import ProcessLeaseSweepCoordinator
+from .dispatch.session_lease import SessionLeaseCoordinator
+from .dispatch.tree_controller import RealTreeController
 
 
 @dataclass
@@ -71,6 +74,7 @@ class Runtime:
     quarantine_review_coordinator: QuarantineReviewCoordinator
     alert_raise_coordinator: AlertRaiseCoordinator
     health_revalidation_coordinator: HealthRevalidationCoordinator
+    process_lease_sweep_coordinator: ProcessLeaseSweepCoordinator
     application_workflows: ApplicationWorkflows
     application_api: ApplicationAPI
 
@@ -180,6 +184,21 @@ def create_runtime(
         membership=membership,
         clock=context.clock,
         ids=context.ids,
+    )
+
+    process_lease_sweep_coordinator = ProcessLeaseSweepCoordinator(
+        SessionLeaseCoordinator(
+            state_store,
+            clock=context.clock,
+            ids=context.ids,
+        ),
+        store=state_store,
+        tree_controller=RealTreeController(),
+        health=health_service,
+        clock=context.clock,
+        ids=context.ids,
+        policy_id=policy.policy_id,
+        policy_revision=policy.revision,
     )
 
     if admission_config is not None:
@@ -315,6 +334,7 @@ def create_runtime(
         operational_errors=operational_error_service,
         alert_raise=alert_raise_coordinator,
         health_revalidation=health_revalidation_coordinator,
+        process_lease_sweep=process_lease_sweep_coordinator,
     )
 
     return Runtime(
@@ -343,7 +363,7 @@ def create_runtime(
         quarantine_review_coordinator=quarantine_review_coordinator,
         alert_raise_coordinator=alert_raise_coordinator,
         health_revalidation_coordinator=health_revalidation_coordinator,
+        process_lease_sweep_coordinator=process_lease_sweep_coordinator,
         application_workflows=application_workflows,
         application_api=application_api,
     )
-

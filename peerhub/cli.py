@@ -1229,6 +1229,61 @@ def _run_lease(parsed: argparse.Namespace) -> int:
     )
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            if parsed.lease_action == "sweep":
+                caller = require_caller_identity(
+                    LocalProcessCallerIdentityProvider()
+                )
+                report = runtime.process_lease_sweep_coordinator.sweep(
+                    recovery_actor_principal_id=caller.principal_id,
+                    limit=parsed.limit,
+                    reap=not parsed.no_reap,
+                )
+                swept: tuple[JsonValue, ...] = tuple({
+                    "lease_id": item.lease_id,
+                    "profile_id": item.profile_id,
+                    "pre_state": item.pre_state.value,
+                    "post_state": item.post_state.value,
+                    "process_alive": item.process_alive,
+                    "process_identity_matches": (
+                        item.process_identity_matches
+                    ),
+                    "actual_process_creation_time": (
+                        item.actual_process_creation_time
+                    ),
+                    "recovery_receipt_id": item.recovery_receipt_id,
+                    "recovery_decision": item.recovery_decision.value,
+                    "reaped": item.reaped,
+                    "reap_signal": item.reap_signal,
+                    "backoff_duration_seconds": (
+                        item.backoff_duration_seconds
+                    ),
+                } for item in report.swept)
+                payload: Mapping[str, JsonValue] = {
+                    "sweep_id": report.sweep_id,
+                    "as_of": report.as_of,
+                    "swept": swept,
+                }
+                if parsed.json:
+                    print(json.dumps(_json_safe(payload)))
+                elif not swept:
+                    print("[HUB] No expired leases.")
+                else:
+                    print(
+                        "LEASE\tPROFILE\tPRE\tPOST\tALIVE\tREAPED\tBACKOFF_SECONDS"
+                    )
+                    for item in swept:
+                        assert isinstance(item, Mapping)
+                        print(
+                            f"{item.get('lease_id')}\t"
+                            f"{item.get('profile_id')}\t"
+                            f"{item.get('pre_state')}\t"
+                            f"{item.get('post_state')}\t"
+                            f"{item.get('process_alive')}\t"
+                            f"{item.get('reaped')}\t"
+                            f"{item.get('backoff_duration_seconds')}"
+                        )
+                return 0
+
             rows = collect_lease_status(
                 runtime.dispatch_service, now=context.clock.now()
             )
@@ -2208,6 +2263,23 @@ def main(args: list[str] | None = None) -> int:
     lease_status_parser = lease_subparsers.add_parser("status", help="Show active process leases and PID liveness")
     lease_status_parser.add_argument("--workspace", default=".", help="Path to workspace root")
     lease_status_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    lease_sweep_parser = lease_subparsers.add_parser(
+        "sweep",
+        help="Recover expired process leases and optionally reap verified root PIDs",
+    )
+    lease_sweep_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    lease_sweep_parser.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Maximum expired leases to sweep (default: 100)",
+    )
+    lease_sweep_parser.add_argument(
+        "--no-reap",
+        action="store_true",
+        help="Recover leases and apply backoff without killing root PIDs",
+    )
+    lease_sweep_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     gate_parser = subparsers.add_parser("gate", help="Check dispatch gate condition for an agent")
     gate_subparsers = gate_parser.add_subparsers(dest="gate_action", required=True)

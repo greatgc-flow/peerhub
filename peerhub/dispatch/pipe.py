@@ -80,6 +80,11 @@ class TreeController(Protocol):
 
     def kill_tree(self, tree: TreeHandle) -> TreeDispatchReceipt: ...
 
+    def kill_by_identity(
+        self,
+        identity: ProcessBirthIdentity,
+    ) -> TreeDispatchReceipt: ...
+
     def observe_tree(
         self,
         tree: TreeHandle,

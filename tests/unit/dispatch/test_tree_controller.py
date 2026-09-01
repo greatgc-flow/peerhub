@@ -79,6 +79,38 @@ def test_kill_tree_terminates_running_process(controller: RealTreeController) ->
             proc.wait()
 
 
+def test_kill_by_identity_terminates_single_root_process(
+    controller: RealTreeController,
+) -> None:
+    """Persisted identity cleanup kills one root without a live tree handle."""
+
+    proc = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(10)"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=(
+            subprocess.CREATE_NEW_PROCESS_GROUP
+            if sys.platform == "win32"
+            else 0
+        ),
+    )
+    try:
+        identity = ProcessBirthIdentity(
+            pid=proc.pid,
+            process_creation_time=_get_process_creation_time_ms(proc.pid),
+        )
+
+        receipt = controller.kill_by_identity(identity)
+
+        assert receipt.dispatched is True
+        assert receipt.target_identities == (identity,)
+        proc.wait(timeout=5)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+
+
 def test_soft_cancel_on_signal_ignoring_process(controller: RealTreeController) -> None:
     """soft_cancel on a process ignoring signals leaves process RUNNING so ladder can escalate."""
     # Script that ignores SIGINT / CTRL_BREAK
@@ -184,6 +216,11 @@ def test_identity_verification_mismatched_creation_time(controller: RealTreeCont
         kill_receipt = controller.kill_tree(handle)
         assert kill_receipt.dispatched is False
 
+        identity_receipt = controller.kill_by_identity(
+            mismatched_identity
+        )
+        assert identity_receipt.dispatched is False
+
         # Process is still running because signal methods refused to signal mismatched PID
         assert proc.poll() is None
     finally:
@@ -270,4 +307,3 @@ def test_windows_job_object_kill_on_close_orphaned_child() -> None:
         if parent_proc.poll() is None:
             parent_proc.kill()
             parent_proc.wait()
-

@@ -443,6 +443,64 @@ class RealTreeController:
                         target_identities=(),
                     )
 
+    def kill_by_identity(
+        self,
+        identity: ProcessBirthIdentity,
+    ) -> TreeDispatchReceipt:
+        """Kill one identity-verified root PID without claiming a tree reap.
+
+        A persisted process birth identity cannot reconstruct the live Job
+        Object or process-group handle required by ``kill_tree``. This method
+        is therefore only a residual-cleanup safety net for the single root
+        process; Job Object ``KILL_ON_JOB_CLOSE`` remains the normal Windows
+        orphan-containment mechanism.
+        """
+
+        verified, _ = verify_process_identity(identity.pid, identity)
+        if not verified:
+            return TreeDispatchReceipt(
+                dispatched=False,
+                signal_name="KILL_BY_IDENTITY",
+                target_identities=(),
+            )
+
+        if sys.platform == "win32":
+            try:
+                kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+                # PROCESS_TERMINATE = 0x0001
+                h_proc = kernel32.OpenProcess(0x0001, False, identity.pid)
+                if h_proc:
+                    try:
+                        if kernel32.TerminateProcess(h_proc, 1):
+                            return TreeDispatchReceipt(
+                                dispatched=True,
+                                signal_name="TerminateProcess",
+                                target_identities=(identity,),
+                            )
+                    finally:
+                        kernel32.CloseHandle(h_proc)
+            except Exception:
+                pass
+            return TreeDispatchReceipt(
+                dispatched=False,
+                signal_name="KILL_BY_IDENTITY",
+                target_identities=(),
+            )
+
+        try:
+            os.kill(identity.pid, signal.SIGKILL)
+            return TreeDispatchReceipt(
+                dispatched=True,
+                signal_name="SIGKILL",
+                target_identities=(identity,),
+            )
+        except Exception:
+            return TreeDispatchReceipt(
+                dispatched=False,
+                signal_name="SIGKILL",
+                target_identities=(),
+            )
+
     def observe_tree(
         self,
         tree: TreeHandle,  # pyright: ignore[reportUnknownParameterType]

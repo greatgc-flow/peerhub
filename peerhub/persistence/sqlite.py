@@ -519,6 +519,15 @@ class SqliteReadUnitOfWork:
         """Return active lifecycle leases, including heartbeat-expired rows."""
         return self.dispatch.list_active_leases()
 
+    def list_expired_leases(
+        self,
+        as_of: int,
+        *,
+        limit: int = 100,
+    ) -> tuple[LeaseSnapshot, ...]:
+        """Return heartbeat-expired active lifecycle leases in expiry order."""
+        return self.dispatch.list_expired_leases(as_of, limit=limit)
+
     def get_client_request_binding(
         self,
         client_id: str,
@@ -1103,6 +1112,15 @@ class SqliteUnitOfWork:
     def list_active_leases(self) -> tuple[LeaseSnapshot, ...]:
         """Return active lifecycle leases, including heartbeat-expired rows."""
         return self.dispatch.list_active_leases()
+
+    def list_expired_leases(
+        self,
+        as_of: int,
+        *,
+        limit: int = 100,
+    ) -> tuple[LeaseSnapshot, ...]:
+        """Return heartbeat-expired active lifecycle leases in expiry order."""
+        return self.dispatch.list_expired_leases(as_of, limit=limit)
 
     def get_client_request_binding(
         self,

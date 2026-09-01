@@ -1280,6 +1280,24 @@ class LeaseStatusCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class LeaseSweepCommand(Command[Any]):
+    method: ClassVar[str] = "dispatch.lease.sweep"
+    submission: SubmissionMetadata
+    limit: int = 100
+    reap: bool = True
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "limit": self.limit,
+            "reap": self.reap,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 
 @dataclass(frozen=True, slots=True)
 class AssignRoleCommand(Command[Any]):
@@ -2147,6 +2165,25 @@ class LegacyTranslator:
         if call.action == "lease-status":
             return TranslatedCommand(command=LeaseStatusCommand(
                 submission=submission,
+            ))
+        if call.action == "lease-sweep":
+            raw_limit = call.arguments.get("limit")
+            limit = 100 if raw_limit is None else _optional_int(raw_limit)
+            if limit is None or limit < 1:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="limit must be a positive integer",
+                )
+            raw_reap = call.arguments.get("reap")
+            reap = (
+                raw_reap
+                if isinstance(raw_reap, bool)
+                else not _bool_or_false(call.arguments.get("no_reap"))
+            )
+            return TranslatedCommand(command=LeaseSweepCommand(
+                submission=submission,
+                limit=limit,
+                reap=reap,
             ))
 
         return KnownLegacyActionNotBacked(

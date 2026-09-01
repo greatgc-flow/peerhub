@@ -100,8 +100,13 @@ from peerhub.application.legacy import (
     ReportErrorCommand, AlertRaiseCommand,
     HealthCheckCommand, PeerStatusCommand, PeerQuarantineCommand, PeerRecoverCommand,
     HealthPrecheckCommand, CheckGateCommand, HealthSweepCommand, LeaseStatusCommand,
+    LeaseSweepCommand,
 )
 from peerhub.application.lease_status import collect_lease_status
+from peerhub.application.process_lease_sweep import (
+    ProcessLeaseSweepCoordinator,
+    ProcessLeaseSweepReport,
+)
 from peerhub.application.peer_registry import (
     PeerRegistryService,
     collect_model_status,
@@ -355,6 +360,7 @@ class ApplicationAPI:
         operational_errors: OperationalErrorService | None = None,
         alert_raise: AlertRaiseCoordinator | None = None,
         health_revalidation: HealthRevalidationCoordinator | None = None,
+        process_lease_sweep: ProcessLeaseSweepCoordinator | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -387,6 +393,8 @@ class ApplicationAPI:
             self._register_operational_errors(operational_errors)
         if alert_raise is not None:
             self._register_alert_raise(alert_raise)
+        if process_lease_sweep is not None:
+            self._register_process_lease_sweep(process_lease_sweep)
 
     @staticmethod
     def _submission(env: CommandEnvelope) -> SubmissionMetadata:
@@ -2098,6 +2106,65 @@ class ApplicationAPI:
                 threshold=command.threshold,
             ),
             self._receipt,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_process_lease_sweep(
+        self,
+        coordinator: ProcessLeaseSweepCoordinator,
+    ) -> None:
+        def decode_sweep(envelope: CommandEnvelope) -> LeaseSweepCommand:
+            limit = envelope.params.get("limit", 100)
+            reap = envelope.params.get("reap", True)
+            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
+                raise ValueError("limit must be a positive integer")
+            if not isinstance(reap, bool):
+                raise ValueError("reap must be a boolean")
+            return LeaseSweepCommand(
+                submission=self._submission(envelope),
+                limit=limit,
+                reap=reap,
+            )
+
+        def encode_sweep(
+            report: ProcessLeaseSweepReport,
+        ) -> Mapping[str, JsonValue]:
+            swept: tuple[JsonValue, ...] = tuple({
+                "lease_id": item.lease_id,
+                "profile_id": item.profile_id,
+                "pre_state": item.pre_state.value,
+                "post_state": item.post_state.value,
+                "process_alive": item.process_alive,
+                "process_identity_matches": item.process_identity_matches,
+                "actual_process_creation_time": (
+                    item.actual_process_creation_time
+                ),
+                "recovery_receipt_id": item.recovery_receipt_id,
+                "recovery_decision": item.recovery_decision.value,
+                "reaped": item.reaped,
+                "reap_signal": item.reap_signal,
+                "backoff_duration_seconds": (
+                    item.backoff_duration_seconds
+                ),
+            } for item in report.swept)
+            return {
+                "sweep_id": report.sweep_id,
+                "as_of": report.as_of,
+                "swept": swept,
+            }
+
+        self.register(CommandDescriptor(
+            "dispatch.lease.sweep",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_sweep,
+            lambda command, context: coordinator.sweep(
+                recovery_actor_principal_id=context.principal,
+                limit=command.limit,
+                reap=command.reap,
+            ),
+            encode_sweep,
             CommandAvailability.AVAILABLE,
         ))
 
