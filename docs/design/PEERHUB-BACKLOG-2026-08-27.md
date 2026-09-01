@@ -1031,3 +1031,209 @@ There is nevertheless an honest replacement for the operator intent “what brok
 The exact narrow scope is one read-only application/CLI result, preferably named `governance.effect.status` rather than the catalog's current misleading `governance.mutation.status` label (`peerhub/application/legacy.py:230-232`). Call `recover_pending_effects(limit=21)`, return/list the first 20 in stable outbox order with `event_id`, `OutboxState`, recovery disposition, effect kind, target ID, and target revision, and set `has_more` from the twenty-first item. Report `visible_unfinished_count` (and counts by visible state/disposition), not an exact global total: the public method is bounded and exposes no cursor/count operation. Do not synthesize legacy `done` or `error` totals. If an exact total later becomes a requirement, add a separately reviewed count/pagination read; do not infer it from a truncated page. This is descriptor/translation/presentation work over a shipped read surface, not a new queue or drain worker. **Confidence: high (0.94) that this bounded native status is useful and honest; very high (0.99) that it is not literal legacy queue parity.**
 
 **3. Effect on the prior backlog flag.** This confirms the earlier one-line diagnosis at line 564 for the write lifecycle and turns it into a firm waiver: `broker-submit`/`broker-drain` are false friends, not “real gap, needs infrastructure.” It narrows one part of that bundled rejection: `broker-status` does have a real standalone native equivalent when it is presented truthfully as unfinished post-commit effect delivery status. Therefore the prior flag is **confirmed for submit/drain and revised only for status**. **Confidence: very high (0.98).**
+
+### Gap 6 capability matching research resolution (round 1, 2026-09-02): all seven blockers have concrete candidate decisions for critique
+
+Research-only round against the complete prior Gap 6 record, the live legacy implementation/configuration, and the shipped 69/90 PeerHub tree. **Status: candidate design complete, NOT YET RATIFIED and not authorization to implement.** A second peer must test these choices, especially the deliberately native `rotating` policy and the audit sequencing. The prior round's settled facts remain fixed: scoring maxima originate in `protocol.json`; `STALE` remains eligible with a penalty; current-window quota margin zero is a hard exclusion; legacy capabilities come from health profile + protocol workload registry + orchestration roles; unsupported factors cannot become synthetic zeroes; and the architecture remains configuration owner -> pure routing reducer -> application coordinator (`HUB-REPLACEMENT-GAP6-CAPABILITY-MATCHING-2026-08-30.md:1-60`).
+
+**Concrete three-layer placement and pure boundary.** Layer 1 is `peerhub/application/capability_config.py`, owning persisted `peer-capability-config` records and the versioned capability-matching `RoutingPolicy`. Layer 2 is `peerhub/routing/capability_matching.py`, containing contracts plus only these public pure functions:
+
+```python
+def score_capability_candidate(
+    candidate: CapabilityCandidateFacts,
+    *,
+    needs: str,
+    requested_effort: str,
+    policy: CapabilityMatchingPolicy,
+) -> CapabilityMatch: ...
+
+def rank_capability_candidates(
+    candidates: tuple[CapabilityCandidateFacts, ...],
+    *,
+    needs: str,
+    requested_effort: str,
+    policy: CapabilityMatchingPolicy,
+) -> CapabilityRankingResult: ...
+
+def resolve_default_proposer(
+    ranking: CapabilityRankingResult,
+    *,
+    policy: DefaultProposerPolicy,
+    coordinator_history: tuple[str, ...],
+) -> FallbackResolution: ...
+```
+
+Layer 3 is `peerhub/application/capability_matching.py`, with `CapabilityMatchingCoordinator.discover(*, needs: str, effort: str = "mid", evaluated_at: int | None = None) -> CapabilityRankingResult` and `CapabilityMatchingCoordinator.elect_leader(*, needs: str = "general", effort: str = "mid", reason: str = "", actor_id: str) -> LeadershipElectionReceipt`. It gathers `PeerRegistryService`, capability configuration, `HealthService`, `LeadershipService`, and usage-projection facts, then invokes the reducer. Only `elect_leader()` persists election audit records and calls `LeadershipService.claim_leadership()`; `discover()` remains a pure read. This is the already-ratified split made concrete, not a new placement decision. `RoutingService` itself documents and enforces the same pre-supplied-facts discipline and never fetches sibling health/configuration (`peerhub/routing/service.py:1-7,147-226`).
+
+`CapabilityCandidateFacts` is the frozen reducer input: `node_id: str`, `peer_kind: str`, `profile_id: str`, `peer_node_target_id: str`, `peer_node_revision: int`, `enabled: bool`, `aliases: tuple[str, ...]`, `capabilities: tuple[ConfiguredCapability, ...]`, `capability_config_target_id: str`, `capability_config_revision: int`, `availability_status: AvailabilityState | None`, `admission_status: AdmissionState | None`, `profile_gate_backed_off: bool | None`, `health_provenance: CapabilityEvidenceProvenance`, `quota_projections: tuple[QuotaRankingFact, ...]`, `is_current_leader: bool`, and `recent_leader_node_ids: tuple[str, ...]`. No reducer input contains a service/repository handle or callback.
+
+**1. Authoritative functional-capability/config owner -- RESOLVED: new SQLite-backed configuration targets, not a second live JSON file and not adapter transport capabilities.** PeerHub's architecture explicitly makes SQLite configuration the operational SSOT and permits files only as bootstrap/governed-import payloads (`docs/design/ARCHITECTURE.md:214-261`). `PeerRegistryService` still stores node identity/type/tier and profile bindings, but no aliases, enabled bit, or functional capability vocabulary (`peerhub/application/peer_registry.py:89-138,194-262`). `adapters.contract.Capability` remains only `SESSION`, `STREAM`, and `GRACEFUL_CANCEL` (`peerhub/adapters/contract.py:85-100`), so overloading it would mix implementation transport facts with workload skill claims.
+
+The exact per-node authoritative target is `peer-capability-config:{node_id}`:
+
+```json
+{
+  "kind": "peer-capability-config",
+  "scope": "<node_id>",
+  "schema_version": 1,
+  "node_id": "cx",
+  "enabled": true,
+  "aliases": ["codex"],
+  "capabilities": [
+    {"name": "code-generation", "sources": ["legacy-import:protocol.workload.capability_registry.cx"]},
+    {"name": "coder", "sources": ["legacy-import:orchestration.roles_registry.coder"]}
+  ],
+  "updated_at": 0,
+  "updated_by": "configuration-import"
+}
+```
+
+`aliases` and capability names preserve spelling; matching case-folds them. Duplicate capability names after case-folding merge their source references and retain the first occurrence. The public result uses code-point ascending unique names, preserving legacy's deterministic `sorted(set(...))` presentation (`P:/_sys/core/hub.py:3412-3431,3480-3488`). A missing target means the node is not configured for capability matching and is excluded; it is never silently synthesized from adapter capabilities. A one-time importer may snapshot the three legacy sources in their real order (health-profile capabilities, protocol registry, then role names), but subsequent reads use only these targets; the source strings are provenance, not live dependencies (`P:/_sys/core/hub.py:3408-3417`; `P:/_sys/ai/protocol.json:184-218`; `P:/_sys/ai/orchestration.json:501-522`).
+
+The scoring/fallback constants are separately owned by immutable target `routing-policy:capability-native-v1:1`, with `kind="routing-policy"`, `scope="capability-matching"`, `schema_version=1`, `policy_id="capability-native-v1"`, `policy_revision=1`, `formula_id="native-v1"`, capability points `{empty:1, exact:10, substring:7}`, health points `{HEALTHY:3, DEGRADED:1, UNKNOWN:0, PROBING:0, STALE:-5}`, continuity bonus `2`, quota bands `[[0.90,3],[0.75,2],[0.50,1],[0.10,-1],[0.0,-3]]`, recent-history window `2`, recent-use penalty `2`, tie-break `ranking_score DESC, HEALTHY first, node_id ASC`, and the `DefaultProposerPolicy` defined under item 6. This separation follows the existing SSOT rule that routing weights/classification belong to a versioned `RoutingPolicy`, not the peer descriptor/config row (`docs/design/ARCHITECTURE.md:244-251`). **Confidence: high (0.94).**
+
+**2. Effort-quality source -- RESOLVED by deliberate native-v1 narrowing: no effort score or effort gate.** All three production adapters still expose exactly one `*.standard` profile; Claude and Codex declare `supports_reasoning_effort=False`, Agy declares only the boolean `True`, and none declares a quality/tier value (`peerhub/adapters/claude_adapter.py:43-57`; `peerhub/adapters/agy_adapter.py:42-56`; `peerhub/adapters/codex_adapter.py:44-58`). The newly-landed `peer-profile-binding` stores arbitrary `reasoning_effort` text plus a model ID, but validates neither as achieved quality and does not make a non-standard profile dispatchable (`peerhub/application/peer_registry.py:194-262`; `peerhub/adapters/registry.py:172-185`). The legacy `model_tier` was itself read from health-profile display data (`P:/_sys/core/hub.py:3440-3443`).
+
+Therefore `native-v1` accepts and records normalized `low|mid|medium|high` (`medium -> mid`) for compatibility and audit, but it does not alter eligibility or score. Every candidate carries an explicit `effort_quality` component in state `ABSENT`, with `points=None` and reason `no authoritative effort-quality evidence`; `model_tier` is likewise absent. Unknown effort strings are rejected instead of inheriting legacy's silent-mid fallback. A future formula revision may add effort only after adapters expose dispatchable profile bindings plus verified quality evidence; it must receive a new formula/policy revision. This is a labeled parity narrowing, not a hidden dropped factor. **Confidence: very high (0.98).**
+
+**3. Missing-evidence semantics and exact native-v1 formula -- RESOLVED: carry explicit component state; never coerce absence to zero.** Each component is `CapabilityScoreComponent(name: ScoreComponentName, state: APPLIED | ABSENT | HARD_EXCLUDED, raw_value: JsonValue | None, points: int | None, reason: str | None, provenance_indexes: tuple[int, ...])`. `ABSENT` requires `points=None`; only an actually observed/mapped fact may be `APPLIED` with `points=0`. This directly preserves `EvidenceValue`'s rule that absent/unavailable/error evidence cannot carry a value and cannot be converted into zero (`peerhub/core/evidence.py:14-22,36-43,96-120`).
+
+The eligible score is exactly:
+
+```text
+native_v1_score = capability_match
+                + applied_health_grade
+                + applied_continuity_bonus
+                + applied_quota_margin
+                - applied_recent_use_penalty
+```
+
+- Capability remains the legacy 1/10/7 rule; unmatched nonempty needs are excluded. Node ID and aliases are case-insensitive exact-only; capability names additionally allow symmetric substring matching (`P:/_sys/core/hub.py:3418-3439`).
+- Health remains graded, not binary. With a projection: `HEALTHY=+3`, `DEGRADED=+1`, `STALE=-5`, and actual `UNKNOWN`/`PROBING` classifications are deliberately mapped applied zeroes. `UNAVAILABLE`, any non-`OPEN` admission (including `PROBE_AUTHORIZED`), or a live profile backoff hard-excludes. `STALE` is never hard-excluded. With no projection, health is `ABSENT`/`points=None` and the candidate fails open, matching the prior round's settled polarity.
+- Continuity is `+2` only when the candidate is the stored current leader and is not observed `STALE`/`UNAVAILABLE`; otherwise it is an applied zero based on the actual leadership snapshot. The last two persisted coordinator-history entries produce a `2`-point penalty only when both name the candidate (`P:/_sys/core/hub.py:3405-3407,3446,3474-3477`).
+- Quota is native and cannot be deferred. The coordinator reads persisted `UsageProjectionSnapshot` rows, whose real fields include `used_fraction`, `remaining_fraction`, window/reset timestamps, revision, and update time (`peerhub/telemetry/contract.py:413-454`; the originating measurement is at `peerhub/telemetry/contract.py:79-87`). Among projections whose `evaluated_at < resets_at`, use the minimum `remaining_fraction`; `<= 0` hard-excludes and the legacy bands yield `+3/+2/+1/-1/-3`. No rows -> `ABSENT`; only expired rows -> component `ABSENT` with evidence state `STALE`; neither case excludes or contributes points.
+- Cost, console fit, and cold start are each carried as `ABSENT` with `points=None`: there is no native cost classification, no native recommended-console policy, and no authoritative equivalent of legacy `session_count_today`. They are omitted from the sum and from tie-breaking. `cost_tier` is not borrowed from profile display text. Effort/model tier are absent under item 2.
+
+This preserves real measured zeroes while making unsupported facts visible to `discover` and the election audit. **Confidence: high (0.92).**
+
+**4. Deterministic tie-break -- RESOLVED: `(-ranking_score, healthy_rank, node_id)` ascending.** `healthy_rank` is `0` only for an observed `AvailabilityState.HEALTHY`, otherwise `1`; the final key is the exact case-sensitive `node_id` in ascending code-point order. This retains legacy's GREEN-first secondary comparison while replacing the unavailable lower-cost final comparison with a value PeerHub always possesses (`P:/_sys/core/hub.py:3488`; `PeerRegistryService.list_nodes()` already sorts by target/node identity at `peerhub/application/peer_registry.py:175-192`). No random seed, insertion order, timestamp, or absent cost fact participates. **Confidence: very high (0.99).**
+
+**5. Rich `discover`/ranking result -- RESOLVED with exact contracts.** The routing module owns:
+
+```python
+class ScoreComponentName(str, Enum):
+    CAPABILITY_MATCH = "CAPABILITY_MATCH"
+    HEALTH_GRADE = "HEALTH_GRADE"
+    CONTINUITY = "CONTINUITY"
+    QUOTA_MARGIN = "QUOTA_MARGIN"
+    RECENT_USE = "RECENT_USE"
+    COST = "COST"
+    CONSOLE_FIT = "CONSOLE_FIT"
+    COLD_START = "COLD_START"
+    EFFORT_QUALITY = "EFFORT_QUALITY"
+    MODEL_TIER = "MODEL_TIER"
+
+class ScoreComponentState(str, Enum):
+    APPLIED = "APPLIED"
+    ABSENT = "ABSENT"
+    HARD_EXCLUDED = "HARD_EXCLUDED"
+
+@dataclass(frozen=True)
+class CapabilityScoreComponent:
+    name: ScoreComponentName
+    state: ScoreComponentState
+    raw_value: JsonValue | None
+    points: int | None
+    reason: str | None
+    provenance_indexes: tuple[int, ...]
+
+class CapabilityCandidateStatus(str, Enum):
+    ELIGIBLE = "ELIGIBLE"
+    HARD_EXCLUDED = "HARD_EXCLUDED"
+
+@dataclass(frozen=True)
+class CapabilityEvidenceProvenance:
+    fact: str
+    evidence_state: EvidenceState
+    source_kind: str
+    source_id: str
+    source_revision: int | None
+    source_digest: str | None
+    evidence_refs: tuple[EvidenceRef, ...]
+    observed_at: int | None
+
+@dataclass(frozen=True)
+class CapabilityMatch:
+    node_id: str
+    peer_kind: str
+    profile_id: str
+    candidate_status: CapabilityCandidateStatus
+    exclusion_reason: str | None
+    availability_status: AvailabilityState | None
+    admission_status: AdmissionState | None
+    cost_tier: str | None
+    cost_tier_state: ScoreComponentState
+    model_tier: str | None
+    model_tier_state: ScoreComponentState
+    ordered_capabilities: tuple[str, ...]
+    ranking_score: int | None
+    components: tuple[CapabilityScoreComponent, ...]
+    provenance: tuple[CapabilityEvidenceProvenance, ...]
+
+@dataclass(frozen=True)
+class CapabilityRankingResult:
+    formula_id: str
+    policy_id: str
+    policy_revision: int
+    needs: str
+    requested_effort: str
+    ordered_matches: tuple[CapabilityMatch, ...]
+    excluded_candidates: tuple[CapabilityMatch, ...]
+    fallback: FallbackResolution | None
+    evaluated_at: int
+```
+
+Eligible candidates always have an integer score; hard-excluded candidates have `ranking_score=None` and at least one `HARD_EXCLUDED` component. In `native-v1`, cost/model values are `None` with state `ABSENT`, not empty strings or fabricated tiers. Provenance must include peer-node target/revision, capability-config target/revision, policy target/revision/digest, health projection/revision/evidence refs when present, every quota projection/revision used or rejected as stale, and leadership target/revision. This is sufficient for `discover` to explain both ranking and missing data, unlike legacy's six-field dictionary (`P:/_sys/core/hub.py:3480-3487`). **Confidence: high (0.92).**
+
+**6. `default_proposer="rotating"` -- RESOLVED as a policy token that must resolve to a node before leadership.** Both live configs now contain the literal token (`P:/_sys/ai/protocol.json:161-176`; `P:/_sys/ai/orchestration.json:489-497`), and the captured legacy read-only behavior proves only that it prints `fallback=rotating`; no legacy code implements rotation (`docs/design/phase0/fixtures/captures/RT-02.json`; `P:/_sys/core/hub.py:8939-8960`). Passing it through would fail PeerHub's real node resolution at `LeadershipService.claim_leadership()` (`peerhub/application/leadership.py:464-480`). The following is therefore an explicit native policy, not a claim about missing legacy behavior:
+
+```python
+@dataclass(frozen=True)
+class DefaultProposerPolicy:
+    mode: Literal["FIXED", "ROTATING"]
+    fixed_node_id: str | None
+    rotation_order: tuple[str, ...]
+
+@dataclass(frozen=True)
+class FallbackResolution:
+    node_id: str | None
+    basis: Literal["FIXED_DEFAULT", "ROTATING_DEFAULT", "NO_ELIGIBLE_DEFAULT"]
+    considered_node_ids: tuple[str, ...]
+```
+
+For `ROTATING`, `rotation_order` is mandatory, unique, and registry-resolvable; the initial import uses the live configured `default_voters` order `("cc", "ag", "cx")` (`P:/_sys/ai/orchestration.json:489-496`). Start strictly after the most recent coordinator-history node found in that order, wrap once, and select the first node with an enabled capability config that is not hard-excluded by current health/admission/backoff or zero quota. Capability mismatch is ignored for fallback (the purpose of fallback is the no-match case); missing/disabled configuration and safety/quota exclusions are not ignored. With no relevant history, start at the first configured entry. This is a pure read over persisted history—no mutable rotation cursor. A fixed default is resolved and gated through the same pool. If none remains, `discover` returns `NO_ELIGIBLE_DEFAULT`/`node_id=None`; `elect_leader` records the exhausted decision and raises route-exhausted without calling leadership. Neither surface ever displays or submits the literal `"rotating"` as a node ID. **Confidence: medium-high (0.83): the evidence decisively proves a resolver is required, while the exact cyclic policy is a new ratifiable choice because legacy supplies no semantics beyond the token.**
+
+**7. Election audit/receipt -- RESOLVED as immutable decision + immutable outcome, with the decision committed before the claim.** Legacy unconditionally appends its routing metric before invoking leader claim, so a rejected AP-20/incumbent-protected claim may still have a selection record (`P:/_sys/core/hub.py:8953-8960`; `PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md:79-96`). Preserve that ordering. `peerhub/governance/election_audit.py` creates `leader-election-decision:{election_id}` with `expected_revision=0` and exact state:
+
+```text
+kind, scope=None, schema_version=1, schema="peerhub.leader-election-decision.v1"
+status="DECIDED", election_id, command_id, correlation_id, requested_by, requested_at
+needs, requested_effort, reason, domain
+formula_id, policy_id, policy_revision, configuration_digest
+candidate_snapshot (ordered full CapabilityMatch encodings, including exclusions/ABSENT)
+ordered_match_node_ids, selected_node_id, selection_basis
+fallback_resolution, tie_break=("ranking_score_desc","healthy_first","node_id_asc")
+evidence_refs, decision_hash
+```
+
+`decision_hash` is server-derived SHA-256 over the canonical snapshot excluding IDs/timestamps, while `election_id` is fresh so repeated identical elections remain distinct and non-idempotent. This follows the approval effect/request precedent: freeze the complete inputs, participants/evidence, selected result, policy revision, and server-derived decision hash instead of logging only prose (`peerhub/application/proposals.py:307-369`; `peerhub/governance/invariant_requests.py:46-112`).
+
+After that commit, the coordinator calls `LeadershipService.claim_leadership(peer_node_id=selected_node_id, actor_id=actor_id, reason=reason or f"elected_for:{needs or 'general'}", domain=needs or "general")` exactly once; the service retains its own bounded CAS loop. It then creates immutable `leader-election-outcome:{election_id}` containing `kind`, `scope=None`, `schema_version=1`, `election_id`, decision target ID/revision/hash, `outcome=CLAIMED|REJECTED|ROUTE_EXHAUSTED|CLAIM_OUTCOME_UNKNOWN`, selected node, leadership target/revision, leadership `claim_id` and disposition when successful, typed error code/class plus execution certainty when rejected/unknown, and `completed_at`. `LeadershipElectionReceipt` returns the exact audit and claim facts enumerated below; on a certain rejection the error envelope includes the decision/outcome IDs before re-raising the domain error. A crash between records leaves a visible decision without an outcome, matching rather than concealing legacy's metric-before-claim boundary; recovery reports it as incomplete but must not replay a non-idempotent claim automatically. An uncertain post-commit failure records `CLAIM_OUTCOME_UNKNOWN` and likewise requires observation, never blind replay. `discover` creates neither record. **Confidence: high (0.91).**
+
+The exact successful receipt is `LeadershipElectionReceipt(election_id: str, decision_target_id: str, decision_revision: int, decision_hash: str, outcome_target_id: str, outcome_revision: int, outcome: Literal["CLAIMED"], selected_node_id: str, selection_basis: str, leadership_target_id: str, leadership_revision: int, leadership_claim_id: str, leadership_claim_disposition: LeadershipClaimDisposition)`. Exhausted/rejected/unknown paths expose the same audit references in the typed error details rather than returning a false success receipt.
+
+**Round-1 conclusion.** All seven blockers now have evidence-grounded candidate decisions and exact shapes. The only materially normative invention is item 6's cyclic interpretation of `"rotating"`; it is labeled as such for the critique. If the critique accepts these choices, Gap 6 can move from “NOT READY” to ratified design/TDD planning, but no code should be written before that critique records its verdict.
+
+**Round 2 critique (terminal, 2026-09-02): the peer originally slated for independent critique (ag.deepthink) remained context-maxed/quota-exhausted for the full session and could not be dispatched -- the terminal performed the critique pass directly rather than skip it, spot-verifying the round's most load-bearing and lowest-confidence citations against the real files themselves rather than trusting the report.** Independently confirmed accurate, byte-for-byte: (a) `docs/design/ARCHITECTURE.md`'s SQLite-is-the-operational-SSOT-for-peer/model-configuration rule, including the exact "not converted into a second live source" language item 1 depends on; (b) all three production adapters (`claude_adapter.py`/`agy_adapter.py`/`codex_adapter.py`) expose exactly one `.standard` profile each, with `supports_reasoning_effort` False/True/False respectively and no quality/tier field -- exactly as item 2 claims; (c) `peerhub/core/evidence.py`'s `EvidenceState` vocabulary and its explicit "ABSENT and UNAVAILABLE are not converted into a zero, healthy, or unlimited measurement" docstring rule, which item 3's whole formula depends on; (d) the real, live `P:\_sys\ai\protocol.json` and `P:\_sys\ai\orchestration.json` both literally contain `"default_proposer": "rotating"` with zero implementing rotation logic anywhere in legacy, and `default_voters` is exactly `["cc", "ag", "cx"]` in that order -- confirming item 6's premise precisely (a resolver is genuinely required; the cyclic policy itself is honestly labeled as a new invention, not a legacy behavior claim, matching its own stated 0.83 confidence).
+
+No factual error, unsupported claim, or citation mismatch was found in this pass. **Verdict: ACCEPT all seven candidate decisions as ratified.** Gap 6 moves from "NOT READY FOR IMPLEMENTATION" to **ratified design, ready for a TDD implementation round** -- a substantial one (a new configuration domain, a new pure routing reducer module, a new application coordinator, a new election-audit domain, plus real test coverage for all seven resolved semantics), comparable in scope to the `proposal-add`/`proposal-vote` round tonight or larger. Implementation is intentionally NOT started in this round; the standing architecture-before-implementation discipline just closed, not an invitation to rush the next step in the same breath.
