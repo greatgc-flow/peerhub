@@ -1097,6 +1097,52 @@ class LessonsListCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class ProposalAddCommand(Command[Any]):
+    method: ClassVar[str] = "governance.proposal.create"
+    submission: SubmissionMetadata
+    subject: str
+    from_peer: str
+    impact: str
+    rationale: str
+    text: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "subject": self.subject,
+            "from_peer": self.from_peer,
+            "impact": self.impact,
+            "rationale": self.rationale,
+            "text": self.text,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalVoteCommand(Command[Any]):
+    method: ClassVar[str] = "governance.proposal.vote"
+    submission: SubmissionMetadata
+    proposal_id: str
+    voter: str
+    vote: str
+    reason: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "proposal_id": self.proposal_id,
+            "voter": self.voter,
+            "vote": self.vote,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class ProposalListCommand(Command[Any]):
     method: ClassVar[str] = "governance.proposal.list"
     submission: SubmissionMetadata
@@ -2047,6 +2093,31 @@ class LegacyTranslator:
             return TranslatedCommand(command=LessonsListCommand(submission, None if value is None else str(value)))
         if call.action == "proposal-list":
             return TranslatedCommand(command=ProposalListCommand(submission))
+        if call.action == "proposal-add":
+            return TranslatedCommand(command=ProposalAddCommand(
+                submission=submission,
+                subject=_first_text(call.arguments, ("subject",), ""),
+                from_peer=_first_text(
+                    call.arguments, ("from_peer", "from", "peer"), "cc"
+                ),
+                impact=_first_text(call.arguments, ("impact",), "med"),
+                rationale=_first_text(
+                    call.arguments, ("rationale", "detail"), ""
+                ),
+                text=_first_text(call.arguments, ("text",), ""),
+            ))
+        if call.action == "proposal-vote":
+            return TranslatedCommand(command=ProposalVoteCommand(
+                submission=submission,
+                proposal_id=_first_text(
+                    call.arguments, ("proposal_id", "round_id"), ""
+                ),
+                voter=_first_text(
+                    call.arguments, ("voter", "peer", "agent"), "cc"
+                ),
+                vote=_first_text(call.arguments, ("vote", "choice"), ""),
+                reason=_first_text(call.arguments, ("reason",), ""),
+            ))
         if call.action == "arbiter-review":
             return TranslatedCommand(command=ArbiterReviewCommand(
                 submission=submission,

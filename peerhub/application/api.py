@@ -51,6 +51,11 @@ from peerhub.application.alert_raise import (
     AlertRaiseResult,
 )
 from peerhub.application.arbiter_review import ArbiterReviewCoordinator
+from peerhub.application.proposals import (
+    ProposalAddResult,
+    ProposalCoordinator,
+    ProposalVoteResult,
+)
 from peerhub.application.status import collect_room_status
 from peerhub.application.commands import (
     Command,
@@ -94,7 +99,8 @@ from peerhub.application.legacy import (
     TaskStatusCommand, TaskFailoverCommand, LessonInjectCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
     ApprovalRequestCommand,
-    ConsensusSweepCommand, LessonsListCommand, ProposalListCommand, ArbiterReviewCommand,
+    ConsensusSweepCommand, LessonsListCommand, ProposalAddCommand,
+    ProposalVoteCommand, ProposalListCommand, ArbiterReviewCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
     RegisterNodeCommand, ListNodesCommand, BindProfileCommand,
     ModelStatusCommand,
@@ -349,6 +355,7 @@ class ApplicationAPI:
         dispatch: DispatchService,
         admission_provider: AdmissionInputsProvider | None = None,
         consensus: ConsensusService | None = None,
+        proposals: ProposalCoordinator | None = None,
         task: TaskService | None = None, lesson: LessonService | None = None,
         lesson_broker: GovernanceBroker | None = None,
         room: RoomsService | None = None,
@@ -375,7 +382,9 @@ class ApplicationAPI:
         
         self._register_builtins()
         if consensus is not None:
-            self._register_consensus(consensus, lesson_broker, arbiter)
+            self._register_consensus(
+                consensus, lesson_broker, arbiter, proposals
+            )
         if task is not None: self._register_task(task)
         if lesson is not None and lesson_broker is not None:
             self._register_lesson(lesson, lesson_broker, room)
@@ -421,6 +430,7 @@ class ApplicationAPI:
         service: ConsensusService,
         broker: GovernanceBroker | None,
         arbiter: ArbiterReviewCoordinator | None,
+        proposals: ProposalCoordinator | None,
     ) -> None:
         def string_tuple(params: Mapping[str, JsonValue], name: str) -> tuple[str, ...]:
             value = params[name]
@@ -480,7 +490,101 @@ class ApplicationAPI:
                 encode_proposals,
                 CommandAvailability.AVAILABLE,
             ))
-            
+
+        if proposals is not None:
+            def proposal_text(
+                envelope: CommandEnvelope,
+                name: str,
+            ) -> str:
+                value = envelope.params[name]
+                if not isinstance(value, str):
+                    raise ValueError(f"{name} must be a string")
+                return value
+
+            def decode_proposal_add(
+                envelope: CommandEnvelope,
+            ) -> ProposalAddCommand:
+                return ProposalAddCommand(
+                    submission=self._submission(envelope),
+                    subject=proposal_text(envelope, "subject"),
+                    from_peer=proposal_text(envelope, "from_peer"),
+                    impact=proposal_text(envelope, "impact"),
+                    rationale=proposal_text(envelope, "rationale"),
+                    text=proposal_text(envelope, "text"),
+                )
+
+            def decode_proposal_vote(
+                envelope: CommandEnvelope,
+            ) -> ProposalVoteCommand:
+                return ProposalVoteCommand(
+                    submission=self._submission(envelope),
+                    proposal_id=proposal_text(envelope, "proposal_id"),
+                    voter=proposal_text(envelope, "voter"),
+                    vote=proposal_text(envelope, "vote"),
+                    reason=proposal_text(envelope, "reason"),
+                )
+
+            def encode_proposal_add(
+                result: ProposalAddResult,
+            ) -> Mapping[str, JsonValue]:
+                return {
+                    "round_id": result.round_id,
+                    "from_peer": result.from_peer,
+                    "impact": result.impact,
+                    "eligible_participants": result.eligible_participants,
+                    "receipt_id": result.receipt_id,
+                    "revision": result.revision,
+                }
+
+            def encode_proposal_vote(
+                result: ProposalVoteResult,
+            ) -> Mapping[str, JsonValue]:
+                return {
+                    "round_id": result.round_id,
+                    "voter": result.voter,
+                    "choice": result.choice,
+                    "outcome": result.outcome,
+                    "agreed": result.agreed,
+                    "disagreed": result.disagreed,
+                    "escalation_reason": result.escalation_reason,
+                    "invariant_request_target_id": (
+                        result.invariant_request_target_id
+                    ),
+                    "revision": result.revision,
+                }
+
+            self.register(CommandDescriptor(
+                "governance.proposal.create",
+                Mutability.MUTATING,
+                ScopeKind.ANY,
+                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+                decode_proposal_add,
+                lambda command, _: proposals.add_proposal(
+                    subject=command.subject,
+                    from_peer=command.from_peer,
+                    impact=command.impact,
+                    rationale=command.rationale,
+                    text=command.text,
+                ),
+                encode_proposal_add,
+                CommandAvailability.AVAILABLE,
+            ))
+            self.register(CommandDescriptor(
+                "governance.proposal.vote",
+                Mutability.MUTATING,
+                ScopeKind.ANY,
+                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+                decode_proposal_vote,
+                lambda command, _: proposals.vote_proposal(
+                    command.proposal_id,
+                    voter=command.voter,
+                    vote=command.vote,
+                    reason=command.reason,
+                ),
+                encode_proposal_vote,
+                CommandAvailability.AVAILABLE,
+            ))
+
         if arbiter is not None:
             def decode_arbiter_review(e: CommandEnvelope) -> ArbiterReviewCommand:
                 return ArbiterReviewCommand(self._submission(e), str(e.params["round_id"]))

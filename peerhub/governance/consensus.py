@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import hashlib
-import json
 import re
 from typing import cast
 
@@ -15,6 +14,7 @@ from peerhub.core.errors import (
     StaleRevisionError,
 )
 from peerhub.core.protocol import CommandID, JsonValue
+from peerhub.core.protocol import canonical_json_bytes
 
 from .broker import GovernanceBroker
 from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
@@ -87,6 +87,8 @@ class ConsensusService:
                 "reached": False,
                 "reached_at": None,
                 "counted_votes": 0,
+                "recorded_votes": 0,
+                "decisive_votes": 0,
                 "required_votes": quorum_required,
             },
             "final_call": None,
@@ -246,11 +248,7 @@ class ConsensusService:
     def _set_resolution(
         self, state: dict[str, JsonValue], outcome: str, resolved_by: str, basis: str
     ) -> None:
-        digest = hashlib.sha256(
-            json.dumps(
-                {"votes": state["votes"], "outcome": outcome}, sort_keys=True, default=str
-            ).encode()
-        ).hexdigest()
+        digest = self.resolution_decision_hash(state, outcome)
         state["resolution"] = {
             "outcome": outcome,
             "resolved_at": self._clock.now(),
@@ -261,6 +259,19 @@ class ConsensusService:
         }
         state["status"] = "resolved"
 
+    @staticmethod
+    def resolution_decision_hash(
+        state: Mapping[str, JsonValue],
+        outcome: str,
+    ) -> str:
+        """Hash the frozen vote snapshot and outcome deterministically."""
+
+        return hashlib.sha256(
+            canonical_json_bytes(
+                {"votes": state["votes"], "outcome": outcome}
+            )
+        ).hexdigest()
+
     def resolve(
         self,
         round_id: str,
@@ -268,14 +279,21 @@ class ConsensusService:
         resolved_by: str,
         basis: str,
         expected_revision: int | None = None,
+        effect_intent: EffectIntent | None = None,
     ) -> MutationSubmission:
         target = self._broker.get_target(round_id)
         if target is None:
             raise RecordNotFoundError("consensus-round", round_id)
         state = dict(target.state)
         phase = state.get("phase")
+        dissent_rejection = (
+            outcome.lower() == "rejected"
+            and self._has_eligible_dissent(state)
+        )
         if state.get("status") != "open" or (
-            phase not in {"quorum_reached", "final_call"} and state.get("escalation") is None
+            phase not in {"quorum_reached", "final_call"}
+            and state.get("escalation") is None
+            and not dissent_rejection
         ):
             raise InvalidMutationError("resolution prerequisites are not satisfied")
         audit = dict(cast(dict[str, JsonValue], state["audit"]))
@@ -293,6 +311,58 @@ class ConsensusService:
             expected_revision=target.revision if expected_revision is None else expected_revision,
             actor_id=resolved_by,
             operation="consensus.resolve",
+            desired_state=state,
+            effect_intent=effect_intent,
+        )
+
+    @staticmethod
+    def _has_eligible_dissent(state: Mapping[str, JsonValue]) -> bool:
+        participants = state.get("participants")
+        votes = state.get("votes")
+        if not isinstance(participants, Mapping):
+            raise InvalidMutationError("participants must be an object")
+        if not isinstance(votes, Mapping):
+            raise InvalidMutationError("votes must be an object")
+        eligible = participants.get("eligible")
+        if not isinstance(eligible, (list, tuple)):
+            raise InvalidMutationError("participants.eligible must be an array")
+        return any(
+            isinstance(vote, Mapping)
+            and voter_id in eligible
+            and vote.get("choice") == "disagree"
+            for voter_id, vote in votes.items()
+        )
+
+    def reject_on_dissent(
+        self,
+        round_id: str,
+        *,
+        rejected_by: str,
+        basis: str,
+        expected_revision: int | None = None,
+    ) -> MutationSubmission:
+        """Reject an open round after verifying a stored eligible dissent."""
+
+        target, state, audit, participants = self._open_state(
+            round_id,
+            {"proposed", "voting", "quorum_reached", "final_call"},
+        )
+        del participants
+        if not self._has_eligible_dissent(state):
+            raise InvalidMutationError("rejection requires an eligible disagree vote")
+
+        self._set_resolution(state, "rejected", rejected_by, basis)
+        state["phase"] = "resolved"
+        self._finish(state, audit, "reject_on_dissent", rejected_by)
+        return self._submit(
+            target_id=round_id,
+            expected_revision=(
+                target.revision
+                if expected_revision is None
+                else expected_revision
+            ),
+            actor_id=rejected_by,
+            operation="consensus.reject_on_dissent",
             desired_state=state,
         )
 
@@ -323,6 +393,7 @@ class ConsensusService:
         *,
         actor_id: str,
         choice: str,
+        reason: str | None = None,
         expected_revision: int | None = None,
     ) -> MutationSubmission:
         target = self._broker.get_target(round_id)
@@ -336,8 +407,12 @@ class ConsensusService:
         eligible = participants["eligible"]
         if not isinstance(eligible, (tuple, list)) or actor_id not in eligible:
             raise InvalidMutationError("actor is not an eligible voter")
-        if choice not in {"agree", "disagree"}:
-            raise InvalidMutationError("choice must be agree or disagree")
+        if choice not in {"agree", "disagree", "abstain", "need_more_info"}:
+            raise InvalidMutationError(
+                "choice must be agree, disagree, abstain, or need_more_info"
+            )
+        if reason is not None and not isinstance(reason, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise InvalidMutationError("reason must be a string or null")
         votes = dict(cast(dict[str, JsonValue], state["votes"]))
         timestamp = self._clock.now()
         votes[actor_id] = {
@@ -345,6 +420,7 @@ class ConsensusService:
             "actor_id": actor_id,
             "cast_at": timestamp,
             "mutation_id": self._ids.new_id("consensus-vote"),
+            "reason": reason,
         }
         quorum = dict(cast(dict[str, JsonValue], state["quorum"]))
         audit = dict(cast(dict[str, JsonValue], state["audit"]))
@@ -355,14 +431,36 @@ class ConsensusService:
         if not isinstance(operation_count_raw, int) or isinstance(operation_count_raw, bool):
             raise InvalidMutationError("invalid audit.operation_count")
         required_votes = required_raw
-        counted = len(votes)
-        reached = counted >= required_votes
+        required_participants = participants.get("required")
+        if not isinstance(required_participants, (tuple, list)):
+            raise InvalidMutationError("participants.required must be an array")
+        required_set = set(required_participants)
+        counted = sum(
+            1
+            for voter_id, vote in votes.items()
+            if voter_id in required_set
+            and isinstance(vote, Mapping)
+            and vote.get("choice") == "agree"
+        )
+        decisive = sum(
+            1
+            for vote in votes.values()
+            if isinstance(vote, Mapping)
+            and vote.get("choice") in {"agree", "disagree"}
+        )
+        has_dissent = any(
+            isinstance(vote, Mapping) and vote.get("choice") == "disagree"
+            for vote in votes.values()
+        )
+        reached = counted >= required_votes and not has_dissent
         state["votes"] = votes
         state["quorum"] = {
             **quorum,
             "reached": reached,
             "reached_at": quorum["reached_at"] if quorum["reached_at"] is not None else (timestamp if reached else None),
             "counted_votes": counted,
+            "recorded_votes": len(votes),
+            "decisive_votes": decisive,
         }
         state["phase"] = "quorum_reached" if reached else "voting"
         state["audit"] = {
@@ -512,6 +610,7 @@ class ConsensusService:
         actor_id: str,
         operation: str,
         desired_state: dict[str, JsonValue],
+        effect_intent: EffectIntent | None = None,
     ) -> MutationSubmission:
         request_id = self._ids.new_id("consensus-request")
         return self._broker.submit(
@@ -528,7 +627,11 @@ class ConsensusService:
                 expected_revision=expected_revision,
                 operation=operation,
                 desired_state=desired_state,
-                effect_intent=EffectIntent(kind="consensus.noop", payload={}),
+                effect_intent=(
+                    effect_intent
+                    if effect_intent is not None
+                    else EffectIntent(kind="consensus.noop", payload={})
+                ),
             )
         )
 

@@ -38,6 +38,7 @@ from peerhub.application.direct_ask import (
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.application.room_broadcast import RoomBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
+from peerhub.application.proposals import ProposalVoteResult
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
 from peerhub.application.legacy import legacy_thread_slug
@@ -751,6 +752,61 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
             service = ConsensusService(runtime.governance_broker, clock=context.clock, ids=context.ids)
+            if parsed.consensus_action == "proposal-add":
+                result = runtime.proposal_coordinator.add_proposal(
+                    subject=parsed.subject,
+                    from_peer=parsed.from_peer,
+                    impact=parsed.impact,
+                    rationale=parsed.rationale,
+                    text=parsed.text,
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe({
+                        "round_id": result.round_id,
+                        "from_peer": result.from_peer,
+                        "impact": result.impact,
+                        "eligible_participants": (
+                            result.eligible_participants
+                        ),
+                        "receipt_id": result.receipt_id,
+                        "revision": result.revision,
+                    })))
+                else:
+                    print(
+                        f"[HUB] PROPOSAL-ADD {result.round_id} | "
+                        f"from={result.from_peer} | "
+                        f"impact={result.impact.upper()}"
+                    )
+                    print(
+                        "      Vote with: hub.py proposal-vote "
+                        f"--proposal-id {result.round_id} --vote agree "
+                        "--voter <peer>"
+                    )
+                return 0
+            if parsed.consensus_action == "proposal-vote":
+                result = runtime.proposal_coordinator.vote_proposal(
+                    parsed.proposal_id,
+                    voter=parsed.voter,
+                    vote=parsed.vote,
+                    reason=parsed.reason,
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe({
+                        "round_id": result.round_id,
+                        "voter": result.voter,
+                        "choice": result.choice,
+                        "outcome": result.outcome,
+                        "agreed": result.agreed,
+                        "disagreed": result.disagreed,
+                        "escalation_reason": result.escalation_reason,
+                        "invariant_request_target_id": (
+                            result.invariant_request_target_id
+                        ),
+                        "revision": result.revision,
+                    })))
+                else:
+                    _print_proposal_vote_compatibility(result)
+                return 0
             if parsed.consensus_action == "propose":
                 required = tuple(item for item in parsed.required.split(",") if item)
                 eligible = tuple(item for item in parsed.eligible.split(",") if item)
@@ -846,6 +902,28 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
     except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
         print(f"peerhub consensus: {exc}", file=sys.stderr)
         return 2
+
+
+def _print_proposal_vote_compatibility(result: ProposalVoteResult) -> None:
+    print(
+        f"[HUB] PROPOSAL-VOTE {result.round_id} | "
+        f"{result.voter}:{result.choice.upper()}"
+    )
+    if result.outcome == "CONSENSUS_OK":
+        print(
+            f"[HUB] PROPOSAL CONSENSUS_OK {result.round_id} | "
+            f"unanimous agree: {','.join(result.agreed)}"
+        )
+    elif result.outcome == "NACK":
+        print(
+            f"[HUB] PROPOSAL NACK {result.round_id} | "
+            f"disagreed: {','.join(result.disagreed)}"
+        )
+    elif result.outcome == "ESCALATED":
+        print(
+            f"[HUB] PROPOSAL ESCALATED {result.round_id} | "
+            f"{result.escalation_reason}"
+        )
 
 
 def _run_task(parsed: argparse.Namespace) -> int:
@@ -2422,6 +2500,43 @@ def main(args: list[str] | None = None) -> int:
     propose_parser.add_argument("--eligible", required=True, help="Comma-separated eligible peer IDs")
     propose_parser.add_argument("--risk", default="normal", help="Risk tier used for quorum calculation (default: normal)")
     propose_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+    proposal_add_parser = consensus_subparsers.add_parser(
+        "proposal-add",
+        help="Create a health-filtered legacy-compatible proposal",
+    )
+    proposal_add_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    proposal_add_parser.add_argument("--subject", required=True)
+    proposal_add_parser.add_argument(
+        "--from", "--peer", dest="from_peer", default="cc"
+    )
+    proposal_add_parser.add_argument("--impact", default="med")
+    proposal_add_parser.add_argument(
+        "--rationale", "--detail", dest="rationale", default=""
+    )
+    proposal_add_parser.add_argument("--text", default="")
+    proposal_add_parser.add_argument("--json", action="store_true")
+    proposal_vote_parser = consensus_subparsers.add_parser(
+        "proposal-vote",
+        help="Vote on a legacy-compatible proposal",
+    )
+    proposal_vote_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    proposal_vote_parser.add_argument(
+        "--proposal-id", "--round-id", dest="proposal_id", required=True
+    )
+    proposal_vote_parser.add_argument(
+        "--voter", "--peer", "--agent", dest="voter", default="cc"
+    )
+    proposal_vote_parser.add_argument(
+        "--vote",
+        required=True,
+        choices=("agree", "disagree", "abstain", "need_more_info"),
+    )
+    proposal_vote_parser.add_argument("--reason", default="")
+    proposal_vote_parser.add_argument("--json", action="store_true")
     list_parser = consensus_subparsers.add_parser(
         "list",
         help="List every consensus proposal, including resolved rounds",
@@ -2462,7 +2577,7 @@ def main(args: list[str] | None = None) -> int:
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
         if action == "vote":
             command_parser.add_argument("--actor", required=True, help="Voting peer ID")
-            command_parser.add_argument("--choice", required=True, choices=("agree", "disagree"), help="Vote choice")
+            command_parser.add_argument("--choice", required=True, choices=("agree", "disagree", "abstain", "need_more_info"), help="Vote choice")
 
     task_parser = subparsers.add_parser("task", help="Manage task lifecycles")
     task_subparsers = task_parser.add_subparsers(dest="task_action", required=True)

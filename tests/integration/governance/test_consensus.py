@@ -50,7 +50,7 @@ def test_propose_builds_canonical_envelope(tmp_path: Path, participants: int, re
     assert target.state["votes"] == {}
 
 
-def test_cast_vote_updates_votes_and_reaches_quorum(tmp_path: Path) -> None:
+def test_cast_vote_counts_only_agreements_and_dissent_blocks_quorum(tmp_path: Path) -> None:
     service, broker = _service(tmp_path)
     service.propose(
         round_id="round-vote",
@@ -68,9 +68,11 @@ def test_cast_vote_updates_votes_and_reaches_quorum(tmp_path: Path) -> None:
 
     target = broker.get_target("round-vote")
     assert target is not None
-    assert target.state["phase"] == "quorum_reached"
-    assert target.state["quorum"]["reached"] is True
-    assert target.state["quorum"]["counted_votes"] == 2
+    assert target.state["phase"] == "voting"
+    assert target.state["quorum"]["reached"] is False
+    assert target.state["quorum"]["counted_votes"] == 1
+    assert target.state["quorum"]["recorded_votes"] == 2
+    assert target.state["quorum"]["decisive_votes"] == 2
     assert target.state["votes"]["peer-a"]["choice"] == "agree"
 
 
@@ -118,7 +120,9 @@ def test_vote_correction_overwrites_without_double_counting(tmp_path: Path) -> N
     corrected = broker.get_target("round-correct")
     assert corrected is not None
     assert corrected.state["votes"]["peer-a"]["choice"] == "disagree"
-    assert corrected.state["quorum"]["counted_votes"] == 1
+    assert corrected.state["quorum"]["counted_votes"] == 0
+    assert corrected.state["quorum"]["recorded_votes"] == 1
+    assert corrected.state["quorum"]["decisive_votes"] == 1
     assert corrected.state["quorum"]["reached"] is False
     assert corrected.state["phase"] == "voting"
 

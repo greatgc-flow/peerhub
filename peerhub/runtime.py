@@ -35,6 +35,10 @@ from .telemetry.projections import TelemetryProjector
 from .application.arbiter_review import ArbiterReviewCoordinator, ArbiterExecutor
 from .application.direct_ask import execute_direct_ask
 from .application.peer_registry import PeerRegistryService
+from .application.proposals import (
+    ProposalCoordinator,
+    load_proposal_voters,
+)
 from .application.role_assignment import RoleAssignmentService
 from .application.leadership import LeadershipService
 from .application.alert_raise import AlertRaiseCoordinator
@@ -66,6 +70,7 @@ class Runtime:
     routing_service: RoutingService
     arbiter_coordinator: ArbiterReviewCoordinator
     peer_registry_service: PeerRegistryService
+    proposal_coordinator: ProposalCoordinator
     role_assignment_service: RoleAssignmentService
     leadership_service: LeadershipService
     feedback_service: FeedbackService
@@ -106,6 +111,7 @@ def create_runtime(
     adapter_peer_kind: str = "fake",
     admission_config: "DirectAskAdmissionConfig | None" = None,
     arbiter_executor: ArbiterExecutor | None = None,
+    proposal_voters: tuple[str, ...] | None = None,
 ) -> Runtime:
     """Create the composed Phase 1 runtime."""
 
@@ -259,6 +265,20 @@ def create_runtime(
         ids=context.ids,
     )
 
+    proposal_coordinator = ProposalCoordinator(
+        governance_broker,
+        consensus_service,
+        peer_registry=peer_registry_service,
+        health=health_service,
+        voter_node_ids=(
+            proposal_voters
+            if proposal_voters is not None
+            else load_proposal_voters(arbiter_workspace_root)
+        ),
+        clock=context.clock,
+        ids=context.ids,
+    )
+
     feedback_service = FeedbackService(
         governance_broker,
         clock=context.clock,
@@ -317,6 +337,7 @@ def create_runtime(
         dispatch=dispatch_service,
         admission_provider=admission_provider,
         consensus=consensus_service,
+        proposals=proposal_coordinator,
         task=task_service,
         lesson=lesson_service,
         lesson_broker=governance_broker,
@@ -355,6 +376,7 @@ def create_runtime(
         routing_service=routing_service,
         arbiter_coordinator=arbiter_coordinator,
         peer_registry_service=peer_registry_service,
+        proposal_coordinator=proposal_coordinator,
         role_assignment_service=role_assignment_service,
         leadership_service=leadership_service,
         feedback_service=feedback_service,
