@@ -99,8 +99,9 @@ from peerhub.application.legacy import (
     LockAcquireCommand, LockReleaseCommand, LockStatusCommand,
     ReportErrorCommand, AlertRaiseCommand,
     HealthCheckCommand, PeerStatusCommand, PeerQuarantineCommand, PeerRecoverCommand,
-    HealthPrecheckCommand, CheckGateCommand, HealthSweepCommand,
+    HealthPrecheckCommand, CheckGateCommand, HealthSweepCommand, LeaseStatusCommand,
 )
+from peerhub.application.lease_status import collect_lease_status
 from peerhub.application.peer_registry import (
     PeerRegistryService,
     collect_model_status,
@@ -1658,6 +1659,27 @@ class ApplicationAPI:
             decode_health_sweep,
             lambda c, ctx: collect_health_sweep(service, health),
             lambda r: r,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def decode_lease_status(envelope: CommandEnvelope) -> LeaseStatusCommand:
+            return LeaseStatusCommand(submission=self._submission(envelope))
+
+        def encode_lease_status(
+            rows: Sequence[Mapping[str, JsonValue]],
+        ) -> Mapping[str, JsonValue]:
+            return {"leases": tuple(rows)}
+
+        self.register(CommandDescriptor(
+            "dispatch.lease.status",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_lease_status,
+            lambda _command, _context: collect_lease_status(
+                self._dispatch, now=self._dispatch.current_time()
+            ),
+            encode_lease_status,
             CommandAvailability.AVAILABLE,
         ))
 

@@ -409,6 +409,15 @@ class DispatchService:
         with self._store.read_unit_of_work() as unit:
             return unit.count_active_leases(now_ms)
 
+    def list_active_leases(self) -> tuple[LeaseSnapshot, ...]:
+        """Return active lifecycle leases without sweeping expired heartbeats."""
+        with self._store.read_unit_of_work() as unit:
+            return unit.list_active_leases()
+
+    def current_time(self) -> int:
+        """Return the configured clock value for read-time lease evaluation."""
+        return self._clock.now()
+
     def get_request_and_attempt(
         self,
         command_id: CommandID | str,

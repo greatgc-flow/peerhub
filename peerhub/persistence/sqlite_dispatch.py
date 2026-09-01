@@ -1351,6 +1351,23 @@ class SqliteDispatchRepository:
         row = self._db().execute(query, params).fetchone()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
         return int(row["active_count"]) if row else 0  # pyright: ignore[reportUnknownArgumentType]
 
+    def list_active_leases(self) -> tuple[LeaseSnapshot, ...]:
+        """Return active lifecycle leases without filtering heartbeat expiry."""
+
+        rows = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+            """
+            SELECT lease_id
+            FROM leases
+            WHERE state IN ('RESERVED', 'ACTIVE', 'RENEWED')
+            ORDER BY owner_peer_id, lease_id
+            """
+        ).fetchall()
+        return tuple(
+            lease
+            for row in rows
+            if (lease := self.get_lease(str(row["lease_id"]))) is not None
+        )
+
     def cas_update_lease(
         self,
         current: LeaseSnapshot,

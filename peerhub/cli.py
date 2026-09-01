@@ -1208,6 +1208,53 @@ def _run_peer(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _format_lease_timestamp(timestamp_ms: object) -> str:
+    if not isinstance(timestamp_ms, int):
+        return ""
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).isoformat()
+
+
+def _run_lease(parsed: argparse.Namespace) -> int:
+    from peerhub.application.lease_status import collect_lease_status
+
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            rows = collect_lease_status(
+                runtime.dispatch_service, now=context.clock.now()
+            )
+            if parsed.json:
+                print(json.dumps(_json_safe({"leases": rows})))
+            elif not rows:
+                print("[HUB] No active leases.")
+            else:
+                print(
+                    f"{'Peer':<8} {'Status':<10} {'PID':<8} {'Alive':<6} "
+                    f"{'Expires':<20} {'Heartbeat':<20}"
+                )
+                print("-" * 78)
+                for row in rows:
+                    print(
+                        f"{str(row['peer']):<8} {str(row['status']):<10} "
+                        f"{str(row['pid'] or ''):<8} {str(row['alive']):<6} "
+                        f"{_format_lease_timestamp(row['expires_at']):<20} "
+                        f"{_format_lease_timestamp(row['heartbeat_at']):<20}"
+                    )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError) as exc:
+        print(f"peerhub lease: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_gate(parsed: argparse.Namespace) -> int:
     from peerhub.application.health_revalidation import collect_check_gate
 
@@ -2155,6 +2202,12 @@ def main(args: list[str] | None = None) -> int:
     peer_recover_parser.add_argument("--peer", required=True, help="Peer node ID to recover, or 'all'")
     peer_recover_parser.add_argument("--reason", default="manual", help="Recovery reason (default: manual)")
     peer_recover_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    lease_parser = subparsers.add_parser("lease", help="Inspect session leases")
+    lease_subparsers = lease_parser.add_subparsers(dest="lease_action", required=True)
+    lease_status_parser = lease_subparsers.add_parser("status", help="Show active process leases and PID liveness")
+    lease_status_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    lease_status_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     gate_parser = subparsers.add_parser("gate", help="Check dispatch gate condition for an agent")
     gate_subparsers = gate_parser.add_subparsers(dest="gate_action", required=True)
@@ -3180,6 +3233,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "peer":
         return _run_peer(parsed)
+
+    if parsed.command == "lease":
+        return _run_lease(parsed)
 
     if parsed.command == "gate":
         return _run_gate(parsed)

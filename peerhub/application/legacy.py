@@ -1267,6 +1267,19 @@ class HealthSweepCommand(Command[Any]):
         return value
 
 
+@dataclass(frozen=True, slots=True)
+class LeaseStatusCommand(Command[Any]):
+    method: ClassVar[str] = "dispatch.lease.status"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
 
 @dataclass(frozen=True, slots=True)
 class AssignRoleCommand(Command[Any]):
@@ -2129,6 +2142,10 @@ class LegacyTranslator:
             ))
         if call.action == "health-sweep":
             return TranslatedCommand(command=HealthSweepCommand(
+                submission=submission,
+            ))
+        if call.action == "lease-status":
+            return TranslatedCommand(command=LeaseStatusCommand(
                 submission=submission,
             ))
 

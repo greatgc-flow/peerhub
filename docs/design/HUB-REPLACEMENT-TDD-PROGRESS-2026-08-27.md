@@ -505,3 +505,13 @@ Implemented the `peer-quarantine` legacy action end-to-end (Parity Ledger Batch 
 - Byte-level check: no null bytes, stray control characters, or `??` corruption markers.
 
 **Progress:** 59 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 58). The newly backed action is `peer-quarantine`.
+
+### Round (2026-09-01): `lease-status` legacy action backed (60/90)
+
+Implemented the read-only `lease-status` path (Parity Ledger Batch 4 §8) over the existing session-lease domain, rather than creating a parallel lease representation. SQLite now enumerates active lifecycle leases (`RESERVED`/`ACTIVE`/`RENEWED`) without filtering on heartbeat expiry; this deliberate omission means an expired heartbeat stays visible to this status action and no record is mutated. `collect_lease_status()` renders the native record as the real legacy column set: peer, status, PID, OS liveness, expiry, and heartbeat. It invokes `verify_process_identity()` for PID observation and does not invoke any recovery, sweep, or termination code.
+
+`LeaseStatusCommand` (`dispatch.lease.status`) is registered as `Mutability.READ_ONLY` / `IdempotencyPolicy.READ_ONLY`; its encoder wraps the tuple of rows as `{"leases": ...}`. `LegacyTranslator` now translates `lease-status`, and `peerhub lease status [--json]` presents the fixed-width six-column table or JSON result.
+
+**Verification:** new SQLite-backed integration coverage creates two real session leases and confirms all persisted fields are enumerated, proves a heartbeat-expired lease remains present and unchanged, verifies legacy translation plus command-bus execution, and verifies the CLI JSON path. Full-suite, pyright, and byte-level validation are recorded with this implementation round after final validation.
+
+**Progress:** 60 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 59). The newly backed action is `lease-status`.

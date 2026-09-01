@@ -515,6 +515,10 @@ class SqliteReadUnitOfWork:
         """Return the count of active leases."""
         return self.dispatch.count_active_leases(now_ms)
 
+    def list_active_leases(self) -> tuple[LeaseSnapshot, ...]:
+        """Return active lifecycle leases, including heartbeat-expired rows."""
+        return self.dispatch.list_active_leases()
+
     def get_client_request_binding(
         self,
         client_id: str,
@@ -1095,6 +1099,10 @@ class SqliteUnitOfWork:
     def count_active_leases(self, now_ms: int | None = None) -> int:
         """Return the number of active leases."""
         return self.dispatch.count_active_leases(now_ms)
+
+    def list_active_leases(self) -> tuple[LeaseSnapshot, ...]:
+        """Return active lifecycle leases, including heartbeat-expired rows."""
+        return self.dispatch.list_active_leases()
 
     def get_client_request_binding(
         self,

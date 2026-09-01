@@ -30,6 +30,11 @@ class DispatchReadUnitOfWork(ReadUnitOfWork, Protocol):
 
         ...
 
+    def list_active_leases(self) -> tuple[LeaseSnapshot, ...]:
+        """Return active lifecycle leases, including heartbeat-expired rows."""
+
+        ...
+
     def get_client_request_binding(
         self,
         client_id: str,
@@ -153,7 +158,7 @@ class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
 
         ...
 
-    def count_active_leases(self) -> int:
+    def count_active_leases(self, now_ms: int | None = None) -> int:
         """Return the number of active leases."""
         
         ...
