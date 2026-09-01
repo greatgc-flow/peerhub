@@ -23,6 +23,7 @@ from peerhub.core.identity import (
     require_authenticated_subject,
 )
 from peerhub.core.protocol import OperationalFailureCategory, require_text
+from peerhub.governance.contract import TargetState
 from peerhub.state.contract import StateStore, UnitOfWork
 from peerhub.telemetry.contract import (
     OperationalProjectionSnapshot,
@@ -95,6 +96,16 @@ _ADMINISTRATIVE_RECOVERY_WINDOW_SECONDS = 5 * 60 * 60
 
 class HealthUnitOfWork(UnitOfWork, Protocol):
     """Persistence operations required by the health service."""
+
+    def get_target(self, target_id: str) -> TargetState | None:
+        ...
+
+    def compare_and_set_target(
+        self,
+        current: TargetState | None,
+        updated: TargetState,
+    ) -> bool:
+        ...
 
     def get_health_policy_revision(
         self,
@@ -379,12 +390,17 @@ class HealthService:
                     projection.readiness_observation_id
                 )
 
-            return evaluate_projection_at(
+            read = evaluate_projection_at(
                 projection,
                 readiness,
                 policy=self._policy,
                 evaluated_at=evaluated_at,
             )
+            return replace(read, profile_gate_backed_off=self._is_backed_off(
+                unit,
+                profile_id,
+                evaluated_at,
+            ))
 
     def _require_policy(
         self,
@@ -1610,6 +1626,76 @@ class HealthService:
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return application
 
+    def apply_transient_backoff(
+        self,
+        profile_id: str,
+        duration_seconds: int,
+        reason: str,
+    ) -> None:
+        """Apply or extend a transient routing backoff for a profile."""
+        target_id = f"profile-gate-backoff:{profile_id}"
+        now = self._clock.now()
+        backoff_until = now + duration_seconds
+        
+        with self._store.unit_of_work() as unit:
+            for _ in range(16):
+                current = unit.get_target(target_id)
+                if current is None:
+                    target = TargetState(
+                        target_id=target_id,
+                        revision=1,
+                        state={
+                            "kind": "profile-gate-backoff",
+                            "scope": None,
+                            "schema_version": 1,
+                            "profile_id": profile_id,
+                            "backoff_until": backoff_until,
+                            "reason": reason,
+                        },
+                        updated_at=now,
+                    )
+                    if unit.compare_and_set_target(None, target):
+                        unit.commit()
+                        return
+                else:
+                    existing_backoff = current.state.get("backoff_until", 0)
+                    new_backoff = max(int(str(existing_backoff)), backoff_until)
+                    updated = TargetState(
+                        target_id=target_id,
+                        revision=current.revision + 1,
+                        state={
+                            "kind": "profile-gate-backoff",
+                            "scope": None,
+                            "schema_version": 1,
+                            "profile_id": profile_id,
+                            "backoff_until": new_backoff,
+                            "reason": reason,
+                        },
+                        updated_at=now,
+                    )
+                    if unit.compare_and_set_target(current, updated):
+                        unit.commit()
+                        return
+            raise RuntimeError("CAS retry exhausted applying backoff")
+
+    def _is_backed_off(self, unit: HealthUnitOfWork, profile_id: str, evaluated_at: int) -> bool:
+        target_id = f"profile-gate-backoff:{profile_id}"
+        current = unit.get_target(target_id)
+        if current is None:
+            return False
+        backoff_until = int(str(current.state.get("backoff_until", 0)))
+        return evaluated_at < backoff_until
+
+    def is_profile_gate_backed_off(
+        self,
+        profile_id: str,
+        *,
+        evaluated_at: int,
+    ) -> bool:
+        """Check if a profile is currently blocked by a transient backoff."""
+        with self._store.unit_of_work() as unit:
+            return self._is_backed_off(unit, profile_id, evaluated_at)
+
     def freeze_admission_snapshot(
         self,
     ) -> AdmissionSnapshot:
@@ -1669,6 +1755,11 @@ class HealthService:
                         ),
                         evidence_refs=(
                             projection.evidence_refs
+                        ),
+                        profile_gate_backed_off=self._is_backed_off(
+                            unit,
+                            profile_id,
+                            timestamp,
                         ),
                     )
                 )

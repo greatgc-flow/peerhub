@@ -86,6 +86,7 @@ class _DirectAskRouteRequestFactory:
                 and entry.profile_id == self.target.profile.profile_id
                 and entry.admission_state.value == "OPEN"
                 and entry.availability_state.value not in ("STALE", "UNAVAILABLE")
+                and not entry.profile_gate_backed_off
             ):
                 eligible = True
                 break

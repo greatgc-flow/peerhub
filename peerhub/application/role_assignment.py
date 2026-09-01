@@ -45,6 +45,7 @@ class RoleAssigneeUnavailableError(InvalidMutationError):
         admission_state: AdmissionState,
         *,
         stale: bool = False,
+        profile_gate_backed_off: bool = False,
     ) -> None:
         self.peer_node_id = peer_node_id
         self.availability_state = availability_state
@@ -57,8 +58,10 @@ class RoleAssigneeUnavailableError(InvalidMutationError):
             AvailabilityState.STALE,
         }:
             status = availability_state.value
-        else:
+        elif admission_state != AdmissionState.OPEN:
             status = admission_state.value
+        else:
+            status = "BACKED_OFF"
         self.status = status
         super().__init__(
             (
@@ -185,12 +188,14 @@ class RoleAssignmentService:
                 or health_read.effective_availability_state
                 in self._DENIED_AVAILABILITY
                 or health_read.effective_admission_state in self._DENIED_ADMISSION
+                or health_read.profile_gate_backed_off
             ):
                 raise RoleAssigneeUnavailableError(
                     normalized_peer_node_id,
                     health_read.effective_availability_state,
                     health_read.effective_admission_state,
                     stale=is_stale,
+                    profile_gate_backed_off=health_read.profile_gate_backed_off,
                 )
             projection = health_read.projection
             health_basis: dict[str, JsonValue] = {

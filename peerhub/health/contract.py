@@ -736,6 +736,7 @@ class HealthProjectionRead:
     effective_admission_state: AdmissionState
     stale_at_read: bool
     evaluated_at: int
+    profile_gate_backed_off: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(  # pyright: ignore[reportUnnecessaryIsInstance]
@@ -768,6 +769,17 @@ class HealthProjectionRead:
             self.evaluated_at,
             "evaluated_at",
         )
+
+
+@dataclass(frozen=True)
+class ProfileGateBackoffSnapshot:
+    """A transient backoff preventing profile routing."""
+
+    profile_id: str
+    backoff_until: int
+    reason: str
+    updated_at: int
+    revision: int
 
 
 @dataclass(frozen=True)
@@ -1189,6 +1201,7 @@ class AdmissionSnapshotEntry:
     availability_state: AvailabilityState
     admission_state: AdmissionState
     evidence_refs: tuple[EvidenceRef, ...]
+    profile_gate_backed_off: bool = False
 
     def __post_init__(self) -> None:
         for name in (

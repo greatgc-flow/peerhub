@@ -120,16 +120,22 @@ class LeadershipIncumbentProtectedError(InvalidMutationError):
         *,
         availability_state: AvailabilityState | None,
         admission_state: AdmissionState | None,
+        profile_gate_backed_off: bool = False,
     ) -> None:
         self.peer_node_id = peer_node_id
         self.incumbent_peer_node_id = incumbent_peer_node_id
         self.availability_state = availability_state
         self.admission_state = admission_state
-        status = (
-            "UNKNOWN"
-            if availability_state is None
-            else availability_state.value
-        )
+        if availability_state is None:
+            status = "UNKNOWN"
+        elif availability_state in {AvailabilityState.UNAVAILABLE, AvailabilityState.STALE}:
+            status = availability_state.value
+        elif admission_state is not None and admission_state != AdmissionState.OPEN:
+            status = admission_state.value
+        elif profile_gate_backed_off:
+            status = "BACKED_OFF"
+        else:
+            status = "UNKNOWN"
         super().__init__(
             (
                 "cannot claim leadership; "
@@ -419,6 +425,7 @@ class LeadershipService:
                 incumbent,
                 availability_state=None,
                 admission_state=None,
+                profile_gate_backed_off=False,
             )
 
         stale_at_read = projection.stale_at_read
@@ -426,6 +433,7 @@ class LeadershipService:
             stale_at_read
             or projection.effective_availability_state in self._DENIED_AVAILABILITY
             or projection.effective_admission_state in self._DENIED_ADMISSION
+            or projection.profile_gate_backed_off
         )
         if not replaceable:
             raise LeadershipIncumbentProtectedError(
@@ -433,6 +441,7 @@ class LeadershipService:
                 incumbent,
                 availability_state=projection.effective_availability_state,
                 admission_state=projection.effective_admission_state,
+                profile_gate_backed_off=projection.profile_gate_backed_off,
             )
 
         return (
