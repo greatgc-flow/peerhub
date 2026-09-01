@@ -1514,7 +1514,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     ),
                 )
             else:
-                result = collect_room_status(service, room_id=parsed.room_id)
+                result = collect_room_status(service, room_id=parsed.room_id, room_sessions=runtime.room_participation_coordinator)
                 if parsed.json:
                     print(json.dumps(_json_safe(result)))
                 else:

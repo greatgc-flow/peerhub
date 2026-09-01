@@ -1829,6 +1829,7 @@ def test_legacy_status_resolves_nested_context_and_submission_scope(
         "room_id": expected_room_id,
         "room_summary": None,
         "unread_count": 0,
+        "active_participants": (),
     }
 
 

@@ -58,6 +58,7 @@ def test_native_status_reports_room_summary_and_unread_count(runtime_setup) -> N
             "phase": "verification",
         },
         "unread_count": 2,
+        "active_participants": (),
     }
 
 
@@ -80,4 +81,5 @@ def test_native_status_defaults_cleanly_without_summary_or_mail(runtime_setup) -
         "room_id": "room-status-empty",
         "room_summary": None,
         "unread_count": 0,
+        "active_participants": (),
     }

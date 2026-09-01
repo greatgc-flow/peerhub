@@ -1149,6 +1149,20 @@ class ReleaseRoleCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class RoomStatusCommand(Command[Any]):
+    method: ClassVar[str] = "peerhub.status.read"
+    submission: SubmissionMetadata
+    room_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"room_id": self.room_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class RoleStatusCommand(Command[Any]):
     method: ClassVar[str] = "coordination.role.status"
     submission: SubmissionMetadata

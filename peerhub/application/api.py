@@ -354,7 +354,7 @@ class ApplicationAPI:
         if task is not None: self._register_task(task)
         if lesson is not None and lesson_broker is not None:
             self._register_lesson(lesson, lesson_broker, room)
-        if room is not None: self._register_room(room)
+        if room is not None: self._register_room(room, room_session)
         if duty is not None and terminal_duty is not None:
             self._register_duty(duty, terminal_duty, room_session)
         if room_session is not None: self._register_room_session(room_session)
@@ -593,7 +593,7 @@ class ApplicationAPI:
                 CommandAvailability.AVAILABLE,
             ))
 
-    def _register_room(self, s: RoomsService) -> None:
+    def _register_room(self, s: RoomsService, room_session: RoomParticipationCoordinator | None = None) -> None:
         def text(e: CommandEnvelope, n: str) -> str:
             v=e.params[n]
             if not isinstance(v,str): raise ValueError(f"{n} must be a string")
@@ -774,7 +774,7 @@ class ApplicationAPI:
             ScopeKind.ANY,
             IdempotencyPolicy.READ_ONLY,
             status,
-            lambda c, _: collect_room_status(s, room_id=c.room_id),
+            lambda c, _: collect_room_status(s, room_id=c.room_id, room_sessions=room_session),
             lambda result: result,
             CommandAvailability.AVAILABLE,
         ))
