@@ -5,8 +5,10 @@ from pathlib import Path
 import pytest
 
 from fakes import FakeClock, FakeIdSource
-from peerhub.core.errors import InvalidMutationError
+from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
+from peerhub.core.protocol import CommandID
 from peerhub.governance.broker import GovernanceBroker
+from peerhub.governance.contract import EffectIntent, MutationRequest
 from peerhub.governance.rooms import HANDOFF_SECTIONS, RoomsService
 from peerhub.persistence.sqlite import SqliteStateStore
 
@@ -28,6 +30,59 @@ def _service(tmp_path: Path) -> tuple[RoomsService, GovernanceBroker]:
         ids=FakeIdSource([f"domain-{i}" for i in range(1, 200)]),
     )
     return service, broker
+
+
+def _insert_inbox_message(
+    broker: GovernanceBroker,
+    *,
+    message_id: str,
+    room_id: str,
+    recipient_instance_id: str,
+    recipient_profile_id: str,
+    sequence: int,
+) -> None:
+    """Insert a valid delivery row with an explicitly chosen sequence."""
+
+    broker.submit(
+        MutationRequest(
+            request_id=f"inject-{message_id}",
+            command_id=CommandID(f"inject-command-{message_id}"),
+            correlation_id=f"inject-correlation-{message_id}",
+            client_id="rooms-test",
+            command_type="test.inbox-message.inject",
+            idempotency_key=f"inject-{message_id}",
+            actor_id="peer-a",
+            policy_revision="test-v1",
+            target_id=f"inbox-message:{message_id}",
+            expected_revision=0,
+            operation="test.inbox-message.inject",
+            desired_state={
+                "kind": "inbox-message",
+                "scope": room_id,
+                "schema_version": 1,
+                "message_id": message_id,
+                "room_id": room_id,
+                "sender": {
+                    "instance_id": "peer-a",
+                    "profile_id": "profile-a",
+                },
+                "recipient": {
+                    "instance_id": recipient_instance_id,
+                    "profile_id": recipient_profile_id,
+                },
+                "sequence": sequence,
+                "body": message_id,
+                "message_type": "MSG",
+                "thread_ref": None,
+                "resource_ref": None,
+                "correlation_id": f"inject-correlation-{message_id}",
+                "priority": None,
+                "created_at": sequence,
+                "promoted_to": None,
+            },
+            effect_intent=EffectIntent(kind="test.noop", payload={}),
+        )
+    )
 
 
 def test_create_room_writes_canonical_room_target(tmp_path: Path) -> None:
@@ -246,6 +301,150 @@ def test_mailbox_delivery_is_private_read_only_and_cursor_scoped(
     assert cursor_after_repeat is not None
     assert cursor_after_repeat.state == cursor_state_before_repeat
     assert to_a.receipt.target_id.startswith("inbox-message:")
+
+
+def test_count_unread_messages_is_room_wide_and_decreases_after_mark_read(
+    tmp_path: Path,
+) -> None:
+    service, broker = _service(tmp_path)
+    service.create_room(
+        room_id="room-unread",
+        topic_id="topic-unread",
+        title="Unread aggregate",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b", "peer-c"),
+    )
+    service.create_room(
+        room_id="room-other",
+        topic_id="topic-other",
+        title="Other room",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b"),
+    )
+    for index in range(3):
+        service.send_message(
+            room_id="room-unread",
+            sender_instance_id="peer-a",
+            sender_profile_id="profile-a",
+            recipient_instance_id="peer-b",
+            recipient_profile_id="profile-b",
+            body=f"for-b-{index}",
+        )
+    for index in range(2):
+        service.send_message(
+            room_id="room-unread",
+            sender_instance_id="peer-a",
+            sender_profile_id="profile-a",
+            recipient_instance_id="peer-c",
+            recipient_profile_id="profile-c",
+            body=f"for-c-{index}",
+        )
+    service.send_message(
+        room_id="room-other",
+        sender_instance_id="peer-a",
+        sender_profile_id="profile-a",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        body="excluded by room scope",
+    )
+
+    messages_before = broker.list_targets("inbox-message", "room-unread")
+    cursors_before = broker.list_targets("inbox-cursor", "room-unread")
+    assert service.count_unread_messages(room_id="room-unread") == 5
+    assert service.count_unread_messages(room_id="room-unread") == 5
+    assert broker.list_targets("inbox-message", "room-unread") == messages_before
+    assert broker.list_targets("inbox-cursor", "room-unread") == cursors_before == ()
+
+    service.mark_read(
+        room_id="room-unread",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        up_through_sequence=2,
+    )
+
+    assert service.count_unread_messages(room_id="room-unread") == 3
+    assert service.count_unread_messages(room_id="room-other") == 1
+    service.send_message(
+        room_id="room-unread",
+        sender_instance_id="peer-a",
+        sender_profile_id="profile-a",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        body="newer than peer-b's cursor",
+    )
+    assert service.count_unread_messages(room_id="room-unread") == 4
+
+
+def test_count_unread_messages_empty_and_cleared_rooms_start_at_zero(
+    tmp_path: Path,
+) -> None:
+    service, _ = _service(tmp_path)
+    service.create_room(
+        room_id="room-empty",
+        topic_id="topic-empty",
+        title="Empty room",
+        creator_id="peer-a",
+        participants=(),
+    )
+    service.create_room(
+        room_id="room-old",
+        topic_id="topic-old",
+        title="Old room",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b"),
+    )
+    service.send_message(
+        room_id="room-old",
+        sender_instance_id="peer-a",
+        sender_profile_id="profile-a",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        body="retained in the old room",
+    )
+
+    assert service.count_unread_messages(room_id="room-empty") == 0
+    with pytest.raises(RecordNotFoundError):
+        service.count_unread_messages(room_id="missing-room")
+    service.clear_room(
+        "room-old",
+        new_room_id="room-fresh",
+        subject="Fresh room",
+        actor_id="peer-a",
+    )
+    assert service.count_unread_messages(room_id="room-fresh") == 0
+    assert service.count_unread_messages(room_id="room-old") == 1
+
+
+def test_count_unread_messages_counts_duplicate_and_gapped_sequence_rows(
+    tmp_path: Path,
+) -> None:
+    service, broker = _service(tmp_path)
+    service.create_room(
+        room_id="room-sequences",
+        topic_id="topic-sequences",
+        title="Sequence edge cases",
+        creator_id="peer-a",
+        participants=("peer-a", "peer-b"),
+    )
+    for index, sequence in enumerate((1, 4, 4, 9), start=1):
+        _insert_inbox_message(
+            broker,
+            message_id=f"sequence-{index}",
+            room_id="room-sequences",
+            recipient_instance_id="peer-b",
+            recipient_profile_id="profile-b",
+            sequence=sequence,
+        )
+    service.mark_read(
+        room_id="room-sequences",
+        recipient_instance_id="peer-b",
+        recipient_profile_id="profile-b",
+        up_through_sequence=2,
+    )
+
+    # Count the three physical rows above the cursor.  max(sequence) - cursor
+    # would incorrectly report seven because the stream has duplicates/gaps.
+    assert service.count_unread_messages(room_id="room-sequences") == 3
 
 
 def test_promote_mailbox_message_creates_thread_message_and_marks_source(

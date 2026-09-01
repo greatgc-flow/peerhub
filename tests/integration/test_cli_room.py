@@ -34,6 +34,51 @@ def test_cli_room_status_missing_returns_two(tmp_path: Path, capsys) -> None:
     assert "not found" in capsys.readouterr().err
 
 
+def test_cli_room_status_includes_room_wide_unread_count(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    def run(args: list[str]) -> dict:
+        assert main(args + ["--json"]) == 0
+        return json.loads(capsys.readouterr().out)
+
+    workspace = ["--workspace", str(tmp_path)]
+    run([
+        "room", "create", *workspace,
+        "--room-id", "room-unread-status",
+        "--topic-id", "topic-unread-status",
+        "--title", "Unread status",
+        "--creator", "peer-a",
+        "--participants", "peer-a,peer-b,peer-c",
+    ])
+    for recipient in ("peer-b", "peer-c"):
+        run([
+            "room", "send", *workspace,
+            "--room-id", "room-unread-status",
+            "--sender-instance-id", "peer-a",
+            "--sender-profile-id", "profile-a",
+            "--recipient-instance-id", recipient,
+            "--recipient-profile-id", f"profile-{recipient[-1]}",
+            "--body", f"for {recipient}",
+        ])
+
+    assert run([
+        "room", "status", *workspace,
+        "--room-id", "room-unread-status",
+    ])["unread_count"] == 2
+    run([
+        "room", "mark-read", *workspace,
+        "--room-id", "room-unread-status",
+        "--recipient-instance-id", "peer-b",
+        "--recipient-profile-id", "profile-b",
+        "--up-through-sequence", "1",
+    ])
+    assert run([
+        "room", "status", *workspace,
+        "--room-id", "room-unread-status",
+    ])["unread_count"] == 1
+
+
 def test_cli_room_react_unreact_react_round_trip(
     tmp_path: Path, capsys
 ) -> None:

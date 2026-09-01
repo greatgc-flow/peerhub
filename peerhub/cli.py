@@ -1515,10 +1515,16 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 target = runtime.governance_broker.get_target(parsed.room_id)
                 if target is None:
                     raise RecordNotFoundError("room", parsed.room_id)
+                unread_count = service.count_unread_messages(room_id=parsed.room_id)
+                result = dict(target.state)
+                result["unread_count"] = unread_count
                 if parsed.json:
-                    print(json.dumps(_json_safe(target.state)))
+                    print(json.dumps(_json_safe(result)))
                 else:
-                    print(f"Room {parsed.room_id}: status={target.state['status']}")
+                    print(
+                        f"Room {parsed.room_id}: status={target.state['status']}, "
+                        f"unread_count={unread_count}"
+                    )
                 return 0
             target = runtime.governance_broker.get_target(submission.receipt.target_id)
             assert target is not None

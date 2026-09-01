@@ -341,6 +341,31 @@ class RoomsService:
         )
         return tuple(sorted(messages, key=self._inbox_message_sort_key))
 
+    def count_unread_messages(self, *, room_id: str) -> int:
+        """Count unread delivery rows across every recipient in one room."""
+
+        self._require_room(room_id)
+        read_through_by_recipient: dict[tuple[str, str], int] = {}
+        for cursor in self._broker.list_targets("inbox-cursor", room_id):
+            recipient = self._identity_pair(cursor.state.get("recipient"))
+            if recipient is not None:
+                read_through_by_recipient[recipient] = max(
+                    read_through_by_recipient.get(recipient, 0),
+                    self._cursor_read_through_sequence(cursor),
+                )
+
+        unread_count = 0
+        for message in self._broker.list_targets("inbox-message", room_id):
+            recipient = self._identity_pair(message.state.get("recipient"))
+            if recipient is None:
+                continue
+            if self._inbox_message_sequence(message) > read_through_by_recipient.get(
+                recipient,
+                0,
+            ):
+                unread_count += 1
+        return unread_count
+
     def mark_read(
         self,
         *,
@@ -899,6 +924,17 @@ class RoomsService:
             typed_identity.get("instance_id") == instance_id
             and typed_identity.get("profile_id") == profile_id
         )
+
+    @staticmethod
+    def _identity_pair(identity: object) -> tuple[str, str] | None:
+        if not isinstance(identity, Mapping):
+            return None
+        typed_identity = cast(Mapping[str, JsonValue], identity)
+        instance_id = typed_identity.get("instance_id")
+        profile_id = typed_identity.get("profile_id")
+        if not isinstance(instance_id, str) or not isinstance(profile_id, str):
+            return None
+        return instance_id, profile_id
 
     @staticmethod
     def _inbox_message_sequence(target: TargetState) -> int:
