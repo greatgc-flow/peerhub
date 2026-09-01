@@ -3086,7 +3086,7 @@
       },
       "subprocess_provider_effects": [],
       "exit_error_output_contract": "unspecified",
-      "target_peerhub_command": "governance.mutation.status",
+      "target_peerhub_command": "governance.effect.status",
       "target_peerhub_module_symbol": "unspecified",
       "disposition": "required",
       "implementation_status": "INVENTORIED",

@@ -57,6 +57,10 @@ from peerhub.application.proposals import (
     ProposalVoteResult,
 )
 from peerhub.application.status import collect_room_status
+from peerhub.application.broker_status import (
+    MAX_VISIBLE_EFFECT_DELIVERIES,
+    collect_effect_status,
+)
 from peerhub.application.commands import (
     Command,
     AdmitDispatch,
@@ -110,6 +114,7 @@ from peerhub.application.legacy import (
     ReportErrorCommand, AlertRaiseCommand,
     HealthCheckCommand, PeerStatusCommand, PeerQuarantineCommand, PeerRecoverCommand,
     HealthPrecheckCommand, CheckGateCommand, HealthSweepCommand, LeaseStatusCommand,
+    EffectStatusCommand,
     LeaseSweepCommand,
 )
 from peerhub.application.lease_status import collect_lease_status
@@ -373,6 +378,7 @@ class ApplicationAPI:
         alert_raise: AlertRaiseCoordinator | None = None,
         health_revalidation: HealthRevalidationCoordinator | None = None,
         process_lease_sweep: ProcessLeaseSweepCoordinator | None = None,
+        governance_broker: GovernanceBroker | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
@@ -381,6 +387,8 @@ class ApplicationAPI:
         self._registry: dict[str, CommandDescriptor[Any, Any]] = {}  # pyright: ignore[reportInvalidTypeArguments]
         
         self._register_builtins()
+        if governance_broker is not None:
+            self._register_effect_status(governance_broker)
         if consensus is not None:
             self._register_consensus(
                 consensus, lesson_broker, arbiter, proposals
@@ -424,6 +432,42 @@ class ApplicationAPI:
                 "previous_revision": receipt.previous_revision,
                 "next_revision": receipt.next_revision,
                 "status": receipt.status.value}
+
+    def _register_effect_status(
+        self,
+        broker: GovernanceBroker,
+    ) -> None:
+        def decode_effect_status(
+            envelope: CommandEnvelope,
+        ) -> EffectStatusCommand:
+            limit = envelope.params.get(
+                "limit", MAX_VISIBLE_EFFECT_DELIVERIES
+            )
+            if (
+                type(limit) is not int
+                or not 1 <= limit <= MAX_VISIBLE_EFFECT_DELIVERIES
+            ):
+                raise ValueError(
+                    "limit must be an integer between 1 and "
+                    f"{MAX_VISIBLE_EFFECT_DELIVERIES}"
+                )
+            return EffectStatusCommand(
+                submission=self._submission(envelope),
+                limit=limit,
+            )
+
+        self.register(CommandDescriptor(
+            "governance.effect.status",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_effect_status,
+            lambda command, _context: collect_effect_status(
+                broker, limit=command.limit
+            ),
+            lambda result: result,
+            CommandAvailability.AVAILABLE,
+        ))
 
     def _register_consensus(
         self,

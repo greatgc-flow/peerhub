@@ -84,7 +84,7 @@ proposal-vote,governance,governance.proposal.vote,peerhub-v1,required
 proposal-list,governance,governance.proposal.list,peerhub-v1,required
 broker-submit,governance,governance.mutation.submit,peerhub-v1,required
 broker-drain,governance,governance.effect.drain,peerhub-v1,required
-broker-status,governance,governance.mutation.status,peerhub-v1,required
+broker-status,governance,governance.effect.status,peerhub-v1,required
 update-signatures,diagnostic,peerhub.signature.update,host-adapter,compatibility-wrapper
 arbiter-review,consensus,consensus.arbiter.review,peerhub-v1,required
 credit-status,external-action,host.credit.status,host-adapter,compatibility-wrapper

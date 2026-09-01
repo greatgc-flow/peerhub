@@ -356,6 +356,7 @@ def create_runtime(
         alert_raise=alert_raise_coordinator,
         health_revalidation=health_revalidation_coordinator,
         process_lease_sweep=process_lease_sweep_coordinator,
+        governance_broker=governance_broker,
     )
 
     return Runtime(

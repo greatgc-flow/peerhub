@@ -229,7 +229,7 @@ LEGACY_CATALOG = {
     'proposal-list': 'governance.proposal.list',
     'broker-submit': 'governance.mutation.submit',
     'broker-drain': 'governance.effect.drain',
-    'broker-status': 'governance.mutation.status',
+    'broker-status': 'governance.effect.status',
     'update-signatures': 'peerhub.signature.update',
     'arbiter-review': 'consensus.arbiter.review',
     'credit-status': 'host.credit.status',
@@ -1382,6 +1382,20 @@ class LeaseStatusCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class EffectStatusCommand(Command[Any]):
+    method: ClassVar[str] = "governance.effect.status"
+    submission: SubmissionMetadata
+    limit: int = 20
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"limit": self.limit}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class LeaseSweepCommand(Command[Any]):
     method: ClassVar[str] = "dispatch.lease.sweep"
     submission: SubmissionMetadata
@@ -2349,6 +2363,18 @@ class LegacyTranslator:
         if call.action == "lease-status":
             return TranslatedCommand(command=LeaseStatusCommand(
                 submission=submission,
+            ))
+        if call.action == "broker-status":
+            raw_limit = call.arguments.get("limit")
+            limit = 20 if raw_limit is None else _optional_int(raw_limit)
+            if limit is None or not 1 <= limit <= 20:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="limit must be an integer between 1 and 20",
+                )
+            return TranslatedCommand(command=EffectStatusCommand(
+                submission=submission,
+                limit=limit,
             ))
         if call.action == "lease-sweep":
             raw_limit = call.arguments.get("limit")

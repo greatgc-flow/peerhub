@@ -41,6 +41,7 @@ from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.proposals import ProposalVoteResult
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
+from peerhub.application.broker_status import collect_effect_status
 from peerhub.application.legacy import legacy_thread_slug
 from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
@@ -1295,6 +1296,55 @@ def _format_lease_timestamp(timestamp_ms: object) -> str:
     return datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc).isoformat()
 
 
+def _run_broker(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            result = collect_effect_status(
+                runtime.governance_broker,
+                limit=parsed.limit,
+            )
+            if parsed.json:
+                print(json.dumps(_json_safe(result)))
+                return 0
+
+            deliveries = result["deliveries"]
+            assert isinstance(deliveries, tuple)
+            if not deliveries:
+                print("[HUB] No unfinished governance effect deliveries.")
+                return 0
+
+            print("EVENT_ID\tSTATE\tDISPOSITION\tEFFECT_KIND\tTARGET_ID\tREVISION")
+            for delivery in deliveries:
+                assert isinstance(delivery, Mapping)
+                print(
+                    f"{delivery.get('event_id')}\t"
+                    f"{delivery.get('outbox_state')}\t"
+                    f"{delivery.get('recovery_disposition')}\t"
+                    f"{delivery.get('effect_kind')}\t"
+                    f"{delivery.get('target_id')}\t"
+                    f"{delivery.get('target_revision')}"
+                )
+            suffix = "+" if result["has_more"] else ""
+            print(
+                f"Visible unfinished deliveries: "
+                f"{result['visible_unfinished_count']}{suffix}"
+            )
+            return 0
+    except (ValueError, RuntimeError, PeerHubError) as exc:
+        print(f"peerhub broker: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_lease(parsed: argparse.Namespace) -> int:
     from peerhub.application.lease_status import collect_lease_status
 
@@ -2418,6 +2468,28 @@ def main(args: list[str] | None = None) -> int:
     )
     lease_sweep_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
+    broker_parser = subparsers.add_parser(
+        "broker", help="Inspect governance effect delivery status"
+    )
+    broker_subparsers = broker_parser.add_subparsers(
+        dest="broker_action", required=True
+    )
+    broker_status_parser = broker_subparsers.add_parser(
+        "status", help="Show unfinished governance effect deliveries"
+    )
+    broker_status_parser.add_argument(
+        "--workspace", default=".", help="Path to workspace root"
+    )
+    broker_status_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Maximum visible deliveries, from 1 to 20 (default: 20)",
+    )
+    broker_status_parser.add_argument(
+        "--json", action="store_true", help="Emit JSON output"
+    )
+
     gate_parser = subparsers.add_parser("gate", help="Check dispatch gate condition for an agent")
     gate_subparsers = gate_parser.add_subparsers(dest="gate_action", required=True)
     gate_check_parser = gate_subparsers.add_parser("check", help="Check if gate is open for a named agent")
@@ -3514,6 +3586,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "lease":
         return _run_lease(parsed)
+
+    if parsed.command == "broker":
+        return _run_broker(parsed)
 
     if parsed.command == "gate":
         return _run_gate(parsed)
