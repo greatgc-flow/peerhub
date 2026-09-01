@@ -7,8 +7,8 @@ from collections.abc import Mapping, Sequence
 from typing import cast
 
 from peerhub.core.context import Clock, IdSource
-from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
-from peerhub.core.protocol import CommandID, JsonValue
+from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, StaleRevisionError
+from peerhub.core.protocol import CommandID, JsonValue, require_text
 
 from .broker import GovernanceBroker
 from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
@@ -32,6 +32,9 @@ HANDOFF_SECTION_LIMITS = {
 HANDOFF_MAX_CHARS = 12_000
 
 
+
+_OMITTED = object()
+
 class RoomsService:
     """Create room/thread records and append independent message records."""
 
@@ -42,6 +45,68 @@ class RoomsService:
 
     def get_target(self, target_id: str) -> TargetState | None:
         return self._broker.get_target(target_id)
+
+    def get_room_summary(self, room_id: str) -> TargetState | None:
+        target_id = f"room-summary:{room_id}"
+        return self.get_target(target_id)
+
+    def update_room_summary(
+        self,
+        room_id: str,
+        *,
+        mission: str | None | object = _OMITTED,
+        blocked: str | None | object = _OMITTED,
+        phase: str | None | object = _OMITTED,
+        actor_id: str,
+    ) -> MutationSubmission:
+        if mission is not _OMITTED and mission is not None:
+            require_text(str(mission), "mission")
+        if blocked is not _OMITTED and blocked is not None:
+            require_text(str(blocked), "blocked")
+        if phase is not _OMITTED and phase is not None:
+            require_text(str(phase), "phase")
+
+        target_id = f"room-summary:{room_id}"
+        
+        for _ in range(16):
+            current = self.get_target(target_id)
+            now = self._clock.now()
+
+            if current is None:
+                expected_revision = 0
+                state: dict[str, JsonValue] = {
+                    "kind": "room-summary",
+                    "scope": None,
+                    "schema_version": 1,
+                    "room_id": room_id,
+                    "mission": str(mission) if mission not in (_OMITTED, None) else None,
+                    "blocked": str(blocked) if blocked not in (_OMITTED, None) else None,
+                    "phase": str(phase) if phase not in (_OMITTED, None) else None,
+                    "updated_at": now,
+                }
+            else:
+                expected_revision = current.revision
+                state = dict(current.state)
+                if mission is not _OMITTED:
+                    state["mission"] = str(mission) if mission is not None else None
+                if blocked is not _OMITTED:
+                    state["blocked"] = str(blocked) if blocked is not None else None
+                if phase is not _OMITTED:
+                    state["phase"] = str(phase) if phase is not None else None
+                state["updated_at"] = now
+                
+            try:
+                return self._submit(
+                    target_id=target_id,
+                    expected_revision=expected_revision,
+                    actor_id=actor_id,
+                    operation="room-summary.update",
+                    desired_state=state,
+                )
+            except StaleRevisionError:
+                continue
+
+        raise InvalidMutationError("room-summary changed repeatedly while updating")
 
     def list_participants(
         self,
