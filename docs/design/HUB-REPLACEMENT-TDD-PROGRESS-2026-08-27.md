@@ -488,3 +488,20 @@ Landing this round also surfaced a real, unrelated drift: `LEGACY_CATALOG`'s nat
 **Verification:** 14 new integration tests in `tests/integration/application/test_health_quickwins.py` (SQLite-backed, covering read paths, `--recover`/administrative-recovery via a real `HealthCircuitSnapshot` construction matching the pattern proven in `test_health_revalidation.py`, unknown-peer handling, and full CLI-level execution via `peerhub.cli.main`), plus the pre-existing `test_cli_room.py`/`test_update_status.py` suites, all pass. Full suite: `1355 passed, 1 failed (only the pre-existing test_committed_manifest_snapshot_is_valid), 9 deselected, 13 subtests passed in 232.50s`. Pyright: exactly the established 10-diagnostic `cli.py` baseline across every touched file, 0 new. Byte-level corruption check (null bytes, stray control bytes, mojibake `??` markers) clean on every touched file.
 
 **Progress:** 58 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 52). The newly backed actions are `health-check`, `peer-status`, `peer-recover`, `health-precheck`, `check-gate`, and `health-sweep`.
+
+### Round (2026-09-01): `peer-quarantine` legacy action backed (59/90)
+
+Implemented the `peer-quarantine` legacy action end-to-end (Parity Ledger Batch 2 §8):
+
+- **Core Health Service:** Added `HealthService.open_manual_quarantine(scope, subject, *, authority_class=MANUAL, reason, actor_id, requested_at)` in `peerhub/health/service.py`. It constructs an operator-authorized `PolicyAction` with `CircuitState.CIRCUIT_OPEN`, `QuarantineAuthorityClass.MANUAL`, and a `PolicyReceipt`, executes pure reduction via `reduce_policy_action()`, writes the circuit snapshot to SQLite, and atomically recomputes all member projections to `AdmissionState.QUARANTINED`.
+- **Application Execution Helper:** Added `execute_peer_quarantine(registry, health, *, peer_id, reason, actor_id, now)` in `peerhub/application/health_revalidation.py`. Resolves target peer kind and profile ID, triggers `open_manual_quarantine`, and returns structured audit details.
+- **Legacy Translation & API Registration:** Added `PeerQuarantineCommand` (`@dataclass(frozen=True, slots=True)`, `method = "health.admission.quarantine"`) and legacy translation in `peerhub/application/legacy.py`. Registered `health.admission.quarantine` with `Mutability.MUTATING`, `ScopeKind.ANY`, `IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED` in `peerhub/application/api.py`.
+- **CLI Subcommand:** Added `peerhub peer quarantine --peer <node_id> --reason <reason> [--actor <actor_id>] [--json]` in `peerhub/cli.py`.
+- **Administrative Recovery Integration:** Proved full lifecycle compatibility with `peer-recover` / `health.check --recover` where `authorize_administrative_recovery()` verifies the `MANUAL` circuit, issues a single-flight probe grant, executes probe verification, and transitions the circuit back to `CIRCUIT_CLOSED` / `AdmissionState.OPEN`.
+
+**Verification:**
+- 5 new tests in `tests/integration/application/test_peer_quarantine.py` covering real SQLite round-trip, subsequent clearance via `peer-recover` and administrative recovery, idempotent refresh advancing circuit revisions, legacy translation, and CLI execution.
+- Pyright: 0 new diagnostics across touched files (clean on `service.py`, `health_revalidation.py`, `legacy.py`, `api.py`, `test_peer_quarantine.py`, exactly 10 pre-existing on `cli.py`).
+- Byte-level check: no null bytes, stray control characters, or `??` corruption markers.
+
+**Progress:** 59 of the 90 `LEGACY_CATALOG` actions now translate and execute end-to-end (up from 58). The newly backed action is `peer-quarantine`.

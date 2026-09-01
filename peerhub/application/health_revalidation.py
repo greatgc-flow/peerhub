@@ -557,3 +557,40 @@ def collect_health_sweep(
         "total_peers": len(nodes),
     }
 
+
+def execute_peer_quarantine(
+    registry: PeerRegistryService,
+    health: HealthService,
+    *,
+    peer_id: str,
+    reason: str = "manual",
+    actor_id: str | None = None,
+    now: int | None = None,
+) -> dict[str, JsonValue]:
+    """Manually quarantine a peer node by opening its profile health circuit."""
+
+    node = registry.get_node(peer_id)
+    peer_kind = str(node.state["peer_kind"])
+    profile_id = str(node.state["profile_id"])
+
+    circuit = health.open_manual_quarantine(
+        PolicyScope.PROFILE,
+        profile_id,
+        reason=reason,
+        actor_id=actor_id,
+        requested_at=now,
+    )
+    return {
+        "peer": peer_id,
+        "peer_kind": peer_kind,
+        "profile_id": profile_id,
+        "quarantined": True,
+        "circuit_state": circuit.state.value,
+        "admission_state": AdmissionState.QUARANTINED.value,
+        "authority_class": circuit.quarantine_authority_class.value,
+        "reason": reason,
+        "circuit_id": circuit.circuit_id,
+        "circuit_revision": circuit.revision,
+    }
+
+

@@ -15,6 +15,8 @@ There is no legitimate honest mapping from a free-form string to typed evidence 
 
 ## Where things stand right now
 
+**DONE (2026-09-01): `peer-quarantine` now translates and executes end-to-end (59/90).** Added `HealthService.open_manual_quarantine(scope, subject, *, authority_class=MANUAL, reason, actor_id, requested_at)` which creates an operator-authorized `HealthCircuitSnapshot` (`CircuitState.CIRCUIT_OPEN`, `QuarantineAuthorityClass.MANUAL`) and atomically recomputes member projections to `AdmissionState.QUARANTINED`. Wired `PeerQuarantineCommand` (`health.admission.quarantine`, `Mutability.MUTATING`, `IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED`), legacy `peer-quarantine` translation in `LegacyTranslator`, and `peerhub peer quarantine --peer <node_id> --reason <reason> [--actor <actor_id>] [--json]` in `peerhub/cli.py`. Re-verified against SQLite round-trip, subsequent administrative recovery via `peer-recover`/`health-check --recover`, and CLI execution.
+
 **DONE (2026-09-01): 6 health/admission quick wins now translate and execute end-to-end (58/90).** `health-check`, `peer-status`, `peer-recover`, `health-precheck`, `check-gate`, and `health-sweep` -- all 6 items the same-day "Health / admission / routing re-scouting" section below reclassified from Tier 4 to Tier 1/2 quick wins after the health-authority-bridge landed. Zero new service code: each is CLI + `LegacyTranslator` + `ApplicationAPI` wiring over the already-shipped `HealthService`/`PeerRegistryService`/`HealthRevalidationCoordinator`. `peer-recover --peer all` and `health-check --recover` route through the real `authorize_administrative_recovery()`/`authorize_recovery()` pipeline (not a blind status clobber). Full narrative, including a real concurrent-edit collision with the `update-status` round and a `LEGACY_CATALOG`-vs-migration-ledger drift both found and fixed, in `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`. Verified: 1355 passed (only the pre-existing manifest-snapshot failure), 0 new pyright diagnostics, byte-clean.
 
 **DONE (2026-09-01): `update-status` now translates and executes end-to-end (52/90).** The new mutating `coordination.mission.update` command resolves its room from explicit arguments, nested context, or submission scope and atomically writes the existing `room-summary:{room_id}` target through `RoomsService.update_room_summary()`. `mission`, `blocked`, and `phase` are independently optional: omitted fields remain unchanged. It is exposed through `peerhub room update-status --room-id ROOM_ID [--mission TEXT] [--blocked TEXT] [--phase TEXT]`. Real SQLite tests cover all room-resolution routes and a partial-update round trip; the CLI test proves omitted fields are not clobbered.
@@ -853,9 +855,9 @@ The 2026-08-28 backlog assessment classified the 13 actions in this cluster (`he
   - Native CLI: `peerhub health sweep`.
   - Legacy translation: `legacy.py` `if call.action == "health-sweep":` -> `HealthSweepCommand()`.
 
-#### 7. `peer-quarantine` -- SCOPED GAP (1 implementation round)
+#### 7. `peer-quarantine` -- DONE (2026-09-01)
 - **Legacy Behavior:** `action_peer_quarantine` (`P:/_sys/core/hub.py:3496-3509`, Parity Ledger Batch 2 §8). Forces peer health to `RED`, `gate_open=False`, `quarantined=True`.
-- **Native Status:** In peerhub, automatic quarantines require typed failure traces (`HealthService.classify_and_open_circuit()`), and operational-error escalation produces `quarantine-review` targets for `QuarantineReviewCoordinator`. For an explicit direct manual quarantine command from the operator, `HealthService` needs a dedicated `open_manual_quarantine(scope, subject, *, authority_class=MANUAL, reason, actor_id)` method that records a `MANUAL` `HealthCircuitSnapshot` with `CircuitState.CIRCUIT_OPEN` and recomputes member projections. Small, well-scoped single round.
+- **Native Status:** Fully backed via `HealthService.open_manual_quarantine()`, `PeerQuarantineCommand` (`health.admission.quarantine`), and `peerhub peer quarantine` CLI. Atomically opens `MANUAL` `HealthCircuitSnapshot` (`CircuitState.CIRCUIT_OPEN`) and recomputes member projections to `AdmissionState.QUARANTINED`. Recoverable via `peer-recover`/`health-check --recover` through `authorize_administrative_recovery()`.
 - **Parity Ledger:** Batch 2 §8.
 
 #### 8. `health-update` -- POLICY DIVERGENCE / REVALIDATION SEAM
@@ -915,7 +917,7 @@ Cross-examination against the Parity Ledger confirms:
 | `health-precheck` | Batch 3 §10 | `PeerRegistryService.list_nodes`, `HealthService.read_health_projection` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
 | `check-gate` | Batch 1 §11 | `PeerRegistryService.get_node`, `HealthService.read_health_projection` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
 | `health-sweep` | Batch 3 §11 | `PeerRegistryService.list_nodes`, `HealthService.read_health_projection` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
-| `peer-quarantine` | Batch 2 §8 | `HealthService` (needs `open_manual_quarantine`) | **Scoped Gap** | 1 normal implementation round |
+| `peer-quarantine` | Batch 2 §8 | `HealthService.open_manual_quarantine` | **DONE** | Fully backed & wired end-to-end |
 | `lease-status` | Batch 4 §8 | `SessionLeaseService` (needs `list_active_leases`) | **Scoped Gap** | 1 normal implementation round |
 | `lease-sweep` | Batch 4 §9 | `ProcessLeaseSweepCoordinator` (needs coordinator + `list_expired_leases`) | **Scoped Gap** | 1 normal implementation round |
 | `elect-leader` | Batch 3 §5 | `LeadershipService.claim_leadership` + Gap 6 `CapabilityMatchingService` | **Genuinely Blocked** | Blocked on Gap 6 capability scoring |

@@ -1181,6 +1181,28 @@ class HealthCheckCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class PeerQuarantineCommand(Command[Any]):
+    method: ClassVar[str] = "health.admission.quarantine"
+    submission: SubmissionMetadata
+    peer_id: str
+    reason: str = "manual"
+    actor_id: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        params: dict[str, JsonValue] = {
+            "peer_id": self.peer_id,
+            "reason": self.reason,
+        }
+        if self.actor_id is not None:
+            params["actor_id"] = self.actor_id
+        return params
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class PeerRecoverCommand(Command[Any]):
     method: ClassVar[str] = "health.peer.recover"
     submission: SubmissionMetadata
@@ -2039,6 +2061,32 @@ class LegacyTranslator:
                 submission=submission,
                 node_id=node_id,
                 include_all=include_all,
+            ))
+        if call.action == "peer-quarantine":
+            peer_id = _first_text(
+                call.arguments,
+                ("peer", "target", "agent", "peer_id"),
+                "",
+            )
+            if not peer_id:
+                return InvalidLegacyArguments(
+                    action=call.action,
+                    reason="peer is required",
+                )
+            reason = _first_text(
+                call.arguments,
+                ("reason", "detail"),
+                "manual",
+            )
+            actor_id = _optional_first_text(
+                call.arguments,
+                ("actor", "actor_id", "caller", "from"),
+            )
+            return TranslatedCommand(command=PeerQuarantineCommand(
+                submission=submission,
+                peer_id=peer_id,
+                reason=reason,
+                actor_id=actor_id,
             ))
         if call.action == "peer-recover":
             peer_id = _first_text(

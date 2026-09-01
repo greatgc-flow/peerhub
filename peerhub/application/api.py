@@ -98,7 +98,7 @@ from peerhub.application.legacy import (
     FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
     LockAcquireCommand, LockReleaseCommand, LockStatusCommand,
     ReportErrorCommand, AlertRaiseCommand,
-    HealthCheckCommand, PeerStatusCommand, PeerRecoverCommand,
+    HealthCheckCommand, PeerStatusCommand, PeerQuarantineCommand, PeerRecoverCommand,
     HealthPrecheckCommand, CheckGateCommand, HealthSweepCommand,
 )
 from peerhub.application.peer_registry import (
@@ -109,6 +109,7 @@ from peerhub.application.peer_registry import (
 from peerhub.application.health_revalidation import (
     HealthRevalidationCoordinator,
     collect_health_check,
+    execute_peer_quarantine,
     execute_peer_recover,
     collect_health_precheck,
     collect_check_gate,
@@ -1529,6 +1530,44 @@ class ApplicationAPI:
                 AuthenticatedSubject(ctx.principal, "system"),
                 peer=c.peer,
                 recover=c.recover,
+            ),
+            lambda r: r,
+            CommandAvailability.AVAILABLE,
+        ))
+
+        def decode_peer_quarantine(
+            envelope: CommandEnvelope,
+        ) -> PeerQuarantineCommand:
+            peer_id = envelope.params.get("peer_id") or envelope.params.get("peer") or ""
+            reason = envelope.params.get("reason", "manual")
+            actor_id = envelope.params.get("actor_id") or envelope.params.get("actor")
+            return PeerQuarantineCommand(
+                submission=self._submission(envelope),
+                peer_id=str(peer_id),
+                reason=str(reason),
+                actor_id=str(actor_id) if actor_id is not None else None,
+            )
+
+        self.register(CommandDescriptor(
+            "health.admission.quarantine",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_peer_quarantine,
+            lambda c, ctx: (
+                execute_peer_quarantine(
+                    service,
+                    health,
+                    peer_id=c.peer_id,
+                    reason=c.reason,
+                    actor_id=c.actor_id or ctx.principal,
+                )
+                if health is not None
+                else {
+                    "peer": c.peer_id,
+                    "quarantined": False,
+                    "error": "Health service not configured",
+                }
             ),
             lambda r: r,
             CommandAvailability.AVAILABLE,

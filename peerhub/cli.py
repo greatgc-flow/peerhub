@@ -1085,7 +1085,10 @@ def _run_node(parsed: argparse.Namespace) -> int:
 
 def _run_peer(parsed: argparse.Namespace) -> int:
     from peerhub.application.peer_registry import collect_peer_status
-    from peerhub.application.health_revalidation import execute_peer_recover
+    from peerhub.application.health_revalidation import (
+        execute_peer_quarantine,
+        execute_peer_recover,
+    )
 
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -1125,6 +1128,28 @@ def _run_peer(parsed: argparse.Namespace) -> int:
                                 )
                             )
                         )
+                return 0
+
+        if parsed.peer_action == "quarantine":
+            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+                caller = require_caller_identity(
+                    LocalProcessCallerIdentityProvider()
+                )
+                actor_id = parsed.actor or caller.principal_id
+                result = execute_peer_quarantine(
+                    runtime.peer_registry_service,
+                    runtime.health_service,
+                    peer_id=parsed.peer,
+                    reason=parsed.reason,
+                    actor_id=actor_id,
+                    now=context.clock.now(),
+                )
+                if parsed.json:
+                    print(json.dumps(_json_safe(result)))
+                else:
+                    peer_id = result.get("peer")
+                    reason = result.get("reason")
+                    print(f"[HUB] PEER-QUARANTINE {peer_id} | reason={reason}")
                 return 0
 
         if parsed.peer_action == "recover":
@@ -2117,6 +2142,13 @@ def main(args: list[str] | None = None) -> int:
     peer_status_parser.add_argument("--peer", default=None, help="Specific peer node ID")
     peer_status_parser.add_argument("--all", action="store_true", help="Include all registered and base nodes")
     peer_status_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
+    peer_quarantine_parser = peer_subparsers.add_parser("quarantine", help="Manually isolate and quarantine a peer node")
+    peer_quarantine_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    peer_quarantine_parser.add_argument("--peer", required=True, help="Peer node ID to quarantine")
+    peer_quarantine_parser.add_argument("--reason", default="manual", help="Quarantine reason (default: manual)")
+    peer_quarantine_parser.add_argument("--actor", default=None, help="Explicit operator/actor ID (default: current caller)")
+    peer_quarantine_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     peer_recover_parser = peer_subparsers.add_parser("recover", help="Authorize and execute evidence-backed peer recovery")
     peer_recover_parser.add_argument("--workspace", default=".", help="Path to workspace root")

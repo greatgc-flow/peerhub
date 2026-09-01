@@ -1156,6 +1156,88 @@ class HealthService:
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return action
 
+    def open_manual_quarantine(
+        self,
+        scope: PolicyScope,
+        subject: str,
+        *,
+        authority_class: QuarantineAuthorityClass = QuarantineAuthorityClass.MANUAL,
+        reason: str,
+        actor_id: str | None = None,
+        requested_at: int | None = None,
+    ) -> HealthCircuitSnapshot:
+        """Manually open a health circuit and quarantine affected members."""
+
+        if not isinstance(scope, PolicyScope):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("scope must be PolicyScope")
+        resolved_subject = require_text(subject, "subject")
+        if not isinstance(authority_class, QuarantineAuthorityClass):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("quarantine_authority_class has wrong enum type")
+        require_text(reason, "reason")
+        if actor_id is not None:
+            require_text(actor_id, "actor_id")
+        timestamp = (
+            self._clock.now()
+            if requested_at is None
+            else requested_at
+        )
+        if type(timestamp) is not int or timestamp < 0:
+            raise ValueError(
+                "requested_at must be a nonnegative integer"
+            )
+
+        members = self._members_for_scope(scope, resolved_subject)
+
+        with self._store.unit_of_work() as unit:
+            policy = self._require_policy(unit)
+            current = unit.get_health_circuit(
+                scope,
+                resolved_subject,
+            )
+            action = PolicyAction(
+                scope=scope,
+                subject=resolved_subject,
+                circuit_state=CircuitState.CIRCUIT_OPEN,
+                quarantine_authority_class=authority_class,
+                receipt=PolicyReceipt(
+                    incident=self._ids.new_id("manual-quarantine"),
+                    gate_generation=1,
+                    timestamp=timestamp,
+                    fingerprint=f"manual:{actor_id or 'operator'}:{reason}",
+                ),
+            )
+            updated = reduce_policy_action(
+                action,
+                current,
+                circuit_id=(
+                    self._ids.new_id("health-circuit")
+                    if current is None
+                    else None
+                ),
+                created_at=(
+                    timestamp
+                    if current is None
+                    else current.created_at
+                ),
+                updated_at=timestamp,
+            )
+            persisted = self._write_circuit(
+                unit,
+                current,
+                updated,
+            )
+            self._recompute_members(
+                unit,
+                members,
+                policy=policy,
+                now=timestamp,
+            )
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return persisted
+
     def clear_circuit_automatically(
         self,
         scope: PolicyScope,
