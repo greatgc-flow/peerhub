@@ -777,3 +777,144 @@ Grounded in the existing `FeedbackService` (`resolve_feedback()`) precedent, the
 - A resolution method: `resolve_quarantine_review(review_id, *, decision: str, actor_id: str, reason: str)`.
   - If `decision == "DISMISS"`: Mutates target to `status = "DISMISSED"`, `resolved_at = now`, `resolved_by = actor_id`, `reason = reason`.
   - If `decision == "ESCALATE"`: Mutates target to `status = "ESCALATED"` and invokes `HealthService.authorize_administrative_recovery(peer_key, ...)` (not `HealthRevalidationCoordinator`, which composes the producer/probe execution around it -- `authorize_administrative_recovery` itself lives on `HealthService`) to formally initiate the newly-landed recovery pipeline.
+
+### Health / admission / routing re-scouting (2026-09-01): 13 actions re-scoped post-health-authority-bridge -- 6 quick wins, 4 scoped/blocked gaps, 2 host-tooling/waived, 1 policy-divergence
+
+Research-only re-assessment (ag) against the landed 51/90 PeerHub tree and the real Phase 1 Parity Ledger batches (`PHASE1-PARITY-LEDGER-BATCH1..5-2026-08-20.md`).
+
+**Context & Stale-Assessment Correction:**
+The 2026-08-28 backlog assessment classified the 13 actions in this cluster (`health-update`, `health-check`, `peer-status`, `peer-quarantine`, `peer-recover`, `health-precheck`, `health-sweep`, `freshness-sweep`, `elect-leader`, `discover`, `check-gate`, `lease-status`, `lease-sweep`) as having "no TargetState schema, no service, no design doc". That assessment is now STALE. Since that snapshot, the following foundational infrastructure has landed on `main`:
+1. **Centralized read-time freshness in `HealthService` (Gap A, commit `75ff364`):** `HealthService.read_health_projection(instance_id, profile_id, evaluated_at)` backed by the pure `evaluate_projection_at` reducer (`peerhub/health/model.py:185-265`) dynamically derives `effective_availability_state` and `effective_admission_state` anchored on evidence observation time (`ReadinessObserved.evidence.observed_at`) rather than mutating stored projections.
+2. **Health Authority Bridge:** `HealthService.authorize_administrative_recovery()`, `authorize_recovery()`, `claim_probe()`, `apply_probe_result()`, and `dominates()` precedence ordering (`AUTOMATIC < MANUAL < POLICY < SECURITY`) (`peerhub/health/service.py:1229-1627`, `peerhub/health/model.py:87-106`), with single-flight `RecoveryProbeGrant` lifecycle transitions (`peerhub/health/contract.py:786-880`).
+3. **Application Coordinators:** `HealthRevalidationCoordinator` (`peerhub/application/health_revalidation.py`) executing active probe verification and identity-fenced receipt submission; and `QuarantineReviewCoordinator` (`peerhub/application/quarantine_review.py`) consuming operational-error escalation requests.
+4. **Transient Profile Gate Backoff:** `HealthService.apply_transient_backoff()` and `is_profile_gate_backed_off()` (`peerhub/health/service.py:1629-1698`) managing non-circuit rate-limit/transient pauses.
+5. **Peer Registry & Profile Bindings:** `PeerRegistryService.list_nodes()`, `get_node()`, and `list_profile_bindings()` (`peerhub/application/peer_registry.py`).
+6. **Workspace Leadership:** `LeadershipService` (`peerhub/application/leadership.py`) with singleton `leadership:workspace` state, challenge windows, and AP-20 monopoly guards.
+
+---
+
+### Item-by-Item Analysis (13 Actions)
+
+#### 1. `health-check` -- TIER 1/2 QUICK WIN (Ready to wire)
+- **Legacy Behavior:** `action_health_check` (`P:/_sys/core/hub.py:8107-8167`, Parity Ledger Batch 2 §4). Default mode is a read-only fleet/peer status summary formatted as `[HUB:GATE] HEALTH | {peer}={status}({mb}MB) ...` (always exits 0 unless unhandled crash). `--recover` flag reconciles dead PIDs / stale heartbeats to `STALE` on disk and clears dead PIDs.
+- **Native Backing:** 
+  - Pure read side: `PeerRegistryService.list_nodes()` / `get_node()` resolves target peer(s); `HealthService.read_health_projection(peer_kind, profile_id, evaluated_at)` supplies effective availability and admission states dynamically.
+  - `--recover` mutation side: delegates directly to `HealthRevalidationCoordinator.request_revalidation(peer_node_id=peer, caller=caller, reason="health-check --recover", requested_at=now)` (`peerhub/application/health_revalidation.py:49-159`), which safely coordinates probe grants, probe execution via `produce_readiness_evidence()`, receipt submission, and projection re-evaluation.
+- **Wiring Shape:**
+  - Command descriptor: `health.check` (`Mutability.READ_ONLY` when `recover=False`, `Mutability.MUTATING` with `IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED` when `recover=True`).
+  - Native CLI: `peerhub health check [--peer <node_id>] [--recover]`.
+  - Legacy translation: `legacy.py` `if call.action == "health-check":` -> `HealthCheckCommand(peer=call.args.get("peer"), recover=bool(call.args.get("recover")))`.
+
+#### 2. `peer-status` -- TIER 1/2 QUICK WIN (Ready to wire)
+- **Legacy Behavior:** `action_peer_status` (`P:/_sys/core/hub.py:8565-8670`, Parity Ledger Batch 2 §5). Outputs fixed-column TSV table `PEER	LIFECYCLE	GATE	HEALTH	VERSION	DETAILS` for enabled/all root peers, refreshing live health and probing CLI version (`--version`).
+- **Native Backing:** Follows the exact multi-domain join pattern proven in `model-status` (50/90). Reads `PeerRegistryService.list_nodes()` (or `get_node()`), joins with `HealthService.read_health_projection()`, checks `projection.profile_gate_backed_off` and `effective_admission_state` for `GATE` (`enabled`/`closed`), `effective_availability_state` for `HEALTH`, and resolves adapter version from `resolve_peer_target(peer_kind, profile_id).adapter.descriptor.adapter_version`.
+- **Wiring Shape:**
+  - Command descriptor: `configuration.peer.status` (`Mutability.READ_ONLY`).
+  - Native CLI: `peerhub peer status [--peer <node_id>] [--all]`.
+  - Legacy translation: `legacy.py` `if call.action == "peer-status":` -> `PeerStatusCommand(node_id=call.args.get("peer"), include_all=bool(call.args.get("all")))`.
+
+#### 3. `peer-recover` -- TIER 1/2 QUICK WIN (Ready to wire)
+- **Legacy Behavior:** `action_peer_recover` (`P:/_sys/core/hub.py:3511-3539`, Parity Ledger Batch 2 §9). Operator command to restore a failing/quarantined peer (or `all`) to `GREEN`, resetting failure counters, reopening gates, and clearing error flags.
+- **Native Backing:** Legacy's blind write of `status="GREEN"` is permanently replaced by peerhub's evidence-backed recovery pipeline. `HealthRevalidationCoordinator.request_revalidation(peer_node_id=..., caller=..., reason=..., requested_at=...)` (`peerhub/application/health_revalidation.py:49-159`) handles the complete lifecycle:
+  - If `QUARANTINED` (manual/policy authority): invokes `HealthService.authorize_administrative_recovery()`, claims the single-flight `RecoveryProbeGrant`, executes `produce_readiness_evidence()`, and applies `RecoveryProbeReceipt` to transition the circuit to `CIRCUIT_CLOSED`.
+  - If `RECOVERY_REQUIRED` (automatic cooldown elapsed): invokes `HealthService.authorize_recovery()`, claims grant, executes probe, and applies receipt.
+  - If `COOLDOWN`: raises `InvalidMutationError` (caller must wait for cooldown).
+  - If `--peer all`: iterates all registered nodes from `PeerRegistryService.list_nodes()`.
+- **Wiring Shape:**
+  - Command descriptor: `health.peer.recover` (`Mutability.MUTATING`, `IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED`).
+  - Native CLI: `peerhub peer recover --peer <node_id> [--reason <reason>]`.
+  - Legacy translation: `legacy.py` `if call.action == "peer-recover":` -> `PeerRecoverCommand(peer_id=call.args.get("peer") or call.args.get("target"), reason=call.args.get("reason", "manual"))`.
+
+#### 4. `health-precheck` -- TIER 1/2 QUICK WIN (Ready to wire)
+- **Legacy Behavior:** `action_health_precheck` (`P:/_sys/core/hub.py:11224-11274`, Parity Ledger Batch 3 §10). Fail-closed pre-flight governance gate. Evaluates target peer pool (explicit `--peer` list, `--needs`, or all enabled peers). If any peer in explicit scope is degraded (`RED`, gate closed, `STALE` under explicit scope, or missing health file), emits `[HUB:WARN]` and exits 1 with `[HUB:ERROR] Governance Health Pre-Check FAILED. Scope={scope}`. If all eligible, prints `[HUB] PRE-CHECK OK: scope={scope}` and exits 0.
+- **Native Backing:** Pure read-only evaluation via `PeerRegistryService.list_nodes()` / `get_node()` and `HealthService.read_health_projection(peer_kind, profile_id, evaluated_at)`. Evaluates `effective_admission_state == AdmissionState.OPEN` and `not profile_gate_backed_off`. For explicit `--peer` list or all-node pool, any non-OPEN / STALE / backed-off peer returns exit 1; all OPEN peers return exit 0. (When `--needs` is supplied without capability scoring, it evaluates all registered nodes as fallback).
+- **Wiring Shape:**
+  - Command descriptor: `health.precheck` (`Mutability.READ_ONLY`).
+  - Native CLI: `peerhub health precheck [--peer <peers>] [--needs <needs>]`.
+  - Legacy translation: `legacy.py` `if call.action == "health-precheck":` -> `HealthPrecheckCommand(peers=call.args.get("peer"), needs=call.args.get("needs"))`.
+
+#### 5. `check-gate` -- TIER 1/2 QUICK WIN (Ready to wire)
+- **Legacy Behavior:** `action_check_gate` (`P:/_sys/core/hub.py:1735-1752`, Parity Ledger Batch 1 §11). Evaluates dispatch gate condition for a named agent. Prints `[GATE] {agent}=ON` and exits 0 if open; prints `[GATE] {agent}=OFF` and exits 1 if closed.
+- **Native Backing:** Composes `PeerRegistryService.get_node(agent)` with `HealthService.read_health_projection(peer_kind, profile_id, evaluated_at)`: checks whether `effective_admission_state is AdmissionState.OPEN` and `not is_profile_gate_backed_off(profile_id, evaluated_at=now)`. Returns exit 0 (`ON`) or exit 1 (`OFF`).
+- **Wiring Shape:**
+  - Command descriptor: `health.gate.check` (`Mutability.READ_ONLY`).
+  - Native CLI: `peerhub gate check <agent>`.
+  - Legacy translation: `legacy.py` `if call.action == "check-gate":` -> `CheckGateCommand(agent=call.args.get("agent"))`.
+
+#### 6. `health-sweep` -- TIER 1/2 QUICK WIN (Ready to wire as report)
+- **Legacy Behavior:** `action_health_sweep` (`P:/_sys/core/hub.py:11465-11481`, Parity Ledger Batch 3 §11). Iterated peers to evaluate heartbeats, updated timed-out peers to `STALE` on disk, appended to `PENDING_ISSUES` in `handoff.md`, and printed `[HUB] HEALTH-SWEEP stale={swept}`.
+- **Native Backing:** In peerhub, staleness is dynamic and universal at read time via `HealthService.read_health_projection()` (Gap A), making periodic batch DB mutations obsolete. As a legacy compatibility report, it iterates `PeerRegistryService.list_nodes()`, evaluates `read_health_projection()`, counts peers with `stale_at_read is True` or `effective_availability_state == AvailabilityState.STALE`, and prints `[HUB] HEALTH-SWEEP stale={count}`.
+- **Wiring Shape:**
+  - Command descriptor: `health.sweep` (`Mutability.READ_ONLY`).
+  - Native CLI: `peerhub health sweep`.
+  - Legacy translation: `legacy.py` `if call.action == "health-sweep":` -> `HealthSweepCommand()`.
+
+#### 7. `peer-quarantine` -- SCOPED GAP (1 implementation round)
+- **Legacy Behavior:** `action_peer_quarantine` (`P:/_sys/core/hub.py:3496-3509`, Parity Ledger Batch 2 §8). Forces peer health to `RED`, `gate_open=False`, `quarantined=True`.
+- **Native Status:** In peerhub, automatic quarantines require typed failure traces (`HealthService.classify_and_open_circuit()`), and operational-error escalation produces `quarantine-review` targets for `QuarantineReviewCoordinator`. For an explicit direct manual quarantine command from the operator, `HealthService` needs a dedicated `open_manual_quarantine(scope, subject, *, authority_class=MANUAL, reason, actor_id)` method that records a `MANUAL` `HealthCircuitSnapshot` with `CircuitState.CIRCUIT_OPEN` and recomputes member projections. Small, well-scoped single round.
+- **Parity Ledger:** Batch 2 §8.
+
+#### 8. `health-update` -- POLICY DIVERGENCE / REVALIDATION SEAM
+- **Legacy Behavior:** `action_health_update` (`P:/_sys/core/hub.py:8022-8096`, Parity Ledger Batch 2 §3). Direct self-report of status (`--status GREEN|YELLOW|RED|AUTO`) and telemetry (`--jsonl-mb`, `--failures`).
+- **Native Status:** Direct self-assertion of health state without verified evidence is permanently rejected under peerhub's evidence authority model. The legitimate operational purpose (a peer triggering re-evaluation) is covered by `HealthRevalidationCoordinator.request_revalidation()`. Legacy synthetic arguments (`--jsonl-mb`) remain untranslatable without synthetic evidence fabrication.
+
+#### 9. `elect-leader` -- GENUINELY BLOCKED (Blocked on Gap 6 Capability Matching)
+- **Legacy Behavior:** `action_elect_leader` (`P:/_sys/core/hub.py:8953-8962`, Parity Ledger Batch 3 §5). Scores candidates via `_matching_peers(needs, effort)`, selects highest-scoring candidate, records routing metric, and claims leadership.
+- **Native Status:** The leadership claim landing seam `LeadershipService.claim_leadership()` (`peerhub/application/leadership.py:440-507`) is fully built and verified. However, scored candidate matching (`CapabilityMatchingService`, `HUB-REPLACEMENT-GAP6-CAPABILITY-MATCHING-2026-08-30.md`) remains unbuilt. Blocked on Gap 6, not health.
+
+#### 10. `discover` -- GENUINELY BLOCKED (Blocked on Gap 6 Capability Matching)
+- **Legacy Behavior:** `action_discover` (`P:/_sys/core/hub.py:8939-8952`, Parity Ledger Batch 3 §6). Pure read-only inspection displaying ranked candidate peers matching `--needs` and `--effort` with scoring details.
+- **Native Status:** Pure read-only view of the same capability matching engine required by `elect-leader`. Blocked on Gap 6.
+
+#### 11. `lease-status` -- SCOPED GAP (1 implementation round)
+- **Legacy Behavior:** `action_lease_status` (`P:/_sys/core/hub.py:11713-11746`, Parity Ledger Batch 4 §8). Displays fixed-width table of active process leases with OS PID liveness (`psutil.pid_exists`), expiry, and heartbeat.
+- **Native Status:** Grounded in the persisted `leases` table (`SessionLeaseService`). Requires adding persistence enumeration query `list_active_leases()` to the dispatch unit of work / `StateStore` and rendering the table using `verify_process_identity(pid, identity)`. Normal single implementation round.
+
+#### 12. `lease-sweep` -- SCOPED GAP (1 implementation round)
+- **Legacy Behavior:** `action_lease_sweep` (`P:/_sys/core/hub.py:10953-11053`, `hub.py:12235-12237`, Parity Ledger Batch 4 §9). Scans for expired process leases, marks them expired, terminates orphaned child trees, logs failures, and applies transient profile gate backoff.
+- **Native Status:** `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` handles orphan cleanup automatically; `SessionLeaseService.recover_lease()` exists for CAS recovery; `HealthService.apply_transient_backoff()` exists (`peerhub/health/service.py:1629`). Requires `ProcessLeaseSweepCoordinator` and persistence scan `list_expired_leases(as_of)`. Normal single implementation round.
+
+#### 13. `freshness-sweep` -- HOST-LEVEL TOOLING / WAIVED
+- **Legacy Behavior:** `action_freshness_sweep` (`P:/_sys/core/hub.py:11491-11585`, Parity Ledger Batch 3 §12). 20-hour cadence-gated drift check over `_sys/checks/` (CLI tool versions, AI CLI reality, policy ledger).
+- **Native Status:** Confirmed out-of-scope host-level maintenance script with no peer coordination domain model (matches `preflight`/`transient-scan`/`context-hash`).
+
+---
+
+### Distinctness Audit (Confirming/Denying Overlap)
+
+Cross-examination against the Parity Ledger confirms:
+1. **`health-check` vs. `health-precheck` -- GENUINELY DISTINCT:**
+   - `health-check` (Batch 2 §4) is an informational/reconciliation status summary across peers that always exits 0 (unless crash) and supports `--recover`.
+   - `health-precheck` (Batch 3 §10) is a fail-closed pre-flight governance gate protecting downstream operations; any degraded/stale peer in explicit scope causes an immediate **Exit 1** failure.
+2. **`lease-status` vs. `lease-sweep` -- GENUINELY DISTINCT:**
+   - `lease-status` (Batch 4 §8) is a pure read-only table with non-destructive PID probes.
+   - `lease-sweep` (Batch 4 §9) is an active mutating reaper and failure-logger that transitions expired leases and applies gate backoff.
+3. **`discover` vs. `elect-leader` -- GENUINELY DISTINCT:**
+   - `discover` (Batch 3 §6) is a pure read-only explainer outputting ranked candidate scores and capabilities.
+   - `elect-leader` (Batch 3 §5) is a mutating election action that commits a routing metric and executes a stateful leadership claim.
+4. **`peer-quarantine` vs. `peer-recover` -- GENUINELY DISTINCT:**
+   - `peer-quarantine` (Batch 2 §8) closes circuits and isolates a peer.
+   - `peer-recover` (Batch 2 §9) initiates single-flight evidence-backed probe verification to close circuits and restore admission.
+5. **`health-sweep` vs. `freshness-sweep` -- GENUINELY DISTINCT:**
+   - `health-sweep` (Batch 3 §11) evaluates peer heartbeat staleness.
+   - `freshness-sweep` (Batch 3 §12) audits host-level tool version and policy ledger drift on a 20-hour cadence.
+
+---
+
+### Re-Scouting Summary Table
+
+| Action | Legacy Section | Native Backing Method(s) | Status | Sizing / Next Step |
+|---|---|---|---|---|
+| `health-check` | Batch 2 §4 | `PeerRegistryService.list_nodes`, `HealthService.read_health_projection`, `HealthRevalidationCoordinator.request_revalidation` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
+| `peer-status` | Batch 2 §5 | `PeerRegistryService.list_nodes`, `HealthService.read_health_projection`, `resolve_peer_target` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
+| `peer-recover` | Batch 2 §9 | `HealthRevalidationCoordinator.request_revalidation` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
+| `health-precheck` | Batch 3 §10 | `PeerRegistryService.list_nodes`, `HealthService.read_health_projection` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
+| `check-gate` | Batch 1 §11 | `PeerRegistryService.get_node`, `HealthService.read_health_projection` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
+| `health-sweep` | Batch 3 §11 | `PeerRegistryService.list_nodes`, `HealthService.read_health_projection` | **Tier 1/2 Quick Win** | Wire CLI & legacy translation (0 new service code) |
+| `peer-quarantine` | Batch 2 §8 | `HealthService` (needs `open_manual_quarantine`) | **Scoped Gap** | 1 normal implementation round |
+| `lease-status` | Batch 4 §8 | `SessionLeaseService` (needs `list_active_leases`) | **Scoped Gap** | 1 normal implementation round |
+| `lease-sweep` | Batch 4 §9 | `ProcessLeaseSweepCoordinator` (needs coordinator + `list_expired_leases`) | **Scoped Gap** | 1 normal implementation round |
+| `elect-leader` | Batch 3 §5 | `LeadershipService.claim_leadership` + Gap 6 `CapabilityMatchingService` | **Genuinely Blocked** | Blocked on Gap 6 capability scoring |
+| `discover` | Batch 3 §6 | Gap 6 `CapabilityMatchingService` | **Genuinely Blocked** | Blocked on Gap 6 capability scoring |
+| `health-update` | Batch 2 §3 | `HealthRevalidationCoordinator` (revalidation only) | **Policy Divergence** | Direct status write rejected by design |
+| `freshness-sweep` | Batch 3 §12 | None (host tool drift check) | **Host Tooling** | Out of scope / waived |
