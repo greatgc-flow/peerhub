@@ -399,6 +399,19 @@ The health-authority bridge does not fill that gap. Administrative recovery only
 
 **Itemized readiness conclusion (updated 2026-09-01):** (1) room-summary SSOT -- **still genuinely blocked**; (2) unread aggregate -- **design resolved and ready for its focused read-method round**; (3) ambient current room -- **design resolved as explicit/contextual room or a clear empty-input error, with no persisted pointer**; (4) process lease -- **still genuinely blocked**, and not solved by the recovery bridge. Completing (2) and the small boundary work in (3) must not be counted as backing `status` until (1) and either (4) or an explicit process-sweep parity waiver are resolved.
 
+#### Room-summary SSOT concrete design (ag.deepthink, 2026-09-01)
+
+**Real legacy source and writers, precisely.** The `mission`, `blocked`, `phase`, and `updated_at` fields reside as room-level scalars directly on the workspace `state.json`. They are genuinely never touched by anything peerhub has built.
+1. `action_update_status` (`P:/_sys/core/hub.py:1608-1617`) performs a partial update: unconditionally sets `mission`, sets `blocked` and `phase` only if provided, and refreshes `updated_at`.
+2. `action_new_topic` (`P:/_sys/core/hub.py:3563-3566`) and `action_clear_room` (`P:/_sys/core/hub.py:3595-3598`) unconditionally set `mission=subject`, `blocked=None`, `phase="new-topic"` (or `"clear-room"`), and refresh `updated_at`.
+3. `action_alert_raise` (`P:/_sys/core/hub.py:8995-8996`) overwrites `blocked` with the alert message and refreshes `updated_at`.
+Legacy `action_status` (`P:/_sys/core/hub.py:1701-1704`) reads exactly these four fields to display the room's situation. Furthermore, `phase` is heavily load-bearing for security guards: the Operational Guard Matrix (`P:/_sys/core/hub.py:9106-9402`) relies entirely on `_current_phase()` to enforce `phase_action_matrix` policies and tier-0 boundaries. 
+
+**Native TargetState shape: a new `room-summary` target family.** `RoomsService` currently models the main `room:{room_id}` target as static after creation, deferring mutations to separate targets like `room-goal` (`peerhub/governance/rooms.py:598-626`). Expanding `room` or `room-goal` to hold highly-mutated status fields would create CAS contention and mix lifecycles. Instead, `mission`/`blocked`/`phase` require their own small, dedicated target family: `room-summary:{room_id}`.
+Its state will contain: `room_id`, `mission`, `blocked`, `phase`, and `updated_at`. `RoomsService` needs one new mutating method `update_room_summary(...)` that applies partial updates (matching legacy `update-status`), clears `blocked` on `new-topic`/`clear-room`, and applies the alert message on `alert-raise`.
+
+**Honest sizing and `status` readiness.** This is definitively a small task: one target family schema and a single `RoomsService` mutation method. However, **this is NOT the last blocker for a fully native `status`**. While tasks, roles, leadership, participants, consensus, and handoff are natively modeled, legacy `action_status` (`P:/_sys/core/hub.py:1680`) explicitly calls `_lease_sweep(ai_root)` *before* reading state. As noted above in the status re-assessment, the process-lease sweep/reaper (item 4) remains genuinely blocked. Resolving the `room-summary` SSOT will close the final *data* model gap for `status`, but `status` will still remain blocked from full parity until the `process-lease sweep` side-effect is built or explicitly waived.
+
 ### Manual-quarantine authorization policy PROPOSED (2026-08-30)
 
 **Recommendation: Option C (Budget-gated administrative authorization with authority-class matching).**
