@@ -14,6 +14,25 @@ title: Phase 2 — Full Engram/PeerHub Separation Master Plan
 > rather than restating their content — read them for full citations and
 > reasoning; this doc is the map, not the territory.
 
+> **UPDATE (2026-09-03): Gates 1, 5, and 6 are RATIFIED.** The Engram
+> "diet plan" (ownership matrix + migration ledger + phased deletion/
+> release plan) went through 8 rounds of research→critique→revision
+> (7 by `cx`, round 8's final critique terminal-performed after `cx`
+> became genuinely unavailable — see
+> `2026-09-02_engram-diet-plan-v8-critique-terminal.md` in the Engram
+> worktree's session-doc directory) before being ratified with one minor,
+> non-blocking follow-up tracked for implementation time (a replacement
+> dual-instance test under the new `ENGRAM_ROOT` model). The architecture
+> itself never changed across all 8 rounds — every round's findings
+> narrowed from conceptual to increasingly mechanical. The final ratified
+> plan is `2026-09-02_engram-diet-plan-v8.md` (all prior `v1`-`v7` +
+> critique documents in the same directory are its full audit trail, not
+> separately normative). Gate 2 (PeerHub autodetection, specifically its
+> discovery-sweep half) remains the one open design item — see §4 below.
+> **No implementation has started on any gate** — this ratification
+> authorizes starting Increment A's TDD, pending the user's own review and
+> explicit go-ahead.
+
 ## 1. The goal, as stated by the user (2026-09-02)
 
 - Engram's existing hub.py-related package is deleted entirely and replaced
