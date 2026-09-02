@@ -1,6 +1,6 @@
 # hub.py-Replacement TDD Progress (2026-08-27, overnight session)
 
-> Status doc, not a design doc — records what's actually implemented and tested, as of the commits listed below, so anyone picking this up doesn't have to reconstruct it from git log. Supersedes nothing; `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md` remains the design-closure record. For "what's left, organized by how ready it is to pick up," see `docs/design/PEERHUB-BACKLOG-2026-08-27.md` instead — that's the consolidated backlog, this doc stays the chronological implementation log.
+> Status doc, not a design doc — records what's actually implemented and tested, as of the commits listed below, so anyone picking this up doesn't have to reconstruct it from git log. Supersedes nothing; `HUB-REPLACEMENT-PRE-TDD-FINAL-RATIFICATION-2026-08-26.md` remains the design-closure record. For "what's left, organized by how ready it is to pick up," see `docs/design/PEERHUB-BACKLOG-2026-08-27.md` instead — that's the consolidated backlog, this doc stays the chronological implementation log. For "which round has the lesson I'm looking for," see `docs/design/SESSION-LESSONS-INDEX-2026-09-02.md` — a topic-indexed pointer into this doc's own round entries, not a restatement of them.
 
 ## Execution dispatcher investigation
 
