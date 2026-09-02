@@ -76,4 +76,10 @@ def test_committed_manifest_snapshot_is_valid() -> None:
         data = json.load(f)
 
     assert data["action_vector"]["action_count"] == 90
-    assert data["source_files"]["hub_py"]["sha256"].startswith("bd13cf55")
+    # hub.py hash invariant (f748b095...): the committed snapshot was legitimately
+    # refreshed against live P:/_sys/core/hub.py in commit 321dbf4 (2026-08-20,
+    # "refresh legacy-hub-surface-current.json generation metadata"), which moved
+    # the pinned hash from bd13cf55 to f748b095. This assertion was left stale at
+    # the time and never updated to match; verified against the live file's actual
+    # sha256 on 2026-09-02 before fixing.
+    assert data["source_files"]["hub_py"]["sha256"].startswith("f748b095")
