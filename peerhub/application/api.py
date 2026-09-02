@@ -97,7 +97,8 @@ from peerhub.application.legacy import (
     MessageSendCommand, RoomBroadcastCommand, MessageCheckCommand, MessageMarkReadCommand,
     ThreadPromoteCommand,
     AppendHandoffCommand, ContinuityCheckpointCommand, ContextFillCommand,
-    LeaderClaimCommand, LeaderYieldCommand,
+    LeaderClaimCommand, LeaderYieldCommand, DiscoverCandidatesCommand,
+    ElectLeaderCommand,
     TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
     TerminalDutySweepCommand, TaskCheckpointCommand,
     TaskStatusCommand, TaskFailoverCommand, LessonInjectCommand, LessonProposeCommand,
@@ -146,6 +147,11 @@ from peerhub.application.leadership import (
     LeadershipClaimResult,
     LeadershipService,
     LeadershipYieldResult,
+)
+from peerhub.application.capability_matching import (
+    CapabilityMatchingCoordinator,
+    encode_capability_ranking,
+    encode_leadership_election_receipt,
 )
 from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
@@ -381,6 +387,7 @@ class ApplicationAPI:
         health: HealthService | None = None,
         role_assignment: RoleAssignmentService | None = None,
         leadership: LeadershipService | None = None,
+        capability_matching: CapabilityMatchingCoordinator | None = None,
         feedback: FeedbackService | None = None,
         file_locks: FileLockService | None = None,
         artifact_records: ArtifactRecordService | None = None,
@@ -416,6 +423,8 @@ class ApplicationAPI:
             self._register_role_assignment(role_assignment)
         if leadership is not None:
             self._register_leadership(leadership)
+        if capability_matching is not None:
+            self._register_capability_matching(capability_matching)
         if feedback is not None:
             self._register_feedback(feedback)
         if file_locks is not None:
@@ -2119,6 +2128,67 @@ class ApplicationAPI:
                 reason=c.reason,
             ),
             encode_yield,
+            CommandAvailability.AVAILABLE,
+        ))
+
+    def _register_capability_matching(
+        self,
+        coordinator: CapabilityMatchingCoordinator,
+    ) -> None:
+        def text(
+            envelope: CommandEnvelope,
+            name: str,
+            default: str | None = None,
+        ) -> str:
+            value = envelope.params.get(name, default)
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+            return value
+
+        def decode_discover(
+            envelope: CommandEnvelope,
+        ) -> DiscoverCandidatesCommand:
+            return DiscoverCandidatesCommand(
+                submission=self._submission(envelope),
+                needs=text(envelope, "needs", ""),
+                effort=text(envelope, "effort", "mid"),
+            )
+
+        def decode_elect(envelope: CommandEnvelope) -> ElectLeaderCommand:
+            return ElectLeaderCommand(
+                submission=self._submission(envelope),
+                actor_id=text(envelope, "actor_id"),
+                needs=text(envelope, "needs", "general"),
+                effort=text(envelope, "effort", "mid"),
+                reason=text(envelope, "reason", ""),
+            )
+
+        self.register(CommandDescriptor(
+            "routing.candidate.discover",
+            Mutability.READ_ONLY,
+            ScopeKind.ANY,
+            IdempotencyPolicy.READ_ONLY,
+            decode_discover,
+            lambda command, _: coordinator.discover(
+                needs=command.needs,
+                effort=command.effort,
+            ),
+            encode_capability_ranking,
+            CommandAvailability.AVAILABLE,
+        ))
+        self.register(CommandDescriptor(
+            "routing.leadership.elect",
+            Mutability.MUTATING,
+            ScopeKind.ANY,
+            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
+            decode_elect,
+            lambda command, _: coordinator.elect_leader(
+                needs=command.needs,
+                effort=command.effort,
+                reason=command.reason,
+                actor_id=command.actor_id,
+            ),
+            encode_leadership_election_receipt,
             CommandAvailability.AVAILABLE,
         ))
 

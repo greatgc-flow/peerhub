@@ -771,6 +771,43 @@ class LeaderClaimCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoverCandidatesCommand(Command[Any]):
+    method: ClassVar[str] = "routing.candidate.discover"
+    submission: SubmissionMetadata
+    needs: str
+    effort: str = "mid"
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"needs": self.needs, "effort": self.effort}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ElectLeaderCommand(Command[Any]):
+    method: ClassVar[str] = "routing.leadership.elect"
+    submission: SubmissionMetadata
+    actor_id: str
+    needs: str = "general"
+    effort: str = "mid"
+    reason: str = ""
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "actor_id": self.actor_id,
+            "needs": self.needs,
+            "effort": self.effort,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class LeaderYieldCommand(Command[Any]):
     """Workspace-global leadership yield (vacates unconditionally)."""
 
@@ -2008,6 +2045,22 @@ class LegacyTranslator:
                 new_room_id=str(call.arguments.get("new_room_id", "")),
                 subject=str(call.arguments.get("subject", "")),
                 actor_id=str(call.arguments.get("actor_id", "")),
+            ))
+        if call.action == "discover":
+            return TranslatedCommand(command=DiscoverCandidatesCommand(
+                submission=submission,
+                needs=_first_text(call.arguments, ("needs",), ""),
+                effort=_first_text(call.arguments, ("effort",), "mid"),
+            ))
+        if call.action == "elect-leader":
+            return TranslatedCommand(command=ElectLeaderCommand(
+                submission=submission,
+                actor_id=_first_text(
+                    call.arguments, ("actor_id",), submission.actor_id or ""
+                ),
+                needs=_first_text(call.arguments, ("needs",), "general"),
+                effort=_first_text(call.arguments, ("effort",), "mid"),
+                reason=_first_text(call.arguments, ("reason", "detail"), ""),
             ))
         if call.action == "leader-claim":
             # Legacy CLI shape: --agent (default "unknown"),

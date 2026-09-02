@@ -42,6 +42,9 @@ from .application.proposals import (
 )
 from .application.role_assignment import RoleAssignmentService
 from .application.leadership import LeadershipService
+from .application.capability_config import CapabilityConfigService
+from .application.capability_matching import CapabilityMatchingCoordinator
+from .governance.election_audit import ElectionAuditService
 from .application.alert_raise import AlertRaiseCoordinator
 from .application.health_revalidation import HealthRevalidationCoordinator
 from .application.process_lease_sweep import ProcessLeaseSweepCoordinator
@@ -74,6 +77,8 @@ class Runtime:
     proposal_coordinator: ProposalCoordinator
     role_assignment_service: RoleAssignmentService
     leadership_service: LeadershipService
+    capability_config_service: CapabilityConfigService
+    capability_matching_coordinator: CapabilityMatchingCoordinator
     feedback_service: FeedbackService
     file_lock_service: FileLockService
     artifact_record_service: ArtifactRecordService
@@ -316,6 +321,26 @@ def create_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    capability_config_service = CapabilityConfigService(
+        governance_broker,
+        clock=context.clock,
+        ids=context.ids,
+    )
+    election_audit_service = ElectionAuditService(
+        governance_broker,
+        clock=context.clock,
+        ids=context.ids,
+    )
+    capability_matching_coordinator = CapabilityMatchingCoordinator(
+        peer_registry=peer_registry_service,
+        capability_config=capability_config_service,
+        health=health_service,
+        leadership=leadership_service,
+        usage_store=state_store,
+        election_audit=election_audit_service,
+        clock=context.clock,
+        ids=context.ids,
+    )
     from peerhub.application.quarantine_review import QuarantineReviewCoordinator
     quarantine_review_coordinator = QuarantineReviewCoordinator(
         governance_broker,
@@ -358,6 +383,7 @@ def create_runtime(
         health=health_service,
         role_assignment=role_assignment_service,
         leadership=leadership_service,
+        capability_matching=capability_matching_coordinator,
         feedback=feedback_service,
         file_locks=file_lock_service,
         artifact_records=artifact_record_service,
@@ -389,6 +415,8 @@ def create_runtime(
         proposal_coordinator=proposal_coordinator,
         role_assignment_service=role_assignment_service,
         leadership_service=leadership_service,
+        capability_config_service=capability_config_service,
+        capability_matching_coordinator=capability_matching_coordinator,
         feedback_service=feedback_service,
         file_lock_service=file_lock_service,
         artifact_record_service=artifact_record_service,

@@ -1652,6 +1652,108 @@ def _run_leadership(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_routing(parsed: argparse.Namespace) -> int:
+    from peerhub.application.capability_config import (
+        import_legacy_capability_configs,
+    )
+    from peerhub.application.capability_matching import (
+        encode_capability_ranking,
+        encode_leadership_election_receipt,
+    )
+
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            if parsed.routing_action == "import-capabilities":
+                sys_root = workspace_root.parent.parent / "_sys" / "ai"
+                protocol_path = Path(
+                    parsed.protocol or sys_root / "protocol.json"
+                ).resolve()
+                orchestration_path = Path(
+                    parsed.orchestration or sys_root / "orchestration.json"
+                ).resolve()
+                result = import_legacy_capability_configs(
+                    runtime.capability_config_service,
+                    protocol_path=protocol_path,
+                    orchestration_path=orchestration_path,
+                )
+                payload = {
+                    "configs": tuple(
+                        {
+                            "target_id": config.target_id,
+                            "revision": config.revision,
+                            "node_id": config.node_id,
+                            "enabled": config.enabled,
+                            "aliases": config.aliases,
+                            "capabilities": tuple(
+                                {
+                                    "name": capability.name,
+                                    "sources": capability.sources,
+                                }
+                                for capability in config.capabilities
+                            ),
+                        }
+                        for config in result.configs
+                    ),
+                    "policy_target_id": result.policy.target_id,
+                    "policy_revision": result.policy.target_revision,
+                }
+                print(json.dumps(_json_safe(payload)))
+                return 0
+
+            coordinator = runtime.capability_matching_coordinator
+            if parsed.routing_action == "discover":
+                ranking = coordinator.discover(
+                    needs=parsed.needs,
+                    effort=parsed.effort,
+                )
+                payload = encode_capability_ranking(ranking)
+                if parsed.json:
+                    print(json.dumps(_json_safe(payload)))
+                elif ranking.ordered_matches:
+                    for match in ranking.ordered_matches:
+                        print(
+                            f"{match.node_id}\tscore={match.ranking_score}\t"
+                            f"health={_enum_value(match.availability_status)}"
+                        )
+                else:
+                    fallback = ranking.fallback
+                    print(
+                        "No matching peers; fallback="
+                        f"{None if fallback is None else fallback.node_id}"
+                    )
+                return 0
+
+            receipt = coordinator.elect_leader(
+                needs=parsed.needs,
+                effort=parsed.effort,
+                reason=parsed.reason,
+                actor_id=parsed.actor,
+            )
+            payload = encode_leadership_election_receipt(receipt)
+            if parsed.json:
+                print(json.dumps(_json_safe(payload)))
+            else:
+                print(
+                    f"Elected {receipt.selected_node_id} "
+                    f"({receipt.selection_basis}); "
+                    f"claim={receipt.leadership_claim_id}"
+                )
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError, PeerHubError) as exc:
+        print(f"peerhub routing: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_feedback(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -2992,6 +3094,62 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
 
+    routing_parser = subparsers.add_parser(
+        "routing", help="Discover candidates and elect capability-fit leaders"
+    )
+    routing_subparsers = routing_parser.add_subparsers(
+        dest="routing_action", required=True
+    )
+    routing_discover_parser = routing_subparsers.add_parser(
+        "discover", help="Rank configured peers for a workload need"
+    )
+    routing_discover_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    routing_discover_parser.add_argument(
+        "--needs", required=True, help="Capability or workload need"
+    )
+    routing_discover_parser.add_argument(
+        "--effort", default="mid", help="Compatibility effort: low, mid, or high"
+    )
+    routing_discover_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    routing_elect_parser = routing_subparsers.add_parser(
+        "elect-leader", help="Audit a ranking and claim its selected leader"
+    )
+    routing_elect_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    routing_elect_parser.add_argument(
+        "--needs", required=True, help="Capability or workload need"
+    )
+    routing_elect_parser.add_argument(
+        "--effort", default="mid", help="Compatibility effort: low, mid, or high"
+    )
+    routing_elect_parser.add_argument(
+        "--reason", default="", help="Election reason recorded in the audit"
+    )
+    routing_elect_parser.add_argument(
+        "--actor", default="peerhub-cli", help="Actor requesting the election"
+    )
+    routing_elect_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
+    routing_import_parser = routing_subparsers.add_parser(
+        "import-capabilities",
+        help="One-time snapshot of legacy capability configuration",
+    )
+    routing_import_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root"
+    )
+    routing_import_parser.add_argument(
+        "--protocol", help="Legacy protocol.json path"
+    )
+    routing_import_parser.add_argument(
+        "--orchestration", help="Legacy orchestration.json path"
+    )
+
     leadership_parser = subparsers.add_parser(
         "leadership", help="Manage the workspace-global leadership slot"
     )
@@ -3573,6 +3731,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "leadership":
         return _run_leadership(parsed)
+
+    if parsed.command == "routing":
+        return _run_routing(parsed)
 
     if parsed.command == "feedback":
         return _run_feedback(parsed)
