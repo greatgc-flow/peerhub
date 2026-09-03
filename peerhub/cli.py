@@ -2522,6 +2522,39 @@ def _run_session(parsed: argparse.Namespace) -> int:
         print(f"peerhub session: {exc}", file=sys.stderr)
         return 2
 
+def _run_adapter(parsed: argparse.Namespace) -> int:
+    if getattr(parsed, "adapter_command", None) == "discover":
+        from peerhub.adapters.discovery import (
+            discover_builtin_adapters,
+            AdapterFoundAndReady,
+            AdapterNotReady,
+            AdapterNotFound
+        )
+        results = discover_builtin_adapters()
+        
+        if parsed.json:
+            out = {}
+            for r in results:
+                if isinstance(r, AdapterFoundAndReady):
+                    out[r.peer_kind] = {"state": "MEASURED", "executable_path": str(r.executable_path), "profiles": r.profiles}
+                elif isinstance(r, AdapterNotReady):
+                    out[r.peer_kind] = {"state": "UNAVAILABLE", "executable_path": str(r.executable_path), "reason": r.reason}
+                elif isinstance(r, AdapterNotFound):
+                    out[r.peer_kind] = {"state": "ABSENT"}
+            print(json.dumps(_json_safe(out), indent=2))
+        else:
+            for r in results:
+                if isinstance(r, AdapterFoundAndReady):
+                    print(f"[{r.peer_kind}] FOUND (ready): {r.executable_path} (profiles: {', '.join(r.profiles)})")
+                elif isinstance(r, AdapterNotReady):
+                    print(f"[{r.peer_kind}] UNAVAILABLE: {r.executable_path} - {r.reason}")
+                elif isinstance(r, AdapterNotFound):
+                    print(f"[{r.peer_kind}] ABSENT: not found in PATH")
+        return 0
+    
+    print("error: missing adapter subcommand", file=sys.stderr)
+    return 2
+
 
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
@@ -2537,6 +2570,13 @@ def main(args: list[str] | None = None) -> int:
     status_group = status_parser.add_mutually_exclusive_group()
     status_group.add_argument("--peer", help="Show quota data for a specific peer")
     status_group.add_argument("--all", action="store_true", help="Show quota data for all peers")
+
+    # Adapter subcommand
+    adapter_parser = subparsers.add_parser("adapter", help="Manage peerhub adapters")
+    adapter_subparsers = adapter_parser.add_subparsers(dest="adapter_command", required=True)
+    
+    adapter_discover_parser = adapter_subparsers.add_parser("discover", help="Discover installed built-in adapters")
+    adapter_discover_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     # Diag subcommand
     diag_parser = subparsers.add_parser("diag", help="Show live peer diagnostics and quota telemetry")
@@ -3799,6 +3839,9 @@ def main(args: list[str] | None = None) -> int:
         )
 
     parsed = parser.parse_args(args)
+
+    if parsed.command == "adapter":
+        return _run_adapter(parsed)
 
     if parsed.command == "statusline":
         return _run_statusline(parsed)
