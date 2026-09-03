@@ -77,6 +77,11 @@ peerhub diag --domains --workspace ./my-workspace
 # Check a workspace (read-only; reports "uninitialized" if no database yet)
 peerhub status --workspace ./my-workspace
 
+# Auto-detect which built-in peer CLIs (agy/claude/codex) are installed and
+# resolvable on PATH right now -- no workspace required
+peerhub adapter discover
+peerhub adapter discover --json   # MEASURED/UNAVAILABLE/ABSENT per peer
+
 # Genuinely dispatch a prompt to a real peer and get its response
 peerhub ask ag "say hello in exactly three words" --capability-tier READ_ONLY
 peerhub ask cc "..." --capability-tier READ_ONLY --profile <profile-id>   # claude, if you have more than one profile configured
