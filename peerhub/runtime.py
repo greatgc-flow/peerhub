@@ -24,6 +24,7 @@ from .governance.artifact_records import ArtifactRecordService
 from .governance.operational_errors import OperationalErrorService
 from .application.quarantine_review import QuarantineReviewCoordinator
 from .governance.lessons import LessonService
+from .governance.directives import DirectiveService
 from .governance.rooms import RoomsService
 from .dispatch.duty_lease import DutyLeaseCoordinator
 from .dispatch.room_session import RoomParticipationCoordinator
@@ -62,6 +63,7 @@ class Runtime:
     consensus_service: ConsensusService
     task_service: TaskService
     lesson_service: LessonService
+    directive_service: DirectiveService
     rooms_service: RoomsService
     duty_lease_coordinator: DutyLeaseCoordinator
     terminal_duty_service: TerminalDutyService
@@ -140,6 +142,7 @@ def create_runtime(
     )
     task_service = TaskService(governance_broker, clock=context.clock, ids=context.ids)
     lesson_service = LessonService(governance_broker, clock=context.clock, ids=context.ids)
+    directive_service = DirectiveService(governance_broker, clock=context.clock, ids=context.ids)
     rooms_service = RoomsService(governance_broker, clock=context.clock, ids=context.ids)
     duty_lease_coordinator = DutyLeaseCoordinator(state_store, clock=context.clock, ids=context.ids)
     terminal_duty_service = TerminalDutyService(duty_lease_coordinator)
@@ -401,6 +404,7 @@ def create_runtime(
         consensus_service=consensus_service,
         task_service=task_service,
         lesson_service=lesson_service,
+        directive_service=directive_service,
         rooms_service=rooms_service,
         duty_lease_coordinator=duty_lease_coordinator,
         terminal_duty_service=terminal_duty_service,

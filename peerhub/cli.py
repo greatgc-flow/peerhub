@@ -1079,6 +1079,67 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
         return 2
 
 
+def _run_directive(parsed: argparse.Namespace) -> int:
+    workspace_root = Path(parsed.workspace).resolve()
+    paths = PathLayout.for_workspace(workspace_root)
+    context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
+    try:
+        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            service = runtime.directive_service
+            action = parsed.directive_action
+            if action == "add":
+                submission = service.propose(
+                    directive_id=parsed.directive_id, 
+                    title=parsed.title, 
+                    rule=parsed.rule, 
+                    effective_date=parsed.effective_date, 
+                    proposer_id=parsed.proposer, 
+                    category=getattr(parsed, "category", None)
+                )
+            elif action == "migrate":
+                consumers = json.loads(parsed.consumers) if getattr(parsed, "consumers", None) else []
+                submission = service.migrate(
+                    directive_id=parsed.directive_id,
+                    title=parsed.title,
+                    rule_markdown=parsed.rule,
+                    digest=parsed.digest,
+                    consumers=consumers,
+                    source_path=parsed.source_path,
+                    migrated_by=parsed.actor
+                )
+            elif action == "clear":
+                submission = service.retire(
+                    directive_id=parsed.directive_id, 
+                    actor_id=parsed.actor, 
+                    reason=parsed.reason
+                )
+            elif action == "list":
+                targets = service.list_all()
+                if getattr(parsed, "json", False):
+                    print(json.dumps([{"directive_id": t.target_id, "state": dict(t.state)} for t in targets]))
+                else:
+                    for t in targets:
+                        state_dict = dict(t.state)
+                        lifecycle = state_dict.get('lifecycle')
+                        content = state_dict.get('content')
+                        title = content.get('title') if isinstance(content, dict) else ""
+                        print(f"{t.target_id}: {lifecycle} - {title}")
+                return 0
+            
+            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            assert target is not None
+            state = cast(dict[str, Any], target.state)
+            if getattr(parsed, "json", False):
+                print(json.dumps(_json_safe(target.state)))
+            else:
+                verb = {"add": "proposed", "migrate": "migrated", "clear": "retired"}[action]
+                print(f"Directive {parsed.directive_id} {verb} (lifecycle={state['lifecycle']})")
+            return 0
+    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+        print(f"peerhub directive: {exc}", file=sys.stderr)
+        return 2
+
+
 def _run_node(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
@@ -2855,6 +2916,40 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required, default=default, help=lesson_arg_help[name])
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
+    directive_parser = subparsers.add_parser("directive", help="Manage governance directives")
+    directive_subparsers = directive_parser.add_subparsers(dest="directive_action", required=True)
+    directive_specs = {
+        "add": [("--directive-id", True), ("--title", True), ("--rule", True), ("--effective-date", True), ("--proposer", True), ("--category", False)],
+        "migrate": [("--directive-id", True), ("--title", True), ("--rule", True), ("--digest", True), ("--consumers", False), ("--source-path", True), ("--actor", True)],
+        "clear": [("--directive-id", True), ("--actor", True), ("--reason", True)],
+        "list": [],
+    }
+    directive_subcommand_help = {
+        "add": "Propose a new governance directive",
+        "migrate": "Migrate an existing directive",
+        "clear": "Retire an active directive",
+        "list": "List all directives",
+    }
+    directive_arg_help = {
+        "--directive-id": "Directive identifier",
+        "--title": "Directive title",
+        "--rule": "Directive rule text",
+        "--effective-date": "Effective date",
+        "--proposer": "Proposer actor ID",
+        "--category": "Directive category",
+        "--digest": "Digest of the directive",
+        "--consumers": "JSON string of consumers",
+        "--source-path": "Source path of the directive",
+        "--actor": "Actor ID performing the action",
+        "--reason": "Reason for retirement",
+    }
+    for action, arguments in directive_specs.items():
+        command_parser = directive_subparsers.add_parser(action, help=directive_subcommand_help[action])
+        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        for name, required in arguments:
+            command_parser.add_argument(name, required=required, default="", help=directive_arg_help[name])
+        command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
     node_parser = subparsers.add_parser("node", help="Manage the peer node registry")
     node_subparsers = node_parser.add_subparsers(dest="node_action", required=True)
     node_register_parser = node_subparsers.add_parser("register", help="Register a peer node, binding it to an existing adapter kind + profile")
@@ -3716,6 +3811,9 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "lesson":
         return _run_lesson(parsed)
+
+    if parsed.command == "directive":
+        return _run_directive(parsed)
 
     if parsed.command == "node":
         return _run_node(parsed)
