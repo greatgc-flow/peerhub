@@ -50,7 +50,7 @@ The target architecture was designed and converged through a 9-round adversarial
 ### Option A: Install via Pip from GitHub Release (Recommended)
 
 ```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.1.1"
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.1.8"
 ```
 
 ### Option B: Local Editable Development Install
@@ -62,7 +62,7 @@ pip install -e .          # runtime only
 pip install -e .[dev]     # + pytest, pyright, hypothesis, alembic (needed to run tests/type-check locally)
 ```
 
-Requires Python >= 3.11. This installs the `peerhub` package and registers `peerhub` and `hub` entrypoints on your PATH.
+Requires Python >= 3.11. This installs the `peerhub` package and registers a `peerhub` entrypoint on your PATH (verified via a real sdist build + install: `pyproject.toml`'s `[project.scripts]` defines only `peerhub`, not a separate `hub` alias).
 
 ## Try it
 
