@@ -136,6 +136,9 @@ class RealClaudeAdapter:
 
     descriptor = _CLAUDE_DESCRIPTOR
 
+    def __init__(self, executable_path: str | Sequence[str] | Path | None = None) -> None:
+        self.executable_path = executable_path
+
     def prompt_policy(self, profile: ProfileDescriptor) -> PromptPolicy:
         if profile.profile_id != _CLAUDE_PROFILE.profile_id:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
@@ -189,10 +192,18 @@ class RealClaudeAdapter:
                     content_str = payload.content_bytes.decode("utf-8", errors="replace")
                     prompt += f"\n{content_str}"
 
+        if self.executable_path is not None:
+            if isinstance(self.executable_path, (list, tuple)):
+                exec_argv = tuple(str(x) for x in self.executable_path)
+            else:
+                exec_argv = (str(self.executable_path),)
+        else:
+            exec_argv = ("claude.cmd",)
+
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
                 raise ValueError("external_session_id is required for RESUME")
-            argv = ("claude.cmd", "-p", prompt, "--output-format", "json", "--resume", session.external_session_id)
+            argv = (*exec_argv, "-p", prompt, "--output-format", "json", "--resume", session.external_session_id)
             redacted_display = "claude.cmd -p <redacted> --output-format json --resume <redacted>"
         else:
             # SESSION_IDENTITY is now emitted by 2 of 3 real adapters (Codex, Agy); Claude
@@ -201,7 +212,7 @@ class RealClaudeAdapter:
             # so there is nothing for Claude's decoder to capture post-hoc -- unlike Codex/Agy,
             # which generate a new ID server-side that must be captured from output after the fact.
             # This is a permanent architectural asymmetry, not a deferred gap.
-            argv = ("claude.cmd", "-p", prompt, "--output-format", "json")
+            argv = (*exec_argv, "-p", prompt, "--output-format", "json")
             redacted_display = "claude.cmd -p <redacted> --output-format json"
 
         return InvocationPlan(

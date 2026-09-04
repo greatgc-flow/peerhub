@@ -261,6 +261,9 @@ class RealCodexAdapter:
 
     descriptor = _CODEX_DESCRIPTOR
 
+    def __init__(self, executable_path: str | Sequence[str] | Path | None = None) -> None:
+        self.executable_path = executable_path
+
     def prompt_policy(self, profile: ProfileDescriptor) -> PromptPolicy:
         if profile.profile_id != _CODEX_PROFILE.profile_id:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
@@ -314,11 +317,19 @@ class RealCodexAdapter:
                     content_str = payload.content_bytes.decode("utf-8", errors="replace")
                     prompt += f"\n{content_str}"
 
+        if self.executable_path is not None:
+            if isinstance(self.executable_path, (list, tuple)):
+                exec_argv = tuple(str(x) for x in self.executable_path)
+            else:
+                exec_argv = (str(self.executable_path),)
+        else:
+            exec_argv = ("codex.cmd",)
+
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
                 raise ValueError("external_session_id is required for RESUME")
             argv = (
-                "codex.cmd",
+                *exec_argv,
                 "exec",
                 "resume",
                 "--json",
@@ -329,7 +340,7 @@ class RealCodexAdapter:
                 "codex.cmd exec resume --json <session-id> <redacted>"
             )
         else:
-            argv = ("codex.cmd", "exec", "--json", prompt)
+            argv = (*exec_argv, "exec", "--json", prompt)
             redacted_display = "codex.cmd exec --json <redacted>"
 
         # No explicit --sandbox flag: inherits config.toml's sandbox_mode.

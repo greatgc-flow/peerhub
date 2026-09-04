@@ -193,6 +193,50 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     # above for the wrapper-directory safety check only.
     return str(cand)
 
+
+def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[str]]:
+    raw_bin = _real_binary(peer, sys_dir)
+    if not raw_bin:
+        return None
+    cand = Path(raw_bin)
+    resolved_sys = _resolve_sys_dir(sys_dir)
+    if peer == "cc":
+        if cand.suffix.lower() == ".cmd":
+            real_exe = cand.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+            if not real_exe.exists():
+                try:
+                    real_exe = cand.resolve().parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+                except Exception:
+                    pass
+            if real_exe.exists():
+                return [str(real_exe)]
+        return [raw_bin]
+    elif peer == "cx":
+        if cand.suffix.lower() == ".cmd":
+            codex_js = cand.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+            if not codex_js.exists():
+                try:
+                    codex_js = cand.resolve().parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+                except Exception:
+                    pass
+            node_exe = resolved_sys / "env" / "nodejs" / "node.exe"
+            if not node_exe.exists():
+                node_exe = cand.parent.parent / "node.exe"
+            if not node_exe.exists():
+                node_exe = cand.parent / "node.exe"
+            if codex_js.exists() and node_exe.exists():
+                return [str(node_exe), str(codex_js)]
+            codex_exe = cand.parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
+            if not codex_exe.exists():
+                try:
+                    codex_exe = cand.resolve().parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
+                except Exception:
+                    pass
+            if codex_exe.exists():
+                return [str(codex_exe)]
+        return [raw_bin]
+    return [raw_bin]
+
 def _fail_closed(
     ids: IdSource,
     instance_id: str,
@@ -248,25 +292,19 @@ def poll_claude_usage(
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at = int(clock_fn())
     
-    claude_exe = _real_binary("cc", resolved_sys)
-    if not claude_exe:
+    claude_cmd = _real_command("cc", resolved_sys)
+    if not claude_cmd:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl),)
 
     env = os.environ.copy()
     env["CLAUDE_CONFIG_DIR"] = str((resolved_sys / "claude" / "config").resolve())
 
-    # `claude.cmd` is a cmd.exe wrapper that spawns claude.exe as a
-    # grandchild. On Windows, subprocess.run(timeout=...) only kills the
-    # direct child (cmd.exe); the orphaned claude.exe keeps the stdout/
-    # stderr pipes open, so subprocess.run's own timeout-cleanup can block
-    # far past deadline_sec waiting for EOF that never comes (reproduced
-    # directly: a killed-on-timeout call still hung until the orphaned
-    # claude.exe was killed by hand). Popen + explicit taskkill /T mirrors
-    # poll_codex_usage's proven cleanup so the deadline is actually honored.
+    # Direct binary invocation (bypassing claude.cmd wrapper per pattern a)
+    # avoids both cmd.exe '&' splitting and orphaned grandchild process leaks.
     proc = None
     try:
         proc = subprocess.Popen(
-            [claude_exe, "/usage"],
+            [*claude_cmd, "/usage"],
             cwd=str(workspace_root),
             env=env,
             stdin=subprocess.DEVNULL,
@@ -368,14 +406,14 @@ def poll_codex_usage(
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at = int(clock_fn())
 
-    codex_exe = _real_binary("cx", resolved_sys)
-    if not codex_exe:
+    codex_cmd = _real_command("cx", resolved_sys)
+    if not codex_cmd:
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl, peer="cx"),)
 
     proc = None
     try:
         proc = subprocess.Popen(
-            [codex_exe, "app-server"],
+            [*codex_cmd, "app-server"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,

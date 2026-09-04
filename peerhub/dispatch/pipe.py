@@ -294,6 +294,82 @@ def _drive_cancellation_ladder(
     )
 
 
+def _resolve_real_direct_binary(argv: list[str]) -> list[str]:
+    """Resolve npm-published .cmd wrappers to direct binary execution per pattern (a).
+
+    On Windows, invoking .cmd/.bat wrappers through subprocess.Popen runs
+    cmd.exe, which splits command lines at bare '&' characters and fails
+    PATH-search-and-launch if PATH contains an '&'-laden directory.
+    Bypassing the .cmd wrapper and executing the real underlying binary
+    directly avoids cmd.exe entirely.
+    """
+    if not argv or sys.platform != "win32":
+        return argv
+
+    exe_name = Path(argv[0]).name.lower()
+    if exe_name not in ("claude.cmd", "codex.cmd"):
+        return argv
+
+    first_arg = Path(argv[0])
+    cand_path: Path | None = None
+    if first_arg.is_file():
+        cand_path = first_arg
+    else:
+        import os
+        for p in os.environ.get("PATH", "").split(os.pathsep):
+            if not p:
+                continue
+            cand = Path(p) / argv[0]
+            try:
+                if cand.is_file():
+                    cand_path = cand
+                    break
+            except OSError:
+                continue
+
+    if cand_path is None:
+        return argv
+
+    if exe_name == "claude.cmd":
+        real_exe = cand_path.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+        if not real_exe.exists():
+            try:
+                real_exe = cand_path.resolve().parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
+            except Exception:
+                pass
+        if real_exe.exists():
+            return [str(real_exe)] + argv[1:]
+
+    elif exe_name == "codex.cmd":
+        codex_js = cand_path.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+        if not codex_js.exists():
+            try:
+                codex_js = cand_path.resolve().parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+            except Exception:
+                pass
+        node_exe = cand_path.parent.parent / "node.exe"
+        if not node_exe.exists():
+            node_exe = cand_path.parent / "node.exe"
+        if not node_exe.exists():
+            import shutil
+            which_node = shutil.which("node.exe") or shutil.which("node")
+            if which_node:
+                node_exe = Path(which_node)
+        if codex_js.exists() and node_exe.exists():
+            return [str(node_exe), str(codex_js)] + argv[1:]
+
+        codex_exe = cand_path.parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
+        if not codex_exe.exists():
+            try:
+                codex_exe = cand_path.resolve().parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
+            except Exception:
+                pass
+        if codex_exe.exists():
+            return [str(codex_exe)] + argv[1:]
+
+    return argv
+
+
 def run_process(
     config: PipeRunnerConfig,
     supervisor: ProcessSupervisor,
@@ -355,7 +431,7 @@ def run_process(
         if sys.platform == "win32"
         else {"start_new_session": True}
     )
-    argv = list(config.argv)
+    argv = _resolve_real_direct_binary(list(config.argv))
     proc = subprocess.Popen(  # pyright: ignore[reportCallIssue]
         argv,
         stdout=subprocess.PIPE,
