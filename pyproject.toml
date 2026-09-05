@@ -17,7 +17,7 @@ dependencies = [
 peerhub = "peerhub.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0"]
+dev = ["pytest>=8.0", "pytest-timeout>=2.3.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -30,6 +30,7 @@ include = ["peerhub*"]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
 addopts = "-ra -m 'not slow'"
+timeout = 60
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
