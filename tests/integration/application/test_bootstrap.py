@@ -49,7 +49,7 @@ def ids() -> IdSource:
 def test_resolve_peer_target_aliases(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test alias resolution for all 3 peers."""
     import peerhub.adapters.registry
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(f"/dummy/{x}"))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(f"/dummy/{x}"))
     
     ag = resolve_peer_target("ag")
     assert ag.cli_name == "ag"
@@ -88,7 +88,7 @@ def test_build_direct_ask_admission_config(
     """Test building admission config with a real probe against one CLI."""
     import peerhub.adapters.registry
     import sys
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     target = resolve_peer_target("ag")
     
     config = build_direct_ask_admission_config(target, clock=clock, ids=ids)
@@ -114,7 +114,7 @@ def test_build_direct_ask_admission_config_probe_fails(
     """Clear error path when the probe fails (nonexistent path)."""
     import peerhub.adapters.registry
     import sys
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     target = resolve_peer_target("ag")
     # Mutate the executable path to something nonexistent
     broken_target = __import__("dataclasses").replace(
@@ -134,7 +134,7 @@ def test_persist_direct_ask_admission_idempotent(
     """Idempotent policy persistence."""
     import peerhub.adapters.registry
     import sys
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     target = resolve_peer_target("ag")
     config = build_direct_ask_admission_config(target, clock=clock, ids=ids)
     
@@ -194,7 +194,7 @@ def test_create_runtime_health_projection_entrypoint_verified(
     """End-to-end test proving create_runtime correctly evaluates --version to ENTRYPOINT_VERIFIED."""
     import peerhub.adapters.registry
     import sys
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     
     target = resolve_peer_target("ag")
     config = build_direct_ask_admission_config(target, clock=clock, ids=ids)
@@ -239,7 +239,7 @@ def test_build_broadcast_admission_config_probe_fails(
     import peerhub.adapters.registry
     import sys
     from pathlib import Path
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     
     target = resolve_peer_target("ag")
     broken_target = __import__("dataclasses").replace(

@@ -25,7 +25,7 @@ def mock_executables(tmp_path: Path):
         p.write_text("dummy")
         return p
         
-    with patch("peerhub.adapters.discovery._resolve_executable_path", side_effect=_mock_resolve):
+    with patch("peerhub.adapters.discovery.resolve_executable_path", side_effect=_mock_resolve):
         yield tmp_path
         
 def test_discover_builtin_adapters_found(mock_executables):
@@ -40,7 +40,7 @@ def test_discover_builtin_adapters_not_found():
     def _mock_resolve(name):
         raise registry.ExecutableNotFoundError("not found")
         
-    with patch("peerhub.adapters.discovery._resolve_executable_path", side_effect=_mock_resolve):
+    with patch("peerhub.adapters.discovery.resolve_executable_path", side_effect=_mock_resolve):
         results = discover_builtin_adapters()
         assert len(results) == 3
         for r in results:
@@ -52,7 +52,7 @@ def test_discover_builtin_adapters_empty_file(tmp_path: Path):
         p.touch() # size 0
         return p
         
-    with patch("peerhub.adapters.discovery._resolve_executable_path", side_effect=_mock_resolve):
+    with patch("peerhub.adapters.discovery.resolve_executable_path", side_effect=_mock_resolve):
         results = discover_builtin_adapters()
         for r in results:
             assert isinstance(r, AdapterNotReady)
@@ -99,7 +99,7 @@ def test_cli_adapter_discover_not_found_json(capsys):
     def _mock_resolve(name):
         raise registry.ExecutableNotFoundError("not found")
         
-    with patch("peerhub.adapters.discovery._resolve_executable_path", side_effect=_mock_resolve):
+    with patch("peerhub.adapters.discovery.resolve_executable_path", side_effect=_mock_resolve):
         ret = cli_main(["adapter", "discover", "--json"])
         
     assert ret == 0

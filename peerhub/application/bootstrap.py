@@ -64,7 +64,7 @@ def build_broadcast_admission_config(
     ids: IdSource,
 ) -> DirectAskAdmissionConfig:
     """Build unified multi-target admission config for broadcast fan-out."""
-    members = []
+    members: list[tuple[str, str]] = []
     hasher = hashlib.sha256()
     hasher.update(b"peerhub.broadcast/v1")
     readiness_list: list[ReadinessObserved] = []

@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from peerhub.adapters.registry import (
-    _ADAPTER_FACTORIES,
     resolve_peer_adapter,
-    _resolve_executable_path,
+    resolve_executable_path,
     ExecutableNotFoundError,
 )
 from peerhub.adapters.contract import AdapterRequest, SessionAction
@@ -70,7 +69,7 @@ def discover_builtin_adapters() -> list[AdapterFoundAndReady | AdapterNotReady |
             )
             executable_name = plan.argv[0]
             
-            executable_path = _resolve_executable_path(executable_name)
+            executable_path = resolve_executable_path(executable_name)
             
             # Minimal readiness signal: executable exists and has nonzero size
             # Spawning a subprocess is disproportionate for a discovery sweep

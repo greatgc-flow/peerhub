@@ -7,7 +7,6 @@ and session consumption tracking for multi-peer collaboration.
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import shutil
@@ -15,14 +14,14 @@ import sys
 import unicodedata
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from peerhub.telemetry.contract import UsageProjectionSnapshot
 
 
 def _dw(s: str) -> int:
     """Compute terminal display width supporting East Asian Width & emojis."""
-    if not isinstance(s, str):
+    if not isinstance(s, str):  # pyright: ignore[reportUnnecessaryIsInstance] -- defends real callers passing non-str despite the hint
         s = str(s)
     clean = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", s)
     w = 0
@@ -53,7 +52,7 @@ def _pad(s: str, width: int, align: str = "left") -> str:
 
 def parse_source_msg_reset(msg: str, now: Optional[datetime] = None) -> Optional[datetime]:
     """Parse explicit reset text like 'resets 10pm (Asia/Seoul)' or 'resets 22:00'."""
-    if not msg or not isinstance(msg, str):
+    if not msg or not isinstance(msg, str):  # pyright: ignore[reportUnnecessaryIsInstance] -- defends real callers passing non-str despite the hint
         return None
     if now is None:
         now = datetime.now(timezone.utc).astimezone()
@@ -88,14 +87,20 @@ def _get_cx_context(sys_dir: Path) -> Tuple[int, int, float]:
             if rollout_path.exists():
                 for line in rollout_path.read_text(encoding="utf-8").splitlines():
                     try:
-                        obj = json.loads(line)
+                        obj: dict[str, Any] = json.loads(line)
                     except Exception:
                         continue
                     payload = obj.get("payload", {})
-                    if isinstance(payload, dict) and payload.get("type") == "token_count":
-                        info = payload.get("info", {})
-                        win = info.get("model_context_window")
-                        used = (info.get("last_token_usage") or {}).get("total_tokens")
+                    if not isinstance(payload, dict):
+                        continue
+                    payload_dict = cast("dict[str, Any]", payload)
+                    if payload_dict.get("type") == "token_count":
+                        info = payload_dict.get("info", {})
+                        info_dict = cast("dict[str, Any]", info) if isinstance(info, dict) else {}
+                        win = info_dict.get("model_context_window")
+                        last_usage = info_dict.get("last_token_usage")
+                        last_usage_dict = cast("dict[str, Any]", last_usage) if isinstance(last_usage, dict) else {}
+                        used = last_usage_dict.get("total_tokens")
                         if isinstance(used, (int, float)) and isinstance(win, (int, float)) and win > 0:
                             return (int(used), int(win), (float(used) / float(win)) * 100.0)
     except Exception:
@@ -266,6 +271,10 @@ class TelemetryPresenter:
         prefix = "".join(self.ANSI_CODES.get(c, "") for c in codes)
         return f"{prefix}{text}{self.ANSI_CODES['reset']}"
 
+    def format_ansi(self, text: str, *codes: str) -> str:
+        """Public entry point for `_c`, for callers outside this class (e.g. cli.py)."""
+        return self._c(text, *codes)
+
     def _find_sys_dir(self) -> Path:
         """Resolve _sys directory using only workspace-relative paths.
 
@@ -290,20 +299,10 @@ class TelemetryPresenter:
     def collect_live_snapshot(self) -> Dict[str, Any]:
         """Collect live telemetry data across all active peers and configuration files."""
         sys_dir = self._find_sys_dir()
-        ai_dir = sys_dir / "ai"
         now = datetime.now(timezone.utc)
 
-        # 1. Orchestration
-        orch = {}
-        orch_file = ai_dir / "orchestration.json"
-        if orch_file.exists():
-            try:
-                orch = json.loads(orch_file.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-
         # Collect usage projections (injected or empty)
-        projections = list(self._usage_projections) if self._usage_projections else []
+        projections: list[UsageProjectionSnapshot] = list(self._usage_projections) if self._usage_projections else []
 
         # Partition projections by peer instance
         cc_projections = [p for p in projections if p.instance_id == "cc"]
@@ -317,7 +316,7 @@ class TelemetryPresenter:
             "pools": [],
         }
 
-        raw_ag = {}
+        raw_ag: Dict[str, Any] = {}
         for ag_path in (
             sys_dir / "data" / "temp" / "ag_statusline_stdin.log",
             sys_dir / "antigravity" / "config" / "status_input.log",
@@ -332,7 +331,7 @@ class TelemetryPresenter:
 
         ag_pct = 0.0
         if raw_ag:
-            ctx = raw_ag.get("context_window", {})
+            ctx: Dict[str, Any] = raw_ag.get("context_window", {})
             used_tokens = ctx.get("total_input_tokens", 0)
             if used_tokens == 0 and isinstance(ctx.get("current_usage"), dict):
                 cur = ctx["current_usage"]
@@ -343,10 +342,10 @@ class TelemetryPresenter:
             size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
             ag_data["context_str"] = f"{used_k}k / {size_m} ({ag_pct:.0f}%)"
 
-            quotas = raw_ag.get("quota", {})
+            quotas: Dict[str, Any] = raw_ag.get("quota", {})
             # 3P-pool (Claude / Codex through AG)
-            p3_5h = quotas.get("3p-5h", {})
-            p3_wk = quotas.get("3p-weekly", {})
+            p3_5h: Dict[str, Any] = quotas.get("3p-5h", {})
+            p3_wk: Dict[str, Any] = quotas.get("3p-weekly", {})
             p3_5h_rem = float(p3_5h.get("remaining_fraction", 1.0))
             p3_wk_rem = float(p3_wk.get("remaining_fraction", 1.0))
             p3_5h_used_frac = max(0.0, min(1.0, 1.0 - p3_5h_rem))
@@ -370,8 +369,8 @@ class TelemetryPresenter:
             })
 
             # G-pool (Gemini native)
-            g_5h = quotas.get("gemini-5h", {})
-            g_wk = quotas.get("gemini-weekly", {})
+            g_5h: Dict[str, Any] = quotas.get("gemini-5h", {})
+            g_wk: Dict[str, Any] = quotas.get("gemini-weekly", {})
             g_5h_rem = float(g_5h.get("remaining_fraction", 1.0))
             g_wk_rem = float(g_wk.get("remaining_fraction", 1.0))
             g_5h_used_frac = max(0.0, min(1.0, 1.0 - g_5h_rem))
@@ -406,7 +405,7 @@ class TelemetryPresenter:
         cc_pct = 0.0
         # Context window: still read from status file (live session data, not quota)
         cc_path = sys_dir / "claude" / "config" / "status_input.log"
-        raw_cc = {}
+        raw_cc: Dict[str, Any] = {}
         if cc_path.exists():
             try:
                 raw_cc = json.loads(cc_path.read_text(encoding="utf-8"))
@@ -417,7 +416,7 @@ class TelemetryPresenter:
             cost = raw_cc.get("cost", {}).get("total_cost_usd")
             if cost is not None:
                 cc_data["cost_str"] = f"${cost:.2f}"
-            ctx = raw_cc.get("context_window", {})
+            ctx: Dict[str, Any] = raw_cc.get("context_window", {})
             used_tokens = ctx.get("total_input_tokens", 0)
             if used_tokens == 0 and isinstance(ctx.get("current_usage"), dict):
                 cur = ctx["current_usage"]
@@ -467,7 +466,7 @@ class TelemetryPresenter:
         # else: no CX quota data — pools stays empty (honestly absent)
 
         # 5. Dynamic Alerts (Badges)
-        alert_badges = []
+        alert_badges: list[str] = []
         for peer_name, p_dict in (("AG", ag_data), ("CC", cc_data), ("CX", cx_data)):
             for pool in p_dict.get("pools", []):
                 pname = pool.get("name", "pool")
@@ -526,7 +525,6 @@ class TelemetryPresenter:
         lines: List[str] = []
 
         # Viewport height tiers
-        is_compact_height = rows < 22
         is_standard_height = 22 <= rows < 32
         is_expanded_height = rows >= 32
 
@@ -554,14 +552,14 @@ class TelemetryPresenter:
         lines.append(f"\n{sep[:3]} {self._c('📊 PEER STATUS & QUOTA SUMMARY', 'bold', 'cyan')} {sep[:divider_len - 35]}")
         lines.append("PEER  STATUS   CONTEXT USAGE        COST      POOL        PACE    5H USED     7D USED     RESET")
 
-        peers = snapshot.get("peers", {})
+        peers: Dict[str, Any] = snapshot.get("peers", {})
         for peer_id, pdata in peers.items():
             state = pdata.get("state", "OPEN")
             ctx_str = pdata.get("context_str", "--")
             cost_str = pdata.get("cost_str", "--")
             state_colored = self._c(f"🟢 {state}", "green" if state == "OPEN" else "red")
 
-            first_pool = pdata.get("pools", [{}])[0] if pdata.get("pools") else {}
+            first_pool: Dict[str, Any] = pdata.get("pools", [{}])[0] if pdata.get("pools") else {}
             p_name = first_pool.get("name", "pool")
             p_icon = first_pool.get("status_icon", "🟢")
             exh = first_pool.get("exh_str", "--")
@@ -584,7 +582,7 @@ class TelemetryPresenter:
                 lines.append(f"{'':>5} {'':>9} {'':>20} {'':>9} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
 
         # 3. ROUTING & RECOMMENDED PROFILES
-        routing_rows = snapshot.get("routing_rows", [])
+        routing_rows: List[Dict[str, Any]] = snapshot.get("routing_rows", [])
         if is_expanded_height or is_standard_height:
             lines.append(f"\n{sep[:3]} {self._c('🚦 ROUTING & RECOMMENDED PROFILES', 'bold', 'cyan')} {sep[:divider_len - 38]}")
             lines.append("PROFILE                   HEADROOM  QUOTA LEFT  CTX HEADROOM  EFFORT   NOTES")
@@ -605,7 +603,7 @@ class TelemetryPresenter:
         lines.append(sep)
 
         # Truncate lines only if extreme narrow terminal (< 60)
-        fitted_lines = []
+        fitted_lines: List[str] = []
         for line in lines:
             if cols < 65 and _dw(line) > cols - 1:
                 fitted_lines.append(line[:cols - 4] + "...")

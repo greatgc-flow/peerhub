@@ -56,7 +56,7 @@ def stub_executables(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(
         registry,
-        "_resolve_executable_path",
+        "resolve_executable_path",
         lambda name: Path(f"/dummy/{name}"),
     )
 
@@ -82,9 +82,9 @@ def test_resolve_peer_adapter_rejects_unknown_peer_kind() -> None:
         resolve_peer_adapter("unknown")
 
 def test_resolve_executable_path_resolves_all_real_names() -> None:
-    from peerhub.adapters.registry import _resolve_executable_path
+    from peerhub.adapters.registry import resolve_executable_path
     for name in ["agy.exe", "claude.cmd", "codex.cmd"]:
-        resolved = _resolve_executable_path(name)
+        resolved = resolve_executable_path(name)
         assert resolved.is_absolute()
         assert resolved.name.lower() == name
 

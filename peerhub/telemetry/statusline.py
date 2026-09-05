@@ -8,9 +8,8 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, cast
 
 
 def format_statusline_ag(stdin_data: str) -> str:
@@ -19,26 +18,30 @@ def format_statusline_ag(stdin_data: str) -> str:
         return "ag:Gemini | ctx:ok | hub:idle"
 
     try:
-        data = json.loads(stdin_data)
+        data: dict[str, Any] = json.loads(stdin_data)
     except Exception:
         return "ag:Gemini | ctx:ok | hub:idle"
 
     # 1. Model & Effort
-    m = data.get("model")
+    m: Any = data.get("model")
+    model_name: str
+    effort: str
     if isinstance(m, dict):
-        model_name = m.get("display_name") or m.get("id") or "Unknown"
-        effort = m.get("effort") or ""
+        m_dict = cast("dict[str, Any]", m)
+        model_name = str(m_dict.get("display_name") or m_dict.get("id") or "Unknown")
+        effort = str(m_dict.get("effort") or "")
     elif isinstance(m, str):
         model_name = m
         effort = ""
     else:
-        model_name = data.get("model_name", "Unknown")
+        model_name = str(data.get("model_name", "Unknown"))
         effort = ""
 
     if not effort:
-        mre = data.get("model_reasoning_effort") or data.get("effort", "")
+        mre: Any = data.get("model_reasoning_effort") or data.get("effort", "")
         if isinstance(mre, dict):
-            effort = mre.get("level", "")
+            mre_dict = cast("dict[str, Any]", mre)
+            effort = str(mre_dict.get("level", ""))
         elif isinstance(mre, str):
             effort = mre
 
@@ -46,7 +49,7 @@ def format_statusline_ag(stdin_data: str) -> str:
         model_name = f"{model_name} ({effort.capitalize()})"
 
     # 2. Context Window (Active Loaded Context Occupancy)
-    ctx = data.get("context_window", {})
+    ctx: dict[str, Any] = data.get("context_window", {})
     if ctx:
         used_tokens = ctx.get("total_input_tokens", 0)
         if used_tokens == 0 and "current_usage" in ctx:
@@ -80,9 +83,9 @@ def format_statusline_ag(stdin_data: str) -> str:
     loc_str = f"{short_cwd} ({git_branch})" if git_branch else short_cwd
 
     # 4. Quotas (G-5H G-7D 3P-5H 3P-7D)
-    q = data.get("quota", {})
-    buckets = []
-    bucket_map = [
+    q: dict[str, Any] = data.get("quota", {})
+    buckets: list[str] = []
+    bucket_map: list[tuple[str, str]] = [
         ("gemini-5h", "G-5H"),
         ("gemini-weekly", "G-7D"),
         ("3p-5h", "3P-5H"),

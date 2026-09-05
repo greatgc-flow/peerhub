@@ -95,7 +95,7 @@ def create_runtime_with_ag(runtime_ctx, monkeypatch):
 
 def test_healthy_circuit_reconfirmation(runtime_ctx, monkeypatch: pytest.MonkeyPatch):
     import peerhub.adapters.registry
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     
     with create_runtime_with_ag(runtime_ctx, monkeypatch) as runtime:
         coordinator = HealthRevalidationCoordinator(
@@ -121,7 +121,7 @@ def test_healthy_circuit_reconfirmation(runtime_ctx, monkeypatch: pytest.MonkeyP
 
 def test_automatic_recovery_authorization_first(runtime_ctx, monkeypatch: pytest.MonkeyPatch):
     import peerhub.adapters.registry
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     
     with create_runtime_with_ag(runtime_ctx, monkeypatch) as runtime:
         coordinator = HealthRevalidationCoordinator(
@@ -165,7 +165,7 @@ def test_automatic_recovery_authorization_first(runtime_ctx, monkeypatch: pytest
 
 def test_administrative_authorization_first(runtime_ctx, monkeypatch: pytest.MonkeyPatch):
     import peerhub.adapters.registry
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     
     with create_runtime_with_ag(runtime_ctx, monkeypatch) as runtime:
         coordinator = HealthRevalidationCoordinator(
@@ -205,7 +205,7 @@ def test_administrative_authorization_first(runtime_ctx, monkeypatch: pytest.Mon
 
 def test_probe_failure_produces_honest_evidence_and_does_not_close_circuit(runtime_ctx, monkeypatch: pytest.MonkeyPatch):
     import peerhub.adapters.registry
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     
     with create_runtime_with_ag(runtime_ctx, monkeypatch) as runtime:
         coordinator = HealthRevalidationCoordinator(
@@ -219,7 +219,7 @@ def test_probe_failure_produces_honest_evidence_and_does_not_close_circuit(runti
         # Break the executable path so the probe fails honestly
         target = resolve_peer_target("ag")
         broken_path = target.executable_path.parent / "does-not-exist-at-all.exe"
-        monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: broken_path)
+        monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: broken_path)
         
         # Open circuit so we have a circuit to recover
         from peerhub.health.contract import HealthStageObservation, HealthStage, HealthStageStatus, EvidenceSubject, PolicyScope, PolicyReceipt
@@ -264,7 +264,7 @@ def test_probe_failure_produces_honest_evidence_and_does_not_close_circuit(runti
 def test_cli_smoke_native_health_revalidate(runtime_ctx, monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     from peerhub.cli import main
     import peerhub.adapters.registry
-    monkeypatch.setattr(peerhub.adapters.registry, "_resolve_executable_path", lambda x: Path(sys.executable))
+    monkeypatch.setattr(peerhub.adapters.registry, "resolve_executable_path", lambda x: Path(sys.executable))
     
     workspace = tmp_path
     from peerhub.core.context import PathLayout

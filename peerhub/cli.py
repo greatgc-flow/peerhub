@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -28,7 +29,6 @@ from peerhub.application.bootstrap import (
     HealthPolicyConflictError,
     ReadinessProbeFailedError,
     build_broadcast_admission_config,
-    build_direct_ask_admission_config,
 )
 from peerhub.application.direct_ask import (
     DirectAskRequest,
@@ -423,6 +423,7 @@ def _refresh_usage_projections(
     """
     from peerhub.core.context import PathLayout, RuntimeContext
     from peerhub.runtime import create_runtime
+    from peerhub.telemetry.contract import UsageObserved
     from peerhub.telemetry.quota_polling import (
         poll_agy_usage,
         poll_claude_usage,
@@ -447,7 +448,7 @@ def _refresh_usage_projections(
             with runtime.state_store.read_unit_of_work() as uow:
                 existing = list(uow.list_usage_projections(None))
 
-            fresh_instances = set()
+            fresh_instances: set[str] = set()
             if not force:
                 for proj in existing:
                     if now - proj.updated_at <= freshness_ttl:
@@ -458,7 +459,7 @@ def _refresh_usage_projections(
                 ("cx", poll_codex_usage),
                 ("ag", poll_agy_usage),
             )
-            observations = []
+            observations: list[UsageObserved] = []
             poll_sys_dir = workspace_root / "_sys"
             for instance_id, poll in pollers:
                 if instance_id in fresh_instances:
@@ -540,14 +541,13 @@ def _run_diag(parsed: argparse.Namespace) -> int:
     if parsed.live:
         try:
             import msvcrt
-            has_msvcrt = True
         except ImportError:
-            has_msvcrt = False
+            msvcrt = None
 
         try:
             while True:
                 if os.name == "nt":
-                    os.system("cls")
+                    subprocess.run("cls", shell=True)
                 else:
                     sys.stdout.write("\033[2J\033[H")
                     sys.stdout.flush()
@@ -560,14 +560,14 @@ def _run_diag(parsed: argparse.Namespace) -> int:
                     if getattr(parsed, "domains", False):
                         rendered += "\n\nGOVERNED DOMAINS\n" + _render_domain_section(snapshot["domains"])
                     print(rendered)
-                    print(presenter._c(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
+                    print(presenter.format_ansi(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
 
                 # Poll for key hit in 0.05s steps (total 2.0s refresh interval)
                 total_interval = 2.0
                 step = 0.05
                 elapsed = 0.0
                 while elapsed < total_interval:
-                    if has_msvcrt and msvcrt.kbhit():
+                    if msvcrt is not None and msvcrt.kbhit():
                         ch = msvcrt.getch()
                         if ch in (b"\x1b", b"q", b"Q", b"\x03"):  # ESC, q, Q, Ctrl+C
                             return 0
@@ -669,7 +669,7 @@ def _run_broadcast(parsed: argparse.Namespace) -> int:
     )
     
     peers_list = [p.strip() for p in parsed.peers.split(",") if p.strip()]
-    targets = [(p, None) for p in peers_list]
+    targets: list[tuple[str, str | None]] = [(p, None) for p in peers_list]
     resolved_targets = tuple(
         resolve_peer_target(p, profile_id=pid) for p, pid in targets
     )
@@ -1097,7 +1097,7 @@ def _run_directive(parsed: argparse.Namespace) -> int:
                     category=getattr(parsed, "category", None)
                 )
             elif action == "migrate":
-                consumers = json.loads(parsed.consumers) if getattr(parsed, "consumers", None) else []
+                consumers: list[dict[str, JsonValue]] = json.loads(parsed.consumers) if getattr(parsed, "consumers", None) else []
                 submission = service.migrate(
                     directive_id=parsed.directive_id,
                     title=parsed.title,
@@ -1125,7 +1125,9 @@ def _run_directive(parsed: argparse.Namespace) -> int:
                         title = content.get('title') if isinstance(content, dict) else ""
                         print(f"{t.target_id}: {lifecycle} - {title}")
                 return 0
-            
+            else:
+                raise AssertionError(f"unhandled directive action: {action!r}")
+
             target = runtime.governance_broker.get_target(submission.receipt.target_id)
             assert target is not None
             state = cast(dict[str, Any], target.state)
@@ -2528,7 +2530,6 @@ def _run_adapter(parsed: argparse.Namespace) -> int:
             discover_builtin_adapters,
             AdapterFoundAndReady,
             AdapterNotReady,
-            AdapterNotFound
         )
         results = discover_builtin_adapters()
         
@@ -2539,7 +2540,7 @@ def _run_adapter(parsed: argparse.Namespace) -> int:
                     out[r.peer_kind] = {"state": "MEASURED", "executable_path": str(r.executable_path), "profiles": r.profiles}
                 elif isinstance(r, AdapterNotReady):
                     out[r.peer_kind] = {"state": "UNAVAILABLE", "executable_path": str(r.executable_path), "reason": r.reason}
-                elif isinstance(r, AdapterNotFound):
+                else:
                     out[r.peer_kind] = {"state": "ABSENT"}
             print(json.dumps(_json_safe(out), indent=2))
         else:
@@ -2548,7 +2549,7 @@ def _run_adapter(parsed: argparse.Namespace) -> int:
                     print(f"[{r.peer_kind}] FOUND (ready): {r.executable_path} (profiles: {', '.join(r.profiles)})")
                 elif isinstance(r, AdapterNotReady):
                     print(f"[{r.peer_kind}] UNAVAILABLE: {r.executable_path} - {r.reason}")
-                elif isinstance(r, AdapterNotFound):
+                else:
                     print(f"[{r.peer_kind}] ABSENT: not found in PATH")
         return 0
     

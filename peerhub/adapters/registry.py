@@ -125,7 +125,7 @@ def register_adapter_factory(
         _cli_aliases[normalized_alias] = normalized_kind
 
 
-def _resolve_executable_path(executable_name: str) -> Path:
+def resolve_executable_path(executable_name: str) -> Path:
     # Do not use shutil.which directly as it is vulnerable to cwd-hijacking on Windows
     # Instead, search PATH explicitly.
     import os
@@ -203,7 +203,7 @@ def resolve_peer_target(name: str, *, profile_id: str | None = None) -> Resolved
     )
     executable_name = plan.argv[0]
     
-    executable_path = _resolve_executable_path(executable_name)
+    executable_path = resolve_executable_path(executable_name)
     
     return ResolvedPeerTarget(
         cli_name=normalized,
