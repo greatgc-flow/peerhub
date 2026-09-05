@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 
 from peerhub.adapters.registry import ResolvedPeerTarget
+from peerhub.core.binary_resolution import resolve_direct_binary
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import PeerHubError
 from peerhub.core.protocol import ErrorCode
@@ -103,14 +105,16 @@ def build_broadcast_admission_config(
     )
 
 
-from peerhub.core.binary_resolution import resolve_direct_binary
-
 def _resolve_probe_invocation(executable_path: Path) -> tuple[tuple[str, ...], Path]:
     """Resolve executable_path to direct binary/runtime invocation if it is an npm .cmd wrapper."""
     parent = executable_path.parent
     result = resolve_direct_binary(executable_path)
     if result is not None:
-        return (tuple(result + ["--version"]), Path(result[0]).parent)
+        # Preserve the wrapper directory as cwd for the ``node codex.js``
+        # form; the pre-refactor call site used this rather than Node's
+        # parent directory. Direct executables continue to use their parent.
+        direct_cwd = parent if len(result) == 2 else Path(result[0]).parent
+        return (tuple(result + ["--version"]), direct_cwd)
     return (str(executable_path), "--version"), parent
 
 

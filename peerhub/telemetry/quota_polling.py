@@ -199,7 +199,6 @@ def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[st
     if not raw_bin:
         return None
     cand = Path(raw_bin)
-    resolved_sys = _resolve_sys_dir(sys_dir)
     from peerhub.core.binary_resolution import resolve_direct_binary
     if peer in ("cc", "cx"):
         if cand.suffix.lower() == ".cmd":

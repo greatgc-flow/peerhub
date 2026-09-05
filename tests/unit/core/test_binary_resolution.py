@@ -56,6 +56,23 @@ def test_resolve_codex_cmd_js_and_node(tmp_path: Path):
     assert result == [str(node_exe), str(codex_js)]
 
 
+def test_resolve_codex_cmd_uses_path_node_fallback(monkeypatch):
+    cmd_path = Path("X:/portable/nodejs/npm-global/codex.cmd")
+    codex_js = cmd_path.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
+    path_node = Path("Y:/system-node/node.exe")
+    existing = {codex_js, path_node}
+    monkeypatch.setattr(Path, "exists", lambda self: self in existing)
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name: str(path_node) if name == "node.exe" else None,
+    )
+
+    result = resolve_direct_binary(cmd_path)
+
+    assert result == [str(path_node), str(codex_js)]
+
+
 def test_resolve_codex_cmd_standalone_exe(tmp_path: Path):
     cmd_path = tmp_path / "npm-global" / "codex.cmd"
     codex_exe = (
