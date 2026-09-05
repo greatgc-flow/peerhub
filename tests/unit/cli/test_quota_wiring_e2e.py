@@ -125,8 +125,9 @@ def _fake_codex_binary_returning_usage(sys_dir: Path) -> Path:
         "        sys.stdout.flush()\n"
         "        break\n"
     )
+    script_one_line = script.replace(chr(10), "\\n")
     exe.write_text(
-        f'@echo off\npython -c "{script.replace(chr(10), "\\n")}"\n',
+        f'@echo off\npython -c "{script_one_line}"\n',
         encoding="utf-8",
     )
     # Actually write a proper Python script and call it
