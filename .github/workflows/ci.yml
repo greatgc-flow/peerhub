@@ -29,7 +29,12 @@ jobs:
       run: |
         python -m pyright
         
-    - name: Run pytest
+    - name: Run pytest (unit)
+      timeout-minutes: 3
+      run: |
+        python -u -m pytest tests/unit -v --durations=20
+
+    - name: Run pytest (integration)
       timeout-minutes: 8
       run: |
-        python -u -m pytest -v --durations=20
+        python -u -m pytest tests/integration -v --durations=20
