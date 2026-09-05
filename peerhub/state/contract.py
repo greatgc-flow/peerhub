@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from types import TracebackType
-from typing import Protocol, Self, TypeVar, runtime_checkable
+from typing import Protocol, Self, runtime_checkable
+
+# TypeVar's `default=` parameter (PEP 696) is stdlib-only from Python 3.13;
+# this project's `requires-python = ">=3.11"` needs the typing_extensions
+# backport, which is safe to use unconditionally on 3.13+ too.
+from typing_extensions import TypeVar
 
 
 @runtime_checkable

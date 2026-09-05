@@ -567,8 +567,8 @@ def _run_diag(parsed: argparse.Namespace) -> int:
                 step = 0.05
                 elapsed = 0.0
                 while elapsed < total_interval:
-                    if msvcrt is not None and msvcrt.kbhit():
-                        ch = msvcrt.getch()
+                    if msvcrt is not None and msvcrt.kbhit():  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] -- msvcrt is Windows-only; pyright can't resolve its stubs when checking against a non-Windows pythonPlatform
+                        ch = msvcrt.getch()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType, reportAttributeAccessIssue]
                         if ch in (b"\x1b", b"q", b"Q", b"\x03"):  # ESC, q, Q, Ctrl+C
                             return 0
                     time.sleep(step)
