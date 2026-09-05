@@ -103,41 +103,14 @@ def build_broadcast_admission_config(
     )
 
 
+from peerhub.core.binary_resolution import resolve_direct_binary
+
 def _resolve_probe_invocation(executable_path: Path) -> tuple[tuple[str, ...], Path]:
     """Resolve executable_path to direct binary/runtime invocation if it is an npm .cmd wrapper."""
-    name = executable_path.name.lower()
     parent = executable_path.parent
-    if name == "claude.cmd":
-        real_exe = parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-        if not real_exe.exists():
-            try:
-                real_exe = executable_path.resolve().parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-            except Exception:
-                pass
-        if real_exe.exists():
-            return (str(real_exe), "--version"), real_exe.parent
-
-    elif name == "codex.cmd":
-        codex_js = parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-        if not codex_js.exists():
-            try:
-                codex_js = executable_path.resolve().parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-            except Exception:
-                pass
-        node_exe = parent.parent / "node.exe"
-        if not node_exe.exists():
-            node_exe = parent / "node.exe"
-        if codex_js.exists() and node_exe.exists():
-            return (str(node_exe), str(codex_js), "--version"), parent
-        codex_exe = parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
-        if not codex_exe.exists():
-            try:
-                codex_exe = executable_path.resolve().parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
-            except Exception:
-                pass
-        if codex_exe.exists():
-            return (str(codex_exe), "--version"), codex_exe.parent
-
+    result = resolve_direct_binary(executable_path)
+    if result is not None:
+        return (tuple(result + ["--version"]), Path(result[0]).parent)
     return (str(executable_path), "--version"), parent
 
 

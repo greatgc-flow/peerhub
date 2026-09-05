@@ -330,42 +330,10 @@ def _resolve_real_direct_binary(argv: list[str]) -> list[str]:
     if cand_path is None:
         return argv
 
-    if exe_name == "claude.cmd":
-        real_exe = cand_path.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-        if not real_exe.exists():
-            try:
-                real_exe = cand_path.resolve().parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-            except Exception:
-                pass
-        if real_exe.exists():
-            return [str(real_exe)] + argv[1:]
-
-    elif exe_name == "codex.cmd":
-        codex_js = cand_path.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-        if not codex_js.exists():
-            try:
-                codex_js = cand_path.resolve().parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-            except Exception:
-                pass
-        node_exe = cand_path.parent.parent / "node.exe"
-        if not node_exe.exists():
-            node_exe = cand_path.parent / "node.exe"
-        if not node_exe.exists():
-            import shutil
-            which_node = shutil.which("node.exe") or shutil.which("node")
-            if which_node:
-                node_exe = Path(which_node)
-        if codex_js.exists() and node_exe.exists():
-            return [str(node_exe), str(codex_js)] + argv[1:]
-
-        codex_exe = cand_path.parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
-        if not codex_exe.exists():
-            try:
-                codex_exe = cand_path.resolve().parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
-            except Exception:
-                pass
-        if codex_exe.exists():
-            return [str(codex_exe)] + argv[1:]
+    from peerhub.core.binary_resolution import resolve_direct_binary
+    result = resolve_direct_binary(cand_path)
+    if result is not None:
+        return result + argv[1:]
 
     return argv
 

@@ -200,40 +200,12 @@ def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[st
         return None
     cand = Path(raw_bin)
     resolved_sys = _resolve_sys_dir(sys_dir)
-    if peer == "cc":
+    from peerhub.core.binary_resolution import resolve_direct_binary
+    if peer in ("cc", "cx"):
         if cand.suffix.lower() == ".cmd":
-            real_exe = cand.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-            if not real_exe.exists():
-                try:
-                    real_exe = cand.resolve().parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-                except Exception:
-                    pass
-            if real_exe.exists():
-                return [str(real_exe)]
-        return [raw_bin]
-    elif peer == "cx":
-        if cand.suffix.lower() == ".cmd":
-            codex_js = cand.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-            if not codex_js.exists():
-                try:
-                    codex_js = cand.resolve().parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-                except Exception:
-                    pass
-            node_exe = resolved_sys / "env" / "nodejs" / "node.exe"
-            if not node_exe.exists():
-                node_exe = cand.parent.parent / "node.exe"
-            if not node_exe.exists():
-                node_exe = cand.parent / "node.exe"
-            if codex_js.exists() and node_exe.exists():
-                return [str(node_exe), str(codex_js)]
-            codex_exe = cand.parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
-            if not codex_exe.exists():
-                try:
-                    codex_exe = cand.resolve().parent / "node_modules" / "@openai" / "codex" / "node_modules" / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
-                except Exception:
-                    pass
-            if codex_exe.exists():
-                return [str(codex_exe)]
+            result = resolve_direct_binary(cand)
+            if result is not None:
+                return result
         return [raw_bin]
     return [raw_bin]
 
