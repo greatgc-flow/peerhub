@@ -34,7 +34,11 @@ def test_bind_spawn_and_observe_running_process(controller: RealTreeController) 
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        **(
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if sys.platform == "win32"
+            else {"start_new_session": True}
+        ),
     )
     try:
         creation_time = _get_process_creation_time_ms(proc.pid)
@@ -57,7 +61,11 @@ def test_kill_tree_terminates_running_process(controller: RealTreeController) ->
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        **(
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if sys.platform == "win32"
+            else {"start_new_session": True}
+        ),
     )
     try:
         creation_time = _get_process_creation_time_ms(proc.pid)
@@ -88,10 +96,10 @@ def test_kill_by_identity_terminates_single_root_process(
         [sys.executable, "-c", "import time; time.sleep(10)"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        creationflags=(
-            subprocess.CREATE_NEW_PROCESS_GROUP
+        **(
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
             if sys.platform == "win32"
-            else 0
+            else {"start_new_session": True}
         ),
     )
     try:
@@ -127,7 +135,11 @@ def test_soft_cancel_on_signal_ignoring_process(controller: RealTreeController) 
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        **(
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if sys.platform == "win32"
+            else {"start_new_session": True}
+        ),
     )
     try:
         import threading
@@ -193,7 +205,11 @@ def test_identity_verification_mismatched_creation_time(controller: RealTreeCont
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if sys.platform == "win32" else 0,
+        **(
+            {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            if sys.platform == "win32"
+            else {"start_new_session": True}
+        ),
     )
     try:
         mismatched_identity = ProcessBirthIdentity(
