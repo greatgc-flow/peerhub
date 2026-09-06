@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,6 +8,18 @@ version = "0.1.10"
 description = "Local transactional coordination for collaborating AI peers"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["ai-agents", "cli", "coordination", "multi-agent", "orchestration"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Utilities",
+]
 requires-python = ">=3.11"
 dependencies = [
     "psutil>=5.9.0",
@@ -19,6 +31,8 @@ dependencies = [
 Homepage = "https://github.com/greatgc-flow/peerhub"
 Repository = "https://github.com/greatgc-flow/peerhub"
 Issues = "https://github.com/greatgc-flow/peerhub/issues"
+Changelog = "https://github.com/greatgc-flow/peerhub/releases"
+CI = "https://github.com/greatgc-flow/peerhub/actions"
 
 [project.scripts]
 peerhub = "peerhub.cli:main"
