@@ -20,6 +20,7 @@ BUG 2:  The quota-polling pipeline has zero callers — CC/CX quota is
 import json
 import os
 import subprocess
+import sys
 import time
 from io import StringIO
 from pathlib import Path
@@ -28,6 +29,12 @@ from unittest.mock import patch
 import pytest
 
 from peerhub.cli import main
+
+
+def _make_executable(path: Path) -> None:
+    """Set the exec bit on POSIX; a no-op on Windows (.cmd needs no exec bit)."""
+    if sys.platform != "win32":
+        path.chmod(path.stat().st_mode | 0o111)
 
 
 # ---------------------------------------------------------------------------
@@ -90,13 +97,25 @@ def _fake_claude_binary_returning_usage(sys_dir: Path) -> Path:
     env_dir = sys_dir / "env" / "nodejs" / "npm-global"
     env_dir.mkdir(parents=True, exist_ok=True)
     exe = env_dir / "claude.cmd"
-    # batch file that echoes Claude-like /usage output
-    exe.write_text(
-        '@echo off\n'
-        'echo Current session: 42%% used resets Aug 19, 3:00pm (Asia/Seoul)\n'
-        'echo Current week (all models): 28%% used resets Aug 22, 12:00am (Asia/Seoul)\n',
-        encoding="utf-8",
-    )
+    line1 = "Current session: 42% used resets Aug 19, 3:00pm (Asia/Seoul)"
+    line2 = "Current week (all models): 28% used resets Aug 22, 12:00am (Asia/Seoul)"
+    if sys.platform == "win32":
+        # batch file that echoes Claude-like /usage output ("%" must be
+        # doubled in a .cmd echo line, unlike POSIX echo/printf below).
+        exe.write_text(
+            "@echo off\n"
+            f"echo {line1.replace('%', '%%')}\n"
+            f"echo {line2.replace('%', '%%')}\n",
+            encoding="utf-8",
+        )
+    else:
+        exe.write_text(
+            "#!/bin/sh\n"
+            f'echo "{line1}"\n'
+            f'echo "{line2}"\n',
+            encoding="utf-8",
+        )
+        _make_executable(exe)
     return exe
 
 
@@ -105,7 +124,7 @@ def _fake_codex_binary_returning_usage(sys_dir: Path) -> Path:
     env_dir = sys_dir / "env" / "nodejs" / "npm-global"
     env_dir.mkdir(parents=True, exist_ok=True)
     exe = env_dir / "codex.cmd"
-    # Python one-liner that does the MCP init handshake then replies with rate limits
+    # Python script that does the MCP init handshake then replies with rate limits
     script = (
         "import sys, json\n"
         "for line in sys.stdin:\n"
@@ -125,15 +144,17 @@ def _fake_codex_binary_returning_usage(sys_dir: Path) -> Path:
         "        sys.stdout.flush()\n"
         "        break\n"
     )
-    script_one_line = script.replace(chr(10), "\\n")
-    exe.write_text(
-        f'@echo off\npython -c "{script_one_line}"\n',
-        encoding="utf-8",
-    )
-    # Actually write a proper Python script and call it
     script_path = env_dir / "_codex_fake.py"
     script_path.write_text(script, encoding="utf-8")
-    exe.write_text(f'@echo off\npython "{script_path}"\n', encoding="utf-8")
+
+    # Launch via sys.executable (this same interpreter) rather than a bare
+    # "python"/"python3" name, which isn't guaranteed to exist on PATH
+    # under that exact name on every platform/CI image.
+    if sys.platform == "win32":
+        exe.write_text(f'@echo off\n"{sys.executable}" "{script_path}"\n', encoding="utf-8")
+    else:
+        exe.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script_path}" "$@"\n', encoding="utf-8")
+        _make_executable(exe)
     return exe
 
 
