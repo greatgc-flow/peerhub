@@ -78,39 +78,38 @@ Status after today's research/critique/reconciliation rounds:
 
 | # | Gate | Status |
 |---|---|---|
-| 1 | **Ownership matrix**: Engram=environment lifecycle, PeerHub=every AI-provider/collaboration/routing/session/health/governance capability | **Substantially drafted.** The gap-analysis's §3 full inventory (every AI-touching file in Engram `main`, classified keep/move/delete) IS a first-pass ownership matrix. Needs a short explicit formalization pass, not fresh research. |
-| 2 | **PeerHub autodetection design** | **Split and half-resolved.** The contract-mapping half is fully solved by dormant Phase 1 docs (`PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`). The discovery-sweep half is genuinely open. **CRITICAL UPDATE (2026-09-05)**: Per `PHASE1-MANIFEST-SCHEMA-V2-FINAL-SECURITY-REVIEW-2026-09-05.md`, **runnable Lane 2 admission is REJECTED under Phase 1**. Only the inert candidate-discovery subset is ratified. Phase 2 must contain authenticated activation and atomic pre-spawn identity enforcement before spawning any third-party process. |
-| 3 | **PeerHub autodetection implementation + measured release**, before Engram deletes provider metadata | **Blocked on gate 2's discovery-sweep half.** Not started. |
-| 4 | **Independent installation contract** (does Engram link to or install PeerHub?) | **Substantially answered as a side effect of gate 2's critique round**: no hard runtime dependency either direction — Engram reports install/package facts only, never claims PeerHub readiness; PeerHub independently discovers/probes/admits; Engram may optionally invoke PeerHub's discovery as a non-authoritative post-install hint whose failure never rolls back an Engram install. Needs to be lifted out and ratified as its own explicit decision rather than left buried in the gate-2 critique. |
-| 5 | **Migration ledger** (exact facts moving to PeerHub, explicit waivers for the rest, never migrate credentials/host trust) | **First draft exists**: gap-analysis §3.13 "Move-versus-delete summary" and the full per-subsystem tables in §3.1–3.12. Needs to be formalized into its own ledger artifact (or accepted as final in its current form) — not re-researched. |
-| 6 | **Engram deletion plan**, in reviewable increments, protected by a zero-AI-ownership contract | **Scoped but not sequenced.** The gap-analysis names everything to delete/narrow (§3) and notes the existing boundary test (`test_contracts.py`) already partially enforces a zero-AI-ownership contract but has 2 stale assertions (protects vendor interactive launchers Engram no longer wants — resolved by today's directive, per the gate-2 critique addendum). Needs an actual increment-by-increment sequence plan, not yet written. |
-| 7 | **Packaging/doc reconciliation** (Winget metadata, root docs) after the code boundary is final | **Scoped**, gap-analysis §3.2 and §4. Genuinely blocked on the code boundary (gates 1/5/6) actually landing first — correctly sequenced last. |
-| 8 | **Clean-room validation**, only in the isolated worktree + PeerHub repo, never touch frozen `stable` | **Already the working discipline** for every round done today (worktree used throughout, `P:\` status checked identical before/after every session). Ongoing process rule, not a one-time deliverable. |
+| 1 | **Ownership matrix**: Engram=environment lifecycle, PeerHub=every AI-provider/collaboration/routing/session/health/governance capability | **DONE (2026-09-03).** Landed as Increments A–D (`20a23f4`, `e52ec4a`, `1b7d7d9`, `e599b37`). Engram retains AI-CLI *tool lifecycle* (install/update/status-check as an ordinary managed binary); PeerHub owns *using* those CLIs as peers (adapters, invocation, routing, sessions, health, governance, discovery). Full detail in `2026-09-03_separation-completion-backlog.md`. |
+| 2 | **PeerHub autodetection design** | **Parked, not open.** The discovery-sweep half was reviewed and its runnable-admission (Lane 2) form was explicitly **REJECTED** by the 2026-09-05 final security review (`PHASE1-MANIFEST-SCHEMA-V2-FINAL-SECURITY-REVIEW-2026-09-05.md`) — TOCTOU, junction/symlink swap, PATH re-resolution, Unicode-homoglyph collision, and ACL-scope gaps remain unresolved for anything runnable. The user explicitly chose not to build even the inert candidate-discovery subset. Built-in Lane 1 (`cc`/`ag`/`cx` autodetection) already ships via `peerhub/adapters/discovery.py`. Do not reopen Lane 2 design work without a fresh, unanimously-ratified security round starting from inert-scan-only. |
+| 3 | **PeerHub autodetection implementation + measured release** | **Parked with gate 2.** No implementation for third-party (Lane 2) adapters is authorized. Built-in Lane 1 is already implemented and shipped. |
+| 4 | **Independent installation contract** (does Engram link to or install PeerHub?) | **DONE (2026-09-06).** Re-litigated and ratified as its own explicit decision after the user asked why Engram pinned peerhub's exact version at all. Axis A (install-time provisioning): Engram no longer lists peerhub in `runtimes.json`'s tools catalog; the `pip_tool` install mechanism (built specifically for peerhub, used nowhere else) was deleted outright, with a permanent boundary-regression test (`test_runtime_catalog_does_not_manage_peerhub`) guarding against reintroduction. Axis B (post-install runtime discovery): Engram does not invoke `peerhub adapter discover` at all, not even opportunistically — preserving a command-contract dependency on an unrelated PATH-resolved executable was judged inconsistent with "genuinely independent" and with this session's own PATH-resolution TOCTOU findings elsewhere. README documents `pip install peerhub` (now real via PyPI) purely as a user-run, independent step. |
+| 5 | **Migration ledger** (exact facts moving to PeerHub, explicit waivers for the rest, never migrate credentials/host trust) | **DONE (2026-09-03).** The full ledger — exact directive digests, consumers, receipt preconditions, and waivers (credentials, host trust, transient state, `.ai` workspace, legacy hub.py logs) — was instantiated in the ratified v8 diet plan and landed with Increments A–D. Engram's own statusline implementation was deleted outright (not migrated) since PeerHub already had its own. |
+| 6 | **Engram deletion plan**, in reviewable increments, protected by a zero-AI-ownership contract | **DONE (2026-09-03).** Landed as Increments A–D, each keeping `test_contracts.py`'s boundary green throughout via a shrinking interim allowlist rather than a single big-bang deletion. `test_boundary_imports.py` now enforces the final, strict zero-AI-ownership invariant. |
+| 7 | **Packaging/doc reconciliation** (Winget metadata, root docs) after the code boundary is final | **DONE (2026-09-03)** for the original scope — landed as `8a0b267` after Increment D. **Reopened narrowly (2026-09-06)** only because of gate 4's new decision: Engram's next release/winget submission needs to be rebuilt from the post-pip_tool-removal source so the shipped package/manifest no longer references peerhub. PeerHub's own PyPI publication (tonight) is unrelated to this gate. |
+| 8 | **Clean-room validation**, only in the isolated worktree + PeerHub repo, never touch frozen `stable` | **Ongoing discipline, correctly followed** — worktree used throughout, `P:\` status checked before/after every session. Note for precision: `P:\` itself is not literally pristine (it sits on `stable/hub-py-restored` with its own explicit, narrow, user-authorized operational commits unrelated to this separation) — the actual invariant is "no Engram-separation edit, test, or packaging input ever uses the frozen `P:\` checkout," which has held. |
 
-## 4. What's next: the one real open design gap
+## 4. What's next: nothing, by explicit choice
 
-Gate 2's discovery-sweep half is the critical path — gates 3, 6, and
-(indirectly, since Engram's deletion of provider metadata is gated on it)
-much of gate 5's actual execution wait on it. The next design round should
-answer, building on cx's two-lane proposal (bounded built-in PATH
-resolution for `cc`/`ag`/`cx` + trusted-manifest discovery for third
-parties, from `2026-09-02_gate2-autodetect-critique.md` §7), **while strictly adhering to the final security verdict in `PHASE1-MANIFEST-SCHEMA-V2-FINAL-SECURITY-REVIEW-2026-09-05.md`: runnable Lane 2 admission is REJECTED under Phase 1. Only the inert candidate-discovery subset is ratified, requiring an amended Phase 2 with authenticated activation and atomic pre-spawn identity enforcement before any third-party process is spawned**:
+As of 2026-09-06, every gate above is either DONE (1, 4, 5, 6, 7) or
+explicitly PARKED by the user's own decision (2, 3) — not blocked on
+missing design work, but deliberately not being pursued. Gate 8 is an
+ongoing discipline, not a deliverable.
 
-1. A discriminated result-type set for reporting sweep findings (not the
-   flat `DetectedCLI` the first proposal used — see critique §6 for why).
-2. Exactly how a discovered/admitted CLI gets bound into
-   `peerhub/adapters/registry.py`'s adapter table **without** hitting its
-   `register_adapter_factory()` collision guard for the already-registered
-   built-in kinds (`cc`/`ag`/`cx`) — this is the one piece nothing has
-   designed yet, per the Phase 1 reconciliation doc §3, row 3.
-3. The trusted-manifest directory location and precedence rules (a
-   provisional answer — `%LOCALAPPDATA%\PeerHub\adapters.d`, machine-local
-   not workspace-scoped — was proposed in the critique, not yet
-   independently re-verified by a third round).
+Gate 2/3's Lane 2 (third-party, runnable adapter admission) design is
+parked because its 2026-09-05 final security review found real,
+unresolved exploit classes (TOCTOU, junction/symlink swap, PATH
+re-resolution, Unicode-homoglyph collision, ACL-scope gaps) and the user
+chose not to build even the inert candidate-discovery subset given that.
+Built-in Lane 1 (`cc`/`ag`/`cx` autodetection) already ships.
 
-This should go through one more research→critique cycle before
-ratification, per the standing process — do not implement directly from a
-single round's proposal.
+**If Lane 2 is ever explicitly reopened later**, do not resume from this
+doc's old §4 sketch (a discriminated result-type set, a registry.py
+collision-binding mechanism, a trusted-manifest directory split) without
+a fresh, unanimous research→critique cycle — a 2026-09-06 adversarial
+review of exactly that sketch found it insufficient (treating membership
+in an "activated" directory as authority is itself exploitable without a
+protected trust grant bound to the full manifest, invocation policy,
+executable identity, and publisher evidence). Start from inert
+scan-and-display only, per the final security review's own verdict.
 
 ## 5. Process discipline for the rest of this epic
 
