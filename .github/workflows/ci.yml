@@ -25,6 +25,29 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e .[dev]
 
+    - name: Install fake AI-CLI stubs (claude.cmd/agy.exe/codex.cmd)
+      run: |
+        mkdir -p "$RUNNER_TEMP/fake-bin"
+        STUB_FILE="$RUNNER_TEMP/fake-peer-stub.sh"
+        printf '%s\n' \
+        '#!/bin/sh' \
+        '# Minimal deterministic stand-in for a real AI-CLI binary, used only so' \
+        '# that peerhub/adapters/registry.py::resolve_executable_path() finds a' \
+        '# real, executable file on PATH -- dev machines here have the real' \
+        '# claude.cmd/agy.exe/codex.cmd installed; a bare CI runner does not.' \
+        '# Ignores all arguments (--version, --output-format json, etc.) and' \
+        '# always succeeds with a minimal completion-shaped JSON response,' \
+        '# satisfying both a plain version probe (exit 0 is enough) and the' \
+        '# {is_error, result} shape each adapter output decoder looks for.' \
+        'echo '"'"'{"is_error": false, "result": "ok"}'"'"'' \
+        'exit 0' \
+        > "$STUB_FILE"
+        for name in claude.cmd agy.exe codex.cmd; do
+          cp "$STUB_FILE" "$RUNNER_TEMP/fake-bin/$name"
+          chmod +x "$RUNNER_TEMP/fake-bin/$name"
+        done
+        echo "$RUNNER_TEMP/fake-bin" >> "$GITHUB_PATH"
+
     - name: Run pyright
       run: |
         python -m pyright
