@@ -161,6 +161,18 @@ def test_cli_version(capsys):
     # hardcoded string, so this test doesn't go stale on every release.
     assert installed_version("peerhub") in captured.out
 
+
+def test_package_dunder_version_matches_distribution_metadata():
+    """peerhub.__version__ must never drift from the installed distribution
+    version (regression guard for a real bug: __init__.py hardcoded "0.1.7"
+    while pyproject.toml/dist metadata had already moved to 0.1.10, which
+    made the telemetry dashboard silently show a stale version)."""
+    from importlib.metadata import version as installed_version
+
+    import peerhub
+
+    assert peerhub.__version__ == installed_version("peerhub")
+
 def test_cli_status_quota_table(tmp_path: Path, capsys) -> None:
     from peerhub.cli import main, SystemClock, UuidSource
     from peerhub.core.context import RuntimeContext, PathLayout

@@ -536,9 +536,6 @@ class TelemetryPresenter:
         lines.append(sep)
         lines.append(f" 🌐 {self._c('PeerHub Multi-Peer Dashboard', 'bold', 'cyan')} {self._c(f'(v{__version__})', 'dim')}")
         lines.append(sep)
-        # No "Room"/"Leader" line: peerhub has no leader-election/room concept of
-        # its own (that was an Engram-specific governance layer, intentionally not
-        # ported -- see engram_peerhub_separation_proposal.md row 6.5).
         lines.append(f" 🎯 Failover: {self._c(failover_target, 'green', 'bold')} ({failover_hr} Headroom)")
 
         badges = snapshot.get("alert_badges", [])
