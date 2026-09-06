@@ -13,7 +13,7 @@
 
 ## Finding 1 — TOCTOU: Explicit, Acknowledged, Wide-Open in Phase 1
 
-**Design-doc reference**: [§4 preamble](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L279-L281), [§4.3](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L302-L317)
+**Design-doc reference**: [§4 preamble](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L279-L281), [§4.3](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L302-L317)
 
 **The gap**: The design doc *explicitly acknowledges* that Phase 1 has no pre-spawn revalidation. The admission pipeline hashes the executable at admission time and records the hash in the `AdmissionReceipt`, but there is no described step that re-checks the hash before `subprocess.Popen`. This means an attacker who can write to the executable's location (or who can swap the target via a junction — see Finding 2) has an unbounded TOCTOU window: admission pins the hash, then any time between admission and eventual spawn, the file can be replaced with attacker-controlled bytes.
 
@@ -27,7 +27,7 @@
 
 ## Finding 2 — Symlink/Junction Swap After Hashing Defeats Single-Node Pinning
 
-**Design-doc reference**: [§4.2 item 4 (Reparse Point / Junction Safety)](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L299-L300), [§4.3 (Single-Node Hashing)](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L302-L309)
+**Design-doc reference**: [§4.2 item 4 (Reparse Point / Junction Safety)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L299-L300), [§4.3 (Single-Node Hashing)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L302-L309)
 
 **The gap**: §4.2 item 4 says "No directory component in the path may traverse an unverified symlink, volume mount point, or junction point." This check is described as happening **at admission time**. But there is no described mechanism to verify that the path has not been modified to include a junction/symlink *after admission but before spawn*. Combined with Finding 1 (no pre-spawn revalidation), the attack is:
 
@@ -45,7 +45,7 @@ On standard Windows, creating a directory junction within your own `%LOCALAPPDAT
 
 ## Finding 3 — `resolution_rule: "path"` Introduces an Entirely Separate TOCTOU via PATH Manipulation
 
-**Design-doc reference**: [§4.3 item 1 (Target Resolution)](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L306), [§3 schema: `execution.executable`](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L98-L105), [§6 examples](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L347-L402)
+**Design-doc reference**: [§4.3 item 1 (Target Resolution)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L306), [§3 schema: `execution.executable`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L98-L105), [§6 examples](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L347-L402)
 
 **The gap**: The schema allows `resolution_rule: "path"`, meaning the `target` (e.g., `"claude.cmd"`) is resolved via the system PATH at admission time. All three worked examples use `"path"` resolution. The design says the resolved path is hashed and pinned — but the *resolution itself* is PATH-dependent, and `%PATH%` is mutable per-process and per-user.
 
@@ -62,7 +62,7 @@ Attack scenario:
 
 ## Finding 4 — Unicode Normalization Collision Attack on Human Reviewers
 
-**Design-doc reference**: [§5.1 (`normalize_key`)](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L324-L328), [§5.2 (Collision Rules)](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L330-L334)
+**Design-doc reference**: [§5.1 (`normalize_key`)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L324-L328), [§5.2 (Collision Rules)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L330-L334)
 
 **The gap (partially)**: The normalization algorithm (NFC → casefold → strip trailing whitespace/dots → strip extensions) is designed to *prevent* two manifests with confusable names from coexisting. This is good — it means an attacker *cannot* register both `claude-peer` and `сlaude-peer` (Cyrillic `с`) because NFC + casefold would need to collapse them.
 
@@ -80,7 +80,7 @@ An attacker could drop a manifest with a visually-identical `adapter_id` or `pee
 
 ## Finding 5 — ACL Checks Don't Cover User-Scoped Modification by Other Processes Running as the Same User
 
-**Design-doc reference**: [§4.2 (Windows ACL Evaluation)](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L288-L300)
+**Design-doc reference**: [§4.2 (Windows ACL Evaluation)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L288-L300)
 
 **The gap**: The ACL evaluation denies `Everyone`, `ANONYMOUS LOGON`, and `BUILTIN\Guests`, and allows `Authenticated Users:(M)`. It checks ownership against `Administrators`, `SYSTEM`, or the active user SID.
 
@@ -96,7 +96,7 @@ This is rational (you can't meaningfully ACL-fence a user from themselves on a s
 
 ## Finding 6 — `env_policy.set` Allows Manifest-Controlled Environment Variables Injected into the Spawned Process
 
-**Design-doc reference**: [§3 schema: `env_policy`](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L120-L132), [§6 examples](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L347-L517)
+**Design-doc reference**: [§3 schema: `env_policy`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L120-L132), [§6 examples](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L347-L517)
 
 **The gap**: The `env_policy.set` field allows a manifest to define arbitrary environment variables that will be set in the spawned process's environment. There is no validation, allowlist, or restriction on which variable names or values can be specified.
 
@@ -116,7 +116,7 @@ The worked examples in §6 all use `"set": {}` (empty), which is benign. But the
 
 ## Finding 7 — `env_policy.inherit` Lacks Restriction and Could Leak Sensitive Environment Variables
 
-**Design-doc reference**: [§3 schema: `env_policy.inherit`](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L124-L125)
+**Design-doc reference**: [§3 schema: `env_policy.inherit`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L124-L125)
 
 **The gap**: `env_policy.inherit` is an array of environment variable names to pass through from the PeerHub process to the spawned adapter. There is no blocklist or sensitivity check. A malicious manifest could request inheritance of sensitive variables that the user has set in their environment (API keys, tokens, secrets), causing them to be exposed to the spawned process.
 
@@ -132,7 +132,7 @@ Even if the spawned process is legitimate, `inherit` has no documented upper bou
 
 ## Finding 8 — `pty-legacy-v1` Engine's `success_regex` / `error_regex` Are Attacker-Supplied Regular Expressions
 
-**Design-doc reference**: [§3 schema: `engine.options` for `pty-legacy-v1`](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L204-L222)
+**Design-doc reference**: [§3 schema: `engine.options` for `pty-legacy-v1`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L204-L222)
 
 **The gap**: For `engine_id: "builtin:pty-legacy-v1"`, the manifest supplies `success_regex` and optionally `error_regex` as strings. These are presumably compiled and executed as regular expressions by the admission engine or the runtime.
 
@@ -148,7 +148,7 @@ Example: `"success_regex": "^(a+)+$"` matched against a long string of `a`s foll
 
 ## Finding 9 — `aliases` Field Has No Schema Constraint Against Overriding Built-in Peer Kinds
 
-**Design-doc reference**: [§3 schema: `adapter.aliases`](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L64-L66)
+**Design-doc reference**: [§3 schema: `adapter.aliases`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L64-L66)
 
 **The gap**: The `aliases` array is typed as `{ "type": "array", "items": { "type": "string" } }` with no pattern constraint or reserved-name check. A malicious manifest could declare `"aliases": ["cc", "cx", "ag"]`, attempting to claim the built-in peer kinds as aliases.
 
@@ -162,7 +162,7 @@ Whether this succeeds depends on whether the collision algorithm in §5.2 treats
 
 ## Finding 10 — Atomic Snapshot Rejection Is All-or-Nothing, Enabling a Griefing/DoS Vector
 
-**Design-doc reference**: [§5.3 item 3 (Atomic Rejection)](file:///P:/workspace/peerhub/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L339)
+**Design-doc reference**: [§5.3 item 3 (Atomic Rejection)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md#L339)
 
 **The gap**: "If ANY manifest fails JSON schema, ACL checks, semantic template checks, single-node executable validation, or triggers a collision, the **entire candidate snapshot is rejected**."
 
