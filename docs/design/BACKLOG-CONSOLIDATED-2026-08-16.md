@@ -1,5 +1,7 @@
 # Peerhub Consolidated Backlog (2026-08-16)
 
+> **Document Status**: SUPERSEDED — Historical record only. See `PEERHUB-BACKLOG-2026-08-27.md` for current status.
+
 Corrected/extended by the terminal after independent verification against
 the actual source (2026-08-16) -- see "Terminal corrections" at the
 bottom for what changed from the first pass and why.

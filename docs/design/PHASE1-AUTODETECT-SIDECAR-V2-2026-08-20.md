@@ -1,5 +1,7 @@
 # Phase 1: Auto-Detection and Manifest Security Model (v2)
 
+> **Document Status**: SUPERSEDED — Historical record only. Superseded by `PHASE1-ARCHITECTURE-CONSOLIDATION-2026-08-21.md`.
+
 > **STATUS: DRAFT v2 (Post-Round 1 Debate)**
 
 This document revises the auto-detection and sidecar design, incorporating the strict capability-based security model and bridge architecture established in the Phase 1 dialectical debate.

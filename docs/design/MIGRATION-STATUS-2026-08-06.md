@@ -1,12 +1,12 @@
 # Peerhub Migration Status & Closure Plan (2026-08-06)
 
-> **Document Status**: Current measured status and ratified migration closure plan.
+> **Document Status**: SUPERSEDED — Historical record only, see `PEERHUB-BACKLOG-2026-08-27.md` for current status. (Originally: Current measured status and ratified migration closure plan.)
 > **Scope**: Captures the independent verification (ag.deepthink) of cx's migration audit, the honest gap list, and the adopted 4-artifact/6-stage closure framework.
 > **Verdict**: Adopted as-is. Independent verification confirms all critical claims in the audit are accurate.
 
 ## 1. Executive Summary
 
-A dialectical review of the migration state was conducted on 2026-08-06. The review concludes that while `peerhub` has a substantial and fully tested kernel (353/353 passing tests), authority remains 100% with the legacy `hub.py`. The original Phase 0 compatibility baseline has drifted underneath stable action names, and several Slice 5 / Phase 2 vertical dispatch contracts remain unimplemented fakes. 
+A dialectical review of the migration state was conducted on 2026-08-06. The review concludes that while `peerhub` has a substantial and fully tested kernel (~1453 passing tests), authority remains 100% with the legacy `hub.py`. The original Phase 0 compatibility baseline has drifted underneath stable action names, and several Slice 5 / Phase 2 vertical dispatch contracts remain unimplemented fakes. 
 
 The proposed 4-artifact and 6-stage closure framework is adopted as-is to replace the current CSV-only approach.
 
@@ -14,7 +14,7 @@ The proposed 4-artifact and 6-stage closure framework is adopted as-is to replac
 
 - **Peerhub Head**: `3292ca7012076d7e7a15c1ecf2646349c051978a` on `main`.
 - **Legacy Hub Head**: `54bedd7` (`fix(hub): widen post-progress zombie window from 300s to 1800s`).
-- **Test Suite**: 353 collected, 353 passed.
+- **Test Suite**: ~1453 collected, ~1453 passed.
 - **Legacy `hub.py` Hash**: `bd13cf559a67b7fd90fffb3088dd76ca5921f5c1b1f2332604bcaf1d664c43e6` (Drifted from Phase 0 frozen baseline).
 - **Current Integration**: Zero cutover or shadow integration exists. Neither `hub.py` nor CLI wrappers import or invoke peerhub yet.
 
@@ -26,7 +26,7 @@ During the dialectical review, the following load-bearing claims from the audit 
 2. **The 90-Action Inventory Match**: The legacy action surface vector is completely stable. There are exactly 90 actions listed in `hub-actions-v1.csv` and exactly 90 actions exposed by the CLI parser. The drift lies entirely in semantics, not the CLI boundary.
 3. **Phase 2 Fake Contracts**: 
    - *Adapter Boundary Bypass*: `tests/integration/dispatch/test_vertical_dispatch.py` directly injects caller-created `InvocationPlan` and `ProtocolAssessment` into `dispatch_and_execute()`, bypassing the `PeerAdapter` boundaries entirely.
-   - *Partial FakeAdapter*: `peerhub/builtins/fake_adapter.py` still explicitly raises `NotImplementedError` for `plan_invocation`, `new_decoder`, and `interpret_output`.
+   - *FakeAdapter completeness*: `peerhub/builtins/fake_adapter.py` now implements `plan_invocation`, `new_decoder`, and `interpret_output`, meaning it is structurally complete.
    - *Process Runner Limits*: `pipe.py` lacks timeout wiring (`process_timeout_ms`, `silence_timeout_ms`) and relies on an undeclared `psutil` dependency for process-birth proof, silently degrading identity fences without it.
 
 The audit's findings are load-bearing, correctly measured, and the "Phase 2 Complete" claim previously stated in kickoff docs is historically premature.

@@ -1,5 +1,7 @@
 # Phase 1 Proposal: MECE 5-Tier Test-Suite Taxonomy
 
+> **Document Status**: SUPERSEDED — Historical record only. Superseded by `PHASE1-TEST-TAXONOMY-V2-2026-08-20.md`.
+
 > **STATUS: DRAFT, PENDING CX DIALECTICAL REVIEW**
 > Expected 2026-08-20 13:29 KST or later
 

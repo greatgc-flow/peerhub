@@ -1,5 +1,7 @@
 # Phase 1 Proposal: Auto-detecting AI CLIs via Sidecar Manifests
 
+> **Document Status**: SUPERSEDED — Historical record only. Superseded by `PHASE1-AUTODETECT-SIDECAR-V2-2026-08-20.md`.
+
 > **STATUS: DRAFT, PENDING CX DIALECTICAL REVIEW**
 > Expected 2026-08-20 13:29 KST or later
 

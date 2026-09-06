@@ -1,5 +1,7 @@
 # Phase 1: Manifest Schema v1.0.0 and Admission Model
 
+> **Document Status**: SUPERSEDED — Historical record only. Superseded by `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`.
+
 ## 1. Overview
 This design defines the JSON manifest schema and trust model for Peerhub adapters, addressing the R2-02 and R2-03 critique findings. It provides a purely declarative manifest for configuration (argv, environment policy, feature subsets) while isolating Turing-complete decoder logic into a separately reviewed, bounded engine mechanism.
 

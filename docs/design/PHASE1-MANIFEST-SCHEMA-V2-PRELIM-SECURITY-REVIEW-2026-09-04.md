@@ -1,6 +1,8 @@
 # Preliminary Adversarial Security Review
 ## PHASE1-MANIFEST-SCHEMA-V2-2026-08-20 — Adapter-Manifest Admission Design
 
+> **Document Status**: SUPERSEDED — Historical record only. Superseded by `PHASE1-MANIFEST-SCHEMA-V2-FINAL-SECURITY-REVIEW-2026-09-05.md`.
+
 > [!NOTE]
 > **Status**: Preliminary / second-opinion review per the deferred-security-note. This does NOT substitute for the ratified cx peer review scheduled for 2026-09-07. Reviewed by: ag.opus, 2026-09-04.
 

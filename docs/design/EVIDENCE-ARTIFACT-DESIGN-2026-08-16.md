@@ -1,18 +1,7 @@
 # EvidenceArtifact / 3-Tier Context Partitioning Design
 
 **Date:** 2026-08-16
-**Status:** RATIFIED (round 1 ag.deepthink draft; round 2 cc.effort
-independent critique found the core mechanism depended on peerhub
-capabilities that don't exist anywhere -- tool-call interception/
-registration -- and was NOT READY; round 3 ag.deepthink rebuilt around
-accord clause 11's actual one-way caller-side offload instead of a live
-bidirectional protocol, eliminating every capability the mechanism
-previously required; terminal independently re-verified the write-path
-reuse claim and the "known path" artifact-retrieval claim against real
-source -- `ArtifactMetadata.staging_ref` genuinely exists -- before
-ratifying). Implementation may proceed directly; unlike the health/quota
-design, this one has no canary precondition -- every dependency is
-already-working peerhub code.
+**Status:** SUPERSEDED — Historical record only. Claude/Codex EvidenceArtifact payload handling is now shipped and tested. See `PEERHUB-BACKLOG-2026-08-27.md` for current status.
 **Target:** `peerhub/`
 
 This document details the concrete implementation mechanics for the `EvidenceArtifact` / 3-Tier Context Partitioning feature (item P2 in the multi-ai-collaboration-accord). It defines how oversized tool and MCP outputs are intercepted, kept out of the prompt, and stored on disk.

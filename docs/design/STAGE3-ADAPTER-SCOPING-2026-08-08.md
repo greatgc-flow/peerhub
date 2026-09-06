@@ -1,6 +1,8 @@
-# Stage 3 Scoping: First Real Adapter (2026-08-08)
+# Stage 3 Adapter Scoping & Plan (2026-08-08)
 
-**Status: scoped, corrected, ready for implementation.**
+> **Document Status**: SUPERSEDED — Historical record only. All three adapters (`agy`, `claude`, `codex`) are now fully implemented in `peerhub/adapters/`. See `PEERHUB-BACKLOG-2026-08-27.md` for current status.
+> **Scope**: Outlines the immediate work for the first real adapter (`agy`) and the queue for the remaining two (`claude`, `codex`).
+> **Context**: We are entering Stage 3 of the 6-stage migration closure plan. Stage 2 (CLI command boundary and `ApplicationWorkflows`) is functionally complete.
 
 ## Target: `agy.exe` (Antigravity CLI)
 

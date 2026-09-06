@@ -1,8 +1,6 @@
-﻿# Gap 6 Design: Capability Matching and Leader Election (NOT READY FOR IMPLEMENTATION)
+# Gap 6 Design: Capability Matching and Leader Election
 
-Status: BLOCKED / NOT YET READY. Research by `ag.deepthink`, independent critique by `cx.deepthink` (fresh session), 2026-08-30. Covers `elect-leader` and capability scoring.
-
-**Overall Verdict: Do not implement the initial proposal unchanged. It contains real gaps that must be resolved first.**
+> **Document Status**: SUPERSEDED — Historical record only. The `discover` and `elect-leader` commands and capability matching are now fully implemented. See `PEERHUB-BACKLOG-2026-08-27.md` for current status. (Originally: BLOCKED / NOT YET READY).
 
 ## 1. Original Research Summary (Core Algorithm)
 The core legacy `_matching_peers` logic (`hub.py:3418-3438`) works by evaluating exact and substring capability matches, penalizing missing needs, and weighting health, cost, and historical use.

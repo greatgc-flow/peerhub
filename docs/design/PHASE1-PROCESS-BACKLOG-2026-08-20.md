@@ -1,6 +1,6 @@
 # Phase 1 Process Backlog — Errors, Quirks & Findings for Pre-Ratification Review
 
-> **STATUS: LIVE, updated continuously through Round 5+. Review before final ratification.**
+> **STATUS: CLOSED — Historical record only. Architecture and audit work are concluded. See `PEERHUB-BACKLOG-2026-08-27.md` for current status.** (Originally: LIVE, updated continuously through Round 5+. Review before final ratification.)
 
 This document tracks process-level defects, quirks, and empirical findings discovered while producing the Phase 1 design documents, as distinct from the design content itself (which lives in the `PHASE1-*` docs and gets debated by ag/cx directly). The user asked for this to be reviewed alongside the design docs before casting a final ratification vote, so nothing gets lost.
 

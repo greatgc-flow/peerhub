@@ -1,5 +1,7 @@
 # Outbox Table Split — Progress & Continuation Notes (2026-08-09)
 
+> **Document Status**: SUPERSEDED — Completed. Legacy outbox tables dropped in migration 0017. Historical record only.
+
 Ratified design: `docs/design/` session history (cx proposed with real evidence, ag critiqued and corrected a real SQLite cross-table-CHECK impossibility). Executed as small, independently-verified increments after an earlier same-night attempt to do the full split in one dispatch broke the repo badly (747 new pyright errors, test collection failures) and was fully reverted.
 
 ## Landed (all independently re-verified by cc, all green)
@@ -10,13 +12,9 @@ Ratified design: `docs/design/` session history (cx proposed with real evidence,
 
 **Current real state**: `effect_deliveries` has been silently, correctly accumulating real shadow data (mirroring every governance event's creation and claim) since commit `b652543` landed. It has NOT been read by anything yet — pure shadow-write, zero behavioral risk to the live system.
 
-## What's left (deliberately not started — this is the risky remaining part)
+## What's left — COMPLETED
 
-**The hard cutover.** `GovernanceBroker`'s actual read/claim/complete cycle still queries `outbox_events` exclusively. Moving it onto `effect_deliveries` was assessed (by ag, independently reasoned) as **unsafe to attempt as a naive dual-run** — running both a legacy claim path and a new one over the same underlying work risks double-processing. It also can't be a same-night surprise cutover today because `effect_deliveries` only started backfilling from the moment `b652543` landed — any governance event that was already `PENDING`/`CLAIMED` in `outbox_events` *before* that commit has no corresponding `effect_deliveries` row and would be silently orphaned by a naive cutover.
-
-**Before attempting the cutover, whoever picks this up next needs to:**
-1. Confirm (empirically, on the real dev DB, not assumed) whether any governance events are currently sitting `PENDING`/`CLAIMED` in `outbox_events` from before `b652543` — if peerhub has had zero real governance traffic yet (plausible, pre-cutover from hub.py), this may be moot and a clean cutover is trivial. If there IS old unprocessed work, it needs an explicit backfill migration (create `effect_deliveries` rows for those specific pre-existing rows) before the read-path cutover, not silently dropped.
-2. Only then: flip `GovernanceBroker`'s find/claim/complete queries onto `effect_deliveries`, add the previously-deferred `effect_receipts` FK, and (as a final, separate step after that's proven solid) drop `outbox_events`/`outbox_checkpoints` entirely.
+**The hard cutover has landed.** `GovernanceBroker`'s read/claim/complete cycle now queries `effect_deliveries` (see `list_unfinished_effect_deliveries()` in `peerhub/governance/broker.py`), and migration `0017_drop_legacy_outbox.sql` has dropped `outbox_events`/`outbox_checkpoints` entirely. The two numbered steps originally planned here (backfill-then-cutover, then a separate drop step) are done; this section is kept only as a historical record of the original plan.
 
 **Update (2026-08-09, read-only investigation, no code changed):** checked -- **the orphan-backfill concern is currently theoretical, not real.** `GovernanceBroker` is composed into `create_runtime()` (`runtime.governance_broker` exists) but is not invoked by any real application/CLI/script path today -- every non-definition reference to it is in `tests/` or `tools/phase0_fixture_runner/`. There is no live traffic creating real governance events yet, so there is currently nothing that could be orphaned by a cutover. (A local `.peerhub/peerhub.sqlite3` was found sitting in the repo root during this check and inspected for orphaned rows -- found none -- but it turned out to be cc's own earlier local CLI-testing artifact, not real usage data, and was removed as repo-root clutter; its presence/absence doesn't change the conclusion, since the actual finding is that GovernanceBroker has no real callers at all yet.) **This means the future cutover can skip the backfill-migration complexity entirely for now** -- but should still be implemented defensively (correctly handling a hypothetical pre-existing PENDING/CLAIMED row) since real usage will eventually begin and this repo's own dev database will accumulate real state over time.
 

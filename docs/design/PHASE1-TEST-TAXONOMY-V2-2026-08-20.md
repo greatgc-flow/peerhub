@@ -1,5 +1,7 @@
 # Phase 1: Test Taxonomy and Promotion Matrix (v2)
 
+> **Document Status**: SUPERSEDED — Historical record only. Superseded by `PHASE1-TEST-TAXONOMY-V3-2026-08-20.md`.
+
 > **STATUS: DRAFT v2 (Post-Round 1 Debate)**
 
 This document establishes the test taxonomy and promotion criteria for Phase 1, prioritizing empirical transport boundaries and the five-state promotion matrix.

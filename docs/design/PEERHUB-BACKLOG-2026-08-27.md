@@ -1,3 +1,6 @@
+# peerhub Backlog (consolidated, 2026-08-27)
+
+> Single source of truth for "what's left." Supersedes hunting across `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`, the README's status lists, and per-gap design docs to answer "what's next" — those documents remain the detailed record of *why* each decision was made; this one is the current, flat *what's outstanding* list, organized by how ready each item is to pick up. Update this doc's tiers as items move, rather than letting the README's own "Designed but not built" / "Explicitly deferred" / "Not yet implemented" lists drift out of sync again (see the "Known drift caught while writing this doc" note at the bottom — that's exactly the failure mode this doc exists to prevent).
 
 #### `report-error` Auto-quarantine Gap Assessment (2026-08-31)
 
@@ -8,10 +11,6 @@
 
 **VERDICT:**
 There is no legitimate honest mapping from a free-form string to typed evidence without inventing evidence. Therefore, **`report-error`'s auto-quarantine must stay permanently deferred** as originally decided. The review-request creation already implemented is the correct and complete native equivalent. The remaining work belongs to a separate, future review-consumer domain, not `report-error`.
-
-# peerhub Backlog (consolidated, 2026-08-27)
-
-> Single source of truth for "what's left." Supersedes hunting across `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`, the README's status lists, and per-gap design docs to answer "what's next" — those documents remain the detailed record of *why* each decision was made; this one is the current, flat *what's outstanding* list, organized by how ready each item is to pick up. Update this doc's tiers as items move, rather than letting the README's own "Designed but not built" / "Explicitly deferred" / "Not yet implemented" lists drift out of sync again (see the "Known drift caught while writing this doc" note at the bottom — that's exactly the failure mode this doc exists to prevent).
 
 ## Where things stand right now
 
