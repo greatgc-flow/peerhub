@@ -50,7 +50,7 @@ The target architecture was designed and converged through a 9-round adversarial
 ### Option A: Install via Pip from GitHub Release (Recommended)
 
 ```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.1.9"
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.1.10"
 ```
 
 ### Option B: Local Editable Development Install
