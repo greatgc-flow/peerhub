@@ -56,7 +56,7 @@ pip install peerhub
 ### Option B: Install an exact GitHub release
 
 ```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.1.10"
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.1.11"
 ```
 
 ### Option C: Local editable development install
