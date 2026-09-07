@@ -126,7 +126,8 @@ class DutyLeaseCoordinator:
                 lease_id, request.room_id, request.role, request.owner,
                 request.owner_principal_id, epoch, request.term,
                 request.challenge_until, DutyLeaseState.ACTIVE,
-                now + request.heartbeat_timeout_ms, now, now, consecutive,
+                # heartbeat_timeout_ms is milliseconds; now is whole seconds -- convert before adding
+                now + -(-request.heartbeat_timeout_ms // 1000), now, now, consecutive,
             )
             unit.insert_duty_lease(snapshot)
             unit.commit()
@@ -139,6 +140,7 @@ class DutyLeaseCoordinator:
 
     def renew_lease(self, request: DutyLeaseRenewRequest, *, heartbeat_timeout_ms: int) -> DutyLeaseSnapshot:
         now = self._clock.now()
+        expires_at = now + -(-heartbeat_timeout_ms // 1000)
         with self._store.unit_of_work() as unit:
             unit = cast(DutyLeaseUnitOfWork, unit)
             row = unit.get_duty_lease(request.lease_id)
@@ -150,14 +152,14 @@ class DutyLeaseCoordinator:
             )
             if not matches:
                 raise InvalidMutationError("duty lease fence mismatch")
-            unit.update_duty_lease_heartbeat(request.lease_id, now + heartbeat_timeout_ms, now)
+            unit.update_duty_lease_heartbeat(request.lease_id, expires_at, now)
             unit.commit()
         # See create_lease's comment: constructed directly, not re-read
         # after commit (the unit of work is finished by then).
         return DutyLeaseSnapshot(
             row.lease_id, row.room_id, row.role, row.owner, row.owner_principal_id,
             row.authority_epoch, row.term, row.challenge_until, row.state,
-            now + heartbeat_timeout_ms, row.created_at, now, row.consecutive_terms_held,
+            expires_at, row.created_at, now, row.consecutive_terms_held,
         )
 
     def close_lease(self, request: DutyLeaseCloseRequest) -> DutyLeaseSnapshot:

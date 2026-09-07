@@ -1001,7 +1001,8 @@ def create_lease(
         fence=fence,
         state=LeaseState.ACTIVE,
         heartbeat_expires_at=(
-            created_at + request.heartbeat_timeout_ms
+            # heartbeat_timeout_ms is milliseconds; created_at is whole seconds -- convert before adding, or a '30 second' timeout becomes 30000 seconds (~8.3h).
+            created_at + -(-request.heartbeat_timeout_ms // 1000)
         ),
         created_at=created_at,
         updated_at=created_at,
@@ -1041,7 +1042,7 @@ def reserve_lease(
         fence=fence,
         state=LeaseState.RESERVED,
         heartbeat_expires_at=(
-            created_at + request.heartbeat_timeout_ms
+            created_at + -(-request.heartbeat_timeout_ms // 1000)
         ),
         created_at=created_at,
         updated_at=created_at,
@@ -1168,7 +1169,7 @@ def renew_lease(
         ),
         state=LeaseState.RENEWED,
         heartbeat_expires_at=(
-            updated_at + heartbeat_timeout_ms
+            updated_at + -(-heartbeat_timeout_ms // 1000)
         ),
         updated_at=updated_at,
     )

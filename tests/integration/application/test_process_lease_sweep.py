@@ -189,7 +189,7 @@ def test_sweep_limit_uses_expiry_then_lease_id_order(tmp_path: Path) -> None:
             suffix="later",
             pid=2_000_000_000,
             process_creation_time=1,
-            heartbeat_timeout=20,
+            heartbeat_timeout=20_000,
         )
         clock.advance(5)
         earlier = _create_lease(
@@ -197,7 +197,7 @@ def test_sweep_limit_uses_expiry_then_lease_id_order(tmp_path: Path) -> None:
             suffix="earlier",
             pid=2_000_000_000,
             process_creation_time=1,
-            heartbeat_timeout=5,
+            heartbeat_timeout=5_000,
         )
         clock.advance(16)
 

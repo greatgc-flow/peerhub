@@ -46,7 +46,7 @@ def _open_request(
         actor_principal_id=actor_principal_id,
         owner=owner or DutyOwnerIdentity("instance-1", "cx.standard"),
         session_fingerprint=fingerprint,
-        heartbeat_timeout_ms=50,
+        heartbeat_timeout_ms=50_000,
     )
 
 
@@ -164,7 +164,7 @@ def test_heartbeat_renews_and_rejects_stale_fences(tmp_path: Path) -> None:
         _heartbeat_request(
             session.session_id, session.session_generation
         ),
-        heartbeat_timeout_ms=100,
+        heartbeat_timeout_ms=100_000,
     )
     assert renewed.heartbeat_expires_at == 220
 
@@ -173,7 +173,7 @@ def test_heartbeat_renews_and_rejects_stale_fences(tmp_path: Path) -> None:
             _heartbeat_request(
                 session.session_id, session.session_generation + 1
             ),
-            heartbeat_timeout_ms=100,
+            heartbeat_timeout_ms=100_000,
         )
     with pytest.raises(InvalidMutationError, match="fence"):
         coordinator.heartbeat(
@@ -182,7 +182,7 @@ def test_heartbeat_renews_and_rejects_stale_fences(tmp_path: Path) -> None:
                 session.session_generation,
                 owner=DutyOwnerIdentity("wrong-instance", "cx.standard"),
             ),
-            heartbeat_timeout_ms=100,
+            heartbeat_timeout_ms=100_000,
         )
 
     assert _event_types(database_path) == ["OPENED"]
@@ -199,7 +199,7 @@ def test_heartbeat_rejects_an_already_expired_session(
             _heartbeat_request(
                 session.session_id, session.session_generation
             ),
-            heartbeat_timeout_ms=100,
+            heartbeat_timeout_ms=100_000,
         )
 
 
@@ -242,7 +242,7 @@ def test_end_session_validates_fence_and_transitions_to_ended(
             _heartbeat_request(
                 session.session_id, session.session_generation
             ),
-            heartbeat_timeout_ms=100,
+            heartbeat_timeout_ms=100_000,
         )
 
 

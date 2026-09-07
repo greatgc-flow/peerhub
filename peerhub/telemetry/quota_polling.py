@@ -292,21 +292,30 @@ def poll_claude_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl),)
     finally:
         if proc is not None:
+            # 1. Kill the spawned process and its own tracked tree.
             try:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                 capture_output=True, timeout=10)
             except Exception:
                 pass
+            # 2. Catch a grandchild left behind if an intermediate wrapper
+            # exited early (breaking the tree taskkill /T just walked).
+            # Identify it by real PPID lineage (its ppid field == our
+            # spawned proc.pid), NOT by name+creation-time -- that heuristic
+            # previously matched (and force-killed) ANY node.exe/claude.exe
+            # on the whole machine merely started within the same ~5s
+            # window, e.g. an unrelated VS Code extension host or another
+            # Claude Code session. A ppid-field scan still finds a genuine
+            # grandchild even after its direct parent has already exited
+            # (Windows does not clear a child's recorded ppid on parent
+            # exit), without risking an unrelated process sharing a name.
             try:
                 import psutil
-                for p in psutil.process_iter(['pid', 'name', 'create_time']):
+                for p in psutil.process_iter(['pid', 'ppid']):
                     try:
-                        name = p.info.get('name')
-                        if name and name.lower() in ('node.exe', 'claude.exe'):
-                            c_time = p.info.get('create_time', 0)
-                            if c_time >= observed_at - 5:
-                                subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.info['pid'])],
-                                               capture_output=True, timeout=5)
+                        if p.info.get('ppid') == proc.pid:
+                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.info['pid'])],
+                                           capture_output=True, timeout=5)
                     except Exception:
                         pass
             except Exception:
@@ -563,26 +572,30 @@ def poll_codex_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
     finally:
         if proc is not None:
-            # 1. Kill the process and its immediate tree using taskkill
+            # 1. Kill the spawned process and its own tracked tree.
             try:
                 subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                capture_output=True, timeout=10)
             except Exception:
                 pass
-                
-            # 2. Enumerate and kill detached orphans by name and time
-            # If an intermediate wrapper exits early, the PPID tree is broken,
-            # so we must catch leaked node.exe/codex.exe processes directly.
+            # 2. Catch a grandchild left behind if an intermediate wrapper
+            # exited early (breaking the tree taskkill /T just walked).
+            # Identify it by real PPID lineage (its ppid field == our
+            # spawned proc.pid), NOT by name+creation-time -- that heuristic
+            # previously matched (and force-killed) ANY node.exe/codex.exe
+            # on the whole machine merely started within the same ~5s
+            # window, e.g. an unrelated VS Code extension host or another
+            # Codex session. A ppid-field scan still finds a genuine
+            # grandchild even after its direct parent has already exited
+            # (Windows does not clear a child's recorded ppid on parent
+            # exit), without risking an unrelated process sharing a name.
             try:
                 import psutil
-                for p in psutil.process_iter(['pid', 'name', 'create_time']):
+                for p in psutil.process_iter(['pid', 'ppid']):
                     try:
-                        name = p.info.get('name')
-                        if name and name.lower() in ('node.exe', 'codex.exe'):
-                            c_time = p.info.get('create_time', 0)
-                            if c_time >= observed_at - 5:
-                                subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.info['pid'])], 
-                                               capture_output=True, timeout=5)
+                        if p.info.get('ppid') == proc.pid:
+                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.info['pid'])],
+                                           capture_output=True, timeout=5)
                     except Exception:
                         pass
             except Exception:

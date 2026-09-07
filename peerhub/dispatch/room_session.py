@@ -228,7 +228,8 @@ class RoomParticipationCoordinator:
                 ),
                 state=RoomSessionState.ACTIVE,
                 heartbeat_expires_at=(
-                    now + request.heartbeat_timeout_ms
+                    # heartbeat_timeout_ms is milliseconds; now is whole seconds -- convert before adding
+                    now + -(-request.heartbeat_timeout_ms // 1000)
                 ),
                 created_at=now,
                 updated_at=now,
@@ -266,7 +267,7 @@ class RoomParticipationCoordinator:
             current = unit.get_room_session(request.session_id)
             self._require_fence(current, request, now)
             assert current is not None
-            heartbeat_expires_at = now + heartbeat_timeout_ms
+            heartbeat_expires_at = now + -(-heartbeat_timeout_ms // 1000)
             if not unit.update_room_session_heartbeat(
                 current, heartbeat_expires_at, now
             ):

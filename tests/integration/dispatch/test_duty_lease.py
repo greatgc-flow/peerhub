@@ -21,17 +21,17 @@ def _coordinator(tmp_path: Path) -> DutyLeaseCoordinator:
 
 
 def _request(owner: DutyOwnerIdentity | None = None, epoch: int = 1) -> DutyLeaseCreateRequest:
-    return DutyLeaseCreateRequest("room-1", "terminal-duty", owner or DutyOwnerIdentity("i-1", "cx.standard"), "principal-1", 50, epoch)
+    return DutyLeaseCreateRequest("room-1", "terminal-duty", owner or DutyOwnerIdentity("i-1", "cx.standard"), "principal-1", 50_000, epoch)
 
 
 def test_create_and_renew_require_full_fence(tmp_path: Path) -> None:
     coordinator = _coordinator(tmp_path)
     lease = coordinator.create_lease(_request())
     assert lease.state.value == "ACTIVE"
-    renewed = coordinator.renew_lease(DutyLeaseRenewRequest(lease.lease_id, "room-1", "terminal-duty", lease.owner, lease.term, lease.authority_epoch), heartbeat_timeout_ms=100)
+    renewed = coordinator.renew_lease(DutyLeaseRenewRequest(lease.lease_id, "room-1", "terminal-duty", lease.owner, lease.term, lease.authority_epoch), heartbeat_timeout_ms=100_000)
     assert renewed.heartbeat_expires_at > lease.heartbeat_expires_at
     with pytest.raises(InvalidMutationError, match="fence"):
-        coordinator.renew_lease(DutyLeaseRenewRequest(lease.lease_id, "room-1", "terminal-duty", DutyOwnerIdentity("other", "cx.standard"), lease.term, lease.authority_epoch), heartbeat_timeout_ms=100)
+        coordinator.renew_lease(DutyLeaseRenewRequest(lease.lease_id, "room-1", "terminal-duty", DutyOwnerIdentity("other", "cx.standard"), lease.term, lease.authority_epoch), heartbeat_timeout_ms=100_000)
 
 
 def test_active_duplicate_and_ap20_monopoly_are_rejected(tmp_path: Path) -> None:
@@ -73,7 +73,7 @@ def test_sweep_expires_only_timed_out_active_leases(tmp_path: Path) -> None:
             "terminal-duty",
             DutyOwnerIdentity("i-2", "ag.standard"),
             "principal-2",
-            5_000,
+            5_000_000,
             1,
         )
     )

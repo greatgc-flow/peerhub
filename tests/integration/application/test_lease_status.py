@@ -99,7 +99,7 @@ def test_lease_status_sqlite_roundtrip_lists_multiple_active_leases(tmp_path: Pa
     assert all(row["lease_state"] == "ACTIVE" for row in rows)
     assert all(row["pid"] == os.getpid() for row in rows)
     assert all(row["alive"] == "YES" for row in rows)
-    assert all(row["expires_at"] == 101_000 for row in rows)
+    assert all(row["expires_at"] == 100_001 for row in rows)
     assert all(row["heartbeat_at"] == 100_000 for row in rows)
 
 

@@ -1148,12 +1148,12 @@ def test_native_session_heartbeat_executes_through_client(runtime_setup) -> None
 
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["state"] == "ACTIVE"
-    assert outcome.result["heartbeat_expires_at"] == 11_000
+    assert outcome.result["heartbeat_expires_at"] == 1010
     persisted = runtime.room_participation_coordinator.get_session(
         session.session_id
     )
     assert persisted is not None
-    assert persisted.heartbeat_expires_at == 11_000
+    assert persisted.heartbeat_expires_at == 1010
 
 
 def test_legacy_approval_request_translates_and_executes(runtime_setup) -> None:

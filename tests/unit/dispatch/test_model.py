@@ -160,7 +160,7 @@ class TestDispatchModelReducers(unittest.TestCase):
         )
         self.assertEqual(lease.lease_id, "lease-01")
         self.assertEqual(lease.state, LeaseState.ACTIVE)
-        self.assertEqual(lease.heartbeat_expires_at, 6000)
+        self.assertEqual(lease.heartbeat_expires_at, 1005)
         self.assertEqual(lease.fence.fencing_token, 1)
         self.assertEqual(lease.fence.command_id, self.command_id)
         self.assertEqual(lease.fence.attempt_id, "attempt-01")
@@ -184,7 +184,7 @@ class TestDispatchModelReducers(unittest.TestCase):
         self.assertEqual(renewed.state, LeaseState.RENEWED)
         self.assertEqual(renewed.fence.revision, 2)
         self.assertEqual(renewed.fence.fencing_token, 2)
-        self.assertEqual(renewed.heartbeat_expires_at, 7000)
+        self.assertEqual(renewed.heartbeat_expires_at, 2005)
 
     def test_renew_lease_stale_revision_raises(self) -> None:
         lease = create_lease(

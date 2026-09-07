@@ -49,7 +49,7 @@ def test_rebuild_room_session_bindings_tracks_active_sessions_only(
             actor_principal_id="principal-cx",
             owner=DutyOwnerIdentity("instance-cx", "cx.standard"),
             session_fingerprint="cx-terminal",
-            heartbeat_timeout_ms=1_000,
+            heartbeat_timeout_ms=1_000_000,
         )
     )
     second = sessions.open_session(
@@ -59,7 +59,7 @@ def test_rebuild_room_session_bindings_tracks_active_sessions_only(
             actor_principal_id="principal-ag",
             owner=DutyOwnerIdentity("instance-ag", "ag.standard"),
             session_fingerprint="ag-terminal",
-            heartbeat_timeout_ms=1_000,
+            heartbeat_timeout_ms=1_000_000,
         )
     )
 
