@@ -95,3 +95,84 @@ def test_bug3_room_thread_message_propagation(tmp_path):
     assert "test-thread" in data["thread_ids"]
     assert data["message_count"] == 1
     assert data["last_message_at"] is not None
+
+
+@pytest.mark.e2e
+def test_mailbox_send_and_check_inbox_real_delivery(tmp_path):
+    """
+    Regression coverage for the private mailbox primitive (room send /
+    room check-inbox), a core coordination path distinct from public
+    thread messaging. Runs through the real CLI end-to-end.
+    """
+    def run_cmd(*args):
+        cmd = [sys.executable, "-m", "peerhub.cli"] + list(args) + ["--workspace", str(tmp_path)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 0, f"Command failed: {result.stderr}"
+        return result.stdout
+
+    run_cmd(
+        "room", "create",
+        "--room-id", "mb-room",
+        "--topic-id", "mb-topic",
+        "--title", "Mailbox Test",
+        "--creator", "cc",
+        "--participants", "cc,ag",
+    )
+    run_cmd(
+        "room", "send",
+        "--room-id", "mb-room",
+        "--sender-instance-id", "cc",
+        "--sender-profile-id", "cc",
+        "--recipient-instance-id", "ag",
+        "--recipient-profile-id", "ag",
+        "--body", "hello ag",
+    )
+    out = run_cmd(
+        "room", "check-inbox",
+        "--room-id", "mb-room",
+        "--caller-instance-id", "ag",
+        "--caller-profile-id", "ag",
+        "--json",
+    )
+    data = json.loads(out)
+    messages = data["messages"]
+    assert len(messages) == 1
+    assert messages[0]["state"]["body"] == "hello ag"
+    assert messages[0]["state"]["recipient"]["instance_id"] == "ag"
+
+
+@pytest.mark.e2e
+def test_lesson_propose_approve_activate_sweep_real_lifecycle(tmp_path):
+    """
+    Regression coverage for the lesson expiry/sweep gap identified in the
+    legacy-parity audit: LessonService.propose() previously hardcoded
+    expires_at=None with no way to set it, and no sweep existed to retire
+    expired lessons. Runs the full lifecycle through the real CLI.
+    """
+    def run_cmd(*args):
+        cmd = [sys.executable, "-m", "peerhub.cli"] + list(args) + ["--workspace", str(tmp_path)]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        assert result.returncode == 0, f"Command failed: {result.stderr}"
+        return result.stdout
+
+    run_cmd(
+        "lesson", "propose",
+        "--lesson-id", "e2e-lesson",
+        "--title", "Test lesson",
+        "--rule", "Always verify empirically",
+        "--category", "runtime-reality",
+        "--severity", "LOW",
+        "--proposer", "cc",
+        "--affected", "cc,ag",
+        "--expires-at", "1",
+    )
+    run_cmd("lesson", "approve", "--lesson-id", "e2e-lesson", "--approved-by", "human:tester")
+    run_cmd("lesson", "activate", "--lesson-id", "e2e-lesson", "--actor", "cc")
+
+    out = run_cmd("lesson", "sweep", "--json")
+    data = json.loads(out)
+    assert "lesson:e2e-lesson" in data["retired"]
+
+    status_out = run_cmd("lesson", "status", "--lesson-id", "e2e-lesson", "--json")
+    status_data = json.loads(status_out)
+    assert status_data["lifecycle"] == "RETIRED"

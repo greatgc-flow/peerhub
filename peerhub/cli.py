@@ -985,7 +985,7 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
             service = LessonService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             action = parsed.lesson_action
             if action == "propose":
-                submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id)
+                submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id, expires_at=parsed.expires_at)
             elif action == "approve":
                 submission = service.approve(parsed.lesson_id, approved_by_actor_id=parsed.approved_by, authority_target_id=parsed.authority_target_id)
             elif action == "activate":
@@ -996,6 +996,14 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                 submission = service.supersede(parsed.lesson_id, actor_id=parsed.actor, replacement_lesson_id=parsed.replacement_lesson_id)
             elif action == "quarantine":
                 submission = service.quarantine(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason, evidence=parsed.evidence)
+            elif action == "sweep":
+                submissions = service.sweep_expired()
+                retired_ids = [s.receipt.target_id for s in submissions]
+                if parsed.json:
+                    print(json.dumps(_json_safe({"retired": retired_ids})))
+                else:
+                    print(f"LESSON-SWEEP retired={len(retired_ids)} {','.join(retired_ids) if retired_ids else '(none)'}")
+                return 0
             elif action == "inject":
                 from peerhub.application.lesson_inject import inject_lessons, LessonInjectionContext, LessonInjectionPolicy
                 
@@ -2907,7 +2915,7 @@ def main(args: list[str] | None = None) -> int:
     lesson_parser = subparsers.add_parser("lesson", help="Manage governance lessons")
     lesson_subparsers = lesson_parser.add_subparsers(dest="lesson_action", required=True)
     lesson_specs = {
-        "propose": [("--lesson-id", True), ("--title", True), ("--rule", True), ("--category", True), ("--severity", True), ("--proposer", True), ("--affected", True), ("--scope-kind", False), ("--workspace-id", False)],
+        "propose": [("--lesson-id", True), ("--title", True), ("--rule", True), ("--category", True), ("--severity", True), ("--proposer", True), ("--affected", True), ("--scope-kind", False), ("--workspace-id", False), ("--expires-at", False)],
         "approve": [("--lesson-id", True), ("--approved-by", True), ("--authority-target-id", False)],
         "activate": [("--lesson-id", True), ("--actor", True)],
         "retire": [("--lesson-id", True), ("--actor", True), ("--reason", False)],
@@ -2915,6 +2923,7 @@ def main(args: list[str] | None = None) -> int:
         "quarantine": [("--lesson-id", True), ("--actor", True), ("--reason", True), ("--evidence", True)],
         "broadcast": [("--lesson-id", True), ("--room-id", True), ("--sender-instance-id", True), ("--sender-profile-id", True)],
         "status": [("--lesson-id", True)],
+        "sweep": [],
     }
     lesson_subcommand_help = {
         "propose": "Propose a new governance lesson",
@@ -2925,6 +2934,7 @@ def main(args: list[str] | None = None) -> int:
         "quarantine": "Quarantine a lesson due to a correctness/evidence concern",
         "broadcast": "Immediately deliver an active lesson to every other room participant",
         "status": "Show the current state of a lesson",
+        "sweep": "Retire every active, non-sticky lesson whose expires-at has passed",
     }
     lesson_arg_help = {
         "--lesson-id": "Lesson identifier",
@@ -2936,6 +2946,7 @@ def main(args: list[str] | None = None) -> int:
         "--affected": "Comma-separated affected peer IDs (e.g. cc,cx,ag)",
         "--scope-kind": "Scope kind for this lesson (default: global)",
         "--workspace-id": "Workspace ID this lesson applies to, if scope-kind is not global",
+        "--expires-at": "Optional epoch-seconds after which `lesson sweep` retires this lesson (omit for a permanent lesson)",
         "--approved-by": "Actor ID approving this lesson",
         "--authority-target-id": "Reference to the consensus round or authority record backing this approval",
         "--actor": "Peer ID performing this action",
@@ -2950,6 +2961,9 @@ def main(args: list[str] | None = None) -> int:
         command_parser = lesson_subparsers.add_parser(action, help=lesson_subcommand_help[action])
         command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
         for name, required in arguments:
+            if name == "--expires-at":
+                command_parser.add_argument(name, required=required, default=None, type=int, help=lesson_arg_help[name])
+                continue
             if name in {"--workspace-id", "--authority-target-id"}:
                 default = None
             elif name == "--reason" and action == "retire":

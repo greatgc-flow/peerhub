@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import cast
 
 from peerhub.core.context import Clock, IdSource
@@ -42,6 +42,7 @@ class LessonService:
         os: Sequence[str] | None = None,
         shell: Sequence[str] | None = None,
         task_types: Sequence[str] | None = None,
+        expires_at: int | None = None,
     ) -> MutationSubmission:
         timestamp = self._clock.now()
         state: dict[str, JsonValue] = {
@@ -76,7 +77,7 @@ class LessonService:
                 "validation_status": "NOT_REQUIRED",
             },
             "validity": {
-                "expires_at": None,
+                "expires_at": expires_at,
                 "retired_at": None,
                 "superseded_by": None,
             },
@@ -158,6 +159,32 @@ class LessonService:
         state["validity"] = validity
         state["lifecycle"] = "RETIRED"
         return self._submit(f"lesson:{lesson_id}", target.revision if expected_revision is None else expected_revision, actor_id, "lessons-retire", state)
+
+    def sweep_expired(self, *, actor_id: str = "peerhub-lesson-sweep") -> Sequence[MutationSubmission]:
+        """Retire every ACTIVE, non-sticky lesson whose expires_at has passed."""
+
+        now = self._clock.now()
+        submissions: list[MutationSubmission] = []
+        for target in self._broker.list_targets("lesson"):
+            state = target.state
+            if state.get("lifecycle") != "ACTIVE" or state.get("sticky") is True:
+                continue
+            validity = state.get("validity")
+            if not isinstance(validity, Mapping):
+                continue
+            expires_at = validity.get("expires_at")
+            if not isinstance(expires_at, int) or isinstance(expires_at, bool) or expires_at > now:
+                continue
+            lesson_id = cast(str, state["lesson_id"])
+            submissions.append(
+                self.retire(
+                    lesson_id,
+                    actor_id=actor_id,
+                    reason="EXPIRED",
+                    expected_revision=target.revision,
+                )
+            )
+        return tuple(submissions)
 
     def supersede(self, lesson_id: str, *, actor_id: str, replacement_lesson_id: str, expected_revision: int | None = None) -> MutationSubmission:
         target, state = self._load(lesson_id, {"ACTIVE"})

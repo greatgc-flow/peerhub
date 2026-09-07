@@ -123,6 +123,39 @@ def test_quarantine_is_terminal(tmp_path: Path) -> None:
         service.activate("quarantine-me", actor_id="cx")
 
 
+def test_sweep_expired_retires_only_expired_non_sticky_active_lessons(tmp_path: Path) -> None:
+    service, broker = _service(tmp_path)
+
+    def _active_with(lesson_id: str, *, sticky: bool = False, expires_at: int | None) -> None:
+        service.propose(
+            lesson_id=lesson_id, title="T", rule="R", category="C", severity="LOW",
+            proposer_id="cx", affected_peers=(), sticky=sticky, expires_at=expires_at,
+        )
+        service.approve(lesson_id, approved_by_actor_id="human:alice")
+        service.activate(lesson_id, actor_id="cx")
+
+    _active_with("expired-lesson", expires_at=0)
+    _active_with("sticky-lesson", sticky=True, expires_at=0)
+    _active_with("permanent-lesson", expires_at=None)
+    _active_with("future-lesson", expires_at=10_000)
+    service.propose(
+        lesson_id="proposed-only", title="T", rule="R", category="C", severity="LOW",
+        proposer_id="cx", affected_peers=(), expires_at=0,
+    )
+
+    retired = service.sweep_expired()
+    retired_ids = {s.receipt.target_id for s in retired}
+    assert retired_ids == {"lesson:expired-lesson"}
+
+    expired_state = broker.get_target("lesson:expired-lesson").state
+    assert expired_state["lifecycle"] == "RETIRED"
+    assert expired_state["validity"]["retirement_reason"] == "EXPIRED"
+    assert broker.get_target("lesson:sticky-lesson").state["lifecycle"] == "ACTIVE"
+    assert broker.get_target("lesson:permanent-lesson").state["lifecycle"] == "ACTIVE"
+    assert broker.get_target("lesson:future-lesson").state["lifecycle"] == "ACTIVE"
+    assert broker.get_target("lesson:proposed-only").state["lifecycle"] == "PROPOSED"
+
+
 def test_delivery_target_is_independent_from_lesson_revision(tmp_path: Path) -> None:
     service, broker = _service(tmp_path)
     _active(service, "deliver-me")
