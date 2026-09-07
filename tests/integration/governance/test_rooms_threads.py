@@ -200,6 +200,52 @@ def test_append_message_creates_separate_immutable_target(tmp_path: Path) -> Non
     assert thread.revision == 1
 
 
+def test_list_threads_and_list_messages_are_read_only_queries(tmp_path: Path) -> None:
+    service, broker = _service(tmp_path)
+    service.create_room(
+        room_id="room-01",
+        topic_id="topic-01",
+        title="Architecture",
+        creator_id="peer-a",
+        participants=("peer-a",),
+    )
+    service.create_thread(
+        thread_id="thread-01",
+        room_id="room-01",
+        subject="Decisions",
+        creator_id="peer-a",
+    )
+    service.append_message(
+        message_id="message-01",
+        room_id="room-01",
+        thread_id="thread-01",
+        author_id="peer-a",
+        body="Hello",
+    )
+
+    room_revision_before = broker.get_target("room-01").revision  # type: ignore[union-attr]
+    thread_revision_before = broker.get_target("thread-01").revision  # type: ignore[union-attr]
+
+    threads = service.list_threads("room-01")
+    assert [t.target_id for t in threads] == ["thread-01"]
+
+    messages = service.list_messages("room-01")
+    assert [m.target_id for m in messages] == ["message:message-01"]
+
+    messages_for_thread = service.list_messages("room-01", thread_id="thread-01")
+    assert [m.target_id for m in messages_for_thread] == ["message:message-01"]
+
+    messages_for_other_thread = service.list_messages("room-01", thread_id="thread-02")
+    assert messages_for_other_thread == []
+
+    room_after = broker.get_target("room-01")
+    thread_after = broker.get_target("thread-01")
+    assert room_after is not None
+    assert thread_after is not None
+    assert room_after.revision == room_revision_before
+    assert thread_after.revision == thread_revision_before
+
+
 def test_mailbox_delivery_is_private_read_only_and_cursor_scoped(
     tmp_path: Path,
 ) -> None:

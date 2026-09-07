@@ -271,6 +271,31 @@ class RoomsService:
             f"message:{message_id}", 0, author_id, "message.append", state
         )
 
+    def list_threads(self, room_id: str) -> Sequence[TargetState]:
+        return self._broker.list_targets("thread", room_id)
+
+    def list_messages(
+        self,
+        room_id: str,
+        *,
+        thread_id: str | None = None,
+    ) -> Sequence[TargetState]:
+        messages = self._broker.list_targets("message", room_id)
+        if thread_id is not None:
+            messages = [
+                m for m in messages if m.state.get("thread_id") == thread_id
+            ]
+        def _sequence_key(m: TargetState) -> int:
+            value = m.state.get("sequence")
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+            return 0
+
+        return sorted(
+            messages,
+            key=_sequence_key,
+        )
+
     def send_message(
         self,
         *,

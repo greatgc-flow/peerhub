@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from importlib.metadata import version
 from pathlib import Path
@@ -2229,12 +2229,16 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         if isinstance(summary, Mapping)
                         else {}
                     )
+                    thread_ids = result["thread_ids"]
+                    thread_count = len(thread_ids) if isinstance(thread_ids, Sequence) else 0
                     print(
                         f"Room {parsed.room_id}: "
                         f"mission={summary_view.get('mission') or '-'}, "
                         f"blocked={summary_view.get('blocked') or '-'}, "
                         f"phase={summary_view.get('phase') or '-'}, "
-                        f"unread_count={result['unread_count']}"
+                        f"unread_count={result['unread_count']}, "
+                        f"thread_count={thread_count}, "
+                        f"message_count={result['message_count']}"
                     )
                 return 0
             target = runtime.governance_broker.get_target(submission.receipt.target_id)

@@ -37,9 +37,32 @@ def collect_room_status(
             for session in sessions
         )
 
+    thread_targets = rooms.list_threads(room_id)
+    thread_ids: tuple[str, ...] = tuple(
+        str(target.state.get("thread_id") or target.target_id)
+        for target in thread_targets
+    )
+    threads: tuple[dict[str, JsonValue], ...] = tuple(
+        {
+            "thread_id": target.state.get("thread_id"),
+            "subject": target.state.get("subject"),
+            "status": target.state.get("status"),
+        }
+        for target in thread_targets
+    )
+    messages = rooms.list_messages(room_id)
+    message_count = len(messages)
+    last_message_at = (
+        messages[-1].state.get("created_at") if messages else None
+    )
+
     return {
         "room_id": room_id,
         "room_summary": room_summary,
         "unread_count": unread_count,
         "active_participants": active_participants,
+        "thread_ids": thread_ids,
+        "threads": threads,
+        "message_count": message_count,
+        "last_message_at": last_message_at,
     }

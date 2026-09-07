@@ -45,20 +45,20 @@ def test_bug2_diag_consistency(tmp_path):
             assert "(Limit)" not in row["quota"], "Fake limit detected!"
 
 @pytest.mark.e2e
-def test_bug3_room_thread_message_creation_flow(tmp_path):
+def test_bug3_room_thread_message_propagation(tmp_path):
     """
-    Regression test for Bug 3: room/thread/message creation flow works end-to-end.
+    Regression test for Bug 3: room/thread message counts are visible via
+    `room status --json` without mutating the room/thread's own governed
+    state.
 
-    NOTE: `message_projection`/`thread_ids` live-rollup onto the parent room
-    and thread targets is a known, still-open gap (not fixed here): governed
-    targets are CAS-versioned, so mutating a parent's stored state on every
-    child append would bump its revision on every message -- which directly
-    violates the deliberate immutability invariant asserted by
-    tests/integration/governance/test_rooms_threads.py::
-    test_append_message_creates_separate_immutable_target (thread.revision
-    stays 1 forever). A correct fix needs a query-based projection (e.g.
-    listing child message/thread targets by scope) rather than parent-state
-    mutation, and is left as a follow-up design task.
+    An earlier attempt at this fix mutated the parent room/thread's own
+    state on every child create/append, which broke the deliberate
+    immutability invariant asserted by tests/integration/governance/
+    test_rooms_threads.py::test_append_message_creates_separate_immutable_target
+    (thread.revision stays 1 forever). The real fix is read-time: `room
+    status` composes `thread_ids`/`message_count`/`last_message_at` by
+    querying child message/thread targets by scope (RoomsService.list_threads
+    / list_messages), rather than storing a rollup on the parent.
     """
     def run_cmd(*args):
         cmd = [sys.executable, "-m", "peerhub.cli"] + list(args) + ["--workspace", str(tmp_path)]
@@ -76,8 +76,8 @@ def test_bug3_room_thread_message_creation_flow(tmp_path):
     )
     run_cmd(
         "room", "create-thread",
-        "--room", "test-room",
-        "--thread", "test-thread",
+        "--room-id", "test-room",
+        "--thread-id", "test-thread",
         "--subject", "Test Thread",
         "--creator", "cc"
     )
@@ -90,19 +90,8 @@ def test_bug3_room_thread_message_creation_flow(tmp_path):
         "--author", "cc"
     )
 
-    out4 = run_cmd("room", "status", "--room-id", "test-room")
-    assert "test-room" in out4
-
-    import sqlite3
-    db_path = tmp_path / ".peerhub" / "peerhub.sqlite3"
-    conn = sqlite3.connect(db_path)
-    try:
-        c = conn.cursor()
-        c.execute("SELECT state_json FROM governed_targets WHERE target_id = ?", ("message:test-msg-1",))
-        row = c.fetchone()
-        assert row is not None
-        state = json.loads(row[0])
-        assert state.get("body") == "Hello World"
-        assert state.get("scope") == "test-room"
-    finally:
-        conn.close()
+    out = run_cmd("room", "status", "--room-id", "test-room", "--json")
+    data = json.loads(out)
+    assert "test-thread" in data["thread_ids"]
+    assert data["message_count"] == 1
+    assert data["last_message_at"] is not None

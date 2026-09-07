@@ -1866,6 +1866,10 @@ def test_legacy_status_resolves_nested_context_and_submission_scope(
         "room_summary": None,
         "unread_count": 0,
         "active_participants": (),
+        "thread_ids": (),
+        "threads": (),
+        "message_count": 0,
+        "last_message_at": None,
     }
 
 
