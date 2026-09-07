@@ -1,5 +1,31 @@
 # peerhub Backlog (consolidated, 2026-08-27)
 
+> ## CORRECTION (2026-09-07, R:10 ratified: cc+ag.effort+cx) — read this before anything below
+>
+> This doc's running "N/90 execute end-to-end" tally (peaking at 71/90 on 2026-09-02) measures
+> the wrong thing. An empirical audit this session found: (1) the correct count is 70, not 71
+> (the tally formula had a stale +1 adjustment); (2) **`peerhub/cli.py`'s real, shipped CLI has
+> zero callers of `LegacyTranslator`/`ApplicationAPI`'s command bus at all** — every native
+> subcommand (`ask`, `room`, `duty`, `lesson`, `health`, `diag`, `peer`, `status`, `consensus`,
+> `task`) calls its service layer (`RoomsService`, `LessonService`, `HealthService`, etc.)
+> directly. The entire 70/90 `LegacyTranslator` catalog is a tested-but-unreachable
+> compatibility shim with no production entrypoint, not a live parity surface. Full finding:
+> the "Engram+PeerHub vs P: Parity Audit" memory (2026-09-07).
+>
+> **Ratified consequence**: closing the remaining ~20 unbacked `LegacyTranslator` actions (the
+> Tier 4/5 items below) is **deferred indefinitely** — fixing action-count parity against dead
+> code optimizes the wrong metric. This doc's `N/90` tallies below are preserved as an accurate
+> historical record of what was built and why, but should no longer be read as "how close is
+> peerhub to done" — that question is now answered by real native-CLI coverage (see each
+> domain's tests under `tests/unit`, `tests/integration`, and the empirical `tests/e2e` tier),
+> not by this catalog. The one genuinely native (non-translator) gap this audit surfaced —
+> `LessonService.propose()` hardcoding `expires_at=None` with no sweep — was fixed the same
+> night (`LessonService.sweep_expired()` + `peerhub lesson sweep`).
+>
+> Tier 5's items (below) are a different, still-legitimate category — real un-built capability
+> with named re-trigger conditions (daemon process model, Windows privilege elevation, Alembic
+> cutover, etc.) — and remain correctly tracked as deferred-with-trigger, not archived.
+
 > Single source of truth for "what's left." Supersedes hunting across `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`, the README's status lists, and per-gap design docs to answer "what's next" — those documents remain the detailed record of *why* each decision was made; this one is the current, flat *what's outstanding* list, organized by how ready each item is to pick up. Update this doc's tiers as items move, rather than letting the README's own "Designed but not built" / "Explicitly deferred" / "Not yet implemented" lists drift out of sync again (see the "Known drift caught while writing this doc" note at the bottom — that's exactly the failure mode this doc exists to prevent).
 
 #### `report-error` Auto-quarantine Gap Assessment (2026-08-31)
@@ -179,14 +205,22 @@ From the gap-3 dialectical round (`docs/design/HUB-REPLACEMENT-GAP3-SESSION-CONT
 
 ## Tier 3 — Needs its own dialectical round before implementation
 
-Real open design questions, not yet debated. Do not implement before ratifying, per this session's standing architecture-before-implementation rule.
+**STALE SECTION — all 6 items below are now DONE (corrected 2026-09-07).** This section
+was left un-updated after each item was separately ratified and shipped elsewhere in this
+doc, creating exactly the kind of self-contradictory drift this doc exists to prevent (see
+"Known drift caught while writing this doc" below — this is a second instance of the same
+failure mode). Verified directly against source, not just the later prose sections: all 6
+have real `peerhub/cli.py` subcommands and real tests.
 
-- `send` (`coordination.message.send`) — "directed transient message, optional thread/resource pointer, doesn't duplicate substantive thread content" per the gap-3 doc's own table, but never actually debated: what makes it "transient" vs. a thread message, does it persist at all, who can address whom.
-- `mark-read` (`coordination.message.mark_read`) — described as "idempotent read-cursor advance," looks simple, but the underlying read-cursor data model doesn't exist yet (per-participant, per-thread position tracking) — confirm it's actually simple before assuming so.
-- `thread-promote` (`coordination.thread.promote`) — "attach thread to a request/proposal/consensus round; no implicit vote/finalization" is a direction, not a mechanism; what the actual link field/target-type validation looks like was never nailed down the way reactions/context-fill were.
-- `update-status` (`coordination.mission.update`) — not in the gap-3 doc's command table at all; likely belongs to a different, entirely undesigned "mission/status" concept.
-- `check` (`coordination.message.check`) — undiscussed.
-- `arbiter-review` (`consensus.arbiter.review`) — flagged during the `approval-request`/`consensus-sweep`/`lessons-list` batch as having no clean 1:1 existing method on `ConsensusService`; DIR-005's arbiter-authority mapping is policy-ratified (ratification item 41) but the actual command mechanics aren't.
+- ~~`send`~~ — DONE. `peerhub room send`, backed by `RoomsService.send_message()`.
+- ~~`mark-read`~~ — DONE. `peerhub room mark-read`, backed by `RoomsService.mark_read()`.
+- ~~`thread-promote`~~ — DONE. `peerhub room promote-message`, backed by `RoomsService.promote_message()`.
+- ~~`update-status`~~ — DONE. `peerhub room update-status`, backed by `RoomsService.update_room_summary()`.
+- ~~`check`~~ — DONE. `peerhub room check-inbox`, backed by `RoomsService.check_inbox()`. Also
+  covered by a new e2e regression test (2026-09-07,
+  `tests/e2e/test_real_peer_dispatch.py::test_mailbox_send_and_check_inbox_real_delivery`)
+  proving `send`+`check-inbox` round-trip against the real CLI, not just fakes.
+- ~~`arbiter-review`~~ — DONE. `peerhub consensus arbiter-review`, backed by `ArbiterReviewCoordinator`.
 - ~~`lesson-broadcast`~~ — DONE, see Tier 3 ratification item 7.
 
 ## Tier 4 — Entirely new domains, no design work started
