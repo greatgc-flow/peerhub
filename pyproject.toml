@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peerhub"
-version = "0.1.12"
+version = "0.1.13"
 description = "Local transactional coordination for collaborating AI peers"
 readme = "README.md"
 license = "MIT"
