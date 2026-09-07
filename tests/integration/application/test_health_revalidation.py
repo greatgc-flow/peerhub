@@ -115,7 +115,7 @@ def test_healthy_circuit_reconfirmation(runtime_ctx, monkeypatch: pytest.MonkeyP
         )
         
         assert result.probe_outcome == ProbeResult.SUCCESS
-        assert result.admission_state == AdmissionState.RECOVERY_REQUIRED
+        assert result.admission_state == AdmissionState.PROBE_AUTHORIZED
         assert result.circuit_closed is False
 
 
@@ -159,7 +159,7 @@ def test_automatic_recovery_authorization_first(runtime_ctx, monkeypatch: pytest
         
         # Should have successfully claimed a probe and applied success
         assert result.probe_outcome == ProbeResult.SUCCESS
-        assert result.admission_state == AdmissionState.RECOVERY_REQUIRED
+        assert result.admission_state == AdmissionState.PROBE_AUTHORIZED
         assert result.circuit_closed is True
 
 

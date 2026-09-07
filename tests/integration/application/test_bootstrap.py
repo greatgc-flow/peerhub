@@ -222,10 +222,12 @@ def test_create_runtime_health_projection_entrypoint_verified(
         
         assert entry.instance_id == "ag"
         
-        # The actual proof of the fix: the probe was evaluated to UNKNOWN/RECOVERY_REQUIRED
+        # cli-probe evidence on a fresh workspace grants a bounded probe
+        # (PROBING/PROBE_AUTHORIZED), not a dead-end RECOVERY_REQUIRED --
+        # otherwise `ask` could never succeed on any fresh workspace.
         from peerhub.health.contract import AvailabilityState, AdmissionState
-        assert entry.availability_state == AvailabilityState.UNKNOWN
-        assert entry.admission_state == AdmissionState.RECOVERY_REQUIRED
+        assert entry.availability_state == AvailabilityState.PROBING
+        assert entry.admission_state == AdmissionState.PROBE_AUTHORIZED
     finally:
         runtime.close()
 

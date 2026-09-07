@@ -84,7 +84,7 @@ class _DirectAskRouteRequestFactory:
             if (
                 entry.instance_id == self.target.peer_kind 
                 and entry.profile_id == self.target.profile.profile_id
-                and entry.admission_state.value == "OPEN"
+                and entry.admission_state.value in ("OPEN", "PROBE_AUTHORIZED")
                 and entry.availability_state.value not in ("STALE", "UNAVAILABLE")
                 and not entry.profile_gate_backed_off
             ):

@@ -488,9 +488,9 @@ def _refresh_usage_projections(
 
             with runtime.state_store.read_unit_of_work() as uow:
                 return list(uow.list_usage_projections(None))
-    except Exception:
-        return []
-
+    except Exception as e:
+        print(f"Error: failed to refresh usage projections: {e}", file=sys.stderr)
+        raise
 
 def _run_diag(parsed: argparse.Namespace) -> int:
     from peerhub.telemetry.presenter import TelemetryPresenter

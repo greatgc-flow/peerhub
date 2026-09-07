@@ -160,10 +160,10 @@ def evaluate_readiness_evidence(
     if evidence.provider_id == "cli-probe":
         return ReadinessEvaluation(
             readiness_state=ReadinessState.ENTRYPOINT_VERIFIED,
-            availability_state=AvailabilityState.UNKNOWN,
+            availability_state=AvailabilityState.PROBING,
             gate_state=ReadinessGateState.CLOSED,
-            admission_decision=AdmissionDecision.REJECTED,
-            provider_effect_permitted=False,
+            admission_decision=AdmissionDecision.ADMITTED,
+            provider_effect_permitted=True,
             reason_code=None,
             revalidation_action=None,
             zero_dispatch_calls=False,
@@ -295,7 +295,7 @@ def resolve_admission_state(
         (
             ReadinessState.ENTRYPOINT_VERIFIED,
             ReadinessGateState.CLOSED,
-        ): AdmissionState.RECOVERY_REQUIRED,
+        ): AdmissionState.PROBE_AUTHORIZED,
         (
             ReadinessState.PROBE_INCONCLUSIVE,
             ReadinessGateState.CLOSED,

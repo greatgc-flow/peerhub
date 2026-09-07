@@ -309,7 +309,7 @@ class TelemetryPresenter:
         cx_projections = [p for p in projections if p.instance_id == "cx"]
         # 2. AG Telemetry (Prioritize active live stdin log)
         ag_data: Dict[str, Any] = {
-            "state": "OPEN",
+            "state": "UNKNOWN",
             "context_str": "--",
             "cost_str": "--",
             "src": "STAT",
@@ -395,7 +395,7 @@ class TelemetryPresenter:
 
         # 3. CC Telemetry — uses real polled projection data from the telemetry pipeline
         cc_data: Dict[str, Any] = {
-            "state": "OPEN",
+            "state": "UNKNOWN",
             "context_str": "0k / 1M (0%)",
             "cost_str": "--",
             "src": "STAT",
@@ -445,7 +445,7 @@ class TelemetryPresenter:
         cx_used_k = int(cx_used / 1000)
         cx_win_k = f"{int(cx_win / 1000)}k" if cx_win < 1000000 else f"{int(cx_win / 1000000)}M"
         cx_data: Dict[str, Any] = {
-            "state": "OPEN",
+            "state": "UNKNOWN",
             "context_str": f"{cx_used_k}k / {cx_win_k} ({cx_pct:.0f}%)",
             "cost_str": "--",
             "src": "APP",
@@ -467,43 +467,59 @@ class TelemetryPresenter:
 
         # 5. Dynamic Alerts (Badges)
         alert_badges: list[str] = []
+        has_data = False
         for peer_name, p_dict in (("AG", ag_data), ("CC", cc_data), ("CX", cx_data)):
             for pool in p_dict.get("pools", []):
+                has_data = True
                 pname = pool.get("name", "pool")
                 rem = pool.get("remaining_fraction", 1.0)
                 used_pct = (1.0 - rem) * 100.0
-                if used_pct >= 90.0:
+                status_icon = pool.get("status_icon", "🟢")
+                
+                if used_pct >= 90.0 or status_icon == "🔴":
                     alert_badges.append(f"[{peer_name} {pname} {used_pct:.0f}% 🔴]")
-                elif used_pct >= 75.0:
+                elif used_pct >= 75.0 or status_icon == "🟡":
                     alert_badges.append(f"[{peer_name} {pname} {used_pct:.0f}% 🟡]")
+                    
+        snapshot_has_data = has_data
 
-        # 6. Dynamic Routing & Headroom Calculation
-        g_rem = ag_data["pools"][1]["remaining_fraction"] if len(ag_data["pools"]) > 1 else 0.05
-        p3_rem = ag_data["pools"][0]["remaining_fraction"] if ag_data["pools"] else 0.83
-        cc_rem = cc_data["pools"][0]["remaining_fraction"] if cc_data["pools"] else 0.0
-        cx_rem = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else 0.0
+        g_rem = ag_data["pools"][1]["remaining_fraction"] if len(ag_data["pools"]) > 1 else None
+        p3_rem = ag_data["pools"][0]["remaining_fraction"] if ag_data["pools"] else None
+        cc_rem = cc_data["pools"][0]["remaining_fraction"] if cc_data["pools"] else None
+        cx_rem = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else None
 
         ag_ctx_headroom = max(0, min(100, round(100.0 - ag_pct)))
         cx_ctx_headroom = max(0, min(100, round(100.0 - cx_pct)))
         cc_ctx_headroom = max(0, min(100, round(100.0 - cc_pct)))
 
-        ag_headroom = round(min(g_rem, ag_ctx_headroom / 100.0) * 100.0)
-        cx_headroom = round(min(cx_rem, cx_ctx_headroom / 100.0) * 100.0)
-        cc_headroom = round(min(cc_rem, cc_ctx_headroom / 100.0) * 100.0)
-        opus_quota = round(p3_rem * 100.0)
+        ag_headroom = round(min(g_rem, ag_ctx_headroom / 100.0) * 100.0) if g_rem is not None else "--"
+        cx_headroom = round(min(cx_rem, cx_ctx_headroom / 100.0) * 100.0) if cx_rem is not None else "--"
+        cc_headroom = round(min(cc_rem, cc_ctx_headroom / 100.0) * 100.0) if cc_rem is not None else "--"
+        opus_quota = round(p3_rem * 100.0) if p3_rem is not None else "--"
 
-        best_target = "cx.deepthink" if cx_headroom >= ag_headroom else "ag.deepthink"
-        best_hr = f"{max(cx_headroom, ag_headroom)}%"
+        num_ag_hr = ag_headroom if isinstance(ag_headroom, int) else ag_ctx_headroom
+        num_cx_hr = cx_headroom if isinstance(cx_headroom, int) else cx_ctx_headroom
+        best_target = "cx.deepthink" if num_cx_hr >= num_ag_hr else "ag.deepthink"
+        best_hr = f"{max(num_cx_hr, num_ag_hr)}%"
 
         routing_rows = [
-            {"profile": "cx.deepthink", "display_name": "cx.deepthink (Codex)", "state": "eligible", "headroom": f"{cx_headroom}%", "quota": f"{cx_rem*100:.0f}%", "ctx": f"{cx_ctx_headroom}%", "effort": "xhigh", "notes": "Active Failover Target", "is_active": best_target == "cx.deepthink"},
-            {"profile": "ag.deepthink", "display_name": "ag.deepthink (Gemini)", "state": "eligible", "headroom": f"{ag_headroom}%", "quota": f"{g_rem*100:.0f}%", "ctx": f"{ag_ctx_headroom}%", "effort": "high", "notes": "Secondary Tier", "is_active": best_target == "ag.deepthink"},
-            {"profile": "ag.opus", "display_name": "ag.opus (Claude 3.7)", "state": "manual_only", "headroom": "--", "quota": f"{opus_quota}%", "ctx": "--", "effort": "high", "notes": "Manual On-Demand Only", "is_active": False},
-            {"profile": "cc.effort", "display_name": "cc.effort (Claude)", "state": "eligible", "headroom": f"{cc_headroom}%", "quota": f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0 else f"{cc_rem*100:.0f}%", "ctx": f"{cc_ctx_headroom}%", "effort": "high", "notes": "Weekly Limit Hit" if cc_rem == 0 else "Active", "is_active": False},
+            {"profile": "cx.deepthink", "display_name": "cx.deepthink (Codex)", "state": "eligible", "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%", "effort": "xhigh", "is_active": best_target == "cx.deepthink"},
+            {"profile": "ag.deepthink", "display_name": "ag.deepthink (Gemini)", "state": "eligible", "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%", "effort": "high", "is_active": best_target == "ag.deepthink"},
+            {"profile": "ag.opus", "display_name": "ag.opus (Claude 3.7)", "state": "manual_only", "headroom": "--", "quota": f"{opus_quota}%" if opus_quota != "--" else "--", "ctx": "--", "effort": "high", "is_active": False},
+            {"profile": "cc.effort", "display_name": "cc.effort (Claude)", "state": "eligible", "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%", "effort": "high", "is_active": False},
         ]
+        
+        for row in routing_rows:
+            if row["profile"] == "ag.opus":
+                row["notes"] = "Manual On-Demand Only"
+            elif row["profile"] == "cc.effort":
+                row["notes"] = "Weekly Limit Hit" if cc_rem == 0.0 else "Active"
+            else:
+                row["notes"] = "Active Failover Target" if row["is_active"] else "Secondary Tier"
 
         _failover_display_names = {"cx.deepthink": "CX (Codex)", "ag.deepthink": "AG (Gemini)"}
         return {
+            "has_data": snapshot_has_data,
             "alert_badges": alert_badges,
             "failover_target": _failover_display_names.get(best_target, best_target),
             "failover_profile": best_target,
@@ -539,9 +555,12 @@ class TelemetryPresenter:
         lines.append(f" 🎯 Failover: {self._c(failover_target, 'green', 'bold')} ({failover_hr} Headroom)")
 
         badges = snapshot.get("alert_badges", [])
+        has_data = snapshot.get("has_data", True)
         if badges:
             badge_str = " ".join(badges)
             lines.append(f" ⚠️  Quota Status: {badge_str}")
+        elif not has_data:
+            lines.append(f" ⚪ Quota Status: Unknown (No quota data available)")
         else:
             lines.append(f" 🟢 Quota Status: All peer quotas healthy")
 
@@ -551,7 +570,7 @@ class TelemetryPresenter:
 
         peers: Dict[str, Any] = snapshot.get("peers", {})
         for peer_id, pdata in peers.items():
-            state = pdata.get("state", "OPEN")
+            state = pdata.get("state", "UNKNOWN")
             ctx_str = pdata.get("context_str", "--")
             cost_str = pdata.get("cost_str", "--")
             state_colored = self._c(f"🟢 {state}", "green" if state == "OPEN" else "red")

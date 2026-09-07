@@ -50,8 +50,9 @@ include = ["peerhub*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
-addopts = "-ra -m 'not slow'"
+addopts = "-ra -m 'not slow and not e2e'"
 timeout = 60
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "e2e: marks tests as End-to-End tier (deselect with '-m \"not e2e\"')",
 ]
