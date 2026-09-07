@@ -159,12 +159,16 @@ def test_codex_plan_invocation_session_resume_uses_exact_argv():
         "codex.cmd",
         "exec",
         "resume",
+        "--skip-git-repo-check",
+        "-c",
+        'model="gpt-5.6-luna"',
         "--json",
         "019c1234-5678-7abc-8def-0123456789ab",
         "Hello",
     )
     assert plan.redacted_display == (
-        "codex.cmd exec resume --json <session-id> <redacted>"
+        "codex.cmd exec resume --skip-git-repo-check "
+        "-c model=\"gpt-5.6-luna\" --json <session-id> <redacted>"
     )
     assert plan.session_action == SessionAction.RESUME
 
@@ -200,8 +204,13 @@ def test_codex_plan_invocation_session_none_is_unchanged():
         _request(SessionAction.NONE), _profile(), None, _limits()
     )
 
-    assert plan.argv == ("codex.cmd", "exec", "--json", "Hello")
-    assert plan.redacted_display == "codex.cmd exec --json <redacted>"
+    assert plan.argv == (
+        "codex.cmd", "exec", "--skip-git-repo-check",
+        "-c", 'model="gpt-5.6-luna"', "--json", "Hello",
+    )
+    assert plan.redacted_display == (
+        "codex.cmd exec --skip-git-repo-check -c model=\"gpt-5.6-luna\" --json <redacted>"
+    )
     assert plan.session_action == SessionAction.NONE
 
 

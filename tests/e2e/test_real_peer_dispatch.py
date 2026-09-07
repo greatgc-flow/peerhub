@@ -24,6 +24,30 @@ def test_bug1_direct_ask_admission(tmp_path):
     assert "request was not admitted" not in result.stdout
 
 @pytest.mark.e2e
+def test_bug_codex_trusted_directory_check_on_fresh_non_git_workspace(tmp_path):
+    """
+    Regression test: codex.cmd refuses to run outside a directory it
+    considers a trusted git repo ("Not inside a trusted directory and
+    --skip-git-repo-check was not specified"), which peerhub's codex
+    adapter never passed. Invisible to the rest of the suite because the
+    slow, real `RealCodexAdapter` integration test always runs with
+    workspace_scope="." from inside the peerhub git repo itself -- this
+    only reproduces on a genuinely fresh, non-git workspace, found via a
+    real install in a brand-new directory outside any git repo.
+    """
+    cmd = [
+        sys.executable, "-m", "peerhub.cli",
+        "ask", "cx",
+        "Reply with FIX VERIFIED",
+        "--capability-tier", "READ_ONLY",
+        "--workspace", str(tmp_path)
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    assert "trusted directory" not in result.stderr
+    assert "trusted directory" not in result.stdout
+
+@pytest.mark.e2e
 def test_bug2_diag_consistency(tmp_path):
     """
     Regression test for Bug 2: diag output consistency.

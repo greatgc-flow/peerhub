@@ -46,8 +46,8 @@ def test_codex_evidence_offloading_fresh(tmp_path: pathlib.Path):
         limits=limits,
     )
     
-    # argv for fresh: codex.cmd exec --json <prompt>
-    prompt = plan.argv[3]
+    # argv for fresh: codex.cmd exec --skip-git-repo-check -c model="..." --json <prompt>
+    prompt = plan.argv[-1]
     
     # (a) Under threshold gets inlined normally
     assert "small payload" in prompt
@@ -157,8 +157,8 @@ def test_codex_evidence_offloading_resume(tmp_path: pathlib.Path):
         limits=limits,
     )
     
-    # argv for resume: codex.cmd exec resume --json <session_id> <prompt>
-    prompt = plan.argv[5]
+    # argv for resume: codex.cmd exec resume --skip-git-repo-check -c model="..." --json <session_id> <prompt>
+    prompt = plan.argv[-1]
     
     # (a) Under threshold gets inlined normally
     assert "small payload" in prompt

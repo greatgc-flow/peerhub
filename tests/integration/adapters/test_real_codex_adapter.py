@@ -42,7 +42,10 @@ def test_real_codex_adapter_shells_out():
         session=None,
         limits=limits,
     )
-    assert plan.argv == ("codex.cmd", "exec", "--json", "say hello in two words")
+    assert plan.argv == (
+        "codex.cmd", "exec", "--skip-git-repo-check",
+        "-c", 'model="gpt-5.6-luna"', "--json", "say hello in two words",
+    )
     
     # 2. Execute
     proc = subprocess.run(

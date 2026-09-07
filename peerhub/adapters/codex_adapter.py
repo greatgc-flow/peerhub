@@ -48,6 +48,10 @@ _CODEX_PROFILE = ProfileDescriptor(
     supports_reasoning_effort=False,
 )
 
+# See the model_override comment in plan_invocation() for why this is pinned
+# explicitly rather than left to codex's own account-side default.
+_CODEX_MODEL_OVERRIDE = "gpt-5.6-luna"
+
 _CODEX_DESCRIPTOR = PeerDescriptor(
     adapter_id="codex-peer",
     adapter_version="1.0.0",
@@ -326,6 +330,17 @@ class RealCodexAdapter:
         else:
             exec_argv = ("codex.cmd",)
 
+        # Pin an explicit, empirically-verified-working model rather than
+        # relying on codex's own account-side default: a codex account's
+        # default model can be bumped by the provider ahead of whatever
+        # codex CLI version is actually installed (observed live: a fresh
+        # install's default resolved to a model requiring "a newer version
+        # of Codex" than the installed CLI, failing every dispatch with no
+        # override). _CODEX_MODEL_OVERRIDE should be re-verified (a real
+        # `codex exec -c model="..."` invocation, not just an unchanged
+        # exit code) whenever codex.cmd is upgraded.
+        model_override = ("-c", f'model="{_CODEX_MODEL_OVERRIDE}"')
+
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
                 raise ValueError("external_session_id is required for RESUME")
@@ -333,16 +348,22 @@ class RealCodexAdapter:
                 *exec_argv,
                 "exec",
                 "resume",
+                "--skip-git-repo-check",
+                *model_override,
                 "--json",
                 session.external_session_id,
                 prompt,
             )
             redacted_display = (
-                "codex.cmd exec resume --json <session-id> <redacted>"
+                "codex.cmd exec resume --skip-git-repo-check "
+                f"-c model=\"{_CODEX_MODEL_OVERRIDE}\" --json <session-id> <redacted>"
             )
         else:
-            argv = (*exec_argv, "exec", "--json", prompt)
-            redacted_display = "codex.cmd exec --json <redacted>"
+            argv = (*exec_argv, "exec", "--skip-git-repo-check", *model_override, "--json", prompt)
+            redacted_display = (
+                "codex.cmd exec --skip-git-repo-check "
+                f"-c model=\"{_CODEX_MODEL_OVERRIDE}\" --json <redacted>"
+            )
 
         # No explicit --sandbox flag: inherits config.toml's sandbox_mode.
         # If workspace_scope resolves through a SUBST/junction alias whose
