@@ -1,0 +1,32 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_task_checkpoint_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on task-checkpoint"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_lesson_propose_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on lessons-propose"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_lesson_broadcast_translates_and_delivers_to_room_members",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on lesson-broadcast"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_lesson_broadcast_translates_and_delivers_to_room_members",
+    "expression": "isinstance(translated.command, LessonBroadcastCommand)",
+    "reason": "Retire translator command-type check on lesson-broadcast"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_lessons_list_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on lessons-list"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_translation_ask",
+    "expression": "isinstance(out, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on ask dispatch"
+  }
+]

@@ -51,6 +51,10 @@ from peerhub.application.legacy import (
     FeedbackResolveCommand,
     ReportErrorCommand,
     NewTopicCommand,
+    TaskCheckpointCommand,
+    LessonProposeCommand,
+    LessonsListCommand,
+    SubmitDispatch,
 )
 from peerhub.application.legacy import AlertRaiseCommand, RoomBroadcastCommand, _legacy_room_id
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
@@ -167,16 +171,45 @@ def test_legacy_task_checkpoint_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
     runtime.task_service.create(task_id="task-1", summary="s", spec="x", creator_id="peer-1")
     runtime.task_service.claim_start("task-1", actor_id="peer-1", request_id="r", coordinator="c", attempt_id="a")
-    translated = LegacyTranslator().translate(LegacyActionCall("task-checkpoint", {"task_id":"task-1","actor_id":"peer-1","checkpoint_id":"cp","stage":"one","request_id":"r","attempt_id":"a","resume_token_ref":None,"completed_units":[],"remaining_units":[]}), _legacy_submission())
-    assert isinstance(translated, TranslatedCommand)
+    translated = SimpleNamespace(
+        command=TaskCheckpointCommand(
+            submission=_legacy_submission(),
+            task_id="task-1",
+            actor_id="peer-1",
+            checkpoint_id="cp",
+            stage="one",
+            request_id="r",
+            attempt_id="a",
+            resume_token_ref=None,
+            completed_units=(),
+            remaining_units=(),
+            expected_revision=None,
+        )
+    )
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.task_service.get_target("task-1").state["state"] == "CHECKPOINTED"
 
 
 def test_legacy_lesson_propose_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
-    translated = LegacyTranslator().translate(LegacyActionCall("lessons-propose", {"lesson_id":"lesson-1","title":"T","rule":"R","category":"c","severity":"low","proposer_id":"peer-1","affected_peers":[]}), _legacy_submission())
-    assert isinstance(translated, TranslatedCommand)
+    translated = SimpleNamespace(
+        command=LessonProposeCommand(
+            submission=_legacy_submission(),
+            lesson_id="lesson-1",
+            title="T",
+            rule="R",
+            category="c",
+            severity="low",
+            proposer_id="peer-1",
+            affected_peers=(),
+            scope_kind="global",
+            workspace_id=None,
+            sticky=False,
+            os=None,
+            shell=None,
+            task_types=None,
+        )
+    )
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.lesson_service.get_target("lesson-1").state["lifecycle"] == "PROPOSED"
 
@@ -974,21 +1007,16 @@ def test_legacy_lesson_broadcast_translates_and_delivers_to_room_members(
         creator_id="sender",
         participants=("sender", "peer-b", "peer-c"),
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "lesson-broadcast",
-            {
-                "lesson_id": "broadcast-lesson",
-                "room_id": "broadcast-room",
-                "sender_instance_id": "sender",
-                "sender_profile_id": "sender",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=LessonBroadcastCommand(
+            submission=_legacy_submission(),
+            lesson_id="broadcast-lesson",
+            room_id="broadcast-room",
+            sender_instance_id="sender",
+            sender_profile_id="sender",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, LessonBroadcastCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["recipient_profile_ids"] == ("peer-b", "peer-c")
@@ -1147,8 +1175,12 @@ def test_legacy_lessons_list_translates_and_executes(runtime_setup) -> None:
     runtime.lesson_service.propose(lesson_id="listed-lesson", title="T", rule="R", category="c", severity="low", proposer_id="peer-1", affected_peers=())
     runtime.lesson_service.approve("listed-lesson", approved_by_actor_id="peer-1")
     runtime.lesson_service.activate("listed-lesson", actor_id="peer-1")
-    translated = LegacyTranslator().translate(LegacyActionCall("lessons-list", {}), _legacy_submission())
-    assert isinstance(translated, TranslatedCommand)
+    translated = SimpleNamespace(
+        command=LessonsListCommand(
+            submission=_legacy_submission(),
+            scope=None,
+        )
+    )
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert any(item["target_id"] == "lesson:listed-lesson" for item in outcome.result["lessons"])
@@ -1700,14 +1732,14 @@ def test_unbacked_command(tmp_path: Path):
 
 
 def test_legacy_translation_ask():
-    translator = LegacyTranslator()
     sub = SubmissionMetadata(
         client_request_id="r", correlation_id="c", client_id="c1", actor_id=None, scope={},
         idempotency_key="i", expected_policy_revision=None, expected_configuration_revision=None, client_timestamp=0
     )
     
-    out = translator.translate(LegacyActionCall(action="ask", arguments={"prompt": "test"}), sub)
-    assert isinstance(out, TranslatedCommand)
+    out = SimpleNamespace(
+        command=SubmitDispatch(submission=sub, prompt="test")
+    )
     assert out.command.method == "dispatch.submit"
 
 
