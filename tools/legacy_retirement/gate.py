@@ -109,6 +109,23 @@ class EvidencePlugin:
         })
 
 
+# Module-level free functions in legacy.py confirmed (by exhaustive
+# repo-wide grep, not assumption) to have zero callers anywhere except
+# LegacyTranslator.translate()'s own argument-parsing dispatch -- they
+# exist solely to serve the translator and become genuinely dead once it
+# is removed, exactly like the class body itself. Excluded here so a
+# rewrite batch isn't pressured into padding coverage with meaningless
+# calls just to keep these numbers up (see batch 2 review notes).
+# `_legacy_room_id` is deliberately NOT included: it has its own direct
+# unit coverage in test_stage2_boundary.py (batch 9), so its exclusion is
+# that batch's decision to make together with that test's fate, not this
+# one's.
+_TRANSLATOR_ONLY_HELPER_FUNCTIONS = frozenset({
+    "_string_tuple", "_optional_int", "_int_or_zero", "_bool_or_false",
+    "_optional_first_text", "_optional_legacy_text", "_first_text",
+})
+
+
 def production_coverage(cov, root):
     result = {}
     for path in sorted((root / "peerhub").rglob("*.py")):
@@ -120,6 +137,12 @@ def production_coverage(cov, root):
             if len(classes) > 1:
                 raise ValueError("Ambiguous LegacyTranslator exclusion")
             for node in classes:
+                start = min([node.lineno] + [d.lineno for d in node.decorator_list])
+                excluded.update(range(start, node.end_lineno + 1))
+            helpers = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in _TRANSLATOR_ONLY_HELPER_FUNCTIONS]
+            if len({n.name for n in helpers}) != len(_TRANSLATOR_ONLY_HELPER_FUNCTIONS):
+                raise ValueError("Expected translator-only helper function missing or duplicated")
+            for node in helpers:
                 start = min([node.lineno] + [d.lineno for d in node.decorator_list])
                 excluded.update(range(start, node.end_lineno + 1))
         # coverage has no public API exposing all possible arcs. Version is

@@ -1,0 +1,57 @@
+[
+  {
+    "nodeid": "tests/integration/test_file_locks.py::test_legacy_translation_locks",
+    "expression": "isinstance(acquire_cmd, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on lock acquire. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/test_file_locks.py::test_legacy_translation_locks",
+    "expression": "isinstance(status_cmd, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on lock status. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/test_file_locks.py::test_legacy_translation_locks",
+    "expression": "isinstance(release_cmd, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on lock release. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(claim, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on artifact claim. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(claim.command, ArtifactClaimCommand)",
+    "reason": "Retire translator command-type check on artifact claim. Command is now constructed directly as ArtifactClaimCommand."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(draft, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on artifact draft status. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(draft.command, ArtifactStatusCommand)",
+    "reason": "Retire translator command-type check on artifact draft status. Command is now constructed directly as ArtifactStatusCommand."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(status, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on artifact status. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(status.command, ArtifactStatusCommand)",
+    "reason": "Retire translator command-type check on artifact status. Command is now constructed directly as ArtifactStatusCommand."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(finalize, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on artifact finalize. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/test_artifact_records.py::test_all_three_legacy_actions_translate_and_execute",
+    "expression": "isinstance(finalize.command, ArtifactFinalizeCommand)",
+    "reason": "Retire translator command-type check on artifact finalize. Command is now constructed directly as ArtifactFinalizeCommand."
+  }
+]
