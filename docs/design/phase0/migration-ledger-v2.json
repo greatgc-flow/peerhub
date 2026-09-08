@@ -2,7 +2,7 @@
   "meta": {
     "schema_version": "2.0",
     "generator": "tools/migration_ledger/generate_ledger.py",
-    "note": "Authoritative migration ledger v2"
+    "note": "Historical record of the legacy CLI action -> peerhub command mapping. No longer authoritative: the LegacyTranslator that implemented this mapping was fully retired in 2026-09-09; all listed legacy actions now have permanent native Command equivalents, exercised directly in tests/unit/application/test_command_wire_contracts.py."
   },
   "ledger": [
     {

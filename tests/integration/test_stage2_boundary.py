@@ -12,12 +12,6 @@ from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetD
 from peerhub.application.legacy import (
     ApprovalRequestCommand,
     ConsensusSweepCommand,
-    LegacyTranslator,
-    LegacyActionCall,
-    InvalidLegacyArguments,
-    KnownLegacyActionNotBacked,
-    TranslatedCommand,
-    LEGACY_CATALOG,
     AppendHandoffCommand,
     ConsensusProposeCommand,
     ContextFillCommand,
@@ -56,7 +50,7 @@ from peerhub.application.legacy import (
     LessonsListCommand,
     SubmitDispatch,
 )
-from peerhub.application.legacy import AlertRaiseCommand, RoomBroadcastCommand, _legacy_room_id
+from peerhub.application.legacy import AlertRaiseCommand, RoomBroadcastCommand, legacy_room_id
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
 from peerhub.core.execution import ExecutionCertainty
@@ -1772,11 +1766,11 @@ def test_legacy_status_resolves_explicit_room_argument(runtime_setup) -> None:
         body="legacy status mail",
     )
 
-    assert _legacy_room_id(arguments, {"room": "room-newer"}) == "room-explicit"
+    assert legacy_room_id(arguments, {"room": "room-newer"}) == "room-explicit"
     outcome = SimpleNamespace(
         command=StatusReadCommand(
             submission=_legacy_submission(),
-            room_id=_legacy_room_id(arguments, {"room": "room-newer"}),
+            room_id=legacy_room_id(arguments, {"room": "room-newer"}),
         )
     )
 
@@ -1833,11 +1827,11 @@ def test_legacy_status_resolves_nested_context_and_submission_scope(
         client_timestamp=0,
     )
 
-    assert _legacy_room_id(arguments, scope) == expected_room_id
+    assert legacy_room_id(arguments, scope) == expected_room_id
     outcome = SimpleNamespace(
         command=StatusReadCommand(
             submission=submission,
-            room_id=_legacy_room_id(arguments, scope),
+            room_id=legacy_room_id(arguments, scope),
         )
     )
 
@@ -1870,7 +1864,7 @@ def test_legacy_status_rejects_empty_room_context_without_fallback(
         )
     rooms_before = tuple(runtime.governance_broker.list_targets("room"))
 
-    assert _legacy_room_id({}, {}) == ""
+    assert legacy_room_id({}, {}) == ""
     assert tuple(runtime.governance_broker.list_targets("room")) == rooms_before
 
 

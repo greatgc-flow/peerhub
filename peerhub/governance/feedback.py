@@ -5,7 +5,7 @@ It coordinates with no other domain, so it lives here beside ``LessonService``
 and ``ConsensusService`` rather than in ``peerhub.application`` (where
 ``PeerRegistryService``/``RoleAssignmentService`` live because they reach
 across the adapters/health boundaries). The ``governance.feedback.*`` method
-namespace already recorded in ``LEGACY_CATALOG`` matches that placement.
+namespace matches that placement.
 """
 
 from __future__ import annotations
