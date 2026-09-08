@@ -6,19 +6,13 @@ import json
 from pathlib import Path
 
 from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    EffectStatusCommand,
-    InvalidLegacyArguments,
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-)
+from peerhub.application.legacy import EffectStatusCommand
 from peerhub.cli import main
 from peerhub.client import Client
 from peerhub.core.context import PathLayout, RuntimeContext
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.ports import RequestContext
-from peerhub.core.protocol import CommandSuccess
+from peerhub.core.protocol import CommandFailure, CommandSuccess, ErrorCode
 from peerhub.governance.contract import EffectIntent, EffectOutcome
 from peerhub.governance.invariant_requests import (
     RATIFIED_INVARIANT_EFFECT_KIND,
@@ -205,25 +199,27 @@ def test_effect_status_zero_unfinished_effects(tmp_path: Path) -> None:
     }
 
 
-def test_broker_status_legacy_translation() -> None:
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            action="broker-status", arguments={"limit": 2}
-        ),
-        _submission(),
-    )
-    invalid = LegacyTranslator().translate(
-        LegacyActionCall(
-            action="broker-status", arguments={"limit": 21}
-        ),
-        _submission(key="invalid"),
-    )
+def test_broker_status_legacy_translation(tmp_path: Path) -> None:
+    with _runtime(tmp_path) as runtime:
+        client = _client(runtime)
+        command = EffectStatusCommand(_submission(), limit=2)
+        assert command.method == "governance.effect.status"
+        assert command.limit == 2
+        outcome = client.submit(command)
+        assert isinstance(outcome, CommandSuccess)
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, EffectStatusCommand)
-    assert translated.command.method == "governance.effect.status"
-    assert translated.command.limit == 2
-    assert isinstance(invalid, InvalidLegacyArguments)
+        # Native contract: collect_effect_status() enforces the same 1-20
+        # limit range at execution time that the (now-retired) translator
+        # enforced at argument-parsing time (peerhub/application/
+        # broker_status.py:22, MAX_VISIBLE_EFFECT_DELIVERIES=20). Verified
+        # empirically: the handler's ValueError is caught by the API layer
+        # and surfaced as a real CommandFailure, not a raised exception.
+        invalid_outcome = client.submit(
+            EffectStatusCommand(_submission(key="invalid"), limit=21)
+        )
+        assert isinstance(invalid_outcome, CommandFailure)
+        assert invalid_outcome.error.code == ErrorCode.INVALID_PARAMS
+        assert "limit must be an integer between 1 and 20" in invalid_outcome.error.message
 
 
 def test_cli_broker_status_json(tmp_path: Path, capsys) -> None:

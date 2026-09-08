@@ -1,0 +1,47 @@
+[
+  {
+    "nodeid": "tests/integration/application/test_broker_status.py::test_broker_status_legacy_translation",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on broker-status. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_broker_status.py::test_broker_status_legacy_translation",
+    "expression": "isinstance(translated.command, EffectStatusCommand)",
+    "reason": "Retire translator command-type check on broker-status. Command is now constructed directly as EffectStatusCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_broker_status.py::test_broker_status_legacy_translation",
+    "expression": "translated.command.method == 'governance.effect.status'",
+    "reason": "Retire translator method attribute check on broker-status. EffectStatusCommand defines method on the class directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_broker_status.py::test_broker_status_legacy_translation",
+    "expression": "translated.command.limit == 2",
+    "reason": "Retire translator limit parameter mapping check. EffectStatusCommand is constructed with limit parameter directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_broker_status.py::test_broker_status_legacy_translation",
+    "expression": "isinstance(invalid, InvalidLegacyArguments)",
+    "reason": "Retire translator InvalidLegacyArguments rejection check on broker-status out-of-range limit."
+  },
+  {
+    "nodeid": "tests/integration/application/test_proposals.py::test_legacy_translation_for_both_actions_executes",
+    "expression": "isinstance(translated_add, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on proposal-add. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_proposals.py::test_legacy_translation_for_both_actions_executes",
+    "expression": "isinstance(translated_add.command, ProposalAddCommand)",
+    "reason": "Retire translator command-type check on proposal-add. Command is now constructed directly as ProposalAddCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_proposals.py::test_legacy_translation_for_both_actions_executes",
+    "expression": "isinstance(translated_vote, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on proposal-vote. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_proposals.py::test_legacy_translation_for_both_actions_executes",
+    "expression": "isinstance(translated_vote.command, ProposalVoteCommand)",
+    "reason": "Retire translator command-type check on proposal-vote. Command is now constructed directly as ProposalVoteCommand."
+  }
+]

@@ -11,11 +11,8 @@ import pytest
 
 from peerhub.application.commands import SubmissionMetadata
 from peerhub.application.legacy import (
-    LegacyActionCall,
-    LegacyTranslator,
     ProposalAddCommand,
     ProposalVoteCommand,
-    TranslatedCommand,
 )
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.proposals import (
@@ -497,41 +494,27 @@ def test_legacy_translation_for_both_actions_executes(tmp_path: Path) -> None:
                 client_id="proposal-client",
             ),
         )
-        translated_add = LegacyTranslator().translate(
-            LegacyActionCall(
-                "proposal-add",
-                {
-                    "subject": "Legacy execution",
-                    "from": "cc",
-                    "impact": "med",
-                    "detail": "because",
-                    "text": "change",
-                },
-            ),
-            _submission("add"),
+        cmd_add = ProposalAddCommand(
+            submission=_submission("add"),
+            subject="Legacy execution",
+            from_peer="cc",
+            impact="med",
+            rationale="because",
+            text="change",
         )
-        assert isinstance(translated_add, TranslatedCommand)
-        assert isinstance(translated_add.command, ProposalAddCommand)
-        add_outcome = client.submit(translated_add.command)
+        add_outcome = client.submit(cmd_add)
         assert isinstance(add_outcome, CommandSuccess)
         round_id = add_outcome.result["round_id"]
         assert isinstance(round_id, str)
 
-        translated_vote = LegacyTranslator().translate(
-            LegacyActionCall(
-                "proposal-vote",
-                {
-                    "proposal_id": round_id,
-                    "voter": "cc",
-                    "vote": "agree",
-                    "reason": "yes",
-                },
-            ),
-            _submission("vote"),
+        cmd_vote = ProposalVoteCommand(
+            submission=_submission("vote"),
+            proposal_id=round_id,
+            voter="cc",
+            vote="agree",
+            reason="yes",
         )
-        assert isinstance(translated_vote, TranslatedCommand)
-        assert isinstance(translated_vote.command, ProposalVoteCommand)
-        vote_outcome = client.submit(translated_vote.command)
+        vote_outcome = client.submit(cmd_vote)
         assert isinstance(vote_outcome, CommandSuccess)
         assert vote_outcome.result["choice"] == "agree"
 
