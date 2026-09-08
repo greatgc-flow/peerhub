@@ -13,9 +13,6 @@ from peerhub.application.leadership import LeadershipMonopolyError
 from peerhub.application.legacy import (
     DiscoverCandidatesCommand,
     ElectLeaderCommand,
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
 )
 from peerhub.cli import main
 from peerhub.client import Client
@@ -297,32 +294,23 @@ def test_legacy_discover_and_elect_execute_through_command_api(
             None,
             1000,
         )
-        translated = LegacyTranslator().translate(
-            LegacyActionCall(
-                "discover", {"needs": "code-generation", "effort": "mid"}
-            ),
-            submission,
+        command = DiscoverCandidatesCommand(
+            submission=submission,
+            needs="code-generation",
+            effort="mid",
         )
-        assert isinstance(translated, TranslatedCommand)
-        assert isinstance(translated.command, DiscoverCandidatesCommand)
-        result = client.submit(translated.command)
+        result = client.submit(command)
         assert isinstance(result, CommandSuccess)
         assert result.result["ordered_matches"][0]["node_id"] == "cx"
 
-        translated = LegacyTranslator().translate(
-            LegacyActionCall(
-                "elect-leader",
-                {
-                    "needs": "code-generation",
-                    "effort": "mid",
-                    "reason": "legacy-test",
-                },
-            ),
-            submission,
+        command = ElectLeaderCommand(
+            submission=submission,
+            actor_id="operator",
+            needs="code-generation",
+            effort="mid",
+            reason="legacy-test",
         )
-        assert isinstance(translated, TranslatedCommand)
-        assert isinstance(translated.command, ElectLeaderCommand)
-        result = client.submit(translated.command)
+        result = client.submit(command)
         assert isinstance(result, CommandSuccess)
         assert result.result["selected_node_id"] == "cx"
         assert result.result["outcome"] == "CLAIMED"

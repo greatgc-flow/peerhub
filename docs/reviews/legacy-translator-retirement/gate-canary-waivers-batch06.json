@@ -1,0 +1,22 @@
+[
+  {
+    "nodeid": "tests/integration/application/test_capability_matching.py::test_legacy_discover_and_elect_execute_through_command_api",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on discover action. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_capability_matching.py::test_legacy_discover_and_elect_execute_through_command_api",
+    "expression": "isinstance(translated.command, DiscoverCandidatesCommand)",
+    "reason": "Retire translator command-type check on discover action. Command is now constructed directly as DiscoverCandidatesCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_capability_matching.py::test_legacy_discover_and_elect_execute_through_command_api",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on elect-leader action. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_capability_matching.py::test_legacy_discover_and_elect_execute_through_command_api",
+    "expression": "isinstance(translated.command, ElectLeaderCommand)",
+    "reason": "Retire translator command-type check on elect-leader action. Command is now constructed directly as ElectLeaderCommand."
+  }
+]
