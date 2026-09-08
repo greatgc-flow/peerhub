@@ -206,6 +206,49 @@ class ComparatorControls(unittest.TestCase):
                   "reason": "Claimed translator-only, but not actually LegacyTranslator."}
         self.assertFalse(self.compare(before, after, [waiver])["passed"])
 
+    def test_direct_result_field_comparison_accepted(self):
+        """`translated.FIELD == literal` (a field read directly off the
+        translation result, not through `.command`) must be waivable --
+        needed for the InvalidLegacyArguments rejection shape, whose
+        `action`/`reason` fields live on the result itself with no
+        `.command` attribute at all. Found necessary for batch 8d's file
+        (`translated.reason == "action must be ADD or REMOVE"`)."""
+        before = evidence()
+        function = '''def test_sample():
+    from peerhub.application.legacy import LegacyTranslator
+    translator = LegacyTranslator()
+    translated = translator.translate(call, submission=submission)
+    assert translated.reason == "action must be ADD or REMOVE"
+'''
+        before["collected"][NODE]["function_source"] = function
+        before["collected"][NODE]["assertions"] = [
+            assertion('translated.reason == "action must be ADD or REMOVE"')]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE, "expression": 'translated.reason == "action must be ADD or REMOVE"',
+                  "reason": "Retires the translator's own rejection-reason field check."}
+        result = self.compare(before, after, [waiver])
+        self.assertTrue(result["passed"])
+        self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
+
+    def test_direct_result_field_on_unverified_name_rejected(self):
+        """The direct-field form must still fail closed when the name is
+        not actually a verified translation result -- some other object
+        that merely happens to have a same-shaped `.reason` attribute."""
+        before = evidence()
+        function = '''def test_sample():
+    translated = SomeUnrelatedThing()
+    assert translated.reason == "action must be ADD or REMOVE"
+'''
+        before["collected"][NODE]["function_source"] = function
+        before["collected"][NODE]["assertions"] = [
+            assertion('translated.reason == "action must be ADD or REMOVE"')]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE, "expression": 'translated.reason == "action must be ADD or REMOVE"',
+                  "reason": "Claimed translator-only, but not actually a translation result."}
+        self.assertFalse(self.compare(before, after, [waiver])["passed"])
+
     def test_reused_result_name_across_multiple_translate_calls_accepted(self):
         """A test function that reuses the same variable name for SEVERAL
         sequential `translate()` calls (a common pattern when verifying

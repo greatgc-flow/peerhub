@@ -311,9 +311,24 @@ def translator_only(function_source, expression, module_aliases=(), invalid_args
                 and expr.comparators[0].func.id in invalid_args_aliases):
             return True
         # outcome.command.FIELD == literal: explicitly NOT encode_params().
-        if not (isinstance(value, ast.Attribute) and isinstance(value.value, ast.Attribute)
-                and value.value.attr == "command" and isinstance(value.value.value, ast.Name)
-                and value.value.value.id in results):
+        is_command_field = (
+            isinstance(value, ast.Attribute) and isinstance(value.value, ast.Attribute)
+            and value.value.attr == "command" and isinstance(value.value.value, ast.Name)
+            and value.value.value.id in results
+        )
+        # outcome.FIELD == literal: a field read directly off the
+        # translation result itself, not through `.command` -- needed for
+        # the InvalidLegacyArguments rejection shape (`action`/`reason`
+        # live on the result directly, there is no `.command`), found
+        # necessary for batch 8d's file. Still requires `value.value` to
+        # be a bare verified-result name, so `outcome.command.FIELD` above
+        # and `outcome.command.encode_params()` (a Call, not an Attribute,
+        # so it can never reach either literal_eval branch) stay excluded.
+        is_direct_result_field = (
+            isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
+            and value.value.id in results
+        )
+        if not (is_command_field or is_direct_result_field):
             return False
         try:
             ast.literal_eval(expr.comparators[0])
