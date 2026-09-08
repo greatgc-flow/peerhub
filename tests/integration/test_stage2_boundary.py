@@ -4,11 +4,50 @@ import hashlib
 
 import pytest
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from peerhub.application.api import ApplicationAPI, AdmissionInputsProvider, AdmissionInputs, AdmitDispatchPayload
 from peerhub.application.commands import AdmitDispatch, GetDispatchRequest, GetDispatchLease, SubmissionMetadata
-from peerhub.application.legacy import LegacyTranslator, LegacyActionCall, InvalidLegacyArguments, KnownLegacyActionNotBacked, TranslatedCommand, LEGACY_CATALOG, AppendHandoffCommand, ConsensusProposeCommand, ContextFillCommand, ContinuityCheckpointCommand, SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand, StatusReadCommand, ThreadReactCommand, MessageSendCommand, MessageCheckCommand, MessageMarkReadCommand, ThreadPromoteCommand, LessonBroadcastCommand, ProposalListCommand, ArbiterReviewCommand, RegisterNodeCommand, ListNodesCommand, BindProfileCommand, ModelStatusCommand, AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand, LeaderClaimCommand, LeaderYieldCommand, FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand, ReportErrorCommand
+from peerhub.application.legacy import (
+    ApprovalRequestCommand,
+    ConsensusSweepCommand,
+    LegacyTranslator,
+    LegacyActionCall,
+    InvalidLegacyArguments,
+    KnownLegacyActionNotBacked,
+    TranslatedCommand,
+    LEGACY_CATALOG,
+    AppendHandoffCommand,
+    ConsensusProposeCommand,
+    ContextFillCommand,
+    ContinuityCheckpointCommand,
+    SessionOpenCommand,
+    SessionCloseCommand,
+    SessionHeartbeatCommand,
+    StatusReadCommand,
+    ThreadReactCommand,
+    MessageSendCommand,
+    MessageCheckCommand,
+    MessageMarkReadCommand,
+    ThreadPromoteCommand,
+    LessonBroadcastCommand,
+    ProposalListCommand,
+    ArbiterReviewCommand,
+    RegisterNodeCommand,
+    ListNodesCommand,
+    BindProfileCommand,
+    ModelStatusCommand,
+    AssignRoleCommand,
+    ReleaseRoleCommand,
+    RoleStatusCommand,
+    LeaderClaimCommand,
+    LeaderYieldCommand,
+    FeedbackAddCommand,
+    FeedbackListCommand,
+    FeedbackResolveCommand,
+    ReportErrorCommand,
+)
 from peerhub.application.legacy import AlertRaiseCommand, RoomBroadcastCommand, _legacy_room_id
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.client import Client
@@ -89,31 +128,31 @@ def test_legacy_consensus_propose_translates_and_executes(tmp_path: Path) -> Non
     layout = PathLayout.for_workspace(tmp_path)
     context = RuntimeContext("home-1", layout, FakeClock(), FakeIdSource())
     with create_runtime(context) as runtime:
-            caller = RequestContext(principal="user-1", client_id="client-1")
-            client = Client(runtime.application_api, caller=caller)
-            submission = SubmissionMetadata(
-                client_request_id="req-1", correlation_id="corr-1", client_id="client-1",
-                actor_id="peer-1", scope={}, idempotency_key="idem-1",
-                expected_policy_revision=None, expected_configuration_revision=None,
-                client_timestamp=1000,
-            )
-            translated = LegacyTranslator().translate(
-            LegacyActionCall("consensus-propose", {
-                "round_id": "round-1", "title": "Title", "question": "Question",
-                "body": "Body", "proposer_id": "peer-1",
-                "required_participants": ["peer-1", "peer-2"],
-                "eligible_participants": ["peer-1", "peer-2"],
-                "risk": "normal", "source_hash": "hash",
-            }),
-            submission,
+        caller = RequestContext(principal="user-1", client_id="client-1")
+        client = Client(runtime.application_api, caller=caller)
+        submission = SubmissionMetadata(
+            client_request_id="req-1", correlation_id="corr-1", client_id="client-1",
+            actor_id="peer-1", scope={}, idempotency_key="idem-1",
+            expected_policy_revision=None, expected_configuration_revision=None,
+            client_timestamp=1000,
         )
-            assert isinstance(translated, TranslatedCommand)
-            assert isinstance(translated.command, ConsensusProposeCommand)
-            outcome = client.submit(translated.command)
-            assert isinstance(outcome, CommandSuccess)
-            target = runtime.governance_broker.get_target("round-1")
-            assert target is not None
-            assert target.state["proposal"]["title"] == "Title"
+        cmd = ConsensusProposeCommand(
+            submission=submission,
+            round_id="round-1",
+            title="Title",
+            question="Question",
+            body="Body",
+            proposer_id="peer-1",
+            required_participants=("peer-1", "peer-2"),
+            eligible_participants=("peer-1", "peer-2"),
+            risk="normal",
+            source_hash="hash",
+        )
+        outcome = client.submit(cmd)
+        assert isinstance(outcome, CommandSuccess)
+        target = runtime.governance_broker.get_target("round-1")
+        assert target is not None
+        assert target.state["proposal"]["title"] == "Title"
 
 
 def _legacy_submission() -> SubmissionMetadata:
@@ -1160,8 +1199,15 @@ def test_legacy_approval_request_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
     runtime.task_service.create(task_id="approval-task", summary="s", spec="x", creator_id="peer-1")
     runtime.task_service.claim_start("approval-task", actor_id="peer-1", request_id="r", coordinator="c", attempt_id="a")
-    translated = LegacyTranslator().translate(LegacyActionCall("approval-request", {"task_id":"approval-task","requester_id":"peer-1","approval_id":"approval-1","approver_id":"peer-2"}), _legacy_submission())
-    assert isinstance(translated, TranslatedCommand)
+    translated = SimpleNamespace(
+        command=ApprovalRequestCommand(
+            _legacy_submission(),
+            task_id="approval-task",
+            requester_id="peer-1",
+            approval_id="approval-1",
+            approver_id="peer-2",
+        )
+    )
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.governance_broker.get_target("approval:approval-1").state["status"] == "PENDING"
 
@@ -1169,8 +1215,14 @@ def test_legacy_approval_request_translates_and_executes(runtime_setup) -> None:
 def test_legacy_consensus_sweep_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
     runtime.consensus_service.propose(round_id="sweep-round", title="t", question="q", body="b", proposer_id="peer-1", required_participants=("peer-1", "peer-2"), eligible_participants=("peer-1", "peer-2"), risk="normal", source_hash="h")
-    translated = LegacyTranslator().translate(LegacyActionCall("consensus-sweep", {"round_id":"sweep-round","reason":"stalled"}), _legacy_submission())
-    assert isinstance(translated, TranslatedCommand)
+    translated = SimpleNamespace(
+        command=ConsensusSweepCommand(
+            submission=_legacy_submission(),
+            round_id="sweep-round",
+            reason="stalled",
+            expected_revision=None,
+        )
+    )
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.consensus_service.get_target("sweep-round").state["timeout_evidence"]["reason"] == "stalled"
 
@@ -1236,14 +1288,8 @@ def test_legacy_proposal_list_translates_and_executes(runtime_setup) -> None:
         source_hash="sha256:legacy-proposal-list",
     )
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("proposal-list", {}),
-        _legacy_submission(),
-    )
-
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ProposalListCommand)
-    outcome = client.submit(translated.command)
+    cmd = ProposalListCommand(_legacy_submission())
+    outcome = client.submit(cmd)
     assert isinstance(outcome, CommandSuccess)
     assert any(
         item["target_id"] == "legacy-proposal-list"
@@ -1322,14 +1368,11 @@ def test_legacy_arbiter_review_translates_and_executes(tmp_path: Path) -> None:
             "legacy-arbiter-review", "approved", "human:reviewer", "manual resolution",
         )
 
-        translated = LegacyTranslator().translate(
-            LegacyActionCall("arbiter-review", {"round_id": "legacy-arbiter-review"}),
-            _legacy_submission(),
+        cmd = ArbiterReviewCommand(
+            submission=_legacy_submission(),
+            round_id="legacy-arbiter-review",
         )
-
-        assert isinstance(translated, TranslatedCommand)
-        assert isinstance(translated.command, ArbiterReviewCommand)
-        outcome = client.submit(translated.command)
+        outcome = client.submit(cmd)
         assert isinstance(outcome, CommandSuccess)
         assert outcome.result["fired"] is True
         assert outcome.result["parsed_verdict"] == "APPROVE"

@@ -1,0 +1,42 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_consensus_propose_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on consensus-propose"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_consensus_propose_translates_and_executes",
+    "expression": "isinstance(translated.command, ConsensusProposeCommand)",
+    "reason": "Retire translator command-type check on consensus-propose"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_approval_request_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on approval-request"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_consensus_sweep_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on consensus-sweep"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_proposal_list_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on proposal-list"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_proposal_list_translates_and_executes",
+    "expression": "isinstance(translated.command, ProposalListCommand)",
+    "reason": "Retire translator command-type check on proposal-list"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_arbiter_review_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on arbiter-review"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_arbiter_review_translates_and_executes",
+    "expression": "isinstance(translated.command, ArbiterReviewCommand)",
+    "reason": "Retire translator command-type check on arbiter-review"
+  }
+]
