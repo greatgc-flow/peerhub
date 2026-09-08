@@ -12,6 +12,7 @@ from peerhub.adapters.contract import (
     DecoderEvent,
     DecoderEventKind,
     InvocationPlan,
+    ModelSelectionMode,
     OutputChannel,
     OutputDecoder,
     PeerDescriptor,
@@ -175,14 +176,30 @@ class RealAgyAdapter:
         if prompt is None:
             raise ValueError("prompt_content is required")
 
+        # Model resolution is centralized: the caller resolves a
+        # ResolvedModelBinding (workspace binding > global config > packaged
+        # default, which defaults ag.standard to cli_default) and carries it
+        # on the request; this adapter only translates PINNED into agy.exe's
+        # `--model`/`--effort` flags, never reads config itself.
+        binding = request.model_binding
+        model_flags: tuple[str, ...] = ()
+        model_display = ""
+        if binding.selection_mode is ModelSelectionMode.PINNED:
+            assert binding.model_id is not None
+            model_flags = ("--model", binding.model_id)
+            model_display = f" --model {binding.model_id}"
+            if profile.supports_reasoning_effort and binding.reasoning_effort is not None:
+                model_flags = (*model_flags, "--effort", binding.reasoning_effort)
+                model_display += f" --effort {binding.reasoning_effort}"
+
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
                 raise ValueError("external_session_id is required for RESUME")
-            argv = ("agy.exe", "-p", prompt, "--output-format", "json", "--conversation", session.external_session_id)
-            redacted_display = "agy.exe -p <redacted> --output-format json --conversation <redacted>"
+            argv = ("agy.exe", "-p", prompt, "--output-format", "json", *model_flags, "--conversation", session.external_session_id)
+            redacted_display = f"agy.exe -p <redacted> --output-format json{model_display} --conversation <redacted>"
         else:
-            argv = ("agy.exe", "-p", prompt, "--output-format", "json")
-            redacted_display = "agy.exe -p <redacted> --output-format json"
+            argv = ("agy.exe", "-p", prompt, "--output-format", "json", *model_flags)
+            redacted_display = f"agy.exe -p <redacted> --output-format json{model_display}"
 
         return InvocationPlan(
             argv=argv,

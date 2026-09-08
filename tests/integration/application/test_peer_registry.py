@@ -191,10 +191,11 @@ def test_bind_profile_creates_separate_target_and_register_does_not(
     assert binding.state == {
         "kind": "peer-profile-binding",
         "scope": "worker-1",
-        "schema_version": 1,
+        "schema_version": 2,
         "binding_id": "peer-profile-binding:worker-1:cc.standard",
         "node_id": "worker-1",
         "profile_id": "cc.standard",
+        "selection_mode": "pinned",
         "model_id": "claude-opus-test",
         "reasoning_effort": "high",
         "updated_at": clock.now(),

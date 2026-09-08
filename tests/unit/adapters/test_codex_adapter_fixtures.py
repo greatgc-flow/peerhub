@@ -4,6 +4,8 @@ best-effort constructions, as there is no real capture available.
 They are marked TEST NEEDED for DIR-004 promotion to empirical_probe 
 pending a real captured failure transcript from a live invocation.
 """
+import logging
+
 import pytest
 from peerhub.adapters.codex_adapter import CodexOutputDecoder, RealCodexAdapter
 from peerhub.adapters.contract import (
@@ -11,12 +13,27 @@ from peerhub.adapters.contract import (
     Capability,
     DecoderEventKind,
     InvocationPlan,
+    ModelSelectionMode,
     OutputChannel,
     ProfileDescriptor,
+    ResolvedModelBinding,
     SessionAction,
     SessionHint,
     TransportKind,
     TransportLimits,
+)
+
+_PINNED_LUNA_BINDING = ResolvedModelBinding(
+    selection_mode=ModelSelectionMode.PINNED,
+    model_id="gpt-5.6-luna",
+    reasoning_effort=None,
+    source_layer="test-fixture",
+)
+_CLI_DEFAULT_BINDING = ResolvedModelBinding(
+    selection_mode=ModelSelectionMode.CLI_DEFAULT,
+    model_id=None,
+    reasoning_effort=None,
+    source_layer="test-fixture",
 )
 from peerhub.core.execution import ProcessTerminalEvidence
 from peerhub.core.protocol import ErrorCode
@@ -28,7 +45,11 @@ class FakeCompletionContract:
         return "fake-contract"
 
 
-def _request(session_action: SessionAction) -> AdapterRequest:
+def _request(
+    session_action: SessionAction,
+    *,
+    model_binding: ResolvedModelBinding = _PINNED_LUNA_BINDING,
+) -> AdapterRequest:
     return AdapterRequest(
         request_id="req-1",
         prompt_content="Hello",
@@ -37,6 +58,7 @@ def _request(session_action: SessionAction) -> AdapterRequest:
         profile_id="cx.standard",
         requested_session_action=session_action,
         completion_contract=FakeCompletionContract(),
+        model_binding=model_binding,
     )
 
 
@@ -212,6 +234,71 @@ def test_codex_plan_invocation_session_none_is_unchanged():
         "codex.cmd exec --skip-git-repo-check -c model=\"gpt-5.6-luna\" --json <redacted>"
     )
     assert plan.session_action == SessionAction.NONE
+
+
+def test_codex_cli_default_omits_model_override_and_warns(
+    caplog: pytest.LogCaptureFixture,
+):
+    caplog.set_level(logging.WARNING)
+    logging.getLogger("peerhub.adapters.codex_adapter").disabled = False
+    adapter = RealCodexAdapter()
+
+    plan = adapter.plan_invocation(
+        _request(SessionAction.NONE, model_binding=_CLI_DEFAULT_BINDING),
+        _profile(),
+        None,
+        _limits(),
+    )
+
+    assert "-c" not in plan.argv
+    assert plan.argv == (
+        "codex.cmd", "exec", "--skip-git-repo-check", "--json", "Hello",
+    )
+    assert "account-side default model" in caplog.text
+
+
+def test_codex_unresolved_dummy_request_omits_override_without_warning(
+    caplog: pytest.LogCaptureFixture,
+):
+    caplog.set_level(logging.WARNING)
+    logging.getLogger("peerhub.adapters.codex_adapter").disabled = False
+    adapter = RealCodexAdapter()
+
+    plan = adapter.plan_invocation(
+        AdapterRequest(
+            request_id="dummy",
+            prompt_content="dummy",
+            prompt_reference=None,
+            workspace_scope="dummy",
+            profile_id="cx.standard",
+            requested_session_action=SessionAction.NONE,
+            completion_contract=FakeCompletionContract(),
+        ),
+        _profile(),
+        None,
+        _limits(),
+    )
+
+    assert "-c" not in plan.argv
+    assert "account-side default model" not in caplog.text
+
+
+def test_codex_invocation_plan_rejection_includes_model_and_override_hint():
+    adapter = RealCodexAdapter()
+    plan = adapter.plan_invocation(
+        _request(SessionAction.NONE), _profile(), None, _limits()
+    )
+    decoder = adapter.new_decoder(plan)
+    decoder.feed(b'{"type": "error", "error": {"code": "invalid_model"}}\n')
+
+    decoded = decoder.finalize()
+
+    event = decoded.events[0]
+    assert event.kind is DecoderEventKind.VENDOR_ERROR
+    assert event.payload["normalized_kind"] == "invocation_plan_rejected"
+    assert event.payload["resolved_model"] == "gpt-5.6-luna"
+    assert "workspace binding" in str(event.payload["override_hint"])
+    assert "peerhub node bind-profile" in str(event.payload["override_hint"])
 
 
 def test_codex_decoder_emits_session_identity_from_thread_started():

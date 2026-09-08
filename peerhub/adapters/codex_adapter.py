@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
@@ -15,6 +16,7 @@ from peerhub.adapters.contract import (
     DecoderEvent,
     DecoderEventKind,
     InvocationPlan,
+    ModelSelectionMode,
     OutputChannel,
     OutputDecoder,
     PeerDescriptor,
@@ -24,6 +26,8 @@ from peerhub.adapters.contract import (
     SessionAction,
     SessionHint,
 )
+
+logger = logging.getLogger(__name__)
 from peerhub.core.protocol import ErrorCode, JsonValue
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
@@ -48,10 +52,6 @@ _CODEX_PROFILE = ProfileDescriptor(
     supports_reasoning_effort=False,
 )
 
-# See the model_override comment in plan_invocation() for why this is pinned
-# explicitly rather than left to codex's own account-side default.
-_CODEX_MODEL_OVERRIDE = "gpt-5.6-luna"
-
 _CODEX_DESCRIPTOR = PeerDescriptor(
     adapter_id="codex-peer",
     adapter_version="1.0.0",
@@ -64,15 +64,42 @@ _CODEX_DESCRIPTOR = PeerDescriptor(
 )
 
 
+_OVERRIDE_HINT = (
+    "Reconfigure via `peerhub node bind-profile --node-id <node> "
+    "--profile-id cx.standard --model-id <model> --actor <you>` "
+    "(workspace binding, highest priority), edit "
+    "~/.peerhub/config/models.toml (global), or update peerhub's "
+    "packaged model-defaults.toml (release default, lowest priority)."
+)
+
+
+def _extract_model_from_argv(argv: tuple[str, ...]) -> str | None:
+    """Best-effort recovery of the resolved model for error enrichment.
+
+    Reads back the `-c model="..."` token this same adapter wrote into
+    argv, rather than tracking parallel state -- avoids adding any
+    per-call mutable state to an adapter instance that may be reused
+    across concurrent dispatches.
+    """
+
+    for index, token in enumerate(argv):
+        if token == "-c" and index + 1 < len(argv):
+            candidate = argv[index + 1]
+            if candidate.startswith('model="') and candidate.endswith('"'):
+                return candidate[len('model="') : -1]
+    return None
+
+
 class CodexOutputDecoder:
     """Decoder for codex.cmd exec --json."""
 
-    def __init__(self) -> None:
+    def __init__(self, plan: InvocationPlan | None = None) -> None:
         self._chunks: list[bytes] = []
         self._stdout_remainder = b""
         self._finalized = False
         self._events: list[DecoderEvent] = []
         self._assistant_texts: list[str] = []
+        self._plan = plan
 
     def feed(self, chunk: bytes, *, channel: OutputChannel = OutputChannel.STDOUT) -> tuple[DecoderEvent, ...]:
         if self._finalized:
@@ -104,13 +131,24 @@ class CodexOutputDecoder:
         self,
         normalized_kind: str,
     ) -> DecoderEvent:
+        payload: dict[str, JsonValue] = {
+            "normalized_kind": normalized_kind,
+            "evidence_source": "structured_vendor_output",
+        }
+        # A rejected invocation plan (e.g. codex's account no longer
+        # supporting the resolved model) is exactly the moment provenance
+        # matters most -- name the resolved model and how to override it
+        # in the failure itself, not only in a separate `model explain`
+        # command the caller has to think to run.
+        if normalized_kind == "invocation_plan_rejected" and self._plan is not None:
+            payload["resolved_model"] = (
+                _extract_model_from_argv(self._plan.argv) or "(cli default)"
+            )
+            payload["override_hint"] = _OVERRIDE_HINT
         return self._append_event(
             DecoderEvent(
                 kind=DecoderEventKind.VENDOR_ERROR,
-                payload={
-                    "normalized_kind": normalized_kind,
-                    "evidence_source": "structured_vendor_output",
-                },
+                payload=payload,
             )
         )
 
@@ -244,13 +282,19 @@ class CodexOutputDecoder:
         if "model_operand_invalid" in canonical_text and not any(
             event.kind == DecoderEventKind.VENDOR_ERROR for event in self._events
         ):
+            payload: dict[str, JsonValue] = {
+                "normalized_kind": "invocation_plan_rejected",
+                "evidence_source": "known_terminal_pattern",
+            }
+            if self._plan is not None:
+                payload["resolved_model"] = (
+                    _extract_model_from_argv(self._plan.argv) or "(cli default)"
+                )
+                payload["override_hint"] = _OVERRIDE_HINT
             self._events.append(
                 DecoderEvent(
                     kind=DecoderEventKind.VENDOR_ERROR,
-                    payload={
-                        "normalized_kind": "invocation_plan_rejected",
-                        "evidence_source": "known_terminal_pattern",
-                    },
+                    payload=payload,
                 )
             )
 
@@ -330,16 +374,39 @@ class RealCodexAdapter:
         else:
             exec_argv = ("codex.cmd",)
 
-        # Pin an explicit, empirically-verified-working model rather than
-        # relying on codex's own account-side default: a codex account's
-        # default model can be bumped by the provider ahead of whatever
-        # codex CLI version is actually installed (observed live: a fresh
-        # install's default resolved to a model requiring "a newer version
-        # of Codex" than the installed CLI, failing every dispatch with no
-        # override). _CODEX_MODEL_OVERRIDE should be re-verified (a real
-        # `codex exec -c model="..."` invocation, not just an unchanged
-        # exit code) whenever codex.cmd is upgraded.
-        model_override = ("-c", f'model="{_CODEX_MODEL_OVERRIDE}"')
+        # Model resolution is centralized: the caller resolves a
+        # ResolvedModelBinding (workspace binding > global config > packaged
+        # default) and carries it on the request; this adapter only
+        # translates it into codex's `-c model="..."` argv, never reads
+        # config itself. A codex account's own default model can be bumped
+        # by the provider ahead of whatever codex CLI version is actually
+        # installed (observed live: a fresh install's default resolved to a
+        # model requiring "a newer version of Codex" than the installed
+        # CLI, failing every dispatch with no override) -- CLI_DEFAULT
+        # deliberately re-exposes that risk as an explicit, opted-in choice
+        # rather than an accident, so it is logged loudly here.
+        binding = request.model_binding
+        if binding.selection_mode is ModelSelectionMode.PINNED:
+            assert binding.model_id is not None
+            model_override = ("-c", f'model="{binding.model_id}"')
+            model_display = f' -c model="{binding.model_id}"'
+        else:
+            # Registry/discovery create an unresolved dummy request solely
+            # to learn argv[0]; it is not a dispatch and must not look like
+            # an operator deliberately opted into cli_default. Every real
+            # dispatch resolves before planning and therefore has a concrete
+            # source layer, so its explicit cli_default choice remains loud.
+            if binding.source_layer != "unresolved":
+                logger.warning(
+                    "cx.standard dispatch is using selection_mode=cli_default: "
+                    "codex's own account-side default model will be used, "
+                    "which can drift ahead of the installed CLI version and "
+                    "fail every dispatch with no override. Configure an "
+                    "explicit pin (see `peerhub node bind-profile --help`) to "
+                    "avoid this, unless this was deliberately chosen."
+                )
+            model_override = ()
+            model_display = ""
 
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
@@ -355,14 +422,14 @@ class RealCodexAdapter:
                 prompt,
             )
             redacted_display = (
-                "codex.cmd exec resume --skip-git-repo-check "
-                f"-c model=\"{_CODEX_MODEL_OVERRIDE}\" --json <session-id> <redacted>"
+                "codex.cmd exec resume --skip-git-repo-check"
+                f"{model_display} --json <session-id> <redacted>"
             )
         else:
             argv = (*exec_argv, "exec", "--skip-git-repo-check", *model_override, "--json", prompt)
             redacted_display = (
-                "codex.cmd exec --skip-git-repo-check "
-                f"-c model=\"{_CODEX_MODEL_OVERRIDE}\" --json <redacted>"
+                "codex.cmd exec --skip-git-repo-check"
+                f"{model_display} --json <redacted>"
             )
 
         # No explicit --sandbox flag: inherits config.toml's sandbox_mode.
@@ -391,7 +458,7 @@ class RealCodexAdapter:
         )
 
     def new_decoder(self, plan: InvocationPlan) -> OutputDecoder:
-        return CodexOutputDecoder()
+        return CodexOutputDecoder(plan=plan)
 
     def interpret_output(
         self,

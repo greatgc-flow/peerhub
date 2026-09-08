@@ -6,7 +6,7 @@ pending a real captured failure transcript from a live invocation.
 """
 import pytest
 from peerhub.adapters.claude_adapter import ClaudeOutputDecoder, RealClaudeAdapter
-from peerhub.adapters.contract import DecoderEventKind, InvocationPlan, TransportKind, TransportLimits, SessionAction
+from peerhub.adapters.contract import DecoderEventKind, InvocationPlan, ModelSelectionMode, ResolvedModelBinding, TransportKind, TransportLimits, SessionAction
 from peerhub.core.execution import ProcessTerminalEvidence
 from peerhub.core.protocol import ErrorCode
 
@@ -155,3 +155,31 @@ def test_claude_plan_invocation_session_none():
     plan = adapter.plan_invocation(request, profile, session, limits)
     assert "--resume" not in plan.argv
     assert plan.session_action == SessionAction.NONE
+
+
+def test_claude_cli_default_omits_model_flag():
+    adapter = RealClaudeAdapter()
+    from peerhub.adapters.contract import AdapterRequest, ProfileDescriptor
+    request = AdapterRequest(
+        request_id="req-cli-default",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cc.standard",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=ResolvedModelBinding(
+            selection_mode=ModelSelectionMode.CLI_DEFAULT,
+            model_id=None,
+            reasoning_effort=None,
+            source_layer="test-fixture",
+        ),
+    )
+    profile = ProfileDescriptor(
+        profile_id="cc.standard", profile_class="tier", supports_reasoning_effort=False
+    )
+
+    plan = adapter.plan_invocation(request, profile, None, TransportLimits(1, 1, 1))
+
+    assert "--model" not in plan.argv
+    assert plan.argv == ("claude.cmd", "-p", "Hello", "--output-format", "json")

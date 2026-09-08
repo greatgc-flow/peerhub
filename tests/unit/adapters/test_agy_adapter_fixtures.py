@@ -11,7 +11,9 @@ from peerhub.adapters.contract import (
     Capability,
     DecoderEventKind,
     InvocationPlan,
+    ModelSelectionMode,
     ProfileDescriptor,
+    ResolvedModelBinding,
     SessionAction,
     SessionHint,
     TransportKind,
@@ -220,6 +222,31 @@ def test_agy_plan_invocation_session_none_is_unchanged():
     assert plan.argv == ("agy.exe", "-p", "Hello", "--output-format", "json")
     assert plan.redacted_display == "agy.exe -p <redacted> --output-format json"
     assert plan.session_action == SessionAction.NONE
+
+
+def test_agy_cli_default_omits_model_and_effort_flags():
+    adapter = RealAgyAdapter()
+    request = AdapterRequest(
+        request_id="req-cli-default",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="ag.standard",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=ResolvedModelBinding(
+            selection_mode=ModelSelectionMode.CLI_DEFAULT,
+            model_id=None,
+            reasoning_effort=None,
+            source_layer="test-fixture",
+        ),
+    )
+
+    plan = adapter.plan_invocation(request, _profile(), None, _limits())
+
+    assert "--model" not in plan.argv
+    assert "--effort" not in plan.argv
+    assert plan.argv == ("agy.exe", "-p", "Hello", "--output-format", "json")
 
 
 def test_agy_decoder_emits_session_identity_from_top_level_conversation_id():

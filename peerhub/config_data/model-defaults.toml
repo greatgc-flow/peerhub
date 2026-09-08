@@ -1,0 +1,37 @@
+# Packaged model defaults, bundled inside the peerhub distribution.
+#
+# This is the LOWEST-priority layer in ModelConfigService's resolution
+# order (workspace binding > global config > this file > configuration
+# error). It exists so a fresh peerhub install still dispatches
+# successfully without requiring a user to write config before their
+# first `peerhub ask`. It is release-maintained, not user-edited -- a
+# stale entry here is only ever a fallback that can be overridden
+# globally (~/.peerhub/config/models.toml) or per-workspace
+# (`peerhub node bind-profile`), never a silent, unfixable ceiling.
+#
+# Relocating a hardcoded value here does not eliminate the need to keep
+# maintaining it -- see revision below and re-verify on every codex.cmd
+# upgrade (the same discipline the prior `_CODEX_MODEL_OVERRIDE` Python
+# constant carried).
+
+schema_version = 1
+defaults_revision = "2026-09-08.1"
+
+[profiles."cx.standard"]
+selection_mode = "pinned"
+model = "gpt-5.6-luna"
+
+[profiles."cc.standard"]
+selection_mode = "cli_default"
+
+[profiles."ag.standard"]
+selection_mode = "cli_default"
+
+# Wildcard: any profile without its own entry above (e.g. a custom/future
+# adapter with no known model-drift risk) defaults to cli_default rather
+# than a hard configuration error -- there is no specific model string to
+# go stale for a profile nothing here has ever heard of. A known vendor
+# profile (cc/ag/cx.standard) always matches its own entry above first;
+# this only ever applies to something genuinely unconfigured anywhere.
+[profiles."*"]
+selection_mode = "cli_default"

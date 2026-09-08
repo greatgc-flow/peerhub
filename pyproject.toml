@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "peerhub"
-version = "0.1.13"
+version = "0.1.14"
 description = "Local transactional coordination for collaborating AI peers"
 readme = "README.md"
 license = "MIT"
@@ -46,6 +46,7 @@ include = ["peerhub*"]
 
 [tool.setuptools.package-data]
 "peerhub.persistence.migrations" = ["*.sql"]
+"peerhub.config_data" = ["*.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

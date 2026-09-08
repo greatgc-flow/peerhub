@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 from peerhub.adapters.registry import resolve_peer_target, ResolvedPeerTarget
 from peerhub.adapters.contract import AdapterRequest, SessionAction
 from peerhub.application.bootstrap import build_direct_ask_admission_config
+from peerhub.application.model_config import ModelConfigService
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
 from peerhub.core.identity import AuthenticatedSubject
@@ -250,6 +251,11 @@ def execute_direct_ask(
             telemetry_limit=100,
         )
 
+        model_binding = ModelConfigService(runtime.peer_registry_service).resolve(
+            node_id=target.peer_kind,
+            profile_id=target.profile.profile_id,
+        )
+
         adapter_request = AdapterRequest(
             request_id=client_request_id,
             prompt_content=request.prompt,
@@ -258,6 +264,7 @@ def execute_direct_ask(
             profile_id=target.profile.profile_id,
             requested_session_action=SessionAction.NONE,
             completion_contract=completion_contract,
+            model_binding=model_binding,
         )
 
         materializer = ArtifactMaterializer(

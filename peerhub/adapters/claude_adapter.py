@@ -14,6 +14,7 @@ from peerhub.adapters.contract import (
     DecoderEvent,
     DecoderEventKind,
     InvocationPlan,
+    ModelSelectionMode,
     OutputChannel,
     OutputDecoder,
     PeerDescriptor,
@@ -201,11 +202,24 @@ class RealClaudeAdapter:
         else:
             exec_argv = ("claude.cmd",)
 
+        # Model resolution is centralized: the caller resolves a
+        # ResolvedModelBinding (workspace binding > global config > packaged
+        # default, which defaults cc.standard to cli_default) and carries it
+        # on the request; this adapter only translates PINNED into
+        # claude.cmd's `--model` flag, never reads config itself.
+        binding = request.model_binding
+        model_flags: tuple[str, ...] = ()
+        model_display = ""
+        if binding.selection_mode is ModelSelectionMode.PINNED:
+            assert binding.model_id is not None
+            model_flags = ("--model", binding.model_id)
+            model_display = f" --model {binding.model_id}"
+
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
                 raise ValueError("external_session_id is required for RESUME")
-            argv = (*exec_argv, "-p", prompt, "--output-format", "json", "--resume", session.external_session_id)
-            redacted_display = "claude.cmd -p <redacted> --output-format json --resume <redacted>"
+            argv = (*exec_argv, "-p", prompt, "--output-format", "json", *model_flags, "--resume", session.external_session_id)
+            redacted_display = f"claude.cmd -p <redacted> --output-format json{model_display} --resume <redacted>"
         else:
             # SESSION_IDENTITY is now emitted by 2 of 3 real adapters (Codex, Agy); Claude
             # intentionally never emits it because Claude's session ID is caller-pregenerated
@@ -213,8 +227,8 @@ class RealClaudeAdapter:
             # so there is nothing for Claude's decoder to capture post-hoc -- unlike Codex/Agy,
             # which generate a new ID server-side that must be captured from output after the fact.
             # This is a permanent architectural asymmetry, not a deferred gap.
-            argv = (*exec_argv, "-p", prompt, "--output-format", "json")
-            redacted_display = "claude.cmd -p <redacted> --output-format json"
+            argv = (*exec_argv, "-p", prompt, "--output-format", "json", *model_flags)
+            redacted_display = f"claude.cmd -p <redacted> --output-format json{model_display}"
 
         return InvocationPlan(
             argv=argv,

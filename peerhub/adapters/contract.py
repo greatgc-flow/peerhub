@@ -260,6 +260,20 @@ class SessionHint:
     A fake/reference adapter that does not implement session support
     rejects any non-null hint (ARCHITECTURE.md line ~382: session support
     is optional per adapter).
+
+    MODEL-CONFIG INVARIANT (2026-09-08 ratification, not yet actionable code:
+    no production call site constructs a ``SessionHint`` today -- confirmed
+    by repo-wide grep; ``execute_direct_ask`` always uses
+    ``SessionAction.NONE``). Whenever a real caller starts constructing this
+    for ``SessionAction.RESUME``, ``adapter_fingerprint`` MUST fold in the
+    resolved ``ResolvedModelBinding`` for that dispatch (model_id +
+    selection_mode + reasoning_effort), so a resume against a session whose
+    resolved model has since changed is correctly treated as incompatible
+    (forcing a fresh session) rather than silently reusing a stale-vs-new
+    mix. Additionally, the resolved binding must be recorded on the
+    dispatch record SEPARATELY from the fingerprint for explainability --
+    folding it only into the fingerprint makes "why did my session go
+    stale" unanswerable after the fact.
     """
 
     external_session_id: str | None
@@ -290,6 +304,79 @@ class SessionHint:
             raise ValueError(
                 "session_generation must be a nonnegative integer or null"
             )
+
+
+class ModelSelectionMode(str, Enum):
+    """How a resolved model binding should be applied at invocation time."""
+
+    PINNED = "pinned"
+    CLI_DEFAULT = "cli_default"
+
+
+@dataclass(frozen=True)
+class ResolvedModelBinding:
+    """One immutable, centrally-resolved model/effort choice for a dispatch.
+
+    Produced once by the caller (never by an adapter) from the layered
+    precedence (workspace binding > global config > packaged default,
+    lowest-priority-wins-only-if-nothing-higher-exists), and carried
+    unchanged through ``AdapterRequest`` so every adapter, retry, and
+    status/explain surface for one dispatch agrees on the same answer.
+    Adapters translate this into vendor-specific argv; they never read
+    config/env/SQLite themselves. ``source_layer`` is provenance only
+    (e.g. "workspace", "global", "packaged_default", "unresolved") -- it
+    has no effect on behavior, only on `model explain`-style reporting.
+    """
+
+    selection_mode: ModelSelectionMode
+    model_id: str | None
+    reasoning_effort: str | None
+    source_layer: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.selection_mode, ModelSelectionMode):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError(
+                "selection_mode must be a ModelSelectionMode"
+            )
+        if self.selection_mode is ModelSelectionMode.PINNED:
+            if self.model_id is None:
+                raise ValueError(
+                    "model_id is required when selection_mode is PINNED"
+                )
+            object.__setattr__(
+                self, "model_id", require_text(self.model_id, "model_id")
+            )
+        elif self.model_id is not None:
+            raise ValueError(
+                "model_id must be null when selection_mode is CLI_DEFAULT"
+            )
+        if self.reasoning_effort is not None:
+            object.__setattr__(
+                self,
+                "reasoning_effort",
+                require_text(self.reasoning_effort, "reasoning_effort"),
+            )
+        object.__setattr__(
+            self, "source_layer", require_text(self.source_layer, "source_layer")
+        )
+
+
+UNRESOLVED_MODEL_BINDING = ResolvedModelBinding(
+    selection_mode=ModelSelectionMode.CLI_DEFAULT,
+    model_id=None,
+    reasoning_effort=None,
+    source_layer="unresolved",
+)
+"""Default carried by ``AdapterRequest`` when no caller resolves a binding.
+
+Behaviorally identical to an explicit ``cli_default`` choice (an adapter
+omits its model flag entirely) -- exists so call sites and tests that do
+not care about model resolution (artifact materialization, retry
+orchestration, etc.) are not forced to construct a real binding. Every
+production dispatch entrypoint (``direct_ask``, ``broadcast``) always
+resolves and passes a real binding; this constant should never appear in
+a live dispatch's provenance.
+"""
 
 
 @dataclass(frozen=True)
@@ -325,11 +412,14 @@ class AdapterRequest:
     requested_session_action: SessionAction
     completion_contract: CompletionContractView
     evidence_payloads: tuple[EvidencePayload, ...] = ()
+    model_binding: ResolvedModelBinding = UNRESOLVED_MODEL_BINDING
 
     def __post_init__(self) -> None:
         object.__setattr__(
             self, "request_id", require_text(self.request_id, "request_id")
         )
+        if not isinstance(self.model_binding, ResolvedModelBinding):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("model_binding must be a ResolvedModelBinding")
         object.__setattr__(
             self,
             "workspace_scope",

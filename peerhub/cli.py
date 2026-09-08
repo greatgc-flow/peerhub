@@ -1179,6 +1179,7 @@ def _run_node(parsed: argparse.Namespace) -> int:
                     profile_id=parsed.profile_id,
                     model_id=parsed.model_id,
                     reasoning_effort=parsed.reasoning_effort,
+                    selection_mode=parsed.selection_mode,
                     actor_id=parsed.actor,
                 )
                 target = runtime.governance_broker.get_target(
@@ -1189,9 +1190,14 @@ def _run_node(parsed: argparse.Namespace) -> int:
                     print(json.dumps(_json_safe(target.state)))
                 else:
                     effort = target.state.get("reasoning_effort") or ""
+                    model_display = (
+                        "(cli default)"
+                        if parsed.selection_mode == "cli_default"
+                        else parsed.model_id
+                    )
                     print(
                         f"Profile {parsed.node_id}/{parsed.profile_id} bound "
-                        f"to model={parsed.model_id}, effort={effort}"
+                        f"to model={model_display}, effort={effort}"
                     )
                 return 0
             if parsed.node_action == "model-status":
@@ -3044,13 +3050,26 @@ def main(args: list[str] | None = None) -> int:
     )
     node_bind_parser.add_argument(
         "--model-id",
-        required=True,
-        help="Exact configured model identifier for this node/profile pair",
+        default=None,
+        help=(
+            "Exact configured model identifier for this node/profile pair. "
+            "Required unless --selection-mode=cli_default."
+        ),
     )
     node_bind_parser.add_argument(
         "--reasoning-effort",
         default=None,
         help="Optional configured reasoning-effort value",
+    )
+    node_bind_parser.add_argument(
+        "--selection-mode",
+        default="pinned",
+        choices=("pinned", "cli_default"),
+        help=(
+            "'pinned' (default) requires --model-id. 'cli_default' "
+            "explicitly requests the underlying CLI's own default model "
+            "and forbids --model-id."
+        ),
     )
     node_bind_parser.add_argument(
         "--actor",

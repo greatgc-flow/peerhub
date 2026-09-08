@@ -9,6 +9,7 @@ from pathlib import Path
 from peerhub.adapters.contract import AdapterRequest, SessionAction
 from peerhub.adapters.registry import ResolvedPeerTarget, resolve_peer_target
 from peerhub.application.direct_ask import _DirectAskRouteRequestFactory  # pyright: ignore[reportPrivateUsage]
+from peerhub.application.model_config import ModelConfigService
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.execution import TransportLimits
 from peerhub.core.identity import AuthenticatedSubject
@@ -292,6 +293,13 @@ class BroadcastCoordinator:
             route_request_factory=route_request_factory,
             telemetry_limit=100,
         )
+        model_binding = ModelConfigService(
+            self.runtime.peer_registry_service
+        ).resolve(
+            node_id=target.peer_kind,
+            profile_id=target.profile.profile_id,
+        )
+
         adapter_request = AdapterRequest(
             request_id=client_leg_request_id,
             prompt_content=request.prompt,
@@ -300,6 +308,7 @@ class BroadcastCoordinator:
             profile_id=target.profile.profile_id,
             requested_session_action=SessionAction.NONE,
             completion_contract=completion_contract,
+            model_binding=model_binding,
         )
         materializer = ArtifactMaterializer(
             unit_of_work_factory=self.runtime.state_store.unit_of_work,
