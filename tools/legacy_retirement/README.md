@@ -1,5 +1,13 @@
 # LegacyTranslator preservation evidence
 
+> **Status (2026-09-09): retirement complete.** `LegacyTranslator`/`LEGACY_CATALOG` and their
+> supporting types have been deleted from `peerhub/application/legacy.py` across a 9-batch
+> effort (`docs/reviews/legacy-translator-retirement/batch-01.md` through `batch-09-final.md`).
+> This tool has no baseline left to gate for that specific class and will not be run again for
+> this project; it remains in the repo as reusable tooling for a similar future retirement
+> (a mechanized preservation gate for rewriting a large test surface off a class before
+> deleting it), and its commands below still work standalone against any comparable target.
+
 Run from the repository root with the project's Python environment (pytest and coverage must be installed):
 
 ```powershell

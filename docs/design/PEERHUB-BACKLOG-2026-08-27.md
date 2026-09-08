@@ -25,6 +25,15 @@
 > Tier 5's items (below) are a different, still-legitimate category — real un-built capability
 > with named re-trigger conditions (daemon process model, Windows privilege elevation, Alembic
 > cutover, etc.) — and remain correctly tracked as deferred-with-trigger, not archived.
+>
+> **FOLLOW-UP (2026-09-09): `LegacyTranslator` has since been deleted outright.** Since it had
+> zero production callers (confirmed above), "deferred indefinitely" became "fully retired" —
+> `LegacyTranslator`, `LEGACY_CATALOG`, and their supporting types are gone from
+> `peerhub/application/legacy.py`; every Tier 4/5 item below that was about closing the
+> remaining unbacked `LegacyTranslator` actions is now moot rather than deferred. The wire-
+> protocol contracts this catalog used to exercise indirectly are preserved directly in
+> `tests/unit/application/test_command_wire_contracts.py`. Full account:
+> `docs/reviews/legacy-translator-retirement/batch-09-final.md`.
 
 > Single source of truth for "what's left." Supersedes hunting across `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`, the README's status lists, and per-gap design docs to answer "what's next" — those documents remain the detailed record of *why* each decision was made; this one is the current, flat *what's outstanding* list, organized by how ready each item is to pick up. Update this doc's tiers as items move, rather than letting the README's own "Designed but not built" / "Explicitly deferred" / "Not yet implemented" lists drift out of sync again (see the "Known drift caught while writing this doc" note at the bottom — that's exactly the failure mode this doc exists to prevent).
 
