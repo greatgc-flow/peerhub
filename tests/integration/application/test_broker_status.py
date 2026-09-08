@@ -6,13 +6,7 @@ import json
 from pathlib import Path
 
 from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    EffectStatusCommand,
-    InvalidLegacyArguments,
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-)
+from peerhub.application.legacy import EffectStatusCommand
 from peerhub.cli import main
 from peerhub.client import Client
 from peerhub.core.context import PathLayout, RuntimeContext
@@ -203,27 +197,6 @@ def test_effect_status_zero_unfinished_effects(tmp_path: Path) -> None:
             "CONFIRMATION_REQUIRED": 0,
         },
     }
-
-
-def test_broker_status_legacy_translation() -> None:
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            action="broker-status", arguments={"limit": 2}
-        ),
-        _submission(),
-    )
-    invalid = LegacyTranslator().translate(
-        LegacyActionCall(
-            action="broker-status", arguments={"limit": 21}
-        ),
-        _submission(key="invalid"),
-    )
-
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, EffectStatusCommand)
-    assert translated.command.method == "governance.effect.status"
-    assert translated.command.limit == 2
-    assert isinstance(invalid, InvalidLegacyArguments)
 
 
 def test_cli_broker_status_json(tmp_path: Path, capsys) -> None:

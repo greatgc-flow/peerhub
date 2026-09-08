@@ -282,12 +282,17 @@ def test_collect_model_status_reports_bindings_and_blank_unbound_defaults(
     )
 
     rows = collect_model_status(service, health=None)
-    by_peer = {str(row["peer"]): row for row in rows}
+    by_peer_profile = {
+        (str(row["peer"]), str(row["profile"])): row for row in rows
+    }
 
-    assert by_peer["bound-worker"]["profile"] == "cc.standard"
-    assert by_peer["bound-worker"]["model"] == "claude-opus-test"
-    assert by_peer["bound-worker"]["effort"] == "high"
-    assert by_peer["bound-worker"]["status"] == "UNKNOWN"
-    assert by_peer["unbound-worker"]["profile"] == "cx.standard"
-    assert by_peer["unbound-worker"]["model"] == ""
-    assert by_peer["unbound-worker"]["effort"] == ""
+    bound_row = by_peer_profile[("bound-worker", "cc.standard")]
+    assert bound_row["model"] == "claude-opus-test"
+    assert bound_row["effort"] == "high"
+    assert bound_row["status"] == "UNKNOWN"
+
+    for prof in ("cx.standard", "cx.effort", "cx.deepthink"):
+        unbound_row = by_peer_profile[("unbound-worker", prof)]
+        assert unbound_row["model"] == ""
+        assert unbound_row["effort"] == ""
+        assert unbound_row["status"] == "UNKNOWN"

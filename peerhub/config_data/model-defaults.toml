@@ -15,11 +15,25 @@
 # constant carried).
 
 schema_version = 1
-defaults_revision = "2026-09-08.1"
+defaults_revision = "2026-09-08.2"
 
 [profiles."cx.standard"]
 selection_mode = "pinned"
 model = "gpt-5.6-luna"
+
+# Pinned Codex tier defaults carried over from prior live-verified orchestration
+# registry (P:\_sys\ai\orchestration.json cx node). Note: that verification was
+# for hub.py dispatch, not peerhub. Peerhub invocation behavior (argv shape,
+# -c model_reasoning_effort flag translation) is verified via peerhub ask tests.
+[profiles."cx.effort"]
+selection_mode = "pinned"
+model = "gpt-5.6-terra"
+reasoning_effort = "high"
+
+[profiles."cx.deepthink"]
+selection_mode = "pinned"
+model = "gpt-6-astra"
+reasoning_effort = "xhigh"
 
 [profiles."cc.standard"]
 selection_mode = "cli_default"

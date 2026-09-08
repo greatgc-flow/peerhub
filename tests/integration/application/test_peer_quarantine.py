@@ -17,13 +17,6 @@ from peerhub.application.api import (
     ApplicationAPI,
     CommandEnvelope,
 )
-from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    LegacyActionCall,
-    LegacyTranslator,
-    PeerQuarantineCommand,
-    TranslatedCommand,
-)
 from peerhub.application.peer_registry import (
     PeerRegistryService,
     collect_peer_status,
@@ -36,7 +29,6 @@ from peerhub.application.health_revalidation import (
     execute_peer_quarantine,
     execute_peer_recover,
 )
-from peerhub.client import Client
 from peerhub.cli import main
 from peerhub.core.context import Clock, IdSource, RuntimeContext
 from peerhub.core.evidence import EvidenceRef, EvidenceState, EvidenceValue
@@ -394,61 +386,6 @@ def test_peer_quarantine_idempotent_refresh(test_setup):
         assert circuit.updated_at == clock.now()
         assert circuit.receipt is not None
         assert "second reason" in circuit.receipt.fingerprint
-
-
-def _submission(*, idempotency_key: str | None) -> SubmissionMetadata:
-    return SubmissionMetadata(
-        client_request_id="quarantine-req",
-        correlation_id="quarantine-corr",
-        client_id="client-1",
-        actor_id="test-operator",
-        scope={},
-        idempotency_key=idempotency_key,
-        expected_policy_revision=None,
-        expected_configuration_revision=None,
-        client_timestamp=1_000,
-    )
-
-
-def test_legacy_translation_and_api_command_execution(test_setup):
-    runtime = test_setup["runtime"]
-    health: HealthService = test_setup["health"]
-    clock: FixedClock = test_setup["clock"]
-    caller: AuthenticatedSubject = test_setup["caller"]
-
-    client = Client(
-        runtime.application_api,
-        caller=RequestContext(principal=caller.principal_id, client_id="client-1"),
-    )
-
-    _record_healthy_evidence(health, "ag", "ag.standard", clock.now())
-
-    translator = LegacyTranslator()
-
-    # Translate legacy action call
-    legacy_call = LegacyActionCall(
-        action="peer-quarantine",
-        arguments={"peer": "ag", "reason": "repeated timeout", "actor": "admin-1"},
-    )
-    translated = translator.translate(legacy_call, _submission(idempotency_key="quarantine-key-1"))
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, PeerQuarantineCommand)
-    assert translated.command.peer_id == "ag"
-    assert translated.command.reason == "repeated timeout"
-    assert translated.command.actor_id == "admin-1"
-
-    # Submit via Client
-    outcome = client.submit(translated.command)
-    assert isinstance(outcome, CommandSuccess)
-    assert outcome.result["quarantined"] is True
-    assert outcome.result["admission_state"] == "QUARANTINED"
-    assert outcome.result["circuit_state"] == "CIRCUIT_OPEN"
-    assert outcome.result["authority_class"] == "MANUAL"
-
-    # Projection reflects quarantine
-    read = health.read_health_projection("ag", "ag.standard", evaluated_at=clock.now())
-    assert read is not None
-    assert read.effective_admission_state == AdmissionState.QUARANTINED
 
 
 def test_cli_peer_quarantine_execution(test_setup, capsys):

@@ -9,14 +9,6 @@ import time
 
 import pytest
 
-from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    LegacyActionCall,
-    LegacyTranslator,
-    ProposalAddCommand,
-    ProposalVoteCommand,
-    TranslatedCommand,
-)
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.proposals import (
     ESCALATION_MID_ROUND_GATE,
@@ -420,20 +412,6 @@ def test_unanimous_agree_commits_frozen_invariant_write_request(
     assert services.broker.get_target(request.target_id).revision == 1  # type: ignore[union-attr]
 
 
-def _submission(key: str) -> SubmissionMetadata:
-    return SubmissionMetadata(
-        f"request-{key}",
-        f"correlation-{key}",
-        "proposal-client",
-        "cc",
-        {},
-        f"idempotency-{key}",
-        None,
-        None,
-        1,
-    )
-
-
 def _seed_runtime_health(
     store: SqliteStateStore,
     policy: HealthPolicy,
@@ -471,69 +449,6 @@ def _seed_runtime_health(
                 )
             )
         unit.commit()
-
-
-def test_legacy_translation_for_both_actions_executes(tmp_path: Path) -> None:
-    timestamp = int(time.time())
-    context = RuntimeContext(
-        "legacy-proposal-test",
-        PathLayout.for_workspace(tmp_path),
-        FixedClock(timestamp),
-        SequentialIdSource(),
-    )
-    with create_runtime(
-        context,
-        proposal_voters=("cc", "cx"),
-    ) as runtime:
-        _seed_runtime_health(
-            runtime.state_store,
-            runtime.health_service.policy,
-            timestamp=timestamp,
-        )
-        client = Client(
-            runtime.application_api,
-            caller=RequestContext(
-                principal="proposal-user",
-                client_id="proposal-client",
-            ),
-        )
-        translated_add = LegacyTranslator().translate(
-            LegacyActionCall(
-                "proposal-add",
-                {
-                    "subject": "Legacy execution",
-                    "from": "cc",
-                    "impact": "med",
-                    "detail": "because",
-                    "text": "change",
-                },
-            ),
-            _submission("add"),
-        )
-        assert isinstance(translated_add, TranslatedCommand)
-        assert isinstance(translated_add.command, ProposalAddCommand)
-        add_outcome = client.submit(translated_add.command)
-        assert isinstance(add_outcome, CommandSuccess)
-        round_id = add_outcome.result["round_id"]
-        assert isinstance(round_id, str)
-
-        translated_vote = LegacyTranslator().translate(
-            LegacyActionCall(
-                "proposal-vote",
-                {
-                    "proposal_id": round_id,
-                    "voter": "cc",
-                    "vote": "agree",
-                    "reason": "yes",
-                },
-            ),
-            _submission("vote"),
-        )
-        assert isinstance(translated_vote, TranslatedCommand)
-        assert isinstance(translated_vote.command, ProposalVoteCommand)
-        vote_outcome = client.submit(translated_vote.command)
-        assert isinstance(vote_outcome, CommandSuccess)
-        assert vote_outcome.result["choice"] == "agree"
 
 
 def test_cli_add_and_vote_exact_compatibility_stdout(

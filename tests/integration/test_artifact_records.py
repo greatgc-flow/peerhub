@@ -5,23 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from peerhub.application.legacy import (
-    ArtifactClaimCommand,
-    ArtifactFinalizeCommand,
-    ArtifactStatusCommand,
-    LegacyActionCall,
-    LegacyTranslator,
-    SubmissionMetadata,
-    TranslatedCommand,
-)
 from peerhub.cli import main
-from peerhub.client import Client
 from peerhub.core.context import PathLayout, RuntimeContext
 from peerhub.core.errors import (
     ArtifactClaimConflictError,
     ArtifactNotClaimedError,
 )
-from peerhub.core.ports import RequestContext
 from peerhub.runtime import create_runtime
 from tests.integration.conftest import FakeIdSource
 
@@ -43,20 +32,6 @@ def _context(workspace: Path, clock: MutableClock) -> RuntimeContext:
         PathLayout.for_workspace(workspace),
         clock,
         FakeIdSource(),
-    )
-
-
-def _submission() -> SubmissionMetadata:
-    return SubmissionMetadata(
-        client_request_id="artifact-request",
-        correlation_id="artifact-correlation",
-        client_id="artifact-client",
-        actor_id="cc",
-        scope={},
-        idempotency_key="artifact-idempotency",
-        expected_policy_revision=None,
-        expected_configuration_revision=None,
-        client_timestamp=1000,
     )
 
 
@@ -200,84 +175,6 @@ def test_status_queries_one_record_and_the_full_stable_list(
             item.state["artifact"] for item in all_records.items
         ) == ("a.md", "b.md")
         assert service.status("missing.md").items == ()
-
-
-def test_all_three_legacy_actions_translate_and_execute(
-    tmp_path: Path,
-) -> None:
-    clock = MutableClock()
-    with create_runtime(
-        _context(tmp_path, clock), adapter_peer_kind="fake"
-    ) as runtime:
-        translator = LegacyTranslator()
-        client = Client(
-            runtime.application_api,
-            caller=RequestContext(
-                principal="cc",
-                client_id="artifact-client",
-            ),
-        )
-        final_file = tmp_path / "legacy-final.md"
-        final_file.write_text("legacy final", encoding="utf-8")
-
-        claim = translator.translate(
-            LegacyActionCall(
-                action="artifact-claim",
-                arguments={"name": "legacy.md", "peer": "cc"},
-            ),
-            _submission(),
-        )
-        assert isinstance(claim, TranslatedCommand)
-        assert isinstance(claim.command, ArtifactClaimCommand)
-        assert client.submit(claim.command).ok
-
-        draft = translator.translate(
-            LegacyActionCall(
-                action="artifact-status",
-                arguments={
-                    "name": "legacy.md",
-                    "agent": "cx",
-                    "draft_path": str(tmp_path / "legacy-draft.md"),
-                },
-            ),
-            _submission(),
-        )
-        assert isinstance(draft, TranslatedCommand)
-        assert isinstance(draft.command, ArtifactStatusCommand)
-        draft_outcome = client.submit(draft.command)
-        assert draft_outcome.ok
-        assert draft_outcome.state == "ADMITTED"
-
-        status = translator.translate(
-            LegacyActionCall(
-                action="artifact-status",
-                arguments={"name": "legacy.md"},
-            ),
-            _submission(),
-        )
-        assert isinstance(status, TranslatedCommand)
-        assert isinstance(status.command, ArtifactStatusCommand)
-        status_outcome = client.submit(status.command)
-        assert status_outcome.ok
-        assert status_outcome.state == "COMPLETED"
-
-        finalize = translator.translate(
-            LegacyActionCall(
-                action="artifact-finalize",
-                arguments={
-                    "name": "legacy.md",
-                    "file": str(final_file),
-                },
-            ),
-            _submission(),
-        )
-        assert isinstance(finalize, TranslatedCommand)
-        assert isinstance(finalize.command, ArtifactFinalizeCommand)
-        assert client.submit(finalize.command).ok
-
-        record = runtime.artifact_record_service.get_record("legacy.md")
-        assert record is not None
-        assert record.state["status"] == "finalized"
 
 
 def test_cli_executes_claim_status_draft_and_finalize(

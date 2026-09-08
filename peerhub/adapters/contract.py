@@ -142,6 +142,7 @@ class PeerDescriptor:
     capabilities: frozenset[Capability]
     usage_provider_id: str | None
     readiness_probe_id: str
+    default_profile_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -184,6 +185,19 @@ class PeerDescriptor:
         if len({p.profile_id for p in profiles}) != len(profiles):
             raise ValueError("profile_id values must be unique")
         object.__setattr__(self, "profiles", profiles)
+
+        valid_profile_ids = {p.profile_id for p in profiles}
+        if (
+            self.default_profile_id is not None
+            and self.default_profile_id in valid_profile_ids
+        ):
+            object.__setattr__(
+                self,
+                "default_profile_id",
+                require_text(self.default_profile_id, "default_profile_id"),
+            )
+        else:
+            object.__setattr__(self, "default_profile_id", profiles[0].profile_id)
 
         transports = frozenset(self.transports)
         if not transports:

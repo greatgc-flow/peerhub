@@ -181,9 +181,8 @@ def resolve_peer_target(name: str, *, profile_id: str | None = None) -> Resolved
         if selected_profile is None:
             raise ProfileNotFoundError(f"profile {profile_id!r} not supported by {peer_kind}")
     else:
-        if len(profiles) != 1:
-            raise ProfileNotFoundError(f"adapter {peer_kind} has {len(profiles)} profiles; profile_id is required")
-        selected_profile = profiles[0]
+        default_id = adapter.descriptor.default_profile_id
+        selected_profile = next((p for p in profiles if p.profile_id == default_id), profiles[0])
         
     class _DummyContract:
         contract_id: str = "dummy"

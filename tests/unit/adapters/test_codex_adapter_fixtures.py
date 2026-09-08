@@ -363,6 +363,99 @@ def test_codex_descriptor_advertises_stream():
     assert Capability.STREAM in RealCodexAdapter.descriptor.capabilities
 
 
+def test_codex_descriptor_advertises_profiles():
+    profiles = RealCodexAdapter.descriptor.profiles
+    assert tuple(p.profile_id for p in profiles) == ("cx.standard", "cx.effort", "cx.deepthink")
+    assert RealCodexAdapter.descriptor.default_profile_id == "cx.standard"
+    profile_map = {p.profile_id: p for p in profiles}
+    assert profile_map["cx.standard"].supports_reasoning_effort is False
+    assert profile_map["cx.effort"].supports_reasoning_effort is True
+    assert profile_map["cx.deepthink"].supports_reasoning_effort is True
+
+
+def test_codex_plan_invocation_effort_tier_appends_reasoning_effort():
+    adapter = RealCodexAdapter()
+    effort_profile = next(p for p in adapter.descriptor.profiles if p.profile_id == "cx.effort")
+    binding = ResolvedModelBinding(
+        selection_mode=ModelSelectionMode.PINNED,
+        model_id="gpt-5.6-terra",
+        reasoning_effort="high",
+        source_layer="config",
+    )
+    req = AdapterRequest(
+        request_id="req-effort",
+        prompt_content="Hello effort",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cx.effort",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=binding,
+    )
+    plan = adapter.plan_invocation(req, effort_profile, None, _limits())
+    assert plan.argv == (
+        "codex.cmd", "exec", "--skip-git-repo-check",
+        "-c", 'model="gpt-5.6-terra"',
+        "-c", 'model_reasoning_effort="high"',
+        "--json", "Hello effort",
+    )
+
+
+def test_codex_plan_invocation_deepthink_tier_appends_reasoning_effort():
+    adapter = RealCodexAdapter()
+    deepthink_profile = next(p for p in adapter.descriptor.profiles if p.profile_id == "cx.deepthink")
+    binding = ResolvedModelBinding(
+        selection_mode=ModelSelectionMode.PINNED,
+        model_id="gpt-6-astra",
+        reasoning_effort="xhigh",
+        source_layer="config",
+    )
+    req = AdapterRequest(
+        request_id="req-dt",
+        prompt_content="Hello deepthink",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cx.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=binding,
+    )
+    plan = adapter.plan_invocation(req, deepthink_profile, None, _limits())
+    assert plan.argv == (
+        "codex.cmd", "exec", "--skip-git-repo-check",
+        "-c", 'model="gpt-6-astra"',
+        "-c", 'model_reasoning_effort="xhigh"',
+        "--json", "Hello deepthink",
+    )
+
+
+def test_codex_plan_invocation_standard_tier_ignores_reasoning_effort():
+    adapter = RealCodexAdapter()
+    standard_profile = next(p for p in adapter.descriptor.profiles if p.profile_id == "cx.standard")
+    binding = ResolvedModelBinding(
+        selection_mode=ModelSelectionMode.PINNED,
+        model_id="gpt-5.6-luna",
+        reasoning_effort="high",
+        source_layer="config",
+    )
+    req = AdapterRequest(
+        request_id="req-std",
+        prompt_content="Hello standard",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cx.standard",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=binding,
+    )
+    plan = adapter.plan_invocation(req, standard_profile, None, _limits())
+    assert plan.argv == (
+        "codex.cmd", "exec", "--skip-git-repo-check",
+        "-c", 'model="gpt-5.6-luna"',
+        "--json", "Hello standard",
+    )
+
+
 def test_codex_decoder_auth_failure_takes_precedence_over_connect():
     decoder = CodexOutputDecoder()
     decoder.feed(

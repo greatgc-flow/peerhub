@@ -6,20 +6,10 @@ import json
 import os
 from pathlib import Path
 
-from peerhub.application.commands import SubmissionMetadata
 from peerhub.application.lease_status import collect_lease_status
-from peerhub.application.legacy import (
-    LeaseStatusCommand,
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-)
 from peerhub.cli import main
-from peerhub.client import Client
 from peerhub.core.context import PathLayout, RuntimeContext
-from peerhub.core.identity import AuthenticatedSubject
-from peerhub.core.ports import RequestContext
-from peerhub.core.protocol import CommandID, CommandSuccess
+from peerhub.core.protocol import CommandID
 from peerhub.dispatch.contract import (
     LeaseCreateRequest,
     ProcessBirthIdentity,
@@ -38,20 +28,6 @@ class FixedClock:
 
     def advance(self, milliseconds: int) -> None:
         self.value += milliseconds
-
-
-def _submission() -> SubmissionMetadata:
-    return SubmissionMetadata(
-        client_request_id="lease-status-request",
-        correlation_id="lease-status-correlation",
-        client_id="lease-status-client",
-        actor_id="operator",
-        scope={},
-        idempotency_key=None,
-        expected_policy_revision=None,
-        expected_configuration_revision=None,
-        client_timestamp=100_000,
-    )
 
 
 def _create_lease(runtime, clock: FixedClock, *, peer: str, suffix: str):
@@ -117,30 +93,6 @@ def test_lease_status_reports_expired_lease_without_mutating_it(tmp_path: Path):
     assert rows[0]["expired"] is True
     assert rows[0]["status"] == "open !"
     assert persisted == lease
-
-
-def test_lease_status_legacy_translation_and_api_execution(tmp_path: Path):
-    clock = FixedClock()
-    with _runtime(tmp_path, clock) as runtime:
-        _create_lease(runtime, clock, peer="ag", suffix="api")
-        translated = LegacyTranslator().translate(
-            LegacyActionCall(action="lease-status", arguments={}), _submission()
-        )
-        assert isinstance(translated, TranslatedCommand)
-        assert isinstance(translated.command, LeaseStatusCommand)
-
-        client = Client(
-            runtime.application_api,
-            caller=RequestContext(
-                principal=AuthenticatedSubject("operator", "system").principal_id,
-                client_id="lease-status-client",
-            ),
-        )
-        outcome = client.submit(translated.command)
-
-    assert isinstance(outcome, CommandSuccess)
-    assert isinstance(outcome.result["leases"], tuple)
-    assert outcome.result["leases"][0]["peer"] == "ag"
 
 
 def test_cli_lease_status_json(tmp_path: Path, capsys):

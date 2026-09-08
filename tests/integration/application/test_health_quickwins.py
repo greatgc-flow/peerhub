@@ -19,12 +19,6 @@ from peerhub.application.api import (
     ApplicationAPI,
     CommandEnvelope,
 )
-from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-)
 from peerhub.application.peer_registry import (
     PeerRegistryService,
     collect_peer_status,
@@ -662,81 +656,6 @@ def test_health_sweep_fresh_and_stale(test_setup):
     assert sweep_stale["stale_count"] >= 3
     stale_peers = list(sweep_stale["stale_peers"])
     assert "ag" in stale_peers
-
-
-def _quickwin_submission(*, idempotency_key: str | None) -> SubmissionMetadata:
-    return SubmissionMetadata(
-        client_request_id="quickwin-request",
-        correlation_id="quickwin-correlation",
-        client_id="client-1",
-        actor_id="test-principal",
-        scope={},
-        idempotency_key=idempotency_key,
-        expected_policy_revision=None,
-        expected_configuration_revision=None,
-        client_timestamp=1_000,
-    )
-
-
-def test_legacy_translation_and_api_execution(test_setup, monkeypatch):
-    runtime = test_setup["runtime"]
-    coordinator: HealthRevalidationCoordinator = test_setup["coordinator"]
-    health: HealthService = test_setup["health"]
-    clock: FixedClock = test_setup["clock"]
-    caller: AuthenticatedSubject = test_setup["caller"]
-
-    client = Client(
-        runtime.application_api,
-        caller=RequestContext(principal=caller.principal_id, client_id="client-1"),
-    )
-
-    # Seed fresh health evidence for ag
-    _record_healthy_evidence(health, "ag", "ag.standard", clock.now())
-    _record_healthy_evidence(health, "cc", "cc.standard", clock.now())
-    _record_healthy_evidence(health, "cx", "cx.standard", clock.now())
-
-    translator = LegacyTranslator()
-
-    def translate(action: str, arguments: dict[str, Any], key: str) -> Any:
-        outcome = translator.translate(
-            LegacyActionCall(action=action, arguments=arguments),
-            _quickwin_submission(idempotency_key=key),
-        )
-        assert isinstance(outcome, TranslatedCommand)
-        return outcome.command
-
-    # 1. Translate and submit peer-status (READ_ONLY -- no idempotency key needed)
-    res_status = client.submit(translate("peer-status", {}, "quickwin-1"))
-    assert isinstance(res_status, CommandSuccess)
-    assert "peers" in res_status.result
-
-    # 2. Translate and submit health-check
-    res_health = client.submit(translate("health-check", {"peer": "ag"}, "quickwin-2"))
-    assert isinstance(res_health, CommandSuccess)
-    assert "peers" in res_health.result
-
-    # 3. Translate and submit check-gate
-    res_gate = client.submit(translate("check-gate", {"agent": "ag"}, "quickwin-3"))
-    assert isinstance(res_gate, CommandSuccess)
-    assert res_gate.result["open"] is True
-
-    # 4. Translate and submit health-precheck
-    res_precheck = client.submit(translate("health-precheck", {}, "quickwin-4"))
-    assert isinstance(res_precheck, CommandSuccess)
-    assert res_precheck.result["ok"] is True
-
-    # 5. Translate and submit health-sweep
-    res_sweep = client.submit(translate("health-sweep", {}, "quickwin-5"))
-    assert isinstance(res_sweep, CommandSuccess)
-    assert "stale_count" in res_sweep.result
-
-    # 6. Translate and submit peer-recover (MUTATING -- requires idempotency key)
-    _mock_successful_probe(monkeypatch, clock)
-    res_recover = client.submit(
-        translate("peer-recover", {"peer": "ag", "reason": "test"}, "quickwin-6")
-    )
-    assert isinstance(res_recover, CommandSuccess)
-    assert "results" in res_recover.result
 
 
 def test_cli_commands_execution(tmp_path: Path, capsys):

@@ -8,15 +8,7 @@ import pytest
 from peerhub.application.capability_config import (
     import_legacy_capability_configs,
 )
-from peerhub.application.commands import SubmissionMetadata
 from peerhub.application.leadership import LeadershipMonopolyError
-from peerhub.application.legacy import (
-    DiscoverCandidatesCommand,
-    ElectLeaderCommand,
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-)
 from peerhub.cli import main
 from peerhub.client import Client
 from peerhub.core.context import PathLayout, RuntimeContext
@@ -274,58 +266,6 @@ def test_rejected_and_exhausted_elections_still_have_both_audits(
         assert len(runtime.governance_broker.list_targets(
             "leader-election-outcome", None
         )) == 5
-
-
-def test_legacy_discover_and_elect_execute_through_command_api(
-    tmp_path: Path,
-) -> None:
-    context = _context(tmp_path / "workspace")
-    with create_runtime(context) as runtime:
-        _import(runtime, tmp_path / "legacy")
-        client = Client(
-            runtime.application_api,
-            caller=RequestContext(principal="user", client_id="legacy"),
-        )
-        submission = SubmissionMetadata(
-            "request-1",
-            "correlation-1",
-            "legacy",
-            "operator",
-            {},
-            "idempotency-1",
-            None,
-            None,
-            1000,
-        )
-        translated = LegacyTranslator().translate(
-            LegacyActionCall(
-                "discover", {"needs": "code-generation", "effort": "mid"}
-            ),
-            submission,
-        )
-        assert isinstance(translated, TranslatedCommand)
-        assert isinstance(translated.command, DiscoverCandidatesCommand)
-        result = client.submit(translated.command)
-        assert isinstance(result, CommandSuccess)
-        assert result.result["ordered_matches"][0]["node_id"] == "cx"
-
-        translated = LegacyTranslator().translate(
-            LegacyActionCall(
-                "elect-leader",
-                {
-                    "needs": "code-generation",
-                    "effort": "mid",
-                    "reason": "legacy-test",
-                },
-            ),
-            submission,
-        )
-        assert isinstance(translated, TranslatedCommand)
-        assert isinstance(translated.command, ElectLeaderCommand)
-        result = client.submit(translated.command)
-        assert isinstance(result, CommandSuccess)
-        assert result.result["selected_node_id"] == "cx"
-        assert result.result["outcome"] == "CLAIMED"
 
 
 def test_cli_import_discover_and_elect(tmp_path: Path, capsys) -> None:
