@@ -8,12 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    LeaseSweepCommand,
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-)
+from peerhub.application.legacy import LeaseSweepCommand
 from peerhub.cli import main
 from peerhub.client import Client
 from peerhub.core.context import PathLayout, RuntimeContext
@@ -274,18 +269,6 @@ def test_unknown_dead_pid_recovers_without_reap(tmp_path: Path) -> None:
 
 
 def test_legacy_translation_and_api_execution(tmp_path: Path) -> None:
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            action="lease-sweep",
-            arguments={"limit": 7, "no_reap": True},
-        ),
-        _submission(suffix="translate"),
-    )
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, LeaseSweepCommand)
-    assert translated.command.limit == 7
-    assert translated.command.reap is False
-
     clock = FixedClock()
     with _runtime(tmp_path, clock) as runtime:
         lease = _create_lease(

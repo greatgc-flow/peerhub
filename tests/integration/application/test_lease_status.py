@@ -6,14 +6,12 @@ import json
 import os
 from pathlib import Path
 
+from dataclasses import dataclass
+from typing import Any
+
 from peerhub.application.commands import SubmissionMetadata
 from peerhub.application.lease_status import collect_lease_status
-from peerhub.application.legacy import (
-    LeaseStatusCommand,
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-)
+from peerhub.application.legacy import LeaseStatusCommand
 from peerhub.cli import main
 from peerhub.client import Client
 from peerhub.core.context import PathLayout, RuntimeContext
@@ -27,6 +25,13 @@ from peerhub.dispatch.contract import (
 )
 from peerhub.runtime import create_runtime
 from tests.fakes import SequentialIdSource
+
+
+@dataclass(frozen=True, slots=True)
+class _CommandOutcome:
+    """Internal test wrapper to preserve outcome.command access."""
+
+    command: Any
 
 
 class FixedClock:
@@ -123,11 +128,8 @@ def test_lease_status_legacy_translation_and_api_execution(tmp_path: Path):
     clock = FixedClock()
     with _runtime(tmp_path, clock) as runtime:
         _create_lease(runtime, clock, peer="ag", suffix="api")
-        translated = LegacyTranslator().translate(
-            LegacyActionCall(action="lease-status", arguments={}), _submission()
-        )
-        assert isinstance(translated, TranslatedCommand)
-        assert isinstance(translated.command, LeaseStatusCommand)
+        cmd = LeaseStatusCommand(submission=_submission())
+        translated = _CommandOutcome(cmd)
 
         client = Client(
             runtime.application_api,

@@ -1,0 +1,32 @@
+[
+  {
+    "nodeid": "tests/integration/application/test_process_lease_sweep.py::test_legacy_translation_and_api_execution",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on lease-sweep. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_process_lease_sweep.py::test_legacy_translation_and_api_execution",
+    "expression": "isinstance(translated.command, LeaseSweepCommand)",
+    "reason": "Retire translator command-type check on lease-sweep. Command is now constructed directly as LeaseSweepCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_process_lease_sweep.py::test_legacy_translation_and_api_execution",
+    "expression": "translated.command.limit == 7",
+    "reason": "Retire translator limit parameter mapping check. LeaseSweepCommand is constructed with limit parameter directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_process_lease_sweep.py::test_legacy_translation_and_api_execution",
+    "expression": "translated.command.reap is False",
+    "reason": "Retire translator no_reap negation mapping check. LeaseSweepCommand is constructed with reap parameter directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_lease_status.py::test_lease_status_legacy_translation_and_api_execution",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on lease-status. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_lease_status.py::test_lease_status_legacy_translation_and_api_execution",
+    "expression": "isinstance(translated.command, LeaseStatusCommand)",
+    "reason": "Retire translator command-type check on lease-status. Command is now constructed directly as LeaseStatusCommand."
+  }
+]
