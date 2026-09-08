@@ -46,21 +46,42 @@ def _split_canonical_lines(text: str) -> tuple[str, ...]:
     return tuple(lines)
 
 
-_CODEX_PROFILE = ProfileDescriptor(
+_CODEX_STANDARD_PROFILE = ProfileDescriptor(
     profile_id="cx.standard",
     profile_class="tier",
-    supports_reasoning_effort=False,
+    supports_reasoning_effort=True,
 )
+
+_CODEX_EFFORT_PROFILE = ProfileDescriptor(
+    profile_id="cx.effort",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
+_CODEX_DEEPTHINK_PROFILE = ProfileDescriptor(
+    profile_id="cx.deepthink",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
+_CODEX_PROFILES = (
+    _CODEX_STANDARD_PROFILE,
+    _CODEX_EFFORT_PROFILE,
+    _CODEX_DEEPTHINK_PROFILE,
+)
+
+_CODEX_PROFILE = _CODEX_STANDARD_PROFILE
 
 _CODEX_DESCRIPTOR = PeerDescriptor(
     adapter_id="codex-peer",
     adapter_version="1.0.0",
     peer_kind="cx",
-    profiles=(_CODEX_PROFILE,),
+    profiles=_CODEX_PROFILES,
     transports=frozenset({TransportKind.PIPE}),
     capabilities=frozenset({Capability.SESSION, Capability.STREAM}),
     usage_provider_id=None,
     readiness_probe_id="codex-readiness",
+    default_profile_id="cx.standard",
 )
 
 
@@ -314,10 +335,10 @@ class RealCodexAdapter:
         self.executable_path = executable_path
 
     def prompt_policy(self, profile: ProfileDescriptor) -> PromptPolicy:
-        if profile.profile_id != _CODEX_PROFILE.profile_id:
+        if profile.profile_id not in {p.profile_id for p in _CODEX_PROFILES}:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
         return PromptPolicy(
-            policy_id="cx-standard-policy",
+            policy_id=f"{profile.profile_id}-policy",
             max_inline_utf8_bytes=1000000,
             artifact_reference_supported=False,
         )
@@ -330,7 +351,7 @@ class RealCodexAdapter:
         limits: TransportLimits,
     ) -> InvocationPlan:
 
-        if profile.profile_id != _CODEX_PROFILE.profile_id:
+        if profile.profile_id not in {p.profile_id for p in _CODEX_PROFILES}:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
 
         prompt = request.prompt_content
@@ -377,8 +398,8 @@ class RealCodexAdapter:
         # Model resolution is centralized: the caller resolves a
         # ResolvedModelBinding (workspace binding > global config > packaged
         # default) and carries it on the request; this adapter only
-        # translates it into codex's `-c model="..."` argv, never reads
-        # config itself. A codex account's own default model can be bumped
+        # translates it into codex's `-c model="..."` and `-c model_reasoning_effort="..."`
+        # argv, never reads config itself. A codex account's own default model can be bumped
         # by the provider ahead of whatever codex CLI version is actually
         # installed (observed live: a fresh install's default resolved to a
         # model requiring "a newer version of Codex" than the installed
@@ -386,10 +407,15 @@ class RealCodexAdapter:
         # deliberately re-exposes that risk as an explicit, opted-in choice
         # rather than an accident, so it is logged loudly here.
         binding = request.model_binding
+        model_flags: list[str] = []
+        model_display = ""
         if binding.selection_mode is ModelSelectionMode.PINNED:
             assert binding.model_id is not None
-            model_override = ("-c", f'model="{binding.model_id}"')
-            model_display = f' -c model="{binding.model_id}"'
+            model_flags.extend(["-c", f'model="{binding.model_id}"'])
+            model_display += f' -c model="{binding.model_id}"'
+            if profile.supports_reasoning_effort and binding.reasoning_effort is not None:
+                model_flags.extend(["-c", f'model_reasoning_effort="{binding.reasoning_effort}"'])
+                model_display += f' -c model_reasoning_effort="{binding.reasoning_effort}"'
         else:
             # Registry/discovery create an unresolved dummy request solely
             # to learn argv[0]; it is not a dispatch and must not look like
@@ -398,15 +424,13 @@ class RealCodexAdapter:
             # source layer, so its explicit cli_default choice remains loud.
             if binding.source_layer != "unresolved":
                 logger.warning(
-                    "cx.standard dispatch is using selection_mode=cli_default: "
+                    f"{profile.profile_id} dispatch is using selection_mode=cli_default: "
                     "codex's own account-side default model will be used, "
                     "which can drift ahead of the installed CLI version and "
                     "fail every dispatch with no override. Configure an "
                     "explicit pin (see `peerhub node bind-profile --help`) to "
                     "avoid this, unless this was deliberately chosen."
                 )
-            model_override = ()
-            model_display = ""
 
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
@@ -416,7 +440,7 @@ class RealCodexAdapter:
                 "exec",
                 "resume",
                 "--skip-git-repo-check",
-                *model_override,
+                *model_flags,
                 "--json",
                 session.external_session_id,
                 prompt,
@@ -426,7 +450,7 @@ class RealCodexAdapter:
                 f"{model_display} --json <session-id> <redacted>"
             )
         else:
-            argv = (*exec_argv, "exec", "--skip-git-repo-check", *model_override, "--json", prompt)
+            argv = (*exec_argv, "exec", "--skip-git-repo-check", *model_flags, "--json", prompt)
             redacted_display = (
                 "codex.cmd exec --skip-git-repo-check"
                 f"{model_display} --json <redacted>"

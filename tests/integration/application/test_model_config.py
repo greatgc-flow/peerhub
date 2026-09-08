@@ -91,11 +91,13 @@ def test_global_config_takes_precedence_over_packaged_default(
 
 
 @pytest.mark.parametrize(
-    ("profile_id", "selection_mode", "model_id"),
+    ("profile_id", "selection_mode", "model_id", "reasoning_effort"),
     (
-        ("cx.standard", ModelSelectionMode.PINNED, "gpt-5.6-luna"),
-        ("cc.standard", ModelSelectionMode.CLI_DEFAULT, None),
-        ("ag.standard", ModelSelectionMode.CLI_DEFAULT, None),
+        ("cx.standard", ModelSelectionMode.PINNED, "gpt-5.6-luna", "low"),
+        ("cx.effort", ModelSelectionMode.PINNED, "gpt-5.6-terra", "high"),
+        ("cx.deepthink", ModelSelectionMode.PINNED, "gpt-6-astra", "xhigh"),
+        ("cc.standard", ModelSelectionMode.CLI_DEFAULT, None, None),
+        ("ag.standard", ModelSelectionMode.CLI_DEFAULT, None, None),
     ),
 )
 def test_packaged_defaults_resolve_each_known_profile(
@@ -104,6 +106,7 @@ def test_packaged_defaults_resolve_each_known_profile(
     profile_id: str,
     selection_mode: ModelSelectionMode,
     model_id: str | None,
+    reasoning_effort: str | None,
 ) -> None:
     monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "missing-global"))
 
@@ -113,6 +116,7 @@ def test_packaged_defaults_resolve_each_known_profile(
 
     assert binding.selection_mode is selection_mode
     assert binding.model_id == model_id
+    assert binding.reasoning_effort == reasoning_effort
     assert binding.source_layer == "packaged_default"
 
 

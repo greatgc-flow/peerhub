@@ -206,3 +206,59 @@ def test_register_adapter_factory_is_all_or_nothing_on_a_late_collision(
     assert "local" not in registry._adapter_factories  # pyright: ignore[reportPrivateUsage]
     assert "fresh-alias" not in registry._cli_aliases  # pyright: ignore[reportPrivateUsage]
     assert registry._cli_aliases["claude"] == "cc"  # pyright: ignore[reportPrivateUsage]
+
+
+def test_resolve_peer_target_bare_cx_resolves_to_standard(stub_executables: None) -> None:
+    target = resolve_peer_target("cx")
+    assert target.profile.profile_id == "cx.standard"
+    assert target.profile.supports_reasoning_effort is True
+
+
+def test_resolve_peer_target_with_explicit_profile(stub_executables: None) -> None:
+    target_effort = resolve_peer_target("cx", profile_id="cx.effort")
+    assert target_effort.profile.profile_id == "cx.effort"
+    assert target_effort.profile.supports_reasoning_effort is True
+
+    target_dt = resolve_peer_target("cx", profile_id="cx.deepthink")
+    assert target_dt.profile.profile_id == "cx.deepthink"
+    assert target_dt.profile.supports_reasoning_effort is True
+
+
+def test_resolve_peer_target_multi_profile_generic_default(
+    restored_registry: None,
+    stub_executables: None,
+) -> None:
+    from peerhub.adapters.contract import (
+        Capability,
+        PeerDescriptor,
+        ProfileDescriptor,
+        TransportKind,
+    )
+
+    p1 = ProfileDescriptor(profile_id="custom.primary", profile_class="tier", supports_reasoning_effort=False)
+    p2 = ProfileDescriptor(profile_id="custom.secondary", profile_class="tier", supports_reasoning_effort=True)
+    desc = PeerDescriptor(
+        adapter_id="custom-peer",
+        adapter_version="1.0.0",
+        peer_kind="custom",
+        profiles=(p1, p2),
+        transports=frozenset({TransportKind.PIPE}),
+        capabilities=frozenset({Capability.SESSION}),
+        usage_provider_id=None,
+        readiness_probe_id="custom-readiness",
+        default_profile_id="custom.primary",
+    )
+
+    class CustomFakeAdapter(FakePeerAdapter):
+        descriptor = desc
+
+    register_adapter_factory("custom", ("custom",), CustomFakeAdapter)
+
+    # Resolving with profile_id=None must select descriptor.default_profile_id
+    target_default = resolve_peer_target("custom")
+    assert target_default.profile.profile_id == "custom.primary"
+
+    # Resolving with explicit profile must select that profile
+    target_explicit = resolve_peer_target("custom", profile_id="custom.secondary")
+    assert target_explicit.profile.profile_id == "custom.secondary"
+

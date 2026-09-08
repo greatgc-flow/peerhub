@@ -325,13 +325,27 @@ def collect_model_status(
         if not isinstance(default_profile_value, str) or not default_profile_value:
             raise InvalidMutationError("peer node has malformed profile_id")
 
+        try:
+            adapter_desc = resolve_peer_adapter(peer_kind_value).descriptor
+            advertised_profiles = tuple(p.profile_id for p in adapter_desc.profiles)
+        except Exception:
+            advertised_profiles = (default_profile_value,)
+
         bindings = registry.list_profile_bindings(node_id_value)
-        binding_rows: Sequence[TargetState | None] = (
-            tuple(bindings) if bindings else (None,)
-        )
-        for binding in binding_rows:
+        bindings_by_profile: dict[str, TargetState] = {}
+        for b in bindings:
+            p_val = b.state.get("profile_id")
+            if isinstance(p_val, str) and p_val:
+                bindings_by_profile[p_val] = b
+
+        all_profile_ids: list[str] = list(advertised_profiles)
+        for pid in bindings_by_profile:
+            if pid not in all_profile_ids:
+                all_profile_ids.append(pid)
+
+        for profile_id in all_profile_ids:
+            binding = bindings_by_profile.get(profile_id)
             if binding is None:
-                profile_id = default_profile_value
                 model_id = ""
                 reasoning_effort = ""
             else:
