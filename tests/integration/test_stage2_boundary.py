@@ -43,6 +43,8 @@ from peerhub.application.legacy import (
     RoleStatusCommand,
     LeaderClaimCommand,
     LeaderYieldCommand,
+    TerminalCloseCommand,
+    TerminalDutySweepCommand,
     FeedbackAddCommand,
     FeedbackListCommand,
     FeedbackResolveCommand,
@@ -191,18 +193,15 @@ def test_legacy_leader_claim_translates_and_executes(runtime_setup) -> None:
 
     # Legacy shape: --agent for the peer, --reason/--detail, --needs
     # for the domain. Workspace-global; no room_id concept at all.
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "leader-claim",
-            {"agent": "cc", "reason": "planning_round", "needs": "design"},
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=LeaderClaimCommand(
+            submission=_legacy_submission(),
+            peer_node_id="cc",
+            actor_id="peer-1",
+            reason="planning_round",
+            domain="design",
+        )
     )
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, LeaderClaimCommand)
-    assert translated.command.peer_node_id == "cc"
-    assert translated.command.reason == "planning_round"
-    assert translated.command.domain == "design"
 
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
@@ -223,16 +222,14 @@ def test_legacy_leader_yield_translates_and_executes(runtime_setup) -> None:
         peer_node_id="cc", actor_id="peer-1"
     )
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "leader-yield", {"agent": "cx", "detail": "context_exhausted"}
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=LeaderYieldCommand(
+            submission=_legacy_submission(),
+            yielding_peer_id="cx",
+            actor_id="peer-1",
+            reason="context_exhausted",
+        )
     )
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, LeaderYieldCommand)
-    assert translated.command.yielding_peer_id == "cx"
-    assert translated.command.reason == "context_exhausted"
 
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
@@ -247,11 +244,17 @@ def test_legacy_terminal_close_translates_and_executes(runtime_setup) -> None:
     lease = runtime.terminal_duty_service.claim_terminal_duty(
         "room-close", DutyOwnerIdentity("instance-1", "profile-1"), "peer-1", 1
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("terminal-close", {"lease_id": lease.lease_id, "room_id": "room-close", "instance_id": "instance-1", "profile_id": "profile-1", "term": lease.term, "authority_epoch": lease.authority_epoch}),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=TerminalCloseCommand(
+            submission=_legacy_submission(),
+            lease_id=lease.lease_id,
+            room_id="room-close",
+            instance_id="instance-1",
+            profile_id="profile-1",
+            term=lease.term,
+            authority_epoch=lease.authority_epoch,
+        )
     )
-    assert isinstance(translated, TranslatedCommand)
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.duty_lease_coordinator.get_lease(lease.lease_id).state.value == "RELEASED"
 
@@ -272,27 +275,23 @@ def test_terminal_close_can_end_duty_and_room_session(runtime_setup) -> None:
             heartbeat_timeout_ms=5_000,
         )
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "terminal-close",
-            {
-                "lease_id": lease.lease_id,
-                "room_id": lease.room_id,
-                "instance_id": owner.instance_id,
-                "profile_id": owner.profile_id,
-                "term": lease.term,
-                "authority_epoch": lease.authority_epoch,
-                "close_session": True,
-                "session_id": session.session_id,
-                "session_generation": session.session_generation,
-                "workspace_scope_id": session.workspace_scope_id,
-                "actor_principal_id": session.actor_principal_id,
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=TerminalCloseCommand(
+            submission=_legacy_submission(),
+            lease_id=lease.lease_id,
+            room_id=lease.room_id,
+            instance_id=owner.instance_id,
+            profile_id=owner.profile_id,
+            term=lease.term,
+            authority_epoch=lease.authority_epoch,
+            close_session=True,
+            session_id=session.session_id,
+            session_generation=session.session_generation,
+            workspace_scope_id=session.workspace_scope_id,
+            actor_principal_id=session.actor_principal_id,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["duty_close"]["status"] == "ok"
@@ -328,27 +327,22 @@ def test_terminal_close_reports_session_failure_after_duty_close_and_retries(
     )
 
     def translated_close(generation: int):
-        translated = LegacyTranslator().translate(
-            LegacyActionCall(
-                "terminal-close",
-                {
-                    "lease_id": lease.lease_id,
-                    "room_id": lease.room_id,
-                    "instance_id": owner.instance_id,
-                    "profile_id": owner.profile_id,
-                    "term": lease.term,
-                    "authority_epoch": lease.authority_epoch,
-                    "close_session": True,
-                    "session_id": session.session_id,
-                    "session_generation": generation,
-                    "workspace_scope_id": session.workspace_scope_id,
-                    "actor_principal_id": session.actor_principal_id,
-                },
-            ),
-            _legacy_submission(),
+        return SimpleNamespace(
+            command=TerminalCloseCommand(
+                submission=_legacy_submission(),
+                lease_id=lease.lease_id,
+                room_id=lease.room_id,
+                instance_id=owner.instance_id,
+                profile_id=owner.profile_id,
+                term=lease.term,
+                authority_epoch=lease.authority_epoch,
+                close_session=True,
+                session_id=session.session_id,
+                session_generation=generation,
+                workspace_scope_id=session.workspace_scope_id,
+                actor_principal_id=session.actor_principal_id,
+            )
         )
-        assert isinstance(translated, TranslatedCommand)
-        return translated
 
     failed = client.submit(
         translated_close(session.session_generation + 1).command
@@ -406,22 +400,18 @@ def test_legacy_terminal_duty_sweep_expires_only_timed_out_lease(
     runtime.duty_lease_coordinator._clock = type(
         "SweepClock", (), {"now": lambda self: 1_002}
     )()
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "terminal-duty-sweep",
-            {
-                "role": "terminal-duty",
-                "recovery_actor_principal_id": "system:sweep",
-                "trigger": "HEARTBEAT_TIMEOUT",
-                "evidence_digest": "sha256:sweep-evidence",
-                "policy_id": "terminal-duty-recovery",
-                "policy_revision": "1",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=TerminalDutySweepCommand(
+            submission=_legacy_submission(),
+            role="terminal-duty",
+            recovery_actor_principal_id="system:sweep",
+            trigger="HEARTBEAT_TIMEOUT",
+            evidence_digest="sha256:sweep-evidence",
+            policy_id="terminal-duty-recovery",
+            policy_revision="1",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["expired_count"] == 1

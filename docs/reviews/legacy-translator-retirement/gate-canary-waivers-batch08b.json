@@ -1,0 +1,67 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_claim_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on leader-claim"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_claim_translates_and_executes",
+    "expression": "isinstance(translated.command, LeaderClaimCommand)",
+    "reason": "Retire translator command-type check on leader-claim"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_claim_translates_and_executes",
+    "expression": "translated.command.peer_node_id == 'cc'",
+    "reason": "Retire translator field check on leader-claim peer_node_id"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_claim_translates_and_executes",
+    "expression": "translated.command.reason == 'planning_round'",
+    "reason": "Retire translator field check on leader-claim reason"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_claim_translates_and_executes",
+    "expression": "translated.command.domain == 'design'",
+    "reason": "Retire translator field check on leader-claim domain"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_yield_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on leader-yield"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_yield_translates_and_executes",
+    "expression": "isinstance(translated.command, LeaderYieldCommand)",
+    "reason": "Retire translator command-type check on leader-yield"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_yield_translates_and_executes",
+    "expression": "translated.command.yielding_peer_id == 'cx'",
+    "reason": "Retire translator field check on leader-yield yielding_peer_id"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_leader_yield_translates_and_executes",
+    "expression": "translated.command.reason == 'context_exhausted'",
+    "reason": "Retire translator field check on leader-yield reason"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_terminal_close_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on terminal-close"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_terminal_close_can_end_duty_and_room_session",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on terminal-close with session"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_terminal_close_reports_session_failure_after_duty_close_and_retries",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on terminal-close retry helper"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_terminal_duty_sweep_expires_only_timed_out_lease",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on terminal-duty-sweep"
+  }
+]
