@@ -299,7 +299,14 @@ def translator_only(function_source, expression, module_aliases=(), invalid_args
         value = expr.left
         # outcome == InvalidLegacyArguments(...): the translator's own
         # documented rejection shape, verified-import-only, never a guess.
-        if (isinstance(value, ast.Name) and value.id in results and invalid_args_aliases
+        # The left side may be a variable already verified as a translation
+        # result (`outcome = translator.translate(...); outcome == ...`) OR
+        # the translate() call made directly inline in the comparison
+        # (`translator.translate(...) == InvalidLegacyArguments(...)`,
+        # found necessary for batch 8c's file) -- both go through the same
+        # `_is_translate_call_on` verification, never a guess either way.
+        if (((isinstance(value, ast.Name) and value.id in results) or _is_translate_call_on(value))
+                and invalid_args_aliases
                 and isinstance(expr.comparators[0], ast.Call) and isinstance(expr.comparators[0].func, ast.Name)
                 and expr.comparators[0].func.id in invalid_args_aliases):
             return True

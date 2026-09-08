@@ -159,6 +159,53 @@ class ComparatorControls(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
 
+    def test_invalid_legacy_arguments_inline_call_comparison_accepted(self):
+        """`translator.translate(...) == InvalidLegacyArguments(...)` made
+        directly inline in the comparison (no intermediate `outcome =`
+        variable) must be waivable exactly like the variable-bound form --
+        found necessary for batch 8c's file, which asserts the rejection
+        shape straight off the call."""
+        before = evidence()
+        function = '''def test_sample():
+    from peerhub.application.legacy import LegacyTranslator, InvalidLegacyArguments
+    translator = LegacyTranslator()
+'''
+        before["collected"][NODE]["function_source"] = function
+        before["collected"][NODE]["assertions"] = [
+            assertion('translator.translate(call, submission=submission) == '
+                      'InvalidLegacyArguments(action="thread-new", reason="thread-new requires --topic")')]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE,
+                  "expression": 'translator.translate(call, submission=submission) == '
+                                'InvalidLegacyArguments(action="thread-new", reason="thread-new requires --topic")',
+                  "reason": "Retires the inline legacy invalid-arguments rejection-shape check."}
+        result = self.compare(before, after, [waiver])
+        self.assertTrue(result["passed"])
+        self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
+
+    def test_invalid_legacy_arguments_inline_call_on_unverified_alias_rejected(self):
+        """The inline-call form must still fail closed when the call is on
+        some OTHER, unrelated object that merely has a `.translate()`
+        method and is not a verified LegacyTranslator -- exactly like
+        `test_unverified_chained_call_rejected`, but for the
+        InvalidLegacyArguments comparison shape specifically."""
+        before = evidence()
+        function = '''def test_sample():
+    from peerhub.application.legacy import InvalidLegacyArguments
+'''
+        before["collected"][NODE]["function_source"] = function
+        before["collected"][NODE]["assertions"] = [
+            assertion('SomeUnrelatedThing().translate(call, submission=submission) == '
+                      'InvalidLegacyArguments(action="thread-new", reason="thread-new requires --topic")')]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE,
+                  "expression": 'SomeUnrelatedThing().translate(call, submission=submission) == '
+                                'InvalidLegacyArguments(action="thread-new", reason="thread-new requires --topic")',
+                  "reason": "Claimed translator-only, but not actually LegacyTranslator."}
+        self.assertFalse(self.compare(before, after, [waiver])["passed"])
+
     def test_reused_result_name_across_multiple_translate_calls_accepted(self):
         """A test function that reuses the same variable name for SEVERAL
         sequential `translate()` calls (a common pattern when verifying
