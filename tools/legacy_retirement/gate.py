@@ -280,8 +280,15 @@ def translator_only(function_source, expression, module_aliases=(), invalid_args
         # LegacyTranslator().translate(...) -- same alias verification, no
         # intermediate variable required.
         return isinstance(target, ast.Call) and isinstance(target.func, ast.Name) and target.func.id in aliases
-    results = {n.targets[0].id for n in assignments
-               if _is_translate_call_on(n.value) and bindings[n.targets[0].id] == 1}
+    # A name qualifies as a translation result if EVERY assignment to it in
+    # the function is a verified translate() call -- not just exactly one.
+    # A test reusing a generic name (e.g. `translated`) across several
+    # sequential scenarios in the same function is still fully verified:
+    # if even one assignment to that name is something else entirely
+    # (`translated = None`, a real command built some other way, etc.),
+    # translate_bindings[name] < bindings[name] and it fails closed.
+    translate_bindings = Counter(n.targets[0].id for n in assignments if _is_translate_call_on(n.value))
+    results = {name for name, count in translate_bindings.items() if count == bindings[name]}
     expr = ast.parse(expression, mode="eval").body
     if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
         call = expr.operand
@@ -351,8 +358,19 @@ def compare(before, after, waivers):
             removed.append(entry)
             candidates = [(i, w) for i, w in enumerate(waivers) if i not in used and w.get("nodeid") == nodeid
                           and w.get("expression") == assertion["expression"] and w.get("reason", "").strip()]
-            if len(candidates) == 1 and translator_only(old["function_source"], assertion["expression"],
-                                                         old.get("module_aliases", ()), old.get("invalid_args_module_aliases", ())):
+            # Take the first still-unused matching candidate, not "exactly
+            # one candidate must exist." A node with the SAME assertion text
+            # removed more than once (e.g. `isinstance(translated,
+            # TranslatedCommand)` reused across several sequential
+            # scenarios in one function) legitimately needs more than one
+            # waiver entry with identical (nodeid, expression) -- each
+            # occurrence would otherwise see every not-yet-consumed
+            # duplicate as an ambiguous match and never reach exactly 1.
+            # `used` still prevents any single waiver from covering more
+            # than one occurrence, and a genuinely unused/over-provisioned
+            # waiver is still caught below by the final used-count check.
+            if candidates and translator_only(old["function_source"], assertion["expression"],
+                                               old.get("module_aliases", ()), old.get("invalid_args_module_aliases", ())):
                 i, waiver = candidates[0]
                 used.add(i)
                 accepted.append({**entry, "reason": waiver["reason"]})

@@ -159,6 +159,88 @@ class ComparatorControls(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
 
+    def test_reused_result_name_across_multiple_translate_calls_accepted(self):
+        """A test function that reuses the same variable name for SEVERAL
+        sequential `translate()` calls (a common pattern when verifying
+        multiple scenarios in one function) must still be recognized --
+        found necessary for batch 6's file."""
+        before = evidence()
+        reused_name_function = '''def test_sample():
+    from peerhub.application.legacy import LegacyTranslator
+    translator = LegacyTranslator()
+    translated = translator.translate(call, submission=submission)
+    assert isinstance(translated, TranslatedCommand)
+    result = client.submit(translated.command)
+    translated = translator.translate(other_call, submission=submission)
+    assert isinstance(translated, TranslatedCommand)
+'''
+        before["collected"][NODE]["function_source"] = reused_name_function
+        before["collected"][NODE]["assertions"] = [
+            assertion("isinstance(translated, TranslatedCommand)"),
+            assertion("isinstance(translated, TranslatedCommand)"),
+        ]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waivers = [
+            {"nodeid": NODE, "expression": "isinstance(translated, TranslatedCommand)",
+             "reason": "Retires the first translation wrapper check."},
+            {"nodeid": NODE, "expression": "isinstance(translated, TranslatedCommand)",
+             "reason": "Retires the second translation wrapper check."},
+        ]
+        result = self.compare(before, after, waivers)
+        self.assertTrue(result["passed"])
+        self.assertEqual(len(result["accepted_translator_only_removals"]), 2)
+
+    def test_result_name_reassigned_to_non_translation_value_rejected(self):
+        """If even ONE assignment to a reused name is NOT a verified
+        translate() call, that name must not qualify as a translation
+        result at all -- fails closed rather than accepting some
+        assignments and not others."""
+        before = evidence()
+        mixed_function = '''def test_sample():
+    from peerhub.application.legacy import LegacyTranslator
+    translator = LegacyTranslator()
+    translated = translator.translate(call, submission=submission)
+    assert isinstance(translated, TranslatedCommand)
+    translated = None
+    assert translated is None
+'''
+        before["collected"][NODE]["function_source"] = mixed_function
+        before["collected"][NODE]["assertions"] = [assertion("isinstance(translated, TranslatedCommand)")]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE, "expression": "isinstance(translated, TranslatedCommand)",
+                  "reason": "Retires the translation wrapper check."}
+        self.assertFalse(self.compare(before, after, [waiver])["passed"])
+
+    def test_overprovisioned_duplicate_waiver_still_rejected(self):
+        """Even with the duplicate-expression fix, an extra unused waiver
+        (3 waivers for only 2 real removed occurrences) must still fail --
+        the ambiguity check moved from per-occurrence candidate counting to
+        the final used-vs-total-waivers count, it wasn't just deleted."""
+        before = evidence()
+        reused_name_function = '''def test_sample():
+    from peerhub.application.legacy import LegacyTranslator
+    translator = LegacyTranslator()
+    translated = translator.translate(call, submission=submission)
+    assert isinstance(translated, TranslatedCommand)
+    translated = translator.translate(other_call, submission=submission)
+    assert isinstance(translated, TranslatedCommand)
+'''
+        before["collected"][NODE]["function_source"] = reused_name_function
+        before["collected"][NODE]["assertions"] = [
+            assertion("isinstance(translated, TranslatedCommand)"),
+            assertion("isinstance(translated, TranslatedCommand)"),
+        ]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waivers = [
+            {"nodeid": NODE, "expression": "isinstance(translated, TranslatedCommand)", "reason": "First."},
+            {"nodeid": NODE, "expression": "isinstance(translated, TranslatedCommand)", "reason": "Second."},
+            {"nodeid": NODE, "expression": "isinstance(translated, TranslatedCommand)", "reason": "Extra, unused."},
+        ]
+        self.assertFalse(self.compare(before, after, waivers)["passed"])
+
     def test_wire_contract_cannot_be_waived(self):
         before = evidence()
         expr = "outcome.command.encode_params() == {'target_peer_id': 'cc'}"
