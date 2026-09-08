@@ -58,6 +58,27 @@ class ComparatorControls(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
 
+    def test_unverified_import_scope_rejected(self):
+        """A waiver must not pass just because a variable is *named* like a
+        translator result. If `translator_only()` cannot verify LegacyTranslator
+        was actually imported/constructed within the function's own AST (e.g.
+        the import is only at module scope, outside what `function_source`
+        captures), it must fail closed and reject the waiver -- never assume
+        the alias regardless of evidence. This guards against silently turning
+        the whole preservation gate into a rubber stamp."""
+        before = evidence()
+        no_local_import_function = '''def test_sample():
+    translator = LegacyTranslator()
+    outcome = translator.translate(call, submission=submission)
+    assert outcome.command.target_peer_id == "cc"
+'''
+        before["collected"][NODE]["function_source"] = no_local_import_function
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE, "expression": "outcome.command.target_peer_id == 'cc'",
+                  "reason": "Retires the translator argument mapping check."}
+        self.assertFalse(self.compare(before, after, [waiver])["passed"])
+
     def test_wire_contract_cannot_be_waived(self):
         before = evidence()
         expr = "outcome.command.encode_params() == {'target_peer_id': 'cc'}"

@@ -243,6 +243,13 @@ def translator_only(function_source, expression):
             return True
         except (ValueError, TypeError):
             return False
+    if isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id == "isinstance" and len(expr.args) == 2 and not expr.keywords:
+        target, expected_type = expr.args
+        if isinstance(target, ast.Name) and target.id in results:
+            return isinstance(expected_type, ast.Name)
+        if (isinstance(target, ast.Attribute) and target.attr == "command"
+                and isinstance(target.value, ast.Name) and target.value.id in results):
+            return isinstance(expected_type, ast.Name)
     return False
 
 
