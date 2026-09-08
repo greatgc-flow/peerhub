@@ -79,6 +79,27 @@ class ComparatorControls(unittest.TestCase):
                   "reason": "Retires the translator argument mapping check."}
         self.assertFalse(self.compare(before, after, [waiver])["passed"])
 
+    def test_verified_module_level_import_accepted(self):
+        """A module-scoped `from peerhub.application.legacy import LegacyTranslator`
+        (as opposed to batch 1's function-local style) must still let a
+        genuinely translator-only assertion be waived -- but only via the
+        explicit, pre-verified module_aliases channel, never via a guess."""
+        before = evidence()
+        module_scope_function = '''def test_sample():
+    translator = LegacyTranslator()
+    outcome = translator.translate(call, submission=submission)
+    assert outcome.command.target_peer_id == "cc"
+'''
+        before["collected"][NODE]["function_source"] = module_scope_function
+        before["collected"][NODE]["module_aliases"] = ["LegacyTranslator"]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE, "expression": "outcome.command.target_peer_id == 'cc'",
+                  "reason": "Retires the translator argument mapping check."}
+        result = self.compare(before, after, [waiver])
+        self.assertTrue(result["passed"])
+        self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
+
     def test_wire_contract_cannot_be_waived(self):
         before = evidence()
         expr = "outcome.command.encode_params() == {'target_peer_id': 'cc'}"

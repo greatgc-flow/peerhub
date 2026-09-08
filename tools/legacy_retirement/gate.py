@@ -61,8 +61,17 @@ def test_ast(item):
         assertions.append({"line": assertion.lineno, "expression": ast.unparse(assertion.test),
                            "normalized_ast": ast.dump(assertion.test, include_attributes=False),
                            "message_ast": ast.dump(assertion.msg, include_attributes=False) if assertion.msg else None})
+    # Verified module-level LegacyTranslator import aliases (distinct from
+    # function-local ones already visible inside function_source). A test
+    # file commonly imports LegacyTranslator once at module scope rather
+    # than per-function; translator_only() cannot see that from
+    # function_source alone, so it is recorded here explicitly, from the
+    # SAME parsed module AST, never assumed.
+    module_aliases = sorted({n.asname or n.name for stmt in tree.body if isinstance(stmt, ast.ImportFrom)
+                              and stmt.module == "peerhub.application.legacy" for n in stmt.names if n.name == "LegacyTranslator"})
     return {"assertion_count": len(assertions), "assertions": assertions,
-            "function_ast": ast.dump(node, include_attributes=False), "function_source": ast.unparse(node)}
+            "function_ast": ast.dump(node, include_attributes=False), "function_source": ast.unparse(node),
+            "module_aliases": module_aliases}
 
 
 class EvidencePlugin:
@@ -205,17 +214,22 @@ def snapshot(repo, ref, destination, worktree=False):
     return {p.relative_to(destination).as_posix(): digest(p) for p in sorted(destination.rglob("*")) if p.is_file()}
 
 
-def translator_only(function_source, expression):
+def translator_only(function_source, expression, module_aliases=()):
     """Conservative syntax proof, not a claim of behavioral equivalence.
 
     Only field/type/success checks on a direct LegacyTranslator.translate result
     qualify. Wire methods and arbitrary expressions never qualify.
+
+    `module_aliases` must be pre-verified by the caller against the SAME
+    parsed module AST the function came from (see test_ast()'s own
+    module_aliases extraction) -- never guessed or defaulted. An empty
+    function-local alias set with no verified module_aliases fails closed.
     """
     function = ast.parse(function_source)
     aliases = {n.asname or n.name for imp in ast.walk(function) if isinstance(imp, ast.ImportFrom)
                and imp.module == "peerhub.application.legacy" for n in imp.names if n.name == "LegacyTranslator"}
+    aliases.update(module_aliases)
     if not aliases:
-        # Imports may be module scoped. The caller includes verified module imports.
         return False
     assignments = [n for n in ast.walk(function) if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)]
     bindings = Counter(n.targets[0].id for n in assignments)
@@ -288,7 +302,7 @@ def compare(before, after, waivers):
             removed.append(entry)
             candidates = [(i, w) for i, w in enumerate(waivers) if i not in used and w.get("nodeid") == nodeid
                           and w.get("expression") == assertion["expression"] and w.get("reason", "").strip()]
-            if len(candidates) == 1 and translator_only(old["function_source"], assertion["expression"]):
+            if len(candidates) == 1 and translator_only(old["function_source"], assertion["expression"], old.get("module_aliases", ())):
                 i, waiver = candidates[0]
                 used.add(i)
                 accepted.append({**entry, "reason": waiver["reason"]})
