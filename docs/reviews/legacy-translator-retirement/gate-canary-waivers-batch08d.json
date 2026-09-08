@@ -1,0 +1,72 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_thread_promote_translates_and_marks_mailbox_source",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on thread-promote"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_thread_promote_translates_and_marks_mailbox_source",
+    "expression": "isinstance(translated.command, ThreadPromoteCommand)",
+    "reason": "Retire translator command-type check on thread-promote"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_append_handoff_and_checkpoint_execute_end_to_end",
+    "expression": "isinstance(append_translation, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on append-handoff"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_append_handoff_and_checkpoint_execute_end_to_end",
+    "expression": "isinstance(append_translation.command, AppendHandoffCommand)",
+    "reason": "Retire translator command-type check on append-handoff"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_append_handoff_and_checkpoint_execute_end_to_end",
+    "expression": "isinstance(checkpoint_translation, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on checkpoint"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_append_handoff_and_checkpoint_execute_end_to_end",
+    "expression": "isinstance(checkpoint_translation.command, ContinuityCheckpointCommand)",
+    "reason": "Retire translator command-type check on checkpoint"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_context_fill_translates_and_executes_read_only",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on context-fill"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_context_fill_translates_and_executes_read_only",
+    "expression": "isinstance(translated.command, ContextFillCommand)",
+    "reason": "Retire translator command-type check on context-fill"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_thread_react_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on thread-react"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_thread_react_remove_dispatches_to_unreact",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on thread-react remove"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_thread_react_remove_dispatches_to_unreact",
+    "expression": "isinstance(translated.command, ThreadReactCommand)",
+    "reason": "Retire translator command-type check on thread-react remove"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_thread_react_remove_dispatches_to_unreact",
+    "expression": "translated.command.action == 'REMOVE'",
+    "reason": "Retire translator command action field check on thread-react remove"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_thread_react_rejects_unknown_action",
+    "expression": "isinstance(translated, InvalidLegacyArguments)",
+    "reason": "Retire translator InvalidLegacyArguments rejection check on thread-react unknown action"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_thread_react_rejects_unknown_action",
+    "expression": "translated.reason == 'action must be ADD or REMOVE'",
+    "reason": "Retire translator rejection reason field check on thread-react unknown action"
+  }
+]

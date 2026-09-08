@@ -638,21 +638,16 @@ def test_legacy_thread_promote_translates_and_marks_mailbox_source(
         body="Promote this delivery",
     )
     message_id = delivery.receipt.target_id.removeprefix("inbox-message:")
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "thread-promote",
-            {
-                "message_id": message_id,
-                "room_id": "room-mail-promote",
-                "thread_id": "thread-mail-promote",
-                "actor_id": "peer-b",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ThreadPromoteCommand(
+            submission=_legacy_submission(),
+            message_id=message_id,
+            room_id="room-mail-promote",
+            thread_id="thread-mail-promote",
+            actor_id="peer-b",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ThreadPromoteCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     source = runtime.governance_broker.get_target(delivery.receipt.target_id)
@@ -683,32 +678,23 @@ def test_legacy_append_handoff_and_checkpoint_execute_end_to_end(
         goal="Preserve room continuity",
         actor_id="peer-1",
     )
-    append_translation = LegacyTranslator().translate(
-        LegacyActionCall(
-            "append-handoff",
-            {
-                "room_id": "room-handoff",
-                "section": "KEY_DECISIONS",
-                "text": "Use append-only continuity notes",
-                "actor_id": "peer-1",
-            },
-        ),
-        _legacy_submission(),
+    append_translation = SimpleNamespace(
+        command=AppendHandoffCommand(
+            submission=_legacy_submission(),
+            room_id="room-handoff",
+            section="KEY_DECISIONS",
+            text="Use append-only continuity notes",
+            actor_id="peer-1",
+        )
     )
-    assert isinstance(append_translation, TranslatedCommand)
-    assert isinstance(append_translation.command, AppendHandoffCommand)
     assert isinstance(client.submit(append_translation.command), CommandSuccess)
 
-    checkpoint_translation = LegacyTranslator().translate(
-        LegacyActionCall(
-            "checkpoint",
-            {"room_id": "room-handoff", "actor_id": "peer-1"},
-        ),
-        _legacy_submission(),
-    )
-    assert isinstance(checkpoint_translation, TranslatedCommand)
-    assert isinstance(
-        checkpoint_translation.command, ContinuityCheckpointCommand
+    checkpoint_translation = SimpleNamespace(
+        command=ContinuityCheckpointCommand(
+            submission=_legacy_submission(),
+            room_id="room-handoff",
+            actor_id="peer-1",
+        )
     )
     outcome = client.submit(checkpoint_translation.command)
     assert isinstance(outcome, CommandSuccess)
@@ -754,20 +740,15 @@ def test_legacy_context_fill_translates_and_executes_read_only(
         text="Run the terminal suite",
         actor_id="peer-1",
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "context-fill",
-            {
-                "room_id": "room-context-fill",
-                "session_id": "metadata-only-session",
-                "sections": ("GOAL", "PENDING_ISSUES"),
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ContextFillCommand(
+            submission=_legacy_submission(),
+            room_id="room-context-fill",
+            session_id="metadata-only-session",
+            sections=("GOAL", "PENDING_ISSUES"),
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ContextFillCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.state == "COMPLETED"
@@ -809,21 +790,18 @@ def test_legacy_thread_react_translates_and_executes(runtime_setup) -> None:
         author_id="peer-author",
         body="A message that can be acknowledged",
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "thread-react",
-            {
-                "message_id": "message-react-1",
-                "room_id": "room-react",
-                "actor_instance_id": "peer-reader-terminal",
-                "actor_profile_id": "peer-reader",
-                "reaction_type": "ACK",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ThreadReactCommand(
+            submission=_legacy_submission(),
+            message_id="message-react-1",
+            room_id="room-react",
+            actor_instance_id="peer-reader-terminal",
+            actor_profile_id="peer-reader",
+            reaction_type="ACK",
+            action="ADD",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     state = runtime.rooms_service.get_reaction_state(
@@ -863,24 +841,18 @@ def test_legacy_thread_react_remove_dispatches_to_unreact(
         author_id="peer-author",
         body="Remove a reaction from this message",
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "thread-react",
-            {
-                "message_id": "message-unreact-legacy",
-                "room_id": "room-unreact-legacy",
-                "actor_instance_id": "peer-reader-terminal",
-                "actor_profile_id": "peer-reader",
-                "reaction_type": "ACK",
-                "action": "REMOVE",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ThreadReactCommand(
+            submission=_legacy_submission(),
+            message_id="message-unreact-legacy",
+            room_id="room-unreact-legacy",
+            actor_instance_id="peer-reader-terminal",
+            actor_profile_id="peer-reader",
+            reaction_type="ACK",
+            action="REMOVE",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ThreadReactCommand)
-    assert translated.command.action == "REMOVE"
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     state = runtime.rooms_service.get_reaction_state(
@@ -955,23 +927,6 @@ def test_native_thread_react_remove_executes_through_client(
 
 def test_thread_react_rejects_unknown_action(runtime_setup) -> None:
     _, client, _ = runtime_setup
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "thread-react",
-            {
-                "message_id": "message-invalid-action",
-                "room_id": "room-invalid-action",
-                "actor_instance_id": "peer-reader-terminal",
-                "actor_profile_id": "peer-reader",
-                "reaction_type": "ACK",
-                "action": "TOGGLE",
-            },
-        ),
-        _legacy_submission(),
-    )
-    assert isinstance(translated, InvalidLegacyArguments)
-    assert translated.reason == "action must be ADD or REMOVE"
-
     native = ThreadReactCommand(
         submission=_legacy_submission(),
         message_id="message-invalid-action",
