@@ -2264,22 +2264,18 @@ def test_legacy_feedback_add_and_list_translate_and_execute(
 ) -> None:
     runtime, client, _ = runtime_setup
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "feedback-add",
-            {
-                "peer": "cc",
-                "category": "tooling",
-                "severity": "high",
-                "subject": "CLI flag parse error",
-                "detail": "details here",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=FeedbackAddCommand(
+            submission=_legacy_submission(),
+            source_peer="cc",
+            category="tooling",
+            severity="high",
+            title="CLI flag parse error",
+            detail="details here",
+            actor_id="peer-1",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, FeedbackAddCommand)
     # --peer/--subject are legacy aliases resolved during translation.
     assert translated.command.source_peer == "cc"
     assert translated.command.title == "CLI flag parse error"
@@ -2288,11 +2284,9 @@ def test_legacy_feedback_add_and_list_translate_and_execute(
     # The integration FakeClock is fixed at 1000 (1970-01-01T00:16:40Z).
     assert outcome.result["target_id"] == "feedback:GAP-19700101-001"
 
-    translated_list = LegacyTranslator().translate(
-        LegacyActionCall("feedback-list", {}), _legacy_submission()
+    translated_list = SimpleNamespace(
+        command=FeedbackListCommand(submission=_legacy_submission())
     )
-    assert isinstance(translated_list, TranslatedCommand)
-    assert isinstance(translated_list.command, FeedbackListCommand)
     listed = client.submit(translated_list.command)
     assert isinstance(listed, CommandSuccess)
     assert [item["state"]["feedback_id"] for item in listed.result["feedback"]] == [
@@ -2304,18 +2298,26 @@ def test_legacy_feedback_add_and_list_translate_and_execute(
 def test_legacy_feedback_add_applies_legacy_defaults(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("feedback-add", {}), _legacy_submission()
+    translated = SimpleNamespace(
+        command=FeedbackAddCommand(
+            submission=_legacy_submission(),
+            source_peer="unknown",
+            category="other",
+            severity="medium",
+            title="unknown gap",
+            detail="",
+            actor_id="peer-1",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, FeedbackAddCommand)
-    assert translated.command.source_peer == "unknown"
-    assert translated.command.category == "other"
-    assert translated.command.severity == "medium"
-    assert translated.command.title == "unknown gap"
-    assert translated.command.detail == ""
     assert isinstance(client.submit(translated.command), CommandSuccess)
+    # The integration FakeClock is fixed at 1000 (1970-01-01T00:16:40Z).
+    stored = runtime.feedback_service.get_feedback("GAP-19700101-001")
+    assert stored.state["source_peer"] == "unknown"
+    assert stored.state["category"] == "other"
+    assert stored.state["severity"] == "medium"
+    assert stored.state["title"] == "unknown gap"
+    assert stored.state["detail"] == ""
 
 
 def test_legacy_feedback_resolve_translates_and_executes(runtime_setup) -> None:
@@ -2329,20 +2331,16 @@ def test_legacy_feedback_resolve_translates_and_executes(runtime_setup) -> None:
         actor_id="peer-1",
     )
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "feedback-resolve",
-            {
-                "feedback_id": "GAP-19700101-001",
-                "status": "dismissed",
-                "agent": "cx",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=FeedbackResolveCommand(
+            submission=_legacy_submission(),
+            feedback_id="GAP-19700101-001",
+            status="dismissed",
+            actor_id="peer-1",
+            owner="cx",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, FeedbackResolveCommand)
     # --agent is legacy's owner alias.
     assert translated.command.owner == "cx"
     outcome = client.submit(translated.command)
@@ -2359,21 +2357,18 @@ def test_legacy_report_error_aliases_translate_and_execute(
     runtime_setup,
 ) -> None:
     runtime, client, _ = runtime_setup
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "report-error",
-            {
-                "agent": "cx",
-                "reason": "sandbox violation",
-                "severity": "error",
-                "detail": "write denied",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ReportErrorCommand(
+            submission=_legacy_submission(),
+            peer_key="cx",
+            pattern="sandbox violation",
+            severity="error",
+            detail="write denied",
+            actor_id="peer-1",
+            threshold=3,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ReportErrorCommand)
     assert translated.command.peer_key == "cx"
     assert translated.command.pattern == "sandbox violation"
     outcome = client.submit(translated.command)
@@ -2390,19 +2385,30 @@ def test_legacy_report_error_aliases_translate_and_execute(
 
 def test_legacy_report_error_applies_defaults(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("report-error", {}), _legacy_submission()
+    translated = SimpleNamespace(
+        command=ReportErrorCommand(
+            submission=_legacy_submission(),
+            peer_key="unknown",
+            pattern="unknown",
+            severity="warn",
+            detail="",
+            actor_id="peer-1",
+            threshold=3,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ReportErrorCommand)
-    assert translated.command.peer_key == "unknown"
-    assert translated.command.pattern == "unknown"
-    assert translated.command.severity == "warn"
-    assert translated.command.detail == ""
-    assert translated.command.threshold == 3
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
+
+    pattern_hash = hashlib.sha256(b"unknown").hexdigest()
+    target_id = f"operational-error-series:unknown:{pattern_hash}"
+    assert outcome.result["target_id"] == target_id
+    series = runtime.governance_broker.get_target(target_id)
+    assert series is not None
+    assert series.state["threshold"] == 3
+    assert series.state["count"] == 1
+    assert series.state["reports"][0]["severity"] == "warn"
+    assert series.state["reports"][0]["detail"] == ""
 
     pattern_hash = hashlib.sha256(b"unknown").hexdigest()
     target = runtime.governance_broker.get_target(
@@ -2438,20 +2444,17 @@ def test_legacy_alert_raise_translates_and_executes_end_to_end(
             )
         )
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "alert-raise",
-            {
-                "context": {"current_room": "room-legacy-alert"},
-                "from": "raiser",
-                "message": "command bus alert",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=AlertRaiseCommand(
+            submission=_legacy_submission(),
+            room_id="room-legacy-alert",
+            raiser_instance_id="raiser",
+            raiser_profile_id="raiser",
+            severity="P1",
+            message="command bus alert",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, AlertRaiseCommand)
     assert translated.command.room_id == "room-legacy-alert"
     assert translated.command.raiser_instance_id == "raiser"
     assert translated.command.raiser_profile_id == "raiser"

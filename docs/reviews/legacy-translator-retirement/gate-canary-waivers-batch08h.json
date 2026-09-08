@@ -1,0 +1,122 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_and_list_translate_and_execute",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on feedback-add"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_and_list_translate_and_execute",
+    "expression": "isinstance(translated.command, FeedbackAddCommand)",
+    "reason": "Retire translator command-type check on feedback-add"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_and_list_translate_and_execute",
+    "expression": "isinstance(translated_list, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on feedback-list"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_and_list_translate_and_execute",
+    "expression": "isinstance(translated_list.command, FeedbackListCommand)",
+    "reason": "Retire translator command-type check on feedback-list"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_applies_legacy_defaults",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on feedback-add defaults"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_applies_legacy_defaults",
+    "expression": "isinstance(translated.command, FeedbackAddCommand)",
+    "reason": "Retire translator command-type check on feedback-add defaults"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_applies_legacy_defaults",
+    "expression": "translated.command.source_peer == 'unknown'",
+    "reason": "Was verifying the translator's own default-value resolution for an omitted --peer flag; now that the command is hand-constructed with this literal, the check is tautological. Replaced with a post-submit assertion on the actually-stored feedback record's source_peer field, a stronger real check."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_applies_legacy_defaults",
+    "expression": "translated.command.category == 'other'",
+    "reason": "Same as source_peer: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_applies_legacy_defaults",
+    "expression": "translated.command.severity == 'medium'",
+    "reason": "Same as source_peer: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_applies_legacy_defaults",
+    "expression": "translated.command.title == 'unknown gap'",
+    "reason": "Same as source_peer: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_add_applies_legacy_defaults",
+    "expression": "translated.command.detail == ''",
+    "reason": "Same as source_peer: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_resolve_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on feedback-resolve"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_feedback_resolve_translates_and_executes",
+    "expression": "isinstance(translated.command, FeedbackResolveCommand)",
+    "reason": "Retire translator command-type check on feedback-resolve"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_aliases_translate_and_execute",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on report-error aliases"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_aliases_translate_and_execute",
+    "expression": "isinstance(translated.command, ReportErrorCommand)",
+    "reason": "Retire translator command-type check on report-error aliases"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_applies_defaults",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on report-error defaults"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_applies_defaults",
+    "expression": "isinstance(translated.command, ReportErrorCommand)",
+    "reason": "Retire translator command-type check on report-error defaults"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_applies_defaults",
+    "expression": "translated.command.peer_key == 'unknown'",
+    "reason": "Was verifying the translator's own default-value resolution for an omitted --agent flag; now that the command is hand-constructed with this literal, the check is tautological. Replaced with a post-submit assertion on the actually-stored operational-error-series record's peer_key-derived target_id and reports[0] fields, a stronger real check."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_applies_defaults",
+    "expression": "translated.command.pattern == 'unknown'",
+    "reason": "Same as peer_key: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_applies_defaults",
+    "expression": "translated.command.severity == 'warn'",
+    "reason": "Same as peer_key: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_applies_defaults",
+    "expression": "translated.command.detail == ''",
+    "reason": "Same as peer_key: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_report_error_applies_defaults",
+    "expression": "translated.command.threshold == 3",
+    "reason": "Same as peer_key: retiring a now-tautological translator-default check in favor of a real post-submit stored-state assertion."
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_alert_raise_translates_and_executes_end_to_end",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on alert-raise"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_alert_raise_translates_and_executes_end_to_end",
+    "expression": "isinstance(translated.command, AlertRaiseCommand)",
+    "reason": "Retire translator command-type check on alert-raise"
+  }
+]
