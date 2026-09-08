@@ -1303,12 +1303,10 @@ def test_legacy_arbiter_review_translates_and_executes(tmp_path: Path) -> None:
 def test_legacy_list_nodes_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("list-nodes", {}), _legacy_submission()
+    translated = SimpleNamespace(
+        command=ListNodesCommand(submission=_legacy_submission())
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ListNodesCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert {item["state"]["node_id"] for item in outcome.result["nodes"]} == {
@@ -1321,24 +1319,25 @@ def test_legacy_list_nodes_translates_and_executes(runtime_setup) -> None:
 def test_legacy_register_node_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "register-node",
-            {"node_id": "legacy-worker-1", "peer_kind": "cc", "actor_id": "peer-1"},
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=RegisterNodeCommand(
+            submission=_legacy_submission(),
+            node_id="legacy-worker-1",
+            peer_kind="cc",
+            profile_id=None,
+            tier=4,
+            node_type="agent",
+            actor_id="peer-1",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, RegisterNodeCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["target_id"] == "peer-node:legacy-worker-1"
 
-    translated_list = LegacyTranslator().translate(
-        LegacyActionCall("list-nodes", {}), _legacy_submission()
+    translated_list = SimpleNamespace(
+        command=ListNodesCommand(submission=_legacy_submission())
     )
-    assert isinstance(translated_list, TranslatedCommand)
     listed = client.submit(translated_list.command)
     assert isinstance(listed, CommandSuccess)
     assert any(
@@ -1364,12 +1363,9 @@ def test_native_bind_profile_and_legacy_model_status_execute(runtime_setup) -> N
     assert bound.result["target_id"] == (
         "peer-profile-binding:cc:cc.standard"
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("model-status", {}),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ModelStatusCommand(submission=_legacy_submission()),
     )
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ModelStatusCommand)
 
     outcome = client.submit(translated.command)
 
@@ -1387,26 +1383,23 @@ def test_legacy_assign_role_and_role_status_translate_and_execute(
 ) -> None:
     runtime, client, _ = runtime_setup
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "assign-role",
-            {"role": "implementer", "peer": "cc"},
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=AssignRoleCommand(
+            submission=_legacy_submission(),
+            role="implementer",
+            peer_node_id="cc",
+            actor_id="peer-1",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, AssignRoleCommand)
     assert translated.command.peer_node_id == "cc"
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["target_id"] == "role-assignment:implementer"
 
-    status_translation = LegacyTranslator().translate(
-        LegacyActionCall("role-status", {}), _legacy_submission()
+    status_translation = SimpleNamespace(
+        command=RoleStatusCommand(submission=_legacy_submission())
     )
-    assert isinstance(status_translation, TranslatedCommand)
-    assert isinstance(status_translation.command, RoleStatusCommand)
     status = client.submit(status_translation.command)
     assert isinstance(status, CommandSuccess)
     assert [item["state"]["role"] for item in status.result["roles"]] == [
@@ -1421,16 +1414,15 @@ def test_legacy_release_role_translates_and_executes(runtime_setup) -> None:
         role="implementer", peer_node_id="cc", actor_id="peer-1"
     )
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "release-role",
-            {"role": "implementer", "agent": "cc"},
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ReleaseRoleCommand(
+            submission=_legacy_submission(),
+            role="implementer",
+            actor_id="peer-1",
+            peer_node_id="cc",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ReleaseRoleCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["disposition"] == "RELEASED"
@@ -1442,14 +1434,15 @@ def test_legacy_release_unassigned_role_is_a_successful_noop(
 ) -> None:
     runtime, client, _ = runtime_setup
 
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "release-role", {"role": "observer"}
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ReleaseRoleCommand(
+            submission=_legacy_submission(),
+            role="observer",
+            actor_id="peer-1",
+            peer_node_id=None,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result == {

@@ -1,0 +1,72 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_list_nodes_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on list-nodes"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_list_nodes_translates_and_executes",
+    "expression": "isinstance(translated.command, ListNodesCommand)",
+    "reason": "Retire translator command-type check on list-nodes"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_register_node_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on register-node"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_register_node_translates_and_executes",
+    "expression": "isinstance(translated.command, RegisterNodeCommand)",
+    "reason": "Retire translator command-type check on register-node"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_register_node_translates_and_executes",
+    "expression": "isinstance(translated_list, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on list-nodes following register-node"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_native_bind_profile_and_legacy_model_status_execute",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on model-status"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_native_bind_profile_and_legacy_model_status_execute",
+    "expression": "isinstance(translated.command, ModelStatusCommand)",
+    "reason": "Retire translator command-type check on model-status"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_assign_role_and_role_status_translate_and_execute",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on assign-role"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_assign_role_and_role_status_translate_and_execute",
+    "expression": "isinstance(translated.command, AssignRoleCommand)",
+    "reason": "Retire translator command-type check on assign-role"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_assign_role_and_role_status_translate_and_execute",
+    "expression": "isinstance(status_translation, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on role-status"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_assign_role_and_role_status_translate_and_execute",
+    "expression": "isinstance(status_translation.command, RoleStatusCommand)",
+    "reason": "Retire translator command-type check on role-status"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_release_role_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on release-role"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_release_role_translates_and_executes",
+    "expression": "isinstance(translated.command, ReleaseRoleCommand)",
+    "reason": "Retire translator command-type check on release-role"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_release_unassigned_role_is_a_successful_noop",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on release-role unassigned"
+  }
+]
