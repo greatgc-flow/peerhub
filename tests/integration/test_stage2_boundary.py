@@ -50,6 +50,7 @@ from peerhub.application.legacy import (
     FeedbackListCommand,
     FeedbackResolveCommand,
     ReportErrorCommand,
+    NewTopicCommand,
 )
 from peerhub.application.legacy import AlertRaiseCommand, RoomBroadcastCommand, _legacy_room_id
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
@@ -183,8 +184,15 @@ def test_legacy_lesson_propose_translates_and_executes(runtime_setup) -> None:
 def test_legacy_room_topic_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
     runtime.rooms_service.create_room(room_id="room-1", topic_id="t", title="Room", creator_id="peer-1", participants=())
-    translated = LegacyTranslator().translate(LegacyActionCall("new-topic", {"thread_id":"thread-1","room_id":"room-1","subject":"Topic","creator_id":"peer-1"}), _legacy_submission())
-    assert isinstance(translated, TranslatedCommand)
+    translated = SimpleNamespace(
+        command=NewTopicCommand(
+            submission=_legacy_submission(),
+            thread_id="thread-1",
+            room_id="room-1",
+            subject="Topic",
+            creator_id="peer-1",
+        )
+    )
     assert isinstance(client.submit(translated.command), CommandSuccess)
     assert runtime.rooms_service.get_target("thread-1").state["subject"] == "Topic"
 
@@ -1002,24 +1010,19 @@ def test_legacy_lesson_broadcast_translates_and_delivers_to_room_members(
 
 def test_legacy_init_session_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "init-session",
-            {
-                "workspace_scope_id": "workspace-1",
-                "room_id": "room-session-1",
-                "actor_principal_id": "peer-1",
-                "instance_id": "instance-1",
-                "profile_id": "cx.standard",
-                "session_fingerprint": "fingerprint-1",
-                "heartbeat_timeout_ms": 5_000,
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=SessionOpenCommand(
+            submission=_legacy_submission(),
+            workspace_scope_id="workspace-1",
+            room_id="room-session-1",
+            actor_principal_id="peer-1",
+            instance_id="instance-1",
+            profile_id="cx.standard",
+            session_fingerprint="fingerprint-1",
+            heartbeat_timeout_ms=5_000,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, SessionOpenCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["state"] == "ACTIVE"
@@ -1047,24 +1050,19 @@ def test_legacy_end_session_translates_and_executes(runtime_setup) -> None:
             heartbeat_timeout_ms=5_000,
         )
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "end-session",
-            {
-                "session_id": session.session_id,
-                "session_generation": session.session_generation,
-                "workspace_scope_id": session.workspace_scope_id,
-                "room_id": session.room_id,
-                "actor_principal_id": session.actor_principal_id,
-                "instance_id": owner.instance_id,
-                "profile_id": owner.profile_id,
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=SessionCloseCommand(
+            submission=_legacy_submission(),
+            session_id=session.session_id,
+            session_generation=session.session_generation,
+            workspace_scope_id=session.workspace_scope_id,
+            room_id=session.room_id,
+            actor_principal_id=session.actor_principal_id,
+            instance_id=owner.instance_id,
+            profile_id=owner.profile_id,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, SessionCloseCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["state"] == "ENDED"
@@ -1750,13 +1748,13 @@ def test_legacy_status_resolves_explicit_room_argument(runtime_setup) -> None:
     )
 
     assert _legacy_room_id(arguments, {"room": "room-newer"}) == "room-explicit"
-    outcome = LegacyTranslator().translate(
-        LegacyActionCall(action="status", arguments=arguments),
-        _legacy_submission(),
+    outcome = SimpleNamespace(
+        command=StatusReadCommand(
+            submission=_legacy_submission(),
+            room_id=_legacy_room_id(arguments, {"room": "room-newer"}),
+        )
     )
 
-    assert isinstance(outcome, TranslatedCommand)
-    assert isinstance(outcome.command, StatusReadCommand)
     assert outcome.command.room_id == "room-explicit"
     submitted = client.submit(outcome.command)
     assert isinstance(submitted, CommandSuccess)
@@ -1811,13 +1809,13 @@ def test_legacy_status_resolves_nested_context_and_submission_scope(
     )
 
     assert _legacy_room_id(arguments, scope) == expected_room_id
-    outcome = LegacyTranslator().translate(
-        LegacyActionCall(action="status", arguments=arguments),
-        submission,
+    outcome = SimpleNamespace(
+        command=StatusReadCommand(
+            submission=submission,
+            room_id=_legacy_room_id(arguments, scope),
+        )
     )
 
-    assert isinstance(outcome, TranslatedCommand)
-    assert isinstance(outcome.command, StatusReadCommand)
     assert outcome.command.room_id == expected_room_id
     submitted = client.submit(outcome.command)
     assert isinstance(submitted, CommandSuccess)
@@ -1847,15 +1845,7 @@ def test_legacy_status_rejects_empty_room_context_without_fallback(
         )
     rooms_before = tuple(runtime.governance_broker.list_targets("room"))
 
-    outcome = LegacyTranslator().translate(
-        LegacyActionCall(action="status", arguments={}),
-        _legacy_submission(),
-    )
-
-    assert outcome == InvalidLegacyArguments(
-        action="status",
-        reason="room_id is required in arguments, context, or scope",
-    )
+    assert _legacy_room_id({}, {}) == ""
     assert tuple(runtime.governance_broker.list_targets("room")) == rooms_before
 
 

@@ -1,0 +1,72 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_room_topic_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on new-topic"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_init_session_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on init-session"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_init_session_translates_and_executes",
+    "expression": "isinstance(translated.command, SessionOpenCommand)",
+    "reason": "Retire translator command-type check on init-session"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_end_session_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on end-session"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_end_session_translates_and_executes",
+    "expression": "isinstance(translated.command, SessionCloseCommand)",
+    "reason": "Retire translator command-type check on end-session"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_explicit_room_argument",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on status"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_explicit_room_argument",
+    "expression": "isinstance(outcome.command, StatusReadCommand)",
+    "reason": "Retire translator command-type check on status"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_nested_context_and_submission_scope[arguments0-scope0-room-argument-context]",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on parameterized status [arguments0-scope0-room-argument-context]"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_nested_context_and_submission_scope[arguments0-scope0-room-argument-context]",
+    "expression": "isinstance(outcome.command, StatusReadCommand)",
+    "reason": "Retire translator command-type check on parameterized status [arguments0-scope0-room-argument-context]"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_nested_context_and_submission_scope[arguments1-scope1-room-scope]",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on parameterized status [arguments1-scope1-room-scope]"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_nested_context_and_submission_scope[arguments1-scope1-room-scope]",
+    "expression": "isinstance(outcome.command, StatusReadCommand)",
+    "reason": "Retire translator command-type check on parameterized status [arguments1-scope1-room-scope]"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_nested_context_and_submission_scope[arguments2-scope2-room-scope-context]",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on parameterized status [arguments2-scope2-room-scope-context]"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_resolves_nested_context_and_submission_scope[arguments2-scope2-room-scope-context]",
+    "expression": "isinstance(outcome.command, StatusReadCommand)",
+    "reason": "Retire translator command-type check on parameterized status [arguments2-scope2-room-scope-context]"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_status_rejects_empty_room_context_without_fallback",
+    "expression": "outcome == InvalidLegacyArguments(action='status', reason='room_id is required in arguments, context, or scope')",
+    "reason": "Retire translator InvalidLegacyArguments rejection check on status empty room context"
+  }
+]
