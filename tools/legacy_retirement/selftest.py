@@ -100,6 +100,65 @@ class ComparatorControls(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
 
+    def test_chained_translator_call_accepted(self):
+        """`LegacyTranslator().translate(...)` (no intermediate `translator`
+        variable) must be recognized as a translation result exactly like
+        the two-step `translator = LegacyTranslator(); translator.translate(...)`
+        form batch 1/2 used -- found necessary for batch 3's files."""
+        before = evidence()
+        chained_function = '''def test_sample():
+    from peerhub.application.legacy import LegacyTranslator
+    outcome = LegacyTranslator().translate(call, submission=submission)
+    assert outcome.command.target_peer_id == "cc"
+'''
+        before["collected"][NODE]["function_source"] = chained_function
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE, "expression": "outcome.command.target_peer_id == 'cc'",
+                  "reason": "Retires the translator argument mapping check."}
+        result = self.compare(before, after, [waiver])
+        self.assertTrue(result["passed"])
+        self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
+
+    def test_unverified_chained_call_rejected(self):
+        """A chained call on some OTHER, unrelated class must not be treated
+        as a translator result just because it superficially matches the
+        `X().translate(...)` shape -- fails closed exactly like the
+        unverified-import case."""
+        before = evidence()
+        chained_function = '''def test_sample():
+    outcome = SomeUnrelatedThing().translate(call, submission=submission)
+    assert outcome.command.target_peer_id == "cc"
+'''
+        before["collected"][NODE]["function_source"] = chained_function
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE, "expression": "outcome.command.target_peer_id == 'cc'",
+                  "reason": "Retires the translator argument mapping check."}
+        self.assertFalse(self.compare(before, after, [waiver])["passed"])
+
+    def test_invalid_legacy_arguments_comparison_accepted(self):
+        """`outcome == InvalidLegacyArguments(...)` is the translator's own
+        documented rejection shape and must be waivable, verified via the
+        same import-alias discipline as everything else."""
+        before = evidence()
+        function = '''def test_sample():
+    from peerhub.application.legacy import LegacyTranslator, InvalidLegacyArguments
+    translator = LegacyTranslator()
+    outcome = translator.translate(call, submission=submission)
+'''
+        before["collected"][NODE]["function_source"] = function
+        before["collected"][NODE]["assertions"] = [
+            assertion('outcome == InvalidLegacyArguments(action="thread-new", reason="thread-new requires --topic")')]
+        after = deepcopy(before)
+        after["collected"][NODE]["assertions"] = []
+        waiver = {"nodeid": NODE,
+                  "expression": 'outcome == InvalidLegacyArguments(action="thread-new", reason="thread-new requires --topic")',
+                  "reason": "Retires the legacy invalid-arguments rejection-shape check."}
+        result = self.compare(before, after, [waiver])
+        self.assertTrue(result["passed"])
+        self.assertEqual(len(result["accepted_translator_only_removals"]), 1)
+
     def test_wire_contract_cannot_be_waived(self):
         before = evidence()
         expr = "outcome.command.encode_params() == {'target_peer_id': 'cc'}"

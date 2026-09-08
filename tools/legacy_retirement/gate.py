@@ -61,17 +61,19 @@ def test_ast(item):
         assertions.append({"line": assertion.lineno, "expression": ast.unparse(assertion.test),
                            "normalized_ast": ast.dump(assertion.test, include_attributes=False),
                            "message_ast": ast.dump(assertion.msg, include_attributes=False) if assertion.msg else None})
-    # Verified module-level LegacyTranslator import aliases (distinct from
-    # function-local ones already visible inside function_source). A test
-    # file commonly imports LegacyTranslator once at module scope rather
-    # than per-function; translator_only() cannot see that from
-    # function_source alone, so it is recorded here explicitly, from the
-    # SAME parsed module AST, never assumed.
-    module_aliases = sorted({n.asname or n.name for stmt in tree.body if isinstance(stmt, ast.ImportFrom)
-                              and stmt.module == "peerhub.application.legacy" for n in stmt.names if n.name == "LegacyTranslator"})
+    # Verified module-level import aliases (distinct from function-local
+    # ones already visible inside function_source). A test file commonly
+    # imports these once at module scope rather than per-function;
+    # translator_only() cannot see that from function_source alone, so they
+    # are recorded here explicitly, from the SAME parsed module AST, never
+    # assumed.
+    def _module_aliases(symbol):
+        return sorted({n.asname or n.name for stmt in tree.body if isinstance(stmt, ast.ImportFrom)
+                       and stmt.module == "peerhub.application.legacy" for n in stmt.names if n.name == symbol})
     return {"assertion_count": len(assertions), "assertions": assertions,
             "function_ast": ast.dump(node, include_attributes=False), "function_source": ast.unparse(node),
-            "module_aliases": module_aliases}
+            "module_aliases": _module_aliases("LegacyTranslator"),
+            "invalid_args_module_aliases": _module_aliases("InvalidLegacyArguments")}
 
 
 class EvidencePlugin:
@@ -237,31 +239,49 @@ def snapshot(repo, ref, destination, worktree=False):
     return {p.relative_to(destination).as_posix(): digest(p) for p in sorted(destination.rglob("*")) if p.is_file()}
 
 
-def translator_only(function_source, expression, module_aliases=()):
+def _verified_import_aliases(function, module_name, symbol, module_aliases):
+    """Function-local ImportFrom aliases for `symbol` from `module_name`,
+    unioned with caller-pre-verified module-level ones. Never guessed."""
+    aliases = {n.asname or n.name for imp in ast.walk(function) if isinstance(imp, ast.ImportFrom)
+               and imp.module == module_name for n in imp.names if n.name == symbol}
+    aliases.update(module_aliases)
+    return aliases
+
+
+def translator_only(function_source, expression, module_aliases=(), invalid_args_module_aliases=()):
     """Conservative syntax proof, not a claim of behavioral equivalence.
 
     Only field/type/success checks on a direct LegacyTranslator.translate result
     qualify. Wire methods and arbitrary expressions never qualify.
 
-    `module_aliases` must be pre-verified by the caller against the SAME
-    parsed module AST the function came from (see test_ast()'s own
-    module_aliases extraction) -- never guessed or defaulted. An empty
-    function-local alias set with no verified module_aliases fails closed.
+    `module_aliases`/`invalid_args_module_aliases` must be pre-verified by the
+    caller against the SAME parsed module AST the function came from (see
+    test_ast()'s own module_aliases extraction) -- never guessed or
+    defaulted. An empty function-local alias set with no verified
+    module_aliases fails closed.
     """
     function = ast.parse(function_source)
-    aliases = {n.asname or n.name for imp in ast.walk(function) if isinstance(imp, ast.ImportFrom)
-               and imp.module == "peerhub.application.legacy" for n in imp.names if n.name == "LegacyTranslator"}
-    aliases.update(module_aliases)
+    aliases = _verified_import_aliases(function, "peerhub.application.legacy", "LegacyTranslator", module_aliases)
     if not aliases:
         return False
+    invalid_args_aliases = _verified_import_aliases(
+        function, "peerhub.application.legacy", "InvalidLegacyArguments", invalid_args_module_aliases)
     assignments = [n for n in ast.walk(function) if isinstance(n, ast.Assign) and len(n.targets) == 1 and isinstance(n.targets[0], ast.Name)]
     bindings = Counter(n.targets[0].id for n in assignments)
     translators = {n.targets[0].id for n in assignments if isinstance(n.value, ast.Call)
                    and isinstance(n.value.func, ast.Name) and n.value.func.id in aliases and bindings[n.targets[0].id] == 1}
-    results = {n.targets[0].id for n in assignments if isinstance(n.value, ast.Call)
-               and isinstance(n.value.func, ast.Attribute) and n.value.func.attr == "translate"
-               and isinstance(n.value.func.value, ast.Name) and n.value.func.value.id in translators
-               and bindings[n.targets[0].id] == 1}
+    def _is_translate_call_on(call_expr):
+        if not (isinstance(call_expr, ast.Call) and isinstance(call_expr.func, ast.Attribute) and call_expr.func.attr == "translate"):
+            return False
+        target = call_expr.func.value
+        # translator = LegacyTranslator(); translator.translate(...)
+        if isinstance(target, ast.Name) and target.id in translators:
+            return True
+        # LegacyTranslator().translate(...) -- same alias verification, no
+        # intermediate variable required.
+        return isinstance(target, ast.Call) and isinstance(target.func, ast.Name) and target.func.id in aliases
+    results = {n.targets[0].id for n in assignments
+               if _is_translate_call_on(n.value) and bindings[n.targets[0].id] == 1}
     expr = ast.parse(expression, mode="eval").body
     if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
         call = expr.operand
@@ -270,6 +290,12 @@ def translator_only(function_source, expression, module_aliases=()):
                 and isinstance(call.args[1], ast.Constant) and call.args[1].value == "reason" and not call.keywords)
     if isinstance(expr, ast.Compare) and len(expr.ops) == 1 and isinstance(expr.ops[0], (ast.Eq, ast.Is)):
         value = expr.left
+        # outcome == InvalidLegacyArguments(...): the translator's own
+        # documented rejection shape, verified-import-only, never a guess.
+        if (isinstance(value, ast.Name) and value.id in results and invalid_args_aliases
+                and isinstance(expr.comparators[0], ast.Call) and isinstance(expr.comparators[0].func, ast.Name)
+                and expr.comparators[0].func.id in invalid_args_aliases):
+            return True
         # outcome.command.FIELD == literal: explicitly NOT encode_params().
         if not (isinstance(value, ast.Attribute) and isinstance(value.value, ast.Attribute)
                 and value.value.attr == "command" and isinstance(value.value.value, ast.Name)
@@ -325,7 +351,8 @@ def compare(before, after, waivers):
             removed.append(entry)
             candidates = [(i, w) for i, w in enumerate(waivers) if i not in used and w.get("nodeid") == nodeid
                           and w.get("expression") == assertion["expression"] and w.get("reason", "").strip()]
-            if len(candidates) == 1 and translator_only(old["function_source"], assertion["expression"], old.get("module_aliases", ())):
+            if len(candidates) == 1 and translator_only(old["function_source"], assertion["expression"],
+                                                         old.get("module_aliases", ()), old.get("invalid_args_module_aliases", ())):
                 i, waiver = candidates[0]
                 used.add(i)
                 accepted.append({**entry, "reason": waiver["reason"]})
