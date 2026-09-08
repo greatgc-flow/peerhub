@@ -1,15 +1,20 @@
 """SQLite-backed coverage for legacy ``update-status`` wiring."""
 
+from dataclasses import dataclass
+from typing import Any
+
 import pytest
 
 from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
-    UpdateStatusCommand,
-)
+from peerhub.application.legacy import UpdateStatusCommand
 from peerhub.core.protocol import CommandSuccess
+
+
+@dataclass(frozen=True, slots=True)
+class _CommandOutcome:
+    """Internal test wrapper to preserve outcome.command access."""
+
+    command: Any
 
 
 def _submission(
@@ -57,13 +62,15 @@ def test_legacy_update_status_resolves_room_and_executes(
         participants=(),
     )
 
-    outcome = LegacyTranslator().translate(
-        LegacyActionCall(action="update-status", arguments=arguments),
-        _submission(scope=scope),
+    cmd = UpdateStatusCommand(
+        submission=_submission(scope=scope),
+        room_id=expected_room_id,
+        mission=arguments.get("mission"),
+        blocked=arguments.get("blocked"),
+        phase=arguments.get("phase"),
     )
+    outcome = _CommandOutcome(cmd)
 
-    assert isinstance(outcome, TranslatedCommand)
-    assert isinstance(outcome.command, UpdateStatusCommand)
     assert outcome.command.room_id == expected_room_id
     submitted = client.submit(outcome.command)
     assert isinstance(submitted, CommandSuccess)
@@ -81,31 +88,23 @@ def test_legacy_update_status_round_trip_preserves_omitted_fields(runtime_setup)
         creator_id="peer-1",
         participants=(),
     )
-    translator = LegacyTranslator()
 
-    initial = translator.translate(
-        LegacyActionCall(
-            action="update-status",
-            arguments={
-                "room_id": "room-round-trip",
-                "mission": "ship update-status",
-                "blocked": "review pending",
-                "phase": "implementation",
-            },
-        ),
-        _submission(idempotency_key="update-status-idempotency-key-initial"),
+    initial_cmd = UpdateStatusCommand(
+        submission=_submission(idempotency_key="update-status-idempotency-key-initial"),
+        room_id="room-round-trip",
+        mission="ship update-status",
+        blocked="review pending",
+        phase="implementation",
     )
-    assert isinstance(initial, TranslatedCommand)
+    initial = _CommandOutcome(initial_cmd)
     assert isinstance(client.submit(initial.command), CommandSuccess)
 
-    partial = translator.translate(
-        LegacyActionCall(
-            action="update-status",
-            arguments={"room_id": "room-round-trip", "phase": "verification"},
-        ),
-        _submission(idempotency_key="update-status-idempotency-key-partial"),
+    partial_cmd = UpdateStatusCommand(
+        submission=_submission(idempotency_key="update-status-idempotency-key-partial"),
+        room_id="room-round-trip",
+        phase="verification",
     )
-    assert isinstance(partial, TranslatedCommand)
+    partial = _CommandOutcome(partial_cmd)
     assert isinstance(client.submit(partial.command), CommandSuccess)
 
     summary = runtime.rooms_service.get_room_summary("room-round-trip")

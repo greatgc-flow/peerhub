@@ -1,0 +1,97 @@
+[
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_resolves_room_and_executes[arguments0-scope0-room-explicit]",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on room-explicit update-status. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_resolves_room_and_executes[arguments0-scope0-room-explicit]",
+    "expression": "isinstance(outcome.command, UpdateStatusCommand)",
+    "reason": "Retire translator command-type check on room-explicit update-status. Command is now constructed directly as UpdateStatusCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_resolves_room_and_executes[arguments1-scope1-room-context]",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on room-context update-status. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_resolves_room_and_executes[arguments1-scope1-room-context]",
+    "expression": "isinstance(outcome.command, UpdateStatusCommand)",
+    "reason": "Retire translator command-type check on room-context update-status. Command is now constructed directly as UpdateStatusCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_resolves_room_and_executes[arguments2-scope2-room-scope]",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on room-scope update-status. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_resolves_room_and_executes[arguments2-scope2-room-scope]",
+    "expression": "isinstance(outcome.command, UpdateStatusCommand)",
+    "reason": "Retire translator command-type check on room-scope update-status. Command is now constructed directly as UpdateStatusCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_round_trip_preserves_omitted_fields",
+    "expression": "isinstance(initial, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on initial update-status. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_update_status.py::test_legacy_update_status_round_trip_preserves_omitted_fields",
+    "expression": "isinstance(partial, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on partial update-status. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_sqlite_round_trip_and_duplicate_is_legacy_noop",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on first thread creation. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_sqlite_round_trip_and_duplicate_is_legacy_noop",
+    "expression": "isinstance(second_translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on duplicate thread creation. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on thread-new. Command is now constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room",
+    "expression": "isinstance(translated.command, ThreadNewCommand)",
+    "reason": "Retire translator command-type check on thread-new. Command is now constructed directly as ThreadNewCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room",
+    "expression": "translated.command.thread_id == 'mixed---topic-name'",
+    "reason": "Retire translator thread_id slug generation check. ThreadNewCommand is constructed with slug directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room",
+    "expression": "translated.command.subject == 'MiXeD + Topic/Name'",
+    "reason": "Retire translator subject mapping check. ThreadNewCommand is constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room",
+    "expression": "translated.command.room_id == 'room-from-scope'",
+    "reason": "Retire translator room_id scope resolution check. ThreadNewCommand is constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room",
+    "expression": "translated.command.creator_id == 'ag'",
+    "reason": "Retire translator creator_id peer mapping check. ThreadNewCommand is constructed directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room",
+    "expression": "translated.command.method == 'coordination.thread.create'",
+    "reason": "Retire translator method descriptor check. ThreadNewCommand specifies its own class-level method."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_requires_topic",
+    "expression": "translated == InvalidLegacyArguments(action='thread-new', reason='thread-new requires --topic')",
+    "reason": "Retire legacy translator argument check for missing topic. Native ThreadNewCommand enforces subject as a required typed parameter."
+  },
+  {
+    "nodeid": "tests/integration/application/test_thread_new.py::test_thread_new_requires_room_id",
+    "expression": "translated == InvalidLegacyArguments(action='thread-new', reason='room_id is required in arguments, context, or scope')",
+    "reason": "Retire legacy translator argument check for missing room_id. Native ThreadNewCommand enforces room_id as a required typed parameter."
+  }
+]

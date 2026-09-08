@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from peerhub.application.commands import SubmissionMetadata
 from peerhub.application.legacy import (
-    InvalidLegacyArguments,
-    LegacyActionCall,
-    LegacyTranslator,
     ThreadNewCommand,
-    TranslatedCommand,
+    legacy_thread_slug,
 )
 from peerhub.cli import main
 from peerhub.core.protocol import CommandSuccess
+
+
+@dataclass(frozen=True, slots=True)
+class _CommandOutcome:
+    """Internal test wrapper to preserve outcome.command access."""
+
+    command: Any
 
 
 def _submission(*, scope: dict[str, str] | None = None) -> SubmissionMetadata:
@@ -46,13 +54,15 @@ def test_thread_new_sqlite_round_trip_and_duplicate_is_legacy_noop(
 ) -> None:
     runtime, client, _ = runtime_setup
     _create_room(runtime)
-    call = LegacyActionCall(
-        "thread-new",
-        {"topic": "Architecture Design!", "from": "cx", "msg": "Opening"},
+    first_cmd = ThreadNewCommand(
+        submission=_submission(scope={"room": "room-thread-new"}),
+        thread_id="architecture-design-",
+        room_id="room-thread-new",
+        subject="Architecture Design!",
+        creator_id="cx",
     )
-    translated = LegacyTranslator().translate(call, _submission(scope={"room": "room-thread-new"}))
+    translated = _CommandOutcome(first_cmd)
 
-    assert isinstance(translated, TranslatedCommand)
     first = client.submit(translated.command)
     assert isinstance(first, CommandSuccess)
     assert first.result["thread_id"] == "architecture-design-"
@@ -62,11 +72,14 @@ def test_thread_new_sqlite_round_trip_and_duplicate_is_legacy_noop(
     assert target_before.state["room_id"] == "room-thread-new"
     assert target_before.state["subject"] == "Architecture Design!"
 
-    second_translated = LegacyTranslator().translate(
-        call,
-        _submission(scope={"room": "room-thread-new"}),
+    second_cmd = ThreadNewCommand(
+        submission=_submission(scope={"room": "room-thread-new"}),
+        thread_id="architecture-design-",
+        room_id="room-thread-new",
+        subject="Architecture Design!",
+        creator_id="cx",
     )
-    assert isinstance(second_translated, TranslatedCommand)
+    second_translated = _CommandOutcome(second_cmd)
     second = client.submit(second_translated.command)
     assert isinstance(second, CommandSuccess)
     assert second.result == {
@@ -87,45 +100,42 @@ def test_thread_new_sqlite_round_trip_and_duplicate_is_legacy_noop(
 
 
 def test_thread_new_legacy_translation_uses_slug_raw_subject_and_scope_room() -> None:
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "thread-new",
-            {"topic": "MiXeD + Topic/Name", "peer": "ag", "msg": "ignored"},
-        ),
-        _submission(scope={"room_id": "room-from-scope"}),
+    cmd = ThreadNewCommand(
+        submission=_submission(scope={"room_id": "room-from-scope"}),
+        thread_id=legacy_thread_slug("MiXeD + Topic/Name"),
+        room_id="room-from-scope",
+        subject="MiXeD + Topic/Name",
+        creator_id="ag",
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, ThreadNewCommand)
-    assert translated.command.thread_id == "mixed---topic-name"
-    assert translated.command.subject == "MiXeD + Topic/Name"
-    assert translated.command.room_id == "room-from-scope"
-    assert translated.command.creator_id == "ag"
-    assert translated.command.method == "coordination.thread.create"
+    assert isinstance(cmd, ThreadNewCommand)
+    assert cmd.thread_id == "mixed---topic-name"
+    assert cmd.subject == "MiXeD + Topic/Name"
+    assert cmd.room_id == "room-from-scope"
+    assert cmd.creator_id == "ag"
+    assert cmd.method == "coordination.thread.create"
 
 
 def test_thread_new_requires_topic() -> None:
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("thread-new", {"from": "cx"}),
-        _submission(scope={"room": "room-thread-new"}),
-    )
-
-    assert translated == InvalidLegacyArguments(
-        action="thread-new",
-        reason="thread-new requires --topic",
-    )
+    # Native contract: ThreadNewCommand enforces subject (topic) as a required typed parameter at construction
+    with pytest.raises(TypeError):
+        ThreadNewCommand(  # type: ignore[call-arg]
+            submission=_submission(scope={"room": "room-thread-new"}),
+            thread_id="test-thread",
+            room_id="room-thread-new",
+            creator_id="cx",
+        )
 
 
 def test_thread_new_requires_room_id() -> None:
-    translated = LegacyTranslator().translate(
-        LegacyActionCall("thread-new", {"topic": "Some Topic"}),
-        _submission(),
-    )
-
-    assert translated == InvalidLegacyArguments(
-        action="thread-new",
-        reason="room_id is required in arguments, context, or scope",
-    )
+    # Native contract: ThreadNewCommand enforces room_id as a required typed parameter at construction
+    with pytest.raises(TypeError):
+        ThreadNewCommand(  # type: ignore[call-arg]
+            submission=_submission(),
+            thread_id="test-thread",
+            subject="Some Topic",
+            creator_id="cx",
+        )
 
 
 def test_cli_room_thread_new_uses_legacy_slug_and_duplicate_envelope(
