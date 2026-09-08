@@ -1,0 +1,32 @@
+[
+  {
+    "nodeid": "tests/integration/application/test_peer_quarantine.py::test_legacy_translation_and_api_command_execution",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on peer-quarantine. Command is now constructed and submitted directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_peer_quarantine.py::test_legacy_translation_and_api_command_execution",
+    "expression": "isinstance(translated.command, PeerQuarantineCommand)",
+    "reason": "Retire translator command-type check on peer-quarantine. Command is now constructed directly as PeerQuarantineCommand."
+  },
+  {
+    "nodeid": "tests/integration/application/test_peer_quarantine.py::test_legacy_translation_and_api_command_execution",
+    "expression": "translated.command.peer_id == 'ag'",
+    "reason": "Retire translator peer_id parameter mapping check. PeerQuarantineCommand is constructed with peer_id parameter directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_peer_quarantine.py::test_legacy_translation_and_api_command_execution",
+    "expression": "translated.command.reason == 'repeated timeout'",
+    "reason": "Retire translator reason parameter mapping check. PeerQuarantineCommand is constructed with reason parameter directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_peer_quarantine.py::test_legacy_translation_and_api_command_execution",
+    "expression": "translated.command.actor_id == 'admin-1'",
+    "reason": "Retire translator actor_id parameter mapping check. PeerQuarantineCommand is constructed with actor_id parameter directly."
+  },
+  {
+    "nodeid": "tests/integration/application/test_health_quickwins.py::test_legacy_translation_and_api_execution",
+    "expression": "isinstance(outcome, TranslatedCommand)",
+    "reason": "Retire LegacyTranslator translation wrapper check on health quick win actions. Commands are now constructed and submitted directly."
+  }
+]

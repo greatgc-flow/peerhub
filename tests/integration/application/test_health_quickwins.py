@@ -21,9 +21,12 @@ from peerhub.application.api import (
 )
 from peerhub.application.commands import SubmissionMetadata
 from peerhub.application.legacy import (
-    LegacyActionCall,
-    LegacyTranslator,
-    TranslatedCommand,
+    CheckGateCommand,
+    HealthCheckCommand,
+    HealthPrecheckCommand,
+    HealthSweepCommand,
+    PeerRecoverCommand,
+    PeerStatusCommand,
 )
 from peerhub.application.peer_registry import (
     PeerRegistryService,
@@ -695,45 +698,59 @@ def test_legacy_translation_and_api_execution(test_setup, monkeypatch):
     _record_healthy_evidence(health, "cc", "cc.standard", clock.now())
     _record_healthy_evidence(health, "cx", "cx.standard", clock.now())
 
-    translator = LegacyTranslator()
-
-    def translate(action: str, arguments: dict[str, Any], key: str) -> Any:
-        outcome = translator.translate(
-            LegacyActionCall(action=action, arguments=arguments),
-            _quickwin_submission(idempotency_key=key),
-        )
-        assert isinstance(outcome, TranslatedCommand)
-        return outcome.command
-
-    # 1. Translate and submit peer-status (READ_ONLY -- no idempotency key needed)
-    res_status = client.submit(translate("peer-status", {}, "quickwin-1"))
+    # 1. Submit peer-status (READ_ONLY -- no idempotency key needed)
+    res_status = client.submit(
+        PeerStatusCommand(submission=_quickwin_submission(idempotency_key="quickwin-1"))
+    )
     assert isinstance(res_status, CommandSuccess)
     assert "peers" in res_status.result
 
-    # 2. Translate and submit health-check
-    res_health = client.submit(translate("health-check", {"peer": "ag"}, "quickwin-2"))
+    # 2. Submit health-check
+    res_health = client.submit(
+        HealthCheckCommand(
+            submission=_quickwin_submission(idempotency_key="quickwin-2"),
+            peer="ag",
+        )
+    )
     assert isinstance(res_health, CommandSuccess)
     assert "peers" in res_health.result
 
-    # 3. Translate and submit check-gate
-    res_gate = client.submit(translate("check-gate", {"agent": "ag"}, "quickwin-3"))
+    # 3. Submit check-gate
+    res_gate = client.submit(
+        CheckGateCommand(
+            submission=_quickwin_submission(idempotency_key="quickwin-3"),
+            agent="ag",
+        )
+    )
     assert isinstance(res_gate, CommandSuccess)
     assert res_gate.result["open"] is True
 
-    # 4. Translate and submit health-precheck
-    res_precheck = client.submit(translate("health-precheck", {}, "quickwin-4"))
+    # 4. Submit health-precheck
+    res_precheck = client.submit(
+        HealthPrecheckCommand(
+            submission=_quickwin_submission(idempotency_key="quickwin-4"),
+        )
+    )
     assert isinstance(res_precheck, CommandSuccess)
     assert res_precheck.result["ok"] is True
 
-    # 5. Translate and submit health-sweep
-    res_sweep = client.submit(translate("health-sweep", {}, "quickwin-5"))
+    # 5. Submit health-sweep
+    res_sweep = client.submit(
+        HealthSweepCommand(
+            submission=_quickwin_submission(idempotency_key="quickwin-5"),
+        )
+    )
     assert isinstance(res_sweep, CommandSuccess)
     assert "stale_count" in res_sweep.result
 
-    # 6. Translate and submit peer-recover (MUTATING -- requires idempotency key)
+    # 6. Submit peer-recover (MUTATING -- requires idempotency key)
     _mock_successful_probe(monkeypatch, clock)
     res_recover = client.submit(
-        translate("peer-recover", {"peer": "ag", "reason": "test"}, "quickwin-6")
+        PeerRecoverCommand(
+            submission=_quickwin_submission(idempotency_key="quickwin-6"),
+            peer_id="ag",
+            reason="test",
+        )
     )
     assert isinstance(res_recover, CommandSuccess)
     assert "results" in res_recover.result

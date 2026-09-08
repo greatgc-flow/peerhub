@@ -18,12 +18,7 @@ from peerhub.application.api import (
     CommandEnvelope,
 )
 from peerhub.application.commands import SubmissionMetadata
-from peerhub.application.legacy import (
-    LegacyActionCall,
-    LegacyTranslator,
-    PeerQuarantineCommand,
-    TranslatedCommand,
-)
+from peerhub.application.legacy import PeerQuarantineCommand
 from peerhub.application.peer_registry import (
     PeerRegistryService,
     collect_peer_status,
@@ -423,22 +418,15 @@ def test_legacy_translation_and_api_command_execution(test_setup):
 
     _record_healthy_evidence(health, "ag", "ag.standard", clock.now())
 
-    translator = LegacyTranslator()
-
-    # Translate legacy action call
-    legacy_call = LegacyActionCall(
-        action="peer-quarantine",
-        arguments={"peer": "ag", "reason": "repeated timeout", "actor": "admin-1"},
+    command = PeerQuarantineCommand(
+        submission=_submission(idempotency_key="quarantine-key-1"),
+        peer_id="ag",
+        reason="repeated timeout",
+        actor_id="admin-1",
     )
-    translated = translator.translate(legacy_call, _submission(idempotency_key="quarantine-key-1"))
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, PeerQuarantineCommand)
-    assert translated.command.peer_id == "ag"
-    assert translated.command.reason == "repeated timeout"
-    assert translated.command.actor_id == "admin-1"
 
     # Submit via Client
-    outcome = client.submit(translated.command)
+    outcome = client.submit(command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["quarantined"] is True
     assert outcome.result["admission_state"] == "QUARANTINED"
