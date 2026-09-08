@@ -38,7 +38,7 @@ CI = "https://github.com/greatgc-flow/peerhub/actions"
 peerhub = "peerhub.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-timeout>=2.3.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0"]
+dev = ["pytest>=8.0", "pytest-timeout>=2.3.0", "pytest-cov>=5.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]

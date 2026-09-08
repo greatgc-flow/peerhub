@@ -1,0 +1,22 @@
+[
+  {
+    "nodeid": "tests/integration/application/test_lesson_inject.py::test_legacy_lesson_inject_translates_and_executes",
+    "expression": "not hasattr(outcome, 'reason')",
+    "reason": "Retire the direct LegacyTranslator.translate result rejection-shape check. Baseline only translated; this is not equivalent to the candidate ApplicationAPI success assertion."
+  },
+  {
+    "nodeid": "tests/integration/application/test_lesson_inject.py::test_legacy_lesson_inject_translates_and_executes",
+    "expression": "outcome.command.target_peer_id == 'cc'",
+    "reason": "Retire the translator argument-to-command target_peer_id mapping check. New injection substring assertions do not establish equivalent target-peer mapping coverage."
+  },
+  {
+    "nodeid": "tests/integration/application/test_lesson_inject.py::test_legacy_lesson_inject_translates_and_executes",
+    "expression": "outcome.command.workspace_id == 'default'",
+    "reason": "Retire the translator argument-to-command workspace_id mapping check. The candidate adds an ApplicationAPI submission; it does not preserve this translator mapping assertion."
+  },
+  {
+    "nodeid": "tests/integration/application/test_lesson_inject.py::test_legacy_lesson_inject_translates_and_executes",
+    "expression": "outcome.command.os == 'windows'",
+    "reason": "Retire the translator argument-to-command os mapping check. New injection substring assertions are additional behavior checks, not equivalent OS mapping assertions."
+  }
+]
