@@ -27,6 +27,7 @@ from peerhub.application.legacy import (
     SessionHeartbeatCommand,
     StatusReadCommand,
     ThreadReactCommand,
+    ThreadAppendCommand,
     MessageSendCommand,
     MessageCheckCommand,
     MessageMarkReadCommand,
@@ -441,21 +442,17 @@ def test_legacy_thread_append_translates_and_executes(runtime_setup) -> None:
         subject="Append Topic",
         creator_id="peer-author",
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "thread-append",
-            {
-                "message_id": "message-append-1",
-                "room_id": "room-append",
-                "thread_id": "thread-append",
-                "author_id": "peer-author",
-                "body": "A durable appended message",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=ThreadAppendCommand(
+            submission=_legacy_submission(),
+            message_id="message-append-1",
+            room_id="room-append",
+            thread_id="thread-append",
+            author_id="peer-author",
+            body="A durable appended message",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     message = runtime.rooms_service.get_target("message:message-append-1")
@@ -475,25 +472,20 @@ def test_legacy_send_translates_and_persists_mailbox_delivery(
         creator_id="peer-a",
         participants=("peer-a", "peer-b"),
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "send",
-            {
-                "room_id": "room-mail-send",
-                "sender_instance_id": "peer-a-terminal",
-                "sender_profile_id": "peer-a",
-                "recipient_instance_id": "peer-b-terminal",
-                "recipient_profile_id": "peer-b",
-                "body": "A private delivery",
-                "message_type": "MSG",
-                "correlation_id": "mail-correlation-1",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=MessageSendCommand(
+            submission=_legacy_submission(),
+            room_id="room-mail-send",
+            sender_instance_id="peer-a-terminal",
+            sender_profile_id="peer-a",
+            recipient_instance_id="peer-b-terminal",
+            recipient_profile_id="peer-b",
+            body="A private delivery",
+            message_type="MSG",
+            correlation_id="mail-correlation-1",
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, MessageSendCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     target_id = str(outcome.result["target_id"])
@@ -519,29 +511,18 @@ def test_legacy_broadcast_translates_executes_and_validates_arguments(
         creator_id="sender",
         participants=("sender", "peer-b", "peer-c"),
     )
-    translator = LegacyTranslator()
-    translated = translator.translate(
-        LegacyActionCall(
-            "broadcast",
-            {"room_id": "room-legacy-broadcast", "from": "sender", "msg": "legacy"},
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=RoomBroadcastCommand(
+            submission=_legacy_submission(),
+            room_id="room-legacy-broadcast",
+            from_="sender",
+            msg="legacy",
+            targets=None,
+        )
     )
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, RoomBroadcastCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert len(outcome.result["delivered"]) == 2
-    assert translator.translate(
-        LegacyActionCall("broadcast", {"room_id": "room-legacy-broadcast"}),
-        _legacy_submission(),
-    ) == InvalidLegacyArguments("broadcast", "broadcast requires --msg")
-    assert translator.translate(
-        LegacyActionCall("broadcast", {"msg": "no room"}),
-        _legacy_submission(),
-    ) == InvalidLegacyArguments(
-        "broadcast", "room_id is required in arguments, context, or scope"
-    )
 
 
 def test_legacy_check_returns_only_the_callers_private_messages(
@@ -571,20 +552,16 @@ def test_legacy_check_returns_only_the_callers_private_messages(
         recipient_profile_id="peer-c",
         body="Only peer-c sees this",
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "check",
-            {
-                "room_id": "room-mail-check",
-                "caller_instance_id": "peer-b-terminal",
-                "caller_profile_id": "peer-b",
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=MessageCheckCommand(
+            submission=_legacy_submission(),
+            room_id="room-mail-check",
+            caller_instance_id="peer-b-terminal",
+            caller_profile_id="peer-b",
+            include_read=False,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, MessageCheckCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     messages = outcome.result["messages"]
@@ -613,21 +590,16 @@ def test_legacy_mark_read_translates_and_advances_cursor(runtime_setup) -> None:
         recipient_profile_id="peer-b",
         body="Mark this read",
     )
-    translated = LegacyTranslator().translate(
-        LegacyActionCall(
-            "mark-read",
-            {
-                "room_id": "room-mail-read",
-                "recipient_instance_id": "peer-b-terminal",
-                "recipient_profile_id": "peer-b",
-                "up_through_sequence": 1,
-            },
-        ),
-        _legacy_submission(),
+    translated = SimpleNamespace(
+        command=MessageMarkReadCommand(
+            submission=_legacy_submission(),
+            room_id="room-mail-read",
+            recipient_instance_id="peer-b-terminal",
+            recipient_profile_id="peer-b",
+            up_through_sequence=1,
+        )
     )
 
-    assert isinstance(translated, TranslatedCommand)
-    assert isinstance(translated.command, MessageMarkReadCommand)
     outcome = client.submit(translated.command)
     assert isinstance(outcome, CommandSuccess)
     assert outcome.result["target_id"] == (

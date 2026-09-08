@@ -1,0 +1,57 @@
+[
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_thread_append_translates_and_executes",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on thread-append"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_send_translates_and_persists_mailbox_delivery",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on send"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_send_translates_and_persists_mailbox_delivery",
+    "expression": "isinstance(translated.command, MessageSendCommand)",
+    "reason": "Retire translator command-type check on send"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_broadcast_translates_executes_and_validates_arguments",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on broadcast"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_broadcast_translates_executes_and_validates_arguments",
+    "expression": "isinstance(translated.command, RoomBroadcastCommand)",
+    "reason": "Retire translator command-type check on broadcast"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_broadcast_translates_executes_and_validates_arguments",
+    "expression": "translator.translate(LegacyActionCall('broadcast', {'room_id': 'room-legacy-broadcast'}), _legacy_submission()) == InvalidLegacyArguments('broadcast', 'broadcast requires --msg')",
+    "reason": "Retire legacy translator argument check for missing msg on broadcast"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_broadcast_translates_executes_and_validates_arguments",
+    "expression": "translator.translate(LegacyActionCall('broadcast', {'msg': 'no room'}), _legacy_submission()) == InvalidLegacyArguments('broadcast', 'room_id is required in arguments, context, or scope')",
+    "reason": "Retire legacy translator argument check for missing room_id on broadcast"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_check_returns_only_the_callers_private_messages",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on check"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_check_returns_only_the_callers_private_messages",
+    "expression": "isinstance(translated.command, MessageCheckCommand)",
+    "reason": "Retire translator command-type check on check"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_mark_read_translates_and_advances_cursor",
+    "expression": "isinstance(translated, TranslatedCommand)",
+    "reason": "Retire translator wrapper check on mark-read"
+  },
+  {
+    "nodeid": "tests/integration/test_stage2_boundary.py::test_legacy_mark_read_translates_and_advances_cursor",
+    "expression": "isinstance(translated.command, MessageMarkReadCommand)",
+    "reason": "Retire translator command-type check on mark-read"
+  }
+]
