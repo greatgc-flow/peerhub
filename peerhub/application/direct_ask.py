@@ -7,10 +7,18 @@ if TYPE_CHECKING:
     from peerhub.dispatch.process import ProcessSupervisor
     from peerhub.runtime import Runtime
 
+import hashlib
+
 from peerhub.adapters.registry import resolve_peer_target, ResolvedPeerTarget
-from peerhub.adapters.contract import AdapterRequest, SessionAction, PromptPolicy
+from peerhub.adapters.contract import (
+    AdapterRequest,
+    SessionAction,
+    PromptPolicy,
+    SessionHint,
+    DecoderEventKind,
+)
 from peerhub.application.bootstrap import build_direct_ask_admission_config
-from peerhub.application.model_config import ModelConfigService
+from peerhub.application.model_config import ModelConfigService, ResolvedModelBinding
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
 from peerhub.core.identity import AuthenticatedSubject
@@ -21,6 +29,9 @@ from peerhub.dispatch.contract import (
     CompletionContract,
     CompletionContractKind,
     RequestState,
+    SessionBindingKey,
+    SessionBindingSnapshot,
+    SessionBindingState,
 )
 from peerhub.routing.contract import (
     RouteCandidateInput, 
@@ -318,6 +329,94 @@ def assemble_ask_prompt(
     return "\n\n".join(blocks)
 
 
+def compute_session_adapter_fingerprint(
+    peer_kind: str,
+    profile_id: str,
+    model_binding: ResolvedModelBinding,
+) -> str:
+    """Derive deterministic session fingerprint folding in model binding (contract.py:278-291)."""
+    components = (
+        peer_kind,
+        profile_id,
+        model_binding.model_id or "default",
+        model_binding.selection_mode.value,
+        model_binding.reasoning_effort or "none",
+    )
+    return hashlib.sha256(":".join(components).encode("utf-8")).hexdigest()
+
+
+def resolve_session_lifecycle(
+    request: DirectAskRequest,
+    target: ResolvedPeerTarget,
+    model_binding: ResolvedModelBinding,
+    runtime: "Runtime",
+) -> tuple[SessionAction, SessionHint | None, SessionBindingKey | None]:
+    """Resolve SessionAction, SessionHint, and SessionBindingKey adhering to Model-Config Invariants."""
+    from peerhub.adapters.contract import Capability
+    if Capability.SESSION not in target.adapter.descriptor.capabilities:
+        return SessionAction.NONE, None, None
+
+    conversation_scope = request.session_id or request.room_id
+    if not conversation_scope and not request.resume and request.session_action is None:
+        return SessionAction.NONE, None, None
+
+    fingerprint = compute_session_adapter_fingerprint(
+        target.peer_kind,
+        target.profile.profile_id,
+        model_binding,
+    )
+
+    scope_id = conversation_scope or "direct_ask"
+    key = SessionBindingKey(
+        workspace_scope_id=str(request.workspace_root),
+        instance_id=target.peer_kind,
+        profile_id=target.profile.profile_id,
+        conversation_scope=scope_id,
+    )
+
+    with runtime.state_store.read_unit_of_work() as unit:
+        existing = unit.get_session_binding(key)
+
+    should_resume = bool(
+        request.resume
+        or request.session_action == SessionAction.RESUME
+        or (existing is not None and request.session_action is None)
+    )
+
+    if should_resume and existing is not None:
+        if existing.adapter_fingerprint == fingerprint:
+            hint = SessionHint(
+                external_session_id=existing.session_id,
+                adapter_fingerprint=fingerprint,
+                session_generation=existing.session_generation,
+            )
+            return SessionAction.RESUME, hint, key
+        else:
+            # Model-Config Invariant: changed model binding forces fresh session
+            hint = SessionHint(
+                external_session_id=None,
+                adapter_fingerprint=fingerprint,
+                session_generation=existing.session_generation + 1,
+            )
+            return SessionAction.CREATE, hint, key
+
+    if should_resume and request.session_id:
+        hint = SessionHint(
+            external_session_id=request.session_id,
+            adapter_fingerprint=fingerprint,
+            session_generation=1,
+        )
+        return SessionAction.RESUME, hint, key
+
+    action = request.session_action or SessionAction.CREATE
+    hint = SessionHint(
+        external_session_id=None,
+        adapter_fingerprint=fingerprint,
+        session_generation=1,
+    )
+    return action, hint, key
+
+
 def execute_direct_ask(
     request: DirectAskRequest,
     *,
@@ -447,13 +546,20 @@ def execute_direct_ask(
         if prompt_bytes > policy.max_inline_utf8_bytes:
             raise ValueError(f"prompt invalid: exceeds {policy.max_inline_utf8_bytes} bytes")
 
+        session_action, session_hint, session_key = resolve_session_lifecycle(
+            request,
+            target=target,
+            model_binding=model_binding,
+            runtime=runtime,
+        )
+
         adapter_request = AdapterRequest(
             request_id=client_request_id,
             prompt_content=assembled_prompt,
             prompt_reference=None,
             workspace_scope="default",
             profile_id=target.profile.profile_id,
-            requested_session_action=SessionAction.NONE,
+            requested_session_action=session_action,
             completion_contract=completion_contract,
             model_binding=model_binding,
         )
@@ -478,8 +584,48 @@ def execute_direct_ask(
             content_providers={}, 
             completion_contract=completion_contract,
             heartbeat_timeout_ms=30000,
+            session=session_hint,
             cancellation_hook=cancellation_hook,
         )
+
+        if session_key is not None and session_action in (SessionAction.CREATE, SessionAction.RESUME):
+            ext_sess_id = request.session_id or command_id
+            if execution_result.decoded_output:
+                for event in execution_result.decoded_output.events:
+                    if event.kind == DecoderEventKind.SESSION_IDENTITY:
+                        payload = event.payload
+                        val = payload.get("session_id") or payload.get("session_identity") or payload.get("id")
+                        if isinstance(val, str) and val:
+                            ext_sess_id = val
+                            break
+
+            with runtime.state_store.read_unit_of_work() as unit:
+                existing_binding = unit.get_session_binding(session_key)
+            new_gen = session_hint.session_generation if session_hint and session_hint.session_generation else 1
+            new_rev = (existing_binding.revision + 1) if existing_binding else 1
+            new_fp = (
+                session_hint.adapter_fingerprint
+                if session_hint and session_hint.adapter_fingerprint
+                else compute_session_adapter_fingerprint(target.peer_kind, target.profile.profile_id, model_binding)
+            )
+
+            new_binding = SessionBindingSnapshot(
+                key=session_key,
+                session_id=ext_sess_id,
+                current_lease_id=None,
+                adapter_fingerprint=new_fp,
+                readiness_binding=f"direct-ask-{command_id}",
+                session_generation=new_gen,
+                revision=new_rev,
+                state=SessionBindingState.ACTIVE,
+                updated_at=clock.now(),
+            )
+            with runtime.state_store.unit_of_work() as unit:
+                if existing_binding is not None:
+                    unit.cas_update_session_binding(existing_binding, new_binding)
+                else:
+                    unit.add_session_binding(new_binding)
+                unit.commit()
 
         response_text = None
         if execution_result.decoded_output:

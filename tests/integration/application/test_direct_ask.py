@@ -184,10 +184,17 @@ def test_direct_ask_binds_machine_subject_to_issued_lease(
 
 
 class RecordingFakePeerAdapter(FakePeerAdapter):
-    def __init__(self, *args, query_first: bool = False, **kwargs):
+    def __init__(self, *args, query_first: bool = False, supports_session: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         self.recorded_requests = []
         self._query_first = query_first
+        if supports_session:
+            from dataclasses import replace
+            from peerhub.adapters.contract import Capability
+            self.descriptor = replace(
+                self.descriptor,
+                capabilities=self.descriptor.capabilities | {Capability.SESSION},
+            )
 
     def prompt_policy(self, profile):
         from peerhub.adapters.contract import PromptPolicy
@@ -429,3 +436,158 @@ def test_direct_ask_without_context_preserves_raw_prompt(
     assert len(adapter.recorded_requests) == 1
     sent_prompt = adapter.recorded_requests[0].prompt_content
     assert sent_prompt == "just a simple prompt"
+
+
+def test_direct_ask_session_resume_compatible(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from peerhub.adapters.contract import SessionAction
+
+    adapter = RecordingFakePeerAdapter(stdout="session created", supports_session=True)
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
+    )
+
+    subject = AuthenticatedSubject("local-cli:test-user", "test")
+    # 1. First ask creates session
+    req1 = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="hello session 1",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+        session_id="conv-42",
+        session_action=SessionAction.CREATE,
+    )
+    execute_direct_ask(req1, clock=clock, ids=ids, authenticated_subject=subject)
+
+    assert len(adapter.recorded_requests) == 1
+    first_req = adapter.recorded_requests[0]
+    assert first_req.requested_session_action == SessionAction.CREATE
+
+    # 2. Second ask resumes session
+    req2 = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="hello session 2",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+        session_id="conv-42",
+        resume=True,
+    )
+    execute_direct_ask(req2, clock=clock, ids=ids, authenticated_subject=subject)
+
+    assert len(adapter.recorded_requests) == 2
+    second_req = adapter.recorded_requests[1]
+    assert second_req.requested_session_action == SessionAction.RESUME
+
+
+def test_direct_ask_session_resume_incompatible_model_forces_fresh(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from peerhub.adapters.contract import SessionAction
+    from peerhub.runtime import create_runtime
+    from peerhub.dispatch.contract import (
+        SessionBindingKey,
+        SessionBindingSnapshot,
+        SessionBindingState,
+    )
+
+    adapter = RecordingFakePeerAdapter(stdout="session response", supports_session=True)
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
+    )
+
+    # Pre-seed a session binding with an OLD, mismatched fingerprint
+    layout = PathLayout.for_workspace(tmp_path)
+    from peerhub.core.context import RuntimeContext
+    pre_rt = create_runtime(RuntimeContext("cli", layout, clock, ids))
+    try:
+        key = SessionBindingKey(
+            workspace_scope_id=str(tmp_path),
+            instance_id="fake",
+            profile_id=profile.profile_id,
+            conversation_scope="conv-mismatch",
+        )
+        with pre_rt.state_store.unit_of_work() as unit:
+            unit.add_session_binding(
+                SessionBindingSnapshot(
+                    key=key,
+                    session_id="external-sess-old",
+                    current_lease_id=None,
+                    adapter_fingerprint="old-stale-fingerprint",
+                    readiness_binding="r-1",
+                    session_generation=1,
+                    revision=1,
+                    state=SessionBindingState.ACTIVE,
+                    updated_at=clock.now(),
+                )
+            )
+            unit.commit()
+    finally:
+        pre_rt.close()
+
+    subject = AuthenticatedSubject("local-cli:test-user", "test")
+    # Attempt to resume, but fingerprint differs -> must force CREATE
+    req = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="hello mismatched session",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+        session_id="conv-mismatch",
+        resume=True,
+    )
+    execute_direct_ask(req, clock=clock, ids=ids, authenticated_subject=subject)
+
+    assert len(adapter.recorded_requests) == 1
+    sent_req = adapter.recorded_requests[0]
+    # Invariant: Incompatible model fingerprint must NOT resume; it must force CREATE!
+    assert sent_req.requested_session_action == SessionAction.CREATE

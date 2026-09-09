@@ -1651,7 +1651,11 @@ class SqliteDispatchRepository:
             """
             UPDATE session_bindings
             SET
+                session_id = ?,
                 current_lease_id = ?,
+                adapter_fingerprint = ?,
+                readiness_binding = ?,
+                session_generation = ?,
                 revision = ?,
                 state = ?,
                 updated_at = ?
@@ -1663,7 +1667,11 @@ class SqliteDispatchRepository:
                 AND revision = ?
             """,
             (
+                updated.session_id,
                 updated.current_lease_id,
+                updated.adapter_fingerprint,
+                updated.readiness_binding,
+                updated.session_generation,
                 updated.revision,
                 updated.state.value,
                 updated.updated_at,
