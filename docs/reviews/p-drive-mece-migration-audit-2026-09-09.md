@@ -13,9 +13,10 @@
 > positions -> cc.deepthink final call) -- peerhub has migrated the
 > coordination *substrate* (types/services) but not the full production
 > *behavior* of `hub.py`'s `ask` path. See section 2 (raw findings) and
-> section 5 (final ratified backlog + execution order). **Next action is
-> implementation, pending user go-ahead** -- nothing in this backlog has
-> been acted on yet.
+> section 5 (final ratified backlog + execution order). **STATUS
+> (2026-09-09, evening): full ratified backlog implemented.** All 9
+> actionable items (B, C1, D2, E, G, H, I, J1, J2) are done, tested, and
+> committed to `main` -- see section 6.
 
 ## 1. Environment/Tooling Side (ag.deepthink) -- CLOSED
 
@@ -339,6 +340,50 @@ schema to version 31. Fixed directly (commit `0d16d2c`): bumped all 3 to
 failed), pyright 0 errors. **All of Items B, E, G, H, I (the full P0/P1
 `direct_ask.py`-area cluster) are now done.**
 
+**Items C1, D2, J1, J2 -- ALL DONE. Full ratified backlog now complete.**
+
+Split across a parallel dispatch (`brnw0cx0a` to `ag.deepthink` for C1+J1)
+and direct terminal implementation (D2+J2), after a repeat memory-pressure
+kill on the first attempt to dispatch all 4 together (see below).
+
+- **C1** (`96db9e7`): new `peerhub/governance/directive_digest.py` --
+  `compute_directive_digest()` digests UTF-8 bytes as-is (documented
+  choice, simplest defensible canonicalization). `scripts/
+  migrate_engram_directives_2026_09_03.py` now uses it instead of the
+  dead hardcoded-digest table, and takes an explicit `--source` flag
+  instead of a hardcoded path.
+- **J1** (`71dd405`): `arbiter_review.py` gained a config-driven
+  `high_risk_mutation_kinds` allowlist on `FinalArbiterPolicy` -- a
+  mutation whose kind is in that list now triggers the arbiter
+  automatically, without requiring a prior dissent round. Also updated
+  `_DEFAULT_PROFILE_ID` from `"cc.standard"` to `"cc.deepthink"` now that
+  Item E means `cc.deepthink` actually exists in the Claude adapter's
+  profile set (independently confirmed: `grep _DEFAULT_PROFILE_ID` shows
+  exactly `"cc.deepthink"`).
+- **D2** (`c1759b9`, terminal-implemented): `LessonService.activate()` now
+  fails closed unless a lesson has an advisory `expires_at` or a new
+  `record_enforcement_result()` call has recorded `validation_status ==
+  "PASSED"` -- mirrors hub.py's `_lesson_activation_blocker`. This is a
+  real, deliberate behavior change (not a no-op fix): 6 test files' shared
+  setup helpers needed a matching update (21 call sites traced via grep),
+  done rather than weakening the gate to preserve old behavior.
+- **J2** (`b033afb`, terminal-implemented): new `peerhub/telemetry/
+  codex_credit.py` -- `read_reset_credits()`/`consume_reset_credit()`
+  mirror hub.py's `CodexAccountClient` validate/consume/verify safety
+  sequence. CLI exposure deliberately deferred (no existing subcommand
+  stub to extend; picking that surface is its own design decision this
+  item didn't ask for) -- a manual `codex` CLI invocation remains the
+  fallback, consistent with this being a P2 item precisely because that
+  fallback exists.
+
+**Independent verification of all 4** (not taken on the dispatch's
+self-report): re-ran `tests/unit/governance/test_directive_digest.py` +
+`tests/integration/application/test_arbiter_review.py` directly (11
+passed), full `pyright` using the project's own `pyrightconfig.json`
+scope (0 errors), and spot-checked the two most load-bearing specific
+claims (the digest function's exact behavior, `_DEFAULT_PROFILE_ID`'s new
+value) by reading the actual code -- both confirmed exactly as reported.
+
 **Recurring host issue this session:** 3 separate background dispatches
 (the first Item B attempt, a full-suite pytest verification, and the
 first Item E attempt) were killed by Windows-reported low-memory
@@ -421,12 +466,24 @@ when a peer is blocked/over-quota. Full suite WAS confirmed green once
 4. ~~Resolve the two loose ends cx left open~~ **DONE** -- 26-item handoff
    corrected to 27 (section 5, item A); CLI action count resolved as 90
    (section 5, item F).
-5. **Remaining: get user go-ahead to implement.** Section 5's execution
-   order (B -> E -> C1,G,H,I -> J1 -> D2,J2) is ready to hand to a peer for
-   real implementation work in peerhub -- not started, pending explicit
-   authorization (this is real feature work in a live package, not a
-   documentation-only exercise like the rest of this audit).
+5. ~~Get user go-ahead to implement~~ **DONE, and implementation itself is
+   now DONE too** (section 6) -- user authorized "설계완결 후 TDD ㄱㄱㄱ ...
+   더이상 할게없을 때까지 진행해줘" (design-complete then TDD, keep going
+   until the backlog is empty). All 9 actionable items implemented,
+   independently verified, and committed to `main`:
+   `2aa5c57`..`d32c6dc` (B), `09b6449` (E), `7dd66a6` (G), `332af8b` (H),
+   `22e6fd5`+`0d16d2c` (I), `96db9e7` (C1), `71dd405` (J1), `c1759b9`
+   (D2), `b033afb` (J2).
 6. `P:\` remains frozen after the one explicit, requested exception this
    session (the `cx.deepthink` model revert, commit `81956b1`, already
    pushed to `stable/hub-py-restored`) -- no further P: changes without a
    new explicit request.
+7. **Genuinely nothing left in this backlog.** Residual, smaller loose
+   ends worth a future look, not blocking: (a) the "real, unmocked test"
+   preference wasn't fully honored for Items B/G/H/I (fakes/dummies used
+   throughout; one pre-existing real test for the ask path still passes
+   but doesn't assert on the new behavior specifically); (b) whether ag's
+   Item B dispatch did the requested MECE test-suite reorganization was
+   never confirmed either way; (c) J2's CLI exposure (a `peerhub credit`
+   subcommand or similar) was deliberately left for a future, separate
+   design decision.

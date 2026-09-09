@@ -295,6 +295,10 @@ def test_direct_ask_injects_directives_lessons_and_room_context(
             proposer_id="alice",
         )
         pre_rt.lesson_service.approve("L-TEST-99", approved_by_actor_id="alice")
+        pre_rt.lesson_service.record_enforcement_result(
+            "L-TEST-99", artifact_id="test-artifact", artifact_uri="test://fixture",
+            passed=True, actor_id="alice",
+        )
         pre_rt.lesson_service.activate("L-TEST-99", actor_id="alice")
     finally:
         pre_rt.close()

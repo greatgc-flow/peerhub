@@ -23,6 +23,10 @@ def test_diag_domains_and_default_output(tmp_path: Path, capsys) -> None:
         runtime.task_service.create(task_id="diag-task", summary="s", spec="x", creator_id="p")
         runtime.lesson_service.propose(lesson_id="diag-lesson", title="t", rule="r", category="c", severity="low", proposer_id="p", affected_peers=())
         runtime.lesson_service.approve("diag-lesson", approved_by_actor_id="p")
+        runtime.lesson_service.record_enforcement_result(
+            "diag-lesson", artifact_id="test-artifact", artifact_uri="test://fixture",
+            passed=True, actor_id="p",
+        )
         runtime.lesson_service.activate("diag-lesson", actor_id="p")
 
     assert main(["diag", *base]) == 0
