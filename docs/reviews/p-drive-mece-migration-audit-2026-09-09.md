@@ -322,6 +322,23 @@ Verified together: 356 scoped tests passed (all adapters + application +
 governance + persistence + discovery/registry touched by B/E/G/H),
 pyright 0 errors/0 warnings on the full `peerhub` package.
 
+**Item I (P1) -- DONE.** Dispatched alone (narrower scope, to avoid the
+timeout pattern seen combining G+H+I) to `ag.deepthink` (`bx0jt1tee`), this
+time reporting genuine success. Commit `22e6fd5`: new
+`dispatch_transcripts` table (migration `0031`), wired into
+`execute_direct_ask()` to persist the full transcript before returning,
+config-gated via a new `[transcript_storage]` section. Independent
+verification (not just trusting the peer's "PASSED" report) found a real
+gap: its self-described "scoped test run" covered only
+`test_direct_ask.py` and missed 3 pre-existing regression tests elsewhere
+in the persistence suite that pin the schema's latest version literally
+(`LATEST_PACKAGED_VERSION = 30`, two `PRAGMA user_version == (30,)`
+assertions) -- all 3 correctly failed once the new migration moved the
+schema to version 31. Fixed directly (commit `0d16d2c`): bumped all 3 to
+31, confirmed `tests/integration/persistence/` now 205 passed (was 3
+failed), pyright 0 errors. **All of Items B, E, G, H, I (the full P0/P1
+`direct_ask.py`-area cluster) are now done.**
+
 **Recurring host issue this session:** 3 separate background dispatches
 (the first Item B attempt, a full-suite pytest verification, and the
 first Item E attempt) were killed by Windows-reported low-memory
