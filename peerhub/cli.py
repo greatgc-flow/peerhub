@@ -46,6 +46,7 @@ from peerhub.application.broker_status import collect_effect_status
 from peerhub.application.legacy import legacy_thread_slug
 from peerhub.application.config_paths import resolve_config_paths
 from peerhub.application.arbiter_review import load_final_arbiter_policy
+from peerhub.application.workspace_identity import detect_workspace_home_id
 from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
@@ -642,21 +643,11 @@ def _guard_implicit_workspace_init(
 
 
 def _detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
-    """Read the persisted workspace identity, falling back to the directory name."""
-    if database_path.exists():
-        try:
-            conn = sqlite3.connect(str(database_path))
-            try:
-                row = conn.execute(
-                    "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"
-                ).fetchone()
-                if row and row[0]:
-                    return str(row[0])
-            finally:
-                conn.close()
-        except sqlite3.Error:
-            pass
-    return fallback_name or "cli"
+    """Read the persisted workspace identity, falling back to the directory
+    name. Delegates to workspace_identity.detect_workspace_home_id() (item
+    10, dotdir consolidation) so the CLI bootstrap path and the backup/
+    restore path share one rule instead of two copies drifting apart."""
+    return detect_workspace_home_id(database_path, fallback_name)
 
 
 def _run_statusline(parsed: argparse.Namespace) -> int:
@@ -668,19 +659,14 @@ def _run_statusline(parsed: argparse.Namespace) -> int:
         except Exception:
             pass
 
-    # Save to status log under peerhub's own workspace-relative state dir
-    # (not a hardcoded Engram "_sys" layout -- see
-    # engram_peerhub_separation_proposal.md row 3.6).
-    workspace_root = Path(parsed.workspace).resolve()
-    paths = PathLayout.for_workspace(workspace_root)
-    log_dest = paths.workspace_home / "statusline" / "ag_statusline_stdin.log"
-    if stdin_data:
-        try:
-            log_dest.parent.mkdir(parents=True, exist_ok=True)
-            log_dest.write_text(stdin_data, encoding="utf-8")
-        except OSError:
-            pass
-
+    # item 12 (dotdir consolidation, ratified 2026-09-09): this command used
+    # to also persist stdin_data to .peerhub/statusline/ag_statusline_stdin.log,
+    # but nothing ever read that path -- the real, consumed statusline log
+    # lives at <_sys>/data/temp/ag_statusline_stdin.log (see
+    # telemetry/quota_polling.py's poll_agy_usage() and
+    # telemetry/presenter.py's collect_live_snapshot()), written by the
+    # agy CLI's own hook, not by this command. An orphaned durable write
+    # was deleted rather than kept or relocated, per the ratified spec.
     peer = getattr(parsed, "peer", "ag")
     try:
         if peer == "ag":

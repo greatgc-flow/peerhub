@@ -840,8 +840,12 @@ def test_cli_ask_real_agy_end_to_end(
     assert captured.err == ""
 
 
-def test_cli_statusline_log_path_is_peerhub_owned(tmp_path: Path, capsys, monkeypatch):
-    """'peerhub statusline' writes its log under .peerhub/, not a hardcoded Engram _sys/ path."""
+def test_cli_statusline_writes_no_log_file(tmp_path: Path, capsys, monkeypatch):
+    """'peerhub statusline' only prints the formatted line (item 12,
+    dotdir consolidation): it must not persist stdin to any durable log --
+    neither the old .peerhub/ location nor a hardcoded Engram _sys/ path --
+    since nothing in peerhub reads such a file (the real, consumed
+    statusline log is written directly by the agy CLI's own hook)."""
     import io
 
     monkeypatch.setattr(sys, "stdin", io.StringIO('{"model": "Gemini 3.1 Pro"}'))
@@ -857,6 +861,5 @@ def test_cli_statusline_log_path_is_peerhub_owned(tmp_path: Path, capsys, monkey
     )
 
     assert exit_code == 0
-    log_path = tmp_path / ".peerhub" / "statusline" / "ag_statusline_stdin.log"
-    assert log_path.exists()
+    assert not (tmp_path / ".peerhub" / "statusline").exists()
     assert not (tmp_path / "_sys").exists()
