@@ -57,10 +57,25 @@ class ContinuityConfig:
 
 @dataclass(frozen=True)
 class PromptStagingConfig:
-    """Where and whether an oversized prompt is staged to a file."""
+    """Where and whether an oversized prompt is staged to a file.
+
+    ``location`` (item 3, dotdir consolidation, ratified 2026-09-09):
+    ``"workspace"`` preserves the original behavior (staged under
+    ``relative_dir`` inside the workspace root -- a durable dot-directory).
+    ``"temp"`` stages under the OS temp root instead (via
+    ``config_paths.resolve_workspace_temp()``), so staged prompt bytes
+    never sit under a durable dot-directory at all.
+
+    ``janitor_max_age_seconds``: a staged file older than this is presumed
+    abandoned (its owning dispatch's outcome never resolved) and is
+    reclaimed by the startup janitor sweep -- not deleted the moment a
+    dispatch merely runs long.
+    """
 
     enabled: bool
     relative_dir: str
+    location: str = "workspace"
+    janitor_max_age_seconds: float = 3600.0
 
 
 
@@ -105,6 +120,29 @@ def _text(table: Mapping[str, Any], key: str, section: str) -> str:
             f"got {value!r}"
         )
     return value
+
+
+_PROMPT_STAGING_LOCATIONS = frozenset({"workspace", "temp"})
+
+
+def _prompt_staging_location(table: Mapping[str, Any], section: str) -> str:
+    value = table.get("location", "workspace")
+    if value not in _PROMPT_STAGING_LOCATIONS:
+        raise AskConfigError(
+            f"ask config: [{section}] location must be one of "
+            f"{sorted(_PROMPT_STAGING_LOCATIONS)}, got {value!r}"
+        )
+    return cast(str, value)
+
+
+def _janitor_max_age_seconds(table: Mapping[str, Any], section: str) -> float:
+    value = table.get("janitor_max_age_seconds", 3600.0)
+    if type(value) not in (int, float) or isinstance(value, bool) or value <= 0:
+        raise AskConfigError(
+            f"ask config: [{section}] janitor_max_age_seconds must be a "
+            f"positive number, got {value!r}"
+        )
+    return float(value)
 
 
 def _nonnegative_int(table: Mapping[str, Any], key: str, section: str) -> int:
@@ -176,6 +214,8 @@ def load_ask_config() -> AskConfig:
             relative_dir=_text(
                 prompt_staging, "relative_dir", "prompt_staging"
             ),
+            location=_prompt_staging_location(prompt_staging, "prompt_staging"),
+            janitor_max_age_seconds=_janitor_max_age_seconds(prompt_staging, "prompt_staging"),
         ),
         transcript_storage=TranscriptStorageConfig(
             enabled=_bool(transcript_storage, "enabled", "transcript_storage"),

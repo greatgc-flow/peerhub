@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,12 +55,16 @@ class StagedPrompt:
     characters: int
 
 
-def resolve_staging_dir(workspace_root: Path, relative_dir: str) -> Path:
-    """Resolve and validate the staging directory for one workspace.
+def resolve_staging_dir(root: Path, relative_dir: str) -> Path:
+    """Resolve and validate the staging directory under ``root``.
 
-    Mirrors ``dispatch/artifacts.py``'s ``resolve_workspace_paths`` checks:
-    the configured location must be relative, must not traverse, and must
-    resolve inside the workspace root.
+    ``root`` is whichever base ``PromptStagingConfig.location`` selected
+    (the workspace root, or the OS temp root via
+    ``config_paths.resolve_workspace_temp()``) -- the validation itself
+    never changes regardless of which root is in play (item 3, dotdir
+    consolidation, ratified 2026-09-09): the configured location must be
+    relative, must not traverse, and must resolve inside ``root``. Never
+    relaxed to accept an absolute ``relative_dir``.
     """
 
     relative = Path(relative_dir)
@@ -72,14 +77,14 @@ def resolve_staging_dir(workspace_root: Path, relative_dir: str) -> Path:
             f"prompt staging directory cannot contain traversal '..': "
             f"{relative}"
         )
-    root = workspace_root.resolve()
-    staging_dir = (root / relative).resolve()
+    resolved_root = root.resolve()
+    staging_dir = (resolved_root / relative).resolve()
     try:
-        staging_dir.relative_to(root)
+        staging_dir.relative_to(resolved_root)
     except ValueError:
         raise ValueError(
             f"prompt staging directory {staging_dir} resolves outside "
-            f"workspace root {root}"
+            f"root {resolved_root}"
         ) from None
     return staging_dir
 
@@ -95,12 +100,13 @@ def _staged_filename(request_id: str, payload_digest: str) -> str:
 def stage_prompt(
     prompt: str,
     *,
-    workspace_root: Path,
+    root: Path,
     relative_dir: str,
     request_id: str,
 ) -> StagedPrompt:
-    """Write ``prompt`` to the workspace's staging directory, verbatim.
+    """Write ``prompt`` to the staging directory under ``root``, verbatim.
 
+    ``root`` is whichever base ``PromptStagingConfig.location`` selected.
     The payload is never truncated. The write is fsynced and read back for
     a digest round-trip before the path is returned; a partial or corrupt
     write removes only this call's own file and re-raises.
@@ -109,7 +115,7 @@ def stage_prompt(
     payload = prompt.encode("utf-8")
     digest = hashlib.sha256(payload).hexdigest()
 
-    staging_dir = resolve_staging_dir(workspace_root, relative_dir)
+    staging_dir = resolve_staging_dir(root, relative_dir)
     staging_dir.mkdir(parents=True, exist_ok=True)
     staged_path = staging_dir / _staged_filename(request_id, digest)
 
@@ -147,6 +153,53 @@ def stage_prompt(
         utf8_bytes=len(payload),
         characters=len(prompt),
     )
+
+
+def remove_staged_prompt(reference: str) -> None:
+    """Remove one staged prompt file, once its dispatch is definitely done.
+
+    Item 3 (dotdir consolidation, ratified 2026-09-09): the cleanup owner
+    for a staged prompt is the dispatch that created it, once that
+    dispatch's outcome is no longer uncertain (success, definite failure,
+    or cancellation -- never call this for an ``ExecutionCertainty
+    .MAY_HAVE_STARTED`` / ``RequestState.START_UNCERTAIN`` outcome, since
+    the supervised process might still read the file). Missing is not an
+    error -- idempotent, safe to call more than once.
+    """
+
+    Path(reference).unlink(missing_ok=True)
+
+
+def sweep_stale_staged_prompts(root: Path, relative_dir: str, *, max_age_seconds: float) -> int:
+    """Bounded startup janitor: reclaim staged prompts left behind by a
+    dispatch whose outcome was genuinely uncertain (item 3's "a bounded
+    startup janitor reclaims genuinely-uncertain cases").
+
+    Synchronous, on-demand -- called opportunistically at the start of a
+    later dispatch, not a background daemon/thread (matching this
+    codebase's existing one-shot-sweep idiom, e.g.
+    ``LessonService.sweep_expired()``). Only files older than
+    ``max_age_seconds`` are removed, so a file from a dispatch that is
+    merely slow (not actually abandoned) is left alone. Returns the count
+    removed.
+    """
+
+    staging_dir = resolve_staging_dir(root, relative_dir)
+    if not staging_dir.is_dir():
+        return 0
+    now = time.time()
+    removed = 0
+    for entry in staging_dir.iterdir():
+        if not entry.is_file() or not entry.name.endswith(_STAGED_PROMPT_SUFFIX):
+            continue
+        try:
+            age = now - entry.stat().st_mtime
+        except OSError:
+            continue
+        if age >= max_age_seconds:
+            entry.unlink(missing_ok=True)
+            removed += 1
+    return removed
 
 
 def render_staged_prompt_pointer(reference: str) -> str:

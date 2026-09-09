@@ -1050,14 +1050,17 @@ def _oversized_prompt(byte_target: int) -> str:
     return "x" * byte_target
 
 
-def test_direct_ask_stages_oversized_prompt_to_prompt_reference(
+def test_direct_ask_stages_oversized_prompt_under_temp_root_by_default(
     tmp_path: Path,
     clock: Clock,
     ids: IdSource,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import hashlib
-
+    """Item 3 (dotdir consolidation, ratified 2026-09-09) changed the
+    default from workspace-relative staging to the OS temp root, and made
+    a successfully-completed dispatch clean up its own staged file --
+    content-round-trip and validator-rejection coverage for stage_prompt()
+    itself now live in tests/unit/adapters/test_prompt_transport.py."""
     adapter = RecordingFakePeerAdapter(
         stdout="staged ok", max_inline_utf8_bytes=64
     )
@@ -1098,13 +1101,14 @@ def test_direct_ask_stages_oversized_prompt_to_prompt_reference(
     assert sent.prompt_content is None
     assert sent.prompt_reference is not None
 
-    staged = Path(sent.prompt_reference)
-    assert staged.is_file()
-    # Staged under the workspace's own state directory, never a bare OS temp.
-    assert staged.is_relative_to(PathLayout.for_workspace(tmp_path).workspace_home)
-    payload = staged.read_bytes()
-    assert payload.decode("utf-8") == prompt
-    assert hashlib.sha256(payload).hexdigest()
+    staged_path = Path(sent.prompt_reference)
+    # Default location is now "temp": never under the workspace's own
+    # durable state directory.
+    assert not staged_path.is_relative_to(PathLayout.for_workspace(tmp_path).workspace_home)
+    # A successfully-completed dispatch is a definite outcome -- its staged
+    # file is cleaned up before execute_direct_ask returns, not left as
+    # permanent clutter under either durable dot-directory.
+    assert not staged_path.exists()
 
 
 def test_direct_ask_oversized_prompt_raises_when_staging_disabled(

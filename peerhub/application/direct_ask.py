@@ -9,7 +9,12 @@ if TYPE_CHECKING:
 
 import hashlib
 
-from peerhub.adapters.prompt_transport import stage_prompt
+from peerhub.adapters.prompt_transport import (
+    remove_staged_prompt,
+    stage_prompt,
+    sweep_stale_staged_prompts,
+)
+from peerhub.application import config_paths
 from peerhub.adapters.registry import resolve_peer_target, ResolvedPeerTarget
 from peerhub.adapters.contract import (
     AdapterRequest,
@@ -634,9 +639,23 @@ def execute_direct_ask(
         if prompt_bytes > policy.max_inline_utf8_bytes:
             if not ask_config.prompt_staging.enabled:
                 raise ValueError(f"prompt invalid: exceeds {policy.max_inline_utf8_bytes} bytes")
+            staging_root = (
+                config_paths.resolve_workspace_temp(request.workspace_root).path
+                if ask_config.prompt_staging.location == "temp"
+                else request.workspace_root
+            )
+            # Bounded startup janitor (item 3): reclaim any staged file left
+            # behind by a prior dispatch whose outcome was genuinely
+            # uncertain, before staging this one. Synchronous, on-demand --
+            # never a background daemon.
+            sweep_stale_staged_prompts(
+                staging_root,
+                ask_config.prompt_staging.relative_dir,
+                max_age_seconds=ask_config.prompt_staging.janitor_max_age_seconds,
+            )
             staged = stage_prompt(
                 assembled_prompt,
-                workspace_root=request.workspace_root,
+                root=staging_root,
                 relative_dir=ask_config.prompt_staging.relative_dir,
                 request_id=client_request_id,
             )
@@ -717,6 +736,16 @@ def execute_direct_ask(
                 RetryLoopStopReason.ROUTE_EXHAUSTED,
             )
         )
+        # Item 3 (dotdir consolidation, ratified 2026-09-09): remove a
+        # staged prompt once its dispatch reaches a definite outcome
+        # (success, definite failure, or cancellation). NEVER for
+        # START_UNCERTAIN specifically -- the supervised process might
+        # still be running and reading the file; the startup janitor sweep
+        # (above) reclaims that case later, bounded by age, not this call.
+        if prompt_reference is not None and (
+            execution_result.request.state is not RequestState.START_UNCERTAIN
+        ):
+            remove_staged_prompt(prompt_reference)
         if is_failed:
             runtime.health_service.classify_and_open_circuit(
                 attempted_trace=(

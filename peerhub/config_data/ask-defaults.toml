@@ -32,17 +32,24 @@ max_chars = 2000
 # coordinated them. Set false for strict per-peer isolation.
 include_unattributed_tasks = true
 
-# Oversized-prompt staging (ratified backlog item H). A prompt past the
-# adapter profile's own `max_inline_utf8_bytes` is written verbatim to a
-# file under the workspace's state directory and carried as
-# `AdapterRequest.prompt_reference` instead of failing the dispatch.
+# Oversized-prompt staging (ratified backlog item H, extended by item 3 of
+# the dotdir consolidation, 2026-09-09). A prompt past the adapter
+# profile's own `max_inline_utf8_bytes` is written verbatim to a file and
+# carried as `AdapterRequest.prompt_reference` instead of failing the
+# dispatch.
 [prompt_staging]
 enabled = true
-# Workspace-relative; validated exactly like dispatch/artifacts.py validates
-# `artifact_staging_relative_root` (relative, no traversal, must resolve
-# inside the workspace root). Defaults under the workspace's own .peerhub
-# state home rather than a bare OS temp directory.
-relative_dir = ".peerhub/prompt-staging"
+# "temp": staged under the OS temp root (config_paths.resolve_workspace_temp())
+# -- default, since a staged prompt is transient dispatch payload, not
+# durable settings, and should never sit under a durable dot-directory.
+# "workspace": the original behavior, staged under `relative_dir` inside
+# the workspace root instead.
+location = "temp"
+# Relative to whichever root `location` selects above; validated exactly
+# like dispatch/artifacts.py validates `artifact_staging_relative_root`
+# (relative, no traversal, must resolve inside that root) regardless of
+# which root is chosen.
+relative_dir = "prompt-staging"
 
 # Durable dispatch transcript storage (ratified backlog item I).
 [transcript_storage]
