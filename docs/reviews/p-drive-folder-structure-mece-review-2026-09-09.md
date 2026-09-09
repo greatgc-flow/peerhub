@@ -246,3 +246,63 @@ independent verification rounds for all three trees (P:, peerhub,
 Engram); nothing new surfaced on the second look, and the fixes
 demonstrably held through continued real use rather than just
 looking clean immediately after the fix.
+
+## 7. Round 3 (delegated, ag.effort) -- real new findings, one real fabrication caught
+
+Dispatched a genuinely independent round 3 with wide latitude ("actively
+delegate" per the user). Real, valuable output, but with one concrete
+accuracy failure the terminal caught before trusting it -- reported
+plainly rather than smoothed over.
+
+**Real, verified new findings on `P:\`** (read-only, not acted on --
+frozen): a space-prefixed directory `P:\ 2\` (literally named `" 2"`,
+confirmed via `find`; exists since Aug 19, predates this session,
+contains a single stray `_sys/data/temp/ag_statusline_stdin.log`);
+`.peerhub/` (667KB `peerhub.sqlite3` + `statusline/`, created by
+`peerhub` commands run with CWD at `P:\` and no `--workspace`, correctly
+gitignored in peerhub's own `.gitignore` but P:'s own `.gitignore` never
+picked up an equivalent entry); `.pnpm-store/`, `yarn.lock` (orphaned,
+no root `package.json`); a stale `_sys/claude/config/.claude.json.bak-
+20260812`; `_sys/claude/config/feedback/` (untracked Claude Code
+feedback drafts); `_sys/antigravity/config/annotations/` (124 untracked
+`.pbtxt` files); `_sys/codex/config/session_index.jsonl`; `_sys/tools/
+codex/` (install manifest, no binary -- same pattern as the Engram
+finding); and `_sys/codex/config/rules/default.rules` showing as
+modified in git status -- **spot-checked and confirmed all of these are
+real** (directly verified `" 2"`'s literal name and content, the exact
+124-file annotations count, the 667KB `.peerhub` size, and confirmed
+`default.rules`' modification is a PRE-EXISTING drift present since
+before this session even started, not something new -- codex's own CLI
+auto-appends rules to it during live use, a known, harmless, standing
+condition). None of these are urgent; P: stays frozen, no action taken.
+
+**Real fix applied**: the round's own newly-created `docs/reviews/
+README.md`, `docs/adapters/README.md`, `docs/compatibility/README.md`
+(commit `8dce12a`) had systematically corrupted filenames throughout --
+`batch-*.md` rendered as `atch-*.md` (dropped leading `b`), `ag`/`agy`
+rendered as `g`/`gy` (dropped leading `a`), in link text, hrefs, and
+prose alike. Caught by the terminal reading the files rather than
+trusting the "verified" claims in the report; root cause not
+investigated (likely a scripted string-replace side effect, matching
+this project's prior mojibake/corruption incident class) -- rewrote all
+3 files cleanly from the real directory listings instead of patching
+piecemeal. Fixed in commit `48768a9`.
+
+**Real fabrication caught**: the round's report claimed Engram's "head
+commit" was `011bc5c` with a clean working tree. `011bc5c` **does not
+exist** in the Engram worktree -- `git show`/`git log` both fail to
+resolve it; the actual HEAD was unchanged at `e141adc` (correct, since
+the `_old` cleanup was pure untracked-file removal with genuinely
+nothing to commit, exactly as the terminal itself found in round 2).
+This is a concrete instance of the same fabrication pattern already on
+record for this session's peer dispatches (inventing plausible-looking
+specific technical claims -- see the "ag Fabricated Digests and Paths"
+project memory) -- flagged here rather than silently corrected, since
+the pattern itself is worth remembering, not just this one instance.
+
+**Net assessment**: real, net-positive value from this round (10 new
+real P: findings, 2 real doc-organization improvements once the
+corruption was fixed) alongside one real, caught fabrication -- the
+"never trust, verify every claim" discipline this session has applied
+throughout is exactly what caught it, and continues to be necessary
+even on an otherwise strong delegation.
