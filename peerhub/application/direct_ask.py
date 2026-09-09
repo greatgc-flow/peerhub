@@ -1,14 +1,14 @@
-"""Direct-ask command orchestration."""
-
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from peerhub.dispatch.process import ProcessSupervisor
+    from peerhub.runtime import Runtime
 
 from peerhub.adapters.registry import resolve_peer_target, ResolvedPeerTarget
-from peerhub.adapters.contract import AdapterRequest, SessionAction
+from peerhub.adapters.contract import AdapterRequest, SessionAction, PromptPolicy
 from peerhub.application.bootstrap import build_direct_ask_admission_config
 from peerhub.application.model_config import ModelConfigService
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
@@ -41,6 +41,11 @@ class DirectAskRequest:
     required_capability_tier: CapabilityTier
     profile_id: str | None
     limits: TransportLimits
+    room_id: str | None = None
+    task_id: str | None = None
+    session_id: str | None = None
+    resume: bool = False
+    session_action: SessionAction | None = None
 
 
 @dataclass(frozen=True)
@@ -134,6 +139,185 @@ class _DirectAskRouteRequestFactory:
         )
 
 
+def assemble_ask_prompt(
+    request: DirectAskRequest,
+    target: ResolvedPeerTarget,
+    runtime: "Runtime",
+    policy: PromptPolicy,
+) -> str:
+    user_directives_lines: list[str] = []
+    runtime_directives_lines: list[str] = []
+    lessons_lines: list[str] = []
+    hub_context_lines: list[str] = []
+    handoff_lines: list[str] = []
+    task_context_lines: list[str] = []
+
+    # 1. User Directives from _sys/ai/user-directives.md
+    user_dir_path = request.workspace_root / "_sys" / "ai" / "user-directives.md"
+    if user_dir_path.exists():
+        text = user_dir_path.read_text(encoding="utf-8", errors="replace").strip()
+        if text:
+            user_directives_lines.extend(["[USER DIRECTIVES]", text])
+
+    # 2. Runtime Directives from DirectiveService
+    max_rd_count = 10
+    max_rd_chars = 2000
+    try:
+        active_directives = [
+            t for t in runtime.directive_service.list_all()
+            if t.state.get("lifecycle") == "ACTIVE"
+        ]
+    except Exception:
+        active_directives = []
+
+    if active_directives:
+        rd_entries: list[str] = []
+        rd_chars = 0
+        for target_state in active_directives:
+            content = target_state.state.get("content", {})
+            if isinstance(content, Mapping):
+                rule = content.get("rule") or content.get("title") or ""
+            else:
+                rule = ""
+            dir_id = target_state.state.get("directive_id") or target_state.target_id.split(":")[-1]
+            entry = f"- [{dir_id}] {rule}"
+            if rd_chars + len(entry) > max_rd_chars or len(rd_entries) >= max_rd_count:
+                rd_entries.append(f"- [...{len(active_directives) - len(rd_entries)} more directives omitted]")
+                break
+            rd_entries.append(entry)
+            rd_chars += len(entry)
+        if rd_entries:
+            runtime_directives_lines.extend(["[RUNTIME DIRECTIVES]", "\n".join(rd_entries)])
+
+    # 3. Peer Lessons via inject_lessons
+    try:
+        from peerhub.application.lesson_inject import (
+            inject_lessons,
+            LessonInjectionContext,
+            LessonInjectionPolicy,
+        )
+        lessons_block = inject_lessons(
+            runtime.governance_broker,
+            target_peer_id=target.peer_kind,
+            workspace_id=str(request.workspace_root),
+            context=LessonInjectionContext(),
+            policy=LessonInjectionPolicy(),
+        )
+        if lessons_block:
+            lessons_lines.append(lessons_block)
+    except Exception:
+        pass
+
+    # 4. Room Context & Handoff via RoomsService
+    if request.room_id:
+        room_summary = runtime.rooms_service.get_room_summary(request.room_id)
+        try:
+            participants = runtime.rooms_service.list_participants(request.room_id)
+            members = [
+                str(p.get("instance_id") or p)
+                for p in participants
+            ]
+            members_str = ", ".join(members) if members else "none"
+        except Exception:
+            members_str = "none"
+
+        if room_summary is not None:
+            s = room_summary.state
+            hub_context_lines.extend([
+                "[HUB CONTEXT]",
+                f"Room ID: {request.room_id}",
+                f"Members: {members_str}",
+                f"Mission: {s.get('mission') or 'none'}",
+                f"Blocked: {s.get('blocked') or 'none'}",
+                f"Phase: {s.get('phase') or 'none'}",
+            ])
+        else:
+            hub_context_lines.extend([
+                "[HUB CONTEXT]",
+                f"Room ID: {request.room_id}",
+                f"Members: {members_str}",
+            ])
+
+        try:
+            continuity = runtime.rooms_service.context_fill(
+                request.room_id,
+                session_id=request.session_id or "direct_ask",
+            )
+            sections = continuity.get("sections")
+            if isinstance(sections, Mapping):
+                sec_lines: list[str] = []
+                goal_val = sections.get("GOAL")
+                if isinstance(goal_val, Mapping) and goal_val.get("goal"):
+                    sec_lines.extend(["## GOAL", str(goal_val["goal"])])
+                for sec_name, sec_val in sections.items():
+                    if sec_name != "GOAL" and isinstance(sec_val, Mapping):
+                        items = sec_val.get("items")
+                        if isinstance(items, (list, tuple)) and items:
+                            sec_lines.append(f"## {sec_name}")
+                            sec_lines.extend(f"- {item}" for item in items)
+                if sec_lines:
+                    handoff_lines.extend(["[HANDOFF]", "\n".join(sec_lines)])
+        except Exception:
+            pass
+
+    # 5. Task Context via TaskService
+    if request.task_id:
+        task_target = runtime.task_service.get_target(request.task_id)
+        if task_target is not None:
+            ts = task_target.state
+            task_context_lines.extend([
+                "[TASK CONTEXT]",
+                f"Task ID: {request.task_id}",
+                f"Summary: {ts.get('summary') or 'none'}",
+                f"Phase: {ts.get('phase') or 'none'}",
+                f"State: {ts.get('state') or 'none'}",
+            ])
+
+    has_context = bool(
+        user_directives_lines
+        or runtime_directives_lines
+        or lessons_lines
+        or hub_context_lines
+        or handoff_lines
+        or task_context_lines
+    )
+    if not has_context:
+        return request.prompt
+
+    query_first = bool(getattr(policy, "query_first", False) or target.peer_kind in ("ag", "agy"))
+    blocks: list[str] = []
+    if query_first:
+        blocks.extend(["[USER QUERY]\n" + request.prompt])
+        if user_directives_lines:
+            blocks.append("\n".join(user_directives_lines))
+        if runtime_directives_lines:
+            blocks.append("\n".join(runtime_directives_lines))
+        if lessons_lines:
+            blocks.append("\n".join(lessons_lines))
+        if hub_context_lines:
+            blocks.append("\n".join(hub_context_lines))
+        if handoff_lines:
+            blocks.append("\n".join(handoff_lines))
+        if task_context_lines:
+            blocks.append("\n".join(task_context_lines))
+    else:
+        if hub_context_lines:
+            blocks.append("\n".join(hub_context_lines))
+        if user_directives_lines:
+            blocks.append("\n".join(user_directives_lines))
+        if runtime_directives_lines:
+            blocks.append("\n".join(runtime_directives_lines))
+        if lessons_lines:
+            blocks.append("\n".join(lessons_lines))
+        if handoff_lines:
+            blocks.append("\n".join(handoff_lines))
+        if task_context_lines:
+            blocks.append("\n".join(task_context_lines))
+        blocks.extend(["[USER QUERY]\n" + request.prompt])
+
+    return "\n\n".join(blocks)
+
+
 def execute_direct_ask(
     request: DirectAskRequest,
     *,
@@ -151,9 +335,6 @@ def execute_direct_ask(
     )
     
     policy = target.adapter.prompt_policy(target.profile)
-    prompt_bytes = len(request.prompt.encode("utf-8"))
-    if prompt_bytes > policy.max_inline_utf8_bytes:
-        raise ValueError(f"prompt invalid: exceeds {policy.max_inline_utf8_bytes} bytes")
 
     paths = PathLayout.for_workspace(request.workspace_root)
 
@@ -256,9 +437,19 @@ def execute_direct_ask(
             profile_id=target.profile.profile_id,
         )
 
+        assembled_prompt = assemble_ask_prompt(
+            request,
+            target=target,
+            runtime=runtime,
+            policy=policy,
+        )
+        prompt_bytes = len(assembled_prompt.encode("utf-8"))
+        if prompt_bytes > policy.max_inline_utf8_bytes:
+            raise ValueError(f"prompt invalid: exceeds {policy.max_inline_utf8_bytes} bytes")
+
         adapter_request = AdapterRequest(
             request_id=client_request_id,
-            prompt_content=request.prompt,
+            prompt_content=assembled_prompt,
             prompt_reference=None,
             workspace_scope="default",
             profile_id=target.profile.profile_id,

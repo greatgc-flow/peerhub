@@ -159,6 +159,7 @@ class RealAgyAdapter:
             policy_id="ag-standard-policy",
             max_inline_utf8_bytes=1000000,
             artifact_reference_supported=False,
+            query_first=True,
         )
 
     def plan_invocation(

@@ -228,6 +228,7 @@ class PromptPolicy:
     policy_id: str
     max_inline_utf8_bytes: int
     artifact_reference_supported: bool
+    query_first: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -241,6 +242,10 @@ class PromptPolicy:
         _require_bool(
             self.artifact_reference_supported,
             "artifact_reference_supported",
+        )
+        _require_bool(
+            self.query_first,
+            "query_first",
         )
 
 
