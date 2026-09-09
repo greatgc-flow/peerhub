@@ -288,6 +288,27 @@ suite reorganization" (dedup/consolidate overlapping coverage) -- its
 progress log shows only new-test-writing, no explicit consolidation pass.
 Deferred to a later polish pass rather than blocking forward progress now.
 
+**Item E (P1) -- DONE.** Commit `09b6449`. Implemented directly by the
+terminal rather than dispatched: `ag.effort` was `blocked` (66.7% recent
+fail rate, mostly host memory-pressure kills -- see below) and `cx` was
+over the 95% quota ceiling; the change itself is small and fully
+mechanical (mirror `codex_adapter.py`'s existing 3-profile pattern into
+`agy_adapter.py`/`claude_adapter.py`), so direct implementation was more
+efficient than a peer round-trip. 99 scoped tests passed, pyright 0
+errors, and a real live `peerhub adapter discover --json` confirmed all
+3 peers now show 3 profiles each (previously ag/cc showed 1).
+
+**Recurring host issue this session:** 3 separate background dispatches
+(the first Item B attempt, a full-suite pytest verification, and the
+first Item E attempt) were killed by Windows-reported low-memory
+conditions (as low as 2.1-2.9 GB free of 15.8 GB), unrelated to any code
+in this repo -- confirmed no zombie/orphaned processes each time, just
+ordinary desktop load (multiple VSCode windows + Chrome). Adapted by:
+running scoped test subsets instead of the full suite when memory is
+tight, and doing small mechanical items directly instead of via dispatch
+when a peer is blocked/over-quota. Full suite WAS confirmed green once
+(1488 passed) after Item B, on a retry.
+
 1. ~~peerhub `diag`'s quota-telemetry gap vs `hub.py`'s~~ **RESOLVED, not a
    real gap** (section 3) -- was a test-setup artifact (`PEERHUB_SYS_DIR`/
    workspace not pointed at a real `_sys/`); re-tested correctly and the
