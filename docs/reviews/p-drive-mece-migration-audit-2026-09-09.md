@@ -482,8 +482,23 @@ when a peer is blocked/over-quota. Full suite WAS confirmed green once
    ends worth a future look, not blocking: (a) the "real, unmocked test"
    preference wasn't fully honored for Items B/G/H/I (fakes/dummies used
    throughout; one pre-existing real test for the ask path still passes
-   but doesn't assert on the new behavior specifically); (b) whether ag's
-   Item B dispatch did the requested MECE test-suite reorganization was
-   never confirmed either way; (c) J2's CLI exposure (a `peerhub credit`
-   subcommand or similar) was deliberately left for a future, separate
-   design decision.
+   but doesn't assert on the new behavior specifically); (b) ~~whether
+   ag's Item B dispatch did the requested MECE test-suite reorganization
+   was never confirmed either way~~ **CHECKED, no action needed** (below);
+   (c) J2's CLI exposure (a `peerhub credit` subcommand or similar) was
+   deliberately left for a future, separate design decision.
+
+**MECE test-coverage check (2026-09-09, final item)**: a dispatch to
+verify this was killed twice by host memory pressure (this session's
+6th/7th such kill); checked directly by the terminal instead of retrying
+further given all 3 peer quota pools were critical at the same time
+(cc 94%, cx 96%, ag 20% used). `tests/integration/application/
+test_direct_ask.py` (the single file all of Items B/E/G/H/I's dedicated
+tests landed in) has 19 tests, each with a distinct, non-overlapping name
+and scenario (injection, session-resume x2, retry, circuit-breaker, task-
+checkpoint, room-checkpoint, continuity-absent, continuity-disabled,
+staging x3, transcript x2, plus 3 pre-existing baseline tests) -- no
+duplicate assertions found on inspection, and no separate unit-level
+`test_direct_ask*.py` file exists to create parallel/overlapping coverage.
+All 19 pass (18 run + 1 `@pytest.mark.slow`-deselected). **Conclusion: the
+coverage is already genuinely MECE; no consolidation needed.**
