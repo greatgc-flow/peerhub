@@ -10,6 +10,13 @@
 > fully retired across a 9-batch effort in `docs/reviews/legacy-translator-retirement/`. The
 > native CLI commands and service-layer code this doc also describes are unaffected and remain
 > real and current.
+>
+> **FOLLOW-UP (2026-09-09): the primitives this doc records as built (session resume, retry/
+> circuit-breaker, consensus effect intents, directive/lesson services) had zero production
+> caller from `peerhub ask` until today.** This doc accurately describes what got *built*; it
+> should not have been read as "and therefore in production use" — a zero-base audit against
+> `P:\`'s `hub.py` found the gap, and it's now closed (wired into `execute_direct_ask()`, not a
+> parallel path). Full record: `docs/reviews/p-drive-mece-migration-audit-2026-09-09.md`.
 
 ## Execution dispatcher investigation
 

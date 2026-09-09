@@ -34,6 +34,17 @@
 > protocol contracts this catalog used to exercise indirectly are preserved directly in
 > `tests/unit/application/test_command_wire_contracts.py`. Full account:
 > `docs/reviews/legacy-translator-retirement/batch-09-final.md`.
+>
+> **FOLLOW-UP (2026-09-09): a separate, real gap — production-path integration, not
+> compatibility-shim reach — was found and closed.** A zero-base MECE audit against `P:\`'s
+> `hub.py` found that `peerhub ask`'s production path did not actually call most of the
+> durable primitives this backlog and the TDD progress doc describe as built (directive/lesson
+> injection, session resume, retry/circuit-breaker, consensus effects) — they existed as
+> types/services with no production caller. Dialectically ratified and implemented end-to-end
+> the same night. Any item below phrased as "wire X into the ask path" that overlaps with
+> directive injection, lesson injection, session resume, retry/circuit-breaker dispatch, or
+> consensus effect intents is now DONE, not open. Full record:
+> `docs/reviews/p-drive-mece-migration-audit-2026-09-09.md` (sections 2 and 5-6).
 
 > Single source of truth for "what's left." Supersedes hunting across `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`, the README's status lists, and per-gap design docs to answer "what's next" — those documents remain the detailed record of *why* each decision was made; this one is the current, flat *what's outstanding* list, organized by how ready each item is to pick up. Update this doc's tiers as items move, rather than letting the README's own "Designed but not built" / "Explicitly deferred" / "Not yet implemented" lists drift out of sync again (see the "Known drift caught while writing this doc" note at the bottom — that's exactly the failure mode this doc exists to prevent).
 
