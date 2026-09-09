@@ -38,7 +38,7 @@ ARBITER_BUDGET_TARGET_ID = "arbiter-budget:workspace"
 # (peerhub/adapters/claude_adapter.py's _CLAUDE_PROFILE) -- "cc.deepthink"
 # does not exist there and would make every enabled review fail with
 # ProfileNotFoundError; "cc.standard" is the adapter's one real profile.
-_DEFAULT_PROFILE_ID = "cc.standard"
+_DEFAULT_PROFILE_ID = "cc.deepthink"
 _PROMPT_LIMIT = 1200
 _VERDICT = re.compile(r"VERDICT:\s*(APPROVE|REJECT)", re.IGNORECASE)
 
@@ -51,6 +51,7 @@ class FinalArbiterPolicy:
     peer_name: str = "cc"
     profile_id: str = _DEFAULT_PROFILE_ID
     triggers: tuple[str, ...] = ("dissent",)
+    high_risk_mutation_kinds: tuple[str, ...] = ()
     max_invocations: int = 5
     window_seconds: int = 18_000
 
@@ -64,6 +65,10 @@ class FinalArbiterPolicy:
             for value in self.triggers
         ):
             raise ValueError("triggers must contain non-empty strings")
+        if not isinstance(self.high_risk_mutation_kinds, tuple) or any(  # pyright: ignore[reportUnnecessaryIsInstance]
+            not isinstance(v, str) or not v.strip() for v in self.high_risk_mutation_kinds  # pyright: ignore[reportUnnecessaryIsInstance]
+        ):
+            raise ValueError("high_risk_mutation_kinds must contain non-empty strings")
         if (
             type(self.max_invocations) is not int
             or self.max_invocations < 1
@@ -91,6 +96,9 @@ def load_final_arbiter_policy(workspace_root: Path) -> FinalArbiterPolicy:
     triggers = raw.get("triggers", ("dissent",))
     if not isinstance(triggers, (list, tuple)):
         raise ValueError("arbiter.json triggers must be an array")
+    high_risk_mutation_kinds = raw.get("high_risk_mutation_kinds", ())
+    if not isinstance(high_risk_mutation_kinds, (list, tuple)):
+        raise ValueError("arbiter.json high_risk_mutation_kinds must be an array")
     return FinalArbiterPolicy(
         enabled=_optional_bool(raw, "enabled", False),
         peer_name=_optional_text(candidate_mapping, "peer_name", "cc"),
@@ -101,6 +109,9 @@ def load_final_arbiter_policy(workspace_root: Path) -> FinalArbiterPolicy:
         ),
         triggers=tuple(
             _text_sequence(cast(Sequence[object], triggers), "triggers")
+        ),
+        high_risk_mutation_kinds=tuple(
+            _text_sequence(cast(Sequence[object], high_risk_mutation_kinds), "high_risk_mutation_kinds")
         ),
         max_invocations=_optional_int(raw, "max_invocations", 5),
         window_seconds=_optional_int(raw, "window_seconds", 18_000),
@@ -508,11 +519,16 @@ class ArbiterReviewCoordinator:
             raise InvalidMutationError(
                 "arbiter review requires a resolved consensus round"
             )
-        if "dissent" not in policy.triggers:
-            return {"fired": False, "reason": "trigger_not_enabled"}
+        
         dissent = classify_consensus_dissent(round_target.state)
-        if not dissent:
-            return {"fired": False, "reason": "no_dissent"}
+        has_dissent = "dissent" in policy.triggers and bool(dissent)
+        
+        mutation_kind_raw = round_target.state.get("mutation_kind")
+        mutation_kind = str(mutation_kind_raw) if mutation_kind_raw else ""
+        has_high_risk = "high-risk" in policy.triggers and mutation_kind in policy.high_risk_mutation_kinds
+
+        if not has_dissent and not has_high_risk:
+            return {"fired": False, "reason": "no_trigger"}
 
         review_id = self._ids.new_id("arbiter-review")
         try:

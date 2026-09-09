@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 
 from collections.abc import Iterable
 from pathlib import Path
@@ -244,7 +245,7 @@ def test_unanimous_round_does_not_trigger(tmp_path: Path) -> None:
 
     assert coordinator.review("round-unanimous") == {
         "fired": False,
-        "reason": "no_dissent",
+        "reason": "no_trigger",
     }
     assert executor.requests == []
     assert broker.get_target(ARBITER_BUDGET_TARGET_ID) is None
@@ -364,7 +365,7 @@ def test_verified_success_records_all_evidence_and_keeps_resolution(
     round_target = consensus.get_target("round-success")
     assert request is not None and request.state["candidate"] == {
         "peer_name": "cc",
-        "profile_id": "cc.standard",
+        "profile_id": "cc.deepthink",
     }
     assert request.state["dissent"][0]["choice"] == "disagree"
     assert opinion is not None
@@ -413,3 +414,53 @@ def test_garbled_first_line_records_noncanonical_opinion(
     budget = broker.get_target(ARBITER_BUDGET_TARGET_ID)
     assert budget is not None
     assert budget.state["slots"][0]["state"] == "CONSUMED"
+
+def test_arbiter_high_risk_trigger(tmp_path: Path) -> None:
+    # Set up config with high-risk trigger but NO dissent trigger
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir(exist_ok=True)
+    (config_dir / "arbiter.json").write_text(json.dumps({
+        "enabled": True,
+        "triggers": ["high-risk"],
+        "high_risk_mutation_kinds": ["irreversible_delete"],
+        "candidate": {"peer_name": "cc", "profile_id": "cc.deepthink"}
+    }))
+
+    consensus, broker, clock, ids = _services(tmp_path)
+    
+    # We need to manually insert the mutation_kind since _resolved_round doesn't take it.
+    _resolved_round(consensus, "con-round-high-risk", choices=("agree", "agree"))
+    
+    # Hack the state to add mutation_kind
+    with broker._store.unit_of_work() as unit:
+        target = unit.governance.get_target("con-round-high-risk")
+        assert target is not None
+        new_state = dict(target.state)
+        new_state["mutation_kind"] = "irreversible_delete"
+        from dataclasses import replace
+        unit.governance.compare_and_set_target(
+            target,
+            replace(target, state=new_state, revision=target.revision + 1)
+        )
+        unit.commit()
+        
+    coordinator = _coordinator(
+        tmp_path=tmp_path,
+        consensus=consensus,
+        broker=broker,
+        clock=clock,
+        ids=ids,
+        executor=FakeExecutor(("VERDICT: APPROVE",)),
+        policy=None, # will load from config_dir
+    )
+    
+    result = coordinator.review("con-round-high-risk")
+    
+    assert result["fired"] is True
+    assert result["reason"] == "opinion_recorded"
+    
+    with broker._store.read_unit_of_work() as read_unit:
+        budget = read_unit.governance.get_target(ARBITER_BUDGET_TARGET_ID)
+        assert budget is not None
+        slots = budget.state["slots"]
+        assert any(slot["state"] == "CONSUMED" for slot in slots)
