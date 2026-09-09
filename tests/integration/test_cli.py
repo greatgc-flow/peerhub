@@ -311,6 +311,91 @@ def test_cli_config_migrate_rejects_old_and_new_conflict(
         main(["config", "migrate", "--workspace", str(tmp_path)])
 
 
+def test_cli_backup_workspace_then_restore_round_trip(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace_root = tmp_path / "workspace"
+    output_dir = tmp_path / "backups"
+    assert main(["workspace", "init", "--workspace", str(workspace_root)]) == 0
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "backup",
+            "workspace",
+            "--workspace",
+            str(workspace_root),
+            "--output",
+            str(output_dir),
+        ]
+    )
+
+    assert exit_code == 0
+    backup_output = capsys.readouterr().out
+    assert "Backup created:" in backup_output
+    bundles = list(output_dir.iterdir())
+    assert len(bundles) == 1
+    bundle_dir = bundles[0]
+    assert (bundle_dir / "peerhub.sqlite3").is_file()
+    assert (bundle_dir / "MANIFEST.json").is_file()
+
+    # Restoring the same workspace's own backup into itself is a legitimate
+    # round trip: the detected target identity is exactly what was backed up.
+    restore_exit_code = main(
+        ["backup", "restore", str(bundle_dir), "--workspace", str(workspace_root)]
+    )
+
+    assert restore_exit_code == 0
+    restore_output = capsys.readouterr().out
+    assert "Restored workspace" in restore_output
+
+
+def test_cli_backup_workspace_include_transcripts_flag_reaches_the_manifest(
+    tmp_path: Path,
+) -> None:
+    """The transcript-inclusion decision is never implicit: the CLI flag
+    must be traceable end-to-end into the bundle's own manifest, not just
+    accepted and silently dropped somewhere in between."""
+
+    from peerhub.application.backup import load_manifest
+
+    workspace_root = tmp_path / "workspace"
+    assert main(["workspace", "init", "--workspace", str(workspace_root)]) == 0
+
+    without_flag = tmp_path / "backups-default"
+    assert (
+        main(
+            [
+                "backup",
+                "workspace",
+                "--workspace",
+                str(workspace_root),
+                "--output",
+                str(without_flag),
+            ]
+        )
+        == 0
+    )
+    assert load_manifest(next(without_flag.iterdir())).include_transcripts is False
+
+    with_flag = tmp_path / "backups-explicit"
+    assert (
+        main(
+            [
+                "backup",
+                "workspace",
+                "--workspace",
+                str(workspace_root),
+                "--output",
+                str(with_flag),
+                "--include-transcripts",
+            ]
+        )
+        == 0
+    )
+    assert load_manifest(next(with_flag.iterdir())).include_transcripts is True
+
+
 def test_cli_status_with_lease(tmp_path, capsys):
     from peerhub.cli import main, SystemClock, UuidSource
     from peerhub.core.context import RuntimeContext, PathLayout

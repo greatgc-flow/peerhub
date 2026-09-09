@@ -2714,6 +2714,31 @@ def main(args: list[str] | None = None) -> int:
         "--workspace", default=".", help="Path to the workspace root (default: current directory)"
     )
 
+    # Backup subcommand (dotdir consolidation, ratified 2026-09-09, item 10)
+    backup_parser = subparsers.add_parser("backup", help="Back up or restore one workspace")
+    backup_subparsers = backup_parser.add_subparsers(dest="backup_command", required=True)
+    backup_workspace_parser = backup_subparsers.add_parser(
+        "workspace", help="Create a backup bundle (live SQLite snapshot + config/ files)"
+    )
+    backup_workspace_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
+    )
+    backup_workspace_parser.add_argument(
+        "--output", required=True, help="Directory to create the backup bundle under"
+    )
+    backup_workspace_parser.add_argument(
+        "--include-transcripts",
+        action="store_true",
+        help="Include dispatch_transcripts rows (durable, sensitive dispatch text; omitted by default)",
+    )
+    backup_restore_parser = backup_subparsers.add_parser(
+        "restore", help="Restore a backup bundle into a workspace"
+    )
+    backup_restore_parser.add_argument("bundle", help="Path to the backup bundle directory")
+    backup_restore_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
+    )
+
     # Adapter subcommand
     adapter_parser = subparsers.add_parser("adapter", help="Manage peerhub adapters")
     adapter_subparsers = adapter_parser.add_subparsers(dest="adapter_command", required=True)
@@ -4093,6 +4118,12 @@ def main(args: list[str] | None = None) -> int:
     if parsed.command == "config" and parsed.config_command == "migrate":
         return _run_config_migrate(parsed)
 
+    if parsed.command == "backup" and parsed.backup_command == "workspace":
+        return _run_backup_workspace(parsed)
+
+    if parsed.command == "backup" and parsed.backup_command == "restore":
+        return _run_backup_restore(parsed)
+
     if parsed.command == "status":
         workspace_root = Path(parsed.workspace).resolve()
         paths = PathLayout.for_workspace(workspace_root)
@@ -4197,6 +4228,38 @@ def _run_config_migrate(parsed: argparse.Namespace) -> int:
         shutil.move(str(legacy_path), str(new_path))
         print(f"Migrated {legacy_path.name} -> {new_path}")
 
+    return 0
+
+
+def _run_backup_workspace(parsed: argparse.Namespace) -> int:
+    """``peerhub backup workspace`` (item 10, dotdir consolidation)."""
+
+    from datetime import datetime, timezone
+
+    from peerhub.application.backup import create_workspace_backup
+
+    workspace_root = Path(parsed.workspace).resolve()
+    output_dir = Path(parsed.output).resolve()
+    now = datetime.now(timezone.utc).isoformat()
+    bundle_dir = create_workspace_backup(
+        workspace_root,
+        output_dir=output_dir,
+        include_transcripts=parsed.include_transcripts,
+        now=now,
+    )
+    print(f"Backup created: {bundle_dir}")
+    return 0
+
+
+def _run_backup_restore(parsed: argparse.Namespace) -> int:
+    """``peerhub backup restore`` (item 10, dotdir consolidation)."""
+
+    from peerhub.application.backup import restore_workspace_backup
+
+    workspace_root = Path(parsed.workspace).resolve()
+    bundle_dir = Path(parsed.bundle).resolve()
+    manifest = restore_workspace_backup(bundle_dir, workspace_root=workspace_root)
+    print(f"Restored workspace {manifest.workspace_home_id!r} from {bundle_dir}")
     return 0
 
 
