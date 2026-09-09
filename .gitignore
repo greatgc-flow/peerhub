@@ -228,3 +228,17 @@ __marimo__/
 # during dispatch (e.g. operational_errors.jsonl) -- not repo source.
 _sys/
 
+# Ad-hoc review/probe scratch work (e.g. adversarial design-round probes
+# like the one accidentally committed and removed 2026-09-09, see
+# docs/reviews/p-drive-folder-structure-mece-review-2026-09-09.md) --
+# never meant to be permanent repo content.
+scratch/
+codex_*/
+round*_cx_*/
+r[0-9]*-cx-*/
+r[0-9]*_deadline_*/
+.pytest_tmp_*/
+.pytest-*-[0-9a-f]*/
+pytest-cache-files-*/
+tmp[a-z0-9]*/
+

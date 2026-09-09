@@ -377,3 +377,30 @@ class TestPresenterCollectLiveSnapshot:
         assert "PeerHub Multi-Peer Dashboard" in rendered
         assert "C-pool" in rendered
         assert "X-pool" in rendered
+
+
+class TestResponsiveRendering:
+    """render() must stay usable across real, varied terminal sizes.
+
+    Converted from a manual, print-based root-level script (2026-08-18,
+    accidentally committed as test_responsive.py -- see
+    docs/reviews/p-drive-folder-structure-mece-review-2026-09-09.md)
+    into a real, isolated pytest test: uses tmp_path (not the live
+    system) and asserts instead of just printing.
+    """
+
+    @pytest.mark.parametrize("width,height", [(80, 24), (120, 40), (70, 18), (60, 15)])
+    def test_summary_section_visible_at_terminal_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, width: int, height: int,
+    ) -> None:
+        (tmp_path / "_sys").mkdir(parents=True)
+        monkeypatch.setattr(
+            "shutil.get_terminal_size", lambda fallback=(80, 24): (width, height)
+        )
+        presenter = TelemetryPresenter(use_color=False, workspace_root=tmp_path)
+        snapshot = presenter.collect_live_snapshot()
+        rendered = presenter.render(snapshot)
+        lines = rendered.splitlines()
+        assert any("SUMMARY" in line for line in lines), (
+            f"SUMMARY section missing at {width}x{height}"
+        )
