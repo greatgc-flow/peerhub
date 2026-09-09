@@ -602,6 +602,43 @@ def _render_domain_section(domains: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _guard_implicit_workspace_init(
+    parsed: argparse.Namespace, paths: "PathLayout", *, creating: bool
+) -> int | None:
+    """Resolution must never silently become initialization (dotdir
+    consolidation, ratified 2026-09-09, item 2).
+
+    Only the implicit `.` default is guarded -- an explicit `--workspace
+    PATH` (even `--workspace .`) is a deliberate choice and is always
+    allowed to proceed, matching today's behavior. Directly closes the
+    stray root-level `.peerhub/` this session found: any command run from
+    an arbitrary cwd with no `--workspace` flag used to silently create a
+    database there via `create_runtime()`'s unconditional
+    `state_store.initialize()`.
+
+    Returns an int when the CALLER must immediately return that value
+    without doing any real work (this function already printed the
+    appropriate message): `2` for a state-creating action that would
+    otherwise silently initialize an implicit workspace, `0` for a
+    read-only action against one (valid, just genuinely empty -- not an
+    error). Returns None when it's safe to proceed normally (workspace
+    already initialized, or the workspace was named explicitly) --
+    callers must not return in that case, real work happens below.
+    """
+
+    if paths.database_path.exists() or parsed.workspace != ".":
+        return None
+    if creating:
+        print(
+            "peerhub: refusing to initialize a new workspace at the implicit "
+            "current directory. Pass an explicit --workspace PATH, or run "
+            "`peerhub workspace init` first.",
+            file=sys.stderr,
+        )
+        return 2
+    return 0
+
+
 def _detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
     """Read the persisted workspace identity, falling back to the directory name."""
     if database_path.exists():
@@ -738,13 +775,22 @@ def _json_safe(value: Any) -> Any:
 def _run_consensus(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
-    # No pre-check on paths.database_path.exists() here: create_runtime()
-    # below already calls state_store.initialize(), which creates the
-    # database on first use. `propose` legitimately needs to be able to
-    # initialize a fresh workspace; `vote`/`status` on a nonexistent round
-    # in a fresh (or existing) database correctly fall through to the real
-    # RecordNotFoundError path below, a more accurate error than a blanket
-    # "workspace uninitialized" would be either way.
+    # Item 2 (dotdir consolidation, ratified 2026-09-09): `list` is the one
+    # read-only consensus action verified not to silently initialize an
+    # implicit, uninitialized workspace. `propose` legitimately needs to be
+    # able to initialize one; other actions' exact creating/reading nature
+    # was not individually re-audited in this pass, so their existing
+    # implicit-init behavior is left unchanged here.
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=(parsed.consensus_action != "list")
+    )
+    if guard_code == 0:
+        if parsed.json:
+            print(json.dumps({"proposals": []}))
+        else:
+            print("No consensus rounds.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
         paths=paths,
@@ -931,6 +977,15 @@ def _print_proposal_vote_compatibility(result: ProposalVoteResult) -> None:
 def _run_task(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
+    action = parsed.task_action
+    guard_code = _guard_implicit_workspace_init(parsed, paths, creating=(action == "create"))
+    if guard_code == 0:
+        if parsed.json:
+            print(json.dumps({"error": "not_found", "task_id": getattr(parsed, "task_id", None)}))
+        else:
+            print(f"Task {getattr(parsed, 'task_id', '?')}: not found (workspace uninitialized)")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
         paths=paths,
@@ -940,7 +995,6 @@ def _run_task(parsed: argparse.Namespace) -> int:
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
             service = TaskService(runtime.governance_broker, clock=context.clock, ids=context.ids)
-            action = parsed.task_action
             if action == "create":
                 submission = service.create(task_id=parsed.task_id, summary=parsed.summary, spec=parsed.spec, creator_id=parsed.creator, room_id=parsed.room_id or None)
             elif action == "claim-start":
@@ -1154,6 +1208,22 @@ def _run_directive(parsed: argparse.Namespace) -> int:
 def _run_node(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
+    # Item 2 (dotdir consolidation, ratified 2026-09-09): `list` (the
+    # implicit fallthrough action) is the one read-only node action
+    # verified not to silently initialize an implicit, uninitialized
+    # workspace. `register`/`bind-profile` legitimately create state;
+    # `model-status` was not individually re-audited and keeps its
+    # existing implicit-init behavior.
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=(parsed.node_action not in (None, "list"))
+    )
+    if guard_code == 0:
+        if parsed.json:
+            print(json.dumps({"nodes": []}))
+        else:
+            print("No nodes registered.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
@@ -1252,6 +1322,20 @@ def _run_peer(parsed: argparse.Namespace) -> int:
 
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
+    # Item 2 (dotdir consolidation, ratified 2026-09-09): `status` is the
+    # one read-only peer action verified not to silently initialize an
+    # implicit, uninitialized workspace. `quarantine`/`recover` legitimately
+    # mutate state and keep their existing implicit-init behavior.
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=(parsed.peer_action != "status")
+    )
+    if guard_code == 0:
+        if parsed.json:
+            print(json.dumps({"peers": []}))
+        else:
+            print("PEER\tLIFECYCLE\tGATE\tHEALTH\tVERSION\tDETAILS")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -2044,6 +2128,27 @@ def _run_alert(parsed: argparse.Namespace) -> int:
 def _run_room(parsed: argparse.Namespace) -> int:
     workspace_root = Path(parsed.workspace).resolve()
     paths = PathLayout.for_workspace(workspace_root)
+    # Item 2 (dotdir consolidation, ratified 2026-09-09): `status` is the
+    # one read-only room action verified not to silently initialize an
+    # implicit, uninitialized workspace. The many mutating room actions
+    # (create, send, mark-read, etc.) were not individually re-audited in
+    # this pass and keep their existing implicit-init behavior.
+    #
+    # Separately noted, NOT fixed here (out of this item's scope): `status`
+    # has no explicit branch below and falls through to the generic
+    # `else: print(f"Room {parsed.room_id} created")` -- a pre-existing,
+    # misleading message for a read action (it does not actually call
+    # create_room(), so no state is mutated, but the printed text is wrong).
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=(parsed.room_action != "status")
+    )
+    if guard_code == 0:
+        if parsed.json:
+            print(json.dumps({"error": "not_found", "room_id": parsed.room_id}))
+        else:
+            print(f"Room {parsed.room_id}: not found (workspace uninitialized)")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
         with create_runtime(context, adapter_peer_kind="fake") as runtime:
@@ -2581,6 +2686,19 @@ def main(args: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=version("peerhub"))
     subparsers = parser.add_subparsers(dest="command", required=True)
     
+    # Workspace subcommand (dotdir consolidation, ratified 2026-09-09, item 2):
+    # explicit initialization intent, distinct from every other command's
+    # implicit `--workspace` default -- `peerhub workspace init` is the one
+    # way to bless a bare `.` cwd as a real workspace going forward.
+    workspace_parser = subparsers.add_parser("workspace", help="Manage the peerhub workspace itself")
+    workspace_subparsers = workspace_parser.add_subparsers(dest="workspace_action", required=True)
+    workspace_init_parser = workspace_subparsers.add_parser(
+        "init", help="Explicitly initialize a workspace (creates .peerhub/peerhub.sqlite3)"
+    )
+    workspace_init_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
+    )
+
     status_parser = subparsers.add_parser("status", help="Show the current workspace status")
     status_parser.add_argument(
         "--workspace", 
@@ -3949,6 +4067,23 @@ def main(args: list[str] | None = None) -> int:
 
     if parsed.command == "broadcast":
         return _run_broadcast(parsed)
+
+    if parsed.command == "workspace" and parsed.workspace_action == "init":
+        workspace_root = Path(parsed.workspace).resolve()
+        paths = PathLayout.for_workspace(workspace_root)
+        if paths.database_path.exists():
+            print(f"Workspace already initialized: {workspace_root}")
+            return 0
+        context = RuntimeContext(
+            workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
+            paths=paths,
+            clock=SystemClock(),
+            ids=UuidSource(),
+        )
+        with create_runtime(context, adapter_peer_kind="fake"):
+            pass
+        print(f"Workspace initialized: {workspace_root}")
+        return 0
 
     if parsed.command == "config" and parsed.config_command == "paths":
         workspace_root = Path(parsed.workspace).resolve()

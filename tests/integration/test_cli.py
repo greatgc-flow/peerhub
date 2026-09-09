@@ -51,6 +51,113 @@ def test_cli_status_uninitialized(tmp_path: Path, capsys):
     assert f"Workspace: {tmp_path.resolve()}" in stdout
     assert "Workspace uninitialized (no database found)" in stdout
 
+
+def test_cli_implicit_state_command_never_initializes_current_directory(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(
+        [
+            "task",
+            "create",
+            "--task-id",
+            "implicit-task",
+            "--summary",
+            "must not initialize",
+            "--spec",
+            "regression",
+            "--creator",
+            "tester",
+        ]
+    )
+
+    assert exit_code == 2
+    assert "explicit --workspace" in capsys.readouterr().err
+    assert not (tmp_path / ".peerhub").exists()
+
+
+def test_cli_explicit_workspace_allows_state_command_to_initialize(
+    tmp_path: Path,
+) -> None:
+    exit_code = main(
+        [
+            "task",
+            "create",
+            "--workspace",
+            str(tmp_path),
+            "--task-id",
+            "explicit-task",
+            "--summary",
+            "explicit initialization",
+            "--spec",
+            "regression",
+            "--creator",
+            "tester",
+        ]
+    )
+
+    assert exit_code == 0
+    assert (tmp_path / ".peerhub" / "peerhub.sqlite3").is_file()
+
+
+def test_cli_initialized_workspace_keeps_implicit_command_behavior(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(
+        [
+            "task",
+            "create",
+            "--task-id",
+            "existing-task",
+            "--summary",
+            "existing workspace",
+            "--spec",
+            "regression",
+            "--creator",
+            "tester",
+        ]
+    )
+
+    assert exit_code == 0
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ["task", "status", "--task-id", "missing"],
+        ["consensus", "list"],
+        ["peer", "status"],
+        ["node", "list"],
+        ["room", "status", "--room-id", "missing"],
+    ),
+)
+def test_cli_read_only_inspection_never_initializes_workspace(
+    arguments: list[str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(arguments) == 0
+    assert not (tmp_path / ".peerhub").exists()
+
+
+def test_cli_workspace_init_is_explicit_initialization_intent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["workspace", "init"]) == 0
+    assert (tmp_path / ".peerhub" / "peerhub.sqlite3").is_file()
+
 def test_cli_status_initialized(tmp_path: Path, capsys):
     """Test 'peerhub status' against an initialized workspace."""
     # Force initialize the DB first
