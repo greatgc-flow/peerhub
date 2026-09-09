@@ -7,11 +7,15 @@
 > peerhub `8ae5791`, v0.1.16). Two independent reviewers, split by domain
 > (environment/tooling vs AI-collaboration), instructed NOT to presume prior
 > audit conclusions -- re-derive from current source, cross-check against
-> history only afterward. Status: **both sides closed** (2026-09-09
-> ~15:40). Environment/tooling side: zero real gaps. AI-collaboration side:
-> **real, actionable gaps found** -- peerhub has migrated the coordination
-> *substrate* (types/services) but not the full production *behavior* of
-> `hub.py`'s `ask` path. See section 2.
+> history only afterward. Status: **CLOSED AND RATIFIED** (2026-09-09
+> ~15:56). Environment/tooling side: zero real gaps. AI-collaboration side:
+> real, actionable gaps found and dialectically ratified (ag+cx independent
+> positions -> cc.deepthink final call) -- peerhub has migrated the
+> coordination *substrate* (types/services) but not the full production
+> *behavior* of `hub.py`'s `ask` path. See section 2 (raw findings) and
+> section 5 (final ratified backlog + execution order). **Next action is
+> implementation, pending user go-ahead** -- nothing in this backlog has
+> been acted on yet.
 
 ## 1. Environment/Tooling Side (ag.deepthink) -- CLOSED
 
@@ -201,7 +205,57 @@ than relying only on static file/code comparison:
   README's central "Status" claim ("`peerhub ask` works end-to-end today")
   is still true right now, not just as of its last-stated verification date.
 
-## 4. Running Improvement Backlog (provisional -- finalize after cx's findings + ratification)
+## 5. Dialectical Ratification (2026-09-09, ~15:56) -- FINAL, SUPERSEDES SECTION 4
+
+Per the user's explicit request ("무제한 변증법적 상세화 및 비준" -- unlimited
+dialectical detailing and ratification): two independent Round-1 positions
+(`ag.effort`, `cx.effort`) were dispatched in parallel on the full open-item
+list (section 2's findings + the 26-item handoff), then adjudicated by
+`cc.deepthink` as the deciding third voice. A live Round-2 cross-rebuttal
+with cx was **skipped**: cx's shared quota pool hit 96% used (past this
+session's own 95% routing ceiling) right after its Round-1 dispatch, so
+cc.deepthink adjudicated directly from both full Round-1 positions plus its
+own fresh source reads, rather than pushing cx further.
+
+**Terminal spot-verification** (per standing "never trust, verify" policy):
+6 independently-checkable claims across all three voices were directly
+re-derived by the terminal, not taken on any peer's word -- **6/6 confirmed
+exact**: hub.py's real CLI-action list is exactly 90 entries (re-parsed
+directly from `hub.py:11905`); the 26-item handoff list is actually 27 real
+files on disk (cx's catch -- `_sys/templates/workspace-base/specific/agents/.gitkeep`
+was missing from the original enumeration); `P:\.peerhub\peerhub.sqlite3`
+(667,648 bytes) really exists; `agy_adapter.py:43`/`claude_adapter.py:45`
+each really define exactly one `ProfileDescriptor`; `hub.py` mentions
+`peer-characteristics.jsonl` exactly once, in a docstring (`hub.py:3637`);
+and `git show e599b37^:_sys/ai/user-directives.md` really does recover a
+byte-identical (8,320 B, sha256 `6dd28e39ca...`) copy of the current live
+file, and `arbiter_review.py:38-41`'s comment about `cc.deepthink` not
+existing in the Claude adapter's profile set is verbatim accurate. This is
+an unusually high hit rate for peer-cited technical claims this session --
+treated as strong grounds to accept cc.deepthink's ratification largely as
+delivered, below.
+
+### Final Ratified Table
+
+| Item | ag (V1) | cx (V2) | **RATIFIED** |
+|---|---|---|---|
+| **A** -- 27-item hooks/templates handoff | OUT_OF_SCOPE (26) | OUT_OF_SCOPE (27) | **27/27 CORRECTLY_OUT_OF_SCOPE, count corrected.** None belong in peerhub -- Engram/CLI-vendor dev-process artifacts. |
+| **B** -- `ask` bypasses its own durable primitives | MUST_FIX P0 | MUST_FIX P0 | **RATIFIED MUST_FIX, P0.** `direct_ask.py:261-265` sends raw prompt content, `prompt_reference=None`, `SessionAction.NONE`; `dispatch_with_retries`/`classify_and_open_circuit` have zero non-test callers. Parity target: `hub.py:2442-2495` (directive+lesson+room-context injection). **The single biggest finding of the whole audit.** |
+| **C1** -- directive digests unverifiable | (bundled MUST_FIX P1) | (bundled NEEDS_INVESTIGATION) | **MUST_FIX, P1 -- worse than either voice named.** Canonical bytes ARE recoverable and unambiguous (git-verified byte-identical); but none of the 6 hardcoded digests in `scripts/migrate_engram_directives_2026_09_03.py` match any plausible canonicalization, and peerhub ships no digest function at all. Fix: define a canonicalization in peerhub source, re-migrate via an explicit `--source` arg (the hardcoded script path is now dead). |
+| **C2** -- 5 consumers PENDING | (bundled with C1) | (bundled with C1) | **Not a separate item -- folded into B.** `consumers` is a passive JSON blob nothing reads; correct until B builds a real consumer. |
+| **D1** -- lessons | (bundled MUST_FIX P1) | (bundled NEEDS_INVESTIGATION) | **MUST_FIX, P1 (merge into B).** `inject_lessons`/`render_lesson_block` exist, reachable only via manual `peerhub lesson inject`; no dispatch path calls them, while `hub.py:2470-2475` does. Genuine regression. |
+| **D2** -- enforcement records | (bundled) | (bundled) | **MUST_FIX, P2** (sequences after D1). hub.py binds enforcement artifacts to lesson ACTIVE-eligibility; peerhub's lesson lifecycle has no equivalent gate. |
+| **D3** -- peer-characteristics | (bundled MUST_FIX) | (bundled NEEDS_INVESTIGATION) | **ACCEPTABLE_DIVERGENCE, not a gap.** `peer-characteristics.jsonl` has no programmatic consumer in `hub.py` EITHER (one docstring mention only, terminal-verified). Making it live would be a new feature, not a migration fix. **V1's bundled verdict is wrong here.** |
+| **D4** -- role-prompts/skills/collaboration-loop | (bundled) | (bundled) | **CORRECTLY_OUT_OF_SCOPE.** Zero occurrences of "role_prompt"/"collaboration_loop" in hub.py; per-vendor dev-process config, item-A-like. |
+| **E** -- adapter profile-tier asymmetry | MUST_FIX P1 | MUST_FIX P1 | **RATIFIED MUST_FIX, P1 -- promoted to a blocker for J1.** Re-counted: `ProfileDescriptor(` appears 1x/1x/3x across ag/cc/codex adapters. |
+| **F** -- 89 vs 90 CLI actions | 90 | 90 | **RESOLVED: 90.** Not an action item -- just close backlog item 8 in this doc's history. |
+| **G** -- ctx-save/ctx-end partial equivalent | MUST_FIX P1 | MUST_FIX P1 | **RATIFIED MUST_FIX, P1.** Durable room/task checkpoints exist but nothing feeds them into a subsequent dispatch -- same root cause as B. |
+| **H** -- `prompt_reference` dead / no Windows staging | MUST_FIX P1 | MUST_FIX P1 | **RATIFIED MUST_FIX, P1.** `direct_ask.py:155-156` raises `ValueError` on oversized prompts instead of staging to a reference file. |
+| **I** -- transcripts memory-only | MUST_FIX P1 | MUST_FIX P1 | **RATIFIED MUST_FIX, P1.** `direct_ask.py:294-307` returns transcript text and closes the runtime; no persistence layer writes it. |
+| **J1** -- DIR-005 arbiter | MUST_FIX P2 | MUST_FIX P1 | **MUST_FIX, P1 -- narrower than V2 stated.** DIR-005's advisory-record shape is actually conformant. Real defects: no high-risk/irreversible trigger (`triggers` hardcodes `"dissent"`), manual+post-hoc invocation only. P1 because item E is *already* degrading it today (`_DEFAULT_PROFILE_ID` pinned to `cc.standard` since `cc.deepthink` isn't declared in the Claude adapter -- terminal-verified verbatim). |
+| **J2** -- Codex reset credits | ACCEPTABLE_DIVERGENCE | MUST_FIX P1 | **MUST_FIX, P2 -- overrules V1, softens V2.** V1's "shouldn't hardcode a vendor protocol" is a false dichotomy -- peerhub already has both halves of P:'s capability-gated shape (a `Capability` enum, and a live `codex app-server` client that already carries the same credit-client handshake string). Only the read/consume methods are missing. P2 not P1: a manual `codex` CLI fallback exists. |
+
+**Recommended execution order** (per cc.deepthink): **B (absorbing C2, D1) → E → C1, G, H, I → J1 → D2, J2.** Item F is a one-line doc correction (this doc's own backlog item 8, now closed).
 
 1. ~~peerhub `diag`'s quota-telemetry gap vs `hub.py`'s~~ **RESOLVED, not a
    real gap** (section 3) -- was a test-setup artifact (`PEERHUB_SYS_DIR`/
@@ -266,15 +320,20 @@ than relying only on static file/code comparison:
    ~15:40) -- see section 2.
 2. ~~Synthesize cx's findings into this document's backlog section~~ **DONE**
    (section 4 above).
-3. **Route the full combined backlog (env-side 26-item handoff + all of
-   cx's findings, esp. items 5-8) through peer ratification** (per the
-   user's explicit request: "cx 복귀 후 비준 및 개선을 위한 목록화 작업")
-   before acting on any item. **Not yet done** -- this is the actual
-   remaining task now that both audit halves are closed.
-4. Before ratification, resolve the two loose ends cx left open: (a) the
-   26-item handoff's per-item disposition (aggregate-only right now), (b)
-   the 89-vs-90 CLI action count self-inconsistency.
-5. `P:\` remains frozen after the one explicit, requested exception this
+3. ~~Route the full combined backlog through peer ratification~~ **DONE**
+   (section 5) -- dialectical ratification complete: `ag.effort` +
+   `cx.effort` independent Round-1 positions, `cc.deepthink` final call.
+   6/6 spot-checked technical claims across all three voices confirmed
+   exact.
+4. ~~Resolve the two loose ends cx left open~~ **DONE** -- 26-item handoff
+   corrected to 27 (section 5, item A); CLI action count resolved as 90
+   (section 5, item F).
+5. **Remaining: get user go-ahead to implement.** Section 5's execution
+   order (B -> E -> C1,G,H,I -> J1 -> D2,J2) is ready to hand to a peer for
+   real implementation work in peerhub -- not started, pending explicit
+   authorization (this is real feature work in a live package, not a
+   documentation-only exercise like the rest of this audit).
+6. `P:\` remains frozen after the one explicit, requested exception this
    session (the `cx.deepthink` model revert, commit `81956b1`, already
    pushed to `stable/hub-py-restored`) -- no further P: changes without a
    new explicit request.
