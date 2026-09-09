@@ -183,6 +183,58 @@ Engram's own tool-provisioning conventions to safely distinguish
 for peerhub's more familiar pytest/codex-sandbox naming patterns.
 **Deferred, not executed**: only the `_old`-suffixed directories look
 like unambiguous cleanup candidates; the rest needs someone more
-familiar with Engram's tool-update mechanism (or the tool-updater's own
-source, `_sys/core/registrar.py`/`provisioner.py`-equivalent, not yet
-read) before touching anything under `_sys/tools/`.
+familiar with Engram's tool-update mechanism before touching anything
+under `_sys/tools/`.
+
+## 6. Recursive re-check (2026-09-09, same day, per explicit "iterate until complete" instruction)
+
+**Engram `_old` dirs -- resolved, not deferred after all.** Read
+`_sys/core/scrubber.py` directly: it already has a purpose-built,
+documented cleanup path for exactly these directories -- `_tier2()`'s
+comment literally reads "D10 atomic-swap rollback dirs (tool_v{X}_old
+left behind by ensure_tool)" and iterates `_sys/tools/` removing any
+`*_old` directory, explicitly NOT touching the live tool installs
+alongside them. This is expected, by-design, temporary state -- not a
+bug -- that simply hadn't been cleaned via `CLEANUP.bat --tier 2` yet.
+Tried running it for real first (`CLEANUP.bat --tier 2 --dry-run`);
+failed with "Portable environment not initialized" since this bare git
+worktree was never run through Engram's own installer. Manually removed
+`_sys/tools/{agy,bat,delta,fd,oh-my-posh}_old/` instead, matching
+exactly the scope `_tier2()`'s own code would have removed.
+
+**Engram's runtime-data separation -- confirmed clean, no P:-style
+mixing problem.** Unlike P:'s `_sys/ai/` (21 tracked config files flat
+alongside ~9 untracked runtime files, no boundary), Engram's entire
+`_sys/data/`, `_sys/tools/` (live installs), `dist/`, `workspace/` are
+uniformly gitignored as whole trees -- there is no tracked+untracked
+mixing at the file level anywhere checked. Confirmed by running
+Engram's own unit suite directly (`python -m pytest _sys/tests/unit -q`
+-- 274 passed, 2 skipped) and diffing `git clean -ndx` before/after: the
+suite itself creates zero new untracked artifacts outside what was
+already gitignored.
+
+**One new, minor, deliberately-not-acted-on finding**: `_sys/tools/
+claude/` and `codex/` each carry a `.install_manifest.json` (i.e. Engram's
+installer believes these are installed) but have NO actual binary
+present (`agy/agy.exe` does, by contrast) -- confirmed these are plain
+directories, not junctions pointing elsewhere (`Get-Item -Force` shows
+empty `LinkType`). `_sys/tools/apps/` is fully empty, no manifest at
+all. All three ARE genuine entries in `_sys/tool-catalog.v1.json` (so
+this isn't stray/unexpected content), but the state looks like a
+partial/incomplete install left over from past testing rather than
+Engram's actual currently-used install path (this dev environment's
+real `claude`/`codex` CLIs are installed elsewhere entirely, via
+`P:\_sys\env\nodejs\npm-global\`, confirmed by peerhub's own
+`adapter discover` output earlier). Not fixed -- deleting a stale
+install-manifest without understanding what the installer does when it
+next runs against a manifest-but-no-binary state risks a worse
+inconsistency than leaving it. Flagging for whoever next touches
+Engram's tool provisioning, not urgent.
+
+**peerhub round 2**: re-ran the full suite after the structure cleanup
+commits and diffed `git status --short --ignored=matching` before/after
+-- zero new untracked items escaped the newly-added `.gitignore`
+patterns. The full sweep (project-folder pruning, root-clutter cleanup,
+`.gitignore` hardening, `scratch/` de-tracking, `test_responsive.py`
+conversion) is now considered complete for both repos as of this pass;
+nothing new surfaced on this second, independent look.
