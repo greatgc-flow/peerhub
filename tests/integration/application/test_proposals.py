@@ -15,11 +15,13 @@ from peerhub.application.legacy import (
     ProposalVoteCommand,
 )
 from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.config_layers import LayeredConfigError
 from peerhub.application.proposals import (
     ESCALATION_MID_ROUND_GATE,
     ESCALATION_SELF_FINALIZATION,
     ESCALATION_TOO_FEW_VOTERS,
     ProposalCoordinator,
+    describe_proposal_voters_source,
     load_proposal_voters,
 )
 from peerhub.cli import main
@@ -77,7 +79,7 @@ def test_voter_loader_prefers_new_workspace_config_location(
     config_dir = tmp_path / ".peerhub" / "config"
     config_dir.mkdir(parents=True)
     (config_dir / "proposals.json").write_text(
-        json.dumps({"voters": ["cc", "ag"]}),
+        json.dumps({"schema_version": 1, "voters": ["cc", "ag"]}),
         encoding="utf-8",
     )
 
@@ -94,6 +96,78 @@ def test_voter_loader_rejects_legacy_and_new_proposals_conflict(
     (current_dir / "proposals.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ValueError, match=r"both.*proposals\.json.*config migrate"):
+        load_proposal_voters(tmp_path)
+
+
+def test_voters_global_layer_applies_when_no_workspace_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    global_home = tmp_path / "global"
+    global_home.mkdir()
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(global_home))
+    (global_home / "proposals.json").write_text(
+        json.dumps({"schema_version": 1, "voters": ["cc", "ag"]}),
+        encoding="utf-8",
+    )
+
+    assert load_proposal_voters(tmp_path) == ("cc", "ag")
+    assert describe_proposal_voters_source(tmp_path) == {"voters": "global"}
+
+
+def test_voters_workspace_layer_replaces_global_list_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    global_home = tmp_path / "global"
+    global_home.mkdir()
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(global_home))
+    (global_home / "proposals.json").write_text(
+        json.dumps({"schema_version": 1, "voters": ["cc", "ag", "cx"]}),
+        encoding="utf-8",
+    )
+    workspace_config = tmp_path / ".peerhub" / "config"
+    workspace_config.mkdir(parents=True)
+    (workspace_config / "proposals.json").write_text(
+        json.dumps({"schema_version": 1, "voters": ["cc"]}),
+        encoding="utf-8",
+    )
+
+    # List replace-whole: the workspace's shorter list wins outright, never
+    # unioned/merged with the global electorate.
+    assert load_proposal_voters(tmp_path) == ("cc",)
+    assert describe_proposal_voters_source(tmp_path) == {"voters": "workspace"}
+
+
+def test_voters_neither_layer_present_uses_built_in_empty_electorate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "absent-global"))
+
+    assert load_proposal_voters(tmp_path) == ()
+    assert describe_proposal_voters_source(tmp_path) == {}
+
+
+def test_voters_layer_missing_schema_version_is_a_hard_error(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir()
+    (config_dir / "proposals.json").write_text(
+        json.dumps({"voters": ["cc"]}), encoding="utf-8"
+    )
+
+    with pytest.raises(LayeredConfigError, match="schema_version"):
+        load_proposal_voters(tmp_path)
+
+
+def test_voters_layer_unknown_key_is_a_hard_error(tmp_path: Path) -> None:
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir()
+    (config_dir / "proposals.json").write_text(
+        json.dumps({"schema_version": 1, "voters": ["cc"], "typo_field": True}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LayeredConfigError, match="typo_field"):
         load_proposal_voters(tmp_path)
 
 
@@ -553,7 +627,7 @@ def test_cli_add_and_vote_exact_compatibility_stdout(
     config_dir = tmp_path / ".peerhub"
     config_dir.mkdir(parents=True)
     (config_dir / "proposals.json").write_text(
-        json.dumps({"voters": ["cc", "cx"]}),
+        json.dumps({"schema_version": 1, "voters": ["cc", "cx"]}),
         encoding="utf-8",
     )
     timestamp = int(time.time())

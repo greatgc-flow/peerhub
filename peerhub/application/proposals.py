@@ -6,12 +6,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
-import json
 from pathlib import Path
 import re
 from typing import cast
 
 from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.config_layers import load_json_layer, merge_layers
 from peerhub.application.config_paths import resolve_compat_config_path, resolve_config_paths
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -62,26 +62,55 @@ class ProposalVoteResult:
     revision: int
 
 
-def load_proposal_voters(workspace_root: Path) -> tuple[str, ...]:
-    """Load the ordered proposal electorate (item 8: workspace ``config/``
-    tier, falling back to the legacy `.peerhub/proposals.json` location)."""
+_PROPOSALS_ALLOWED_KEYS = frozenset({"voters"})
+
+
+def _load_proposals_layers(workspace_root: Path) -> tuple[dict[str, object], dict[str, str]]:
+    """Resolve and merge proposals.json's layers (item 9): workspace
+    (itself item 8's new-vs-legacy-location compat) > global > (caller
+    applies the built-in empty-electorate default). Returns ``(merged,
+    winning_layer)`` -- the latter is the "diagnostics report the winning
+    layer" requirement."""
 
     resolved = resolve_config_paths(workspace_root=workspace_root)
-    config_path = resolve_compat_config_path(
+    workspace_path = resolve_compat_config_path(
         new_path=resolved.proposals_json.path,
         legacy_path=resolved.legacy_proposals_json.path,
         label="proposals.json",
     )
-    if config_path is None:
-        return ()
-    with config_path.open("r", encoding="utf-8") as stream:
-        raw: object = json.load(stream)
-    if not isinstance(raw, Mapping):
-        raise ValueError(".peerhub/proposals.json must contain an object")
-    raw_mapping = cast(Mapping[object, object], raw)
-    voters = raw_mapping.get("voters")
+    global_layer = load_json_layer(
+        resolved.global_proposals_json.path,
+        label="proposals.json",
+        layer="global",
+        allowed_keys=_PROPOSALS_ALLOWED_KEYS,
+    )
+    workspace_layer = load_json_layer(
+        workspace_path,
+        label="proposals.json",
+        layer="workspace",
+        allowed_keys=_PROPOSALS_ALLOWED_KEYS,
+    )
+    return merge_layers([("global", global_layer), ("workspace", workspace_layer)])
+
+
+def describe_proposal_voters_source(workspace_root: Path) -> dict[str, str]:
+    """Return which layer ("global" or "workspace") supplied the final
+    ``voters`` list; omitted if neither layer defines it (the built-in
+    empty-electorate default applies)."""
+
+    _, winning_layer = _load_proposals_layers(workspace_root)
+    return winning_layer
+
+
+def load_proposal_voters(workspace_root: Path) -> tuple[str, ...]:
+    """Load the ordered proposal electorate (item 9: workspace ``config/``
+    tier -- itself item 8's new-vs-legacy-location compat -- over a global
+    fallback layer over the built-in empty-electorate default)."""
+
+    merged, _ = _load_proposals_layers(workspace_root)
+    voters = merged.get("voters", ())
     if not isinstance(voters, (list, tuple)):
-        raise ValueError(".peerhub/proposals.json voters must be an array")
+        raise ValueError("proposals.json voters must be an array")
     voter_values = cast(list[object] | tuple[object, ...], voters)
     return _validate_voter_policy(tuple(voter_values))
 

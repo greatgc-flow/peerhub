@@ -1279,7 +1279,7 @@ def test_legacy_arbiter_review_translates_and_executes(tmp_path: Path) -> None:
     config_dir = tmp_path / ".peerhub"
     config_dir.mkdir()
     (config_dir / "arbiter.json").write_text(
-        '{"enabled": true, "triggers": ["dissent"]}',
+        '{"schema_version": 1, "enabled": true, "triggers": ["dissent"]}',
         encoding="utf-8",
     )
 

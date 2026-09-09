@@ -6,7 +6,6 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 import hashlib
-import json
 from pathlib import Path
 import re
 from typing import Protocol, cast
@@ -16,6 +15,7 @@ from peerhub.application.direct_ask import (
     DirectAskResult,
     execute_direct_ask,
 )
+from peerhub.application.config_layers import load_json_layer, merge_layers
 from peerhub.application.config_paths import resolve_compat_config_path, resolve_config_paths
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -79,24 +79,67 @@ class FinalArbiterPolicy:
             raise ValueError("window_seconds must be a positive integer")
 
 
-def load_final_arbiter_policy(workspace_root: Path) -> FinalArbiterPolicy:
-    """Load arbiter.json (item 8: workspace ``config/`` tier, falling back
-    to the legacy `.peerhub/arbiter.json` location); absence of both
-    disables the feature."""
+_ARBITER_ALLOWED_KEYS = frozenset(
+    {
+        "enabled",
+        "candidate",
+        "triggers",
+        "high_risk_mutation_kinds",
+        "max_invocations",
+        "window_seconds",
+    }
+)
+_ARBITER_OBJECT_KEYS = frozenset({"candidate"})
+
+
+def _load_arbiter_layers(workspace_root: Path) -> tuple[dict[str, object], dict[str, str]]:
+    """Resolve and merge arbiter.json's layers (item 9): workspace
+    (itself item 8's new-vs-legacy-location compat) > global > (caller
+    applies the built-in default per field). Returns ``(merged,
+    winning_layer)`` -- the latter is the "diagnostics report the winning
+    layer" requirement."""
 
     resolved = resolve_config_paths(workspace_root=workspace_root)
-    config_path = resolve_compat_config_path(
+    workspace_path = resolve_compat_config_path(
         new_path=resolved.arbiter_json.path,
         legacy_path=resolved.legacy_arbiter_json.path,
         label="arbiter.json",
     )
-    if config_path is None:
-        return FinalArbiterPolicy(enabled=False)
-    with config_path.open("r", encoding="utf-8") as stream:
-        raw_object: object = json.load(stream)
-    if not isinstance(raw_object, Mapping):
-        raise ValueError("arbiter.json must contain a JSON object")
-    raw = cast(Mapping[object, object], raw_object)
+    global_layer = load_json_layer(
+        resolved.global_arbiter_json.path,
+        label="arbiter.json",
+        layer="global",
+        allowed_keys=_ARBITER_ALLOWED_KEYS,
+    )
+    workspace_layer = load_json_layer(
+        workspace_path,
+        label="arbiter.json",
+        layer="workspace",
+        allowed_keys=_ARBITER_ALLOWED_KEYS,
+    )
+    return merge_layers(
+        [("global", global_layer), ("workspace", workspace_layer)],
+        object_keys=_ARBITER_OBJECT_KEYS,
+    )
+
+
+def describe_final_arbiter_policy_source(workspace_root: Path) -> dict[str, str]:
+    """Return which layer ("global" or "workspace") supplied each
+    explicitly-set field of the final arbiter policy; a field absent from
+    both layers (using the built-in default) is omitted."""
+
+    _, winning_layer = _load_arbiter_layers(workspace_root)
+    return winning_layer
+
+
+def load_final_arbiter_policy(workspace_root: Path) -> FinalArbiterPolicy:
+    """Load arbiter.json (item 9: workspace ``config/`` tier -- itself
+    item 8's new-vs-legacy-location compat -- over a global fallback layer
+    over the built-in safe default); absence of every layer disables the
+    feature."""
+
+    merged, _ = _load_arbiter_layers(workspace_root)
+    raw = cast(Mapping[object, object], merged)
     candidate = raw.get("candidate", {})
     if not isinstance(candidate, Mapping):
         raise ValueError("arbiter.json candidate must be an object")

@@ -246,6 +246,7 @@ def test_cli_config_migrate_moves_valid_legacy_files_without_semantic_change(
     legacy_home.mkdir()
     arbiter_bytes = json.dumps(
         {
+            "schema_version": 1,
             "enabled": True,
             "candidate": {"peer_name": "cc", "profile_id": "cc.effort"},
             "triggers": ["dissent"],
@@ -255,7 +256,7 @@ def test_cli_config_migrate_moves_valid_legacy_files_without_semantic_change(
         indent=2,
     ).encode("utf-8")
     proposals_bytes = json.dumps(
-        {"voters": ["cc", "cx"]}, indent=2
+        {"schema_version": 1, "voters": ["cc", "cx"]}, indent=2
     ).encode("utf-8")
     (legacy_home / "arbiter.json").write_bytes(arbiter_bytes)
     (legacy_home / "proposals.json").write_bytes(proposals_bytes)
@@ -281,9 +282,13 @@ def test_cli_config_migrate_preflights_all_files_before_moving(
 ) -> None:
     legacy_home = tmp_path / ".peerhub"
     legacy_home.mkdir()
-    (legacy_home / "arbiter.json").write_text("{}", encoding="utf-8")
+    (legacy_home / "arbiter.json").write_text(
+        json.dumps({"schema_version": 1}), encoding="utf-8"
+    )
     invalid_proposals = legacy_home / "proposals.json"
-    invalid_proposals.write_text('{"voters": "cc"}', encoding="utf-8")
+    invalid_proposals.write_text(
+        json.dumps({"schema_version": 1, "voters": "cc"}), encoding="utf-8"
+    )
 
     with pytest.raises(ValueError, match="voters must be an array"):
         main(["config", "migrate", "--workspace", str(tmp_path)])

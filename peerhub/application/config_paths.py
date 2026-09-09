@@ -47,6 +47,8 @@ class ResolvedConfigPaths:
     proposals_json: ResolvedConfigPath
     legacy_arbiter_json: ResolvedConfigPath
     legacy_proposals_json: ResolvedConfigPath
+    global_arbiter_json: ResolvedConfigPath
+    global_proposals_json: ResolvedConfigPath
 
     def as_dict(self) -> dict[str, dict[str, str]]:
         """Return a stable machine-readable path map."""
@@ -64,6 +66,8 @@ class ResolvedConfigPaths:
                 ("proposals_json", self.proposals_json),
                 ("legacy_arbiter_json", self.legacy_arbiter_json),
                 ("legacy_proposals_json", self.legacy_proposals_json),
+                ("global_arbiter_json", self.global_arbiter_json),
+                ("global_proposals_json", self.global_proposals_json),
             )
         }
 
@@ -152,10 +156,12 @@ def resolve_config_paths(
         ask_toml=_child(global_home, "ask.toml"),
         arbiter_json=_child(workspace_config_home, "arbiter.json"),
         proposals_json=_child(workspace_config_home, "proposals.json"),
-        # Items 8-9 own migration/fallback semantics. Until then, the current
-        # readers remain byte-compatible while still using this one resolver.
+        # Item 8's workspace/legacy location compat, plus item 9's global
+        # governance-fallback layer (§3.1: workspace > global > built-in).
         legacy_arbiter_json=_child(workspace_home, "arbiter.json"),
         legacy_proposals_json=_child(workspace_home, "proposals.json"),
+        global_arbiter_json=_child(global_home, "arbiter.json"),
+        global_proposals_json=_child(global_home, "proposals.json"),
     )
 
 

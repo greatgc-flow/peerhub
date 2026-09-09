@@ -14,8 +14,10 @@ from peerhub.application.arbiter_review import (
     FinalArbiterPolicy,
     build_condensed_arbiter_prompt,
     classify_consensus_dissent,
+    describe_final_arbiter_policy_source,
     load_final_arbiter_policy,
 )
+from peerhub.application.config_layers import LayeredConfigError
 from peerhub.application.direct_ask import DirectAskRequest, DirectAskResult
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import RecordNotFoundError
@@ -135,6 +137,7 @@ def test_config_loader_uses_working_configured_candidate(tmp_path: Path) -> None
     (config_dir / "arbiter.json").write_text(
         """
         {
+          "schema_version": 1,
           "enabled": true,
           "candidate": {
             "peer_name": "cc",
@@ -162,7 +165,7 @@ def test_config_loader_prefers_new_workspace_config_location(tmp_path: Path) -> 
     config_dir = tmp_path / ".peerhub" / "config"
     config_dir.mkdir(parents=True)
     (config_dir / "arbiter.json").write_text(
-        json.dumps({"enabled": True, "max_invocations": 2}),
+        json.dumps({"schema_version": 1, "enabled": True, "max_invocations": 2}),
         encoding="utf-8",
     )
 
@@ -179,6 +182,111 @@ def test_config_loader_rejects_legacy_and_new_arbiter_conflict(
     (current_dir / "arbiter.json").write_text("{}", encoding="utf-8")
 
     with pytest.raises(ValueError, match=r"both.*arbiter\.json.*config migrate"):
+        load_final_arbiter_policy(tmp_path)
+
+
+def test_arbiter_global_layer_applies_when_no_workspace_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    global_home = tmp_path / "global"
+    global_home.mkdir()
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(global_home))
+    (global_home / "arbiter.json").write_text(
+        json.dumps({"schema_version": 1, "enabled": True, "max_invocations": 7}),
+        encoding="utf-8",
+    )
+
+    policy = load_final_arbiter_policy(tmp_path)
+
+    assert policy.enabled is True
+    assert policy.max_invocations == 7
+    assert describe_final_arbiter_policy_source(tmp_path) == {
+        "enabled": "global",
+        "max_invocations": "global",
+    }
+
+
+def test_arbiter_workspace_layer_overrides_global_and_inherits_untouched_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    global_home = tmp_path / "global"
+    global_home.mkdir()
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(global_home))
+    (global_home / "arbiter.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "enabled": True,
+                "candidate": {"peer_name": "cc", "profile_id": "cc.deepthink"},
+                "triggers": ["dissent", "high-risk"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    workspace_config = tmp_path / ".peerhub" / "config"
+    workspace_config.mkdir(parents=True)
+    (workspace_config / "arbiter.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "candidate": {"profile_id": "cc.effort"},
+                "triggers": ["dissent"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    policy = load_final_arbiter_policy(tmp_path)
+
+    # enabled: inherited from global (workspace never mentions it).
+    assert policy.enabled is True
+    # candidate merges at documented keys: peer_name inherited from global,
+    # profile_id overridden by workspace.
+    assert policy.peer_name == "cc"
+    assert policy.profile_id == "cc.effort"
+    # triggers: a list is replaced whole by the workspace layer, never
+    # merged element-wise with the global layer's list.
+    assert policy.triggers == ("dissent",)
+    assert describe_final_arbiter_policy_source(tmp_path) == {
+        "enabled": "global",
+        "candidate": "workspace",
+        "candidate.peer_name": "global",
+        "candidate.profile_id": "workspace",
+        "triggers": "workspace",
+    }
+
+
+def test_arbiter_neither_layer_present_uses_built_in_safe_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "absent-global"))
+
+    assert load_final_arbiter_policy(tmp_path) == FinalArbiterPolicy(enabled=False)
+    assert describe_final_arbiter_policy_source(tmp_path) == {}
+
+
+def test_arbiter_layer_missing_schema_version_is_a_hard_error(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir()
+    (config_dir / "arbiter.json").write_text(
+        json.dumps({"enabled": True}), encoding="utf-8"
+    )
+
+    with pytest.raises(LayeredConfigError, match="schema_version"):
+        load_final_arbiter_policy(tmp_path)
+
+
+def test_arbiter_layer_unknown_key_is_a_hard_error(tmp_path: Path) -> None:
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir()
+    (config_dir / "arbiter.json").write_text(
+        json.dumps({"schema_version": 1, "enabled": True, "typo_field": True}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LayeredConfigError, match="typo_field"):
         load_final_arbiter_policy(tmp_path)
 
 
@@ -444,6 +552,7 @@ def test_arbiter_high_risk_trigger(tmp_path: Path) -> None:
     config_dir = tmp_path / ".peerhub"
     config_dir.mkdir(exist_ok=True)
     (config_dir / "arbiter.json").write_text(json.dumps({
+        "schema_version": 1,
         "enabled": True,
         "triggers": ["high-risk"],
         "high_risk_mutation_kinds": ["irreversible_delete"],
