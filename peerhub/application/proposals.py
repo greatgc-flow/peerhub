@@ -12,6 +12,7 @@ import re
 from typing import cast
 
 from peerhub.application.peer_registry import PeerRegistryService
+from peerhub.application.config_paths import resolve_config_paths
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
     InvalidMutationError,
@@ -35,7 +36,6 @@ ESCALATION_MID_ROUND_GATE = "mid-round gate closure (human_gate)"
 ESCALATION_SELF_FINALIZATION = (
     "proposer self-finalization blocked (human_gate)"
 )
-_PROPOSAL_CONFIG_RELATIVE = Path(".peerhub") / "proposals.json"
 _CHANGES_MARKER = "\n\nChanges:\n"
 
 
@@ -65,7 +65,9 @@ class ProposalVoteResult:
 def load_proposal_voters(workspace_root: Path) -> tuple[str, ...]:
     """Load the ordered proposal electorate from one workspace config value."""
 
-    config_path = workspace_root / _PROPOSAL_CONFIG_RELATIVE
+    config_path = resolve_config_paths(
+        workspace_root=workspace_root
+    ).legacy_proposals_json.path
     if not config_path.exists():
         return ()
     with config_path.open("r", encoding="utf-8") as stream:

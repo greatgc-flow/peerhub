@@ -21,6 +21,7 @@ def test_composed_runtime_initializes_and_wires_services(tmp_path: Path):
         clock=DeterministicClock(),
         ids=SequentialIdSource(),
     )
+    assert context.paths.workspace_config_home == tmp_path / ".peerhub" / "config"
 
     with create_runtime(context) as runtime:
         # Verify wiring of dependencies (identity checks)

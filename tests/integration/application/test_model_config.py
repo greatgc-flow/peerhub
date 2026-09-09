@@ -8,6 +8,11 @@ import pytest
 
 from peerhub.adapters.contract import ModelSelectionMode
 from peerhub.application import model_config
+from peerhub.application.config_paths import (
+    ConfigPathSource,
+    resolve_config_paths,
+    resolve_global_config_home,
+)
 from peerhub.application.model_config import ModelConfigError, ModelConfigService
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.core.context import Clock
@@ -39,6 +44,61 @@ def _service(tmp_path: Path) -> tuple[PeerRegistryService, GovernanceBroker]:
 def _write_global_config(config_home: Path, contents: str) -> None:
     config_home.mkdir()
     (config_home / "models.toml").write_text(contents, encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "config_home",
+    (
+        Path("C:/Portable Dev (v2.1)/공유 설정"),
+        Path("/opt/Peer Hub/共有 config"),
+    ),
+)
+def test_central_config_paths_preserve_injected_cross_platform_paths(
+    config_home: Path,
+    tmp_path: Path,
+) -> None:
+    resolved = resolve_config_paths(
+        workspace_root=tmp_path / "work space" / "프로젝트",
+        explicit_global_config_home=config_home,
+        environ={"PEERHUB_CONFIG_HOME": "ignored"},
+        user_home=tmp_path / "ignored-home",
+        temp_root=tmp_path / "OS temp" / "임시",
+    )
+
+    assert resolved.global_config_home.path == config_home
+    assert resolved.global_config_home.source is ConfigPathSource.EXPLICIT
+    assert resolved.models_toml.path == config_home / "models.toml"
+    assert resolved.ask_toml.path == config_home / "ask.toml"
+    assert resolved.workspace_config_home.path == (
+        tmp_path / "work space" / "프로젝트" / ".peerhub" / "config"
+    )
+    assert resolved.workspace_temp.path.is_relative_to(
+        tmp_path / "OS temp" / "임시" / "peerhub" / "workspaces"
+    )
+
+
+def test_global_config_home_precedence_and_absent_selection_do_not_fallback(
+    tmp_path: Path,
+) -> None:
+    explicit = tmp_path / "explicit"
+    environment = tmp_path / "environment"
+    home = tmp_path / "home"
+
+    assert resolve_global_config_home(
+        explicit=explicit,
+        environ={"PEERHUB_CONFIG_HOME": str(environment)},
+        user_home=home,
+    ).path == explicit
+    selected = resolve_global_config_home(
+        environ={"PEERHUB_CONFIG_HOME": str(environment)},
+        user_home=home,
+    )
+    assert selected.path == environment
+    assert selected.source is ConfigPathSource.ENV
+    assert not environment.exists()
+    defaulted = resolve_global_config_home(environ={}, user_home=home)
+    assert defaulted.path == home / ".peerhub" / "config"
+    assert defaulted.source is ConfigPathSource.DEFAULT
 
 
 def test_workspace_binding_takes_precedence_over_global_and_packaged(

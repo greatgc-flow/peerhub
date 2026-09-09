@@ -15,13 +15,14 @@ change.
 
 from __future__ import annotations
 
-import os
 import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import Any, cast
+
+from peerhub.application import config_paths
 
 
 class AskConfigError(RuntimeError):
@@ -39,10 +40,7 @@ def global_ask_config_path() -> Path:
     absent, not an error.
     """
 
-    override = os.environ.get("PEERHUB_CONFIG_HOME")
-    if override:
-        return Path(override) / "ask.toml"
-    return Path.home() / ".peerhub" / "config" / "ask.toml"
+    return config_paths.resolve_global_config_home().path / "ask.toml"
 
 
 @dataclass(frozen=True)

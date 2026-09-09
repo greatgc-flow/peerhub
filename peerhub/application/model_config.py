@@ -12,7 +12,6 @@ carried unchanged on ``AdapterRequest`` (ARCHITECTURE decision, 2026-09-08
 
 from __future__ import annotations
 
-import os
 import tomllib
 from collections.abc import Mapping
 from importlib import resources
@@ -20,6 +19,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from peerhub.adapters.contract import ModelSelectionMode, ResolvedModelBinding
+from peerhub.application import config_paths
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.core.protocol import JsonValue
 
@@ -39,10 +39,7 @@ def global_config_path() -> Path:
     this layer is absent, not an error.
     """
 
-    override = os.environ.get("PEERHUB_CONFIG_HOME")
-    if override:
-        return Path(override) / "models.toml"
-    return Path.home() / ".peerhub" / "config" / "models.toml"
+    return config_paths.resolve_global_config_home().path / "models.toml"
 
 
 def _read_profile_entry(

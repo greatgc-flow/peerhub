@@ -16,6 +16,7 @@ from peerhub.application.direct_ask import (
     DirectAskResult,
     execute_direct_ask,
 )
+from peerhub.application.config_paths import resolve_config_paths
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
     InvalidMutationError,
@@ -81,7 +82,9 @@ class FinalArbiterPolicy:
 def load_final_arbiter_policy(workspace_root: Path) -> FinalArbiterPolicy:
     """Load ``.peerhub/arbiter.json``; absence disables the feature."""
 
-    config_path = workspace_root / ".peerhub" / "arbiter.json"
+    config_path = resolve_config_paths(
+        workspace_root=workspace_root
+    ).legacy_arbiter_json.path
     if not config_path.exists():
         return FinalArbiterPolicy(enabled=False)
     with config_path.open("r", encoding="utf-8") as stream:

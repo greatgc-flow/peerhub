@@ -54,6 +54,30 @@ def test_config_home_override_replaces_the_home_directory_outright(
     assert global_ask_config_path() == config_home / "ask.toml"
 
 
+def test_model_and_ask_global_helpers_share_one_central_resolver(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from peerhub.application import config_paths, model_config
+
+    selected = tmp_path / "central config"
+    calls: list[str] = []
+    original = config_paths.resolve_global_config_home
+
+    def recording_resolver():
+        calls.append("resolved")
+        return original(
+            explicit=selected,
+            environ={},
+            user_home=tmp_path / "ignored",
+        )
+
+    monkeypatch.setattr(config_paths, "resolve_global_config_home", recording_resolver)
+
+    assert model_config.global_config_path() == selected / "models.toml"
+    assert global_ask_config_path() == selected / "ask.toml"
+    assert calls == ["resolved", "resolved"]
+
+
 def test_malformed_global_value_is_a_configuration_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

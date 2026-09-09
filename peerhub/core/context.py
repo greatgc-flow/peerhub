@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -34,6 +34,7 @@ class PathLayout:
     workspace_root: Path
     workspace_home: Path
     database_path: Path
+    workspace_config_home: Path = field(init=False)
 
     @classmethod
     def for_workspace(cls, workspace_root: Path) -> PathLayout:
@@ -47,6 +48,11 @@ class PathLayout:
         )
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "workspace_config_home",
+            self.workspace_home / "config",
+        )
         if self.database_path == self.workspace_home:
             raise ValueError(
                 "database_path must name a file inside workspace_home"
