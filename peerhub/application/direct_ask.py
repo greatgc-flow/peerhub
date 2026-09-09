@@ -17,7 +17,12 @@ from peerhub.adapters.contract import (
     SessionHint,
     DecoderEventKind,
 )
+from peerhub.application.ask_config import AskConfig, load_ask_config
 from peerhub.application.bootstrap import build_direct_ask_admission_config
+from peerhub.application.continuity import (
+    render_continuity_block,
+    resolve_continuity,
+)
 from peerhub.application.model_config import ModelConfigService, ResolvedModelBinding
 from peerhub.application.retry import (
     AttemptDispatchPlan,
@@ -198,6 +203,7 @@ def assemble_ask_prompt(
     target: ResolvedPeerTarget,
     runtime: "Runtime",
     policy: PromptPolicy,
+    config: AskConfig,
 ) -> str:
     user_directives_lines: list[str] = []
     runtime_directives_lines: list[str] = []
@@ -205,6 +211,7 @@ def assemble_ask_prompt(
     hub_context_lines: list[str] = []
     handoff_lines: list[str] = []
     task_context_lines: list[str] = []
+    continuity_lines: list[str] = []
 
     # 1. User Directives from _sys/ai/user-directives.md
     user_dir_path = request.workspace_root / "_sys" / "ai" / "user-directives.md"
@@ -327,6 +334,28 @@ def assemble_ask_prompt(
                 f"State: {ts.get('state') or 'none'}",
             ])
 
+    # 6. Cross-dispatch continuity: durable room/task checkpoints recorded by
+    # an EARLIER dispatch (item G). Distinct from [HANDOFF] above, which is
+    # the room's live continuity-note projection rather than a recorded
+    # checkpoint, and available even when this ask names no room or task.
+    try:
+        snapshot = resolve_continuity(
+            runtime.governance_broker,
+            peer_kind=target.peer_kind,
+            room_id=request.room_id,
+            task_id=request.task_id,
+            config=config.continuity,
+        )
+        continuity_block = render_continuity_block(
+            snapshot,
+            config=config.continuity,
+            include_room_markdown=not handoff_lines,
+        )
+        if continuity_block:
+            continuity_lines.append(continuity_block)
+    except Exception:
+        pass
+
     has_context = bool(
         user_directives_lines
         or runtime_directives_lines
@@ -334,6 +363,7 @@ def assemble_ask_prompt(
         or hub_context_lines
         or handoff_lines
         or task_context_lines
+        or continuity_lines
     )
     if not has_context:
         return request.prompt
@@ -354,6 +384,8 @@ def assemble_ask_prompt(
             blocks.append("\n".join(handoff_lines))
         if task_context_lines:
             blocks.append("\n".join(task_context_lines))
+        if continuity_lines:
+            blocks.append("\n".join(continuity_lines))
     else:
         if hub_context_lines:
             blocks.append("\n".join(hub_context_lines))
@@ -367,6 +399,8 @@ def assemble_ask_prompt(
             blocks.append("\n".join(handoff_lines))
         if task_context_lines:
             blocks.append("\n".join(task_context_lines))
+        if continuity_lines:
+            blocks.append("\n".join(continuity_lines))
         blocks.extend(["[USER QUERY]\n" + request.prompt])
 
     return "\n\n".join(blocks)
@@ -477,6 +511,7 @@ def execute_direct_ask(
     )
     
     policy = target.adapter.prompt_policy(target.profile)
+    ask_config = load_ask_config()
 
     paths = PathLayout.for_workspace(request.workspace_root)
 
@@ -586,6 +621,7 @@ def execute_direct_ask(
             target=target,
             runtime=runtime,
             policy=policy,
+            config=ask_config,
         )
         prompt_bytes = len(assembled_prompt.encode("utf-8"))
         if prompt_bytes > policy.max_inline_utf8_bytes:

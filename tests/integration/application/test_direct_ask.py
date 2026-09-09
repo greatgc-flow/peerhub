@@ -714,3 +714,308 @@ def test_direct_ask_circuit_breaker_opens_on_exhausted_failure(
     finally:
         rt.close()
 
+
+
+# ---------------------------------------------------------------------------
+# Item G -- cross-dispatch context continuity (ratified backlog,
+# docs/reviews/p-drive-mece-migration-audit-2026-09-09.md section 5).
+# Durable room/task checkpoints exist but nothing fed them back into a
+# SUBSEQUENT dispatch's outgoing prompt.
+# ---------------------------------------------------------------------------
+
+
+def _continuity_target(adapter_stdout: str) -> tuple[RecordingFakePeerAdapter, ResolvedPeerTarget]:
+    adapter = RecordingFakePeerAdapter(stdout=adapter_stdout)
+    profile = adapter.descriptor.profiles[0]
+    return adapter, ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+
+
+def _patch_direct_ask(monkeypatch: pytest.MonkeyPatch, target: ResolvedPeerTarget) -> None:
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
+    )
+
+
+def _seed_checkpointed_task(
+    pre_rt,
+    *,
+    task_id: str,
+    coordinator: str,
+    room_id: str | None,
+    stage: str,
+    completed: tuple[str, ...],
+    remaining: tuple[str, ...],
+) -> None:
+    pre_rt.task_service.create(
+        task_id=task_id,
+        summary=f"summary for {task_id}",
+        spec=f"spec for {task_id}",
+        creator_id="alice",
+        room_id=room_id,
+    )
+    pre_rt.task_service.claim_start(
+        task_id,
+        actor_id="alice",
+        request_id=f"req-{task_id}",
+        coordinator=coordinator,
+        attempt_id=f"attempt-{task_id}",
+    )
+    pre_rt.task_service.checkpoint(
+        task_id,
+        actor_id="alice",
+        checkpoint_id=f"ckpt-{task_id}",
+        stage=stage,
+        request_id=f"req-{task_id}",
+        attempt_id=f"attempt-{task_id}",
+        resume_token_ref=None,
+        completed_units=completed,
+        remaining_units=remaining,
+    )
+
+
+def test_direct_ask_injects_prior_task_checkpoint_for_same_peer(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A checkpoint left by an EARLIER dispatch reaches the NEXT one.
+
+    No room_id and no task_id are supplied: the continuity resolver must
+    discover the workspace's most recent checkpointed task coordinated by
+    this same peer on its own (Item G's actual cross-dispatch requirement).
+    """
+    from peerhub.core.context import RuntimeContext
+    from peerhub.runtime import create_runtime
+
+    adapter, target = _continuity_target("continued")
+    _patch_direct_ask(monkeypatch, target)
+
+    layout = PathLayout.for_workspace(tmp_path)
+    pre_rt = create_runtime(RuntimeContext("cli", layout, clock, ids))
+    try:
+        _seed_checkpointed_task(
+            pre_rt,
+            task_id="task-scrubber",
+            coordinator="fake",
+            room_id=None,
+            stage="phase-2-verification",
+            completed=("parse-input", "normalize-rows"),
+            remaining=("emit-report",),
+        )
+    finally:
+        pre_rt.close()
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="continue where you left off",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    sent_prompt = adapter.recorded_requests[0].prompt_content
+    assert sent_prompt is not None
+    assert "[CONTINUITY]" in sent_prompt
+    assert "task-scrubber" in sent_prompt
+    assert "phase-2-verification" in sent_prompt
+    assert "emit-report" in sent_prompt
+    assert "normalize-rows" in sent_prompt
+    assert "continue where you left off" in sent_prompt
+
+
+def test_direct_ask_injects_latest_room_checkpoint(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A recorded room checkpoint (ctx-save equivalent) is fed back in."""
+    from peerhub.core.context import RuntimeContext
+    from peerhub.runtime import create_runtime
+
+    adapter, target = _continuity_target("room continued")
+    _patch_direct_ask(monkeypatch, target)
+
+    layout = PathLayout.for_workspace(tmp_path)
+    pre_rt = create_runtime(RuntimeContext("cli", layout, clock, ids))
+    try:
+        pre_rt.rooms_service.create_room(
+            room_id="room-continuity",
+            topic_id="topic-1",
+            title="Continuity Room",
+            creator_id="alice",
+            participants=("fake",),
+        )
+        pre_rt.rooms_service.set_room_goal(
+            room_id="room-continuity",
+            goal="ship the migration audit backlog",
+            actor_id="alice",
+        )
+        pre_rt.rooms_service.append_handoff_note(
+            room_id="room-continuity",
+            section="KEY_DECISIONS",
+            text="ratified execution order B then E then G/H/I",
+            actor_id="alice",
+        )
+        checkpoint = pre_rt.rooms_service.checkpoint(
+            "room-continuity",
+            actor_id="alice",
+            idempotency_key="ckpt-room-continuity-1",
+        )
+        checkpoint_id = checkpoint["checkpoint_id"]
+        assert isinstance(checkpoint_id, str) and checkpoint_id
+    finally:
+        pre_rt.close()
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="what is the room state",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+        room_id="room-continuity",
+    )
+
+    execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    assert len(adapter.recorded_requests) == 1
+    sent_prompt = adapter.recorded_requests[0].prompt_content
+    assert sent_prompt is not None
+    assert "[CONTINUITY]" in sent_prompt
+    assert f"Room checkpoint {checkpoint_id}" in sent_prompt
+    assert "room=room-continuity" in sent_prompt
+    assert "as_of_event_seq=1" in sent_prompt
+
+
+def test_direct_ask_continuity_absent_when_no_checkpoints_exist(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No checkpoints anywhere means no continuity block and no raw-prompt drift."""
+    adapter, target = _continuity_target("no continuity")
+    _patch_direct_ask(monkeypatch, target)
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="plain question",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    assert adapter.recorded_requests[0].prompt_content == "plain question"
+
+
+def test_direct_ask_continuity_disabled_by_global_config(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The continuity bounds are config, not Python literals.
+
+    Turning continuity off in the global ask config layer must suppress a
+    block that the same seeded state produces when it is on.
+    """
+    from peerhub.core.context import RuntimeContext
+    from peerhub.runtime import create_runtime
+
+    config_home = tmp_path / "config-home"
+    config_home.mkdir()
+    (config_home / "ask.toml").write_text(
+        "[continuity]\nenabled = false\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(config_home))
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    adapter, target = _continuity_target("config-gated")
+    _patch_direct_ask(monkeypatch, target)
+
+    layout = PathLayout.for_workspace(workspace)
+    pre_rt = create_runtime(RuntimeContext("cli", layout, clock, ids))
+    try:
+        _seed_checkpointed_task(
+            pre_rt,
+            task_id="task-gated",
+            coordinator="fake",
+            room_id=None,
+            stage="phase-1",
+            completed=("a",),
+            remaining=("b",),
+        )
+    finally:
+        pre_rt.close()
+
+    request = DirectAskRequest(
+        workspace_root=workspace,
+        peer_name="fake",
+        prompt="gated question",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    sent_prompt = adapter.recorded_requests[0].prompt_content
+    assert sent_prompt == "gated question"

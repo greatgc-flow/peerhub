@@ -1,0 +1,33 @@
+# Packaged defaults for the `peerhub ask` dispatch path, bundled inside the
+# peerhub distribution.
+#
+# This is the LOWEST-priority layer in AskConfig's resolution order (global
+# config `~/.peerhub/config/ask.toml`, overridable via `PEERHUB_CONFIG_HOME`
+# > this file). It exists so `peerhub ask` has a complete, documented set of
+# bounds without any Python literal thresholds, and so an operator can retune
+# them without a code change.
+#
+# Unlike model-defaults.toml there is no workspace-binding layer here: these
+# are dispatch-shaping bounds, not per-peer model identity.
+
+schema_version = 1
+defaults_revision = "2026-09-09.1"
+
+# Cross-dispatch context continuity (ratified backlog item G): how much
+# durable room/task checkpoint state is fed back into the NEXT outgoing
+# prompt. Bounds exist because the injected block competes with the user's
+# own query for the peer's context window.
+[continuity]
+enabled = true
+# How many recorded room checkpoints (`ctx-save` equivalents) to surface.
+max_room_checkpoints = 1
+# How many checkpointed tasks to surface.
+max_task_checkpoints = 2
+# Per-task cap on completed/remaining work-unit names rendered.
+max_units_per_task = 8
+# Hard character budget for the whole [CONTINUITY] block.
+max_chars = 2000
+# When no checkpointed task is attributed to the dispatched peer, fall back
+# to the workspace's most recent checkpointed tasks regardless of which peer
+# coordinated them. Set false for strict per-peer isolation.
+include_unattributed_tasks = true
