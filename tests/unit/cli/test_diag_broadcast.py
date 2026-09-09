@@ -5,16 +5,16 @@ from pathlib import Path
 from peerhub.cli import main
 
 
-def test_cli_diag_non_interactive(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    exit_code = main(["diag", "--no-color"])
+def test_cli_diag_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    exit_code = main(["diag", "--workspace", str(tmp_path), "--no-color"])
     assert exit_code == 0
     captured = capsys.readouterr()
     assert "PeerHub Multi-Peer Dashboard" in captured.out
     assert "SUMMARY" in captured.out
 
 
-def test_cli_diag_json(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
-    exit_code = main(["diag", "--json"])
+def test_cli_diag_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    exit_code = main(["diag", "--workspace", str(tmp_path), "--json"])
     assert exit_code == 0
     captured = capsys.readouterr()
     # No "room" key: peerhub has no leader-election/room concept of its own
