@@ -116,6 +116,64 @@ def test_execute_direct_ask_unknown_peer(tmp_path: Path, clock: Clock, ids: IdSo
         )
 
 
+def test_execute_direct_ask_passes_workspace_to_ask_config_loader(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = FakePeerAdapter(stdout="workspace config loaded")
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
+    )
+    from peerhub.application import direct_ask
+
+    real_loader = direct_ask.load_ask_config
+    received: list[Path] = []
+
+    def recording_loader(workspace_root: Path):
+        received.append(workspace_root)
+        return real_loader()
+
+    monkeypatch.setattr(direct_ask, "load_ask_config", recording_loader)
+
+    execute_direct_ask(
+        DirectAskRequest(
+            workspace_root=tmp_path,
+            peer_name="fake",
+            prompt="load the workspace layer",
+            required_capability_tier=CapabilityTier.READ_ONLY,
+            profile_id=profile.profile_id,
+            limits=TransportLimits(
+                process_timeout_ms=10_000,
+                silence_timeout_ms=10_000,
+                max_output_bytes=1_000_000,
+            ),
+        ),
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject(
+            "local-cli:test-user",
+            "test",
+        ),
+    )
+
+    assert received == [tmp_path]
+
+
 def test_direct_ask_binds_machine_subject_to_issued_lease(
     tmp_path: Path,
     clock: Clock,

@@ -20,6 +20,7 @@ from peerhub.application.proposals import (
     ESCALATION_SELF_FINALIZATION,
     ESCALATION_TOO_FEW_VOTERS,
     ProposalCoordinator,
+    load_proposal_voters,
 )
 from peerhub.cli import main
 from peerhub.client import Client
@@ -68,6 +69,32 @@ class ProposalServices:
     coordinator: ProposalCoordinator
     clock: FixedClock
     ids: SequentialIdSource
+
+
+def test_voter_loader_prefers_new_workspace_config_location(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / ".peerhub" / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "proposals.json").write_text(
+        json.dumps({"voters": ["cc", "ag"]}),
+        encoding="utf-8",
+    )
+
+    assert load_proposal_voters(tmp_path) == ("cc", "ag")
+
+
+def test_voter_loader_rejects_legacy_and_new_proposals_conflict(
+    tmp_path: Path,
+) -> None:
+    legacy_dir = tmp_path / ".peerhub"
+    current_dir = legacy_dir / "config"
+    current_dir.mkdir(parents=True)
+    (legacy_dir / "proposals.json").write_text("{}", encoding="utf-8")
+    (current_dir / "proposals.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"both.*proposals\.json.*config migrate"):
+        load_proposal_voters(tmp_path)
 
 
 def _readiness(

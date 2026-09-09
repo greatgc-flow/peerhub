@@ -171,8 +171,16 @@ def _merge_layer(
 _SECTIONS = ("continuity", "prompt_staging", "transcript_storage")
 
 
-def load_ask_config() -> AskConfig:
-    """Resolve the packaged defaults, overlaid by the global config layer."""
+def load_ask_config(workspace_root: Path | None = None) -> AskConfig:
+    """Resolve the packaged defaults, overlaid by the global config layer,
+    overlaid by the workspace ``config/ask.toml`` layer (item 8, dotdir
+    consolidation) when ``workspace_root`` is given -- precedence
+    workspace > global > packaged, matching every other config family
+    resolved by config_paths.py. ``workspace_root`` is optional (not every
+    caller has one -- e.g. a workspace-less CLI invocation) and omitting
+    it is byte-identical to the pre-item-8 behavior (packaged + global
+    only).
+    """
 
     packaged = resources.files("peerhub.config_data").joinpath(
         "ask-defaults.toml"
@@ -188,6 +196,12 @@ def load_ask_config() -> AskConfig:
     if global_path.is_file():
         with global_path.open("rb") as handle:
             layers = _merge_layer(layers, tomllib.load(handle))
+
+    if workspace_root is not None:
+        workspace_path = config_paths.resolve_workspace_config_home(workspace_root).path / "ask.toml"
+        if workspace_path.is_file():
+            with workspace_path.open("rb") as handle:
+                layers = _merge_layer(layers, tomllib.load(handle))
 
     continuity = layers["continuity"]
     prompt_staging = layers["prompt_staging"]

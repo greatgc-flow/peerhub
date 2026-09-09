@@ -45,6 +45,29 @@ def test_global_layer_overrides_only_the_keys_it_names(
     assert config.continuity.enabled is True
 
 
+def test_workspace_layer_overrides_global_and_inherits_untouched_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_home = tmp_path / "global"
+    _write_global_config(
+        config_home,
+        "[continuity]\nmax_task_checkpoints = 7\nmax_chars = 7000\n",
+    )
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(config_home))
+    workspace_config = tmp_path / "workspace" / ".peerhub" / "config"
+    workspace_config.mkdir(parents=True)
+    (workspace_config / "ask.toml").write_text(
+        "[continuity]\nmax_task_checkpoints = 11\n",
+        encoding="utf-8",
+    )
+
+    config = load_ask_config(tmp_path / "workspace")
+
+    assert config.continuity.max_task_checkpoints == 11
+    assert config.continuity.max_chars == 7000
+    assert config.continuity.enabled is True
+
+
 def test_config_home_override_replaces_the_home_directory_outright(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

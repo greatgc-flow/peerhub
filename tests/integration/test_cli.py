@@ -235,6 +235,77 @@ def test_cli_config_paths_json_reports_env_source_when_redirected(
     assert payload["global_config_home"]["path"] == str(redirected)
 
 
+def test_cli_config_migrate_moves_valid_legacy_files_without_semantic_change(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from peerhub.application.arbiter_review import load_final_arbiter_policy
+    from peerhub.application.proposals import load_proposal_voters
+
+    legacy_home = tmp_path / ".peerhub"
+    legacy_home.mkdir()
+    arbiter_bytes = json.dumps(
+        {
+            "enabled": True,
+            "candidate": {"peer_name": "cc", "profile_id": "cc.effort"},
+            "triggers": ["dissent"],
+            "max_invocations": 3,
+            "window_seconds": 900,
+        },
+        indent=2,
+    ).encode("utf-8")
+    proposals_bytes = json.dumps(
+        {"voters": ["cc", "cx"]}, indent=2
+    ).encode("utf-8")
+    (legacy_home / "arbiter.json").write_bytes(arbiter_bytes)
+    (legacy_home / "proposals.json").write_bytes(proposals_bytes)
+    before_arbiter = load_final_arbiter_policy(tmp_path)
+    before_voters = load_proposal_voters(tmp_path)
+
+    assert main(["config", "migrate", "--workspace", str(tmp_path)]) == 0
+
+    output = capsys.readouterr().out
+    assert "arbiter.json" in output
+    assert "proposals.json" in output
+    current_home = legacy_home / "config"
+    assert not (legacy_home / "arbiter.json").exists()
+    assert not (legacy_home / "proposals.json").exists()
+    assert (current_home / "arbiter.json").read_bytes() == arbiter_bytes
+    assert (current_home / "proposals.json").read_bytes() == proposals_bytes
+    assert load_final_arbiter_policy(tmp_path) == before_arbiter
+    assert load_proposal_voters(tmp_path) == before_voters
+
+
+def test_cli_config_migrate_preflights_all_files_before_moving(
+    tmp_path: Path,
+) -> None:
+    legacy_home = tmp_path / ".peerhub"
+    legacy_home.mkdir()
+    (legacy_home / "arbiter.json").write_text("{}", encoding="utf-8")
+    invalid_proposals = legacy_home / "proposals.json"
+    invalid_proposals.write_text('{"voters": "cc"}', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="voters must be an array"):
+        main(["config", "migrate", "--workspace", str(tmp_path)])
+
+    assert (legacy_home / "arbiter.json").is_file()
+    assert invalid_proposals.is_file()
+    assert not (legacy_home / "config").exists()
+
+
+def test_cli_config_migrate_rejects_old_and_new_conflict(
+    tmp_path: Path,
+) -> None:
+    legacy_home = tmp_path / ".peerhub"
+    current_home = legacy_home / "config"
+    current_home.mkdir(parents=True)
+    (legacy_home / "arbiter.json").write_text("{}", encoding="utf-8")
+    (current_home / "arbiter.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"both.*arbiter\.json.*config migrate"):
+        main(["config", "migrate", "--workspace", str(tmp_path)])
+
+
 def test_cli_status_with_lease(tmp_path, capsys):
     from peerhub.cli import main, SystemClock, UuidSource
     from peerhub.core.context import RuntimeContext, PathLayout

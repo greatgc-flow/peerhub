@@ -12,7 +12,7 @@ import re
 from typing import cast
 
 from peerhub.application.peer_registry import PeerRegistryService
-from peerhub.application.config_paths import resolve_config_paths
+from peerhub.application.config_paths import resolve_compat_config_path, resolve_config_paths
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
     InvalidMutationError,
@@ -63,12 +63,16 @@ class ProposalVoteResult:
 
 
 def load_proposal_voters(workspace_root: Path) -> tuple[str, ...]:
-    """Load the ordered proposal electorate from one workspace config value."""
+    """Load the ordered proposal electorate (item 8: workspace ``config/``
+    tier, falling back to the legacy `.peerhub/proposals.json` location)."""
 
-    config_path = resolve_config_paths(
-        workspace_root=workspace_root
-    ).legacy_proposals_json.path
-    if not config_path.exists():
+    resolved = resolve_config_paths(workspace_root=workspace_root)
+    config_path = resolve_compat_config_path(
+        new_path=resolved.proposals_json.path,
+        legacy_path=resolved.legacy_proposals_json.path,
+        label="proposals.json",
+    )
+    if config_path is None:
         return ()
     with config_path.open("r", encoding="utf-8") as stream:
         raw: object = json.load(stream)

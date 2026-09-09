@@ -158,6 +158,30 @@ def test_config_loader_uses_working_configured_candidate(tmp_path: Path) -> None
     )
 
 
+def test_config_loader_prefers_new_workspace_config_location(tmp_path: Path) -> None:
+    config_dir = tmp_path / ".peerhub" / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "arbiter.json").write_text(
+        json.dumps({"enabled": True, "max_invocations": 2}),
+        encoding="utf-8",
+    )
+
+    assert load_final_arbiter_policy(tmp_path).max_invocations == 2
+
+
+def test_config_loader_rejects_legacy_and_new_arbiter_conflict(
+    tmp_path: Path,
+) -> None:
+    legacy_dir = tmp_path / ".peerhub"
+    current_dir = legacy_dir / "config"
+    current_dir.mkdir(parents=True)
+    (legacy_dir / "arbiter.json").write_text("{}", encoding="utf-8")
+    (current_dir / "arbiter.json").write_text("{}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"both.*arbiter\.json.*config migrate"):
+        load_final_arbiter_policy(tmp_path)
+
+
 def _coordinator(
     *,
     tmp_path: Path,

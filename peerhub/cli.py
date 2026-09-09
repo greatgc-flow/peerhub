@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -38,12 +39,13 @@ from peerhub.application.direct_ask import (
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.application.room_broadcast import RoomBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
-from peerhub.application.proposals import ProposalVoteResult
+from peerhub.application.proposals import ProposalVoteResult, load_proposal_voters
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
 from peerhub.application.broker_status import collect_effect_status
 from peerhub.application.legacy import legacy_thread_slug
 from peerhub.application.config_paths import resolve_config_paths
+from peerhub.application.arbiter_review import load_final_arbiter_policy
 from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
@@ -2719,6 +2721,12 @@ def main(args: list[str] | None = None) -> int:
         "--workspace", default=".", help="Path to the workspace root (default: current directory)"
     )
     config_paths_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    config_migrate_parser = config_subparsers.add_parser(
+        "migrate", help="Move legacy .peerhub/{arbiter,proposals}.json to the config/ tier (item 8)"
+    )
+    config_migrate_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
+    )
 
     # Adapter subcommand
     adapter_parser = subparsers.add_parser("adapter", help="Manage peerhub adapters")
@@ -4096,6 +4104,9 @@ def main(args: list[str] | None = None) -> int:
                 print(f"{name}: {entry['path']} (source: {entry['source']})")
         return 0
 
+    if parsed.command == "config" and parsed.config_command == "migrate":
+        return _run_config_migrate(parsed)
+
     if parsed.command == "status":
         workspace_root = Path(parsed.workspace).resolve()
         paths = PathLayout.for_workspace(workspace_root)
@@ -4164,6 +4175,44 @@ def main(args: list[str] | None = None) -> int:
         return _run_ask(parsed)
             
     return 0
+
+
+def _run_config_migrate(parsed: argparse.Namespace) -> int:
+    """Move legacy ``.peerhub/{arbiter,proposals}.json`` to the ``config/``
+    tier (item 8, dotdir consolidation, ratified 2026-09-09).
+
+    Preflights every present legacy file through its real domain loader
+    first -- this reuses ``resolve_compat_config_path``'s both-exist
+    conflict check (raises ``ValueError`` naming this command) and gets
+    content validation for free -- before moving anything. Only after every
+    present file passes does it physically move (not copy) each one,
+    byte-for-byte, to ``config/``. Any ``ValueError`` from preflight
+    propagates uncaught, leaving both the legacy files and any partial
+    ``config/`` directory untouched.
+    """
+
+    workspace_root = Path(parsed.workspace).resolve()
+    resolved = resolve_config_paths(workspace_root=workspace_root)
+
+    candidates = (
+        (resolved.legacy_arbiter_json.path, resolved.arbiter_json.path, load_final_arbiter_policy),
+        (resolved.legacy_proposals_json.path, resolved.proposals_json.path, load_proposal_voters),
+    )
+
+    to_move: list[tuple[Path, Path]] = []
+    for legacy_path, new_path, loader in candidates:
+        if not legacy_path.is_file():
+            continue
+        loader(workspace_root)  # preflight: validates content, rejects old+new conflict
+        to_move.append((legacy_path, new_path))
+
+    for legacy_path, new_path in to_move:
+        new_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(legacy_path), str(new_path))
+        print(f"Migrated {legacy_path.name} -> {new_path}")
+
+    return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

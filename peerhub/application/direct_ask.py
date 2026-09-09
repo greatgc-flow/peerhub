@@ -517,7 +517,7 @@ def execute_direct_ask(
     )
     
     policy = target.adapter.prompt_policy(target.profile)
-    ask_config = load_ask_config()
+    ask_config = load_ask_config(request.workspace_root)
 
     paths = PathLayout.for_workspace(request.workspace_root)
 

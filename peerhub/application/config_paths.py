@@ -157,3 +157,32 @@ def resolve_config_paths(
         legacy_arbiter_json=_child(workspace_home, "arbiter.json"),
         legacy_proposals_json=_child(workspace_home, "proposals.json"),
     )
+
+
+def resolve_compat_config_path(
+    *, new_path: Path, legacy_path: Path, label: str
+) -> Path | None:
+    """Item 8's compatibility reader: exactly one of ``new_path``/
+    ``legacy_path`` may exist. Returns whichever does (preferring ``new_path``
+    when only it exists; ``legacy_path`` when only it exists -- an
+    unmigrated legacy file must keep working with no semantic change).
+    Returns ``None`` if neither exists (caller applies its own default).
+    Raises ``ValueError`` if BOTH exist -- never a silent pick; the
+    message names ``peerhub config migrate`` as the resolution path.
+    """
+
+    new_exists = new_path.is_file()
+    legacy_exists = legacy_path.is_file()
+    if new_exists and legacy_exists:
+        raise ValueError(
+            f"both {new_path} and {legacy_path} exist for {label} -- "
+            f"refusing to guess which one wins. Run `peerhub config "
+            f"migrate` to resolve this (it validates and atomically moves "
+            f"the legacy file, or reports the same conflict if the two "
+            f"disagree)."
+        )
+    if new_exists:
+        return new_path
+    if legacy_exists:
+        return legacy_path
+    return None
