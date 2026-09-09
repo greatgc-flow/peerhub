@@ -40,21 +40,43 @@ def _split_canonical_lines(text: str) -> tuple[str, ...]:
     return tuple(lines)
 
 
-_AGY_PROFILE = ProfileDescriptor(
+_AGY_STANDARD_PROFILE = ProfileDescriptor(
     profile_id="ag.standard",
     profile_class="tier",
     supports_reasoning_effort=True,
 )
 
+_AGY_EFFORT_PROFILE = ProfileDescriptor(
+    profile_id="ag.effort",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
+_AGY_DEEPTHINK_PROFILE = ProfileDescriptor(
+    profile_id="ag.deepthink",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
+_AGY_PROFILES = (
+    _AGY_STANDARD_PROFILE,
+    _AGY_EFFORT_PROFILE,
+    _AGY_DEEPTHINK_PROFILE,
+)
+
+# Kept for any external references that still expect a single default profile.
+_AGY_PROFILE = _AGY_STANDARD_PROFILE
+
 _AGY_DESCRIPTOR = PeerDescriptor(
     adapter_id="agy-peer",
     adapter_version="1.0.0",
     peer_kind="ag",
-    profiles=(_AGY_PROFILE,),
+    profiles=_AGY_PROFILES,
     transports=frozenset({TransportKind.PIPE}),
     capabilities=frozenset({Capability.SESSION}),
     usage_provider_id=None,
     readiness_probe_id="agy-readiness",
+    default_profile_id="ag.standard",
 )
 
 
@@ -153,10 +175,10 @@ class RealAgyAdapter:
     descriptor = _AGY_DESCRIPTOR
 
     def prompt_policy(self, profile: ProfileDescriptor) -> PromptPolicy:
-        if profile.profile_id != _AGY_PROFILE.profile_id:
+        if profile.profile_id not in {p.profile_id for p in _AGY_PROFILES}:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
         return PromptPolicy(
-            policy_id="ag-standard-policy",
+            policy_id=f"{profile.profile_id}-policy",
             max_inline_utf8_bytes=1000000,
             artifact_reference_supported=False,
             query_first=True,
@@ -170,7 +192,7 @@ class RealAgyAdapter:
         limits: TransportLimits,
     ) -> InvocationPlan:
 
-        if profile.profile_id != _AGY_PROFILE.profile_id:
+        if profile.profile_id not in {p.profile_id for p in _AGY_PROFILES}:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
 
         prompt = request.prompt_content

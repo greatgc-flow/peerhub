@@ -183,3 +183,50 @@ def test_claude_cli_default_omits_model_flag():
 
     assert "--model" not in plan.argv
     assert plan.argv == ("claude.cmd", "-p", "Hello", "--output-format", "json")
+
+
+def test_claude_descriptor_advertises_profiles():
+    """Item E (ratified backlog, docs/reviews/p-drive-mece-migration-audit-2026-09-09.md
+    section 5): claude_adapter previously hardcoded a single cc.standard
+    profile while codex_adapter already defined 3 tiers. Mirrors
+    test_codex_descriptor_advertises_profiles exactly."""
+    profiles = RealClaudeAdapter.descriptor.profiles
+    assert tuple(p.profile_id for p in profiles) == (
+        "cc.standard", "cc.effort", "cc.deepthink",
+    )
+    assert RealClaudeAdapter.descriptor.default_profile_id == "cc.standard"
+    profile_map = {p.profile_id: p for p in profiles}
+    assert profile_map["cc.standard"].supports_reasoning_effort is False
+    assert profile_map["cc.effort"].supports_reasoning_effort is True
+    assert profile_map["cc.deepthink"].supports_reasoning_effort is True
+
+
+def test_claude_plan_invocation_rejects_unknown_profile():
+    from peerhub.adapters.contract import AdapterRequest, ProfileDescriptor
+
+    class FakeCompletionContract:
+        @property
+        def contract_id(self) -> str:
+            return "fake-contract"
+
+    adapter = RealClaudeAdapter()
+    request = AdapterRequest(
+        request_id="req-x",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cc.bogus",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=ResolvedModelBinding(
+            selection_mode=ModelSelectionMode.CLI_DEFAULT,
+            model_id=None,
+            reasoning_effort=None,
+            source_layer="test-fixture",
+        ),
+    )
+    bogus_profile = ProfileDescriptor(
+        profile_id="cc.bogus", profile_class="tier", supports_reasoning_effort=False,
+    )
+    with pytest.raises(ValueError, match="Unsupported profile"):
+        adapter.plan_invocation(request, bogus_profile, None, TransportLimits(1, 1, 1))

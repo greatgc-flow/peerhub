@@ -286,6 +286,79 @@ def test_agy_descriptor_advertises_session():
     assert Capability.SESSION in RealAgyAdapter.descriptor.capabilities
 
 
+def test_agy_descriptor_advertises_profiles():
+    """Item E (ratified backlog, docs/reviews/p-drive-mece-migration-audit-2026-09-09.md
+    section 5): agy_adapter previously hardcoded a single ag.standard
+    profile while codex_adapter already defined 3 tiers. Mirrors
+    test_codex_descriptor_advertises_profiles exactly."""
+    profiles = RealAgyAdapter.descriptor.profiles
+    assert tuple(p.profile_id for p in profiles) == (
+        "ag.standard", "ag.effort", "ag.deepthink",
+    )
+    assert RealAgyAdapter.descriptor.default_profile_id == "ag.standard"
+    profile_map = {p.profile_id: p for p in profiles}
+    assert profile_map["ag.standard"].supports_reasoning_effort is True
+    assert profile_map["ag.effort"].supports_reasoning_effort is True
+    assert profile_map["ag.deepthink"].supports_reasoning_effort is True
+
+
+def test_agy_plan_invocation_effort_tier_appends_reasoning_effort():
+    adapter = RealAgyAdapter()
+    effort_profile = next(p for p in adapter.descriptor.profiles if p.profile_id == "ag.effort")
+    binding = ResolvedModelBinding(
+        selection_mode=ModelSelectionMode.PINNED,
+        model_id="gemini-3.8-flash",
+        reasoning_effort="high",
+        source_layer="config",
+    )
+    request = AdapterRequest(
+        request_id="req-effort",
+        prompt_content="Hello effort",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="ag.effort",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=binding,
+    )
+    plan = adapter.plan_invocation(request, effort_profile, None, _limits())
+    assert "--effort" in plan.argv
+    assert plan.argv[plan.argv.index("--effort") + 1] == "high"
+
+
+def test_agy_plan_invocation_deepthink_tier_appends_reasoning_effort():
+    adapter = RealAgyAdapter()
+    deepthink_profile = next(p for p in adapter.descriptor.profiles if p.profile_id == "ag.deepthink")
+    binding = ResolvedModelBinding(
+        selection_mode=ModelSelectionMode.PINNED,
+        model_id="gemini-3.8-pro",
+        reasoning_effort="xhigh",
+        source_layer="config",
+    )
+    request = AdapterRequest(
+        request_id="req-dt",
+        prompt_content="Hello deepthink",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=binding,
+    )
+    plan = adapter.plan_invocation(request, deepthink_profile, None, _limits())
+    assert "--effort" in plan.argv
+    assert plan.argv[plan.argv.index("--effort") + 1] == "xhigh"
+
+
+def test_agy_plan_invocation_rejects_unknown_profile():
+    adapter = RealAgyAdapter()
+    bogus_profile = ProfileDescriptor(
+        profile_id="ag.bogus", profile_class="tier", supports_reasoning_effort=True,
+    )
+    with pytest.raises(ValueError, match="Unsupported profile"):
+        adapter.plan_invocation(_request(SessionAction.NONE), bogus_profile, None, _limits())
+
+
 def test_agy_decoder_fallback_check_sees_merged_stderr_preamble():
     decoder = AgyOutputDecoder()
     decoder.feed(b'error: model_operand_invalid\n{"conversation_id":"x","response":""}')

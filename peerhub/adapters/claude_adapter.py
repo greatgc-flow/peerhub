@@ -42,21 +42,43 @@ def _split_canonical_lines(text: str) -> tuple[str, ...]:
     return tuple(lines)
 
 
-_CLAUDE_PROFILE = ProfileDescriptor(
+_CLAUDE_STANDARD_PROFILE = ProfileDescriptor(
     profile_id="cc.standard",
     profile_class="tier",
     supports_reasoning_effort=False,
 )
 
+_CLAUDE_EFFORT_PROFILE = ProfileDescriptor(
+    profile_id="cc.effort",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
+_CLAUDE_DEEPTHINK_PROFILE = ProfileDescriptor(
+    profile_id="cc.deepthink",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
+_CLAUDE_PROFILES = (
+    _CLAUDE_STANDARD_PROFILE,
+    _CLAUDE_EFFORT_PROFILE,
+    _CLAUDE_DEEPTHINK_PROFILE,
+)
+
+# Kept for any external references that still expect a single default profile.
+_CLAUDE_PROFILE = _CLAUDE_STANDARD_PROFILE
+
 _CLAUDE_DESCRIPTOR = PeerDescriptor(
     adapter_id="claude-peer",
     adapter_version="1.0.0",
     peer_kind="cc",
-    profiles=(_CLAUDE_PROFILE,),
+    profiles=_CLAUDE_PROFILES,
     transports=frozenset({TransportKind.PIPE}),
     capabilities=frozenset({Capability.SESSION}),
     usage_provider_id=None,
     readiness_probe_id="claude-readiness",
+    default_profile_id="cc.standard",
 )
 
 
@@ -142,10 +164,10 @@ class RealClaudeAdapter:
         self.executable_path = executable_path
 
     def prompt_policy(self, profile: ProfileDescriptor) -> PromptPolicy:
-        if profile.profile_id != _CLAUDE_PROFILE.profile_id:
+        if profile.profile_id not in {p.profile_id for p in _CLAUDE_PROFILES}:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
         return PromptPolicy(
-            policy_id="cc-standard-policy",
+            policy_id=f"{profile.profile_id}-policy",
             max_inline_utf8_bytes=1000000,
             artifact_reference_supported=False,
         )
@@ -158,7 +180,7 @@ class RealClaudeAdapter:
         limits: TransportLimits,
     ) -> InvocationPlan:
 
-        if profile.profile_id != _CLAUDE_PROFILE.profile_id:
+        if profile.profile_id not in {p.profile_id for p in _CLAUDE_PROFILES}:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
 
         prompt = request.prompt_content
