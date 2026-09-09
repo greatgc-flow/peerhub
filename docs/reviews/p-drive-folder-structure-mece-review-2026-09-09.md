@@ -131,3 +131,58 @@ which fits once actually executing:
 Either way, `_sys/claude/config/projects/`'s Claude-Code-managed layout
 (part 1/2's Location B) isn't something to restructure directly -- it's
 owned by the Claude Code application itself, not this project's code.
+
+## 5. Follow-up: peerhub and Engram repo-level structure (2026-09-09, later same day)
+
+A separate request to also check peerhub's and Engram's own repo
+structure (not just P:'s runtime data) turned up real findings:
+
+**peerhub** (commits `ca9d4c3`, `ec1bc3d`): a much larger amount of
+untracked root-level clutter than the terminal's own earlier general
+cleanup pass had caught (that pass only targeted specifically-named
+directories, missing an unpredictable long tail dating back to the
+repo's Aug 18 creation: codex sandbox scratch dirs, pytest basetemp/
+cache dirs with random suffixes, empty leftover round/probe dirs).
+Cleaned, and `.gitignore` hardened with patterns for the recurring
+naming families found. Separately, `scratch/cc-review/{probe.py,
+probe2.py,probe3.py,r103.py}` -- one-off adversarial design-round
+review probes -- were found to be **accidentally git-tracked**
+(committed at `50efc60`, presumably meant to stay local scratch work);
+removed after confirming nothing in `peerhub/`/`tests/`/`tools/`
+references them. Also found `test_responsive.py` + its `.metadata.json`
+git-tracked at the repo root (not `tests/`) as a manual print-based
+script, not a real pytest test; converted into a proper isolated,
+parametrized test in `tests/unit/telemetry/test_presenter.py` (same
+assertion the original had, same 4 terminal sizes, now using `tmp_path`
+instead of the live system). `docs/design/` (85 documents + its own
+README) was checked and found already well-organized -- a 3-tier index
+already exists, 37 files already self-mark as superseded in-place; no
+action needed there.
+
+(An earlier automated attempt at this same cleanup got stuck in a long,
+unproductive investigation loop trying to reconcile why `scratch/`
+"should" have been untracked clutter per the initial orientation, when
+it was actually tracked -- a real inconsistency in how the task was
+initially framed, not a tooling bug. The terminal resolved it directly
+once flagged, and the task completed from there.)
+
+**Engram** (`D:\Engram&Peerhub\engram-main-worktree`, checked, not yet
+acted on): `git clean -ndx` shows real untracked clutter too, most
+notably several `_old`-suffixed tool directories under `_sys/tools/`
+(`agy_old/`, `bat_old/`, `delta_old/`, `fd_old/`, `oh-my-posh_old/`) that
+look like stale pre-update backup copies never cleaned up after a
+successful tool update. However, `_sys/tools/agy/`, `claude/`, `codex/`,
+and `apps/` also show as "untracked" -- these might be legitimate
+installed-tool state (Engram's tool-catalog system downloads real
+binaries as gitignored runtime state, not committed source; Engram is
+explicitly allowed to keep "install/update/status-check AI CLI tools"
+as its one retained AI-adjacent capability post-diet-plan) rather than
+leftover clutter, and the terminal doesn't have enough confidence in
+Engram's own tool-provisioning conventions to safely distinguish
+"stale, safe to delete" from "current, must keep" here the way it could
+for peerhub's more familiar pytest/codex-sandbox naming patterns.
+**Deferred, not executed**: only the `_old`-suffixed directories look
+like unambiguous cleanup candidates; the rest needs someone more
+familiar with Engram's tool-update mechanism (or the tool-updater's own
+source, `_sys/core/registrar.py`/`provisioner.py`-equivalent, not yet
+read) before touching anything under `_sys/tools/`.
