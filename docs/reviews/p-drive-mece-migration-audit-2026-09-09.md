@@ -7,10 +7,11 @@
 > peerhub `8ae5791`, v0.1.16). Two independent reviewers, split by domain
 > (environment/tooling vs AI-collaboration), instructed NOT to presume prior
 > audit conclusions -- re-derive from current source, cross-check against
-> history only afterward. Status: environment side closed; AI-collaboration
-> side blocked on cx quota (X-pool 100% used, resets ~2026-09-09T13:58),
-> resuming after reset per explicit user instruction ("cx 복귀할 때까지 exh
-> 살피면서 페이스 조절하면서 이어서 진행해줘").
+> history only afterward. Status: **both sides closed** (2026-09-09
+> ~15:40). Environment/tooling side: zero real gaps. AI-collaboration side:
+> **real, actionable gaps found** -- peerhub has migrated the coordination
+> *substrate* (types/services) but not the full production *behavior* of
+> `hub.py`'s `ask` path. See section 2.
 
 ## 1. Environment/Tooling Side (ag.deepthink) -- CLOSED
 
@@ -67,29 +68,77 @@ area) was caught by hub.py's own `LL-20260703-005` out-of-tree-write guard,
 and a second stray scratch file (`scratch_file_headers.txt`) alongside it --
 both untracked, harmless in content, cleaned up from `P:\` root.
 
-## 2. AI-Collaboration Side (cx) -- IN PROGRESS, BLOCKED ON QUOTA
+## 2. AI-Collaboration Side (cx.deepthink) -- CLOSED, REAL GAPS FOUND
 
-Two dispatch attempts to `cx.deepthink` and one fallback to `cx.effort` all
-hit the same shared X-pool quota exhaustion (confirmed via `diag`: X-pool
-100% used, `RAW 99.99x`, resets `2026-09-09T13:58` -- ~4h9m from the block
-being discovered). Per explicit user decision (asked via AskUserQuestion),
-waiting for the reset rather than substituting a different reviewer or
-having the terminal do this half solo -- the independent-second-voice
-cross-check value was the point of splitting this audit in the first place.
+Resumed after the X-pool quota reset (~13:58) and redispatched with the full
+26-item handoff list folded into scope. Elapsed 4198s (~70 min), genuinely
+active the whole time (confirmed live via session sqlite/wal mtimes during
+the wait, not just assumed). **Could not write its report file**: it tried
+its own sandbox temp, then `C:\Temp`, then `D:\tmp`, all rejected/unwritable
+under its sandbox, and it correctly refused to write inside `P:\` (frozen,
+explicitly prohibited) without asking first. Its full narrative reply
+(captured directly from the dispatch's stdout, not re-typed) is the
+deliverable below -- no separate file exists, and none was needed once
+captured here in peerhub's own (non-frozen) repo.
 
-**Handoff list for the AI-collaboration reviewer** (26 items from the
-environment side, to be resolved when cx resumes): `_sys/hooks/ai-check.bat`,
-`ai_check.py`, `archive-data.bat`, `collab-log.bat`, `collab_log.py`,
-`ctx-end.bat`, `ctx-save.bat`, `ctx_end.py`, `ctx_save.py`, `log-write.bat`,
-`memory_compactor.py`, `raw-log.bat`, `raw_log.py`, `session-end.bat`;
-`_sys/templates/CLAUDE_global.md`, `CLAUDE_project.md`,
-`workspace-base/CLAUDE.md`, `workspace-base/GEMINI.md`,
-`workspace-base/config/settings.json`,
-`workspace-base/specific/config/workspace-config.json`,
-`workspace-base/specific/skills/.gitkeep`, `workspace-base/src/.gitkeep`,
-`workspace/CONTEXT.md`, `workspace/knowledge/bindings.template.json`,
-`workspace/knowledge/workspace-profile.template.json`,
-`workspace/src/.gitkeep`.
+**Independent spot-verification of its cited counts** (per this session's
+standing "never trust, verify" rule, given a fabricated-commit-hash incident
+from a different peer earlier the same evening): `hub.py` = **12,360 lines**
+(exact match), `_sys/ai/` tracked files = **57** (exact match, `git
+ls-files`), `_sys/docs-v2/` tracked files = **61** (exact match). Three-for-
+three on independently-checkable numbers is good corroboration of the
+report's overall care. One internal inconsistency **not** corrected on cx's
+behalf, flagged instead: its own reply says "89 CLI actions" in one
+paragraph and "90 CLI actions" in its final coverage list -- one of the two
+is wrong; not independently resolved here (hub.py's CLI surface isn't a
+simple single-pattern grep), left as an open, named discrepancy rather than
+silently picking one. It also did **not** deliver the requested per-item
+table for the 26 handed-off items -- only "all 26 handed-off hooks/templates"
+as one aggregate coverage line, no individual disposition. That specific
+part of the ask was not fulfilled; the 26 items remain formally unresolved
+individually pending a follow-up (see Next Steps).
+
+**Method** (as self-described): independent inventory first (P:'s `_sys/ai`,
+`_sys/claude`, `_sys/codex`, `_sys/antigravity`, `hub.py`'s full CLI surface,
+`_sys/docs-v2`'s INV/PRO rules) against peerhub `main` at `6891454`, cross-
+checked against the named historical audits only afterward, read-only
+throughout (no writes to P:, Engram, or peerhub; no further peer dispatches).
+
+**Verdict: NOT parity-complete.** Confirms the 2026-09-07 audit's finding
+that `LegacyTranslator`/`LEGACY_CATALOG` had zero production callers and are
+now deleted -- but explicitly states that retiring a test shim does not
+prove production parity, and that peerhub's README overstates what its
+shipped `ask` path actually invokes ("full outer loop" / "context
+partitioning" claims).
+
+**Major confirmed gaps** (verbatim from its reply):
+- `peerhub ask` sends the raw prompt without user/runtime directives,
+  lessons, room state, or handoff context.
+- Production asks always use `SessionAction.NONE`; no production caller
+  constructs `SessionHint` (session resume exists as a type, unused).
+- Direct asks route to one explicitly named peer with quota evidence marked
+  `ABSENT`.
+- `dispatch_with_retries()` and `classify_and_open_circuit()` have no
+  production callers (retry/failover exists as code, unused).
+- Claude/Agy/Codex adapter permission/transport plans differ materially
+  from `P:\`; enforcement receipts explicitly say `unverified`.
+- Consensus and Final Call are not bound to generic mutations or dispatch
+  effects.
+- Directive migration is "unreproducible": source path absent, five
+  consumers remain `PENDING`, all six current directive digests differ.
+- `P:\` lessons, enforcement records, peer characteristics, role prompts,
+  skills, and collaboration-loop instructions were not migrated as
+  *effective* data (may exist as inert files without a live consumer).
+- `prompt_reference` unused -- Windows oversized-prompt staging absent.
+- Full response transcripts stay in memory, not durable storage.
+- PeerHub exposes only 5 built-in profiles vs. P:'s 12 (consistent with,
+  and a broader restatement of, this doc's own section-3 adapter-tier
+  finding below).
+- DIR-005 arbiter behavior and Codex reset-credit operations incomplete or
+  absent.
+- `ctx-save`/`ctx-end` have only partial equivalents: durable room
+  checkpoints exist, but automatic cross-dispatch memory/context
+  continuity does not.
 
 ## 3. Empirical "Is It Currently Usable" Spot-Check (terminal, while waiting on cx)
 
@@ -172,13 +221,31 @@ than relying only on static file/code comparison:
    (`orchestration.json`) -- this reads as unfinished adapter parity, not
    an intentional simpler design, though implementation is deliberately
    deferred pending ratification (not attempted here).
-3. **26-item hooks/templates handoff** (section 1/2) -- pending cx's
-   resolution: real gap, or correctly out of peerhub's product scope (e.g.
-   `ctx-save`/`ctx-end` may be a terminal-session-workflow convention for
-   THIS multi-peer development process specifically, not a peerhub feature).
+3. **26-item hooks/templates handoff** (section 1/2) -- **still formally
+   unresolved per-item**: cx's dispatch covered them only in aggregate
+   ("all 26 handed-off hooks/templates" as one coverage line, no individual
+   table). Needs one more narrow follow-up pass before ratification, or
+   ratification proceeds treating them as an open sub-item.
 4. Local dev-venv `peerhub` version-string staleness (section 3) -- trivial,
    `pip install -e . --no-deps -q` fixes it; not a product issue.
-5. *(Pending cx's AI-collaboration-side findings once quota resets.)*
+5. **[NEW, from cx, section 2] `peerhub ask` production path does not
+   consume most of its own durable primitives** -- no directive/lesson/
+   room-context injection, no session resume, no retry/failover, no
+   consensus-to-execution gating, enforcement receipts `unverified`. This is
+   the single largest finding of the whole audit -- likely the primary
+   architectural item for ratification, not a small backlog line.
+6. **[NEW, from cx] Directive migration is unreproducible** -- source path
+   absent, 5 consumers `PENDING`, 6 digests mismatched. Needs its own
+   dedicated investigation before ratification can act on it.
+7. **[NEW, from cx] P:'s lessons/enforcement-records/peer-characteristics/
+   role-prompts/skills/collaboration-loop instructions may exist as inert
+   files with no live consumer in peerhub** -- overlaps with, and is broader
+   than, the 26-item handoff (item 3 above); needs reconciling into one
+   list rather than tracked as two separate open items.
+8. **[NEW, from cx] Internal inconsistency in cx's own report** (89 vs. 90
+   CLI actions in `hub.py`) -- not resolved here, flagged for whoever picks
+   this up next; low stakes but worth a 1-line grep-based fix before citing
+   the number anywhere official.
 
 **Already fixed, no longer backlog items:**
 - `tests/unit/cli/test_diag_broadcast.py`'s two tests ran `main(["diag",
@@ -195,13 +262,19 @@ than relying only on static file/code comparison:
 
 ## Next Steps
 
-1. Redispatch the AI-collaboration audit to cx once its X-pool quota window
-   resets (~2026-09-09T13:58), including the 26-item handoff list above.
-2. Synthesize cx's findings into this document's backlog section.
-3. Route the resulting backlog through peer ratification (per the user's
-   explicit request: "cx 복귀 후 비준 및 개선을 위한 목록화 작업") before
-   acting on any item.
-4. `P:\` remains frozen after the one explicit, requested exception this
+1. ~~Redispatch the AI-collaboration audit to cx~~ **DONE** (2026-09-09
+   ~15:40) -- see section 2.
+2. ~~Synthesize cx's findings into this document's backlog section~~ **DONE**
+   (section 4 above).
+3. **Route the full combined backlog (env-side 26-item handoff + all of
+   cx's findings, esp. items 5-8) through peer ratification** (per the
+   user's explicit request: "cx 복귀 후 비준 및 개선을 위한 목록화 작업")
+   before acting on any item. **Not yet done** -- this is the actual
+   remaining task now that both audit halves are closed.
+4. Before ratification, resolve the two loose ends cx left open: (a) the
+   26-item handoff's per-item disposition (aggregate-only right now), (b)
+   the 89-vs-90 CLI action count self-inconsistency.
+5. `P:\` remains frozen after the one explicit, requested exception this
    session (the `cx.deepthink` model revert, commit `81956b1`, already
    pushed to `stable/hub-py-restored`) -- no further P: changes without a
    new explicit request.
