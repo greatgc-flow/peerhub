@@ -43,6 +43,7 @@ from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
 from peerhub.application.broker_status import collect_effect_status
 from peerhub.application.legacy import legacy_thread_slug
+from peerhub.application.config_paths import resolve_config_paths
 from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits
@@ -2590,6 +2591,17 @@ def main(args: list[str] | None = None) -> int:
     status_group.add_argument("--peer", help="Show quota data for a specific peer")
     status_group.add_argument("--all", action="store_true", help="Show quota data for all peers")
 
+    # Config subcommand (dotdir consolidation, ratified 2026-09-09, item 4)
+    config_parser = subparsers.add_parser("config", help="Inspect peerhub's own resolved configuration")
+    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
+    config_paths_parser = config_subparsers.add_parser(
+        "paths", help="Report every resolved config path and its source"
+    )
+    config_paths_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
+    )
+    config_paths_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+
     # Adapter subcommand
     adapter_parser = subparsers.add_parser("adapter", help="Manage peerhub adapters")
     adapter_subparsers = adapter_parser.add_subparsers(dest="adapter_command", required=True)
@@ -3938,10 +3950,21 @@ def main(args: list[str] | None = None) -> int:
     if parsed.command == "broadcast":
         return _run_broadcast(parsed)
 
+    if parsed.command == "config" and parsed.config_command == "paths":
+        workspace_root = Path(parsed.workspace).resolve()
+        resolved = resolve_config_paths(workspace_root=workspace_root)
+        payload = resolved.as_dict()
+        if parsed.json:
+            print(json.dumps(payload, indent=2))
+        else:
+            for name, entry in payload.items():
+                print(f"{name}: {entry['path']} (source: {entry['source']})")
+        return 0
+
     if parsed.command == "status":
         workspace_root = Path(parsed.workspace).resolve()
         paths = PathLayout.for_workspace(workspace_root)
-        
+
         print(f"Workspace: {workspace_root}")
         print(f"Database: {paths.database_path}")
         

@@ -84,6 +84,50 @@ def test_cli_status_initialized(tmp_path: Path, capsys):
     assert "Active Leases: 0" in stdout
     assert "Status: OK" in stdout
 
+def test_cli_config_paths_json_reports_every_family_and_source(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 4 (dotdir consolidation, ratified 2026-09-09): `peerhub config
+    paths --json` is the acceptance instrument for Engram's env-var
+    redirect -- every resolved root must be present with its source."""
+    monkeypatch.delenv("PEERHUB_CONFIG_HOME", raising=False)
+    exit_code = main(["config", "paths", "--workspace", str(tmp_path), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+
+    for name in (
+        "global_config_home", "workspace_home", "workspace_config_home",
+        "workspace_temp", "models_toml", "ask_toml", "arbiter_json",
+        "proposals_json", "legacy_arbiter_json", "legacy_proposals_json",
+    ):
+        assert name in payload, f"{name} missing from config paths report"
+        assert "path" in payload[name]
+        assert "source" in payload[name]
+
+    # Default (no PEERHUB_CONFIG_HOME set): global config home falls back
+    # to ~/.peerhub/config, source "default".
+    assert payload["global_config_home"]["source"] == "default"
+
+
+def test_cli_config_paths_json_reports_env_source_when_redirected(
+    tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The exact acceptance check the ratified doc names: confirms
+    PEERHUB_CONFIG_HOME resolving is reported as source "env", not
+    silently defaulted -- this is how Engram's redirect (task 6) gets
+    verified end-to-end without guessing."""
+    redirected = tmp_path / ".engram" / "peerhub" / "config"
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(redirected))
+
+    exit_code = main(["config", "paths", "--workspace", str(tmp_path), "--json"])
+
+    assert exit_code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["global_config_home"]["source"] == "env"
+    assert payload["global_config_home"]["path"] == str(redirected)
+
+
 def test_cli_status_with_lease(tmp_path, capsys):
     from peerhub.cli import main, SystemClock, UuidSource
     from peerhub.core.context import RuntimeContext, PathLayout
