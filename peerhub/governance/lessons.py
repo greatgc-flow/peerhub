@@ -132,6 +132,41 @@ class LessonService:
             state,
         )
 
+    def record_enforcement_result(
+        self,
+        lesson_id: str,
+        *,
+        artifact_id: str,
+        artifact_uri: str,
+        passed: bool,
+        actor_id: str,
+        expected_revision: int | None = None,
+    ) -> MutationSubmission:
+        """Record an enforcement-artifact verification result.
+
+        Item D2 (ratified backlog, docs/reviews/p-drive-mece-migration-
+        audit-2026-09-09.md section 5): this is the missing consumer for
+        the ``enforcement`` state ``propose()`` already carries (it was
+        set once to ``NOT_REQUIRED`` and never read or written again --
+        the exact "inert state" gap the audit named). ``activate()`` below
+        now gates on this being ``PASSED``, mirroring hub.py's
+        ``_lesson_activation_blocker``: an unenforced, non-advisory lesson
+        must fail to activate.
+        """
+        target, state = self._load(lesson_id, {"PROPOSED", "APPROVED"})
+        state["enforcement"] = {
+            "artifact_id": artifact_id,
+            "artifact_uri": artifact_uri,
+            "validation_status": "PASSED" if passed else "FAILED",
+        }
+        return self._submit(
+            f"lesson:{lesson_id}",
+            target.revision if expected_revision is None else expected_revision,
+            actor_id,
+            "lessons-record-enforcement-result",
+            state,
+        )
+
     def activate(
         self,
         lesson_id: str,
@@ -142,6 +177,22 @@ class LessonService:
         target, state = self._load(lesson_id, {"PROPOSED", "APPROVED"})
         if state.get("approval") is None:
             raise InvalidMutationError("lesson activation requires approval")
+        validity = cast(Mapping[str, JsonValue], state.get("validity") or {})
+        has_advisory_expiry = validity.get("expires_at") is not None
+        enforcement = cast(Mapping[str, JsonValue], state.get("enforcement") or {})
+        is_enforced = enforcement.get("validation_status") == "PASSED"
+        # Item D2: fail closed unless the lesson is enforced or explicitly
+        # a temporary advisory -- mirrors hub.py's _lesson_activation_blocker
+        # ("G-bridge: an enforcement artifact ref makes the lesson
+        # ACTIVE-eligible; without one, activation requires an explicit
+        # advisory expiry").
+        if not has_advisory_expiry and not is_enforced:
+            raise InvalidMutationError(
+                "lesson activation requires either validity.expires_at "
+                "(advisory) or a PASSED enforcement result "
+                "(see record_enforcement_result) -- mirrors hub.py's "
+                "fail-closed lesson-activation gate"
+            )
         state["lifecycle"] = "ACTIVE"
         return self._submit(
             f"lesson:{lesson_id}",

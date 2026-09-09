@@ -90,6 +90,16 @@ def test_activate_requires_approval_and_sets_active(tmp_path: Path) -> None:
         service.activate("LL-01", actor_id="cx")
 
     service.approve("LL-01", approved_by_actor_id="human:alice")
+    # Item D2: approval alone is no longer sufficient -- activate() also
+    # fail-closes without an advisory expiry or a passing enforcement
+    # result (mirrors hub.py's _lesson_activation_blocker).
+    with pytest.raises(InvalidMutationError, match="enforcement"):
+        service.activate("LL-01", actor_id="cx")
+
+    service.record_enforcement_result(
+        "LL-01", artifact_id="test-artifact", artifact_uri="test://fixture",
+        passed=True, actor_id="cx",
+    )
     service.activate("LL-01", actor_id="cx")
     assert broker.get_target("lesson:LL-01").state["lifecycle"] == "ACTIVE"
 
@@ -97,6 +107,10 @@ def test_activate_requires_approval_and_sets_active(tmp_path: Path) -> None:
 def _active(service: LessonService, lesson_id: str) -> None:
     service.propose(lesson_id=lesson_id, title="T", rule="R", category="C", severity="LOW", proposer_id="cx", affected_peers=())
     service.approve(lesson_id, approved_by_actor_id="human:alice")
+    service.record_enforcement_result(
+        lesson_id, artifact_id="test-artifact", artifact_uri="test://fixture",
+        passed=True, actor_id="cx",
+    )
     service.activate(lesson_id, actor_id="cx")
 
 
@@ -132,6 +146,10 @@ def test_sweep_expired_retires_only_expired_non_sticky_active_lessons(tmp_path: 
             proposer_id="cx", affected_peers=(), sticky=sticky, expires_at=expires_at,
         )
         service.approve(lesson_id, approved_by_actor_id="human:alice")
+        service.record_enforcement_result(
+            lesson_id, artifact_id="test-artifact", artifact_uri="test://fixture",
+            passed=True, actor_id="cx",
+        )
         service.activate(lesson_id, actor_id="cx")
 
     _active_with("expired-lesson", expires_at=0)

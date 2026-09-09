@@ -56,8 +56,17 @@ def _add_lesson(lessons: LessonService, title: str, rule: str, severity: str, af
         shell=shell,
         task_types=task_types,
     )
-    # Approve and Activate
+    # Approve, satisfy the enforcement gate (Item D2 -- activate() now
+    # fails closed without either this or an advisory expires_at), then
+    # activate.
     lessons.approve(lesson_id, approved_by_actor_id="admin")
+    lessons.record_enforcement_result(
+        lesson_id,
+        artifact_id="test-artifact",
+        artifact_uri="test://fixture",
+        passed=True,
+        actor_id="admin",
+    )
     lessons.activate(lesson_id, actor_id="admin")
     return sub
 

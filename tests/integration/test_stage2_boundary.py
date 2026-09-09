@@ -993,6 +993,10 @@ def test_legacy_lesson_broadcast_translates_and_delivers_to_room_members(
         "broadcast-lesson",
         approved_by_actor_id="human:reviewer",
     )
+    runtime.lesson_service.record_enforcement_result(
+        "broadcast-lesson", artifact_id="test-artifact", artifact_uri="test://fixture",
+        passed=True, actor_id="sender",
+    )
     runtime.lesson_service.activate("broadcast-lesson", actor_id="sender")
     runtime.rooms_service.create_room(
         room_id="broadcast-room",
@@ -1168,6 +1172,10 @@ def test_legacy_lessons_list_translates_and_executes(runtime_setup) -> None:
     runtime, client, _ = runtime_setup
     runtime.lesson_service.propose(lesson_id="listed-lesson", title="T", rule="R", category="c", severity="low", proposer_id="peer-1", affected_peers=())
     runtime.lesson_service.approve("listed-lesson", approved_by_actor_id="peer-1")
+    runtime.lesson_service.record_enforcement_result(
+        "listed-lesson", artifact_id="test-artifact", artifact_uri="test://fixture",
+        passed=True, actor_id="peer-1",
+    )
     runtime.lesson_service.activate("listed-lesson", actor_id="peer-1")
     translated = SimpleNamespace(
         command=LessonsListCommand(

@@ -57,6 +57,10 @@ def _activate(lessons: LessonService, lesson_id: str) -> None:
         affected_peers=(),
     )
     lessons.approve(lesson_id, approved_by_actor_id="human:reviewer")
+    lessons.record_enforcement_result(
+        lesson_id, artifact_id="test-artifact", artifact_uri="test://fixture",
+        passed=True, actor_id="sender",
+    )
     lessons.activate(lesson_id, actor_id="sender")
 
 

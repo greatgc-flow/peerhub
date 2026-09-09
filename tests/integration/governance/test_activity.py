@@ -75,6 +75,10 @@ def test_active_lessons_filters_lifecycle_and_handles_object_scope(tmp_path: Pat
     lessons.propose(lesson_id="proposed", title="T", rule="R", category="C", severity="LOW", proposer_id="cx", affected_peers=())
     lessons.propose(lesson_id="active", title="T", rule="R", category="C", severity="LOW", proposer_id="cx", affected_peers=())
     lessons.approve("active", approved_by_actor_id="human:alice")
+    lessons.record_enforcement_result(
+        "active", artifact_id="test-artifact", artifact_uri="test://fixture",
+        passed=True, actor_id="cx",
+    )
     lessons.activate("active", actor_id="cx")
 
     assert tuple(t.target_id for t in list_active_lessons(broker)) == ("lesson:active",)
