@@ -591,3 +591,126 @@ def test_direct_ask_session_resume_incompatible_model_forces_fresh(
     sent_req = adapter.recorded_requests[0]
     # Invariant: Incompatible model fingerprint must NOT resume; it must force CREATE!
     assert sent_req.requested_session_action == SessionAction.CREATE
+
+
+class DirectAskFailThenSucceedAdapter(FakePeerAdapter):
+    """Adapter whose first run exits non-zero and second run succeeds."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(stdout="failing\n", exit_code=3)
+        self._failing = FakePeerAdapter(stdout="failing\n", exit_code=3)
+        self._succeeding = FakePeerAdapter(stdout="recovered\n", exit_code=0)
+        self.spawns = 0
+
+    def plan_invocation(self, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        self.spawns += 1
+        target = self._failing if self.spawns == 1 else self._succeeding
+        return target.plan_invocation(*args, **kwargs)  # type: ignore[arg-type]
+
+
+def test_direct_ask_resilient_dispatch_retries_on_failure(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = DirectAskFailThenSucceedAdapter()
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
+    )
+
+    subject = AuthenticatedSubject("local-cli:test-user", "test")
+    req = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="test retry loop",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+        max_attempts=3,
+    )
+    result = execute_direct_ask(req, clock=clock, ids=ids, authenticated_subject=subject)
+
+    assert adapter.spawns == 2
+    assert result.response_text is not None and "recovered" in result.response_text
+    assert result.request_state == RequestState.SUCCEEDED_VERIFIED
+
+
+def test_direct_ask_circuit_breaker_opens_on_exhausted_failure(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from peerhub.health.contract import PolicyScope, CircuitState
+
+    adapter = FakePeerAdapter(stdout="fatal error\n", exit_code=3)
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
+    )
+
+    subject = AuthenticatedSubject("local-cli:test-user", "test")
+    req = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="test circuit breaker",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+        max_attempts=2,
+    )
+    result = execute_direct_ask(req, clock=clock, ids=ids, authenticated_subject=subject)
+
+    assert result.request_state != RequestState.SUCCEEDED_VERIFIED
+
+    layout = PathLayout.for_workspace(tmp_path)
+    from peerhub.core.context import RuntimeContext
+    from peerhub.runtime import create_runtime
+    rt = create_runtime(RuntimeContext("cli", layout, clock, ids))
+    try:
+        with rt.state_store.read_unit_of_work() as unit:
+            circuit = unit.get_health_circuit(
+                PolicyScope.PROFILE,
+                profile.profile_id,
+            )
+            assert circuit is not None
+            assert circuit.state == CircuitState.CIRCUIT_OPEN
+            assert circuit.receipt is not None
+            assert circuit.receipt.incident == f"direct-ask-{result.command_id}"
+    finally:
+        rt.close()
+

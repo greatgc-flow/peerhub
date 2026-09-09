@@ -19,6 +19,11 @@ from peerhub.adapters.contract import (
 )
 from peerhub.application.bootstrap import build_direct_ask_admission_config
 from peerhub.application.model_config import ModelConfigService, ResolvedModelBinding
+from peerhub.application.retry import (
+    AttemptDispatchPlan,
+    ResolvedRetryTarget,
+    RetryLoopStopReason,
+)
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
 from peerhub.core.identity import AuthenticatedSubject
@@ -32,6 +37,14 @@ from peerhub.dispatch.contract import (
     SessionBindingKey,
     SessionBindingSnapshot,
     SessionBindingState,
+)
+from peerhub.health.contract import (
+    EvidenceSubject,
+    PolicyScope,
+    PolicyReceipt,
+    HealthStageObservation,
+    HealthStage,
+    HealthStageStatus,
 )
 from peerhub.routing.contract import (
     RouteCandidateInput, 
@@ -57,6 +70,36 @@ class DirectAskRequest:
     session_id: str | None = None
     resume: bool = False
     session_action: SessionAction | None = None
+    max_attempts: int = 3
+
+
+class DirectAskRetryTargetResolver:
+    """Resolver for failover peer targets in direct ask."""
+
+    def __init__(self, workspace_root: Path | None = None) -> None:
+        self.workspace_root = workspace_root
+
+    def __call__(
+        self,
+        peer_kind: str,
+        instance_id: str,
+        profile_id: str,
+    ) -> ResolvedRetryTarget | None:
+        try:
+            target = resolve_peer_target(instance_id, profile_id=profile_id)
+            return ResolvedRetryTarget(
+                peer_adapter=target.adapter,
+                profile=target.profile,
+            )
+        except Exception:
+            try:
+                target = resolve_peer_target(peer_kind, profile_id=profile_id)
+                return ResolvedRetryTarget(
+                    peer_adapter=target.adapter,
+                    profile=target.profile,
+                )
+            except Exception:
+                return None
 
 
 @dataclass(frozen=True)
@@ -495,7 +538,9 @@ def execute_direct_ask(
             contract_id=ids.new_id("contract"),
             kind=CompletionContractKind.DELIVERY_ONLY,
             requirements=(),
-            replay_safe=False,
+            replay_safe=(
+                request.required_capability_tier is CapabilityTier.READ_ONLY
+            ),
         )
 
         admission_result = runtime.application_workflows.admit_request(
@@ -569,24 +614,76 @@ def execute_direct_ask(
             workspace_root=request.workspace_root,
             clock=clock.now,
         )
-        
-        execution_result = runtime.application_workflows.dispatch_and_execute(
-            command_id,
+
+        initial_attempt = AttemptDispatchPlan(
+            route_decision_id=route.decision.decision_id,
             capability_lease_id=capability_lease_id,
             peer_instance_id=admitted_request.selected_peer_instance_id,
-            current_policy_revision=1,
-            materializer=materializer,
             adapter_request=adapter_request,
             peer_adapter=target.adapter,
             profile=target.profile,
+            session=session_hint if session_action is SessionAction.RESUME else None,
+        )
+
+        retry_target_resolver = DirectAskRetryTargetResolver(
+            workspace_root=request.workspace_root,
+        )
+
+        multi_result = runtime.application_workflows.dispatch_with_retries(
+            command_id,
+            initial_attempt=initial_attempt,
+            route_request_factory=route_request_factory,
+            current_policy_revision=policy_revision,
+            materializer=materializer,
             limits=request.limits,
             workspace_roots={"default": request.workspace_root},
-            content_providers={}, 
+            content_providers={},
             completion_contract=completion_contract,
             heartbeat_timeout_ms=30000,
-            session=session_hint,
+            max_attempts=request.max_attempts,
+            retry_target_resolver=retry_target_resolver,
             cancellation_hook=cancellation_hook,
         )
+
+        last_record = multi_result.attempts[-1]
+        execution_result = last_record.execution
+
+        is_failed = (
+            execution_result.attempt.state in (
+                RequestState.FAILED,
+                RequestState.INCOMPLETE,
+                RequestState.INTERRUPTED,
+            )
+            or execution_result.request.state in (
+                RequestState.FAILED,
+                RequestState.FAILED_PRE_DISPATCH,
+                RequestState.START_UNCERTAIN,
+                RequestState.INCOMPLETE,
+            )
+            or multi_result.stop_reason in (
+                RetryLoopStopReason.ATTEMPT_LIMIT_REACHED,
+                RetryLoopStopReason.ROUTE_EXHAUSTED,
+            )
+        )
+        if is_failed:
+            runtime.health_service.classify_and_open_circuit(
+                attempted_trace=(
+                    HealthStageObservation(
+                        stage=HealthStage.CALL_PROVIDER,
+                        status=HealthStageStatus.FAILED,
+                    ),
+                ),
+                evidence_subject=EvidenceSubject(
+                    scope=PolicyScope.PROFILE,
+                    subject=target.profile.profile_id,
+                ),
+                receipt=PolicyReceipt(
+                    incident=f"direct-ask-{command_id}",
+                    gate_generation=1,
+                    timestamp=clock.now(),
+                    fingerprint=f"direct_ask_failure:{command_id}",
+                ),
+            )
 
         if session_key is not None and session_action in (SessionAction.CREATE, SessionAction.RESUME):
             ext_sess_id = request.session_id or command_id

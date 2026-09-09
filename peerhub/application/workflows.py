@@ -1246,6 +1246,7 @@ class ApplicationWorkflows:
         transport: str = "pipe",
         service: DispatchService | None = None,
         event_sink: Callable[[DecoderEvent], None] | None = None,
+        cancellation_hook: Callable[[ProcessSupervisor], None] | None = None,
     ) -> MultiAttemptExecutionResult:
         """Run the bounded outer retry loop for one command.
 
@@ -1304,6 +1305,7 @@ class ApplicationWorkflows:
                     service=service,
                     session=current_plan.session,
                     event_sink=event_sink,
+                    cancellation_hook=cancellation_hook,
                 )
             except ConcurrentAttemptClaimError as error:
                 # Step 12 (attempt-creation boundary): another caller already
@@ -1522,6 +1524,7 @@ class ApplicationWorkflows:
                     service=service,
                     session=current_plan.session,
                     event_sink=event_sink,
+                    cancellation_hook=cancellation_hook,
                 )
             except ConcurrentAttemptClaimError as error:
                 # Step 12 (attempt-creation boundary): another caller already
