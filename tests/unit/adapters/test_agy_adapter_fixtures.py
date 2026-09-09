@@ -370,3 +370,57 @@ def test_agy_decoder_fallback_check_sees_merged_stderr_preamble():
     ]
     assert len(vendor_events) == 1
     assert vendor_events[0].payload["normalized_kind"] == "invocation_plan_rejected"
+
+
+# --- Item H: staged prompt references (ratified backlog section 5) ----------
+
+
+def _reference_request(reference: str) -> AdapterRequest:
+    return AdapterRequest(
+        request_id="req-staged",
+        prompt_content=None,
+        prompt_reference=reference,
+        workspace_scope=".",
+        profile_id="ag.standard",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+    )
+
+
+def test_agy_plan_invocation_accepts_a_staged_prompt_reference(tmp_path):
+    import hashlib
+
+    payload = "line one\nline two\n" * 200
+    staged = tmp_path / "staged.prompt.txt"
+    # write_bytes, not write_text: text mode silently rewrites \n -> \r\n on
+    # Windows, which would make the file's real bytes (and thus its real
+    # digest) diverge from what this test computed from the raw string.
+    staged.write_bytes(payload.encode("utf-8"))
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    adapter = RealAgyAdapter()
+    plan = adapter.plan_invocation(
+        _reference_request(str(staged)), _profile(), None, _limits()
+    )
+
+    prompt_arg = plan.argv[plan.argv.index("-p") + 1]
+    assert "[IPC PAYLOAD FILE]" in prompt_arg
+    assert str(staged) in prompt_arg
+    assert digest in prompt_arg
+    # The pointer replaces the payload; it never re-inlines it.
+    assert payload not in prompt_arg
+    assert len(prompt_arg) < len(payload)
+
+
+def test_agy_plan_invocation_still_rejects_a_request_with_no_prompt_at_all():
+    adapter = RealAgyAdapter()
+    # __post_init__ enforces exactly-one, so bypass it to prove the adapter
+    # itself still fails closed rather than sending an empty prompt.
+    request = object.__new__(AdapterRequest)
+    for field, value in vars(_request(SessionAction.NONE)).items():
+        object.__setattr__(request, field, value)
+    object.__setattr__(request, "prompt_content", None)
+    object.__setattr__(request, "prompt_reference", None)
+
+    with pytest.raises(ValueError, match="prompt_content or prompt_reference"):
+        adapter.plan_invocation(request, _profile(), None, _limits())

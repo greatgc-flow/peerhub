@@ -24,6 +24,7 @@ from peerhub.adapters.contract import (
     SessionAction,
     SessionHint,
 )
+from peerhub.adapters.prompt_transport import resolve_prompt_payload
 from peerhub.core.protocol import ErrorCode
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
@@ -183,9 +184,7 @@ class RealClaudeAdapter:
         if profile.profile_id not in {p.profile_id for p in _CLAUDE_PROFILES}:
             raise ValueError(f"Unsupported profile {profile.profile_id}")
 
-        prompt = request.prompt_content
-        if prompt is None:
-            raise ValueError("prompt_content is required")
+        prompt = resolve_prompt_payload(request)
 
         policy = self.prompt_policy(profile)
         artifacts: list[ArtifactSpec] = []

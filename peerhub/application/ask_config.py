@@ -58,10 +58,19 @@ class ContinuityConfig:
 
 
 @dataclass(frozen=True)
+class PromptStagingConfig:
+    """Where and whether an oversized prompt is staged to a file."""
+
+    enabled: bool
+    relative_dir: str
+
+
+@dataclass(frozen=True)
 class AskConfig:
     """Resolved configuration for one ask dispatch."""
 
     continuity: ContinuityConfig
+    prompt_staging: PromptStagingConfig
 
 
 def _table(data: Mapping[str, Any], name: str) -> dict[str, Any]:
@@ -78,6 +87,16 @@ def _bool(table: Mapping[str, Any], key: str, section: str) -> bool:
     if type(value) is not bool:
         raise AskConfigError(
             f"ask config: [{section}] {key} must be a boolean, got {value!r}"
+        )
+    return value
+
+
+def _text(table: Mapping[str, Any], key: str, section: str) -> str:
+    value = table.get(key)
+    if type(value) is not str or not value:
+        raise AskConfigError(
+            f"ask config: [{section}] {key} must be a nonempty string, "
+            f"got {value!r}"
         )
     return value
 
@@ -105,7 +124,7 @@ def _merge_layer(
     return merged
 
 
-_SECTIONS = ("continuity",)
+_SECTIONS = ("continuity", "prompt_staging")
 
 
 def load_ask_config() -> AskConfig:
@@ -127,6 +146,7 @@ def load_ask_config() -> AskConfig:
             layers = _merge_layer(layers, tomllib.load(handle))
 
     continuity = layers["continuity"]
+    prompt_staging = layers["prompt_staging"]
     return AskConfig(
         continuity=ContinuityConfig(
             enabled=_bool(continuity, "enabled", "continuity"),
@@ -142,6 +162,12 @@ def load_ask_config() -> AskConfig:
             max_chars=_nonnegative_int(continuity, "max_chars", "continuity"),
             include_unattributed_tasks=_bool(
                 continuity, "include_unattributed_tasks", "continuity"
+            ),
+        ),
+        prompt_staging=PromptStagingConfig(
+            enabled=_bool(prompt_staging, "enabled", "prompt_staging"),
+            relative_dir=_text(
+                prompt_staging, "relative_dir", "prompt_staging"
             ),
         ),
     )

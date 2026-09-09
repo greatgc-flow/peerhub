@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 import hashlib
 
+from peerhub.adapters.prompt_transport import stage_prompt
 from peerhub.adapters.registry import resolve_peer_target, ResolvedPeerTarget
 from peerhub.adapters.contract import (
     AdapterRequest,
@@ -623,9 +624,24 @@ def execute_direct_ask(
             policy=policy,
             config=ask_config,
         )
+        # Item H: past the profile's inline ceiling, stage the payload
+        # verbatim and carry a reference rather than failing the dispatch.
+        # AdapterRequest requires exactly one of content/reference, so these
+        # two are always mutually exclusive.
         prompt_bytes = len(assembled_prompt.encode("utf-8"))
+        prompt_content: str | None = assembled_prompt
+        prompt_reference: str | None = None
         if prompt_bytes > policy.max_inline_utf8_bytes:
-            raise ValueError(f"prompt invalid: exceeds {policy.max_inline_utf8_bytes} bytes")
+            if not ask_config.prompt_staging.enabled:
+                raise ValueError(f"prompt invalid: exceeds {policy.max_inline_utf8_bytes} bytes")
+            staged = stage_prompt(
+                assembled_prompt,
+                workspace_root=request.workspace_root,
+                relative_dir=ask_config.prompt_staging.relative_dir,
+                request_id=client_request_id,
+            )
+            prompt_content = None
+            prompt_reference = str(staged.path)
 
         session_action, session_hint, session_key = resolve_session_lifecycle(
             request,
@@ -636,8 +652,8 @@ def execute_direct_ask(
 
         adapter_request = AdapterRequest(
             request_id=client_request_id,
-            prompt_content=assembled_prompt,
-            prompt_reference=None,
+            prompt_content=prompt_content,
+            prompt_reference=prompt_reference,
             workspace_scope="default",
             profile_id=target.profile.profile_id,
             requested_session_action=session_action,

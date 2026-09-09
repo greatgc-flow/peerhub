@@ -31,3 +31,15 @@ max_chars = 2000
 # to the workspace's most recent checkpointed tasks regardless of which peer
 # coordinated them. Set false for strict per-peer isolation.
 include_unattributed_tasks = true
+
+# Oversized-prompt staging (ratified backlog item H). A prompt past the
+# adapter profile's own `max_inline_utf8_bytes` is written verbatim to a
+# file under the workspace's state directory and carried as
+# `AdapterRequest.prompt_reference` instead of failing the dispatch.
+[prompt_staging]
+enabled = true
+# Workspace-relative; validated exactly like dispatch/artifacts.py validates
+# `artifact_staging_relative_root` (relative, no traversal, must resolve
+# inside the workspace root). Defaults under the workspace's own .peerhub
+# state home rather than a bare OS temp directory.
+relative_dir = ".peerhub/prompt-staging"

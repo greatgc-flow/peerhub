@@ -184,10 +184,18 @@ def test_direct_ask_binds_machine_subject_to_issued_lease(
 
 
 class RecordingFakePeerAdapter(FakePeerAdapter):
-    def __init__(self, *args, query_first: bool = False, supports_session: bool = False, **kwargs):
+    def __init__(
+        self,
+        *args,
+        query_first: bool = False,
+        supports_session: bool = False,
+        max_inline_utf8_bytes: int | None = None,
+        **kwargs,
+    ):
         super().__init__(*args, **kwargs)
         self.recorded_requests = []
         self._query_first = query_first
+        self._max_inline_utf8_bytes = max_inline_utf8_bytes
         if supports_session:
             from dataclasses import replace
             from peerhub.adapters.contract import Capability
@@ -201,7 +209,11 @@ class RecordingFakePeerAdapter(FakePeerAdapter):
         base = super().prompt_policy(profile)
         return PromptPolicy(
             policy_id=base.policy_id,
-            max_inline_utf8_bytes=base.max_inline_utf8_bytes,
+            max_inline_utf8_bytes=(
+                base.max_inline_utf8_bytes
+                if self._max_inline_utf8_bytes is None
+                else self._max_inline_utf8_bytes
+            ),
             artifact_reference_supported=base.artifact_reference_supported,
             query_first=self._query_first,
         )
@@ -1019,3 +1031,161 @@ def test_direct_ask_continuity_disabled_by_global_config(
 
     sent_prompt = adapter.recorded_requests[0].prompt_content
     assert sent_prompt == "gated question"
+
+
+# ---------------------------------------------------------------------------
+# Item H -- oversized-prompt staging (ratified backlog section 5).
+# direct_ask.py raised ValueError past max_inline_utf8_bytes instead of using
+# AdapterRequest's existing prompt_reference field. Parity target:
+# hub_peer.py's AgyAdapter.prepare_input, which stages to ai_root/"ipc",
+# verifies a digest round-trip, and never truncates.
+# ---------------------------------------------------------------------------
+
+
+def _oversized_prompt(byte_target: int) -> str:
+    return "x" * byte_target
+
+
+def test_direct_ask_stages_oversized_prompt_to_prompt_reference(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hashlib
+
+    adapter = RecordingFakePeerAdapter(
+        stdout="staged ok", max_inline_utf8_bytes=64
+    )
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    _patch_direct_ask(monkeypatch, target)
+
+    prompt = _oversized_prompt(4096)
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt=prompt,
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    result = execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    assert result.response_text == "staged ok"
+    assert len(adapter.recorded_requests) == 1
+    sent = adapter.recorded_requests[0]
+    assert sent.prompt_content is None
+    assert sent.prompt_reference is not None
+
+    staged = Path(sent.prompt_reference)
+    assert staged.is_file()
+    # Staged under the workspace's own state directory, never a bare OS temp.
+    assert staged.is_relative_to(PathLayout.for_workspace(tmp_path).workspace_home)
+    payload = staged.read_bytes()
+    assert payload.decode("utf-8") == prompt
+    assert hashlib.sha256(payload).hexdigest()
+
+
+def test_direct_ask_oversized_prompt_raises_when_staging_disabled(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Staging is config-gated; turning it off restores the pre-item-H error."""
+    config_home = tmp_path / "config-home"
+    config_home.mkdir()
+    (config_home / "ask.toml").write_text(
+        "[prompt_staging]\nenabled = false\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(config_home))
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    adapter = RecordingFakePeerAdapter(
+        stdout="never sent", max_inline_utf8_bytes=64
+    )
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake",
+        peer_kind="fake",
+        adapter=adapter,
+        profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    _patch_direct_ask(monkeypatch, target)
+
+    request = DirectAskRequest(
+        workspace_root=workspace,
+        peer_name="fake",
+        prompt=_oversized_prompt(4096),
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    with pytest.raises(ValueError, match="exceeds 64 bytes"):
+        execute_direct_ask(
+            request,
+            clock=clock,
+            ids=ids,
+            authenticated_subject=AuthenticatedSubject(
+                "local-cli:test-user", "test"
+            ),
+        )
+
+
+def test_direct_ask_inline_prompt_is_not_staged(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, target = _continuity_target("inline ok")
+    _patch_direct_ask(monkeypatch, target)
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="small enough to go inline",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    sent = adapter.recorded_requests[0]
+    assert sent.prompt_content == "small enough to go inline"
+    assert sent.prompt_reference is None
