@@ -298,6 +298,30 @@ efficient than a peer round-trip. 99 scoped tests passed, pyright 0
 errors, and a real live `peerhub adapter discover --json` confirmed all
 3 peers now show 3 profiles each (previously ag/cc showed 1).
 
+**Items G and H (P1) -- DONE.** Dispatched together with Item I to
+`cc.deepthink` (`box5pc3od`); the dispatch itself reported failure
+(`execution_state=uncertain`, timeout after 900s) but per this session's
+"killed dispatch may still write" policy, the working tree was inspected
+rather than the failure being trusted at face value. Found: Item G fully
+committed and clean (`7dd66a6`, feeds durable room/task checkpoints into
+the next dispatch's injected context, building on Item B's injection
+point rather than a parallel path). Item H was real but genuinely
+incomplete -- `peerhub/adapters/prompt_transport.py` (staging/digest/
+pointer logic) was complete and correct, wired into `direct_ask.py` and
+config-driven via a new `[prompt_staging]` section, but only
+`agy_adapter.py`'s `plan_invocation` had actually been updated to accept
+a staged reference; `claude_adapter.py`/`codex_adapter.py` still had the
+old prompt-content-only read, and one new test had a real Windows CRLF
+bug (`Path.write_text()` silently rewrites `\n`->`\r\n`, corrupting a
+digest comparison). Finished directly by the terminal: updated all 3
+adapters uniformly, fixed the test, dropped one dead unused-import line.
+Commit `332af8b`. Item I was never started by that dispatch (timed out
+before reaching it) -- separate follow-up.
+
+Verified together: 356 scoped tests passed (all adapters + application +
+governance + persistence + discovery/registry touched by B/E/G/H),
+pyright 0 errors/0 warnings on the full `peerhub` package.
+
 **Recurring host issue this session:** 3 separate background dispatches
 (the first Item B attempt, a full-suite pytest verification, and the
 first Item E attempt) were killed by Windows-reported low-memory
