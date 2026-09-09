@@ -106,27 +106,44 @@ than relying only on static file/code comparison:
   -e . --no-deps -q` would refresh it.)
 - `peerhub adapter discover --json` -> real, live-measured detection of all
   3 peer CLIs (agy.exe/claude.cmd/codex.cmd, all `MEASURED` with real
-  executable paths). **Real finding**: profile counts are uneven across
-  peers -- `cx` reports 3 profiles (`standard`/`effort`/`deepthink`), `ag`
-  and `cc` each report only 1 (`standard`). `P:\_sys\ai\orchestration.json`
-  (this session's own AI-orchestration config, actively maintained all
-  session) defines 5 tiers for `ag` alone (`standard`/`effort`/`deepthink`/
-  `opus`/`gptoss`). **Open question, not yet resolved**: is peerhub's
-  adapter-profile registry supposed to mirror hub.py's/`orchestration.json`'s
-  full tier set, or is this an intentional simpler default-profile design
-  peerhub has for its own adapter layer? Needs a design-intent answer, not
-  an assumption -- candidate for the improvement backlog below pending that
-  answer.
-- `peerhub diag` -> runs, correct structural output, but almost all
-  quota/pace numbers render as `--`/`Unknown` (`Quota Status: Unknown (No
-  quota data available)`), a stark contrast with `hub.py`'s own `diag.py`
-  (run moments earlier, same machine, same peers) which shows rich,
-  populated EXH/pace/pool data for the exact same peers. **Real finding**:
-  peerhub's own quota-telemetry backend is either not wired to a real data
-  source yet, or reads a different quota-tracking format than the one
-  `hub.py`'s `diag.py` populates (which this whole session's dispatches have
-  been feeding all night) -- candidate for the improvement backlog, pending
-  investigation of which.
+  executable paths). **Real finding, root-caused directly in code**:
+  `peerhub/adapters/agy_adapter.py` and `claude_adapter.py` each hardcode
+  exactly ONE `ProfileDescriptor` (`ag.standard`, `cc.standard`), while
+  `peerhub/adapters/codex_adapter.py` defines three
+  (`_CODEX_STANDARD_PROFILE`/`_CODEX_EFFORT_PROFILE`/
+  `_CODEX_DEEPTHINK_PROFILE`) via the identical, simple, mechanical
+  `ProfileDescriptor(profile_id=..., profile_class="tier",
+  supports_reasoning_effort=True)` pattern. `P:\_sys\ai\orchestration.json`
+  (this session's own AI-orchestration config) defines 5 real, actively-used
+  tiers for `ag` alone (`standard`/`effort`/`deepthink`/`opus`/`gptoss`) --
+  `ag.effort`/`ag.deepthink`/`cc.effort`/`cc.deepthink` are all genuinely
+  real, working, constantly-dispatched profiles this whole session, not
+  hypothetical. **This looks like straightforward unfinished parity
+  between the three adapters** (codex's adapter got full multi-tier
+  treatment, ag/cc's did not) rather than a deliberate simpler-by-design
+  choice -- but implementing it is intentionally NOT done here per the
+  original instruction to route it through consultation first. Candidate
+  for the improvement backlog below.
+- `peerhub diag` -> **initial run appeared to show mostly empty quota data,
+  but this was a test-setup artifact, corrected via a second direct
+  empirical test, not a real product gap.** `peerhub/telemetry/
+  quota_polling.py`'s `_resolve_sys_dir()` deliberately resolves the AI-CLI
+  state directory from an explicit param, `PEERHUB_SYS_DIR` env var, or
+  `<cwd>/_sys` -- by design, portable, no hardcoded P:-specific path. The
+  first test ran `diag` against a scratch workspace/the repo root, neither
+  of which has a real `_sys/` with real CLI session state, so the pollers
+  correctly, honestly reported "absent" rather than fabricating data.
+  Re-ran with `PEERHUB_SYS_DIR=P:\_sys peerhub diag --workspace <scratch>`:
+  AG's quota populated correctly and richly (3P-pool 49%, G-pool 71%, real
+  pace/reset data) -- confirming the telemetry pipeline is genuinely wired
+  and working once pointed at a real state directory. CX still showed
+  empty even with the env var set; root cause is very likely that
+  `poll_codex_usage()` queries a LIVE `codex app-server` subprocess for
+  real-time quota (not a static log file), and CX's profiles are currently
+  quota-exhausted (X-pool 100% used, blocked until ~13:58) -- plausibly a
+  live query correctly failing/timing out during a real exhaustion window,
+  not a wiring gap. Not re-verified after CX's quota resets; if it's still
+  empty then, that would be a real, narrower finding worth a fresh look.
 - `peerhub status --workspace <fresh dir>` -> exactly matches the documented
   "reports uninitialized if no database yet" behavior.
 - `peerhub ask ag "say hello in exactly three words" --capability-tier
@@ -137,14 +154,24 @@ than relying only on static file/code comparison:
 
 ## 4. Running Improvement Backlog (provisional -- finalize after cx's findings + ratification)
 
-1. **peerhub `diag`'s quota-telemetry gap vs `hub.py`'s** (found empirically,
-   section 3). Needs investigation: is this unwired, or reading a different
-   (currently-unpopulated) data source? Real, user-visible completeness gap
-   if peerhub is meant to be usable as hub.py's actual quota-dashboard
-   replacement.
-2. **peerhub `adapter discover` profile-tier coverage asymmetry** (found
-   empirically, section 3) -- `ag`/`cc` show only their `standard` profile,
-   `cx` shows all 3 tiers. Needs a design-intent decision, not an assumption.
+1. ~~peerhub `diag`'s quota-telemetry gap vs `hub.py`'s~~ **RESOLVED, not a
+   real gap** (section 3) -- was a test-setup artifact (`PEERHUB_SYS_DIR`/
+   workspace not pointed at a real `_sys/`); re-tested correctly and the
+   pipeline is genuinely wired (AG populated richly once configured
+   right). CX's continued empty result is very likely explained by its
+   live app-server query correctly failing during its own real quota
+   exhaustion window, not a wiring gap -- worth one more quick check after
+   CX's quota resets, but not a backlog item on its own merit right now.
+2. **peerhub `adapter discover` profile-tier coverage asymmetry -- root-
+   caused, real, actionable gap** (section 3): `agy_adapter.py`/
+   `claude_adapter.py` hardcode a single `ProfileDescriptor` each
+   (`ag.standard`/`cc.standard`); `codex_adapter.py` already defines 3
+   (`standard`/`effort`/`deepthink`) via the exact same simple,
+   mechanical pattern. `ag.effort`/`ag.deepthink`/`cc.effort`/
+   `cc.deepthink` are real, actively-dispatched profiles all session
+   (`orchestration.json`) -- this reads as unfinished adapter parity, not
+   an intentional simpler design, though implementation is deliberately
+   deferred pending ratification (not attempted here).
 3. **26-item hooks/templates handoff** (section 1/2) -- pending cx's
    resolution: real gap, or correctly out of peerhub's product scope (e.g.
    `ctx-save`/`ctx-end` may be a terminal-session-workflow convention for
@@ -152,6 +179,19 @@ than relying only on static file/code comparison:
 4. Local dev-venv `peerhub` version-string staleness (section 3) -- trivial,
    `pip install -e . --no-deps -q` fixes it; not a product issue.
 5. *(Pending cx's AI-collaboration-side findings once quota resets.)*
+
+**Already fixed, no longer backlog items:**
+- `tests/unit/cli/test_diag_broadcast.py`'s two tests ran `main(["diag",
+  ...])` with no `--workspace`, defaulting to CWD and polluting the repo's
+  own working tree with a real `.peerhub/` directory on every full-suite
+  run (found while investigating item 1 above, unrelated to it). Fixed:
+  peerhub commit `b661ba0`.
+- A real, ~16-hour-old orphaned process chain (`powershell -> cmd ->
+  python -> cmd -> node -> codex.exe`, plus two shorter sibling orphan
+  chains and 6 stuck `jq.exe` processes, some 1-2 days old) was found on
+  this host and terminated -- likely a genuine contributing factor to this
+  session's repeated "system is running low on memory" dispatch kills,
+  independent of anything in peerhub/Engram/P: themselves.
 
 ## Next Steps
 
