@@ -232,9 +232,17 @@ inconsistency than leaving it. Flagging for whoever next touches
 Engram's tool provisioning, not urgent.
 
 **peerhub round 2**: re-ran the full suite after the structure cleanup
-commits and diffed `git status --short --ignored=matching` before/after
--- zero new untracked items escaped the newly-added `.gitignore`
-patterns. The full sweep (project-folder pruning, root-clutter cleanup,
-`.gitignore` hardening, `scratch/` de-tracking, `test_responsive.py`
-conversion) is now considered complete for both repos as of this pass;
-nothing new surfaced on this second, independent look.
+commits (`1479 passed, 2 skipped in 253.87s`) and diffed
+`git status --short --ignored=matching` before/after -- **zero
+escapes**, every single item the full suite generates is correctly
+caught by an existing or newly-added `.gitignore` pattern. `P:`'s
+project-folder count re-checked separately and holds stable at 8
+(unchanged since the round-1 cleanup) despite continued work all
+session from the same `P:\workspace\peerhub` cwd. The full sweep
+(project-folder pruning, root-clutter cleanup, `.gitignore` hardening,
+`scratch/` de-tracking, `test_responsive.py` conversion, Engram's
+`_old` resolution) is now considered complete and STABLE across two
+independent verification rounds for all three trees (P:, peerhub,
+Engram); nothing new surfaced on the second look, and the fixes
+demonstrably held through continued real use rather than just
+looking clean immediately after the fix.
