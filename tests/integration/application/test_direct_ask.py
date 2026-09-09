@@ -1189,3 +1189,96 @@ def test_direct_ask_inline_prompt_is_not_staged(
     sent = adapter.recorded_requests[0]
     assert sent.prompt_content == "small enough to go inline"
     assert sent.prompt_reference is None
+
+
+# --- Item I: durable dispatch transcript storage (ratified backlog section 5) ---
+
+def test_direct_ask_persists_transcript(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter, target = _continuity_target("This is the response transcript text")
+    _patch_direct_ask(monkeypatch, target)
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    result = execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    assert result.response_text == "This is the response transcript text"
+    
+    # Verify persistence
+    from peerhub.core.context import PathLayout
+    db_path = PathLayout.for_workspace(tmp_path).database_path
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM dispatch_transcripts").fetchone()
+        
+    assert row is not None
+    assert row["attempt_id"] == result.attempt_id
+    assert row["transcript_text"] == "This is the response transcript text"
+    assert row["peer_kind"] == target.peer_kind
+    assert row["profile_id"] == target.profile.profile_id
+    assert row["created_at"] > 0
+
+def test_direct_ask_transcript_persistence_disabled_by_config(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_home = tmp_path / "config-home"
+    config_home.mkdir()
+    (config_home / "ask.toml").write_text(
+        "[transcript_storage]\nenabled = false\n", encoding="utf-8"
+    )
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(config_home))
+
+    adapter, target = _continuity_target("This is the response transcript text")
+    _patch_direct_ask(monkeypatch, target)
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+
+    from peerhub.core.context import PathLayout
+    db_path = PathLayout.for_workspace(tmp_path).database_path
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        # Table exists but should be empty
+        count = conn.execute("SELECT COUNT(*) FROM dispatch_transcripts").fetchone()[0]
+    assert count == 0

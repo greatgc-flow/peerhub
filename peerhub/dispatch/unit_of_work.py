@@ -273,6 +273,17 @@ class DispatchUnitOfWork(DispatchReadUnitOfWork, UnitOfWork, Protocol):
 
         ...
 
+
+    def add_dispatch_transcript(
+        self,
+        attempt_id: str,
+        peer_kind: str,
+        profile_id: str,
+        transcript_text: str,
+        created_at: int,
+    ) -> None:
+        ...
+
     def add_attempt(self, attempt: AttemptSnapshot) -> None:
         """Insert an immutable initial attempt snapshot."""
 

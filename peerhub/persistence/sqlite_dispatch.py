@@ -1120,6 +1120,35 @@ class SqliteDispatchRepository:
             )
         return int(row["next_number"])  # pyright: ignore[reportUnknownArgumentType]
 
+
+    def add_dispatch_transcript(
+        self,
+        attempt_id: str,
+        peer_kind: str,
+        profile_id: str,
+        transcript_text: str,
+        created_at: int,
+    ) -> None:
+        """Insert a dispatch transcript."""
+        self._db().execute(  # pyright: ignore[reportUnknownMemberType]
+            """
+            INSERT INTO dispatch_transcripts (
+                attempt_id,
+                peer_kind,
+                profile_id,
+                transcript_text,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                attempt_id,
+                peer_kind,
+                profile_id,
+                transcript_text,
+                created_at,
+            ),
+        )
+
     def add_attempt(self, attempt: AttemptSnapshot) -> None:
         """Insert a revision-one dispatch attempt."""
 

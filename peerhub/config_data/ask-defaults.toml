@@ -43,3 +43,7 @@ enabled = true
 # inside the workspace root). Defaults under the workspace's own .peerhub
 # state home rather than a bare OS temp directory.
 relative_dir = ".peerhub/prompt-staging"
+
+# Durable dispatch transcript storage (ratified backlog item I).
+[transcript_storage]
+enabled = true

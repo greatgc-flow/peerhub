@@ -780,6 +780,18 @@ def execute_direct_ask(
         if execution_result.decoded_output:
             response_text = execution_result.decoded_output.canonical_text
 
+            if ask_config.transcript_storage.enabled:
+                with runtime.state_store.unit_of_work() as unit:
+                    unit.add_dispatch_transcript(
+                        attempt_id=execution_result.attempt.attempt_id,
+                        peer_kind=target.peer_kind,
+                        profile_id=target.profile.profile_id,
+                        transcript_text=response_text,
+                        created_at=now,
+                    )
+                    unit.commit()
+
+
         return DirectAskResult(
             command_id=command_id,
             attempt_id=execution_result.attempt.attempt_id,

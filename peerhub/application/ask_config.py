@@ -65,12 +65,20 @@ class PromptStagingConfig:
     relative_dir: str
 
 
+
+@dataclass(frozen=True)
+class TranscriptStorageConfig:
+    """Durable dispatch transcript storage bounds."""
+
+    enabled: bool
+
 @dataclass(frozen=True)
 class AskConfig:
     """Resolved configuration for one ask dispatch."""
 
     continuity: ContinuityConfig
     prompt_staging: PromptStagingConfig
+    transcript_storage: TranscriptStorageConfig
 
 
 def _table(data: Mapping[str, Any], name: str) -> dict[str, Any]:
@@ -124,7 +132,7 @@ def _merge_layer(
     return merged
 
 
-_SECTIONS = ("continuity", "prompt_staging")
+_SECTIONS = ("continuity", "prompt_staging", "transcript_storage")
 
 
 def load_ask_config() -> AskConfig:
@@ -147,6 +155,7 @@ def load_ask_config() -> AskConfig:
 
     continuity = layers["continuity"]
     prompt_staging = layers["prompt_staging"]
+    transcript_storage = layers["transcript_storage"]
     return AskConfig(
         continuity=ContinuityConfig(
             enabled=_bool(continuity, "enabled", "continuity"),
@@ -169,5 +178,8 @@ def load_ask_config() -> AskConfig:
             relative_dir=_text(
                 prompt_staging, "relative_dir", "prompt_staging"
             ),
+        ),
+        transcript_storage=TranscriptStorageConfig(
+            enabled=_bool(transcript_storage, "enabled", "transcript_storage"),
         ),
     )

@@ -1216,6 +1216,17 @@ class SqliteUnitOfWork:
         """Return the next monotonic attempt number in this transaction."""
         return self.dispatch.next_attempt_number(command_id)
 
+
+    def add_dispatch_transcript(
+        self,
+        attempt_id: str,
+        peer_kind: str,
+        profile_id: str,
+        transcript_text: str,
+        created_at: int,
+    ) -> None:
+        return self._dispatch.add_dispatch_transcript(attempt_id, peer_kind, profile_id, transcript_text, created_at)
+
     def add_attempt(self, attempt: AttemptSnapshot) -> None:
         """Insert a revision-one dispatch attempt."""
         return self.dispatch.add_attempt(attempt)
