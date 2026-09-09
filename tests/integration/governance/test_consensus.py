@@ -210,3 +210,98 @@ def test_escalation_resolve_and_abandon_are_terminal(tmp_path: Path) -> None:
                     required_participants=("peer-a",), eligible_participants=("peer-a",), risk="normal", source_hash="s")
     service.abandon("round-abandon", "cancelled", "cancel", "peer-a")
     assert broker.get_target("round-abandon").state["phase"] == "abandoned"  # type: ignore[union-attr]
+
+
+def test_final_call_ack_and_resolve_emit_observable_effect_intents(tmp_path: Path) -> None:
+    from peerhub.governance.contract import EffectOutcome
+
+    service, broker = _service(tmp_path)
+    _quorum_round(service, "round-effects")
+    service.final_call_ack("round-effects", actor_id="peer-a", ack=True)
+    service.final_call_ack("round-effects", actor_id="peer-b", ack=True)
+
+    from collections.abc import Mapping
+    pending = broker.recover_pending_effects()
+    matching = [
+        p for p in pending
+        if isinstance(p.event.payload, Mapping)
+        and p.event.payload.get("target_id") == "round-effects"
+        and p.event.payload.get("effect_kind") == "consensus.resolved"
+    ]
+    assert len(matching) == 1
+    effect = matching[0].event
+    payload = effect.payload
+    assert payload["effect_kind"] == "consensus.resolved"
+    effect_data = payload["effect_payload"]
+    assert effect_data["outcome"] == "approved"
+    assert effect_data["final_call_complete"] is True
+    assert effect_data["basis"] == "all final-call acknowledgements agree"
+
+    receipts = service.process_consensus_effects("round-effects")
+    assert len(receipts) == 1
+    assert receipts[0].outcome == EffectOutcome.EFFECT_SUCCEEDED
+
+    remaining = broker.recover_pending_effects()
+    assert not any(
+        isinstance(p.event.payload, Mapping)
+        and p.event.payload.get("target_id") == "round-effects"
+        and p.event.payload.get("effect_kind") == "consensus.resolved"
+        for p in remaining
+    )
+
+
+def test_reject_on_dissent_and_abandon_emit_observable_effect_intents(tmp_path: Path) -> None:
+    from collections.abc import Mapping
+    service, broker = _service(tmp_path)
+    service.propose(
+        round_id="round-dissent",
+        title="Dissent Round",
+        question="Agree?",
+        body="body",
+        proposer_id="peer-a",
+        required_participants=("peer-a", "peer-b"),
+        eligible_participants=("peer-a", "peer-b"),
+        risk="normal",
+        source_hash="sha256:dissent",
+    )
+    service.cast_vote("round-dissent", actor_id="peer-a", choice="agree")
+    service.cast_vote("round-dissent", actor_id="peer-b", choice="disagree")
+    service.reject_on_dissent("round-dissent", rejected_by="peer-b", basis="disagree recorded")
+
+    pending = broker.recover_pending_effects()
+    dissent_effects = [
+        p for p in pending
+        if isinstance(p.event.payload, Mapping)
+        and p.event.payload.get("target_id") == "round-dissent"
+        and p.event.payload.get("effect_kind") == "consensus.resolved"
+    ]
+    assert len(dissent_effects) == 1
+    dissent_payload = dissent_effects[0].event.payload
+    assert dissent_payload["effect_kind"] == "consensus.resolved"
+    assert dissent_payload["effect_payload"]["outcome"] == "rejected"
+    assert dissent_payload["effect_payload"]["dissent"] is True
+
+    service.propose(
+        round_id="round-abandon-effect",
+        title="Abandon Round",
+        question="Abandon?",
+        body="body",
+        proposer_id="peer-a",
+        required_participants=("peer-a",),
+        eligible_participants=("peer-a",),
+        risk="normal",
+        source_hash="sha256:abandon",
+    )
+    service.abandon("round-abandon-effect", reason_code="CANCELLED", reason="user cancelled", abandoned_by="peer-a")
+    pending = broker.recover_pending_effects()
+    abandon_effects = [
+        p for p in pending
+        if isinstance(p.event.payload, Mapping)
+        and p.event.payload.get("target_id") == "round-abandon-effect"
+        and p.event.payload.get("effect_kind") == "consensus.abandoned"
+    ]
+    assert len(abandon_effects) == 1
+    abandon_payload = abandon_effects[0].event.payload
+    assert abandon_payload["effect_kind"] == "consensus.abandoned"
+    assert abandon_payload["effect_payload"]["reason_code"] == "CANCELLED"
+

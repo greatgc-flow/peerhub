@@ -17,7 +17,14 @@ from peerhub.core.protocol import CommandID, JsonValue
 from peerhub.core.protocol import canonical_json_bytes
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
+from .contract import (
+    EffectIntent,
+    EffectOutcome,
+    EffectReceipt,
+    MutationRequest,
+    MutationSubmission,
+    TargetState,
+)
 
 
 class ConsensusService:
@@ -173,9 +180,23 @@ class ConsensusService:
         state["final_call"] = final
         state["phase"] = "resolved" if final["complete"] else "final_call"
         self._finish(state, audit, "final_call_ack", actor_id)
+        effect_intent: EffectIntent | None = None
         if final["complete"]:
             self._set_resolution(
                 state, "approved", actor_id, "all final-call acknowledgements agree"
+            )
+            res = cast(dict[str, JsonValue], state["resolution"])
+            digest = cast(str, res["decision_hash"])
+            effect_intent = EffectIntent(
+                kind="consensus.resolved",
+                payload={
+                    "round_id": round_id,
+                    "outcome": "approved",
+                    "basis": "all final-call acknowledgements agree",
+                    "resolved_by": actor_id,
+                    "decision_hash": digest,
+                    "final_call_complete": True,
+                },
             )
         return self._submit(
             target_id=round_id,
@@ -183,6 +204,7 @@ class ConsensusService:
             actor_id=actor_id,
             operation="consensus.final_call_ack",
             desired_state=state,
+            effect_intent=effect_intent,
         )
 
     def mark_timeout(
@@ -306,6 +328,22 @@ class ConsensusService:
         self._set_resolution(state, outcome, resolved_by, basis)
         state["phase"] = "resolved"
         self._finish(state, audit, "resolve", resolved_by)
+        if effect_intent is None:
+            res = cast(dict[str, JsonValue], state["resolution"])
+            digest = cast(str, res["decision_hash"])
+            final_raw = state.get("final_call")
+            final_complete = bool(isinstance(final_raw, Mapping) and final_raw.get("complete") is True)
+            effect_intent = EffectIntent(
+                kind="consensus.resolved",
+                payload={
+                    "round_id": round_id,
+                    "outcome": outcome,
+                    "basis": basis,
+                    "resolved_by": resolved_by,
+                    "decision_hash": digest,
+                    "final_call_complete": final_complete,
+                },
+            )
         return self._submit(
             target_id=round_id,
             expected_revision=target.revision if expected_revision is None else expected_revision,
@@ -354,6 +392,19 @@ class ConsensusService:
         self._set_resolution(state, "rejected", rejected_by, basis)
         state["phase"] = "resolved"
         self._finish(state, audit, "reject_on_dissent", rejected_by)
+        res = cast(dict[str, JsonValue], state["resolution"])
+        digest = cast(str, res["decision_hash"])
+        effect_intent = EffectIntent(
+            kind="consensus.resolved",
+            payload={
+                "round_id": round_id,
+                "outcome": "rejected",
+                "basis": basis,
+                "resolved_by": rejected_by,
+                "decision_hash": digest,
+                "dissent": True,
+            },
+        )
         return self._submit(
             target_id=round_id,
             expected_revision=(
@@ -364,6 +415,7 @@ class ConsensusService:
             actor_id=rejected_by,
             operation="consensus.reject_on_dissent",
             desired_state=state,
+            effect_intent=effect_intent,
         )
 
     def abandon(
@@ -384,8 +436,67 @@ class ConsensusService:
             "abandoned_by": abandoned_by,
             "preceded_by": state["phase"],
         }
-        state["phase"] = "abandoned"; state["status"] = "abandoned"; self._finish(state, audit, "abandon", abandoned_by)
-        return self._submit(target_id=round_id, expected_revision=target.revision if expected_revision is None else expected_revision, actor_id=abandoned_by, operation="consensus.abandon", desired_state=state)
+        state["phase"] = "abandoned"
+        state["status"] = "abandoned"
+        self._finish(state, audit, "abandon", abandoned_by)
+        effect_intent = EffectIntent(
+            kind="consensus.abandoned",
+            payload={
+                "round_id": round_id,
+                "reason_code": reason_code,
+                "reason": reason,
+                "abandoned_by": abandoned_by,
+            },
+        )
+        return self._submit(
+            target_id=round_id,
+            expected_revision=target.revision if expected_revision is None else expected_revision,
+            actor_id=abandoned_by,
+            operation="consensus.abandon",
+            desired_state=state,
+            effect_intent=effect_intent,
+        )
+
+    def process_consensus_effects(
+        self,
+        round_id: str,
+        *,
+        owner_id: str | None = None,
+    ) -> Sequence[EffectReceipt]:
+        """Process and materialize pending consensus effects into durable receipts."""
+        owner = owner_id or f"consensus-worker:{round_id}"
+        pending_effects = self._broker.recover_pending_effects()
+        receipts: list[EffectReceipt] = []
+        for pending in pending_effects:
+            event = pending.event
+            payload = event.payload
+            if payload.get("effect_kind") == "consensus.noop":
+                continue
+            target_id = payload.get("target_id")
+            effect_payload = payload.get("effect_payload")
+            matches = False
+            if target_id == round_id:
+                matches = True
+            elif isinstance(effect_payload, Mapping) and effect_payload.get("round_id") == round_id:
+                matches = True
+            if not matches:
+                continue
+
+            attempt_id = self._ids.new_id("effect-attempt")
+            claimed = self._broker.claim_effect(
+                event.event_id,
+                owner_id=owner,
+                attempt_id=attempt_id,
+            )
+            receipt = self._broker.record_effect_result(
+                claimed.event_id,
+                owner_id=owner,
+                attempt_id=attempt_id,
+                outcome=EffectOutcome.EFFECT_SUCCEEDED,
+                evidence_refs=(f"consensus-round:{round_id}",),
+            )
+            receipts.append(receipt)
+        return tuple(receipts)
 
     def cast_vote(
         self,
