@@ -1,6 +1,6 @@
 # PeerHub `.peerhub` Durable-Settings Consolidation Proposal
 
-**Status:** Round-1 proposal only; not ratified and not implemented
+**Status:** SUPERSEDED by [`dotdir-consolidation-RATIFIED-2026-09-09.md`](dotdir-consolidation-RATIFIED-2026-09-09.md), which adjudicated this Round-1 proposal against an independent Engram-side proposal and is now fully implemented (13/13 items shipped as of `peerhub` v0.3.0). Kept for its citations and Round-1 reasoning; do not treat anything below as current design authority on its own.
 **Investigation baseline:** `7746ee7115fd39589fb505e544909b8f8e82385c`
 (`v0.2.0`, 2026-09-09)
 **Scope:** PeerHub-owned user preferences, workspace preferences, durable
