@@ -30,6 +30,8 @@ Never delete history; if a document is superseded, mark it in its own header and
 - `HUB-REPLACEMENT-GAP6-GOVERNANCE-2026-08-24.md`
 - `HUB-REPLACEMENT-GAP7-DIAGNOSTICS-2026-08-24.md`
 - `HUB-REPLACEMENT-REAL-CLI-AND-TUI-2026-08-24.md`
+- `dotdir-consolidation-RATIFIED-2026-09-09.md` — Final ratification for the `.engram`/`.peerhub` config-consolidation backlog (both PeerHub and Engram); user-facing reference: `../config-hierarchy.md`.
+- `dotdir-consolidation-peerhub-proposal-2026-09-09.md` — Round-1 proposal (superseded by the ratification above; kept for its citations).
 
 ## Tier C: Older drafts/debates (Historical rationale only, not current status)
 
