@@ -2713,6 +2713,22 @@ def main(args: list[str] | None = None) -> int:
     config_migrate_parser.add_argument(
         "--workspace", default=".", help="Path to the workspace root (default: current directory)"
     )
+    config_validate_parser = config_subparsers.add_parser(
+        "validate", help="Validate every resolved config layer and report diagnostics"
+    )
+    config_validate_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
+    )
+    config_validate_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    config_init_parser = config_subparsers.add_parser(
+        "init", help="Scaffold the config/ directory for one scope, seeding starter files"
+    )
+    config_init_parser.add_argument(
+        "--scope", choices=("global", "workspace"), required=True, help="Which config tier to initialize"
+    )
+    config_init_parser.add_argument(
+        "--workspace", default=".", help="Path to the workspace root (used with --scope workspace)"
+    )
 
     # Backup subcommand (dotdir consolidation, ratified 2026-09-09, item 10)
     backup_parser = subparsers.add_parser("backup", help="Back up or restore one workspace")
@@ -4118,6 +4134,12 @@ def main(args: list[str] | None = None) -> int:
     if parsed.command == "config" and parsed.config_command == "migrate":
         return _run_config_migrate(parsed)
 
+    if parsed.command == "config" and parsed.config_command == "validate":
+        return _run_config_validate(parsed)
+
+    if parsed.command == "config" and parsed.config_command == "init":
+        return _run_config_init(parsed)
+
     if parsed.command == "backup" and parsed.backup_command == "workspace":
         return _run_backup_workspace(parsed)
 
@@ -4228,6 +4250,42 @@ def _run_config_migrate(parsed: argparse.Namespace) -> int:
         shutil.move(str(legacy_path), str(new_path))
         print(f"Migrated {legacy_path.name} -> {new_path}")
 
+    return 0
+
+
+def _run_config_validate(parsed: argparse.Namespace) -> int:
+    """``peerhub config validate`` (item 13, dotdir consolidation)."""
+
+    from peerhub.application.config_validate import validate_workspace_config
+
+    workspace_root = Path(parsed.workspace).resolve()
+    reports = validate_workspace_config(workspace_root)
+
+    if parsed.json:
+        print(json.dumps([report.as_dict() for report in reports], indent=2))
+    else:
+        for report in reports:
+            tag = "OK" if report.ok else "ERROR"
+            print(f"[{tag:>5}] {report.name}: {report.detail}")
+            for key, layer in sorted(report.winning_layer.items()):
+                print(f"          {key} <- {layer}")
+
+    return 0 if all(report.ok for report in reports) else 1
+
+
+def _run_config_init(parsed: argparse.Namespace) -> int:
+    """``peerhub config init --scope global|workspace`` (item 13, dotdir consolidation)."""
+
+    from peerhub.application.config_init import init_config_scope
+
+    workspace_root = Path(parsed.workspace).resolve() if parsed.scope == "workspace" else None
+    config_home, created = init_config_scope(scope=parsed.scope, workspace_root=workspace_root)
+
+    print(f"Config scope {parsed.scope!r} initialized at: {config_home}")
+    for name in created:
+        print(f"  created {name}")
+    if not created:
+        print("  (no new starter files -- all already present)")
     return 0
 
 

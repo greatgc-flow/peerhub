@@ -86,13 +86,24 @@ _CODEX_DESCRIPTOR = PeerDescriptor(
 )
 
 
-_OVERRIDE_HINT = (
-    "Reconfigure via `peerhub node bind-profile --node-id <node> "
-    "--profile-id cx.standard --model-id <model> --actor <you>` "
-    "(workspace binding, highest priority), edit "
-    "~/.peerhub/config/models.toml (global), or update peerhub's "
-    "packaged model-defaults.toml (release default, lowest priority)."
-)
+def _override_hint() -> str:
+    """Build the model-override hint naming the actually-resolved global
+    config path (item 13, dotdir consolidation, ratified 2026-09-09) --
+    ``~/.peerhub/config/models.toml`` is only the DEFAULT spelling; under
+    ``PEERHUB_CONFIG_HOME`` (e.g. redirected inside an Engram install's
+    ``.engram/peerhub/config/``) the real file lives somewhere else, and a
+    hardcoded spelling would send the user to the wrong path."""
+
+    from peerhub.application.config_paths import resolve_global_config_home
+
+    models_path = resolve_global_config_home().path / "models.toml"
+    return (
+        "Reconfigure via `peerhub node bind-profile --node-id <node> "
+        "--profile-id cx.standard --model-id <model> --actor <you>` "
+        "(workspace binding, highest priority), edit "
+        f"{models_path} (global), or update peerhub's packaged "
+        "model-defaults.toml (release default, lowest priority)."
+    )
 
 
 def _extract_model_from_argv(argv: tuple[str, ...]) -> str | None:
@@ -166,7 +177,7 @@ class CodexOutputDecoder:
             payload["resolved_model"] = (
                 _extract_model_from_argv(self._plan.argv) or "(cli default)"
             )
-            payload["override_hint"] = _OVERRIDE_HINT
+            payload["override_hint"] = _override_hint()
         return self._append_event(
             DecoderEvent(
                 kind=DecoderEventKind.VENDOR_ERROR,
@@ -312,7 +323,7 @@ class CodexOutputDecoder:
                 payload["resolved_model"] = (
                     _extract_model_from_argv(self._plan.argv) or "(cli default)"
                 )
-                payload["override_hint"] = _OVERRIDE_HINT
+                payload["override_hint"] = _override_hint()
             self._events.append(
                 DecoderEvent(
                     kind=DecoderEventKind.VENDOR_ERROR,

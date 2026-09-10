@@ -311,6 +311,67 @@ def test_cli_config_migrate_rejects_old_and_new_conflict(
         main(["config", "migrate", "--workspace", str(tmp_path)])
 
 
+def test_cli_config_validate_exits_zero_for_a_fresh_workspace(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = main(["config", "validate", "--workspace", str(tmp_path)])
+
+    assert exit_code == 0
+    output = capsys.readouterr().out
+    assert "models.toml" in output
+    assert "ask.toml" in output
+    assert "arbiter.json" in output
+    assert "proposals.json" in output
+
+
+def test_cli_config_validate_exits_nonzero_for_a_malformed_layer(
+    tmp_path: Path,
+) -> None:
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir()
+    (config_dir / "arbiter.json").write_text('{"enabled": true}', encoding="utf-8")
+
+    exit_code = main(["config", "validate", "--workspace", str(tmp_path)])
+
+    assert exit_code == 1
+
+
+def test_cli_config_validate_json_output(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["config", "validate", "--workspace", str(tmp_path), "--json"]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert {entry["name"] for entry in payload} == {
+        "models.toml",
+        "ask.toml",
+        "arbiter.json",
+        "proposals.json",
+    }
+
+
+def test_cli_config_init_global_scope(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    global_home = tmp_path / "global"
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(global_home))
+
+    exit_code = main(["config", "init", "--scope", "global"])
+
+    assert exit_code == 0
+    assert (global_home / "ask.toml").is_file()
+    assert (global_home / "models.toml").is_file()
+    assert "initialized at" in capsys.readouterr().out
+
+
+def test_cli_config_init_workspace_scope(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = main(["config", "init", "--scope", "workspace", "--workspace", str(tmp_path)])
+
+    assert exit_code == 0
+    assert (tmp_path / ".peerhub" / "config" / "ask.toml").is_file()
+    assert not (tmp_path / ".peerhub" / "config" / "models.toml").exists()
+
+
 def test_cli_backup_workspace_then_restore_round_trip(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

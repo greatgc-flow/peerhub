@@ -332,6 +332,31 @@ def test_codex_invocation_plan_rejection_includes_model_and_override_hint():
     assert "peerhub node bind-profile" in str(event.payload["override_hint"])
 
 
+def test_codex_override_hint_shows_the_resolved_global_config_path(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """Item 13 (dotdir consolidation): the hint must name wherever
+    models.toml actually resolves -- e.g. redirected inside an Engram
+    install via PEERHUB_CONFIG_HOME -- not only the default spelling."""
+
+    redirected_home = tmp_path / ".engram" / "peerhub" / "config"
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(redirected_home))
+
+    adapter = RealCodexAdapter()
+    plan = adapter.plan_invocation(
+        _request(SessionAction.NONE), _profile(), None, _limits()
+    )
+    decoder = adapter.new_decoder(plan)
+    decoder.feed(b'{"type": "error", "error": {"code": "invalid_model"}}\n')
+
+    decoded = decoder.finalize()
+
+    hint = str(decoded.events[0].payload["override_hint"])
+    assert str(redirected_home / "models.toml") in hint
+    assert "~/.peerhub/config/models.toml" not in hint
+
+
 def test_codex_decoder_emits_session_identity_from_thread_started():
     decoder = CodexOutputDecoder()
     decoder.feed(
