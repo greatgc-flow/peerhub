@@ -13,7 +13,6 @@ import time
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
-from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -309,7 +308,7 @@ def _run_ask(
         is_first_init = not paths.database_path.exists()
         
         if is_first_init:
-            print(f"[peerhub] initialized workspace at {parsed.workspace}/.peerhub/", file=sys.stderr)
+            pass
 
         request = DirectAskRequest(
             workspace_root=workspace_root,
@@ -358,6 +357,10 @@ def _run_ask(
 
         result = state.result
         assert result is not None
+        
+        if is_first_init and paths.database_path.exists():
+            print(f"[peerhub] initialized workspace at {paths.database_path.parent}", file=sys.stderr)
+
     except KeyboardInterrupt:
         print(
             "\npeerhub ask: interrupt received; cancelling in-flight process...",
@@ -821,7 +824,7 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                         f"impact={result.impact.upper()}"
                     )
                     print(
-                        "      Vote with: hub.py proposal-vote "
+                        "      Vote with: peerhub consensus proposal-vote "
                         f"--proposal-id {result.round_id} --vote agree "
                         "--voter <peer>"
                     )
@@ -2676,9 +2679,43 @@ def _run_adapter(parsed: argparse.Namespace) -> int:
     return 2
 
 
+def get_cli_version() -> str:
+    import importlib.metadata
+    import json
+    import urllib.request
+    import urllib.parse
+    import subprocess
+    from peerhub import __version__
+    try:
+        dist = importlib.metadata.Distribution.from_name("peerhub")
+        direct_url = dist.read_text("direct_url.json")
+        if direct_url:
+            data = json.loads(direct_url)
+            if data.get("dir_info", {}).get("editable"):
+                url = str(data.get("url", ""))
+                parsed_path = str(urllib.parse.urlparse(url).path)
+                path = urllib.request.url2pathname(parsed_path)
+                
+                git_info = "unknown"
+                try:
+                    res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=path, capture_output=True, text=True)
+                    if res.returncode == 0:
+                        short_sha = res.stdout.strip()
+                        res_dirty = subprocess.run(["git", "status", "--porcelain"], cwd=path, capture_output=True, text=True)
+                        dirty = "+dirty" if res_dirty.stdout.strip() else ""
+                        git_info = f"git {short_sha}{dirty}"
+                except Exception:
+                    pass
+                
+                return f"{__version__} (editable: {path}, {git_info})"
+    except Exception:
+        pass
+    return __version__
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
-    parser.add_argument("--version", action="version", version=version("peerhub"))
+    parser.add_argument("--version", action="version", version=get_cli_version())
     subparsers = parser.add_subparsers(dest="command", required=True)
     
     # Workspace subcommand (dotdir consolidation, ratified 2026-09-09, item 2):

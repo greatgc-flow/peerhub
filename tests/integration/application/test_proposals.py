@@ -667,7 +667,7 @@ def test_cli_add_and_vote_exact_compatibility_stdout(
     round_id = add_lines[0].split()[2]
     assert add_lines == [
         f"[HUB] PROPOSAL-ADD {round_id} | from=cc | impact=HIGH",
-        "      Vote with: hub.py proposal-vote "
+        "      Vote with: peerhub consensus proposal-vote "
         f"--proposal-id {round_id} --vote agree --voter <peer>",
     ]
 
