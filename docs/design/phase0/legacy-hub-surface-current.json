@@ -2,7 +2,7 @@
   "meta": {
     "schema_version": "1.0",
     "generator_name": "tools/surface_manifest/generate_manifest.py",
-    "generated_at": "2026-09-12T10:30:22.394474+00:00",
+    "generated_at": "2026-09-12T12:05:14.846297+00:00",
     "target_system": "legacy_hub_surface"
   },
   "measurement_methodology": {
@@ -22,22 +22,15 @@
   },
   "git_receipts": {
     "peerhub_repo": {
-      "commit": "4588bce54543739e7f4a9f799a0fa51cfd7db247",
+      "commit": "8e0dc10d2d961c5f4f86329d669f5f987a318ba5",
       "is_dirty": true,
       "uncommitted_files": [
-        "ocs/design/phase0/legacy-hub-surface-current.json",
-        "peerhub/adapters/claude_adapter.py",
-        "peerhub/application/session_saga.py",
-        "peerhub/dispatch/pipe.py",
-        "tests/integration/adapters/test_claude_evidence.py",
-        "tests/unit/adapters/test_claude_adapter_fixtures.py",
-        "tests/unit/application/test_session_saga.py",
-        "tests/unit/dispatch/test_pipe.py",
-        "tests/unit/tools/test_generate_manifest.py"
+        "ests/integration/test_cli.py",
+        "docs/design/peerhub-ux-simplification-cc-deepthink-review-2026-09-12.md"
       ]
     },
     "legacy_hub_repo": {
-      "commit": "5a61ef5204f9c83c95a475576f440d977ef3f4df",
+      "commit": "1aad4f64ce92cc61028ee0495f3676f68a238d6b",
       "is_dirty": true,
       "uncommitted_files": [
         "gitignore",
@@ -65,15 +58,15 @@
   "source_files": {
     "hub_py": {
       "path": "P:\\_sys\\core\\hub.py",
-      "sha256": "0dc988511fdea522d265178723da60fccd9bbd908fd657ddf873262651a1cf86",
-      "size_bytes": 567441,
-      "line_count": 12505
+      "sha256": "923a4735095b4fed3a05fead1a6288bca95e085545a2eea1262718dcd33971b1",
+      "size_bytes": 567974,
+      "line_count": 12512
     },
     "hub_peer_py": {
       "path": "P:\\_sys\\core\\hub_peer.py",
-      "sha256": "cd51bfe54b6d6aff5224edce22f826c8a66999988a1b6ad8befaf5216da29065",
-      "size_bytes": 53252,
-      "line_count": 1348
+      "sha256": "9ba111b71f1f1369c255e07732c31a244e946416ca7e77cd6031d0535847392d",
+      "size_bytes": 53931,
+      "line_count": 1361
     },
     "config_files": {
       "core/hub_config.json": {

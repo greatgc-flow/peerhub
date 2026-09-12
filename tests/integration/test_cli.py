@@ -1117,10 +1117,10 @@ def test_cli_short_flags(tmp_path, capsys):
         assert json.loads(captured.out)
         
     # Test broadcast short flags
-    with patch("peerhub.cli.BroadcastCoordinator") as coordinator:
-        from peerhub.application.broadcast import BroadcastResult
-        coordinator.return_value.fan_out.return_value = BroadcastResult(round_id="1", disposition="all_completed", legs=[])
-        exit_code = main(["broadcast", "ag", "hello", "-w", str(tmp_path), "-t", "READ_ONLY", "-j"])
+    with patch("peerhub.application.broadcast.BroadcastCoordinator") as coordinator:
+        from peerhub.application.broadcast import FanOutResult
+        coordinator.return_value.fan_out.return_value = FanOutResult(round_id="1", disposition="all_completed", legs=())
+        exit_code = main(["broadcast", "hello", "--peers", "ag", "-w", str(tmp_path), "-t", "READ_ONLY", "-j"])
         assert exit_code == 0
         req = coordinator.return_value.fan_out.call_args.args[0]
         assert req.workspace_root == tmp_path.resolve()
