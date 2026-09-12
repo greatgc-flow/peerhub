@@ -2733,8 +2733,64 @@ class _LazyVersionAction(argparse.Action):
         parser.exit()
 
 
+_COMMAND_TIERS: dict[str, list[str]] = {
+    "Primary commands": ["ask", "broadcast", "status", "diag"],
+    "Setup & config": ["workspace", "adapter", "config", "backup"],
+    "Operations (peer infrastructure)": [
+        "health", "peer", "lease", "gate", "node", "routing", "leadership",
+    ],
+    "Governance (hub.py parity — programmatic use)": [
+        "consensus", "task", "lesson", "directive", "room", "duty", "session",
+        "alert", "error", "feedback", "lock", "artifact", "role", "broker", "statusline",
+    ],
+}
+
+
+class TieredHelpFormatter(argparse.HelpFormatter):
+    """Groups the top-level subcommand list into tiers for --help DISPLAY
+    only (P3, ratified 2026-09-12) -- invocation paths are unchanged; this
+    only changes what `peerhub --help` prints. argparse has no public API
+    for this, so it necessarily reaches into _SubParsersAction/
+    _choices_actions (both private); explicit list[str] annotations below
+    keep the rest of the method fully typed despite that."""
+
+    def _format_action(self, action: argparse.Action) -> str:
+        # reportPrivateUsage: no public argparse API distinguishes the
+        # top-level subparsers action from an ordinary one.
+        if isinstance(action, argparse._SubParsersAction):  # pyright: ignore[reportPrivateUsage]
+            choices_actions: list[argparse.Action] = action._choices_actions  # pyright: ignore[reportPrivateUsage]
+            tiered_names = {name for names in _COMMAND_TIERS.values() for name in names}
+            parts: list[str] = []
+
+            for tier_name, cmd_names in _COMMAND_TIERS.items():
+                parts.append(f"  {tier_name}:")
+                if tier_name.startswith("Governance"):
+                    parts.append("    (Note: consensus propose/proposal-add/proposal-vote/vote overlap)")
+
+                for cmd_name in cmd_names:
+                    c = next((c for c in choices_actions if getattr(c, "dest", "") == cmd_name), None)
+                    if c is not None:
+                        # use base class to format it properly with indentation
+                        parts.append(super()._format_action(c).rstrip("\n"))
+                parts.append("")
+
+            # Catch any commands that aren't categorized (to avoid hiding anything)
+            other_cmds = [c for c in choices_actions if getattr(c, "dest", "") not in tiered_names]
+            if other_cmds:
+                parts.append("  Other commands:")
+                for c in other_cmds:
+                    parts.append(super()._format_action(c).rstrip("\n"))
+                parts.append("")
+
+            return "\n".join(parts) + "\n"
+        return super()._format_action(action)
+
+
 def main(args: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
+    parser = argparse.ArgumentParser(
+        description="PeerHub Local Coordination CLI",
+        formatter_class=TieredHelpFormatter
+    )
     parser.add_argument(
         "--version", action=_LazyVersionAction, help="show program's version number and exit"
     )
