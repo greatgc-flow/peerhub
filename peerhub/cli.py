@@ -2713,9 +2713,31 @@ def get_cli_version() -> str:
     return __version__
 
 
+class _LazyVersionAction(argparse.Action):
+    """Like argparse's built-in 'version' action, but computes the (potentially
+    subprocess-spawning) version string only when --version is actually passed,
+    instead of eagerly on every CLI invocation regardless of the command run."""
+
+    def __init__(self, option_strings: Sequence[str], dest: str, **kwargs: Any) -> None:
+        kwargs.setdefault("nargs", 0)
+        super().__init__(option_strings, dest, **kwargs)
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> None:
+        parser._print_message(get_cli_version() + "\n", sys.stdout)
+        parser.exit()
+
+
 def main(args: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="PeerHub Local Coordination CLI")
-    parser.add_argument("--version", action="version", version=get_cli_version())
+    parser.add_argument(
+        "--version", action=_LazyVersionAction, help="show program's version number and exit"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     
     # Workspace subcommand (dotdir consolidation, ratified 2026-09-09, item 2):

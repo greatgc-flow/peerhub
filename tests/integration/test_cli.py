@@ -520,7 +520,7 @@ def test_cli_status_with_lease(tmp_path, capsys):
 
 def test_cli_version(capsys):
     """Test 'peerhub --version'."""
-    from importlib.metadata import version as installed_version
+    import peerhub
 
     with patch.object(sys, 'argv', ['peerhub', '--version']):
         try:
@@ -530,21 +530,66 @@ def test_cli_version(capsys):
             assert e.code == 0
 
     captured = capsys.readouterr()
-    # Compare against the actually-installed package version rather than a
-    # hardcoded string, so this test doesn't go stale on every release.
-    assert installed_version("peerhub") in captured.out
+    # Compare against peerhub.__version__ (single-sourced from _version.py,
+    # per P8) rather than importlib.metadata's installed-distribution value:
+    # for an editable install those two are EXPECTED to diverge (that
+    # divergence was the real bug P8 fixed -- importlib.metadata caches
+    # dist-info from install time and goes stale when the source changes
+    # without a reinstall). --version must print stdout, not stderr.
+    assert peerhub.__version__ in captured.out
+    assert captured.err == ""
 
 
-def test_package_dunder_version_matches_distribution_metadata():
-    """peerhub.__version__ must never drift from the installed distribution
-    version (regression guard for a real bug: __init__.py hardcoded "0.1.7"
-    while pyproject.toml/dist metadata had already moved to 0.1.10, which
-    made the telemetry dashboard silently show a stale version)."""
-    from importlib.metadata import version as installed_version
+def test_cli_version_is_lazy_not_computed_on_unrelated_commands(monkeypatch, tmp_path: Path) -> None:
+    """--version's string (which can shell out to git for an editable install,
+    peerhub/cli.py's get_cli_version()) must be computed only when --version
+    is actually passed, not eagerly every time main() builds its parser --
+    that would add real subprocess-spawn latency to every single command."""
+    import peerhub.cli as cli_module
+
+    calls: list[bool] = []
+    original = cli_module.get_cli_version
+
+    def _tracking(*args: object, **kwargs: object) -> str:
+        calls.append(True)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(cli_module, "get_cli_version", _tracking)
+
+    with patch.object(sys, "argv", ["peerhub", "adapter", "discover"]):
+        main()
+
+    assert calls == [], "get_cli_version() must not run for a command other than --version"
+
+
+def test_package_dunder_version_is_single_sourced_from_version_module():
+    """peerhub.__version__ must come from peerhub/_version.py, the one place
+    pyproject.toml's dynamic version also reads from (P8, 2026-09-12).
+
+    Regression guard, updated: this test used to compare __version__ against
+    importlib.metadata's installed-distribution value -- guarding against a
+    real bug where __init__.py hardcoded a literal that drifted from
+    pyproject.toml. That specific drift is now structurally impossible
+    (__init__.py imports __version__ from _version.py; pyproject.toml reads
+    the same attribute via `dynamic = ["version"]`), but importlib.metadata's
+    cached value is EXPECTED to still diverge for an editable install whose
+    dist-info wasn't refreshed since a version bump -- that's real, correct,
+    and exactly what P8's fix accounts for (see get_cli_version()'s
+    "(editable: ...)" annotation). So this test now checks the new single
+    source of truth directly instead of the metadata snapshot that can
+    legitimately go stale.
+    """
+    import re
 
     import peerhub
+    from peerhub._version import __version__ as version_module_version
 
-    assert peerhub.__version__ == installed_version("peerhub")
+    assert peerhub.__version__ == version_module_version
+
+    pyproject = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'dynamic = ["version"]' in pyproject
+    match = re.search(r'version\s*=\s*\{attr\s*=\s*"peerhub\._version\.__version__"\}', pyproject)
+    assert match, "pyproject.toml must read its version from peerhub._version.__version__"
 
 def test_cli_status_quota_table(tmp_path: Path, capsys) -> None:
     from peerhub.cli import main, SystemClock, UuidSource
@@ -1034,30 +1079,36 @@ def test_cli_ask_auto_provision_notice(tmp_path, capsys):
     from peerhub.cli import main
     from unittest.mock import patch
     from peerhub.core.identity import AuthenticatedSubject
-    
+    from peerhub.core.context import PathLayout
+
+    paths = PathLayout.for_workspace(tmp_path)
+
+    def _bootstrap_and_succeed(*args, **kwargs):
+        # A real execute_direct_ask bootstraps (creates) the workspace
+        # database as part of a successful dispatch, before this mock's
+        # caller ever sees a result -- reproduce that real side effect here
+        # so the post-hoc "did the database really get created" notice
+        # check (peerhub/cli.py's P1b fix) has something real to observe,
+        # the same way it would in production.
+        paths.database_path.parent.mkdir(parents=True, exist_ok=True)
+        paths.database_path.touch()
+        return _ask_result()
+
     with (
         patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
-        patch("peerhub.cli.execute_direct_ask", return_value=_ask_result()) as execute,
+        patch("peerhub.cli.execute_direct_ask", side_effect=_bootstrap_and_succeed) as execute,
     ):
         provider_type.return_value.resolve.return_value = AuthenticatedSubject(
             principal_id="test", evidence_source="test"
         )
-        
-        # First ask (auto-provisions)
+
+        # First ask (auto-provisions; the mock's side effect creates the DB)
         exit_code1 = main(["ask", "ag", "hello", "--workspace", str(tmp_path)])
         assert exit_code1 == 0
         captured1 = capsys.readouterr()
         assert "[peerhub] initialized workspace at " in captured1.err
 
-        # Simulate creation
-        from peerhub.core.context import PathLayout
-        paths = PathLayout.for_workspace(tmp_path)
-        paths.database_path.parent.mkdir(parents=True, exist_ok=True)
-        paths.database_path.touch()
-
-        # Second ask (already provisioned)
-
-        # Second ask (already provisioned)
+        # Second ask (already provisioned from the first call -- no notice)
         exit_code2 = main(["ask", "ag", "hello", "--workspace", str(tmp_path)])
         assert exit_code2 == 0
         captured2 = capsys.readouterr()
