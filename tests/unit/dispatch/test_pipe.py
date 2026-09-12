@@ -281,6 +281,43 @@ class TestPipeRunnerStdin:
 
         assert b"got:test_input" in outcome.canonical_stream
 
+    def test_large_bidirectional_exchange_does_not_deadlock(self):
+        """Drain child output concurrently while a large stdin payload is sent."""
+        payload = b"i" * (256 * 1024)
+        script = (
+            "import sys\n"
+            "sys.stdout.buffer.write(b'o' * (256 * 1024))\n"
+            "sys.stdout.buffer.flush()\n"
+            "data = sys.stdin.buffer.read()\n"
+            "print(f'\\nstdin-bytes:{len(data)}', flush=True)\n"
+        )
+        config = PipeRunnerConfig(
+            argv=[sys.executable, "-c", script],
+            stdin_data=payload,
+            process_timeout_ms=5_000,
+            silence_timeout_ms=5_000,
+        )
+        captured = []
+        result = {}
+
+        def _run():
+            result["outcome"] = run_process(
+                config,
+                ProcessSupervisor(),
+                on_spawned=lambda proc, _identity: captured.append(proc),
+            )
+
+        worker = threading.Thread(target=_run, daemon=True)
+        worker.start()
+        worker.join(timeout=3.0)
+        if worker.is_alive() and captured:
+            captured[0].kill()
+            worker.join(timeout=2.0)
+
+        assert not worker.is_alive(), "large stdin/stdout exchange deadlocked"
+        assert result["outcome"].exit_code == 0
+        assert b"stdin-bytes:262144" in result["outcome"].canonical_stream
+
 
 class TestPipeRunnerOnSpawnedCallback:
     """Bug 1 regression: on_spawned callback fires with live process handle."""

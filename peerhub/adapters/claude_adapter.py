@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 from peerhub.adapters.contract import (
     AdapterRequest,
@@ -72,7 +73,7 @@ _CLAUDE_PROFILE = _CLAUDE_STANDARD_PROFILE
 
 _CLAUDE_DESCRIPTOR = PeerDescriptor(
     adapter_id="claude-peer",
-    adapter_version="1.0.0",
+    adapter_version="1.0.1",
     peer_kind="cc",
     profiles=_CLAUDE_PROFILES,
     transports=frozenset({TransportKind.PIPE}),
@@ -84,7 +85,7 @@ _CLAUDE_DESCRIPTOR = PeerDescriptor(
 
 
 class ClaudeOutputDecoder:
-    """Decoder for claude.cmd --output-format json."""
+    """Decoder for claude.cmd --output-format stream-json."""
 
     def __init__(self) -> None:
         self._chunks: list[bytes] = []
@@ -108,40 +109,45 @@ class ClaudeOutputDecoder:
         canonical_text = ""
         events: list[DecoderEvent] = []
 
-        try:
-            if raw_bytes:
-                decoded = raw_bytes.decode("utf-8")
-                # claude.cmd might print "Warning: no stdin data received..." before the JSON.
-                # Extract the JSON object.
-                start_idx = decoded.find("{")
-                end_idx = decoded.rfind("}")
-                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                    json_str = decoded[start_idx:end_idx + 1]
-                    parsed = json.loads(json_str)
-                    
+        parsed_objects = _decode_json_lines(raw_bytes)
+        for parsed in parsed_objects:
+            session_id = parsed.get("session_id")
+            if isinstance(session_id, str) and session_id:
+                events.append(DecoderEvent(
+                    kind=DecoderEventKind.SESSION_IDENTITY,
+                    payload={"session_id": session_id},
+                ))
+                break
+        for parsed in parsed_objects:
+            if parsed.get("is_error", False):
+                raw_error_type = parsed.get("error_type", "")
+                err_type = raw_error_type if isinstance(raw_error_type, str) else ""
+                normalized = {
+                    "invalid_session": "session_invalid",
+                    "over_quota": "quota_exhausted",
+                    "invalid_request_error": "invocation_plan_rejected",
+                    "provider_down": "provider_unavailable",
+                }.get(err_type)
+                if normalized:
+                    events.append(DecoderEvent(
+                        kind=DecoderEventKind.VENDOR_ERROR,
+                        payload={
+                            "normalized_kind": normalized,
+                            "evidence_source": "structured_vendor_output",
+                        },
+                    ))
+
+        for parsed in reversed(parsed_objects):
+            if parsed.get("type") == "result" or "result" in parsed:
+                response_text = parsed.get("result", "")
+                if isinstance(response_text, str) and response_text:
+                    canonical_text = response_text
                     if not parsed.get("is_error", False):
-                        response_text = parsed.get("result", "")
-                        canonical_text = response_text or json_str
-                        if response_text:
-                            event = DecoderEvent(
-                                kind=DecoderEventKind.ASSISTANT_TEXT,
-                                payload={"text": response_text},
-                            )
-                            events.append(event)
-                    else:
-                        canonical_text = json_str
-                        err_type = parsed.get("error_type", "")
-                        if err_type == "invalid_session":
-                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "session_invalid", "evidence_source": "structured_vendor_output"}))
-                        elif err_type == "over_quota":
-                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "quota_exhausted", "evidence_source": "structured_vendor_output"}))
-                        elif err_type == "invalid_request_error":
-                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "invocation_plan_rejected", "evidence_source": "structured_vendor_output"}))
-                        elif err_type == "provider_down":
-                            events.append(DecoderEvent(kind=DecoderEventKind.VENDOR_ERROR, payload={"normalized_kind": "provider_unavailable", "evidence_source": "structured_vendor_output"}))
-        except Exception:
-            # Not valid JSON or decoding error
-            pass
+                        events.append(DecoderEvent(
+                            kind=DecoderEventKind.ASSISTANT_TEXT,
+                            payload={"text": response_text},
+                        ))
+                break
 
         if not canonical_text:
             canonical_text = raw_bytes.decode("utf-8", errors="replace")
@@ -154,6 +160,26 @@ class ClaudeOutputDecoder:
             canonical_lines=_split_canonical_lines(canonical_text),
             events=tuple(events),
         )
+
+
+def _decode_json_lines(raw_bytes: bytes) -> list[dict[str, object]]:
+    try:
+        decoded = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        return []
+    objects: list[dict[str, object]] = []
+    for line in decoded.splitlines() or [decoded]:
+        candidate = line.strip()
+        object_start = candidate.find("{")
+        if object_start < 0:
+            continue
+        try:
+            parsed = json.loads(candidate[object_start:])
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(parsed, dict):
+            objects.append(cast(dict[str, object], parsed))
+    return objects
 
 
 class RealClaudeAdapter:
@@ -239,24 +265,20 @@ class RealClaudeAdapter:
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:
                 raise ValueError("external_session_id is required for RESUME")
-            argv = (*exec_argv, "-p", prompt, "--output-format", "json", *model_flags, "--resume", session.external_session_id)
-            redacted_display = f"claude.cmd -p <redacted> --output-format json{model_display} --resume <redacted>"
+            argv = (*exec_argv, "-p", "-", "--output-format", "stream-json", "--verbose", *model_flags, "--resume", session.external_session_id, "--autocompact", "auto")
+            redacted_display = f"claude.cmd -p - --output-format stream-json --verbose{model_display} --resume <redacted> --autocompact auto"
         else:
-            # SESSION_IDENTITY is now emitted by 2 of 3 real adapters (Codex, Agy); Claude
-            # intentionally never emits it because Claude's session ID is caller-pregenerated
-            # via `--session-id <uuid>` before invocation (see this adapter's own RESUME handling),
-            # so there is nothing for Claude's decoder to capture post-hoc -- unlike Codex/Agy,
-            # which generate a new ID server-side that must be captured from output after the fact.
-            # This is a permanent architectural asymmetry, not a deferred gap.
-            argv = (*exec_argv, "-p", prompt, "--output-format", "json", *model_flags)
-            redacted_display = f"claude.cmd -p <redacted> --output-format json{model_display}"
+            # stream-json init/result records expose the actual vendor
+            # session ID; ClaudeOutputDecoder publishes it for future resumes.
+            argv = (*exec_argv, "-p", "-", "--output-format", "stream-json", "--verbose", *model_flags)
+            redacted_display = f"claude.cmd -p - --output-format stream-json --verbose{model_display}"
 
         return InvocationPlan(
             argv=argv,
             cwd_reference=request.workspace_scope,
             environment_delta={},
             transport=TransportKind.PIPE,
-            stdin_payload=None,
+            stdin_payload=prompt.encode("utf-8"),
             limits=limits,
             redacted_display=redacted_display,
             artifacts=tuple(artifacts),
@@ -278,35 +300,19 @@ class RealClaudeAdapter:
         decoded_output = decoder.finalize()
         has_vendor_error = any(e.kind == DecoderEventKind.VENDOR_ERROR for e in decoded_output.events)
 
-        raw_bytes = b"".join(raw_chunks)
-        try:
-            decoded = raw_bytes.decode("utf-8")
-            start_idx = decoded.find("{")
-            end_idx = decoded.rfind("}")
-            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                json_str = decoded[start_idx:end_idx + 1]
-                parsed = json.loads(json_str)
-                if not parsed.get("is_error", False) and "result" in parsed:
-                    return ProtocolAssessment(
-                        parsed=True,
-                        response_present=True,
-                        vendor_completion_marker=None,
-                        suspected_truncation=False,
-                        protocol_failure=None,
-                    )
-            
-            return ProtocolAssessment(
-                parsed=True,
-                response_present=False,
-                vendor_completion_marker=None,
-                suspected_truncation=False,
-                protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
-            )
-        except Exception:
-            return ProtocolAssessment(
-                parsed=False,
-                response_present=False,
-                vendor_completion_marker=None,
-                suspected_truncation=False,
-                protocol_failure=None if has_vendor_error else ErrorCode.INTERNAL_ERROR,
-            )
+        parsed_objects = _decode_json_lines(b"".join(raw_chunks))
+        response_present = any(
+            not parsed.get("is_error", False) and "result" in parsed
+            for parsed in parsed_objects
+        )
+        return ProtocolAssessment(
+            parsed=bool(parsed_objects),
+            response_present=response_present,
+            vendor_completion_marker=None,
+            suspected_truncation=False,
+            protocol_failure=(
+                None
+                if response_present or has_vendor_error
+                else ErrorCode.INTERNAL_ERROR
+            ),
+        )

@@ -46,7 +46,8 @@ def test_claude_evidence_offloading(tmp_path: pathlib.Path):
         limits=limits,
     )
     
-    prompt = plan.argv[2]
+    assert plan.stdin_payload is not None
+    prompt = plan.stdin_payload.decode("utf-8")
     # (a) Under threshold gets inlined normally
     assert "small payload" in prompt
     

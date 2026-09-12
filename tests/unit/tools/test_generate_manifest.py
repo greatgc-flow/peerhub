@@ -48,12 +48,12 @@ def test_generator_runs_and_produces_valid_manifest(tmp_path: Path) -> None:
     assert len(action_vector["actions"]) == 90
     assert len(action_vector["action_vector_digest"]) == 64
 
-    # hub.py hash invariant (f748b095...), i.e. live P:/_sys/core/hub.py as of
-    # legacy-hub commit f8de373. This pin tracks a file outside this repo, so it
-    # must be re-pinned whenever legacy hub.py changes; the previous value
-    # (bd13cf55, commit 54bedd7) is the one frozen in the committed snapshot below.
+    # hub.py hash invariant, re-pinned after tonight's final 2026-09-12 P:
+    # session (diag profile-attribution, cc autocompact, session-rotation
+    # threshold enforcement + refinement). This tracks a file outside this
+    # repo, so it must be re-pinned whenever legacy hub.py changes.
     hub_info = manifest["source_files"]["hub_py"]
-    assert hub_info["sha256"].startswith("f748b095")
+    assert hub_info["sha256"].startswith("0dc98851")
     assert hub_info["line_count"] > 10000
 
     # Dispatch table & Action details 1-to-1 match
@@ -76,10 +76,5 @@ def test_committed_manifest_snapshot_is_valid() -> None:
         data = json.load(f)
 
     assert data["action_vector"]["action_count"] == 90
-    # hub.py hash invariant (f748b095...): the committed snapshot was legitimately
-    # refreshed against live P:/_sys/core/hub.py in commit 321dbf4 (2026-08-20,
-    # "refresh legacy-hub-surface-current.json generation metadata"), which moved
-    # the pinned hash from bd13cf55 to f748b095. This assertion was left stale at
-    # the time and never updated to match; verified against the live file's actual
-    # sha256 on 2026-09-02 before fixing.
-    assert data["source_files"]["hub_py"]["sha256"].startswith("f748b095")
+    # Same 2026-09-12 externally-owned Hub pin as the live-generator test.
+    assert data["source_files"]["hub_py"]["sha256"].startswith("0dc98851")

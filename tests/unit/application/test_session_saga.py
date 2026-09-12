@@ -141,6 +141,57 @@ def test_estimated_source_evidence_fails_safe_does_not_rotate():
     assert result.decision == RotationDecision.PROCEED_WITH_REUSE
     assert len(dispatch.claim_calls) == 0
 
+def test_auto_threshold_non_cc_at_75_percent_rotates():
+    dispatch = FakeDispatchRepo()
+    telemetry = FakeTelemetryRepo(projection=make_projection(75, 100))
+    saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
+
+    result = saga.evaluate_and_claim(
+        policy="auto",
+        workspace_scope_id="scope",
+        instance_id="inst",
+        profile_id="prof",
+        conversation_scope="conv-1",
+        current_generation_id=1,
+        rotation_safe=True,
+    )
+    
+    assert result.decision == RotationDecision.ROTATION_CLAIMED
+
+def test_auto_threshold_cc_at_75_percent_does_not_rotate():
+    dispatch = FakeDispatchRepo()
+    telemetry = FakeTelemetryRepo(projection=make_projection(75, 100))
+    saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
+
+    result = saga.evaluate_and_claim(
+        policy="auto",
+        workspace_scope_id="scope",
+        instance_id="cc",
+        profile_id="prof",
+        conversation_scope="conv-1",
+        current_generation_id=1,
+        rotation_safe=True,
+    )
+    
+    assert result.decision == RotationDecision.PROCEED_WITH_REUSE
+
+def test_auto_threshold_cc_at_90_percent_rotates():
+    dispatch = FakeDispatchRepo()
+    telemetry = FakeTelemetryRepo(projection=make_projection(90, 100))
+    saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
+
+    result = saga.evaluate_and_claim(
+        policy="auto",
+        workspace_scope_id="scope",
+        instance_id="cc",
+        profile_id="prof",
+        conversation_scope="conv-1",
+        current_generation_id=1,
+        rotation_safe=True,
+    )
+    
+    assert result.decision == RotationDecision.ROTATION_CLAIMED
+
 def test_stale_exact_attribution_evidence_fails_safe_does_not_rotate():
     dispatch = FakeDispatchRepo()
     telemetry = FakeTelemetryRepo(projection=make_projection(150, 100, source="exact_attribution", observed_at=500))

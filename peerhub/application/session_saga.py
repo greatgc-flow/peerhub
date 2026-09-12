@@ -130,7 +130,8 @@ class SessionRotationSaga:
             is_exact = projection.source == "exact_attribution"
             is_fresh = (self._clock.now() - projection.observed_at) <= max_observation_age_ms
             if is_exact and is_fresh:
-                pressure_reached = projection.observed_tokens >= projection.window_tokens
+                threshold_ratio = 0.90 if instance_id == "cc" else 0.75
+                pressure_reached = projection.observed_tokens >= (projection.window_tokens * threshold_ratio)
 
         if not pressure_reached:
             return SessionSagaResult(decision=RotationDecision.PROCEED_WITH_REUSE)

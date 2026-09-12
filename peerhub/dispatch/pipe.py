@@ -441,18 +441,6 @@ def run_process(
     if on_spawned is not None:
         on_spawned(proc, identity)
 
-    # Write stdin data if provided, then close.
-    if config.stdin_data is not None and proc.stdin is not None:
-        try:
-            proc.stdin.write(config.stdin_data)
-        except OSError:
-            pass  # Process may have already exited.
-        finally:
-            try:
-                proc.stdin.close()
-            except OSError:
-                pass
-
     # Reader threads only enqueue bytes.  The calling thread below is the sole
     # consumer and therefore the sole caller of supervisor/on_chunk callbacks.
     if proc.stdout is None or proc.stderr is None:
@@ -470,6 +458,25 @@ def run_process(
     )
     stdout_reader.start()
     stderr_reader.start()
+
+    # Send stdin after output readers are active. A child may fill stdout
+    # before reading stdin; a synchronous parent write would deadlock both
+    # sides on full OS pipe buffers.
+    def _write_stdin() -> None:
+        if config.stdin_data is None or proc.stdin is None:
+            return
+        try:
+            proc.stdin.write(config.stdin_data)
+        except OSError:
+            pass  # Process may have already exited.
+        finally:
+            try:
+                proc.stdin.close()
+            except OSError:
+                pass
+
+    stdin_writer = threading.Thread(target=_write_stdin, daemon=True)
+    stdin_writer.start()
 
     start_time = get_time()
     next_sequence = 0
@@ -544,6 +551,7 @@ def run_process(
     # Wait for readers to drain remaining buffered output.
     stdout_reader.join(timeout=10.0)
     stderr_reader.join(timeout=10.0)
+    stdin_writer.join(timeout=10.0)
     _consume_available_chunks()
 
     # Record exit.

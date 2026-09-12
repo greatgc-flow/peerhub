@@ -110,8 +110,9 @@ def test_claude_plan_invocation_session_resume():
     limits = TransportLimits(1, 1, 1)
 
     plan = adapter.plan_invocation(request, profile, session, limits)
-    assert plan.argv[-2:] == ("--resume", "session-123")
-    assert plan.redacted_display == "claude.cmd -p <redacted> --output-format json --resume <redacted>"
+    assert plan.argv[-4:] == ("--resume", "session-123", "--autocompact", "auto")
+    assert plan.redacted_display == "claude.cmd -p - --output-format stream-json --verbose --resume <redacted> --autocompact auto"
+    assert plan.stdin_payload == b"Hello"
     assert plan.session_action == SessionAction.RESUME
 
 def test_claude_plan_invocation_session_resume_missing_id():
@@ -182,7 +183,52 @@ def test_claude_cli_default_omits_model_flag():
     plan = adapter.plan_invocation(request, profile, None, TransportLimits(1, 1, 1))
 
     assert "--model" not in plan.argv
-    assert plan.argv == ("claude.cmd", "-p", "Hello", "--output-format", "json")
+    assert plan.argv == (
+        "claude.cmd", "-p", "-", "--output-format", "stream-json", "--verbose"
+    )
+    assert plan.stdin_payload == b"Hello"
+
+
+def test_claude_decoder_accepts_stream_json_and_returns_final_result():
+    decoder = ClaudeOutputDecoder()
+    decoder.feed(
+        b'{"type":"system","subtype":"init","session_id":"s-1"}\n'
+        b'{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}\n'
+        b'{"type":"result","subtype":"success","result":"final answer","session_id":"s-1"}\n'
+    )
+
+    decoded = decoder.finalize()
+
+    assert decoded.canonical_text == "final answer"
+    assert any(
+        event.kind == DecoderEventKind.ASSISTANT_TEXT
+        and event.payload["text"] == "final answer"
+        for event in decoded.events
+    )
+    assert any(
+        event.kind == DecoderEventKind.SESSION_IDENTITY
+        and event.payload["session_id"] == "s-1"
+        for event in decoded.events
+    )
+
+
+def test_claude_interpret_output_accepts_stream_json_result():
+    adapter = RealClaudeAdapter()
+    plan = InvocationPlan(
+        argv=("test",), cwd_reference=".", environment_delta={}, transport=TransportKind.PIPE,
+        stdin_payload=b"prompt", limits=TransportLimits(1, 1, 1), redacted_display="test",
+        artifacts=(), session_action=SessionAction.NONE
+    )
+    chunks = [
+        b'{"type":"system","subtype":"init","session_id":"s-1"}\n',
+        b'{"type":"result","subtype":"success","result":"ok","session_id":"s-1"}\n',
+    ]
+
+    assessment = adapter.interpret_output(plan, ProcessTerminalEvidence(exit_code=0), chunks)
+
+    assert assessment.parsed is True
+    assert assessment.response_present is True
+    assert assessment.protocol_failure is None
 
 
 def test_claude_descriptor_advertises_profiles():
