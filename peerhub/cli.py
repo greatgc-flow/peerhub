@@ -304,8 +304,15 @@ def _run_ask(
             if caller_identity_provider is not None
             else LocalProcessCallerIdentityProvider()
         )
+        workspace_root = Path(parsed.workspace).resolve()
+        paths = PathLayout.for_workspace(workspace_root)
+        is_first_init = not paths.database_path.exists()
+        
+        if is_first_init:
+            print(f"[peerhub] initialized workspace at {parsed.workspace}/.peerhub/", file=sys.stderr)
+
         request = DirectAskRequest(
-            workspace_root=Path(parsed.workspace).resolve(),
+            workspace_root=workspace_root,
             peer_name=parsed.peer,
             prompt=parsed.prompt,
             required_capability_tier=CapabilityTier[
@@ -2689,6 +2696,7 @@ def main(args: list[str] | None = None) -> int:
 
     status_parser = subparsers.add_parser("status", help="Show the current workspace status")
     status_parser.add_argument(
+        "-w",
         "--workspace", 
         default=".", 
         help="Path to the workspace root (default: current directory)"
@@ -2764,11 +2772,11 @@ def main(args: list[str] | None = None) -> int:
 
     # Diag subcommand
     diag_parser = subparsers.add_parser("diag", help="Show live peer diagnostics and quota telemetry")
-    diag_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    diag_parser.add_argument("-w", "--workspace", default=".", help="Path to workspace root")
     diag_parser.add_argument("--live", action="store_true", help="Run in continuous monitoring loop")
     diag_parser.add_argument("--fresh", action="store_true", help="Bypass telemetry cache")
     diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
-    diag_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    diag_parser.add_argument("-j", "--json", action="store_true", help="Emit JSON output")
     diag_parser.add_argument("--domains", action="store_true", help="Include a governed-domain state section (consensus/task/lesson) alongside peer-CLI telemetry")
 
     # Broadcast subcommand
@@ -2776,16 +2784,17 @@ def main(args: list[str] | None = None) -> int:
     broadcast_parser.add_argument("prompt", help="Prompt text to broadcast")
     broadcast_parser.add_argument("--peers", default="ag,cx", help="Comma-separated list of peers (default: ag,cx)")
     broadcast_parser.add_argument(
+        "-t",
         "--capability-tier",
         default="READ_ONLY",
         choices=tuple(tier.name for tier in CapabilityTier),
         help="Required downstream capability tier",
     )
-    broadcast_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    broadcast_parser.add_argument("-w", "--workspace", default=".", help="Path to workspace root")
     broadcast_parser.add_argument("--timeout-seconds", type=int, default=60)
     broadcast_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     broadcast_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
-    broadcast_parser.add_argument("--json", action="store_true", help="Emit JSON")
+    broadcast_parser.add_argument("-j", "--json", action="store_true", help="Emit JSON")
 
     health_parser = subparsers.add_parser("health", help="Manage peer health")
     health_subparsers = health_parser.add_subparsers(dest="health_action", required=True)
@@ -2894,17 +2903,20 @@ def main(args: list[str] | None = None) -> int:
     )
     ask_parser.add_argument("prompt", help="Prompt text to send")
     ask_parser.add_argument(
+        "-t",
         "--capability-tier",
-        required=True,
+        default="READ_ONLY",
         choices=tuple(tier.name for tier in CapabilityTier),
         help="Required downstream capability tier",
     )
     ask_parser.add_argument(
+        "-w",
         "--workspace",
         default=".",
         help="Path to the workspace root (default: current directory)",
     )
     ask_parser.add_argument(
+        "-p",
         "--profile",
         default=None,
         help="Explicit profile ID",
@@ -2925,6 +2937,7 @@ def main(args: list[str] | None = None) -> int:
         default=1_000_000,
     )
     ask_parser.add_argument(
+        "-j",
         "--json",
         action="store_true",
         help="Emit JSON",

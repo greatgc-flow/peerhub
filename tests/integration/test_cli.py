@@ -710,14 +710,34 @@ def test_cli_ask_parses_all_arguments(tmp_path: Path, capsys) -> None:
     )
     captured = capsys.readouterr()
     assert captured.out == "hello from peer\n"
-    assert captured.err == ""
+    assert not captured.err or "[peerhub] initialized workspace" in captured.err
 
 
-def test_cli_ask_requires_capability_tier() -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        main(["ask", "ag", "hello"])
+def test_cli_ask_defaults_capability_tier_to_read_only(tmp_path: Path) -> None:
+    with (
+        patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
+        patch("peerhub.cli.execute_direct_ask", return_value=_ask_result()) as execute,
+    ):
+        provider_type.return_value.resolve.return_value = AuthenticatedSubject(
+            principal_id="test", evidence_source="test"
+        )
+        exit_code = main(["ask", "ag", "hello", "--workspace", str(tmp_path)])
+        assert exit_code == 0
+        request = execute.call_args.args[0]
+        assert request.required_capability_tier is CapabilityTier.READ_ONLY
 
-    assert exc_info.value.code == 2
+def test_cli_ask_explicit_capability_tier_override(tmp_path: Path) -> None:
+    with (
+        patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
+        patch("peerhub.cli.execute_direct_ask", return_value=_ask_result()) as execute,
+    ):
+        provider_type.return_value.resolve.return_value = AuthenticatedSubject(
+            principal_id="test", evidence_source="test"
+        )
+        exit_code = main(["ask", "ag", "hello", "--capability-tier", "WORKTREE_WRITE", "--workspace", str(tmp_path)])
+        assert exit_code == 0
+        request = execute.call_args.args[0]
+        assert request.required_capability_tier is CapabilityTier.WORKTREE_WRITE
 
 
 def test_cli_ask_has_no_principal_override_flag() -> None:
@@ -826,7 +846,7 @@ def test_cli_ask_unknown_peer_returns_usage_error(
     captured = capsys.readouterr()
     assert exit_code == 2
     assert captured.out == ""
-    assert captured.err == "peerhub ask: unsupported peer 'stranger'\n"
+    assert "peerhub ask: unsupported peer 'stranger'" in captured.err
 
 
 def test_cli_ask_json_output_has_stable_shape(
@@ -852,7 +872,7 @@ def test_cli_ask_json_output_has_stable_shape(
 
     captured = capsys.readouterr()
     assert exit_code == 0
-    assert captured.err == ""
+    assert not captured.err or "[peerhub] initialized workspace" in captured.err
     assert json.loads(captured.out) == {
         "command_id": "command-1",
         "attempt_id": "attempt-1",
@@ -913,7 +933,7 @@ def test_cli_ask_maps_returned_failure_states(
     captured = capsys.readouterr()
     assert exit_code == expected_exit
     assert captured.out == ""
-    assert captured.err == f"peerhub ask: {result.error_code.value}\n"
+    assert f"peerhub ask: {result.error_code.value}" in captured.err
 
 
 def test_cli_ask_keyboard_interrupt_cancels(
@@ -983,7 +1003,7 @@ def test_cli_ask_real_agy_end_to_end(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert captured.out.strip()
-    assert captured.err == ""
+    assert not captured.err or "[peerhub] initialized workspace" in captured.err
 
 
 def test_cli_statusline_writes_no_log_file(tmp_path: Path, capsys, monkeypatch):
@@ -1009,3 +1029,102 @@ def test_cli_statusline_writes_no_log_file(tmp_path: Path, capsys, monkeypatch):
     assert exit_code == 0
     assert not (tmp_path / ".peerhub" / "statusline").exists()
     assert not (tmp_path / "_sys").exists()
+
+def test_cli_ask_auto_provision_notice(tmp_path, capsys):
+    from peerhub.cli import main
+    from unittest.mock import patch
+    from peerhub.core.identity import AuthenticatedSubject
+    
+    with (
+        patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
+        patch("peerhub.cli.execute_direct_ask", return_value=_ask_result()) as execute,
+    ):
+        provider_type.return_value.resolve.return_value = AuthenticatedSubject(
+            principal_id="test", evidence_source="test"
+        )
+        
+        # First ask (auto-provisions)
+        exit_code1 = main(["ask", "ag", "hello", "--workspace", str(tmp_path)])
+        assert exit_code1 == 0
+        captured1 = capsys.readouterr()
+        assert "[peerhub] initialized workspace at " in captured1.err
+
+        # Simulate creation
+        from peerhub.core.context import PathLayout
+        paths = PathLayout.for_workspace(tmp_path)
+        paths.database_path.parent.mkdir(parents=True, exist_ok=True)
+        paths.database_path.touch()
+
+        # Second ask (already provisioned)
+
+        # Second ask (already provisioned)
+        exit_code2 = main(["ask", "ag", "hello", "--workspace", str(tmp_path)])
+        assert exit_code2 == 0
+        captured2 = capsys.readouterr()
+        assert "[peerhub] initialized workspace at " not in captured2.err
+
+def test_cli_python_m_peerhub(capsys):
+    import subprocess
+    import sys
+    result = subprocess.run([sys.executable, "-m", "peerhub", "--version"], capture_output=True, text=True)
+    assert result.returncode == 0
+    
+    # Compare with direct call
+    from peerhub.cli import main
+    with patch("sys.argv", ["peerhub", "--version"]):
+        try:
+            main()
+        except SystemExit as e:
+            assert e.code == 0
+    captured = capsys.readouterr()
+    
+    assert captured.out.strip() == result.stdout.strip()
+
+def test_cli_short_flags(tmp_path, capsys):
+    from peerhub.cli import main
+    from unittest.mock import patch
+    from peerhub.core.identity import AuthenticatedSubject
+    
+    # Test ask short flags
+    with (
+        patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
+        patch("peerhub.cli.execute_direct_ask", return_value=_ask_result()) as execute,
+    ):
+        provider_type.return_value.resolve.return_value = AuthenticatedSubject(
+            principal_id="test", evidence_source="test"
+        )
+        # using -w, -t, -p, -j
+        exit_code = main(["ask", "ag", "hello", "-w", str(tmp_path), "-t", "WORKTREE_WRITE", "-p", "ag.standard", "-j"])
+        assert exit_code == 0
+        req = execute.call_args.args[0]
+        assert req.workspace_root == tmp_path.resolve()
+        assert req.required_capability_tier is CapabilityTier.WORKTREE_WRITE
+        assert req.profile_id == "ag.standard"
+        captured = capsys.readouterr()
+        import json
+        assert json.loads(captured.out)
+    
+    # Test status short flags
+        with patch("peerhub.cli._run_statusline") as run_statusline:
+            main(["status", "-w", str(tmp_path)])
+            capsys.readouterr() # clear stdout
+
+        # Test diag short flags
+    with patch("peerhub.cli._refresh_usage_projections", return_value=[]):
+        exit_code = main(["diag", "-w", str(tmp_path), "-j"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert json.loads(captured.out)
+        
+    # Test broadcast short flags
+    with patch("peerhub.cli.BroadcastCoordinator") as coordinator:
+        from peerhub.application.broadcast import BroadcastResult
+        coordinator.return_value.fan_out.return_value = BroadcastResult(round_id="1", disposition="all_completed", legs=[])
+        exit_code = main(["broadcast", "ag", "hello", "-w", str(tmp_path), "-t", "READ_ONLY", "-j"])
+        assert exit_code == 0
+        req = coordinator.return_value.fan_out.call_args.args[0]
+        assert req.workspace_root == tmp_path.resolve()
+        assert req.required_capability_tier is CapabilityTier.READ_ONLY
+        captured = capsys.readouterr()
+        assert json.loads(captured.out)
+
