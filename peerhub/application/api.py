@@ -38,10 +38,6 @@ from peerhub.dispatch.contract import CompletionContract, CompletionContractKind
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.service import DispatchService
 from peerhub.application.workflows import ApplicationWorkflows
-from peerhub.application.lesson_broadcast import (
-    LessonBroadcastCoordinator,
-    LessonBroadcastResult,
-)
 from peerhub.application.room_broadcast import (
     RoomBroadcastCoordinator,
     RoomBroadcastResult,
@@ -70,7 +66,6 @@ from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
-from peerhub.governance.activity import list_active_lessons
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.dispatch.duty_lease import (
     DutyLeaseCoordinator,
@@ -112,14 +107,6 @@ from peerhub.application.commands.leadership import (
     LeaderYieldCommand,
 )
 from peerhub.application.commands.leases import LeaseStatusCommand
-from peerhub.application.commands.lessons import (
-    LessonActivateCommand,
-    LessonBroadcastCommand,
-    LessonInjectCommand,
-    LessonProposeCommand,
-    LessonRetireCommand,
-    LessonsListCommand,
-)
 from peerhub.application.commands.peers import (
     BindProfileCommand,
     ListNodesCommand,
@@ -543,94 +530,14 @@ class ApplicationAPI:
         broker: GovernanceBroker,
         room: RoomsService | None,
     ) -> None:
-        def text(p: Mapping[str, JsonValue], n: str) -> str:
-            if not isinstance(p[n], str): raise ValueError(f"{n} must be a string")
-            return cast(str,p[n])
-        def integer(p: Mapping[str, JsonValue], n: str) -> int | None:
-            if p[n] is not None and (not isinstance(p[n],int) or isinstance(p[n],bool)): raise ValueError(f"{n} must be an integer or null")
-            return cast(int|None,p[n])
-        def strings(p: Mapping[str, JsonValue], n: str) -> tuple[str,...]:
-            v=p[n]
-            if not isinstance(v,(list,tuple)) or not all(isinstance(x,str) for x in v): raise ValueError(f"{n} must be a sequence of strings")
-            return tuple(cast(str,x) for x in v)
-        def boolean(p: Mapping[str, JsonValue], n: str, default: bool) -> bool:
-            v = p.get(n, default)
-            if not isinstance(v, bool): raise ValueError(f"{n} must be a boolean")
-            return v
-        def propose(e: CommandEnvelope) -> LessonProposeCommand:
-            p=e.params; return LessonProposeCommand(self._submission(e),text(p,"lesson_id"),text(p,"title"),text(p,"rule"),text(p,"category"),text(p,"severity"),text(p,"proposer_id"),strings(p,"affected_peers"),text(p,"scope_kind"),None if p["workspace_id"] is None else text(p,"workspace_id"), boolean(p, "sticky", False), None if p.get("os") is None else strings(p, "os"), None if p.get("shell") is None else strings(p, "shell"), None if p.get("task_types") is None else strings(p, "task_types"))
-        def activate(e: CommandEnvelope) -> LessonActivateCommand:
-            p=e.params; return LessonActivateCommand(self._submission(e),text(p,"lesson_id"),text(p,"actor_id"),integer(p,"expected_revision"))
-        def retire(e: CommandEnvelope) -> LessonRetireCommand:
-            p=e.params; return LessonRetireCommand(self._submission(e),text(p,"lesson_id"),text(p,"actor_id"),text(p,"reason"),integer(p,"expected_revision"))
-        self.register(CommandDescriptor("governance.lesson.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, propose, lambda c,_:s.propose(lesson_id=c.lesson_id,title=c.title,rule=c.rule,category=c.category,severity=c.severity,proposer_id=c.proposer_id,affected_peers=c.affected_peers,scope_kind=c.scope_kind,workspace_id=c.workspace_id, sticky=c.sticky, os=c.os, shell=c.shell, task_types=c.task_types), self._receipt, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("governance.lesson.activate", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, activate, lambda c,_:s.activate(c.lesson_id,actor_id=c.actor_id,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("governance.lesson.retire", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, retire, lambda c,_:s.retire(c.lesson_id,actor_id=c.actor_id,reason=c.reason,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
-        def lessons_list(e: CommandEnvelope) -> LessonsListCommand:
-            value=e.params["scope"]
-            if value is not None and not isinstance(value,str): raise ValueError("scope must be a string or null")
-            return LessonsListCommand(self._submission(e),value)
-        def encode_lessons(results: Sequence[Any]) -> Mapping[str, JsonValue]:
-            lessons = [{"target_id": r.target_id, "revision": r.revision, "state": r.state} for r in results]
-            return {"lessons": cast(JsonValue, lessons)}
-        def inject(e: CommandEnvelope) -> LessonInjectCommand:
-            p=e.params
-            os_val = text(p, "os") if p.get("os") is not None else None
-            shell_val = text(p, "shell") if p.get("shell") is not None else None
-            tasks: frozenset[str] = frozenset(strings(p, "task_types")) if p.get("task_types") is not None else frozenset()
-            return LessonInjectCommand(self._submission(e), text(p, "target_peer_id"), text(p, "workspace_id"), os_val, shell_val, tasks)
+        from peerhub.application.handlers.lessons import register_lesson_handlers
 
-        def encode_inject(result: str | None) -> Mapping[str, JsonValue]:
-            return {"injection_block": result}
-
-        # Need to import inject_lessons and the policy/context
-        from peerhub.application.lesson_inject import inject_lessons, LessonInjectionPolicy, LessonInjectionContext
-        policy = LessonInjectionPolicy() # Use default policy
-        self.register(CommandDescriptor("governance.lesson.inject", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, inject, lambda c,_: inject_lessons(broker, target_peer_id=c.target_peer_id, workspace_id=c.workspace_id, context=LessonInjectionContext(os=c.os, shell=c.shell, task_types=c.task_types), policy=policy), encode_inject, CommandAvailability.AVAILABLE))
-
-        self.register(CommandDescriptor("governance.lesson.list", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, lessons_list, lambda c,_:list_active_lessons(broker,c.scope), encode_lessons, CommandAvailability.AVAILABLE))
-        if room is not None:
-            coordinator = LessonBroadcastCoordinator(
-                broker=broker,
-                lessons=s,
-                rooms=room,
-            )
-            def broadcast(e: CommandEnvelope) -> LessonBroadcastCommand:
-                return LessonBroadcastCommand(
-                    self._submission(e),
-                    text(e.params, "lesson_id"),
-                    text(e.params, "room_id"),
-                    text(e.params, "sender_instance_id"),
-                    text(e.params, "sender_profile_id"),
-                )
-            def encode_broadcast(
-                result: LessonBroadcastResult,
-            ) -> Mapping[str, JsonValue]:
-                return {
-                    "campaign_id": result.campaign_id,
-                    "campaign_target_id": result.campaign_target_id,
-                    "lesson_id": result.lesson_id,
-                    "room_id": result.room_id,
-                    "recipient_profile_ids": result.recipient_profile_ids,
-                    "inbox_message_target_ids": result.inbox_message_target_ids,
-                    "delivery_target_ids": result.delivery_target_ids,
-                }
-            self.register(CommandDescriptor(
-                "coordination.lesson.broadcast",
-                Mutability.MUTATING,
-                ScopeKind.ANY,
-                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-                broadcast,
-                lambda c, _: coordinator.broadcast(
-                    lesson_id=c.lesson_id,
-                    room_id=c.room_id,
-                    sender_instance_id=c.sender_instance_id,
-                    sender_profile_id=c.sender_profile_id,
-                    created_at=c.submission.client_timestamp,
-                ),
-                encode_broadcast,
-                CommandAvailability.AVAILABLE,
-            ))
+        register_lesson_handlers(
+            api=self,
+            service=s,
+            broker=broker,
+            room=room,
+        )
 
     def _register_room(self, s: RoomsService, room_session: RoomParticipationCoordinator | None = None) -> None:
         def text(e: CommandEnvelope, n: str) -> str:
