@@ -52,9 +52,7 @@ from peerhub.application.alert_raise import (
 )
 from peerhub.application.arbiter_review import ArbiterReviewCoordinator
 from peerhub.application.proposals import (
-    ProposalAddResult,
     ProposalCoordinator,
-    ProposalVoteResult,
 )
 from peerhub.application.status import collect_room_status
 from peerhub.application.broker_status import (
@@ -70,12 +68,6 @@ from peerhub.application.commands import (
     DispatchRequestView,
     DispatchLeaseView,
     SubmissionMetadata,
-)
-from peerhub.application.commands.consensus import (
-    ConsensusCheckCommand,
-    ConsensusProposeCommand,
-    ConsensusSweepCommand,
-    ConsensusVoteCommand,
 )
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
@@ -109,8 +101,7 @@ from peerhub.application.legacy import (
     TaskStatusCommand, TaskFailoverCommand, LessonInjectCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
     ApprovalRequestCommand,
-    LessonsListCommand, ProposalAddCommand,
-    ProposalVoteCommand, ProposalListCommand, ArbiterReviewCommand,
+    LessonsListCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
     RegisterNodeCommand, ListNodesCommand, BindProfileCommand,
     ModelStatusCommand,
@@ -502,173 +493,17 @@ class ApplicationAPI:
         arbiter: ArbiterReviewCoordinator | None,
         proposals: ProposalCoordinator | None,
     ) -> None:
-        def string_tuple(params: Mapping[str, JsonValue], name: str) -> tuple[str, ...]:
-            value = params[name]
-            if not isinstance(value, (list, tuple)) or not all(
-                isinstance(item, str) for item in value
-            ):
-                raise ValueError(f"{name} must be a sequence of strings")
-            return tuple(cast(str, item) for item in value)
+        from peerhub.application.handlers.consensus import (
+            register_consensus_handlers,
+        )
 
-        def decode_propose(e: CommandEnvelope) -> ConsensusProposeCommand:
-            p = e.params
-            return ConsensusProposeCommand(
-                self._submission(e), str(p["round_id"]), str(p["title"]),
-                str(p["question"]), str(p["body"]), str(p["proposer_id"]),
-                string_tuple(p, "required_participants"),
-                string_tuple(p, "eligible_participants"), str(p["risk"]),
-                str(p["source_hash"]),
-            )
-        def decode_vote(e: CommandEnvelope) -> ConsensusVoteCommand:
-            p = e.params
-            return ConsensusVoteCommand(self._submission(e), str(p["round_id"]), str(p["actor_id"]), str(p["choice"]))
-        def decode_check(e: CommandEnvelope) -> ConsensusCheckCommand:
-            return ConsensusCheckCommand(self._submission(e), str(e.params["round_id"]))
-        self.register(CommandDescriptor("consensus.round.propose", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_propose, lambda c, _: service.propose(round_id=c.round_id, title=c.title, question=c.question, body=c.body, proposer_id=c.proposer_id, required_participants=c.required_participants, eligible_participants=c.eligible_participants, risk=c.risk, source_hash=c.source_hash), self._receipt, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("consensus.vote.cast", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_vote, lambda c, _: service.cast_vote(c.round_id, actor_id=c.actor_id, choice=c.choice), self._receipt, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("consensus.round.read", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, decode_check, lambda c, _: service.get_target(c.round_id), lambda r: {"target_id": r.target_id, "revision": r.revision, "state": r.state}, CommandAvailability.AVAILABLE))
-        def decode_sweep(e: CommandEnvelope) -> ConsensusSweepCommand:
-            p=e.params; reason=p["reason"]; revision=p["expected_revision"]
-            if not isinstance(p["round_id"],str) or not isinstance(reason,str): raise ValueError("round_id and reason must be strings")
-            if revision is not None and (not isinstance(revision,int) or isinstance(revision,bool)): raise ValueError("expected_revision must be an integer or null")
-            return ConsensusSweepCommand(self._submission(e),p["round_id"],reason,revision)
-        self.register(CommandDescriptor("consensus.round.sweep", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, decode_sweep, lambda c,_:service.mark_timeout(c.round_id,c.reason,c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
-        if broker is not None:
-            def decode_proposal_list(e: CommandEnvelope) -> ProposalListCommand:
-                return ProposalListCommand(self._submission(e))
-
-            def encode_proposals(results: Sequence[Any]) -> Mapping[str, JsonValue]:
-                proposals = [
-                    {
-                        "target_id": result.target_id,
-                        "revision": result.revision,
-                        "state": result.state,
-                    }
-                    for result in results
-                ]
-                return {"proposals": cast(JsonValue, proposals)}
-
-            self.register(CommandDescriptor(
-                "governance.proposal.list",
-                Mutability.READ_ONLY,
-                ScopeKind.ANY,
-                IdempotencyPolicy.READ_ONLY,
-                decode_proposal_list,
-                lambda _command, _context: broker.list_targets(
-                    "consensus-round", None
-                ),
-                encode_proposals,
-                CommandAvailability.AVAILABLE,
-            ))
-
-        if proposals is not None:
-            def proposal_text(
-                envelope: CommandEnvelope,
-                name: str,
-            ) -> str:
-                value = envelope.params[name]
-                if not isinstance(value, str):
-                    raise ValueError(f"{name} must be a string")
-                return value
-
-            def decode_proposal_add(
-                envelope: CommandEnvelope,
-            ) -> ProposalAddCommand:
-                return ProposalAddCommand(
-                    submission=self._submission(envelope),
-                    subject=proposal_text(envelope, "subject"),
-                    from_peer=proposal_text(envelope, "from_peer"),
-                    impact=proposal_text(envelope, "impact"),
-                    rationale=proposal_text(envelope, "rationale"),
-                    text=proposal_text(envelope, "text"),
-                )
-
-            def decode_proposal_vote(
-                envelope: CommandEnvelope,
-            ) -> ProposalVoteCommand:
-                return ProposalVoteCommand(
-                    submission=self._submission(envelope),
-                    proposal_id=proposal_text(envelope, "proposal_id"),
-                    voter=proposal_text(envelope, "voter"),
-                    vote=proposal_text(envelope, "vote"),
-                    reason=proposal_text(envelope, "reason"),
-                )
-
-            def encode_proposal_add(
-                result: ProposalAddResult,
-            ) -> Mapping[str, JsonValue]:
-                return {
-                    "round_id": result.round_id,
-                    "from_peer": result.from_peer,
-                    "impact": result.impact,
-                    "eligible_participants": result.eligible_participants,
-                    "receipt_id": result.receipt_id,
-                    "revision": result.revision,
-                }
-
-            def encode_proposal_vote(
-                result: ProposalVoteResult,
-            ) -> Mapping[str, JsonValue]:
-                return {
-                    "round_id": result.round_id,
-                    "voter": result.voter,
-                    "choice": result.choice,
-                    "outcome": result.outcome,
-                    "agreed": result.agreed,
-                    "disagreed": result.disagreed,
-                    "escalation_reason": result.escalation_reason,
-                    "invariant_request_target_id": (
-                        result.invariant_request_target_id
-                    ),
-                    "revision": result.revision,
-                }
-
-            self.register(CommandDescriptor(
-                "governance.proposal.create",
-                Mutability.MUTATING,
-                ScopeKind.ANY,
-                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-                decode_proposal_add,
-                lambda command, _: proposals.add_proposal(
-                    subject=command.subject,
-                    from_peer=command.from_peer,
-                    impact=command.impact,
-                    rationale=command.rationale,
-                    text=command.text,
-                ),
-                encode_proposal_add,
-                CommandAvailability.AVAILABLE,
-            ))
-            self.register(CommandDescriptor(
-                "governance.proposal.vote",
-                Mutability.MUTATING,
-                ScopeKind.ANY,
-                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-                decode_proposal_vote,
-                lambda command, _: proposals.vote_proposal(
-                    command.proposal_id,
-                    voter=command.voter,
-                    vote=command.vote,
-                    reason=command.reason,
-                ),
-                encode_proposal_vote,
-                CommandAvailability.AVAILABLE,
-            ))
-
-        if arbiter is not None:
-            def decode_arbiter_review(e: CommandEnvelope) -> ArbiterReviewCommand:
-                return ArbiterReviewCommand(self._submission(e), str(e.params["round_id"]))
-            self.register(CommandDescriptor(
-                "consensus.arbiter.review",
-                Mutability.MUTATING,
-                ScopeKind.ANY,
-                IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-                decode_arbiter_review,
-                lambda c, _: arbiter.review(c.round_id),
-                lambda r: dict(r),
-                CommandAvailability.AVAILABLE,
-            ))
-
+        register_consensus_handlers(
+            api=self,
+            service=service,
+            broker=broker,
+            arbiter=arbiter,
+            proposals=proposals,
+        )
     def _register_task(self, s: TaskService) -> None:
         def text(p: Mapping[str, JsonValue], n: str) -> str:
             if not isinstance(p[n], str): raise ValueError(f"{n} must be a string")
