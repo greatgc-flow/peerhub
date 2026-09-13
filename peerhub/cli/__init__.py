@@ -3,12 +3,12 @@
 import argparse
 import hashlib
 import json
-import os
-import shutil
-import sqlite3
-import subprocess
+import os  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+import shutil  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+import sqlite3  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+import subprocess  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 import sys
-import threading
+import threading  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 import time
 import uuid
 from collections.abc import Mapping, Sequence
@@ -21,34 +21,34 @@ if TYPE_CHECKING:
     from peerhub.telemetry.contract import UsageProjectionSnapshot
 
 from peerhub.adapters.registry import (
-    ExecutableNotFoundError,
-    ProfileNotFoundError,
-    resolve_peer_target,
+    ExecutableNotFoundError,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+    ProfileNotFoundError,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+    resolve_peer_target,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 )
 from peerhub.application.bootstrap import (
-    HealthPolicyConflictError,
-    ReadinessProbeFailedError,
-    build_broadcast_admission_config,
+    HealthPolicyConflictError,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+    ReadinessProbeFailedError,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+    build_broadcast_admission_config,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 )
 from peerhub.application.direct_ask import (
-    DirectAskRequest,
+    DirectAskRequest,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
     DirectAskResult,
-    execute_direct_ask,
+    execute_direct_ask,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 )
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.application.room_broadcast import RoomBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
-from peerhub.application.proposals import ProposalVoteResult, load_proposal_voters
+from peerhub.application.proposals import ProposalVoteResult, load_proposal_voters  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
 from peerhub.application.broker_status import collect_effect_status
 from peerhub.application.legacy import legacy_thread_slug
-from peerhub.application.config_paths import resolve_config_paths
-from peerhub.application.arbiter_review import load_final_arbiter_policy
+from peerhub.application.config_paths import resolve_config_paths  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+from peerhub.application.arbiter_review import load_final_arbiter_policy  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.workspace_identity import detect_workspace_home_id
 from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
-from peerhub.core.execution import ExecutionCertainty, TransportLimits
+from peerhub.core.execution import ExecutionCertainty, TransportLimits  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.core.protocol import JsonValue
 from peerhub.core.identity import (
     CallerIdentityProvider,
@@ -57,7 +57,7 @@ from peerhub.core.identity import (
 )
 from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
-from peerhub.dispatch.process import ProcessSupervisor
+from peerhub.dispatch.process import ProcessSupervisor  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.runtime import create_runtime
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
@@ -77,7 +77,7 @@ from peerhub.dispatch.room_session import (
 )
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, PeerHubError
-from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row
+from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.cli.parser import create_root_parser
 
 class SystemClock(Clock):
@@ -92,7 +92,7 @@ class UuidSource(IdSource):
         return str(uuid.uuid4())
 
 
-def _ask_exit_code(result: DirectAskResult) -> int:
+def _ask_exit_code(result: DirectAskResult) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
     """Map direct-ask evidence to the stable CLI exit-code contract."""
 
     if (
@@ -136,7 +136,7 @@ def _enum_value(value: object) -> object:
     return getattr(value, "value", value)
 
 
-def _print_ask_json(result: DirectAskResult) -> None:
+def _print_ask_json(result: DirectAskResult) -> None:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
     print(
         json.dumps(
             {
@@ -289,124 +289,15 @@ def _run_ask(
     *,
     caller_identity_provider: CallerIdentityProvider | None = None,
 ) -> int:
-    class _AskState:
-        supervisor: ProcessSupervisor | None = None
-        result: DirectAskResult | None = None
-        error: BaseException | None = None
+    from peerhub.cli.commands.daily import run_ask
 
-    state = _AskState()
-    done = threading.Event()
-    thread_started = False
+    return run_ask(
+        parsed,
+        sys.modules[__name__],
+        caller_identity_provider=caller_identity_provider,
+    )
 
-    try:
-        authenticated_subject = require_caller_identity(
-            caller_identity_provider
-            if caller_identity_provider is not None
-            else LocalProcessCallerIdentityProvider()
-        )
-        workspace_root = Path(parsed.workspace).resolve()
-        paths = PathLayout.for_workspace(workspace_root)
-        is_first_init = not paths.database_path.exists()
-        
-        if is_first_init:
-            pass
-
-        request = DirectAskRequest(
-            workspace_root=workspace_root,
-            peer_name=parsed.peer,
-            prompt=parsed.prompt,
-            required_capability_tier=CapabilityTier[
-                parsed.capability_tier
-            ],
-            profile_id=parsed.profile,
-            limits=TransportLimits(
-                process_timeout_ms=parsed.timeout_seconds * 1000,
-                silence_timeout_ms=(
-                    parsed.silence_timeout_seconds * 1000
-                ),
-                max_output_bytes=parsed.max_output_bytes,
-            ),
-        )
-
-        def _cancellation_hook(sup: ProcessSupervisor) -> None:
-            state.supervisor = sup
-
-        def _run_ask_thread() -> None:
-            try:
-                state.result = execute_direct_ask(
-                    request,
-                    clock=SystemClock(),
-                    ids=UuidSource(),
-                    authenticated_subject=authenticated_subject,
-                    cancellation_hook=_cancellation_hook,
-                )
-            except BaseException as e:
-                state.error = e
-            finally:
-                done.set()
-
-        t = threading.Thread(target=_run_ask_thread, name="PeerhubDirectAsk")
-        thread_started = True
-        t.start()
-
-        # Wait on the main thread so that KeyboardInterrupt can be raised cleanly here
-        while not done.wait(0.1):
-            pass
-
-        if state.error is not None:
-            raise state.error
-
-        result = state.result
-        assert result is not None
-        
-        if is_first_init and paths.database_path.exists():
-            print(f"[peerhub] initialized workspace at {paths.database_path.parent}", file=sys.stderr)
-
-    except KeyboardInterrupt:
-        print(
-            "\npeerhub ask: interrupt received; cancelling in-flight process...",
-            file=sys.stderr,
-        )
-        if thread_started:
-            # Poll for a short window to see if supervisor becomes available
-            # (in case the interrupt hit before the thread fully started the dispatch)
-            for _ in range(20):
-                if state.supervisor is not None:
-                    break
-                time.sleep(0.05)
-            
-            if state.supervisor is not None:
-                state.supervisor.begin_cancellation()
-            done.wait()
-        return 130
-    except (
-        ValueError,
-        ProfileNotFoundError,
-        ExecutableNotFoundError,
-        ReadinessProbeFailedError,
-        HealthPolicyConflictError,
-        RuntimeError,
-        OSError,
-        sqlite3.Error,
-    ) as error:
-        print(f"peerhub ask: {error}", file=sys.stderr)
-        return 2
-
-    exit_code = _ask_exit_code(result)
-    if parsed.json:
-        _print_ask_json(result)
-    elif exit_code == 0:
-        assert result.response_text is not None
-        sys.stdout.write(result.response_text)
-        if not result.response_text.endswith("\n"):
-            sys.stdout.write("\n")
-
-    if exit_code != 0:
-        detail = result.error_code or result.request_state or "unknown failure"
-        print(f"peerhub ask: {_enum_value(detail)}", file=sys.stderr)
-    return exit_code
-
-def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:
+def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
     projections = uow.list_usage_projections(peer)
     if not projections:
         print("No quota data recorded yet")
@@ -417,203 +308,31 @@ def _print_quota_table(uow: "SqliteReadUnitOfWork", peer: str | None) -> None:
         resets_str = datetime.fromtimestamp(p.resets_at, tz=timezone.utc).isoformat() if p.resets_at else "N/A"
         print(f"{p.instance_id:<10} {p.quota_pool_scope:<30} {p.used_fraction * 100:>5.1f}%    {p.remaining_fraction * 100:>9.1f}%      {resets_str}")
 
-def _refresh_usage_projections(
+def _refresh_usage_projections(  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
     workspace_root: Path,
     *,
     force: bool,
     freshness_ttl: int = 60,
 ) -> list["UsageProjectionSnapshot"]:
-    """Poll the real quota sources, persist them, and return current projections.
+    from peerhub.cli.commands.daily import refresh_usage_projections
 
-    This is the seam that was missing: `quota_polling`'s pollers and
-    `record_usage_observations()` were fully built and tested but had no
-    caller, so CC/CX quota was always empty in a real run.
-
-    `force` (i.e. `--fresh`) polls unconditionally. Otherwise a projection
-    that is still inside `freshness_ttl` is reused as-is and no provider is
-    contacted; only stale or absent data triggers a poll.
-
-    Never raises: telemetry must not be able to take down `diag`/`status`.
-    A provider that fails simply leaves its pool honestly absent.
-    """
-    from peerhub.core.context import PathLayout, RuntimeContext
-    from peerhub.runtime import create_runtime
-    from peerhub.telemetry.contract import UsageObserved
-    from peerhub.telemetry.quota_polling import (
-        poll_agy_usage,
-        poll_claude_usage,
-        poll_codex_usage,
-        record_usage_observations,
+    return refresh_usage_projections(
+        workspace_root,
+        force=force,
+        freshness_ttl=freshness_ttl,
+        cli=sys.modules[__name__],
     )
-
-    paths = PathLayout.for_workspace(workspace_root)
-    try:
-        context = RuntimeContext(
-            workspace_home_id=_detect_workspace_home_id(
-                paths.database_path, workspace_root.name
-            ),
-            paths=paths,
-            clock=SystemClock(),
-            ids=UuidSource(),
-        )
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
-            ids = context.ids
-            now = int(context.clock.now())
-
-            with runtime.state_store.read_unit_of_work() as uow:
-                existing = list(uow.list_usage_projections(None))
-
-            fresh_instances: set[str] = set()
-            if not force:
-                for proj in existing:
-                    if now - proj.updated_at <= freshness_ttl:
-                        fresh_instances.add(proj.instance_id)
-
-            pollers = (
-                ("cc", poll_claude_usage),
-                ("cx", poll_codex_usage),
-                ("ag", poll_agy_usage),
-            )
-            observations: list[UsageObserved] = []
-            poll_sys_dir = workspace_root / "_sys"
-            for instance_id, poll in pollers:
-                if instance_id in fresh_instances:
-                    continue
-                try:
-                    observations.extend(
-                        poll(
-                            ids,
-                            instance_id,
-                            "standard",
-                            freshness_ttl=freshness_ttl,
-                            sys_dir=poll_sys_dir,
-                        )
-                    )
-                except Exception:
-                    # Fail closed for this peer only; absent beats fabricated.
-                    continue
-
-            if observations:
-                with runtime.state_store.unit_of_work() as uow:
-                    record_usage_observations(uow, ids, observations)
-                    # SqliteUnitOfWork rolls back on exit unless committed
-                    # explicitly; without this the projections are written
-                    # inside the transaction and then discarded.
-                    uow.commit()
-
-            with runtime.state_store.read_unit_of_work() as uow:
-                return list(uow.list_usage_projections(None))
-    except Exception as e:
-        print(f"Error: failed to refresh usage projections: {e}", file=sys.stderr)
-        raise
 
 def _run_diag(parsed: argparse.Namespace) -> int:
-    from peerhub.telemetry.presenter import TelemetryPresenter
-    workspace_root = Path(parsed.workspace).resolve()
-    projections = _refresh_usage_projections(
-        workspace_root, force=bool(getattr(parsed, "fresh", False))
-    )
-    presenter = TelemetryPresenter(
-        use_color=False if parsed.no_color else None,
-        workspace_root=workspace_root,
-        usage_projections=projections,
-    )
+    from peerhub.cli.commands.daily import run_diag
 
-    def with_domains(snapshot: dict[str, Any]) -> dict[str, Any]:
-        if not getattr(parsed, "domains", False):
-            return snapshot
-        try:
-            from peerhub.governance.activity import (
-                list_active_consensus_rounds,
-                list_active_lessons,
-                list_active_tasks,
-            )
-            paths = PathLayout.for_workspace(workspace_root)
-
-            context = RuntimeContext(
-                workspace_home_id=_detect_workspace_home_id(
-                    paths.database_path, workspace_root.name
-                ),
-                paths=paths,
-                clock=SystemClock(),
-                ids=UuidSource(),
-            )
-            with create_runtime(context, adapter_peer_kind="fake") as runtime:
-                now = int(time.time())
-                consensus = list_active_consensus_rounds(runtime.governance_broker)
-                tasks = list_active_tasks(runtime.governance_broker)
-                lessons = list_active_lessons(runtime.governance_broker)
-                domain_data = {
-                    "consensus": [{"target_id": t.target_id, "revision": t.revision, "state": dict(t.state), "summary": format_consensus_row(dict(t.state), now)} for t in consensus],
-                    "tasks": [{"target_id": t.target_id, "revision": t.revision, "state": dict(t.state), "summary": format_task_row(dict(t.state))} for t in tasks],
-                    "lessons": [{"target_id": t.target_id, "revision": t.revision, "state": dict(t.state)} for t in lessons],
-                    "duty_leases": {"status": "unavailable", "reason": "cross-room duty lease enumeration is not implemented"},
-                }
-                snapshot["domains"] = _json_safe(domain_data)
-        except Exception as exc:
-            snapshot["domains"] = {"status": "unavailable", "reason": f"governance state unavailable: {exc}"}
-        return snapshot
-    if parsed.live:
-        try:
-            import msvcrt
-        except ImportError:
-            msvcrt = None
-
-        try:
-            while True:
-                if os.name == "nt":
-                    subprocess.run("cls", shell=True)
-                else:
-                    sys.stdout.write("\033[2J\033[H")
-                    sys.stdout.flush()
-
-                snapshot = with_domains(presenter.collect_live_snapshot())
-                if parsed.json:
-                    print(json.dumps(snapshot, indent=2))
-                else:
-                    rendered = presenter.render(snapshot)
-                    if getattr(parsed, "domains", False):
-                        rendered += "\n\nGOVERNED DOMAINS\n" + _render_domain_section(snapshot["domains"])
-                    print(rendered)
-                    print(presenter.format_ansi(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
-
-                # Poll for key hit in 0.05s steps (total 2.0s refresh interval)
-                total_interval = 2.0
-                step = 0.05
-                elapsed = 0.0
-                while elapsed < total_interval:
-                    if msvcrt is not None and msvcrt.kbhit():  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue] -- msvcrt is Windows-only; pyright can't resolve its stubs when checking against a non-Windows pythonPlatform
-                        ch = msvcrt.getch()  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType, reportAttributeAccessIssue]
-                        if ch in (b"\x1b", b"q", b"Q", b"\x03"):  # ESC, q, Q, Ctrl+C
-                            return 0
-                    time.sleep(step)
-                    elapsed += step
-        except KeyboardInterrupt:
-            return 0
-        return 0
-    else:
-        snapshot = with_domains(presenter.collect_live_snapshot())
-        if parsed.json:
-            print(json.dumps(snapshot, indent=2))
-        else:
-            rendered = presenter.render(snapshot)
-            if getattr(parsed, "domains", False):
-                rendered += "\n\nGOVERNED DOMAINS\n" + _render_domain_section(snapshot["domains"])
-            print(rendered)
-        return 0
+    return run_diag(parsed, sys.modules[__name__])
 
 
-def _render_domain_section(domains: Mapping[str, Any]) -> str:
-    if domains.get("status") == "unavailable":
-        return str(domains.get("reason", "governance state unavailable"))
-    lines: list[str] = []
-    for name in ("consensus", "tasks", "lessons"):
-        rows = cast(list[Mapping[str, Any]], domains.get(name, []))
-        lines.append(name.upper() + ": " + str(len(rows)))
-        for row in rows:
-            lines.append("  " + str(row.get("summary", row.get("target_id", "unknown"))))
-    lines.append("DUTY LEASES: unavailable (cross-room enumeration not implemented)")
-    return "\n".join(lines)
+def _render_domain_section(domains: Mapping[str, Any]) -> str:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.daily import render_domain_section
+
+    return render_domain_section(domains)
 
 
 def _guard_implicit_workspace_init(
@@ -689,73 +408,16 @@ def _run_statusline(parsed: argparse.Namespace) -> int:
     return 0
 
 
+def _run_status(parsed: argparse.Namespace) -> int:
+    from peerhub.cli.commands.daily import run_status
+
+    return run_status(parsed, sys.modules[__name__])
+
+
 def _run_broadcast(parsed: argparse.Namespace) -> int:
-    from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
-    from peerhub.dispatch.capability import CapabilityTier
-    workspace_root = Path(parsed.workspace).resolve()
-    paths = PathLayout.for_workspace(workspace_root)
-    
-    workspace_home_id = _detect_workspace_home_id(
-        paths.database_path, workspace_root.name
-    )
-    context = RuntimeContext(
-        workspace_home_id=workspace_home_id,
-        paths=paths,
-        clock=SystemClock(),
-        ids=UuidSource(),
-    )
-    
-    peers_list = [p.strip() for p in parsed.peers.split(",") if p.strip()]
-    targets: list[tuple[str, str | None]] = [(p, None) for p in peers_list]
-    resolved_targets = tuple(
-        resolve_peer_target(p, profile_id=pid) for p, pid in targets
-    )
-    adm_cfg = build_broadcast_admission_config(
-        resolved_targets,
-        clock=context.clock,
-        ids=context.ids,
-    )
-    with create_runtime(context, admission_config=adm_cfg) as runtime:
-        coordinator = BroadcastCoordinator(runtime=runtime, clock=context.clock, ids=context.ids)
-        caller = require_caller_identity(LocalProcessCallerIdentityProvider())
-        req = FanOutRequest(
-            workspace_root=workspace_root,
-            prompt=parsed.prompt,
-            targets=targets,
-            required_capability_tier=CapabilityTier[parsed.capability_tier],
-            limits=TransportLimits(
-                process_timeout_ms=parsed.timeout_seconds * 1000,
-                silence_timeout_ms=parsed.silence_timeout_seconds * 1000,
-                max_output_bytes=parsed.max_output_bytes,
-            ),
-            authenticated_subject=caller,
-        )
-        
-        result = coordinator.fan_out(req)
-        
-        if parsed.json:
-            out_obj = {
-                "round_id": result.round_id,
-                "disposition": result.disposition,
-                "legs": [
-                    {
-                        "target": leg.target,
-                        "leg_state": leg.leg_state,
-                        "response_text": leg.response_text,
-                    }
-                    for leg in result.legs
-                ]
-            }
-            print(json.dumps(out_obj, indent=2))
-        else:
-            print(f"Broadcast Round: {result.round_id} (Disposition: {result.disposition})")
-            for leg in result.legs:
-                status_icon = "✓" if leg.leg_state == "completed" else "✗"
-                print(f"[{status_icon}] {leg.target}: {leg.leg_state}")
-                if leg.response_text:
-                    print(f"    {leg.response_text.strip()}\n")
-                    
-        return 0 if result.disposition == "all_completed" else 1
+    from peerhub.cli.commands.daily import run_broadcast
+
+    return run_broadcast(parsed, sys.modules[__name__])
 
 
 def _json_safe(value: Any) -> Any:
@@ -2647,37 +2309,10 @@ def _run_session(parsed: argparse.Namespace) -> int:
         print(f"peerhub session: {exc}", file=sys.stderr)
         return 2
 
-def _run_adapter(parsed: argparse.Namespace) -> int:
-    if getattr(parsed, "adapter_command", None) == "discover":
-        from peerhub.adapters.discovery import (
-            discover_builtin_adapters,
-            AdapterFoundAndReady,
-            AdapterNotReady,
-        )
-        results = discover_builtin_adapters()
-        
-        if parsed.json:
-            out = {}
-            for r in results:
-                if isinstance(r, AdapterFoundAndReady):
-                    out[r.peer_kind] = {"state": "MEASURED", "executable_path": str(r.executable_path), "profiles": r.profiles}
-                elif isinstance(r, AdapterNotReady):
-                    out[r.peer_kind] = {"state": "UNAVAILABLE", "executable_path": str(r.executable_path), "reason": r.reason}
-                else:
-                    out[r.peer_kind] = {"state": "ABSENT"}
-            print(json.dumps(_json_safe(out), indent=2))
-        else:
-            for r in results:
-                if isinstance(r, AdapterFoundAndReady):
-                    print(f"[{r.peer_kind}] FOUND (ready): {r.executable_path} (profiles: {', '.join(r.profiles)})")
-                elif isinstance(r, AdapterNotReady):
-                    print(f"[{r.peer_kind}] UNAVAILABLE: {r.executable_path} - {r.reason}")
-                else:
-                    print(f"[{r.peer_kind}] ABSENT: not found in PATH")
-        return 0
-    
-    print("error: missing adapter subcommand", file=sys.stderr)
-    return 2
+def _run_adapter(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_adapter
+
+    return run_adapter(parsed, sys.modules[__name__])
 
 
 def get_cli_version() -> str:
@@ -2795,120 +2430,22 @@ def main(args: list[str] | None = None) -> int:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     
-    # Workspace subcommand (dotdir consolidation, ratified 2026-09-09, item 2):
-    # explicit initialization intent, distinct from every other command's
-    # implicit `--workspace` default -- `peerhub workspace init` is the one
-    # way to bless a bare `.` cwd as a real workspace going forward.
-    workspace_parser = subparsers.add_parser("workspace", help="Manage the peerhub workspace itself")
-    workspace_subparsers = workspace_parser.add_subparsers(dest="workspace_action", required=True)
-    workspace_init_parser = workspace_subparsers.add_parser(
-        "init", help="Explicitly initialize a workspace (creates .peerhub/peerhub.sqlite3)"
+    from peerhub.cli.commands.daily import (
+        register_daily_commands,
+        register_status_command,
     )
-    workspace_init_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
+    from peerhub.cli.commands.setup import (
+        register_setup_commands,
+        register_workspace_command,
     )
 
-    status_parser = subparsers.add_parser("status", help="Show the current workspace status")
-    status_parser.add_argument(
-        "-w",
-        "--workspace", 
-        default=".", 
-        help="Path to the workspace root (default: current directory)"
+    register_workspace_command(subparsers)
+    register_status_command(subparsers)
+    register_setup_commands(subparsers)
+    register_daily_commands(
+        subparsers,
+        capability_tier_names=tuple(tier.name for tier in CapabilityTier),
     )
-    status_group = status_parser.add_mutually_exclusive_group()
-    status_group.add_argument("--peer", help="Show quota data for a specific peer")
-    status_group.add_argument("--all", action="store_true", help="Show quota data for all peers")
-
-    # Config subcommand (dotdir consolidation, ratified 2026-09-09, item 4)
-    config_parser = subparsers.add_parser("config", help="Inspect peerhub's own resolved configuration")
-    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
-    config_paths_parser = config_subparsers.add_parser(
-        "paths", help="Report every resolved config path and its source"
-    )
-    config_paths_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
-    )
-    config_paths_parser.add_argument("--json", action="store_true", help="Emit JSON output")
-    config_migrate_parser = config_subparsers.add_parser(
-        "migrate", help="Move legacy .peerhub/{arbiter,proposals}.json to the config/ tier (item 8)"
-    )
-    config_migrate_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
-    )
-    config_validate_parser = config_subparsers.add_parser(
-        "validate", help="Validate every resolved config layer and report diagnostics"
-    )
-    config_validate_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
-    )
-    config_validate_parser.add_argument("--json", action="store_true", help="Emit JSON output")
-    config_init_parser = config_subparsers.add_parser(
-        "init", help="Scaffold the config/ directory for one scope, seeding starter files"
-    )
-    config_init_parser.add_argument(
-        "--scope", choices=("global", "workspace"), required=True, help="Which config tier to initialize"
-    )
-    config_init_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root (used with --scope workspace)"
-    )
-
-    # Backup subcommand (dotdir consolidation, ratified 2026-09-09, item 10)
-    backup_parser = subparsers.add_parser("backup", help="Back up or restore one workspace")
-    backup_subparsers = backup_parser.add_subparsers(dest="backup_command", required=True)
-    backup_workspace_parser = backup_subparsers.add_parser(
-        "workspace", help="Create a backup bundle (live SQLite snapshot + config/ files)"
-    )
-    backup_workspace_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
-    )
-    backup_workspace_parser.add_argument(
-        "--output", required=True, help="Directory to create the backup bundle under"
-    )
-    backup_workspace_parser.add_argument(
-        "--include-transcripts",
-        action="store_true",
-        help="Include dispatch_transcripts rows (durable, sensitive dispatch text; omitted by default)",
-    )
-    backup_restore_parser = backup_subparsers.add_parser(
-        "restore", help="Restore a backup bundle into a workspace"
-    )
-    backup_restore_parser.add_argument("bundle", help="Path to the backup bundle directory")
-    backup_restore_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root (default: current directory)"
-    )
-
-    # Adapter subcommand
-    adapter_parser = subparsers.add_parser("adapter", help="Manage peerhub adapters")
-    adapter_subparsers = adapter_parser.add_subparsers(dest="adapter_command", required=True)
-    
-    adapter_discover_parser = adapter_subparsers.add_parser("discover", help="Discover installed built-in adapters")
-    adapter_discover_parser.add_argument("--json", action="store_true", help="Emit JSON output")
-
-    # Diag subcommand
-    diag_parser = subparsers.add_parser("diag", help="Show live peer diagnostics and quota telemetry")
-    diag_parser.add_argument("-w", "--workspace", default=".", help="Path to workspace root")
-    diag_parser.add_argument("--live", action="store_true", help="Run in continuous monitoring loop")
-    diag_parser.add_argument("--fresh", action="store_true", help="Bypass telemetry cache")
-    diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
-    diag_parser.add_argument("-j", "--json", action="store_true", help="Emit JSON output")
-    diag_parser.add_argument("--domains", action="store_true", help="Include a governed-domain state section (consensus/task/lesson) alongside peer-CLI telemetry")
-
-    # Broadcast subcommand
-    broadcast_parser = subparsers.add_parser("broadcast", help="Broadcast one prompt to multiple peers")
-    broadcast_parser.add_argument("prompt", help="Prompt text to broadcast")
-    broadcast_parser.add_argument("--peers", default="ag,cx", help="Comma-separated list of peers (default: ag,cx)")
-    broadcast_parser.add_argument(
-        "-t",
-        "--capability-tier",
-        default="READ_ONLY",
-        choices=tuple(tier.name for tier in CapabilityTier),
-        help="Required downstream capability tier",
-    )
-    broadcast_parser.add_argument("-w", "--workspace", default=".", help="Path to workspace root")
-    broadcast_parser.add_argument("--timeout-seconds", type=int, default=60)
-    broadcast_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
-    broadcast_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
-    broadcast_parser.add_argument("-j", "--json", action="store_true", help="Emit JSON")
 
     health_parser = subparsers.add_parser("health", help="Manage peer health")
     health_subparsers = health_parser.add_subparsers(dest="health_action", required=True)
@@ -3007,54 +2544,11 @@ def main(args: list[str] | None = None) -> int:
     gate_check_parser.add_argument("--workspace", default=".", help="Path to workspace root")
     gate_check_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
-    ask_parser = subparsers.add_parser(
-        "ask",
-        help="Send one prompt to a real peer CLI",
-    )
-    ask_parser.add_argument(
-        "peer",
-        help="Peer name (ag/agy, cc/claude, cx/codex)",
-    )
-    ask_parser.add_argument("prompt", help="Prompt text to send")
-    ask_parser.add_argument(
-        "-t",
-        "--capability-tier",
-        default="READ_ONLY",
-        choices=tuple(tier.name for tier in CapabilityTier),
-        help="Required downstream capability tier",
-    )
-    ask_parser.add_argument(
-        "-w",
-        "--workspace",
-        default=".",
-        help="Path to the workspace root (default: current directory)",
-    )
-    ask_parser.add_argument(
-        "-p",
-        "--profile",
-        default=None,
-        help="Explicit profile ID",
-    )
-    ask_parser.add_argument(
-        "--timeout-seconds",
-        type=int,
-        default=60,
-    )
-    ask_parser.add_argument(
-        "--silence-timeout-seconds",
-        type=int,
-        default=60,
-    )
-    ask_parser.add_argument(
-        "--max-output-bytes",
-        type=int,
-        default=1_000_000,
-    )
-    ask_parser.add_argument(
-        "-j",
-        "--json",
-        action="store_true",
-        help="Emit JSON",
+    from peerhub.cli.commands.daily import register_ask_command
+
+    register_ask_command(
+        subparsers,
+        capability_tier_names=tuple(tier.name for tier in CapabilityTier),
     )
 
     statusline_parser = subparsers.add_parser(
@@ -4170,8 +3664,11 @@ def main(args: list[str] | None = None) -> int:
 
     parsed = parser.parse_args(args)
 
-    if parsed.command == "adapter":
-        return _run_adapter(parsed)
+    from peerhub.cli.commands.setup import run_setup_command
+
+    setup_result = run_setup_command(parsed, sys.modules[__name__])
+    if setup_result is not None:
+        return setup_result
 
     if parsed.command == "statusline":
         return _run_statusline(parsed)
@@ -4230,97 +3727,8 @@ def main(args: list[str] | None = None) -> int:
     if parsed.command == "broadcast":
         return _run_broadcast(parsed)
 
-    if parsed.command == "workspace" and parsed.workspace_action == "init":
-        workspace_root = Path(parsed.workspace).resolve()
-        paths = PathLayout.for_workspace(workspace_root)
-        if paths.database_path.exists():
-            print(f"Workspace already initialized: {workspace_root}")
-            return 0
-        context = RuntimeContext(
-            workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
-            paths=paths,
-            clock=SystemClock(),
-            ids=UuidSource(),
-        )
-        with create_runtime(context, adapter_peer_kind="fake"):
-            pass
-        print(f"Workspace initialized: {workspace_root}")
-        return 0
-
-    if parsed.command == "config" and parsed.config_command == "paths":
-        workspace_root = Path(parsed.workspace).resolve()
-        resolved = resolve_config_paths(workspace_root=workspace_root)
-        payload = resolved.as_dict()
-        if parsed.json:
-            print(json.dumps(payload, indent=2))
-        else:
-            for name, entry in payload.items():
-                print(f"{name}: {entry['path']} (source: {entry['source']})")
-        return 0
-
-    if parsed.command == "config" and parsed.config_command == "migrate":
-        return _run_config_migrate(parsed)
-
-    if parsed.command == "config" and parsed.config_command == "validate":
-        return _run_config_validate(parsed)
-
-    if parsed.command == "config" and parsed.config_command == "init":
-        return _run_config_init(parsed)
-
-    if parsed.command == "backup" and parsed.backup_command == "workspace":
-        return _run_backup_workspace(parsed)
-
-    if parsed.command == "backup" and parsed.backup_command == "restore":
-        return _run_backup_restore(parsed)
-
     if parsed.command == "status":
-        workspace_root = Path(parsed.workspace).resolve()
-        paths = PathLayout.for_workspace(workspace_root)
-
-        print(f"Workspace: {workspace_root}")
-        print(f"Database: {paths.database_path}")
-        
-        if not paths.database_path.exists():
-            print("Status: Workspace uninitialized (no database found)")
-            return 0
-            
-        workspace_home_id = _detect_workspace_home_id(
-            paths.database_path, workspace_root.name
-        )
-        context = RuntimeContext(
-            workspace_home_id=workspace_home_id,
-            paths=paths,
-            clock=SystemClock(),
-            ids=UuidSource(),
-        )
-        
-        # create_runtime will construct all services
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
-            # Check migrations
-            conn = runtime.state_store._connect()  # pyright: ignore[reportPrivateUsage]
-            try:
-                migrations = runtime.state_store._migration_versions(conn)  # pyright: ignore[reportPrivateUsage]
-                print(f"Schema Migrations Applied: {len(migrations)}")
-            except sqlite3.OperationalError:
-                print("Schema Migrations Applied: 0 (table missing)")
-            finally:
-                conn.close()
-                
-            # Health circuit
-            print("Health Circuit ('system'): (no listing API exists yet -- not queryable from the CLI)")
-            
-            # Active leases
-            active_leases = runtime.dispatch_service.count_active_leases()
-            print(f"Active Leases: {active_leases}")
-            print("Status: OK")
-
-            if getattr(parsed, "all", False) or getattr(parsed, "peer", None) is not None:
-                # Poll-on-demand: without this the projections table is only
-                # ever read, never written, so the quota table is permanently
-                # empty in a real deployment.
-                _refresh_usage_projections(workspace_root, force=False)
-                with runtime.state_store.read_unit_of_work() as uow:
-                    _print_quota_table(uow, parsed.peer)
+        return _run_status(parsed)
 
     if parsed.command == "health":
         return _run_health(parsed)
@@ -4343,109 +3751,34 @@ def main(args: list[str] | None = None) -> int:
     return 0
 
 
-def _run_config_migrate(parsed: argparse.Namespace) -> int:
-    """Move legacy ``.peerhub/{arbiter,proposals}.json`` to the ``config/``
-    tier (item 8, dotdir consolidation, ratified 2026-09-09).
+def _run_config_migrate(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_config_migrate
 
-    Preflights every present legacy file through its real domain loader
-    first -- this reuses ``resolve_compat_config_path``'s both-exist
-    conflict check (raises ``ValueError`` naming this command) and gets
-    content validation for free -- before moving anything. Only after every
-    present file passes does it physically move (not copy) each one,
-    byte-for-byte, to ``config/``. Any ``ValueError`` from preflight
-    propagates uncaught, leaving both the legacy files and any partial
-    ``config/`` directory untouched.
-    """
-
-    workspace_root = Path(parsed.workspace).resolve()
-    resolved = resolve_config_paths(workspace_root=workspace_root)
-
-    candidates = (
-        (resolved.legacy_arbiter_json.path, resolved.arbiter_json.path, load_final_arbiter_policy),
-        (resolved.legacy_proposals_json.path, resolved.proposals_json.path, load_proposal_voters),
-    )
-
-    to_move: list[tuple[Path, Path]] = []
-    for legacy_path, new_path, loader in candidates:
-        if not legacy_path.is_file():
-            continue
-        loader(workspace_root)  # preflight: validates content, rejects old+new conflict
-        to_move.append((legacy_path, new_path))
-
-    for legacy_path, new_path in to_move:
-        new_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(legacy_path), str(new_path))
-        print(f"Migrated {legacy_path.name} -> {new_path}")
-
-    return 0
+    return run_config_migrate(parsed, sys.modules[__name__])
 
 
-def _run_config_validate(parsed: argparse.Namespace) -> int:
-    """``peerhub config validate`` (item 13, dotdir consolidation)."""
+def _run_config_validate(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_config_validate
 
-    from peerhub.application.config_validate import validate_workspace_config
-
-    workspace_root = Path(parsed.workspace).resolve()
-    reports = validate_workspace_config(workspace_root)
-
-    if parsed.json:
-        print(json.dumps([report.as_dict() for report in reports], indent=2))
-    else:
-        for report in reports:
-            tag = "OK" if report.ok else "ERROR"
-            print(f"[{tag:>5}] {report.name}: {report.detail}")
-            for key, layer in sorted(report.winning_layer.items()):
-                print(f"          {key} <- {layer}")
-
-    return 0 if all(report.ok for report in reports) else 1
+    return run_config_validate(parsed, sys.modules[__name__])
 
 
-def _run_config_init(parsed: argparse.Namespace) -> int:
-    """``peerhub config init --scope global|workspace`` (item 13, dotdir consolidation)."""
+def _run_config_init(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_config_init
 
-    from peerhub.application.config_init import init_config_scope
-
-    workspace_root = Path(parsed.workspace).resolve() if parsed.scope == "workspace" else None
-    config_home, created = init_config_scope(scope=parsed.scope, workspace_root=workspace_root)
-
-    print(f"Config scope {parsed.scope!r} initialized at: {config_home}")
-    for name in created:
-        print(f"  created {name}")
-    if not created:
-        print("  (no new starter files -- all already present)")
-    return 0
+    return run_config_init(parsed, sys.modules[__name__])
 
 
-def _run_backup_workspace(parsed: argparse.Namespace) -> int:
-    """``peerhub backup workspace`` (item 10, dotdir consolidation)."""
+def _run_backup_workspace(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_backup_workspace
 
-    from datetime import datetime, timezone
-
-    from peerhub.application.backup import create_workspace_backup
-
-    workspace_root = Path(parsed.workspace).resolve()
-    output_dir = Path(parsed.output).resolve()
-    now = datetime.now(timezone.utc).isoformat()
-    bundle_dir = create_workspace_backup(
-        workspace_root,
-        output_dir=output_dir,
-        include_transcripts=parsed.include_transcripts,
-        now=now,
-    )
-    print(f"Backup created: {bundle_dir}")
-    return 0
+    return run_backup_workspace(parsed, sys.modules[__name__])
 
 
-def _run_backup_restore(parsed: argparse.Namespace) -> int:
-    """``peerhub backup restore`` (item 10, dotdir consolidation)."""
+def _run_backup_restore(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_backup_restore
 
-    from peerhub.application.backup import restore_workspace_backup
-
-    workspace_root = Path(parsed.workspace).resolve()
-    bundle_dir = Path(parsed.bundle).resolve()
-    manifest = restore_workspace_backup(bundle_dir, workspace_root=workspace_root)
-    print(f"Restored workspace {manifest.workspace_home_id!r} from {bundle_dir}")
-    return 0
+    return run_backup_restore(parsed, sys.modules[__name__])
 
 
 if __name__ == "__main__":
