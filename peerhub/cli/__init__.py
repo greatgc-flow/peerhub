@@ -78,6 +78,7 @@ from peerhub.dispatch.room_session import (
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, PeerHubError
 from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row
+from peerhub.cli.parser import create_root_parser
 
 class SystemClock(Clock):
     """Real system clock for production use."""
@@ -2787,12 +2788,10 @@ class TieredHelpFormatter(argparse.HelpFormatter):
 
 
 def main(args: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        description="PeerHub Local Coordination CLI",
-        formatter_class=TieredHelpFormatter
-    )
-    parser.add_argument(
-        "--version", action=_LazyVersionAction, help="show program's version number and exit"
+    parser = create_root_parser(
+        formatter_class=TieredHelpFormatter,
+        version_action=_LazyVersionAction,
+        version_getter=get_cli_version,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     

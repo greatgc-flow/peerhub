@@ -71,6 +71,12 @@ from peerhub.application.commands import (
     DispatchLeaseView,
     SubmissionMetadata,
 )
+from peerhub.application.commands.consensus import (
+    ConsensusCheckCommand,
+    ConsensusProposeCommand,
+    ConsensusSweepCommand,
+    ConsensusVoteCommand,
+)
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
@@ -91,7 +97,6 @@ from peerhub.dispatch.room_session import (
 )
 from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.application.legacy import (
-    ConsensusProposeCommand, ConsensusVoteCommand, ConsensusCheckCommand,
     StatusReadCommand, UpdateStatusCommand,
     NewTopicCommand, ThreadNewCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
     MessageSendCommand, RoomBroadcastCommand, MessageCheckCommand, MessageMarkReadCommand,
@@ -104,7 +109,7 @@ from peerhub.application.legacy import (
     TaskStatusCommand, TaskFailoverCommand, LessonInjectCommand, LessonProposeCommand,
     LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
     ApprovalRequestCommand,
-    ConsensusSweepCommand, LessonsListCommand, ProposalAddCommand,
+    LessonsListCommand, ProposalAddCommand,
     ProposalVoteCommand, ProposalListCommand, ArbiterReviewCommand,
     SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
     RegisterNodeCommand, ListNodesCommand, BindProfileCommand,

@@ -1,14 +1,11 @@
-"""Native Command dataclasses permanently hosted in peerhub.application.legacy.
+"""Deprecated compatibility exports for former ``application.legacy`` users.
 
-This module permanently hosts native Command dataclasses for operations across
-the peerhub application domains (consensus, coordination, governance, routing,
-telemetry, and session). The legacy action translator and catalog have been retired;
-these dataclasses serve as authoritative native command contracts.
+Native command definitions live in ``peerhub.application.commands`` by domain.
+This module remains for known external imports during the migration.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-import re
 from typing import ClassVar, Any
 
 from peerhub.core.protocol import JsonValue
@@ -16,155 +13,20 @@ from peerhub.application.commands import (
     Command,
     SubmissionMetadata,
 )
+from peerhub.application.commands import consensus as _consensus_commands
+from peerhub.application.commands import dispatch as _dispatch_commands
+from peerhub.application import compatibility as _compatibility
 
-
-def legacy_room_id(
-    arguments: Mapping[str, JsonValue],
-    scope: Mapping[str, JsonValue],
-) -> str:
-    """Resolve legacy's implicit current room from call context or scope."""
-
-    names = ("room_id", "room", "current_room", "current-room")
-
-    def _first(m: Mapping[str, JsonValue]) -> str | None:
-        for name in names:
-            value = m.get(name)
-            if value is not None:
-                text = str(value)
-                if text:
-                    return text
-        return None
-
-    direct = _first(arguments)
-    if direct is not None:
-        return direct
-    context = arguments.get("context")
-    if isinstance(context, Mapping):
-        contextual = _first(context)
-        if contextual is not None:
-            return contextual
-    scoped = _first(scope)
-    if scoped is not None:
-        return scoped
-    scope_context = scope.get("context")
-    if isinstance(scope_context, Mapping):
-        scoped_contextual = _first(scope_context)
-        if scoped_contextual is not None:
-            return scoped_contextual
-    return ""
-
-
-def legacy_thread_slug(topic: str) -> str:
-    """Match legacy ``thread-new``'s deterministic topic-to-ID conversion."""
-
-    return re.sub(r"[^\w-]", "-", topic.lower())[:40]
-
-
-@dataclass(frozen=True, slots=True)
-class SubmitDispatch(Command[Any]):
-    method: ClassVar[str] = "dispatch.submit"
-    submission: SubmissionMetadata
-    prompt: str
-
-    def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"prompt": self.prompt}
-
-    @classmethod
-    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
-        return value
-
-
-@dataclass(frozen=True, slots=True)
-class SubmitManyDispatch(Command[Any]):
-    method: ClassVar[str] = "dispatch.submit_many"
-    submission: SubmissionMetadata
-    prompt: str
-
-    def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"prompt": self.prompt}
-
-    @classmethod
-    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
-        return value
-
-
-@dataclass(frozen=True, slots=True)
-class SubmitCoordinatorDispatch(Command[Any]):
-    method: ClassVar[str] = "dispatch.submit_coordinator"
-    submission: SubmissionMetadata
-    prompt: str
-
-    def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"prompt": self.prompt}
-
-    @classmethod
-    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
-        return value
-
-
-@dataclass(frozen=True, slots=True)
-class ConsensusProposeCommand(Command[Any]):
-    """Wire command only; Client sends it to the application boundary."""
-    method: ClassVar[str] = "consensus.round.propose"
-    submission: SubmissionMetadata
-    round_id: str
-    title: str
-    question: str
-    body: str
-    proposer_id: str
-    required_participants: tuple[str, ...]
-    eligible_participants: tuple[str, ...]
-    risk: str
-    source_hash: str
-
-    def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"round_id": self.round_id, "title": self.title, "question": self.question, "body": self.body, "proposer_id": self.proposer_id, "required_participants": self.required_participants, "eligible_participants": self.eligible_participants, "risk": self.risk, "source_hash": self.source_hash}
-
-    @classmethod
-    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
-        return value
-
-
-@dataclass(frozen=True, slots=True)
-class ConsensusVoteCommand(Command[Any]):
-    method: ClassVar[str] = "consensus.vote.cast"
-    submission: SubmissionMetadata
-    round_id: str
-    actor_id: str
-    choice: str
-
-    def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"round_id": self.round_id, "actor_id": self.actor_id, "choice": self.choice}
-
-    @classmethod
-    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
-        return value
-
-
-@dataclass(frozen=True, slots=True)
-class ConsensusCheckCommand(Command[Any]):
-    method: ClassVar[str] = "consensus.round.read"
-    submission: SubmissionMetadata
-    round_id: str
-
-    def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"round_id": self.round_id}
-
-    @classmethod
-    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
-        return value
-
-@dataclass(frozen=True, slots=True)
-class ConsensusSweepCommand(Command[Any]):
-    method: ClassVar[str] = "consensus.round.sweep"
-    submission: SubmissionMetadata
-    round_id: str
-    reason: str
-    expected_revision: int | None
-    def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"round_id": self.round_id, "reason": self.reason, "expected_revision": self.expected_revision}
-    @classmethod
-    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any: return value
+# Preserve known imports without retaining native definitions in this module.
+ConsensusCheckCommand = _consensus_commands.ConsensusCheckCommand
+ConsensusProposeCommand = _consensus_commands.ConsensusProposeCommand
+ConsensusSweepCommand = _consensus_commands.ConsensusSweepCommand
+ConsensusVoteCommand = _consensus_commands.ConsensusVoteCommand
+SubmitCoordinatorDispatch = _dispatch_commands.SubmitCoordinatorDispatch
+SubmitDispatch = _dispatch_commands.SubmitDispatch
+SubmitManyDispatch = _dispatch_commands.SubmitManyDispatch
+legacy_room_id = _compatibility.legacy_room_id
+legacy_thread_slug = _compatibility.legacy_thread_slug
 
 
 @dataclass(frozen=True, slots=True)
