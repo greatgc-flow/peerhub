@@ -2,7 +2,7 @@
   "schema_version": 1,
   "title": "PeerHub R1 production-call map baseline",
   "authority": "docs/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md sections 7.1, 7.2, and 10.2",
-  "characterized_commit": "a92c6e6",
+  "characterized_commit": "8941e4f",
   "scope_boundary": "Characterization only. This artifact records existing production paths, including bypasses and asserted actors; it does not implement D-CTX, P4b authorization convergence, or the typed call transport.",
   "measurement": {
     "captured_on": "2026-09-13",
@@ -59,7 +59,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -98,7 +98,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -162,7 +162,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -213,7 +213,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -251,7 +251,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -318,7 +318,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (used with --scope workspace)",
             "nargs": null,
@@ -356,7 +356,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -431,7 +431,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -508,7 +508,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -655,7 +655,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -746,7 +746,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -823,7 +823,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -900,7 +900,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -977,7 +977,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1028,7 +1028,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1105,7 +1105,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1195,7 +1195,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1272,7 +1272,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1323,7 +1323,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1400,7 +1400,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1475,7 +1475,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1568,7 +1568,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root (default: current directory)",
             "nargs": null,
@@ -1690,7 +1690,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to workspace root",
             "nargs": null,
@@ -1727,7 +1727,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -1882,7 +1882,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2000,7 +2000,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2111,7 +2111,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root containing consensus state",
             "nargs": null,
@@ -2162,7 +2162,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2226,7 +2226,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2321,7 +2321,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2385,7 +2385,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2501,7 +2501,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2617,7 +2617,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2785,7 +2785,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2862,7 +2862,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -2965,7 +2965,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3055,7 +3055,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3119,7 +3119,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3300,7 +3300,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3390,7 +3390,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3467,7 +3467,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3557,7 +3557,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3647,7 +3647,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3750,7 +3750,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3853,7 +3853,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3917,7 +3917,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -3968,7 +3968,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4097,7 +4097,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4239,7 +4239,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4329,7 +4329,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4380,7 +4380,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4509,7 +4509,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4560,7 +4560,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root containing profile bindings",
             "nargs": null,
@@ -4692,7 +4692,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root containing model configuration",
             "nargs": null,
@@ -4743,7 +4743,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4833,7 +4833,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4910,7 +4910,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -4961,7 +4961,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5039,7 +5039,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5130,7 +5130,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5208,7 +5208,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5298,7 +5298,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5388,7 +5388,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5439,7 +5439,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5516,7 +5516,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5619,7 +5619,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5683,7 +5683,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5786,7 +5786,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5876,7 +5876,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -5927,7 +5927,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6056,7 +6056,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6107,7 +6107,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6210,7 +6210,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6339,7 +6339,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": null,
             "nargs": null,
@@ -6378,7 +6378,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": null,
             "nargs": null,
@@ -6485,7 +6485,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6602,7 +6602,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6718,7 +6718,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6808,7 +6808,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -6911,7 +6911,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7027,7 +7027,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7208,7 +7208,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7337,7 +7337,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7440,7 +7440,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7543,7 +7543,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7646,7 +7646,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7762,7 +7762,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7878,7 +7878,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -7987,7 +7987,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8080,7 +8080,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8170,7 +8170,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8286,7 +8286,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8389,7 +8389,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8453,7 +8453,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8517,7 +8517,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8646,7 +8646,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8775,7 +8775,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -8969,7 +8969,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -9098,7 +9098,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root",
             "nargs": null,
@@ -9162,7 +9162,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root containing PeerHub state",
             "nargs": null,
@@ -9304,7 +9304,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root containing PeerHub state",
             "nargs": null,
@@ -9459,7 +9459,7 @@
           {
             "action": "_StoreAction",
             "choices": null,
-            "default": ".",
+            "default": null,
             "dest": "workspace",
             "help": "Path to the workspace root containing PeerHub state",
             "nargs": null,

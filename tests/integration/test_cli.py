@@ -16,6 +16,19 @@ from peerhub.dispatch.capability import CapabilityTier
 from peerhub.cli import UuidSource, main
 
 
+def _isolate_as_project_boundary(tmp_path: Path) -> None:
+    """Give tmp_path its own empty `.git` marker so resolve_workspace()'s
+    discovery walk stops right there instead of escaping upward into
+    whatever real project happens to contain this run's temp directory
+    (this host's pytest basetemp is forced under a real repo tree by a
+    Windows tmp-dir ACL workaround -- see
+    docs/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md
+    section 4.1's discovery contract, and the R2 test-isolation incident
+    this fixes). Without this, a "no --workspace given" test can silently
+    read or write a real, unrelated .peerhub database above tmp_path."""
+    (tmp_path / ".git").mkdir(exist_ok=True)
+
+
 def _ask_result(
     *,
     state: RequestState = RequestState.SUCCEEDED_VERIFIED,
@@ -57,6 +70,7 @@ def test_cli_implicit_state_command_never_initializes_current_directory(
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _isolate_as_project_boundary(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     exit_code = main(
@@ -143,6 +157,7 @@ def test_cli_read_only_inspection_never_initializes_workspace(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _isolate_as_project_boundary(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     assert main(arguments) == 0
@@ -153,6 +168,7 @@ def test_cli_workspace_init_is_explicit_initialization_intent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _isolate_as_project_boundary(tmp_path)
     monkeypatch.chdir(tmp_path)
 
     assert main(["workspace", "init"]) == 0

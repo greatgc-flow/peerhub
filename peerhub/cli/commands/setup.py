@@ -6,6 +6,8 @@ import argparse
 from pathlib import Path
 from types import ModuleType
 
+from peerhub.cli.context import resolve_workspace
+
 
 def register_workspace_command(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # pyright: ignore[reportPrivateUsage]
@@ -24,7 +26,7 @@ def register_workspace_command(
     )
     workspace_init_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root (default: current directory)",
     )
 
@@ -45,7 +47,7 @@ def register_setup_commands(
     )
     config_paths_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root (default: current directory)",
     )
     config_paths_parser.add_argument("--json", action="store_true", help="Emit JSON output")
@@ -55,7 +57,7 @@ def register_setup_commands(
     )
     config_migrate_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root (default: current directory)",
     )
     config_validate_parser = config_subparsers.add_parser(
@@ -63,7 +65,7 @@ def register_setup_commands(
     )
     config_validate_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root (default: current directory)",
     )
     config_validate_parser.add_argument(
@@ -80,7 +82,7 @@ def register_setup_commands(
     )
     config_init_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root (used with --scope workspace)",
     )
 
@@ -95,7 +97,7 @@ def register_setup_commands(
     )
     backup_workspace_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root (default: current directory)",
     )
     backup_workspace_parser.add_argument(
@@ -112,7 +114,7 @@ def register_setup_commands(
     backup_restore_parser.add_argument("bundle", help="Path to the backup bundle directory")
     backup_restore_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root (default: current directory)",
     )
 
@@ -130,7 +132,7 @@ def run_setup_command(parsed: argparse.Namespace, cli: ModuleType) -> int | None
     """Translate one setup command using the legacy module's patchable seams."""
 
     if parsed.command == "workspace" and parsed.workspace_action == "init":
-        workspace_root = cli.Path(parsed.workspace).resolve()
+        workspace_root = resolve_workspace(parsed.workspace).root
         paths = cli.PathLayout.for_workspace(workspace_root)
         if paths.database_path.exists():
             print(f"Workspace already initialized: {workspace_root}")
@@ -149,7 +151,7 @@ def run_setup_command(parsed: argparse.Namespace, cli: ModuleType) -> int | None
         return 0
 
     if parsed.command == "config" and parsed.config_command == "paths":
-        workspace_root = cli.Path(parsed.workspace).resolve()
+        workspace_root = resolve_workspace(parsed.workspace).root
         resolved = cli.resolve_config_paths(workspace_root=workspace_root)
         payload = resolved.as_dict()
         if parsed.json:
@@ -177,7 +179,7 @@ def run_setup_command(parsed: argparse.Namespace, cli: ModuleType) -> int | None
 def run_config_migrate(parsed: argparse.Namespace, cli: ModuleType) -> int:
     """Move validated legacy configuration files into the config tier."""
 
-    workspace_root = cli.Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     resolved = cli.resolve_config_paths(workspace_root=workspace_root)
     candidates = (
         (resolved.legacy_arbiter_json.path, resolved.arbiter_json.path, cli.load_final_arbiter_policy),
@@ -214,7 +216,7 @@ def run_config_validate(parsed: argparse.Namespace, cli: ModuleType) -> int:
 def run_config_init(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.config_init import init_config_scope
 
-    workspace_root = cli.Path(parsed.workspace).resolve() if parsed.scope == "workspace" else None
+    workspace_root = resolve_workspace(parsed.workspace).root if parsed.scope == "workspace" else None
     config_home, created = init_config_scope(scope=parsed.scope, workspace_root=workspace_root)
     print(f"Config scope {parsed.scope!r} initialized at: {config_home}")
     for name in created:
@@ -229,7 +231,7 @@ def run_backup_workspace(parsed: argparse.Namespace, cli: ModuleType) -> int:
 
     from peerhub.application.backup import create_workspace_backup
 
-    workspace_root = cli.Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     output_dir = cli.Path(parsed.output).resolve()
     bundle_dir = create_workspace_backup(
         workspace_root,
@@ -244,7 +246,7 @@ def run_backup_workspace(parsed: argparse.Namespace, cli: ModuleType) -> int:
 def run_backup_restore(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.backup import restore_workspace_backup
 
-    workspace_root = cli.Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     bundle_dir = cli.Path(parsed.bundle).resolve()
     manifest = restore_workspace_backup(bundle_dir, workspace_root=workspace_root)
     print(f"Restored workspace {manifest.workspace_home_id!r} from {bundle_dir}")

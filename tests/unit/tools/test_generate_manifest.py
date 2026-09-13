@@ -48,11 +48,11 @@ def test_generator_runs_and_produces_valid_manifest(tmp_path: Path) -> None:
     assert len(action_vector["actions"]) == 90
     assert len(action_vector["action_vector_digest"]) == 64
 
-    # hub.py hash invariant, re-pinned after 2026-09-12's cx SUBST-cwd-resolve
-    # + stale-room-context fix (P: commit 1aad4f6). This tracks a file outside
+    # hub.py hash invariant, re-pinned after 2026-09-14's token-inflation +
+    # false-24h-block fix (P: commit 3b4a63d). This tracks a file outside
     # this repo, so it must be re-pinned whenever legacy hub.py changes.
     hub_info = manifest["source_files"]["hub_py"]
-    assert hub_info["sha256"].startswith("923a4735")
+    assert hub_info["sha256"].startswith("b9a0f3a3")
     assert hub_info["line_count"] > 10000
 
     # Dispatch table & Action details 1-to-1 match
@@ -75,5 +75,5 @@ def test_committed_manifest_snapshot_is_valid() -> None:
         data = json.load(f)
 
     assert data["action_vector"]["action_count"] == 90
-    # Same 2026-09-12 externally-owned Hub pin as the live-generator test.
-    assert data["source_files"]["hub_py"]["sha256"].startswith("923a4735")
+    # Same 2026-09-14 externally-owned Hub pin as the live-generator test.
+    assert data["source_files"]["hub_py"]["sha256"].startswith("b9a0f3a3")

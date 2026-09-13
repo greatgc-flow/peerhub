@@ -2,7 +2,7 @@
   "meta": {
     "schema_version": "1.0",
     "generator_name": "tools/surface_manifest/generate_manifest.py",
-    "generated_at": "2026-09-12T12:05:14.846297+00:00",
+    "generated_at": "2026-09-13T23:33:55.196582+00:00",
     "target_system": "legacy_hub_surface"
   },
   "measurement_methodology": {
@@ -22,15 +22,21 @@
   },
   "git_receipts": {
     "peerhub_repo": {
-      "commit": "8e0dc10d2d961c5f4f86329d669f5f987a318ba5",
+      "commit": "8941e4fa915c8c298412af5188c2099353db4efe",
       "is_dirty": true,
       "uncommitted_files": [
-        "ests/integration/test_cli.py",
-        "docs/design/peerhub-ux-simplification-cc-deepthink-review-2026-09-12.md"
+        "ocs/design/peerhub-production-call-map-R1.json",
+        "peerhub/cli/__init__.py",
+        "peerhub/cli/commands/daily.py",
+        "peerhub/cli/commands/setup.py",
+        "tests/integration/test_cli.py",
+        "tests/unit/tools/test_generate_manifest.py",
+        "peerhub/cli/context.py",
+        "tests/unit/cli/test_context.py"
       ]
     },
     "legacy_hub_repo": {
-      "commit": "1aad4f64ce92cc61028ee0495f3676f68a238d6b",
+      "commit": "3b4a63d4a824bad5ab4a2a2af41f63c384abb2af",
       "is_dirty": true,
       "uncommitted_files": [
         "gitignore",
@@ -49,7 +55,10 @@
         "_sys/antigravity/config/jetbox_summaries_proto.pb",
         "_sys/claude/config/.claude.json.bak-20260812",
         "_sys/claude/config/feedback/",
+        "_sys/claude/project/skills/diag/",
         "_sys/codex/config/session_index.jsonl",
+        "_sys/data/sessions/2026-09-12_d-drive-mece-cleanup-plan.md",
+        "_sys/data/sessions/holding/",
         "_sys/tools/codex/",
         "yarn.lock"
       ]
@@ -58,15 +67,15 @@
   "source_files": {
     "hub_py": {
       "path": "P:\\_sys\\core\\hub.py",
-      "sha256": "923a4735095b4fed3a05fead1a6288bca95e085545a2eea1262718dcd33971b1",
-      "size_bytes": 567974,
-      "line_count": 12512
+      "sha256": "b9a0f3a3d5363f16f215140518f017b3f92573e68f85f7bd86af5ae15e79d553",
+      "size_bytes": 568713,
+      "line_count": 12522
     },
     "hub_peer_py": {
       "path": "P:\\_sys\\core\\hub_peer.py",
-      "sha256": "9ba111b71f1f1369c255e07732c31a244e946416ca7e77cd6031d0535847392d",
-      "size_bytes": 53931,
-      "line_count": 1361
+      "sha256": "a1eb2978da4be7673e8c68b6ce8bd3e105dacdccae4ff2070b339172b02200a1",
+      "size_bytes": 56558,
+      "line_count": 1415
     },
     "config_files": {
       "core/hub_config.json": {

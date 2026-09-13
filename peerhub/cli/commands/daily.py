@@ -6,6 +6,8 @@ import argparse
 from types import ModuleType
 from typing import Any, Mapping, cast
 
+from peerhub.cli.context import resolve_workspace
+
 
 def register_status_command(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # pyright: ignore[reportPrivateUsage]
@@ -14,7 +16,7 @@ def register_status_command(
 
     status_parser = subparsers.add_parser("status", help="Show the current workspace status")
     status_parser.add_argument(
-        "-w", "--workspace", default=".",
+        "-w", "--workspace", default=None,
         help="Path to the workspace root (default: current directory)",
     )
     status_group = status_parser.add_mutually_exclusive_group()
@@ -32,7 +34,7 @@ def register_daily_commands(
     diag_parser = subparsers.add_parser(
         "diag", help="Show live peer diagnostics and quota telemetry"
     )
-    diag_parser.add_argument("-w", "--workspace", default=".", help="Path to workspace root")
+    diag_parser.add_argument("-w", "--workspace", default=None, help="Path to workspace root")
     diag_parser.add_argument("--live", action="store_true", help="Run in continuous monitoring loop")
     diag_parser.add_argument("--fresh", action="store_true", help="Bypass telemetry cache")
     diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
@@ -53,7 +55,7 @@ def register_daily_commands(
         "-t", "--capability-tier", default="READ_ONLY", choices=capability_tier_names,
         help="Required downstream capability tier",
     )
-    broadcast_parser.add_argument("-w", "--workspace", default=".", help="Path to workspace root")
+    broadcast_parser.add_argument("-w", "--workspace", default=None, help="Path to workspace root")
     broadcast_parser.add_argument("--timeout-seconds", type=int, default=60)
     broadcast_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     broadcast_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
@@ -74,7 +76,7 @@ def register_ask_command(
         help="Required downstream capability tier",
     )
     ask_parser.add_argument(
-        "-w", "--workspace", default=".",
+        "-w", "--workspace", default=None,
         help="Path to the workspace root (default: current directory)",
     )
     ask_parser.add_argument("-p", "--profile", default=None, help="Explicit profile ID")
@@ -106,7 +108,7 @@ def run_ask(
             if caller_identity_provider is not None
             else cli.LocalProcessCallerIdentityProvider()
         )
-        workspace_root = cli.Path(parsed.workspace).resolve()
+        workspace_root = resolve_workspace(parsed.workspace).root
         paths = cli.PathLayout.for_workspace(workspace_root)
         is_first_init = not paths.database_path.exists()
         request = cli.DirectAskRequest(
@@ -263,7 +265,7 @@ def render_domain_section(domains: Mapping[str, Any]) -> str:
 def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.telemetry.presenter import TelemetryPresenter
 
-    workspace_root = cli.Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     projections = cli._refresh_usage_projections(
         workspace_root, force=bool(getattr(parsed, "fresh", False))
     )
@@ -347,7 +349,7 @@ def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
 
 
 def run_status(parsed: argparse.Namespace, cli: ModuleType) -> int:
-    workspace_root = cli.Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = cli.PathLayout.for_workspace(workspace_root)
     print(f"Workspace: {workspace_root}")
     print(f"Database: {paths.database_path}")
@@ -382,7 +384,7 @@ def run_status(parsed: argparse.Namespace, cli: ModuleType) -> int:
 def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
 
-    workspace_root = cli.Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = cli.PathLayout.for_workspace(workspace_root)
     context = cli.RuntimeContext(
         workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),

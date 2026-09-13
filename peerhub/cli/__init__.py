@@ -14,6 +14,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from peerhub.cli.context import resolve_workspace
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -165,7 +166,7 @@ def _run_health(parsed: argparse.Namespace) -> int:
     from peerhub.adapters.registry import resolve_peer_target
     from peerhub.application.bootstrap import build_direct_ask_admission_config
 
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
@@ -359,7 +360,7 @@ def _guard_implicit_workspace_init(
     callers must not return in that case, real work happens below.
     """
 
-    if paths.database_path.exists() or parsed.workspace != ".":
+    if paths.database_path.exists() or parsed.workspace is not None:
         return None
     if creating:
         print(
@@ -434,7 +435,7 @@ def _json_safe(value: Any) -> Any:
 
 
 def _run_consensus(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     # Item 2 (dotdir consolidation, ratified 2026-09-09): `list` is the one
     # read-only consensus action verified not to silently initialize an
@@ -636,7 +637,7 @@ def _print_proposal_vote_compatibility(result: ProposalVoteResult) -> None:
 
 
 def _run_task(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     action = parsed.task_action
     guard_code = _guard_implicit_workspace_init(parsed, paths, creating=(action == "create"))
@@ -693,7 +694,7 @@ def _run_task(parsed: argparse.Namespace) -> int:
 
 
 def _run_lesson(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
@@ -804,7 +805,7 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
 
 
 def _run_directive(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
@@ -867,7 +868,7 @@ def _run_directive(parsed: argparse.Namespace) -> int:
 
 
 def _run_node(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     # Item 2 (dotdir consolidation, ratified 2026-09-09): `list` (the
     # implicit fallthrough action) is the one read-only node action
@@ -981,7 +982,7 @@ def _run_peer(parsed: argparse.Namespace) -> int:
         execute_peer_recover,
     )
 
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     # Item 2 (dotdir consolidation, ratified 2026-09-09): `status` is the
     # one read-only peer action verified not to silently initialize an
@@ -1120,7 +1121,7 @@ def _format_lease_timestamp(timestamp_ms: object) -> str:
 
 
 def _run_broker(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1171,7 +1172,7 @@ def _run_broker(parsed: argparse.Namespace) -> int:
 def _run_lease(parsed: argparse.Namespace) -> int:
     from peerhub.application.lease_status import collect_lease_status
 
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1267,7 +1268,7 @@ def _run_lease(parsed: argparse.Namespace) -> int:
 def _run_gate(parsed: argparse.Namespace) -> int:
     from peerhub.application.health_revalidation import collect_check_gate
 
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1298,7 +1299,7 @@ def _run_gate(parsed: argparse.Namespace) -> int:
 
 
 def _run_role(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1380,7 +1381,7 @@ def _run_role(parsed: argparse.Namespace) -> int:
 
 
 def _run_leadership(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1484,7 +1485,7 @@ def _run_routing(parsed: argparse.Namespace) -> int:
         encode_leadership_election_receipt,
     )
 
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1578,7 +1579,7 @@ def _run_routing(parsed: argparse.Namespace) -> int:
 
 
 def _run_feedback(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1664,7 +1665,7 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
 
 
 def _run_error(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1745,7 +1746,7 @@ def _run_error(parsed: argparse.Namespace) -> int:
 
 
 def _run_alert(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -1787,7 +1788,7 @@ def _run_alert(parsed: argparse.Namespace) -> int:
 
 
 def _run_room(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     # Item 2 (dotdir consolidation, ratified 2026-09-09): `status` is the
     # one read-only room action verified not to silently initialize an
@@ -2069,7 +2070,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
 
 
 def _run_duty(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
@@ -2238,7 +2239,7 @@ def _room_session_payload(session: RoomSessionSnapshot) -> dict[str, Any]:
 
 
 def _run_session(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -2450,44 +2451,44 @@ def main(args: list[str] | None = None) -> int:
     health_parser = subparsers.add_parser("health", help="Manage peer health")
     health_subparsers = health_parser.add_subparsers(dest="health_action", required=True)
     revalidate_parser = health_subparsers.add_parser("revalidate", help="Trigger health revalidation for a peer")
-    revalidate_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    revalidate_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     revalidate_parser.add_argument("--peer", required=True, help="Peer ID to revalidate (e.g. cc)")
     revalidate_parser.add_argument("--reason", required=True, help="Reason for revalidation")
     revalidate_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     health_check_parser = health_subparsers.add_parser("check", help="Inspect or recover peer health")
-    health_check_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    health_check_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     health_check_parser.add_argument("--peer", default=None, help="Target peer node ID (default: all)")
     health_check_parser.add_argument("--recover", action="store_true", help="Reconcile and revalidate dead circuits")
     health_check_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     health_precheck_parser = health_subparsers.add_parser("precheck", help="Fail-closed pre-flight governance gate")
-    health_precheck_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    health_precheck_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     health_precheck_parser.add_argument("--peer", default=None, help="Comma-separated candidate peer IDs")
     health_precheck_parser.add_argument("--needs", default=None, help="Capability requirements filter")
     health_precheck_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     health_sweep_parser = health_subparsers.add_parser("sweep", help="Evaluate dynamic staleness across all peers")
-    health_sweep_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    health_sweep_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     health_sweep_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     peer_parser = subparsers.add_parser("peer", help="Inspect and recover peer nodes")
     peer_subparsers = peer_parser.add_subparsers(dest="peer_action", required=True)
     peer_status_parser = peer_subparsers.add_parser("status", help="Show peer lifecycle, gate, health, and adapter versions")
-    peer_status_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    peer_status_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     peer_status_parser.add_argument("--peer", default=None, help="Specific peer node ID")
     peer_status_parser.add_argument("--all", action="store_true", help="Include all registered and base nodes")
     peer_status_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     peer_quarantine_parser = peer_subparsers.add_parser("quarantine", help="Manually isolate and quarantine a peer node")
-    peer_quarantine_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    peer_quarantine_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     peer_quarantine_parser.add_argument("--peer", required=True, help="Peer node ID to quarantine")
     peer_quarantine_parser.add_argument("--reason", default="manual", help="Quarantine reason (default: manual)")
     peer_quarantine_parser.add_argument("--actor", default=None, help="Explicit operator/actor ID (default: current caller)")
     peer_quarantine_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     peer_recover_parser = peer_subparsers.add_parser("recover", help="Authorize and execute evidence-backed peer recovery")
-    peer_recover_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    peer_recover_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     peer_recover_parser.add_argument("--peer", required=True, help="Peer node ID to recover, or 'all'")
     peer_recover_parser.add_argument("--reason", default="manual", help="Recovery reason (default: manual)")
     peer_recover_parser.add_argument("--json", action="store_true", help="Emit JSON output")
@@ -2495,13 +2496,13 @@ def main(args: list[str] | None = None) -> int:
     lease_parser = subparsers.add_parser("lease", help="Inspect session leases")
     lease_subparsers = lease_parser.add_subparsers(dest="lease_action", required=True)
     lease_status_parser = lease_subparsers.add_parser("status", help="Show active process leases and PID liveness")
-    lease_status_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    lease_status_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     lease_status_parser.add_argument("--json", action="store_true", help="Emit JSON output")
     lease_sweep_parser = lease_subparsers.add_parser(
         "sweep",
         help="Recover expired process leases and optionally reap verified root PIDs",
     )
-    lease_sweep_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    lease_sweep_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     lease_sweep_parser.add_argument(
         "--limit",
         type=int,
@@ -2525,7 +2526,7 @@ def main(args: list[str] | None = None) -> int:
         "status", help="Show unfinished governance effect deliveries"
     )
     broker_status_parser.add_argument(
-        "--workspace", default=".", help="Path to workspace root"
+        "--workspace", default=None, help="Path to workspace root"
     )
     broker_status_parser.add_argument(
         "--limit",
@@ -2541,7 +2542,7 @@ def main(args: list[str] | None = None) -> int:
     gate_subparsers = gate_parser.add_subparsers(dest="gate_action", required=True)
     gate_check_parser = gate_subparsers.add_parser("check", help="Check if gate is open for a named agent")
     gate_check_parser.add_argument("agent", help="Agent or peer node ID to check")
-    gate_check_parser.add_argument("--workspace", default=".", help="Path to workspace root")
+    gate_check_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     gate_check_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     from peerhub.cli.commands.daily import register_ask_command
@@ -2563,14 +2564,14 @@ def main(args: list[str] | None = None) -> int:
     )
     statusline_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to workspace root",
     )
 
     consensus_parser = subparsers.add_parser("consensus", help="Manage consensus rounds")
     consensus_subparsers = consensus_parser.add_subparsers(dest="consensus_action", required=True)
     propose_parser = consensus_subparsers.add_parser("propose", help="Propose a new consensus round")
-    propose_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+    propose_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
     propose_parser.add_argument("--round-id", required=True, help="Consensus round identifier")
     propose_parser.add_argument("--title", required=True, help="Short proposal title")
     propose_parser.add_argument("--question", required=True, help="Question for participants")
@@ -2585,7 +2586,7 @@ def main(args: list[str] | None = None) -> int:
         help="Create a health-filtered legacy-compatible proposal",
     )
     proposal_add_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     proposal_add_parser.add_argument("--subject", required=True)
     proposal_add_parser.add_argument(
@@ -2602,7 +2603,7 @@ def main(args: list[str] | None = None) -> int:
         help="Vote on a legacy-compatible proposal",
     )
     proposal_vote_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     proposal_vote_parser.add_argument(
         "--proposal-id", "--round-id", dest="proposal_id", required=True
@@ -2623,7 +2624,7 @@ def main(args: list[str] | None = None) -> int:
     )
     list_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root containing consensus state",
     )
     list_parser.add_argument(
@@ -2637,7 +2638,7 @@ def main(args: list[str] | None = None) -> int:
     )
     arbiter_review_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root",
     )
     arbiter_review_parser.add_argument(
@@ -2652,7 +2653,7 @@ def main(args: list[str] | None = None) -> int:
     )
     for action in ("vote", "status"):
         command_parser = consensus_subparsers.add_parser(action, help="Cast a vote" if action == "vote" else "Read a consensus round")
-        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        command_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
         command_parser.add_argument("--round-id", required=True, help="Consensus round identifier")
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
         if action == "vote":
@@ -2699,7 +2700,7 @@ def main(args: list[str] | None = None) -> int:
     }
     for action, (arguments,) in task_specs.items():
         command_parser = task_subparsers.add_parser(action, help=task_subcommand_help[action])
-        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        command_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
         for name, required in arguments:
             command_parser.add_argument(name, required=required, default="", help=task_arg_help[name])
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
@@ -2751,7 +2752,7 @@ def main(args: list[str] | None = None) -> int:
     }
     for action, arguments in lesson_specs.items():
         command_parser = lesson_subparsers.add_parser(action, help=lesson_subcommand_help[action])
-        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        command_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
         for name, required in arguments:
             if name == "--expires-at":
                 command_parser.add_argument(name, required=required, default=None, type=int, help=lesson_arg_help[name])
@@ -2796,7 +2797,7 @@ def main(args: list[str] | None = None) -> int:
     }
     for action, arguments in directive_specs.items():
         command_parser = directive_subparsers.add_parser(action, help=directive_subcommand_help[action])
-        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        command_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
         for name, required in arguments:
             command_parser.add_argument(name, required=required, default="", help=directive_arg_help[name])
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
@@ -2804,7 +2805,7 @@ def main(args: list[str] | None = None) -> int:
     node_parser = subparsers.add_parser("node", help="Manage the peer node registry")
     node_subparsers = node_parser.add_subparsers(dest="node_action", required=True)
     node_register_parser = node_subparsers.add_parser("register", help="Register a peer node, binding it to an existing adapter kind + profile")
-    node_register_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+    node_register_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
     node_register_parser.add_argument("--node-id", required=True, help="Node identifier (must not collide with a base adapter kind or CLI alias)")
     node_register_parser.add_argument("--peer-kind", required=True, help="Adapter kind or CLI alias this node binds to (e.g. cc, cx, ag)")
     node_register_parser.add_argument("--profile-id", default=None, help="Profile ID on that adapter (auto-selected if the adapter declares exactly one)")
@@ -2813,7 +2814,7 @@ def main(args: list[str] | None = None) -> int:
     node_register_parser.add_argument("--actor", required=True, help="Peer ID performing this registration")
     node_register_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     node_list_parser = node_subparsers.add_parser("list", help="List all peer nodes (base adapter-registry nodes plus registered ones)")
-    node_list_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+    node_list_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
     node_list_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     node_bind_parser = node_subparsers.add_parser(
         "bind-profile",
@@ -2821,7 +2822,7 @@ def main(args: list[str] | None = None) -> int:
     )
     node_bind_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root containing profile bindings",
     )
     node_bind_parser.add_argument(
@@ -2873,7 +2874,7 @@ def main(args: list[str] | None = None) -> int:
     )
     node_model_status_parser.add_argument(
         "--workspace",
-        default=".",
+        default=None,
         help="Path to the workspace root containing model configuration",
     )
     node_model_status_parser.add_argument(
@@ -2892,7 +2893,7 @@ def main(args: list[str] | None = None) -> int:
         "acquire", help="Acquire a file lock"
     )
     lock_acquire_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     lock_acquire_parser.add_argument(
         "--name", required=True, help="Path or name of the file to lock"
@@ -2910,7 +2911,7 @@ def main(args: list[str] | None = None) -> int:
         "release", help="Release a file lock"
     )
     lock_release_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     lock_release_parser.add_argument(
         "--name", required=True, help="Path or name of the file to unlock"
@@ -2925,7 +2926,7 @@ def main(args: list[str] | None = None) -> int:
         "status", help="List active file locks"
     )
     lock_status_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     lock_status_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
@@ -2941,7 +2942,7 @@ def main(args: list[str] | None = None) -> int:
         "claim", help="Claim a named artifact for one peer"
     )
     artifact_claim_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     artifact_claim_parser.add_argument(
         "--name", required=True, help="Durable artifact name"
@@ -2960,7 +2961,7 @@ def main(args: list[str] | None = None) -> int:
         "status", help="Query artifact records or register a peer draft"
     )
     artifact_status_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     artifact_status_parser.add_argument(
         "--name", help="Optional single artifact name"
@@ -2981,7 +2982,7 @@ def main(args: list[str] | None = None) -> int:
         "finalize", help="Finalize a claimed artifact from a real file"
     )
     artifact_finalize_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     artifact_finalize_parser.add_argument(
         "--name", required=True, help="Claimed artifact name"
@@ -3007,7 +3008,7 @@ def main(args: list[str] | None = None) -> int:
         "assign", help="Assign or reassign one durable role to a peer node"
     )
     role_assign_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     role_assign_parser.add_argument(
         "--role", required=True, help="Workspace-level role name to assign"
@@ -3027,7 +3028,7 @@ def main(args: list[str] | None = None) -> int:
         "release", help="Release a durable role assignment"
     )
     role_release_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     role_release_parser.add_argument(
         "--role", required=True, help="Workspace-level role name to release"
@@ -3047,7 +3048,7 @@ def main(args: list[str] | None = None) -> int:
         "status", help="List all currently active role assignments"
     )
     role_status_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     role_status_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
@@ -3063,7 +3064,7 @@ def main(args: list[str] | None = None) -> int:
         "discover", help="Rank configured peers for a workload need"
     )
     routing_discover_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     routing_discover_parser.add_argument(
         "--needs", required=True, help="Capability or workload need"
@@ -3078,7 +3079,7 @@ def main(args: list[str] | None = None) -> int:
         "elect-leader", help="Audit a ranking and claim its selected leader"
     )
     routing_elect_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     routing_elect_parser.add_argument(
         "--needs", required=True, help="Capability or workload need"
@@ -3100,7 +3101,7 @@ def main(args: list[str] | None = None) -> int:
         help="One-time snapshot of legacy capability configuration",
     )
     routing_import_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     routing_import_parser.add_argument(
         "--protocol", help="Legacy protocol.json path"
@@ -3119,7 +3120,7 @@ def main(args: list[str] | None = None) -> int:
         "claim", help="Claim leadership, opening a challenge window"
     )
     leadership_claim_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     leadership_claim_parser.add_argument(
         "--peer-node-id",
@@ -3144,7 +3145,7 @@ def main(args: list[str] | None = None) -> int:
         "yield", help="Vacate leadership (always succeeds)"
     )
     leadership_yield_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     leadership_yield_parser.add_argument(
         "--peer-node-id", required=True, help="Peer yielding leadership"
@@ -3162,7 +3163,7 @@ def main(args: list[str] | None = None) -> int:
         "status", help="Show the current leadership record"
     )
     leadership_status_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     leadership_status_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
@@ -3178,7 +3179,7 @@ def main(args: list[str] | None = None) -> int:
         "add", help="Append one new feedback item with a fresh GAP ID"
     )
     feedback_add_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     feedback_add_parser.add_argument(
         "--source-peer",
@@ -3213,7 +3214,7 @@ def main(args: list[str] | None = None) -> int:
         "list", help="List every feedback item, resolved ones included"
     )
     feedback_list_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     feedback_list_parser.add_argument(
         "--json", action="store_true", help="Emit machine-readable JSON"
@@ -3222,7 +3223,7 @@ def main(args: list[str] | None = None) -> int:
         "resolve", help="Set one feedback item's status and refresh its timestamps"
     )
     feedback_resolve_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     feedback_resolve_parser.add_argument(
         "--feedback-id", required=True, help="GAP ID to resolve"
@@ -3254,7 +3255,7 @@ def main(args: list[str] | None = None) -> int:
         "report", help="Append one report to an operational-error series"
     )
     error_report_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     error_report_parser.add_argument(
         "--peer",
@@ -3294,10 +3295,10 @@ def main(args: list[str] | None = None) -> int:
     )
 
     error_review_list = error_review_subparsers.add_parser("list")
-    error_review_list.add_argument("--workspace", default=".")
+    error_review_list.add_argument("--workspace", default=None)
 
     error_review_resolve = error_review_subparsers.add_parser("resolve")
-    error_review_resolve.add_argument("--workspace", default=".")
+    error_review_resolve.add_argument("--workspace", default=None)
     error_review_resolve.add_argument("--review-id", required=True)
     error_review_resolve.add_argument(
         "--decision", required=True, choices=["DISMISS", "ESCALATE"]
@@ -3316,7 +3317,7 @@ def main(args: list[str] | None = None) -> int:
         "raise", help="Overwrite the room's current alert and notify peers"
     )
     alert_raise_parser.add_argument(
-        "--workspace", default=".", help="Path to the workspace root"
+        "--workspace", default=None, help="Path to the workspace root"
     )
     alert_raise_parser.add_argument(
         "--room-id", required=True, help="Room whose live members receive the alert"
@@ -3433,7 +3434,7 @@ def main(args: list[str] | None = None) -> int:
     }
     for action, arguments in room_specs.items():
         command_parser = room_subparsers.add_parser(action, help=room_subcommand_help[action])
-        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        command_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
         for name, required in arguments:
             if action == "append-handoff" and name == "--section":
                 command_parser.add_argument(
@@ -3536,7 +3537,7 @@ def main(args: list[str] | None = None) -> int:
     }
     for action, arguments in duty_specs.items():
         command_parser = duty_subparsers.add_parser(action, help=duty_subcommand_help[action])
-        command_parser.add_argument("--workspace", default=".", help="Path to the workspace root")
+        command_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
         for name, required in arguments:
             default = (
                 "terminal-duty" if name == "--role"
@@ -3636,7 +3637,7 @@ def main(args: list[str] | None = None) -> int:
         )
         command_parser.add_argument(
             "--workspace",
-            default=".",
+            default=None,
             help="Path to the workspace root containing PeerHub state",
         )
         for name, required in arguments:
@@ -3784,7 +3785,7 @@ def _run_backup_restore(parsed: argparse.Namespace) -> int:  # pyright: ignore[r
 if __name__ == "__main__":
     sys.exit(main())
 def _run_lock(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
@@ -3868,7 +3869,7 @@ def _run_lock(parsed: argparse.Namespace) -> int:
 
 
 def _run_artifact(parsed: argparse.Namespace) -> int:
-    workspace_root = Path(parsed.workspace).resolve()
+    workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
