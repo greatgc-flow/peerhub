@@ -62,25 +62,9 @@ from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.dispatch.duty_lease import (
-    DutyLeaseCoordinator,
-    DutyLeaseSnapshot,
-    DutyOwnerIdentity,
-)
-from peerhub.dispatch.room_session import (
-    RoomParticipationCoordinator,
-    RoomSessionEndRequest,
-    RoomSessionHeartbeatRequest,
-    RoomSessionOpenRequest,
-    RoomSessionSnapshot,
-)
+from peerhub.dispatch.duty_lease import DutyLeaseCoordinator
+from peerhub.dispatch.room_session import RoomParticipationCoordinator
 from peerhub.dispatch.terminal_duty import TerminalDutyService
-from peerhub.application.commands.duty import (
-    TerminalCloseCommand,
-    TerminalDutySweepCommand,
-    TerminalHandoffCommand,
-    TerminalHeartbeatCommand,
-)
 from peerhub.application.commands.effects import EffectStatusCommand
 from peerhub.application.commands.health import (
     CheckGateCommand,
@@ -103,11 +87,6 @@ from peerhub.application.commands.peers import (
     ModelStatusCommand,
     PeerStatusCommand,
     RegisterNodeCommand,
-)
-from peerhub.application.commands.sessions import (
-    SessionCloseCommand,
-    SessionHeartbeatCommand,
-    SessionOpenCommand,
 )
 from peerhub.application.lease_status import collect_lease_status
 from peerhub.application.process_lease_sweep import ProcessLeaseSweepCoordinator
@@ -210,14 +189,6 @@ class CommandDescriptor(Generic[C, R]):  # pyright: ignore[reportUntypedBaseClas
     encode_result: Callable[[R], Mapping[str, JsonValue]]  # pyright: ignore[reportInvalidTypeForm]
     availability: CommandAvailability
     unavailable_reason: str | None = None
-
-
-@dataclass(frozen=True)
-class _TerminalCloseResult:
-    duty_lease: DutyLeaseSnapshot
-    session_close_status: str
-    session: RoomSessionSnapshot | None = None
-    session_close_reason: str | None = None
 
 
 class AdmissionInputs(Protocol):  # pyright: ignore[reportUntypedBaseClass]
@@ -522,313 +493,23 @@ class ApplicationAPI:
         t: TerminalDutyService,
         room_session: RoomParticipationCoordinator | None,
     ) -> None:
-        def text(e: CommandEnvelope,n: str) -> str:
-            v=e.params[n]
-            if not isinstance(v,str): raise ValueError(f"{n} must be a string")
-            return v
-        def integer(e: CommandEnvelope,n: str) -> int:
-            v=e.params[n]
-            if not isinstance(v,int) or isinstance(v,bool): raise ValueError(f"{n} must be an integer")
-            return v
-        def boolean(e: CommandEnvelope, n: str) -> bool:
-            v = e.params.get(n, False)
-            if not isinstance(v, bool):
-                raise ValueError(f"{n} must be a boolean")
-            return v
-        def optional_text(e: CommandEnvelope, n: str) -> str:
-            v = e.params.get(n, "")
-            if not isinstance(v, str):
-                raise ValueError(f"{n} must be a string")
-            return v
-        def optional_integer(e: CommandEnvelope, n: str) -> int:
-            v = e.params.get(n, 0)
-            if not isinstance(v, int) or isinstance(v, bool):
-                raise ValueError(f"{n} must be an integer")
-            return v
-        def owner(c: TerminalHeartbeatCommand) -> DutyOwnerIdentity:
-            return DutyOwnerIdentity(c.instance_id,c.profile_id)
-        def handoff(e: CommandEnvelope) -> TerminalHandoffCommand:
-            return TerminalHandoffCommand(self._submission(e),text(e,"current_lease_id"),text(e,"room_id"),text(e,"current_instance_id"),text(e,"current_profile_id"),integer(e,"term"),integer(e,"authority_epoch"),text(e,"new_instance_id"),text(e,"new_profile_id"),text(e,"new_owner_principal_id"),integer(e,"new_authority_epoch"))
-        def heartbeat(e: CommandEnvelope) -> TerminalHeartbeatCommand:
-            return TerminalHeartbeatCommand(self._submission(e),text(e,"lease_id"),text(e,"room_id"),text(e,"instance_id"),text(e,"profile_id"),integer(e,"term"),integer(e,"authority_epoch"))
-        def close(e: CommandEnvelope) -> TerminalCloseCommand:
-            command = TerminalCloseCommand(
-                self._submission(e),
-                text(e,"lease_id"),
-                text(e,"room_id"),
-                text(e,"instance_id"),
-                text(e,"profile_id"),
-                integer(e,"term"),
-                integer(e,"authority_epoch"),
-                boolean(e, "close_session"),
-                optional_text(e, "session_id"),
-                optional_integer(e, "session_generation"),
-                optional_text(e, "workspace_scope_id"),
-                optional_text(e, "actor_principal_id"),
-            )
-            if command.close_session and (
-                not command.session_id
-                or command.session_generation < 1
-                or not command.workspace_scope_id
-                or not command.actor_principal_id
-            ):
-                raise ValueError(
-                    "close_session requires session_id, a positive "
-                    "session_generation, workspace_scope_id, and "
-                    "actor_principal_id"
-                )
-            return command
-        def sweep(e: CommandEnvelope) -> TerminalDutySweepCommand:
-            return TerminalDutySweepCommand(
-                self._submission(e),
-                text(e, "role"),
-                text(e, "recovery_actor_principal_id"),
-                text(e, "trigger"),
-                text(e, "evidence_digest"),
-                text(e, "policy_id"),
-                text(e, "policy_revision"),
-            )
-        def enc(r: Any) -> Mapping[str, JsonValue]: return {"lease_id":r.lease_id,"room_id":r.room_id,"role":r.role,"state":r.state.value,"term":r.term,"authority_epoch":r.authority_epoch}
-        def close_terminal(
-            command: TerminalCloseCommand,
-        ) -> _TerminalCloseResult:
-            duty_lease = t.close_terminal_duty(
-                command.lease_id,
-                command.room_id,
-                DutyOwnerIdentity(command.instance_id, command.profile_id),
-                command.term,
-                command.authority_epoch,
-            )
-            if not command.close_session:
-                return _TerminalCloseResult(duty_lease, "not_requested")
-            if room_session is None:
-                return _TerminalCloseResult(
-                    duty_lease,
-                    "failed",
-                    session_close_reason=(
-                        "room participation coordinator is unavailable"
-                    ),
-                )
-            try:
-                session = room_session.end_session(
-                    RoomSessionEndRequest(
-                        session_id=command.session_id,
-                        session_generation=command.session_generation,
-                        workspace_scope_id=command.workspace_scope_id,
-                        room_id=command.room_id,
-                        actor_principal_id=command.actor_principal_id,
-                        owner=DutyOwnerIdentity(
-                            command.instance_id, command.profile_id
-                        ),
-                    )
-                )
-            except Exception as exc:
-                return _TerminalCloseResult(
-                    duty_lease,
-                    "failed",
-                    session_close_reason=f"{type(exc).__name__}: {exc}",
-                )
-            return _TerminalCloseResult(duty_lease, "ok", session)
-        def enc_close(
-            result: _TerminalCloseResult,
-        ) -> Mapping[str, JsonValue]:
-            duty_close: dict[str, JsonValue] = {
-                "status": "ok",
-                "lease": dict(enc(result.duty_lease)),
-            }
-            session_close: dict[str, JsonValue] = {
-                "status": result.session_close_status,
-            }
-            if result.session is not None:
-                session_close["session_id"] = result.session.session_id
-                session_close["session_generation"] = (
-                    result.session.session_generation
-                )
-                session_close["state"] = result.session.state.value
-            if result.session_close_reason is not None:
-                session_close["reason"] = result.session_close_reason
-            return {
-                "duty_close": duty_close,
-                "session_close": session_close,
-            }
-        def enc_sweep(
-            leases: tuple[DutyLeaseSnapshot, ...],
-        ) -> Mapping[str, JsonValue]:
-            encoded = [dict(enc(lease)) for lease in leases]
-            return {
-                "expired_count": len(encoded),
-                "leases": cast(JsonValue, encoded),
-            }
-        self.register(CommandDescriptor("coordination.terminal.handoff", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, handoff, lambda c,_:t.handoff_terminal_duty(c.current_lease_id,c.room_id,DutyOwnerIdentity(c.current_instance_id,c.current_profile_id),c.term,c.authority_epoch,DutyOwnerIdentity(c.new_instance_id,c.new_profile_id),c.new_owner_principal_id,c.new_authority_epoch), enc, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("coordination.terminal.heartbeat", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, heartbeat, lambda c,_:t.send_heartbeat(c.lease_id,c.room_id,owner(c),c.term,c.authority_epoch), enc, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor(
-            "coordination.terminal.close",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            close,
-            lambda c, _: close_terminal(c),
-            enc_close,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "coordination.terminal.duty_sweep",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            sweep,
-            lambda c, _: d.sweep_expired_leases(
-                c.role,
-                recovery_actor_principal_id=(
-                    c.recovery_actor_principal_id
-                ),
-                trigger=c.trigger,
-                evidence_digest=c.evidence_digest,
-                policy_id=c.policy_id,
-                policy_revision=c.policy_revision,
-            ),
-            enc_sweep,
-            CommandAvailability.AVAILABLE,
-        ))
+        from peerhub.application.handlers.duty import register_duty_handlers
+
+        register_duty_handlers(
+            api=self,
+            duty=d,
+            terminal_duty=t,
+            room_session=room_session,
+        )
 
     def _register_room_session(
         self, coordinator: RoomParticipationCoordinator
     ) -> None:
-        def text(envelope: CommandEnvelope, name: str) -> str:
-            value = envelope.params[name]
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
+        from peerhub.application.handlers.duty import (
+            register_room_session_handlers,
+        )
 
-        def integer(envelope: CommandEnvelope, name: str) -> int:
-            value = envelope.params[name]
-            if not isinstance(value, int) or isinstance(value, bool):
-                raise ValueError(f"{name} must be an integer")
-            return value
-
-        def owner(
-            command: SessionOpenCommand | SessionCloseCommand,
-        ) -> DutyOwnerIdentity:
-            return DutyOwnerIdentity(command.instance_id, command.profile_id)
-
-        def decode_open(envelope: CommandEnvelope) -> SessionOpenCommand:
-            return SessionOpenCommand(
-                self._submission(envelope),
-                text(envelope, "workspace_scope_id"),
-                text(envelope, "room_id"),
-                text(envelope, "actor_principal_id"),
-                text(envelope, "instance_id"),
-                text(envelope, "profile_id"),
-                text(envelope, "session_fingerprint"),
-                integer(envelope, "heartbeat_timeout_ms"),
-            )
-
-        def decode_close(envelope: CommandEnvelope) -> SessionCloseCommand:
-            return SessionCloseCommand(
-                self._submission(envelope),
-                text(envelope, "session_id"),
-                integer(envelope, "session_generation"),
-                text(envelope, "workspace_scope_id"),
-                text(envelope, "room_id"),
-                text(envelope, "actor_principal_id"),
-                text(envelope, "instance_id"),
-                text(envelope, "profile_id"),
-            )
-
-        def decode_heartbeat(
-            envelope: CommandEnvelope,
-        ) -> SessionHeartbeatCommand:
-            return SessionHeartbeatCommand(
-                self._submission(envelope),
-                text(envelope, "session_id"),
-                integer(envelope, "session_generation"),
-                text(envelope, "workspace_scope_id"),
-                text(envelope, "room_id"),
-                text(envelope, "actor_principal_id"),
-                text(envelope, "instance_id"),
-                text(envelope, "profile_id"),
-                integer(envelope, "heartbeat_timeout_ms"),
-            )
-
-        def encode_snapshot(
-            snapshot: RoomSessionSnapshot,
-        ) -> Mapping[str, JsonValue]:
-            return {
-                "session_id": snapshot.session_id,
-                "workspace_scope_id": snapshot.workspace_scope_id,
-                "room_id": snapshot.room_id,
-                "actor_principal_id": snapshot.actor_principal_id,
-                "owner": {
-                    "instance_id": snapshot.owner.instance_id,
-                    "profile_id": snapshot.owner.profile_id,
-                },
-                "session_fingerprint": snapshot.session_fingerprint,
-                "session_generation": snapshot.session_generation,
-                "resume_parent_session_id": snapshot.resume_parent_session_id,
-                "state": snapshot.state.value,
-                "heartbeat_expires_at": snapshot.heartbeat_expires_at,
-                "created_at": snapshot.created_at,
-                "updated_at": snapshot.updated_at,
-            }
-
-        self.register(CommandDescriptor(
-            "coordination.session.open",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_open,
-            lambda command, _: coordinator.open_session(
-                RoomSessionOpenRequest(
-                    workspace_scope_id=command.workspace_scope_id,
-                    room_id=command.room_id,
-                    actor_principal_id=command.actor_principal_id,
-                    owner=owner(command),
-                    session_fingerprint=command.session_fingerprint,
-                    heartbeat_timeout_ms=command.heartbeat_timeout_ms,
-                )
-            ),
-            encode_snapshot,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "coordination.session.close",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_close,
-            lambda command, _: coordinator.end_session(
-                RoomSessionEndRequest(
-                    session_id=command.session_id,
-                    session_generation=command.session_generation,
-                    workspace_scope_id=command.workspace_scope_id,
-                    room_id=command.room_id,
-                    actor_principal_id=command.actor_principal_id,
-                    owner=owner(command),
-                )
-            ),
-            encode_snapshot,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "coordination.session.heartbeat",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_heartbeat,
-            lambda command, _: coordinator.heartbeat(
-                RoomSessionHeartbeatRequest(
-                    session_id=command.session_id,
-                    session_generation=command.session_generation,
-                    workspace_scope_id=command.workspace_scope_id,
-                    room_id=command.room_id,
-                    actor_principal_id=command.actor_principal_id,
-                    owner=owner(command),
-                ),
-                heartbeat_timeout_ms=command.heartbeat_timeout_ms,
-            ),
-            encode_snapshot,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_room_session_handlers(api=self, coordinator=coordinator)
 
     def _register_alert_raise(
         self,
