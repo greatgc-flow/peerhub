@@ -116,7 +116,7 @@ from peerhub.application.commands.leadership import (
     LeaderClaimCommand,
     LeaderYieldCommand,
 )
-from peerhub.application.commands.leases import LeaseStatusCommand, LeaseSweepCommand
+from peerhub.application.commands.leases import LeaseStatusCommand
 from peerhub.application.commands.lessons import (
     LessonActivateCommand,
     LessonBroadcastCommand,
@@ -165,10 +165,7 @@ from peerhub.application.commands.sessions import (
     SessionOpenCommand,
 )
 from peerhub.application.lease_status import collect_lease_status
-from peerhub.application.process_lease_sweep import (
-    ProcessLeaseSweepCoordinator,
-    ProcessLeaseSweepReport,
-)
+from peerhub.application.process_lease_sweep import ProcessLeaseSweepCoordinator
 from peerhub.application.thread_new import ThreadNewResult, create_thread_new
 from peerhub.application.peer_registry import (
     PeerRegistryService,
@@ -2339,60 +2336,14 @@ class ApplicationAPI:
         self,
         coordinator: ProcessLeaseSweepCoordinator,
     ) -> None:
-        def decode_sweep(envelope: CommandEnvelope) -> LeaseSweepCommand:
-            limit = envelope.params.get("limit", 100)
-            reap = envelope.params.get("reap", True)
-            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 1:
-                raise ValueError("limit must be a positive integer")
-            if not isinstance(reap, bool):
-                raise ValueError("reap must be a boolean")
-            return LeaseSweepCommand(
-                submission=self._submission(envelope),
-                limit=limit,
-                reap=reap,
-            )
+        from peerhub.application.handlers.process_lease_sweep import (
+            register_process_lease_sweep_handlers,
+        )
 
-        def encode_sweep(
-            report: ProcessLeaseSweepReport,
-        ) -> Mapping[str, JsonValue]:
-            swept: tuple[JsonValue, ...] = tuple({
-                "lease_id": item.lease_id,
-                "profile_id": item.profile_id,
-                "pre_state": item.pre_state.value,
-                "post_state": item.post_state.value,
-                "process_alive": item.process_alive,
-                "process_identity_matches": item.process_identity_matches,
-                "actual_process_creation_time": (
-                    item.actual_process_creation_time
-                ),
-                "recovery_receipt_id": item.recovery_receipt_id,
-                "recovery_decision": item.recovery_decision.value,
-                "reaped": item.reaped,
-                "reap_signal": item.reap_signal,
-                "backoff_duration_seconds": (
-                    item.backoff_duration_seconds
-                ),
-            } for item in report.swept)
-            return {
-                "sweep_id": report.sweep_id,
-                "as_of": report.as_of,
-                "swept": swept,
-            }
-
-        self.register(CommandDescriptor(
-            "dispatch.lease.sweep",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_sweep,
-            lambda command, context: coordinator.sweep(
-                recovery_actor_principal_id=context.principal,
-                limit=command.limit,
-                reap=command.reap,
-            ),
-            encode_sweep,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_process_lease_sweep_handlers(
+            api=self,
+            coordinator=coordinator,
+        )
 
     def register(self, descriptor: CommandDescriptor[Any, Any]) -> None:  # pyright: ignore[reportInvalidTypeArguments]
         if descriptor.method in self._registry:
