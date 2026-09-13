@@ -127,11 +127,6 @@ from peerhub.application.commands.peers import (
     PeerStatusCommand,
     RegisterNodeCommand,
 )
-from peerhub.application.commands.roles import (
-    AssignRoleCommand,
-    ReleaseRoleCommand,
-    RoleStatusCommand,
-)
 from peerhub.application.commands.rooms import (
     AppendHandoffCommand,
     ClearRoomCommand,
@@ -171,10 +166,7 @@ from peerhub.application.health_revalidation import (
     collect_check_gate,
     collect_health_sweep,
 )
-from peerhub.application.role_assignment import (
-    RoleAssignmentService,
-    RoleReleaseResult,
-)
+from peerhub.application.role_assignment import RoleAssignmentService
 from peerhub.application.leadership import (
     LeadershipClaimResult,
     LeadershipService,
@@ -1746,109 +1738,12 @@ class ApplicationAPI:
 
 
     def _register_role_assignment(self, service: RoleAssignmentService) -> None:
-        def required_text(envelope: CommandEnvelope, name: str) -> str:
-            value = envelope.params[name]
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
+        from peerhub.application.handlers.roles import register_role_handlers
 
-        def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
-            value = envelope.params.get(name)
-            if value is None:
-                return None
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string or null")
-            return value
-
-        def decode_assign(envelope: CommandEnvelope) -> AssignRoleCommand:
-            return AssignRoleCommand(
-                submission=self._submission(envelope),
-                role=required_text(envelope, "role"),
-                peer_node_id=required_text(envelope, "peer_node_id"),
-                actor_id=required_text(envelope, "actor_id"),
-            )
-
-        def decode_release(envelope: CommandEnvelope) -> ReleaseRoleCommand:
-            return ReleaseRoleCommand(
-                submission=self._submission(envelope),
-                role=required_text(envelope, "role"),
-                actor_id=required_text(envelope, "actor_id"),
-                peer_node_id=optional_text(envelope, "peer_node_id"),
-            )
-
-        def decode_status(envelope: CommandEnvelope) -> RoleStatusCommand:
-            return RoleStatusCommand(self._submission(envelope))
-
-        def encode_roles(results: Sequence[Any]) -> Mapping[str, JsonValue]:
-            roles = [
-                {
-                    "target_id": result.target_id,
-                    "revision": result.revision,
-                    "state": result.state,
-                }
-                for result in results
-            ]
-            return {"roles": cast(JsonValue, roles)}
-
-        def encode_release(result: RoleReleaseResult) -> Mapping[str, JsonValue]:
-            receipt = (
-                None
-                if result.submission is None
-                else dict(self._receipt(result.submission))
-            )
-            target = (
-                None
-                if result.target is None
-                else {
-                    "target_id": result.target.target_id,
-                    "revision": result.target.revision,
-                    "state": result.target.state,
-                }
-            )
-            return {
-                "disposition": result.disposition.value,
-                "receipt": cast(JsonValue, receipt),
-                "target": cast(JsonValue, target),
-            }
-
-        self.register(CommandDescriptor(
-            "coordination.role.assign",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_assign,
-            lambda c, _: service.assign_role(
-                role=c.role,
-                peer_node_id=c.peer_node_id,
-                actor_id=c.actor_id,
-            ),
-            self._receipt,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "coordination.role.release",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_release,
-            lambda c, _: service.release_role(
-                role=c.role,
-                actor_id=c.actor_id,
-                peer_node_id=c.peer_node_id,
-            ),
-            encode_release,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "coordination.role.status",
-            Mutability.READ_ONLY,
-            ScopeKind.ANY,
-            IdempotencyPolicy.READ_ONLY,
-            decode_status,
-            lambda c, _: service.list_roles(),
-            encode_roles,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_role_handlers(
+            api=self,
+            service=service,
+        )
 
     def _register_leadership(self, service: LeadershipService) -> None:
         def required_text(envelope: CommandEnvelope, name: str) -> str:
