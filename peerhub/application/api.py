@@ -97,11 +97,6 @@ from peerhub.application.commands.duty import (
     TerminalHeartbeatCommand,
 )
 from peerhub.application.commands.effects import EffectStatusCommand
-from peerhub.application.commands.feedback import (
-    FeedbackAddCommand,
-    FeedbackListCommand,
-    FeedbackResolveCommand,
-)
 from peerhub.application.commands.health import (
     CheckGateCommand,
     HealthCheckCommand,
@@ -2000,103 +1995,12 @@ class ApplicationAPI:
         ))
 
     def _register_feedback(self, service: FeedbackService) -> None:
-        def required_text(envelope: CommandEnvelope, name: str) -> str:
-            value = envelope.params[name]
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
+        from peerhub.application.handlers.feedback import register_feedback_handlers
 
-        def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
-            value = envelope.params.get(name)
-            if value is None:
-                return None
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string or null")
-            return value
-
-        def decode_add(envelope: CommandEnvelope) -> FeedbackAddCommand:
-            detail = envelope.params.get("detail", "")
-            if not isinstance(detail, str):
-                raise ValueError("detail must be a string")
-            return FeedbackAddCommand(
-                submission=self._submission(envelope),
-                source_peer=required_text(envelope, "source_peer"),
-                category=required_text(envelope, "category"),
-                severity=required_text(envelope, "severity"),
-                title=required_text(envelope, "title"),
-                detail=detail,
-                actor_id=required_text(envelope, "actor_id"),
-            )
-
-        def decode_list(envelope: CommandEnvelope) -> FeedbackListCommand:
-            return FeedbackListCommand(self._submission(envelope))
-
-        def decode_resolve(
-            envelope: CommandEnvelope,
-        ) -> FeedbackResolveCommand:
-            return FeedbackResolveCommand(
-                submission=self._submission(envelope),
-                feedback_id=required_text(envelope, "feedback_id"),
-                status=required_text(envelope, "status"),
-                actor_id=required_text(envelope, "actor_id"),
-                owner=optional_text(envelope, "owner"),
-            )
-
-        def encode_feedback(
-            results: Sequence[Any],
-        ) -> Mapping[str, JsonValue]:
-            items = [
-                {
-                    "target_id": result.target_id,
-                    "revision": result.revision,
-                    "state": result.state,
-                }
-                for result in results
-            ]
-            return {"feedback": cast(JsonValue, items)}
-
-        self.register(CommandDescriptor(
-            "governance.feedback.create",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_add,
-            lambda c, _: service.add_feedback(
-                source_peer=c.source_peer,
-                category=c.category,
-                severity=c.severity,
-                title=c.title,
-                detail=c.detail,
-                actor_id=c.actor_id,
-            ),
-            self._receipt,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "governance.feedback.list",
-            Mutability.READ_ONLY,
-            ScopeKind.ANY,
-            IdempotencyPolicy.READ_ONLY,
-            decode_list,
-            lambda c, _: service.list_feedback(),
-            encode_feedback,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "governance.feedback.resolve",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_resolve,
-            lambda c, _: service.resolve_feedback(
-                c.feedback_id,
-                status=c.status,
-                owner=c.owner,
-                actor_id=c.actor_id,
-            ),
-            self._receipt,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_feedback_handlers(
+            api=self,
+            service=service,
+        )
 
     def _register_file_locks(self, service: FileLockService) -> None:
         from peerhub.application.handlers.locks import register_lock_handlers
