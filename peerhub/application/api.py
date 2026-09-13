@@ -46,10 +46,7 @@ from peerhub.application.room_broadcast import (
     RoomBroadcastCoordinator,
     RoomBroadcastResult,
 )
-from peerhub.application.alert_raise import (
-    AlertRaiseCoordinator,
-    AlertRaiseResult,
-)
+from peerhub.application.alert_raise import AlertRaiseCoordinator
 from peerhub.application.arbiter_review import ArbiterReviewCoordinator
 from peerhub.application.proposals import (
     ProposalCoordinator,
@@ -88,7 +85,6 @@ from peerhub.dispatch.room_session import (
     RoomSessionSnapshot,
 )
 from peerhub.dispatch.terminal_duty import TerminalDutyService
-from peerhub.application.commands.alerts import AlertRaiseCommand
 from peerhub.application.commands.artifacts import (
     ArtifactClaimCommand,
     ArtifactFinalizeCommand,
@@ -1423,61 +1419,12 @@ class ApplicationAPI:
         self,
         coordinator: AlertRaiseCoordinator,
     ) -> None:
-        def required_text(
-            envelope: CommandEnvelope,
-            name: str,
-        ) -> str:
-            value = envelope.params[name]
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
+        from peerhub.application.handlers.alerts import register_alert_handlers
 
-        def decode_alert(envelope: CommandEnvelope) -> AlertRaiseCommand:
-            return AlertRaiseCommand(
-                submission=self._submission(envelope),
-                room_id=required_text(envelope, "room_id"),
-                raiser_instance_id=required_text(
-                    envelope, "raiser_instance_id"
-                ),
-                raiser_profile_id=required_text(
-                    envelope, "raiser_profile_id"
-                ),
-                severity=required_text(envelope, "severity"),
-                message=required_text(envelope, "message"),
-            )
-
-        def encode_result(
-            result: AlertRaiseResult,
-        ) -> Mapping[str, JsonValue]:
-            return {
-                "alert_id": result.alert_id,
-                "alert_target_id": result.alert_target_id,
-                "room_id": result.room_id,
-                "recipient_profile_ids": result.recipient_profile_ids,
-                "inbox_message_target_ids": (
-                    result.inbox_message_target_ids
-                ),
-            }
-
-        self.register(CommandDescriptor(
-            "coordination.alert.raise",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            # Like telemetry.error.record, each call is a deliberate new
-            # mutation. The boundary still requires a per-call key; the
-            # coordinator itself allocates fresh governance request IDs.
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_alert,
-            lambda command, _: coordinator.raise_alert(
-                room_id=command.room_id,
-                raiser_instance_id=command.raiser_instance_id,
-                raiser_profile_id=command.raiser_profile_id,
-                severity=command.severity,
-                message=command.message,
-            ),
-            encode_result,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_alert_handlers(
+            api=self,
+            coordinator=coordinator,
+        )
 
     def _register_peer_registry(
         self,
