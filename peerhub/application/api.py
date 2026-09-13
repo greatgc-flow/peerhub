@@ -88,32 +88,92 @@ from peerhub.dispatch.room_session import (
     RoomSessionSnapshot,
 )
 from peerhub.dispatch.terminal_duty import TerminalDutyService
-from peerhub.application.legacy import (
-    StatusReadCommand, UpdateStatusCommand,
-    NewTopicCommand, ThreadNewCommand, ThreadAppendCommand, ThreadReactCommand, ClearRoomCommand,
-    MessageSendCommand, RoomBroadcastCommand, MessageCheckCommand, MessageMarkReadCommand,
-    ThreadPromoteCommand,
-    AppendHandoffCommand, ContinuityCheckpointCommand, ContextFillCommand,
-    LeaderClaimCommand, LeaderYieldCommand, DiscoverCandidatesCommand,
+from peerhub.application.commands.alerts import AlertRaiseCommand
+from peerhub.application.commands.artifacts import (
+    ArtifactClaimCommand,
+    ArtifactFinalizeCommand,
+    ArtifactStatusCommand,
+)
+from peerhub.application.commands.duty import (
+    TerminalCloseCommand,
+    TerminalDutySweepCommand,
+    TerminalHandoffCommand,
+    TerminalHeartbeatCommand,
+)
+from peerhub.application.commands.effects import EffectStatusCommand
+from peerhub.application.commands.feedback import (
+    FeedbackAddCommand,
+    FeedbackListCommand,
+    FeedbackResolveCommand,
+)
+from peerhub.application.commands.health import (
+    CheckGateCommand,
+    HealthCheckCommand,
+    HealthPrecheckCommand,
+    HealthSweepCommand,
+    PeerQuarantineCommand,
+    PeerRecoverCommand,
+)
+from peerhub.application.commands.leadership import (
+    DiscoverCandidatesCommand,
     ElectLeaderCommand,
-    TerminalHandoffCommand, TerminalHeartbeatCommand, TerminalCloseCommand,
-    TerminalDutySweepCommand, TaskCheckpointCommand,
-    TaskStatusCommand, TaskFailoverCommand, LessonInjectCommand, LessonProposeCommand,
-    LessonActivateCommand, LessonRetireCommand, LessonBroadcastCommand,
-    ApprovalRequestCommand,
+    LeaderClaimCommand,
+    LeaderYieldCommand,
+)
+from peerhub.application.commands.leases import LeaseStatusCommand, LeaseSweepCommand
+from peerhub.application.commands.lessons import (
+    LessonActivateCommand,
+    LessonBroadcastCommand,
+    LessonInjectCommand,
+    LessonProposeCommand,
+    LessonRetireCommand,
     LessonsListCommand,
-    SessionOpenCommand, SessionCloseCommand, SessionHeartbeatCommand,
-    RegisterNodeCommand, ListNodesCommand, BindProfileCommand,
+)
+from peerhub.application.commands.locks import (
+    LockAcquireCommand,
+    LockReleaseCommand,
+    LockStatusCommand,
+)
+from peerhub.application.commands.operational_errors import ReportErrorCommand
+from peerhub.application.commands.peers import (
+    BindProfileCommand,
+    ListNodesCommand,
     ModelStatusCommand,
-    AssignRoleCommand, ReleaseRoleCommand, RoleStatusCommand,
-    FeedbackAddCommand, FeedbackListCommand, FeedbackResolveCommand,
-    ArtifactClaimCommand, ArtifactStatusCommand, ArtifactFinalizeCommand,
-    LockAcquireCommand, LockReleaseCommand, LockStatusCommand,
-    ReportErrorCommand, AlertRaiseCommand,
-    HealthCheckCommand, PeerStatusCommand, PeerQuarantineCommand, PeerRecoverCommand,
-    HealthPrecheckCommand, CheckGateCommand, HealthSweepCommand, LeaseStatusCommand,
-    EffectStatusCommand,
-    LeaseSweepCommand,
+    PeerStatusCommand,
+    RegisterNodeCommand,
+)
+from peerhub.application.commands.roles import (
+    AssignRoleCommand,
+    ReleaseRoleCommand,
+    RoleStatusCommand,
+)
+from peerhub.application.commands.rooms import (
+    AppendHandoffCommand,
+    ClearRoomCommand,
+    ContextFillCommand,
+    ContinuityCheckpointCommand,
+    MessageCheckCommand,
+    MessageMarkReadCommand,
+    MessageSendCommand,
+    NewTopicCommand,
+    RoomBroadcastCommand,
+    StatusReadCommand,
+    ThreadAppendCommand,
+    ThreadNewCommand,
+    ThreadPromoteCommand,
+    ThreadReactCommand,
+    UpdateStatusCommand,
+)
+from peerhub.application.commands.sessions import (
+    SessionCloseCommand,
+    SessionHeartbeatCommand,
+    SessionOpenCommand,
+)
+from peerhub.application.commands.tasks import (
+    ApprovalRequestCommand,
+    TaskCheckpointCommand,
+    TaskFailoverCommand,
+    TaskStatusCommand,
 )
 from peerhub.application.lease_status import collect_lease_status
 from peerhub.application.process_lease_sweep import (

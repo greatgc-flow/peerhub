@@ -12,7 +12,7 @@ from peerhub.application.commands.consensus import (
     ConsensusSweepCommand,
     ConsensusVoteCommand,
 )
-from peerhub.application.legacy import (
+from peerhub.application.commands.consensus import (
     ArbiterReviewCommand,
     ProposalAddCommand,
     ProposalListCommand,

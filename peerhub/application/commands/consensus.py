@@ -94,3 +94,76 @@ class ConsensusSweepCommand(Command[Any]):
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalAddCommand(Command[Any]):
+    method: ClassVar[str] = "governance.proposal.create"
+    submission: SubmissionMetadata
+    subject: str
+    from_peer: str
+    impact: str
+    rationale: str
+    text: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "subject": self.subject,
+            "from_peer": self.from_peer,
+            "impact": self.impact,
+            "rationale": self.rationale,
+            "text": self.text,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalVoteCommand(Command[Any]):
+    method: ClassVar[str] = "governance.proposal.vote"
+    submission: SubmissionMetadata
+    proposal_id: str
+    voter: str
+    vote: str
+    reason: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "proposal_id": self.proposal_id,
+            "voter": self.voter,
+            "vote": self.vote,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalListCommand(Command[Any]):
+    method: ClassVar[str] = "governance.proposal.list"
+    submission: SubmissionMetadata
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ArbiterReviewCommand(Command[Any]):
+    method: ClassVar[str] = "consensus.arbiter.review"
+    submission: SubmissionMetadata
+    round_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"round_id": self.round_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
