@@ -169,12 +169,6 @@ from peerhub.application.commands.sessions import (
     SessionHeartbeatCommand,
     SessionOpenCommand,
 )
-from peerhub.application.commands.tasks import (
-    ApprovalRequestCommand,
-    TaskCheckpointCommand,
-    TaskFailoverCommand,
-    TaskStatusCommand,
-)
 from peerhub.application.lease_status import collect_lease_status
 from peerhub.application.process_lease_sweep import (
     ProcessLeaseSweepCoordinator,
@@ -564,35 +558,11 @@ class ApplicationAPI:
             arbiter=arbiter,
             proposals=proposals,
         )
+
     def _register_task(self, s: TaskService) -> None:
-        def text(p: Mapping[str, JsonValue], n: str) -> str:
-            if not isinstance(p[n], str): raise ValueError(f"{n} must be a string")
-            return cast(str, p[n])
-        def integer(p: Mapping[str, JsonValue], n: str) -> int | None:
-            if p[n] is not None and (not isinstance(p[n], int) or isinstance(p[n], bool)): raise ValueError(f"{n} must be an integer or null")
-            return cast(int | None, p[n])
-        def strings(p: Mapping[str, JsonValue], n: str) -> tuple[str, ...]:
-            v=p[n]
-            if not isinstance(v,(list,tuple)) or not all(isinstance(x,str) for x in v): raise ValueError(f"{n} must be a sequence of strings")
-            return tuple(cast(str,x) for x in v)
-        def checkpoint(e: CommandEnvelope) -> TaskCheckpointCommand:
-            p=e.params; return TaskCheckpointCommand(self._submission(e),text(p,"task_id"),text(p,"actor_id"),text(p,"checkpoint_id"),text(p,"stage"),text(p,"request_id"),text(p,"attempt_id"),None if p["resume_token_ref"] is None else text(p,"resume_token_ref"),strings(p,"completed_units"),strings(p,"remaining_units"),integer(p,"expected_revision"))
-        def status(e: CommandEnvelope) -> TaskStatusCommand:
-            return TaskStatusCommand(self._submission(e), text(e.params,"task_id"))
-        def failover(e: CommandEnvelope) -> TaskFailoverCommand:
-            p=e.params; return TaskFailoverCommand(self._submission(e),text(p,"task_id"),text(p,"to_actor_id"),text(p,"reason"),integer(p,"expected_revision"))
-        self.register(CommandDescriptor("coordination.task.checkpoint", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, checkpoint, lambda c,_: s.checkpoint(task_id=c.task_id,actor_id=c.actor_id,checkpoint_id=c.checkpoint_id,stage=c.stage,request_id=c.request_id,attempt_id=c.attempt_id,resume_token_ref=c.resume_token_ref,completed_units=c.completed_units,remaining_units=c.remaining_units,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("coordination.task.status", Mutability.READ_ONLY, ScopeKind.ANY, IdempotencyPolicy.READ_ONLY, status, lambda c,_: s.get_target(c.task_id), lambda r: {"target_id":r.target_id,"revision":r.revision,"state":r.state}, CommandAvailability.AVAILABLE))
-        self.register(CommandDescriptor("coordination.task.failover", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, failover, lambda c,_: s.request_failover(c.task_id,to_actor_id=c.to_actor_id,reason=c.reason,expected_revision=c.expected_revision), self._receipt, CommandAvailability.AVAILABLE))
-        def approval(e: CommandEnvelope) -> ApprovalRequestCommand:
-            p=e.params
-            vals: list[str] = []
-            for n in ("task_id","requester_id","approval_id","approver_id"):
-                value = p[n]
-                if not isinstance(value,str): raise ValueError(f"{n} must be a string")
-                vals.append(value)
-            return ApprovalRequestCommand(self._submission(e),*vals)
-        self.register(CommandDescriptor("governance.approval.request", Mutability.MUTATING, ScopeKind.ANY, IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED, approval, lambda c,_: s.request_approval(c.task_id,requester_id=c.requester_id,approval_id=c.approval_id,approver_id=c.approver_id), self._receipt, CommandAvailability.AVAILABLE))
+        from peerhub.application.handlers.tasks import register_task_handlers
+
+        register_task_handlers(api=self, service=s)
 
     def _register_lesson(
         self,
