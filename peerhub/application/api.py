@@ -80,11 +80,6 @@ from peerhub.dispatch.room_session import (
     RoomSessionSnapshot,
 )
 from peerhub.dispatch.terminal_duty import TerminalDutyService
-from peerhub.application.commands.artifacts import (
-    ArtifactClaimCommand,
-    ArtifactFinalizeCommand,
-    ArtifactStatusCommand,
-)
 from peerhub.application.commands.duty import (
     TerminalCloseCommand,
     TerminalDutySweepCommand,
@@ -167,11 +162,7 @@ from peerhub.application.capability_matching import (
 from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
 from peerhub.governance.file_locks import FileLockService
-from peerhub.governance.artifact_records import (
-    ArtifactMutationResult,
-    ArtifactRecordService,
-    ArtifactStatusResult,
-)
+from peerhub.governance.artifact_records import ArtifactRecordService
 from peerhub.health.service import HealthService
 
 
@@ -1816,131 +1807,14 @@ class ApplicationAPI:
         self,
         service: ArtifactRecordService,
     ) -> None:
-        def optional_text(
-            envelope: CommandEnvelope,
-            name: str,
-        ) -> str | None:
-            value = envelope.params.get(name)
-            return None if value is None or value == "" else str(value)
+        from peerhub.application.handlers.artifacts import (
+            register_artifact_handlers,
+        )
 
-        def decode_claim(envelope: CommandEnvelope) -> ArtifactClaimCommand:
-            return ArtifactClaimCommand(
-                submission=self._submission(envelope),
-                name=str(envelope.params.get("name", "")),
-                owner=str(envelope.params.get("owner", "")),
-            )
-
-        def decode_status(envelope: CommandEnvelope) -> ArtifactStatusCommand:
-            return ArtifactStatusCommand(
-                submission=self._submission(envelope),
-                name=optional_text(envelope, "name"),
-                peer=optional_text(envelope, "peer"),
-                draft_path=optional_text(envelope, "draft_path"),
-            )
-
-        def decode_finalize(
-            envelope: CommandEnvelope,
-        ) -> ArtifactFinalizeCommand:
-            return ArtifactFinalizeCommand(
-                submission=self._submission(envelope),
-                name=str(envelope.params.get("name", "")),
-                file_path=str(envelope.params.get("file_path", "")),
-            )
-
-        def is_draft_registration(envelope: CommandEnvelope) -> bool:
-            return all(
-                isinstance(envelope.params.get(name), str)
-                and bool(envelope.params.get(name))
-                for name in ("name", "peer", "draft_path")
-            )
-
-        def status_mutability(envelope: CommandEnvelope) -> Mutability:
-            if is_draft_registration(envelope):
-                return Mutability.MUTATING
-            return Mutability.READ_ONLY
-
-        def status_idempotency(
-            envelope: CommandEnvelope,
-        ) -> IdempotencyPolicy:
-            if is_draft_registration(envelope):
-                return IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
-            return IdempotencyPolicy.READ_ONLY
-
-        def handle_status(
-            command: ArtifactStatusCommand,
-            _: RequestContext,
-        ) -> ArtifactMutationResult | ArtifactStatusResult:
-            if (
-                command.name is not None
-                and command.peer is not None
-                and command.draft_path is not None
-            ):
-                return service.register_draft(
-                    command.name,
-                    peer=command.peer,
-                    draft_path=command.draft_path,
-                )
-            return service.status(command.name)
-
-        def encode_mutation(
-            result: ArtifactMutationResult,
-        ) -> Mapping[str, JsonValue]:
-            return {
-                "receipt": dict(self._receipt(result.submission)),
-                "artifact": result.record.state,
-            }
-
-        def encode_status(
-            result: ArtifactMutationResult | ArtifactStatusResult,
-        ) -> Mapping[str, JsonValue]:
-            if isinstance(result, ArtifactMutationResult):
-                return encode_mutation(result)
-            if result.single:
-                artifact: JsonValue = (
-                    {} if not result.items else result.items[0].state
-                )
-                return {"artifact": artifact}
-            items: tuple[JsonValue, ...] = tuple(
-                target.state for target in result.items
-            )
-            return {"items": items}
-
-        self.register(CommandDescriptor(
-            "governance.artifact.claim",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_claim,
-            lambda command, _: service.claim(
-                command.name,
-                command.owner,
-            ),
-            encode_mutation,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "governance.artifact.status",
-            status_mutability,
-            ScopeKind.ANY,
-            status_idempotency,
-            decode_status,
-            handle_status,
-            encode_status,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "governance.artifact.finalize",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_finalize,
-            lambda command, _: service.finalize(
-                command.name,
-                command.file_path,
-            ),
-            encode_mutation,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_artifact_handlers(
+            api=self,
+            service=service,
+        )
 
     def _register_operational_errors(
         self,
