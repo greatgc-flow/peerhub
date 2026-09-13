@@ -134,7 +134,6 @@ from peerhub.application.commands.locks import (
     LockReleaseCommand,
     LockStatusCommand,
 )
-from peerhub.application.commands.operational_errors import ReportErrorCommand
 from peerhub.application.commands.peers import (
     BindProfileCommand,
     ListNodesCommand,
@@ -2380,46 +2379,14 @@ class ApplicationAPI:
         self,
         service: OperationalErrorService,
     ) -> None:
-        def required_text(envelope: CommandEnvelope, name: str) -> str:
-            value = envelope.params[name]
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
+        from peerhub.application.handlers.operational_errors import (
+            register_operational_error_handlers,
+        )
 
-        def decode_report(envelope: CommandEnvelope) -> ReportErrorCommand:
-            threshold = envelope.params.get("threshold", 3)
-            if not isinstance(threshold, int) or isinstance(threshold, bool):
-                raise ValueError("threshold must be an integer")
-            detail = envelope.params.get("detail", "")
-            if not isinstance(detail, str):
-                raise ValueError("detail must be a string")
-            return ReportErrorCommand(
-                submission=self._submission(envelope),
-                peer_key=required_text(envelope, "peer_key"),
-                pattern=required_text(envelope, "pattern"),
-                severity=required_text(envelope, "severity"),
-                detail=detail,
-                actor_id=required_text(envelope, "actor_id"),
-                threshold=threshold,
-            )
-
-        self.register(CommandDescriptor(
-            "telemetry.error.record",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_report,
-            lambda command, _: service.report_error(
-                peer_key=command.peer_key,
-                pattern=command.pattern,
-                severity=command.severity,
-                detail=command.detail,
-                actor_id=command.actor_id,
-                threshold=command.threshold,
-            ),
-            self._receipt,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_operational_error_handlers(
+            api=self,
+            service=service,
+        )
 
     def _register_process_lease_sweep(
         self,
