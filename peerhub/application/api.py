@@ -74,12 +74,6 @@ from peerhub.application.commands.health import (
     PeerQuarantineCommand,
     PeerRecoverCommand,
 )
-from peerhub.application.commands.leadership import (
-    DiscoverCandidatesCommand,
-    ElectLeaderCommand,
-    LeaderClaimCommand,
-    LeaderYieldCommand,
-)
 from peerhub.application.commands.leases import LeaseStatusCommand
 from peerhub.application.commands.peers import (
     BindProfileCommand,
@@ -105,16 +99,8 @@ from peerhub.application.health_revalidation import (
     collect_health_sweep,
 )
 from peerhub.application.role_assignment import RoleAssignmentService
-from peerhub.application.leadership import (
-    LeadershipClaimResult,
-    LeadershipService,
-    LeadershipYieldResult,
-)
-from peerhub.application.capability_matching import (
-    CapabilityMatchingCoordinator,
-    encode_capability_ranking,
-    encode_leadership_election_receipt,
-)
+from peerhub.application.leadership import LeadershipService
+from peerhub.application.capability_matching import CapabilityMatchingCoordinator
 from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
 from peerhub.governance.file_locks import FileLockService
@@ -864,148 +850,21 @@ class ApplicationAPI:
         )
 
     def _register_leadership(self, service: LeadershipService) -> None:
-        def required_text(envelope: CommandEnvelope, name: str) -> str:
-            value = envelope.params[name]
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
+        from peerhub.application.handlers.leadership import (
+            register_leadership_handlers,
+        )
 
-        def optional_text(envelope: CommandEnvelope, name: str) -> str:
-            value = envelope.params.get(name, "")
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
-
-        def decode_claim(envelope: CommandEnvelope) -> LeaderClaimCommand:
-            return LeaderClaimCommand(
-                submission=self._submission(envelope),
-                peer_node_id=required_text(envelope, "peer_node_id"),
-                actor_id=required_text(envelope, "actor_id"),
-                reason=optional_text(envelope, "reason"),
-                domain=optional_text(envelope, "domain"),
-            )
-
-        def decode_yield(envelope: CommandEnvelope) -> LeaderYieldCommand:
-            return LeaderYieldCommand(
-                submission=self._submission(envelope),
-                yielding_peer_id=required_text(envelope, "yielding_peer_id"),
-                actor_id=required_text(envelope, "actor_id"),
-                reason=optional_text(envelope, "reason"),
-            )
-
-        def encode_claim(
-            result: LeadershipClaimResult,
-        ) -> Mapping[str, JsonValue]:
-            return {
-                **self._receipt(result.submission),
-                "disposition": result.disposition.value,
-                "status": result.target.state.get("status"),
-                "term": result.target.state.get("term"),
-                "claim_id": result.target.state.get("claim_id"),
-                "challenge_until": result.target.state.get("challenge_until"),
-            }
-
-        def encode_yield(
-            result: LeadershipYieldResult,
-        ) -> Mapping[str, JsonValue]:
-            return {
-                **self._receipt(result.submission),
-                "owner_mismatch": result.owner_mismatch,
-                "previous_leader_peer_node_id": (
-                    result.previous_leader_peer_node_id
-                ),
-            }
-
-        self.register(CommandDescriptor(
-            "routing.leadership.claim",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_claim,
-            lambda c, _: service.claim_leadership(
-                peer_node_id=c.peer_node_id,
-                actor_id=c.actor_id,
-                reason=c.reason,
-                domain=c.domain,
-            ),
-            encode_claim,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "routing.leadership.yield",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_yield,
-            lambda c, _: service.yield_leadership(
-                yielding_peer_id=c.yielding_peer_id,
-                actor_id=c.actor_id,
-                reason=c.reason,
-            ),
-            encode_yield,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_leadership_handlers(api=self, service=service)
 
     def _register_capability_matching(
         self,
         coordinator: CapabilityMatchingCoordinator,
     ) -> None:
-        def text(
-            envelope: CommandEnvelope,
-            name: str,
-            default: str | None = None,
-        ) -> str:
-            value = envelope.params.get(name, default)
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
+        from peerhub.application.handlers.leadership import (
+            register_capability_matching_handlers,
+        )
 
-        def decode_discover(
-            envelope: CommandEnvelope,
-        ) -> DiscoverCandidatesCommand:
-            return DiscoverCandidatesCommand(
-                submission=self._submission(envelope),
-                needs=text(envelope, "needs", ""),
-                effort=text(envelope, "effort", "mid"),
-            )
-
-        def decode_elect(envelope: CommandEnvelope) -> ElectLeaderCommand:
-            return ElectLeaderCommand(
-                submission=self._submission(envelope),
-                actor_id=text(envelope, "actor_id"),
-                needs=text(envelope, "needs", "general"),
-                effort=text(envelope, "effort", "mid"),
-                reason=text(envelope, "reason", ""),
-            )
-
-        self.register(CommandDescriptor(
-            "routing.candidate.discover",
-            Mutability.READ_ONLY,
-            ScopeKind.ANY,
-            IdempotencyPolicy.READ_ONLY,
-            decode_discover,
-            lambda command, _: coordinator.discover(
-                needs=command.needs,
-                effort=command.effort,
-            ),
-            encode_capability_ranking,
-            CommandAvailability.AVAILABLE,
-        ))
-        self.register(CommandDescriptor(
-            "routing.leadership.elect",
-            Mutability.MUTATING,
-            ScopeKind.ANY,
-            IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED,
-            decode_elect,
-            lambda command, _: coordinator.elect_leader(
-                needs=command.needs,
-                effort=command.effort,
-                reason=command.reason,
-                actor_id=command.actor_id,
-            ),
-            encode_leadership_election_receipt,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_capability_matching_handlers(api=self, coordinator=coordinator)
 
     def _register_feedback(self, service: FeedbackService) -> None:
         from peerhub.application.handlers.feedback import register_feedback_handlers
