@@ -43,10 +43,6 @@ from peerhub.application.arbiter_review import ArbiterReviewCoordinator
 from peerhub.application.proposals import (
     ProposalCoordinator,
 )
-from peerhub.application.broker_status import (
-    MAX_VISIBLE_EFFECT_DELIVERIES,
-    collect_effect_status,
-)
 from peerhub.application.commands import (
     Command,
     AdmitDispatch,
@@ -65,7 +61,6 @@ from peerhub.governance.broker import GovernanceBroker
 from peerhub.dispatch.duty_lease import DutyLeaseCoordinator
 from peerhub.dispatch.room_session import RoomParticipationCoordinator
 from peerhub.dispatch.terminal_duty import TerminalDutyService
-from peerhub.application.commands.effects import EffectStatusCommand
 from peerhub.application.commands.health import (
     CheckGateCommand,
     HealthCheckCommand,
@@ -393,37 +388,11 @@ class ApplicationAPI:
         self,
         broker: GovernanceBroker,
     ) -> None:
-        def decode_effect_status(
-            envelope: CommandEnvelope,
-        ) -> EffectStatusCommand:
-            limit = envelope.params.get(
-                "limit", MAX_VISIBLE_EFFECT_DELIVERIES
-            )
-            if (
-                type(limit) is not int
-                or not 1 <= limit <= MAX_VISIBLE_EFFECT_DELIVERIES
-            ):
-                raise ValueError(
-                    "limit must be an integer between 1 and "
-                    f"{MAX_VISIBLE_EFFECT_DELIVERIES}"
-                )
-            return EffectStatusCommand(
-                submission=self._submission(envelope),
-                limit=limit,
-            )
+        from peerhub.application.handlers.effects import (
+            register_effect_status_handlers,
+        )
 
-        self.register(CommandDescriptor(
-            "governance.effect.status",
-            Mutability.READ_ONLY,
-            ScopeKind.ANY,
-            IdempotencyPolicy.READ_ONLY,
-            decode_effect_status,
-            lambda command, _context: collect_effect_status(
-                broker, limit=command.limit
-            ),
-            lambda result: result,
-            CommandAvailability.AVAILABLE,
-        ))
+        register_effect_status_handlers(api=self, broker=broker)
 
     def _register_consensus(
         self,
