@@ -191,7 +191,15 @@ def run_ask(
 def refresh_usage_projections(
     workspace_root: Any, *, force: bool, freshness_ttl: int, cli: ModuleType
 ) -> list[Any]:
-    """Poll and persist quota projections through the existing runtime seam."""
+    """Poll and persist quota projections through the existing runtime seam.
+
+    Never raises: telemetry must not be able to take down `diag`/`status`.
+    A provider that fails simply leaves its pool honestly absent. If the
+    runtime itself is unavailable (e.g. the workspace store can't be
+    opened), the whole poll degrades to an empty projection list rather
+    than propagating -- callers that want `--domains` collection to
+    still be attempted separately rely on this not aborting `run_diag`.
+    """
 
     from peerhub.telemetry.contract import UsageObserved
     from peerhub.telemetry.quota_polling import (
@@ -236,7 +244,7 @@ def refresh_usage_projections(
                 return list(uow.list_usage_projections(None))
     except Exception as error:
         print(f"Error: failed to refresh usage projections: {error}", file=cli.sys.stderr)
-        raise
+        return []
 
 
 def render_domain_section(domains: Mapping[str, Any]) -> str:
