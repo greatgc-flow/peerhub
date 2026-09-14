@@ -16,6 +16,7 @@ from .contract import (
     EffectIntent,
     MutationRequest,
     MutationSubmission,
+    resolve_local_os_write_provenance,
     TargetState,
 )
 
@@ -68,6 +69,7 @@ class FileLockService:
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=EffectIntent(kind="file-lock.noop", payload={}),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

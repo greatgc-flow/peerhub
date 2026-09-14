@@ -25,6 +25,7 @@ from .contract import (
     EffectIntent,
     MutationRequest,
     MutationSubmission,
+    resolve_local_os_write_provenance,
     TargetState,
 )
 
@@ -97,6 +98,7 @@ class ArtifactRecordService:
                     kind="artifact-record.noop",
                     payload={},
                 ),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
         record = self._broker.get_target(target_id)

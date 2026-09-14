@@ -20,7 +20,7 @@ from peerhub.persistence.sqlite import SqliteStateStore
 
 
 REAL_MIGRATIONS = Path(str(resources.files("peerhub.persistence.migrations")))
-LATEST_PACKAGED_VERSION = 34
+LATEST_PACKAGED_VERSION = 35
 NEXT_PACKAGED_VERSION = LATEST_PACKAGED_VERSION + 1
 
 

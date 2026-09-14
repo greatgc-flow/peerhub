@@ -23,6 +23,7 @@ from .contract import (
     EffectReceipt,
     MutationRequest,
     MutationSubmission,
+    resolve_local_os_write_provenance,
     TargetState,
 )
 
@@ -743,6 +744,7 @@ class ConsensusService:
                     if effect_intent is not None
                     else EffectIntent(kind="consensus.noop", payload={})
                 ),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

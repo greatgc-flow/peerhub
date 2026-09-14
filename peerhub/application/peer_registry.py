@@ -10,7 +10,7 @@ from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 from peerhub.core.protocol import CommandID, JsonValue, require_text
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
+from peerhub.governance.contract import EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
 from peerhub.health.contract import AdmissionState, AvailabilityState
 from peerhub.health.service import HealthService
 
@@ -84,6 +84,7 @@ class PeerRegistryService:
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=EffectIntent(kind="peer-registry.noop", payload={}),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

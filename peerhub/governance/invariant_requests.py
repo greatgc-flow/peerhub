@@ -22,6 +22,7 @@ from .contract import (
     EffectOutcome,
     MutationRequest,
     OutboxState,
+    resolve_local_os_write_provenance,
     TargetState,
 )
 
@@ -104,6 +105,7 @@ class RatifiedInvariantRequestProjector:
                         kind="ratified-invariant-write-request.noop",
                         payload={},
                     ),
+                    write_provenance=resolve_local_os_write_provenance(),
                 )
             )
         except StaleRevisionError as exc:

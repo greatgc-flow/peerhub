@@ -11,7 +11,7 @@ from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, Stale
 from peerhub.core.protocol import CommandID, JsonValue, require_text
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
+from .contract import EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
 
 
 HANDOFF_LIST_SECTIONS = (
@@ -1262,5 +1262,6 @@ class RoomsService:
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=EffectIntent(kind="rooms.noop", payload={}),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )

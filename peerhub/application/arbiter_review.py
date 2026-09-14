@@ -30,7 +30,7 @@ from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import RequestState
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.consensus import ConsensusService
-from peerhub.governance.contract import EffectIntent, MutationRequest
+from peerhub.governance.contract import EffectIntent, MutationRequest, resolve_local_os_write_provenance
 
 
 ARBITER_BUDGET_TARGET_ID = "arbiter-budget:workspace"
@@ -504,6 +504,7 @@ class ArbiterBudgetManager:
                 operation=operation,
                 desired_state=state,
                 effect_intent=EffectIntent(kind="arbiter.noop", payload={}),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 
@@ -797,6 +798,7 @@ class ArbiterReviewCoordinator:
                 operation=operation,
                 desired_state=state,
                 effect_intent=EffectIntent(kind="arbiter.noop", payload={}),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

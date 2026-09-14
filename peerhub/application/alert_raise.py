@@ -13,7 +13,7 @@ from peerhub.dispatch.room_session import (
     RoomSessionSnapshot,
 )
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.contract import EffectIntent, MutationRequest
+from peerhub.governance.contract import EffectIntent, MutationRequest, resolve_local_os_write_provenance
 from peerhub.governance.rooms import RoomsService
 
 
@@ -194,5 +194,6 @@ class AlertRaiseCoordinator:
                     kind="alert-raise.noop",
                     payload={},
                 ),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )

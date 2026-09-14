@@ -26,6 +26,7 @@ from peerhub.governance.contract import (
     EffectIntent,
     MutationRequest,
     MutationSubmission,
+    resolve_local_os_write_provenance,
     TargetState,
 )
 from peerhub.health.contract import AdmissionState, AvailabilityState
@@ -232,6 +233,7 @@ class LeadershipService:
                     kind="leadership.noop",
                     payload={},
                 ),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

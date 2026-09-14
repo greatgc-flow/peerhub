@@ -240,9 +240,12 @@ class SqliteGovernanceRepository:
                     effect_kind,
                     effect_payload_json,
                     payload_digest,
-                    created_at
+                    created_at,
+                    principal_evidence,
+                    actor_binding,
+                    resolved_principal
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -262,6 +265,9 @@ class SqliteGovernanceRepository:
                     _json_text(request.effect_intent.payload),
                     payload_digest,
                     created_at,
+                    request.write_provenance.principal_evidence.value,
+                    request.write_provenance.actor_binding.value,
+                    request.write_provenance.resolved_principal,
                 ),
             )
 

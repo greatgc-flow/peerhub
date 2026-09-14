@@ -20,6 +20,7 @@ from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.contract import (
     EffectIntent,
     MutationRequest,
+    resolve_local_os_write_provenance,
     TargetState,
 )
 from peerhub.health.contract import AvailabilityState
@@ -127,6 +128,7 @@ class CapabilityConfigService:
                 effect_intent=EffectIntent(
                     kind="capability-config.noop", payload={}
                 ),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
         target = self._broker.get_target(target_id)

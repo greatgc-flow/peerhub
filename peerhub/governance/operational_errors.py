@@ -17,7 +17,7 @@ from peerhub.core.errors import InvalidMutationError, StaleRevisionError
 from peerhub.core.protocol import CommandID, JsonValue, require_text
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission
+from .contract import EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance
 
 
 class OperationalErrorService:
@@ -65,6 +65,7 @@ class OperationalErrorService:
                 effect_intent=EffectIntent(
                     kind="operational-errors.noop", payload={}
                 ),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

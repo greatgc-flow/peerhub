@@ -12,7 +12,7 @@ from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 from peerhub.core.protocol import CommandID, JsonValue
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
+from .contract import EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
 
 
 class TaskService:
@@ -312,5 +312,6 @@ class TaskService:
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=EffectIntent(kind="tasks.noop", payload={}),
+                write_provenance=resolve_local_os_write_provenance(),
             )
         )

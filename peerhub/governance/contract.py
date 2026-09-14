@@ -126,6 +126,93 @@ def _freeze_references(
     return tuple(_text(value, "evidence_ref") for value in values)
 
 
+class PrincipalEvidence(str, Enum):
+    """Where a mutation's resolved principal actually came from.
+
+    D-CTX Increment 0 (docs/design/peerhub-dctx-proposal-1-2026-09-13.md
+    section 5, D0/Q2/D2 closed 2026-09-14): forensic classification only.
+    DISPATCH_CAPABILITY (a verified D-CTX credential) is not populated by
+    any code yet -- that is Increment 1, which does not exist. LEGACY/
+    UNKNOWN are never assigned by new code; they exist only for rows
+    written before this column existed (migration default) or when OS
+    identity resolution itself fails.
+    """
+
+    LOCAL_OS_ACCOUNT = "LOCAL_OS_ACCOUNT"
+    DISPATCH_CAPABILITY = "DISPATCH_CAPABILITY"
+    LEGACY = "LEGACY"
+    UNKNOWN = "UNKNOWN"
+
+
+class ActorBinding(str, Enum):
+    """How strongly principal_evidence is bound to the mutation's actor_id.
+
+    ASSERTED means the evidence corroborates who ran the process, not who
+    the caller claims actor_id is -- Increment 0 does not check the two
+    against each other or change authorization; this is a forensic record,
+    not a security boundary until D-CTX Increment 1+.
+    """
+
+    VERIFIED = "VERIFIED"
+    ASSERTED = "ASSERTED"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True)
+class WriteProvenance:
+    """Forensic record of who/how a governance mutation was actually made.
+
+    Additive only: does not participate in mutation_payload()/the
+    idempotency digest (D9, holistic renewal section 8.2 -- hashing
+    credential-instance evidence like this would reject a legitimate
+    retry whose OS-resolved principal or future credential rotated
+    between attempts) and does not change quorum/authorization, which
+    remains actor_id alone until D-CTX's credential carrier exists.
+    """
+
+    principal_evidence: PrincipalEvidence
+    actor_binding: ActorBinding
+    resolved_principal: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.principal_evidence, PrincipalEvidence):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("principal_evidence must be a PrincipalEvidence")
+        if not isinstance(self.actor_binding, ActorBinding):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("actor_binding must be an ActorBinding")
+        object.__setattr__(
+            self,
+            "resolved_principal",
+            _optional_text(self.resolved_principal, "resolved_principal"),
+        )
+
+
+_UNKNOWN_WRITE_PROVENANCE = WriteProvenance(
+    principal_evidence=PrincipalEvidence.UNKNOWN,
+    actor_binding=ActorBinding.UNKNOWN,
+)
+
+
+def resolve_local_os_write_provenance() -> WriteProvenance:
+    """Best-effort provenance for a governance write: the OS account
+    running this process. Never raises -- a resolution failure records
+    UNKNOWN/UNKNOWN rather than blocking the mutation, since Increment 0
+    is additive and must not introduce a new failure mode."""
+
+    from peerhub.core.identity import LocalProcessCallerIdentityProvider
+
+    try:
+        subject = LocalProcessCallerIdentityProvider().resolve()
+    except Exception:
+        return _UNKNOWN_WRITE_PROVENANCE
+    if subject is None:
+        return _UNKNOWN_WRITE_PROVENANCE
+    return WriteProvenance(
+        principal_evidence=PrincipalEvidence.LOCAL_OS_ACCOUNT,
+        actor_binding=ActorBinding.ASSERTED,
+        resolved_principal=subject.principal_id,
+    )
+
+
 @dataclass(frozen=True)
 class EffectIntent:
     """A declarative effect to execute only after transition commit."""
@@ -159,6 +246,9 @@ class MutationRequest:
     operation: str
     desired_state: Mapping[str, JsonValue]
     effect_intent: EffectIntent
+    write_provenance: WriteProvenance = field(
+        default_factory=lambda: _UNKNOWN_WRITE_PROVENANCE
+    )
 
     def __post_init__(self) -> None:
         for name in (

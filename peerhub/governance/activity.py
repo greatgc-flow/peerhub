@@ -10,7 +10,7 @@ from peerhub.core.protocol import CommandID, JsonValue
 from peerhub.dispatch.room_session import RoomSessionSnapshot, RoomSessionState
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission, TargetState
+from .contract import EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
 
 
 def list_active_consensus_rounds(
@@ -103,6 +103,7 @@ def rebuild_room_session_bindings(
             effect_intent=EffectIntent(
                 kind="room.session-bindings.noop", payload={}
             ),
+            write_provenance=resolve_local_os_write_provenance(),
         )
     )
 
