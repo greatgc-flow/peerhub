@@ -2484,7 +2484,7 @@ class SqliteDispatchRepository:
         """DECLARED → STAGED. Rejects if current state ≠ DECLARED or revision mismatch.
 
         Narrow typed repository method per the ratified ArtifactMaterializer
-        contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
+        contract (docs/history/design/2026-08/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
         generic ``cas_update_artifact_metadata`` for this transition.
         """
         cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
@@ -2525,7 +2525,7 @@ class SqliteDispatchRepository:
         """STAGED → VERIFIED. Rejects if current state ≠ STAGED or revision mismatch.
 
         Narrow typed repository method per the ratified ArtifactMaterializer
-        contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
+        contract (docs/history/design/2026-08/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
         generic ``cas_update_artifact_metadata`` for this transition.
         """
         cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
@@ -2568,7 +2568,7 @@ class SqliteDispatchRepository:
         for the ORPHANED→CLEANED transition. Rejects if current state ≠
         ORPHANED.
 
-        Per docs/design/SLICE5-KICKOFF-R1.md §1.10: deliberately separate from
+        Per docs/history/design/2026-08/SLICE5-KICKOFF-R1.md §1.10: deliberately separate from
         ``mark_artifact_cleaned`` (CONSUMED→CLEANED) to keep the happy-path
         cleanup guard exactly as strict as Step 4 ratified it.
         """

@@ -1,6 +1,6 @@
 """Artifact path resolution and materialization manifest generation for Slice 5.
 
-Per the ratified design in docs/design/SLICE5-KICKOFF-R1.md
+Per the ratified design in docs/history/design/2026-08/SLICE5-KICKOFF-R1.md
 ("artifacts.py/completion.py contract RATIFIED (2026-08-03, ag+cx unanimous)").
 
 Enforces safety mechanisms:

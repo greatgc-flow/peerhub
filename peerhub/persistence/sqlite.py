@@ -2030,7 +2030,7 @@ class SqliteUnitOfWork:
         """DECLARED → STAGED. Rejects if current state ≠ DECLARED or revision mismatch.
 
         Narrow typed repository method per the ratified ArtifactMaterializer
-        contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
+        contract (docs/history/design/2026-08/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
         generic ``cas_update_artifact_metadata`` for this transition.
         """
         return self.dispatch.mark_artifact_staged(attempt_id=attempt_id, artifact_id=artifact_id, staging_path_relative=staging_path_relative, expected_revision=expected_revision, staged_at=staged_at)
@@ -2049,7 +2049,7 @@ class SqliteUnitOfWork:
         """STAGED → VERIFIED. Rejects if current state ≠ STAGED or revision mismatch.
 
         Narrow typed repository method per the ratified ArtifactMaterializer
-        contract (docs/design/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
+        contract (docs/history/design/2026-08/SLICE5-KICKOFF-R1.md §1.4). Does NOT use the
         generic ``cas_update_artifact_metadata`` for this transition.
         """
         return self.dispatch.mark_artifact_verified(attempt_id=attempt_id, artifact_id=artifact_id, verified_digest=verified_digest, verified_length=verified_length, target_path_relative=target_path_relative, expected_revision=expected_revision, verified_at=verified_at)
@@ -2066,7 +2066,7 @@ class SqliteUnitOfWork:
         for the ORPHANED→CLEANED transition. Rejects if current state ≠
         ORPHANED.
 
-        Per docs/design/SLICE5-KICKOFF-R1.md §1.10: deliberately separate from
+        Per docs/history/design/2026-08/SLICE5-KICKOFF-R1.md §1.10: deliberately separate from
         ``mark_artifact_cleaned`` (CONSUMED→CLEANED) to keep the happy-path
         cleanup guard exactly as strict as Step 4 ratified it.
         """

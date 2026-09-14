@@ -26,7 +26,7 @@ taken on either peer's claim alone)
   document every other fixture this session was built against) states, for
   DP-06 itself: "Crash after dispatch intent becomes MAY_HAVE_STARTED/UNKNOWN
   and is not automatically replayed."
-- `docs/design/ARCHITECTURE.md` section 14: "post-`DISPATCH_INTENT` crash is
+- `docs/history/design/2026-07/ARCHITECTURE.md` section 14: "post-`DISPATCH_INTENT` crash is
   `MAY_HAVE_STARTED`."
 - `docs/design/phase0/V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md` (R2's own
   named predecessor, explicitly retained as "historical design input" by

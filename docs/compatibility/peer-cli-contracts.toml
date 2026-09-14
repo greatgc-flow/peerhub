@@ -1,6 +1,6 @@
 # Machine-checkable expected facts for the peer CLIs.
 #
-# Read by tools/peerhub_facts (see docs/design/FACT-REFRESH-PROCEDURE-R1.md).
+# Read by tools/peerhub_facts (see docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md).
 #
 # These are SEMANTIC expectations, never raw output snapshots: a list of
 # versions whose adapter behaviour has actually been verified, the help

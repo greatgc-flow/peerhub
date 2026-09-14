@@ -1,7 +1,7 @@
 """Stateful file-I/O layer for artifact materialization (Slice 5-A).
 
 Implements the ``ArtifactMaterializer`` contract ratified in
-``docs/design/SLICE5-KICKOFF-R1.md``
+``docs/history/design/2026-08/SLICE5-KICKOFF-R1.md``
 ("ArtifactMaterializer contract RATIFIED (2026-08-03, ag+cx unanimous)").
 
 Ownership boundary:

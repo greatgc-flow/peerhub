@@ -1482,7 +1482,7 @@ implementation. Same process rules as Round 1-3 (unlimited rounds, no
 artificial cap, alternating draft/critique, evidence over preference,
 symmetric deferral, stop only on genuine 2-consecutive-round convergence).
 
-**Five lenses, applied to `docs/design/ARCHITECTURE.md`:**
+**Five lenses, applied to `docs/history/design/2026-07/ARCHITECTURE.md`:**
 
 1. **5-Whys.** For each major decision in ARCHITECTURE.md (SQLite-behind-
    `StateStore`, the 3-layer `AskResult`, no resident daemon, feature-first

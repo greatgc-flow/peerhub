@@ -1,5 +1,5 @@
 ---
-status: RATIFIED (all four items A/B/C/D closed; item A ready since Round 67, item B closed Round 83, item D closed Round 89, item C closed Round 146 — see docs/design/PHASE1-PROCESS-BACKLOG-2026-08-20.md for full round-by-round history)
+status: RATIFIED (all four items A/B/C/D closed; item A ready since Round 67, item B closed Round 83, item D closed Round 89, item C closed Round 146 — see docs/history/design/2026-08/PHASE1-PROCESS-BACKLOG-2026-08-20.md for full round-by-round history)
 date: 2026-08-21
 ratified_date: 2026-08-22
 title: Phase 1 Architecture Consolidation
@@ -7,7 +7,7 @@ title: Phase 1 Architecture Consolidation
 
 # Phase 1 Architecture Consolidation
 
-This document resolves the four broader architectural consolidation questions explicitly left open following the ratification of the executable-integrity admission model in `docs/design/PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md`.
+This document resolves the four broader architectural consolidation questions explicitly left open following the ratification of the executable-integrity admission model in `docs/history/design/2026-08/PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md`.
 
 ## A. Canonical Domain Naming
 
@@ -1789,7 +1789,7 @@ PASS: Resumed successfully and wrote file
 
 The underlying overclaiming concern is resolved in both target documents, but not by the originally drafted replacement diffs that used to appear here. Later independent edits changed the documents directly, so the original diff text went stale (neither its "before" nor "after" text matched the live files) and has been replaced with this current-text reconciliation, confirmed via direct read of both files by `cx` and independently re-verified by the terminal.
 
-**1. `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, Section 4**
+**1. `docs/history/design/2026-08/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, Section 4**
 
 Current text:
 
@@ -1797,7 +1797,7 @@ Current text:
 
 The same section explicitly states that Phase 1 validates and pins exactly one entrypoint node, that full multi-node recursive wrapper-chain derivation (`chain_complete=True`) is deferred to Phase 2, and that the Phase 1 receipt records `chain_complete: False`.
 
-**2. `docs/design/PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20.md`, Section 5**
+**2. `docs/history/design/2026-08/PHASE1-ADMISSION-RECEIPTS-REAL-2026-08-20.md`, Section 5**
 
 Current checklist row:
 

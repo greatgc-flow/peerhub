@@ -1,7 +1,7 @@
 """Unit tests for peerhub.dispatch.materializer (Slice 5-A).
 
 Covers the ``ArtifactMaterializer`` contract ratified in
-``docs/design/SLICE5-KICKOFF-R1.md``.
+``docs/history/design/2026-08/SLICE5-KICKOFF-R1.md``.
 """
 
 from __future__ import annotations

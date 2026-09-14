@@ -3,8 +3,8 @@
 > **DOCUMENT: Phase 1 Dialectical Revision (Round 5 Punch-List Item 1)**  
 > **AUTHOR:** `ag` (DeepMind Advanced Agentic Coding)  
 > **SCOPE:** Exhaustive capability and symbol decomposition of all 30 files in `_sys/core`  
-> **TARGET PATH:** `docs/design/PHASE1-CAPABILITY-CROSSWALK-CORE-2026-08-20.md`  
-> **COMPLIANCE:** Addresses cx's Round 4 review (`docs/design/PHASE1-CX-COUNTERCRITIQUE-ROUND4-2026-08-20.md`), **DIR-004** (Measured-Only Claims with live grep citations), and 100% MECE symbol coverage across all 219 public top-level symbols in `_sys/core` (resolving the 127 omitted symbols from Round 4).
+> **TARGET PATH:** `docs/history/design/2026-08/PHASE1-CAPABILITY-CROSSWALK-CORE-2026-08-20.md`  
+> **COMPLIANCE:** Addresses cx's Round 4 review (`docs/history/design/2026-08/PHASE1-CX-COUNTERCRITIQUE-ROUND4-2026-08-20.md`), **DIR-004** (Measured-Only Claims with live grep citations), and 100% MECE symbol coverage across all 219 public top-level symbols in `_sys/core` (resolving the 127 omitted symbols from Round 4).
 
 ---
 
@@ -15,10 +15,10 @@ In Round 2 and Round 4 reviews, the capability taxonomy and empirical verificati
 2. **`adapter_feature` (Runtime Contract Domain):** The strict runtime capability enum defined in `peerhub/adapters/contract.py`, strictly restricted to `SESSION`, `STREAM`, and `GRACEFUL_CANCEL`.
 3. **`coverage_case_id` (Release Matrix Domain):** Exact release-proof and test matrix ledger rows defined in the test taxonomy.
 
-This document provides the normative **`migration_capability_id`** crosswalk for all **30 legacy files** and all **219 public top-level symbols** in `_sys/core`, completing the second half of the 69-file legacy inventory alongside the CLI crosswalk (`docs/design/PHASE1-CAPABILITY-CROSSWALK-CLI-2026-08-20.md`). Every consumer citation in this document is backed by empirical ripgrep execution directly against the reference snapshot (`P:/workspace/Engram` and `P:/workspace/peerhub`) with real commands and output pasted inline.
+This document provides the normative **`migration_capability_id`** crosswalk for all **30 legacy files** and all **219 public top-level symbols** in `_sys/core`, completing the second half of the 69-file legacy inventory alongside the CLI crosswalk (`docs/history/design/2026-08/PHASE1-CAPABILITY-CROSSWALK-CLI-2026-08-20.md`). Every consumer citation in this document is backed by empirical ripgrep execution directly against the reference snapshot (`P:/workspace/Engram` and `P:/workspace/peerhub`) with real commands and output pasted inline.
 
 ### Scope-Saving Parity Ledger Reference Notation
-Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_session` through `action_credit_consume` and all intermediate actions) have already been exhaustively analyzed and individually verified in the 5 parity ledger documents (`docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` through `BATCH5-2026-08-20.md`). For each of these 90 action functions, the crosswalk row assigns explicit migration ownership (`migration_capability_id`, `disposition`, `target_owner`), resolves the previously-reserved `coverage_case_id` to the actual action name (e.g. `init-session`), and explicitly links to the corresponding parity ledger batch and row for full input schemas, envelopes, state mutations, and test fixtures.
+Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_session` through `action_credit_consume` and all intermediate actions) have already been exhaustively analyzed and individually verified in the 5 parity ledger documents (`docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` through `BATCH5-2026-08-20.md`). For each of these 90 action functions, the crosswalk row assigns explicit migration ownership (`migration_capability_id`, `disposition`, `target_owner`), resolves the previously-reserved `coverage_case_id` to the actual action name (e.g. `init-session`), and explicitly links to the corresponding parity ledger batch and row for full input schemas, envelopes, state mutations, and test fixtures.
 
 ### Reserved Fields Notation
 - **`adapter_feature`**: *[Reserved ??Unpopulated in migration crosswalk]* ??Stays strictly `SESSION`, `STREAM`, `GRACEFUL_CANCEL` in `peerhub/adapters/contract.py`.
@@ -135,11 +135,11 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/dispatch.bat`
 - **Disposition:** `STAY`
 - **Target Owner / API:** `Engram host dispatch bridge (out of PeerHub core)`
-- **Current Real Consumers (Empirically Measured):** 9 matches across 8 files (docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/start.bat, _sys/core/setup.py, _sys/docs-v2/ops/conventions.md, _sys/docs-v2/ops/audit-checklist.md...)
+- **Current Real Consumers (Empirically Measured):** 9 matches across 8 files (docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/start.bat, _sys/core/setup.py, _sys/docs-v2/ops/conventions.md, _sys/docs-v2/ops/audit-checklist.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md dispatch.bat P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (9 external matches, 0 self matches):
     ```
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:67:| `_sys/core/dispatch.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:67:| `_sys/core/dispatch.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
     P:/workspace/Engram/start.bat:2:call "%~dp0core\dispatch.bat" start %*
     P:/workspace/Engram/core/setup.py:4:Modern entry points (INSTALL.bat) route through dispatch.bat -> dispatcher.py -> core.provisioner.deploy.
     P:/workspace/Engram/docs-v2/ops/conventions.md:79:Root-level batch files delegate all logic to `_sys\core\dispatch.bat` ??`_sys\core\dispatcher.py`.
@@ -511,7 +511,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:SandboxRenameDeniedError`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.security.sandbox`
-- **Current Real Consumers (Empirically Measured):** 16 matches across 7 files (_sys/tests/unit/l1_core/test_contracts.py, _sys/tests/unit/test_broker_transaction_safety.py, _sys/docs-v2/ops/diag-telemetry-architecture.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, docs/design/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md...)
+- **Current Real Consumers (Empirically Measured):** 16 matches across 7 files (_sys/tests/unit/l1_core/test_contracts.py, _sys/tests/unit/test_broker_transaction_safety.py, _sys/docs-v2/ops/diag-telemetry-architecture.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w SandboxRenameDeniedError P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (16 external matches, 1 self matches):
     ```
@@ -817,7 +817,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:LeaseOwnershipError`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.coordination.lease_manager`
-- **Current Real Consumers (Empirically Measured):** 13 matches across 5 files (_sys/core/hub.py, _sys/tests/unit/test_lease_session_concurrency.py, _sys/tests/unit/test_process_lease_supervision_c7.py, docs/design/peerhub-architecture-debate.md, _sys/docs-v2/ops/architecture-audit-2026-07-24.md)
+- **Current Real Consumers (Empirically Measured):** 13 matches across 5 files (_sys/core/hub.py, _sys/tests/unit/test_lease_session_concurrency.py, _sys/tests/unit/test_process_lease_supervision_c7.py, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/docs-v2/ops/architecture-audit-2026-07-24.md)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w LeaseOwnershipError P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (13 external matches, 1 self matches):
     ```
@@ -889,8 +889,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.session.manager`
 - **Coverage Case ID:** `init-session`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 1: `init-session`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 1: `init-session`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 1.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 1.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 1.
@@ -902,8 +902,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.session.manager`
 - **Coverage Case ID:** `end-session`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 2: `end-session`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 2: `end-session`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 2.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 2.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 2.
@@ -915,8 +915,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.mailbox`
 - **Coverage Case ID:** `send`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 3: `send`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 3: `send`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 3.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 3.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 3.
@@ -928,8 +928,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.mailbox`
 - **Coverage Case ID:** `broadcast`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 4: `broadcast`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 4: `broadcast`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 4.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 4.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 4.
@@ -941,8 +941,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.mailbox`
 - **Coverage Case ID:** `mark-read`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 5: `mark-read`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 5: `mark-read`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 5.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 5.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 5.
@@ -954,8 +954,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.telemetry.logger`
 - **Coverage Case ID:** `append-log`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 6: `append-log`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 6: `append-log`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 6.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 6.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 6.
@@ -967,8 +967,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.storage.archiver`
 - **Coverage Case ID:** `archive-file`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 7: `archive-file`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 7: `archive-file`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 7.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 7.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 7.
@@ -980,8 +980,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.node_status`
 - **Coverage Case ID:** `update-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 8: `update-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 8: `update-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 8.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 8.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 8.
@@ -993,8 +993,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.checker`
 - **Coverage Case ID:** `check`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 9: `check`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 9: `check`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 9.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 9.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 9.
@@ -1006,8 +1006,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.status_reporter`
 - **Coverage Case ID:** `status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 10: `status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 10: `status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 10.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 10.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 10.
@@ -1019,8 +1019,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.gate_checker`
 - **Coverage Case ID:** `check-gate`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 11: `check-gate`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 11: `check-gate`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 11.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 11.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 11.
@@ -1032,8 +1032,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.engine.invocation_runner`
 - **Coverage Case ID:** `ask`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 12: `ask`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 12: `ask`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 12.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 12.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 12.
@@ -1045,8 +1045,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.engine.invocation_runner`
 - **Coverage Case ID:** `ask-all`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 13: `ask-all`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 13: `ask-all`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 13.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 13.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 13.
@@ -1058,8 +1058,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.engine.invocation_runner`
 - **Coverage Case ID:** `ask-coordinator`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 14: `ask-coordinator`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 14: `ask-coordinator`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 14.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 14.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 14.
@@ -1071,8 +1071,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.consensus`
 - **Coverage Case ID:** `consensus-propose`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 15: `consensus-propose`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 15: `consensus-propose`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 15.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 15.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 15.
@@ -1084,8 +1084,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.consensus`
 - **Coverage Case ID:** `consensus-vote`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 16: `consensus-vote`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 16: `consensus-vote`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 16.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 16.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 16.
@@ -1097,8 +1097,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.consensus`
 - **Coverage Case ID:** `consensus-check`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 17: `consensus-check`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 17: `consensus-check`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 17.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 17.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 17.
@@ -1110,8 +1110,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.consensus`
 - **Coverage Case ID:** `consensus-sweep`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 18: `consensus-sweep`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, Action 18: `consensus-sweep`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 1, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 1, Row 18.
 - **External Effects:** Documented in Parity Ledger Batch 1, Row 18.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 1, Row 18.
@@ -1123,8 +1123,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.node_registry`
 - **Coverage Case ID:** `register-node`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 1: `register-node`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 1: `register-node`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 1.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 1.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 1.
@@ -1136,8 +1136,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.node_registry`
 - **Coverage Case ID:** `list-nodes`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 2: `list-nodes`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 2: `list-nodes`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 2.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 2.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 2.
@@ -1149,8 +1149,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.state_manager`
 - **Coverage Case ID:** `health-update`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 3: `health-update`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 3: `health-update`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 3.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 3.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 3.
@@ -1162,8 +1162,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.checker`
 - **Coverage Case ID:** `health-check`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 4: `health-check`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 4: `health-check`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 4.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 4.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 4.
@@ -1175,8 +1175,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.peer_status`
 - **Coverage Case ID:** `peer-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 5: `peer-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 5: `peer-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 5.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 5.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 5.
@@ -1188,8 +1188,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.context.injector`
 - **Coverage Case ID:** `context-fill`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 6: `context-fill`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 6: `context-fill`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 6.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 6.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 6.
@@ -1201,8 +1201,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.session.checkpoint`
 - **Coverage Case ID:** `checkpoint`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 7: `checkpoint`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 7: `checkpoint`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 7.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 7.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 7.
@@ -1214,8 +1214,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.quarantine`
 - **Coverage Case ID:** `peer-quarantine`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 8: `peer-quarantine`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 8: `peer-quarantine`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 8.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 8.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 8.
@@ -1227,8 +1227,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.quarantine`
 - **Coverage Case ID:** `peer-recover`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 9: `peer-recover`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 9: `peer-recover`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 9.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 9.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 9.
@@ -1240,8 +1240,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.session.topic_manager`
 - **Coverage Case ID:** `new-topic`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 10: `new-topic`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 10: `new-topic`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 10.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 10.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 10.
@@ -1253,8 +1253,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.session.topic_manager`
 - **Coverage Case ID:** `clear-room`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 11: `clear-room`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 11: `clear-room`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 11.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 11.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 11.
@@ -1266,8 +1266,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.preflight`
 - **Coverage Case ID:** `preflight`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 12: `preflight`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 12: `preflight`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 12.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 12.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 12.
@@ -1279,8 +1279,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.context.hasher`
 - **Coverage Case ID:** `context-hash`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 13: `context-hash`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 13: `context-hash`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 13.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 13.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 13.
@@ -1292,8 +1292,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.telemetry.error_reporter`
 - **Coverage Case ID:** `report-error`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 14: `report-error`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 14: `report-error`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 14.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 14.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 14.
@@ -1305,8 +1305,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.feedback.manager`
 - **Coverage Case ID:** `feedback-add`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 15: `feedback-add`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 15: `feedback-add`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 15.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 15.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 15.
@@ -1318,8 +1318,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.feedback.manager`
 - **Coverage Case ID:** `feedback-list`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 16: `feedback-list`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 16: `feedback-list`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 16.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 16.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 16.
@@ -1331,8 +1331,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.feedback.manager`
 - **Coverage Case ID:** `feedback-resolve`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 17: `feedback-resolve`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 17: `feedback-resolve`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 17.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 17.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 17.
@@ -1344,8 +1344,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.artifacts.claim_manager`
 - **Coverage Case ID:** `artifact-claim`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 18: `artifact-claim`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, Action 18: `artifact-claim`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 2, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 2, Row 18.
 - **External Effects:** Documented in Parity Ledger Batch 2, Row 18.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 2, Row 18.
@@ -1357,8 +1357,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.artifacts.status_reporter`
 - **Coverage Case ID:** `artifact-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 1: `artifact-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 1: `artifact-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 1.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 1.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 1.
@@ -1370,8 +1370,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.artifacts.lifecycle`
 - **Coverage Case ID:** `artifact-finalize`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 2: `artifact-finalize`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 2: `artifact-finalize`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 2.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 2.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 2.
@@ -1383,8 +1383,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.leader_election`
 - **Coverage Case ID:** `leader-yield`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 3: `leader-yield`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 3: `leader-yield`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 3.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 3.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 3.
@@ -1396,8 +1396,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.leader_election`
 - **Coverage Case ID:** `leader-claim`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 4: `leader-claim`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 4: `leader-claim`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 4.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 4.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 4.
@@ -1409,8 +1409,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.leader_election`
 - **Coverage Case ID:** `elect-leader`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 5: `elect-leader`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 5: `elect-leader`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 5.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 5.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 5.
@@ -1422,8 +1422,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cluster.discovery`
 - **Coverage Case ID:** `discover`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 6: `discover`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 6: `discover`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 6.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 6.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 6.
@@ -1435,8 +1435,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.role_manager`
 - **Coverage Case ID:** `assign-role`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 7: `assign-role`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 7: `assign-role`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 7.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 7.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 7.
@@ -1448,8 +1448,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.role_manager`
 - **Coverage Case ID:** `release-role`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 8: `release-role`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 8: `release-role`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 8.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 8.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 8.
@@ -1461,8 +1461,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.role_manager`
 - **Coverage Case ID:** `role-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 9: `role-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 9: `role-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 9.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 9.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 9.
@@ -1474,8 +1474,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.checker`
 - **Coverage Case ID:** `health-precheck`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 10: `health-precheck`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 10: `health-precheck`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 10.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 10.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 10.
@@ -1487,8 +1487,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.state_manager`
 - **Coverage Case ID:** `health-sweep`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 11: `health-sweep`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 11: `health-sweep`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 11.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 11.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 11.
@@ -1500,8 +1500,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.state_manager`
 - **Coverage Case ID:** `freshness-sweep`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 12: `freshness-sweep`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 12: `freshness-sweep`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 12.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 12.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 12.
@@ -1513,8 +1513,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.terminal.handoff`
 - **Coverage Case ID:** `terminal-handoff`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 13: `terminal-handoff`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 13: `terminal-handoff`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 13.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 13.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 13.
@@ -1526,8 +1526,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.terminal.duty_manager`
 - **Coverage Case ID:** `terminal-duty-sweep`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 14: `terminal-duty-sweep`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 14: `terminal-duty-sweep`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 14.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 14.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 14.
@@ -1539,8 +1539,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.terminal.heartbeat`
 - **Coverage Case ID:** `terminal-heartbeat`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 15: `terminal-heartbeat`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 15: `terminal-heartbeat`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 15.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 15.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 15.
@@ -1552,8 +1552,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.terminal.session_closer`
 - **Coverage Case ID:** `terminal-close`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 16: `terminal-close`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 16: `terminal-close`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 16.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 16.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 16.
@@ -1565,8 +1565,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.terminal.handoff`
 - **Coverage Case ID:** `append-handoff`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 17: `append-handoff`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 17: `append-handoff`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 17.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 17.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 17.
@@ -1578,8 +1578,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.tasks.checkpoint`
 - **Coverage Case ID:** `task-checkpoint`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 18: `task-checkpoint`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, Action 18: `task-checkpoint`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 3, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 3, Row 18.
 - **External Effects:** Documented in Parity Ledger Batch 3, Row 18.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 3, Row 18.
@@ -1591,8 +1591,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.tasks.status_reporter`
 - **Coverage Case ID:** `task-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 1: `task-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 1: `task-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 1.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 1.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 1.
@@ -1604,8 +1604,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.tasks.failover`
 - **Coverage Case ID:** `task-failover`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 2: `task-failover`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 2: `task-failover`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 2.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 2.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 2.
@@ -1617,8 +1617,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.approval_gate`
 - **Coverage Case ID:** `approval-request`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 3: `approval-request`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 3: `approval-request`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 3.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 3.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 3.
@@ -1630,8 +1630,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.coordination.file_lock`
 - **Coverage Case ID:** `file-lock`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 4: `file-lock`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 4: `file-lock`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 4.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 4.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 4.
@@ -1643,8 +1643,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.coordination.file_lock`
 - **Coverage Case ID:** `file-unlock`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 5: `file-unlock`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 5: `file-unlock`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 5.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 5.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 5.
@@ -1656,8 +1656,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.coordination.file_lock`
 - **Coverage Case ID:** `lock-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 6: `lock-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 6: `lock-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 6.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 6.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 6.
@@ -1669,8 +1669,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.models.validator`
 - **Coverage Case ID:** `profile-validate`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 7: `profile-validate`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 7: `profile-validate`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 7.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 7.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 7.
@@ -1682,8 +1682,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.coordination.lease_manager`
 - **Coverage Case ID:** `lease-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 8: `lease-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 8: `lease-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 8.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 8.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 8.
@@ -1695,8 +1695,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.coordination.lease_manager`
 - **Coverage Case ID:** `lease-sweep`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 9: `lease-sweep`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 9: `lease-sweep`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 9.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 9.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 9.
@@ -1708,8 +1708,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.models.status_reporter`
 - **Coverage Case ID:** `model-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 10: `model-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 10: `model-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 10.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 10.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 10.
@@ -1721,8 +1721,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.health.transient_scanner`
 - **Coverage Case ID:** `transient-scan`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 11: `transient-scan`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 11: `transient-scan`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 11.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 11.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 11.
@@ -1734,8 +1734,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.directives`
 - **Coverage Case ID:** `directive-add`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 12: `directive-add`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 12: `directive-add`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 12.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 12.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 12.
@@ -1747,8 +1747,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.directives`
 - **Coverage Case ID:** `directive-list`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 13: `directive-list`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 13: `directive-list`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 13.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 13.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 13.
@@ -1760,8 +1760,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.directives`
 - **Coverage Case ID:** `directive-clear`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 14: `directive-clear`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 14: `directive-clear`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 14.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 14.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 14.
@@ -1773,8 +1773,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.knowledge.lessons`
 - **Coverage Case ID:** `lessons-list`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 15: `lessons-list`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 15: `lessons-list`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 15.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 15.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 15.
@@ -1786,8 +1786,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.knowledge.lessons`
 - **Coverage Case ID:** `lessons-propose`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 16: `lessons-propose`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 16: `lessons-propose`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 16.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 16.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 16.
@@ -1799,8 +1799,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.knowledge.lessons`
 - **Coverage Case ID:** `lessons-activate`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 17: `lessons-activate`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 17: `lessons-activate`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 17.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 17.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 17.
@@ -1812,8 +1812,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.knowledge.lessons`
 - **Coverage Case ID:** `lessons-retire`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 18: `lessons-retire`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, Action 18: `lessons-retire`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 4, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 4, Row 18.
 - **External Effects:** Documented in Parity Ledger Batch 4, Row 18.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 4, Row 18.
@@ -1825,8 +1825,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.knowledge.lessons`
 - **Coverage Case ID:** `lesson-broadcast`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 1: `lesson-broadcast`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 1: `lesson-broadcast`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 1 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 1.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 1.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 1.
@@ -1838,8 +1838,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.knowledge.lessons`
 - **Coverage Case ID:** `lesson-sweep`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 2: `lesson-sweep`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 2: `lesson-sweep`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 2 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 2.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 2.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 2.
@@ -1851,8 +1851,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.knowledge.lessons`
 - **Coverage Case ID:** `lesson-inject`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 3: `lesson-inject`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 3: `lesson-inject`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 3 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 3.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 3.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 3.
@@ -1864,8 +1864,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.threads`
 - **Coverage Case ID:** `thread-new`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 4: `thread-new`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 4: `thread-new`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 4 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 4.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 4.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 4.
@@ -1877,8 +1877,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.threads`
 - **Coverage Case ID:** `thread-append`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 5: `thread-append`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 5: `thread-append`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 5 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 5.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 5.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 5.
@@ -1890,8 +1890,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.threads`
 - **Coverage Case ID:** `thread-react`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 6: `thread-react`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 6: `thread-react`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 6 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 6.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 6.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 6.
@@ -1903,8 +1903,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.threads`
 - **Coverage Case ID:** `thread-promote`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 7: `thread-promote`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 7: `thread-promote`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 7 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 7.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 7.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 7.
@@ -1916,8 +1916,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.telemetry.alerts`
 - **Coverage Case ID:** `alert-raise`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 8: `alert-raise`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 8: `alert-raise`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 8 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 8.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 8.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 8.
@@ -1929,8 +1929,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.proposals`
 - **Coverage Case ID:** `proposal-add`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 9: `proposal-add`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 9: `proposal-add`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 9 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 9.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 9.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 9.
@@ -1942,8 +1942,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.proposals`
 - **Coverage Case ID:** `proposal-vote`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 10: `proposal-vote`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 10: `proposal-vote`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 10 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 10.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 10.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 10.
@@ -1955,8 +1955,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.proposals`
 - **Coverage Case ID:** `proposal-list`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 11: `proposal-list`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 11: `proposal-list`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 11 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 11.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 11.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 11.
@@ -1968,8 +1968,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.broker`
 - **Coverage Case ID:** `broker-submit`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 12: `broker-submit`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 12: `broker-submit`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 12 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 12.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 12.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 12.
@@ -1981,8 +1981,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.broker`
 - **Coverage Case ID:** `broker-drain`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 13: `broker-drain`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 13: `broker-drain`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 13 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 13.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 13.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 13.
@@ -1994,8 +1994,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.messaging.broker`
 - **Coverage Case ID:** `broker-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 14: `broker-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 14: `broker-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 14 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 14.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 14.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 14.
@@ -2007,8 +2007,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.security.signatures`
 - **Coverage Case ID:** `update-signatures`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 15: `update-signatures`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 15: `update-signatures`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 15 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 15.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 15.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 15.
@@ -2020,8 +2020,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.arbiter`
 - **Coverage Case ID:** `arbiter-review`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 16: `arbiter-review`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 16: `arbiter-review`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 16 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 16.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 16.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 16.
@@ -2033,8 +2033,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.telemetry.credits`
 - **Coverage Case ID:** `credit-status`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 17: `credit-status`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 17: `credit-status`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 17 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 17.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 17.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 17.
@@ -2046,8 +2046,8 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.telemetry.credits`
 - **Coverage Case ID:** `credit-consume`
-- **Parity Ledger Reference:** `docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 18: `credit-consume`)
-- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
+- **Parity Ledger Reference:** `docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, Action 18: `credit-consume`)
+- **Detailed Behavior & Consumers:** Explicitly defined and empirically verified in Parity Ledger Batch 5, Row 18 (see [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md`](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md)). Includes complete input schema, normalized stdout/stderr envelope, state transitions, runtime concurrency/locking, idempotency guarantees, and test fixtures.
 - **State Read / Written:** Documented in Parity Ledger Batch 5, Row 18.
 - **External Effects:** Documented in Parity Ledger Batch 5, Row 18.
 - **Compatibility Actions / Fixtures:** Documented in Parity Ledger Batch 5, Row 18.
@@ -2058,12 +2058,12 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_config.json`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.config.defaults`
-- **Current Real Consumers (Empirically Measured):** 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...)
+- **Current Real Consumers (Empirically Measured):** 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md hub_config.json P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (11 external matches, 0 self matches):
     ```
     P:/workspace/peerhub/tools/surface_manifest/generate_manifest.py:338:        sys_dir / "core" / "hub_config.json",
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:70:| `_sys/core/hub_config.json` | **Partial** | **`peerhub.application.runtime`**. Core config. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:70:| `_sys/core/hub_config.json` | **Partial** | **`peerhub.application.runtime`**. Core config. |
     P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:55:      "core/hub_config.json": {
     P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:53:      "core/hub_config.json": {
     P:/workspace/Engram/docs/history/workspace-environment.md:27:| `_sys/core/hub_config.json` | Hub limits for mailbox, handoff rolling windows, and payload threshold. |
@@ -2557,7 +2557,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:PreparedInvocation`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.adapters.invocation`
-- **Current Real Consumers (Empirically Measured):** 11 matches across 3 files (_sys/core/hub_peer.py, docs/design/peerhub-architecture-debate.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md)
+- **Current Real Consumers (Empirically Measured):** 11 matches across 3 files (_sys/core/hub_peer.py, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w PreparedInvocation P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (11 external matches, 1 self matches):
     ```
@@ -2566,11 +2566,11 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
     P:/workspace/Engram/core/hub_peer.py:612:        return PreparedInvocation(tuple(invocation.cmd), payload)
     P:/workspace/Engram/core/hub_peer.py:982:    ) -> PreparedInvocation:
     P:/workspace/Engram/core/hub_peer.py:1036:        return PreparedInvocation(
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:123:??  ?��??� contract.py         # PeerAdapter, UsageProvider, PeerCapabilities, InvocationKind, PreparedInvocation
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:173:class PreparedInvocation:
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:206:    ) -> PreparedInvocation:
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:239:2. **`PreparedInvocation` dataclass**: Encapsulates root-scope flag insertion (from `peer_console.py` C8-B), PTY requirements, environment overrides, and truthful banner messages.
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:364:- The current adapter contract proves that peer-specific command construction, session create/resume, prompt transport, response parsing, session-ID extraction, and usage extraction differ materially (`_sys/core/hub_peer.py:483-545`). `PreparedInvocation` also proves that the core needs argv, stdin bytes, staged-artifact ownership, and cleanup metadata rather than merely a shell command (`hub_peer.py:64-85`).
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:123:??  ?��??� contract.py         # PeerAdapter, UsageProvider, PeerCapabilities, InvocationKind, PreparedInvocation
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:173:class PreparedInvocation:
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:206:    ) -> PreparedInvocation:
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:239:2. **`PreparedInvocation` dataclass**: Encapsulates root-scope flag insertion (from `peer_console.py` C8-B), PTY requirements, environment overrides, and truthful banner messages.
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:364:- The current adapter contract proves that peer-specific command construction, session create/resume, prompt transport, response parsing, session-ID extraction, and usage extraction differ materially (`_sys/core/hub_peer.py:483-545`). `PreparedInvocation` also proves that the core needs argv, stdin bytes, staged-artifact ownership, and cleanup metadata rather than merely a shell command (`hub_peer.py:64-85`).
     ... [1 additional matches omitted]
     ```
 - **State Read / Written:** Encapsulates executable path, argv list, environment dict, cwd, and transport mode.
@@ -2780,11 +2780,11 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:is_routable`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.routing.router`
-- **Current Real Consumers (Empirically Measured):** 79 matches across 15 files (docs/design/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...)
+- **Current Real Consumers (Empirically Measured):** 79 matches across 15 files (docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w is_routable P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (79 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md:243:- **`is_routable` / `_healthy_peer` reading per-peer `health.json`
+    P:/workspace/peerhub/docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md:243:- **`is_routable` / `_healthy_peer` reading per-peer `health.json`
     P:/workspace/Engram/tests/integration/test_hub_integration_v42.py:213:         patch("hub.is_routable", return_value=True), \
     P:/workspace/peerhub/docs/design/phase0/shared-seam-ledger.json:1187:    "is_routable": {
     P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1573:          "is_routable"
@@ -2888,14 +2888,14 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:ClaudeAdapter`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.adapters.claude`
-- **Current Real Consumers (Empirically Measured):** 22 matches across 13 files (docs/design/ARCHITECTURE.md, _sys/ai/orchestration.json, docs/design/peerhub-architecture-debate.md, _sys/tests/integration/test_hub_integration_v42.py, _sys/ai/capability-declarations.json...)
+- **Current Real Consumers (Empirically Measured):** 22 matches across 13 files (docs/history/design/2026-07/ARCHITECTURE.md, _sys/ai/orchestration.json, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/tests/integration/test_hub_integration_v42.py, _sys/ai/capability-declarations.json...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w ClaudeAdapter P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (22 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/ARCHITECTURE.md:124:      claude.py                   # ClaudeAdapter (cc)
+    P:/workspace/peerhub/docs/history/design/2026-07/ARCHITECTURE.md:124:      claude.py                   # ClaudeAdapter (cc)
     P:/workspace/Engram/ai/orchestration.json:80:      "adapter_class": "ClaudeAdapter",
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:126:??      ?��??� claude.py       # ClaudeAdapter (cc)
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:324:   - Implement `ClaudeAdapter`, `CodexAdapter`, `AgyAdapter`, and the `hub.py` delegation facade shim.
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:126:??      ?��??� claude.py       # ClaudeAdapter (cc)
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:324:   - Implement `ClaudeAdapter`, `CodexAdapter`, `AgyAdapter`, and the `hub.py` delegation facade shim.
     P:/workspace/Engram/tests/integration/test_hub_integration_v42.py:37:                "adapter_class": "ClaudeAdapter",
     P:/workspace/Engram/tests/integration/test_hub_integration_v42.py:47:                "adapter_class": "ClaudeAdapter",
     P:/workspace/Engram/tests/integration/test_hub_integration_v42.py:58:                "adapter_class": "ClaudeAdapter",
@@ -2915,13 +2915,13 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:CodexAdapter`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.adapters.codex`
-- **Current Real Consumers (Empirically Measured):** 38 matches across 16 files (docs/design/ARCHITECTURE.md, docs/design/peerhub-architecture-debate.md, _sys/tests/unit/test_recent_session_consumption.py, _sys/docs-v2/ops/schemas.md, _sys/docs-v2/ops/capability-leveling-decisions.md...)
+- **Current Real Consumers (Empirically Measured):** 38 matches across 16 files (docs/history/design/2026-07/ARCHITECTURE.md, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/tests/unit/test_recent_session_consumption.py, _sys/docs-v2/ops/schemas.md, _sys/docs-v2/ops/capability-leveling-decisions.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w CodexAdapter P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (38 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/ARCHITECTURE.md:125:      codex.py                     # CodexAdapter (cx)
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:127:??      ?��??� codex.py        # CodexAdapter (cx)
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:324:   - Implement `ClaudeAdapter`, `CodexAdapter`, `AgyAdapter`, and the `hub.py` delegation facade shim.
+    P:/workspace/peerhub/docs/history/design/2026-07/ARCHITECTURE.md:125:      codex.py                     # CodexAdapter (cx)
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:127:??      ?��??� codex.py        # CodexAdapter (cx)
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:324:   - Implement `ClaudeAdapter`, `CodexAdapter`, `AgyAdapter`, and the `hub.py` delegation facade shim.
     P:/workspace/Engram/tests/unit/test_recent_session_consumption.py:93:    adapter = hub_peer.CodexAdapter()
     P:/workspace/Engram/docs-v2/ops/schemas.md:26:    "adapter_class": "CodexAdapter",
     P:/workspace/Engram/docs-v2/ops/capability-leveling-decisions.md:95:  "adapter": "CodexAdapter",
@@ -3364,7 +3364,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/pathlayout.py:PathLayout`
 - **Disposition:** `SPLIT`
 - **Target Owner / API:** `peerhub.storage.layout / Engram host pathlayout`
-- **Current Real Consumers (Empirically Measured):** 60 matches across 21 files (tests/contract/test_phase0_sl_compatibility.py, tests/unit/cli/test_quota_wiring_e2e.py, docs/design/peerhub-architecture-debate.md, docs/design/ARCHITECTURE.md, tests/integration/test_stage2_boundary.py...)
+- **Current Real Consumers (Empirically Measured):** 60 matches across 21 files (tests/contract/test_phase0_sl_compatibility.py, tests/unit/cli/test_quota_wiring_e2e.py, docs/history/design/2026-07/peerhub-architecture-debate.md, docs/history/design/2026-07/ARCHITECTURE.md, tests/integration/test_stage2_boundary.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w PathLayout P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (60 external matches, 1 self matches):
     ```
@@ -3372,12 +3372,12 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
     P:/workspace/peerhub/tests/contract/test_phase0_sl_compatibility.py:32:        self.layout = PathLayout.for_workspace(self.root)
     P:/workspace/peerhub/tests/unit/cli/test_quota_wiring_e2e.py:213:        from peerhub.core.context import PathLayout, RuntimeContext
     P:/workspace/peerhub/tests/unit/cli/test_quota_wiring_e2e.py:217:        paths = PathLayout.for_workspace(isolated_workspace)
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:114:`peerhub` is structured as a modular, standalone Python package (`peerhub`) with zero direct dependencies on `_sys/core/hub.py` or portable environment paths. All path discovery and runtime configuration are injected via `RuntimeContext` and `PathLayout`.
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:120:??  ?��??� context.py          # PathLayout & RuntimeContext (immutable core, shared config, workspace .ai)
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:316:   - Implement `RuntimeContext`, `PathLayout`, `PeerAdapter`, `UsageProvider` abstract classes, and `adapter-conformance/v1` test harness.
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:1578:**Section:** §2. Both `runtime.py` and `core/context.py` claim `RuntimeContext`. **Fix:** `core/context.py` owns the immutable `RuntimeContext`/`PathLayout` value types; `runtime.py` owns only configuration resolution and composition-root construction.
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:1780:**Finding 2 ??`RuntimeContext` could recreate the same cycle** (§§2, 2.1 rule 6). If `RuntimeContext` contains feature services, repositories, runners, or adapters, `core.context` must import those packages, and features importing `core.context` create another cycle, turning the context into a service locator. **Fix:** `core.context` owns only low-level immutable values (`PathLayout`, command scope, policy revision, clock/ID ports, execution metadata); `runtime.py` owns the composed `Runtime` object containing feature-service instances; feature services receive narrow constructor dependencies, never the whole runtime container.
-    P:/workspace/peerhub/docs/design/ARCHITECTURE.md:92:    context.py                 # owns RuntimeContext & PathLayout (immutable value types only)
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:114:`peerhub` is structured as a modular, standalone Python package (`peerhub`) with zero direct dependencies on `_sys/core/hub.py` or portable environment paths. All path discovery and runtime configuration are injected via `RuntimeContext` and `PathLayout`.
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:120:??  ?��??� context.py          # PathLayout & RuntimeContext (immutable core, shared config, workspace .ai)
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:316:   - Implement `RuntimeContext`, `PathLayout`, `PeerAdapter`, `UsageProvider` abstract classes, and `adapter-conformance/v1` test harness.
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:1578:**Section:** §2. Both `runtime.py` and `core/context.py` claim `RuntimeContext`. **Fix:** `core/context.py` owns the immutable `RuntimeContext`/`PathLayout` value types; `runtime.py` owns only configuration resolution and composition-root construction.
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:1780:**Finding 2 ??`RuntimeContext` could recreate the same cycle** (§§2, 2.1 rule 6). If `RuntimeContext` contains feature services, repositories, runners, or adapters, `core.context` must import those packages, and features importing `core.context` create another cycle, turning the context into a service locator. **Fix:** `core.context` owns only low-level immutable values (`PathLayout`, command scope, policy revision, clock/ID ports, execution metadata); `runtime.py` owns the composed `Runtime` object containing feature-service instances; feature services receive narrow constructor dependencies, never the whole runtime container.
+    P:/workspace/peerhub/docs/history/design/2026-07/ARCHITECTURE.md:92:    context.py                 # owns RuntimeContext & PathLayout (immutable value types only)
     ... [50 additional matches omitted]
     ```
 - **State Read / Written:** Computes canonical paths for config, sessions, mailbox, logs, and artifacts.
@@ -3673,17 +3673,17 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/registrar.py:remove`
 - **Disposition:** `STAY`
 - **Target Owner / API:** `Engram host registrar (out of PeerHub core)`
-- **Current Real Consumers (Empirically Measured):** 110 matches across 58 files (tools/surface_manifest/generate_manifest.py, docs/design/BACKLOG-CONSOLIDATED-2026-08-16.md, docs/design/peerhub-architecture-debate.md, docs/design/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md, docs/design/PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md...)
+- **Current Real Consumers (Empirically Measured):** 110 matches across 58 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/BACKLOG-CONSOLIDATED-2026-08-16.md, docs/history/design/2026-07/peerhub-architecture-debate.md, docs/history/design/2026-08/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md, docs/history/design/2026-08/PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w remove P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (110 external matches, 1 self matches):
     ```
     P:/workspace/peerhub/tools/surface_manifest/generate_manifest.py:266:                    elif func_name in ("_write_json", "_append_jsonl", "_log_p2p", "write_text", "write_bytes", "remove", "rmtree", "unlink", "mkdir"):
-    P:/workspace/peerhub/docs/design/BACKLOG-CONSOLIDATED-2026-08-16.md:23:  - **2026-08-19 scoped-down execution**: only the Peerhub-side prerequisite work (the proposal's section 3, rows 3.1-3.10) was executed this session -- commits `974754e` and `259512b` (Engram-path decoupling in presenter.py/quota_polling.py/cli.py/statusline.py, version bump to 0.1.8). **The Engram-side deletion/doc-rewrite cluster (sections 4/5/7/8/9/10 of the proposal, ~150+ files across `_sys/core`, `_sys/cli`, tests, `docs-v2`, root docs) was explicitly NOT attempted** and remains fully unstarted -- needs a dedicated future session following the proposal's 12-phase sequence (freeze plan -> make peerhub independent [done] -> update Engram's pin -> migrate direct callers while hub.py remains available -> deprecate aliases -> quiesce and prove no legacy writers -> archive historical evidence -> atomic cutover -> remove active legacy state -> fresh-install validation -> residual scan -> release).
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:98:  did to remove. The default between any two rounds is the smallest
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:1582:**Sections:** §§2, 2.1, 5. `core.protocol` owns command/event schemas, negotiation, and stable error codes, while `ipc.commands`, `ipc.events`, and `core.errors` claim overlapping pieces. **Fix:** `core.protocol` = canonical transport-neutral command/event/envelope/version/`ErrorCode` types; `core.errors` = internal exception types + their mapping to protocol errors; `ipc.jsonl` = framing/serialization only; remove or rename `ipc.commands.py`/`ipc.events.py` to codecs if transport-specific encoding genuinely remains.
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:1684:Overall verdict: **targeted revision warranted**. The core architecture remains valid; the necessary changes primarily remove ambiguity, omit three premature v1 surfaces, restore missing coordination ownership, and close the evidence feedback loop.
-    P:/workspace/peerhub/docs/design/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md:36:- **Failsafe Behavior:** In this scenario, PeerHub treats the file as unowned/alien. It will strictly refuse to update or remove the file, logging a warning that the shim path has been co-opted. The user must manually intervene (e.g., via a `--force` flag) to reclaim or clean up the path.
-    P:/workspace/peerhub/docs/design/PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md:252:into NONE. A later separately ratified remediation API must replace/remove both
+    P:/workspace/peerhub/docs/history/design/2026-08/BACKLOG-CONSOLIDATED-2026-08-16.md:23:  - **2026-08-19 scoped-down execution**: only the Peerhub-side prerequisite work (the proposal's section 3, rows 3.1-3.10) was executed this session -- commits `974754e` and `259512b` (Engram-path decoupling in presenter.py/quota_polling.py/cli.py/statusline.py, version bump to 0.1.8). **The Engram-side deletion/doc-rewrite cluster (sections 4/5/7/8/9/10 of the proposal, ~150+ files across `_sys/core`, `_sys/cli`, tests, `docs-v2`, root docs) was explicitly NOT attempted** and remains fully unstarted -- needs a dedicated future session following the proposal's 12-phase sequence (freeze plan -> make peerhub independent [done] -> update Engram's pin -> migrate direct callers while hub.py remains available -> deprecate aliases -> quiesce and prove no legacy writers -> archive historical evidence -> atomic cutover -> remove active legacy state -> fresh-install validation -> residual scan -> release).
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:98:  did to remove. The default between any two rounds is the smallest
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:1582:**Sections:** §§2, 2.1, 5. `core.protocol` owns command/event schemas, negotiation, and stable error codes, while `ipc.commands`, `ipc.events`, and `core.errors` claim overlapping pieces. **Fix:** `core.protocol` = canonical transport-neutral command/event/envelope/version/`ErrorCode` types; `core.errors` = internal exception types + their mapping to protocol errors; `ipc.jsonl` = framing/serialization only; remove or rename `ipc.commands.py`/`ipc.events.py` to codecs if transport-specific encoding genuinely remains.
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:1684:Overall verdict: **targeted revision warranted**. The core architecture remains valid; the necessary changes primarily remove ambiguity, omit three premature v1 surfaces, restore missing coordination ownership, and close the evidence feedback loop.
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md:36:- **Failsafe Behavior:** In this scenario, PeerHub treats the file as unowned/alien. It will strictly refuse to update or remove the file, logging a warning that the shim path has been co-opted. The user must manually intervene (e.g., via a `--force` flag) to reclaim or clean up the path.
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md:252:into NONE. A later separately ratified remediation API must replace/remove both
     P:/workspace/Engram/docs-v2/user/requirements.md:39:- CLEANUP.bat: remove all bootstrapped content (env, Node, all AI CLIs, root .peer dirs)
     P:/workspace/Engram/docs-v2/user/requirements.md:41:- UNREGISTER.bat: remove host integration
     P:/workspace/Engram/docs-v2/user/manual.md:62:that knows which HKCU keys and junctions to remove. Then `register.bat` on the
@@ -3700,12 +3700,12 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/relocator.py:relocate`
 - **Disposition:** `DEPRECATE`
 - **Target Owner / API:** `core.launcher (Engram host)`
-- **Current Real Consumers (Empirically Measured):** 13 matches across 7 files (docs/design/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...)
+- **Current Real Consumers (Empirically Measured):** 13 matches across 7 files (docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w relocate P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (13 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md:562:1. **Classification plumbing:** relocate/re-export
-    P:/workspace/peerhub/docs/design/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md:684:| D | Proposed process codes duplicated centrally computed `TerminalClassification` and discarded existing evidence | **Fixed.** Surface the existing enum, relocate/re-export it to avoid a circular import, and define one central mapper. Withdraw both duplicate codes (Sections 2.2-2.3) |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md:562:1. **Classification plumbing:** relocate/re-export
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md:684:| D | Proposed process codes duplicated centrally computed `TerminalClassification` and discarded existing evidence | **Fixed.** Surface the existing enum, relocate/re-export it to avoid a circular import, and define one central mapper. Withdraw both duplicate codes (Sections 2.2-2.3) |
     P:/workspace/peerhub/docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md:54:  would just relocate the same false assurance under a new name. A
     P:/workspace/Engram/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md:502:    *   **`WorkspaceCatalog` and init ordering (closes a discovery gap, cx.deepthink finding, 2026-07-22):** duplicate-ID detection and any cross-workspace aggregation (§13.5.5) require actually knowing which workspaces exist -- an arbitrary copied-then-abandoned workspace directory can't be discovered by magic. `EngramHome` maintains a `WorkspaceCatalog` -- a **Binding-plane artifact living in Shared Config** (given an exact home, 2026-07-22, cx.deepthink finding: "a Shared Data record" was too loose for an authoritative ID-to-path binding), atomically updated with compare-and-set semantics: a new `workspace_id` inserts; the same ID at the same canonical path is idempotent; the same ID reachable at a DIFFERENT path is a duplicate and is refused; an ID whose last-known path is no longer reachable requires an explicit relocate/rekey confirmation rather than silent removal. Duplicate detection is scoped to one `EngramHome` -- cross-machine duplicates (the same workspace directory copied to a second machine with its own separate `EngramHome`) cannot be guaranteed detectable and are out of scope. `engram workspace init`'s precise order, made crash-safe with two-phase registration (2026-07-22, cx.deepthink finding: a plain single commit could orphan a workspace if the process crashes between the local commit and the catalog registration): resolve `WorkspaceRoot` -> validate the Base Template (§13.9) -> generate `workspace_id` in a staging area (not yet committed) -> reserve that `workspace_id` in the `WorkspaceCatalog` as `pending` -> create any template-specified registry/Evidence entries using that `workspace_id` (still staged) -> atomically commit the whole Workspace State directory into place (§13.9's containment/staging rule) -> flip the `WorkspaceCatalog` reservation from `pending` to `active`. A `pending` entry whose Workspace State commit never completed (crash recovery) is reclaimable/retriable, never silently treated as a real workspace.
     P:/workspace/Engram/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md:503:    *   **First-init vs. re-init catalog flows must branch, not share one path (fixed 2026-07-22, cx.deepthink finding: applying the pending-then-active two-phase flow unconditionally to re-init would incorrectly demote an already-`active` entry back to `pending`):** the two-phase `pending -> active` protocol above applies ONLY to a genuinely first `engram workspace init` (no existing catalog entry for this workspace). Re-running init against an already-`active` workspace does NOT touch its catalog entry's `active` status at all -- the entry stays `active` throughout, unaffected by whatever the template-application transaction (§13.9) is doing to the Workspace-State content underneath it. Moving a workspace to a new path is a third, separate, explicit catalog-relocate flow (not implied by either init path), which must complete before the entry's recorded path changes.
@@ -3754,14 +3754,14 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/setup.py`
 - **Disposition:** `DEPRECATE`
 - **Target Owner / API:** `core.provisioner (Engram host)`
-- **Current Real Consumers (Empirically Measured):** 25 matches across 17 files (_sys/ai/backlog.json, _sys/ai/infra.json, docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/claude/project/skills/antigravity/SKILL.md, _sys/tests/launch-wsbtest.ps1...)
+- **Current Real Consumers (Empirically Measured):** 25 matches across 17 files (_sys/ai/backlog.json, _sys/ai/infra.json, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/claude/project/skills/antigravity/SKILL.md, _sys/tests/launch-wsbtest.ps1...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md setup.py P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (25 external matches, 0 self matches):
     ```
     P:/workspace/Engram/ai/backlog.json:1118:      "title": "Retirement-discipline cleanup batch: inert broker path, redundant soak test, OOM-guard diagnostics, setup.py, test taxonomy",
     P:/workspace/Engram/ai/backlog.json:1132:      "next_action": "Batched Tier-2 cleanup items from the 2026-07-12 full-system purpose audit (Meta-Finding B: 'no retirement discipline' - superseded artifacts tend to coexist with their replacements rather than being retired). All terminal-verified to exist: (1) _enqueue_hub_mutation_request (hub.py:788) is an inert parallel broker code path alongside _write_json_atomic's live fallback (hub.py:735,750), gated by hub_mutation_broker_enabled - either activate it for real or remove it. (2) test_guard_dry_run.py's old 5-case/20-shuffle soak is now largely redundant given the newer exhaustive operational-guard-matrix oracle + check_operational_guard_matrix.py (54,912-case check) - delete or merge. (3) conftest.py's OOM guard force-exits via os._exit(1) with no diagnostic artifact left behind - write a minimal marker file before the hard exit. (4) core/setup.py is a documented-legacy dispatch wrapper with no check proving no stale caller still depends on it - add a check or a planned removal condition. (5) test taxonomy (l1_core/l2_policy/l3_mocked vs flat files) inconsistently applied - batch with a reorg-by-invariant-ownership pass (transport/governance/encoding/routing/provisioning) per cc.fable's 'accepted, low urgency' ruling on the test-reorg alternative. Proposed convention going forward (not yet adopted): 'supersede => retire in the same commit.' EXHAUSTIVE REVIEW 2026-07-12 (cx.deepthink design pass + ag.deepthink independent cross-check, cc.fable final synthesis): cx design, SPLIT into 5 sub-items per cx's own recommendation (not one coherent item): (1) remove the inert _enqueue_hub_mutation_request broker path once rg confirms no live callers - proceed; (2) merge unique branch coverage from test_guard_dry_run.py into the operational guard matrix tests, then delete the now-redundant soak-style test file - proceed; (3) refactor the conftest.py OOM marker so the decision point is testable (marker schema: ts, pid, available_mb, threshold_mb, reason), tested via monkeypatched memory reading + monkeypatched os._exit - proceed; (4) core/setup.py stale-caller check - do NOT delete (INSTALL.bat still routes through it); fix stale comments and add a test proving setup.py delegates to provisioner.deploy while dispatch.bat calls core.provisioner directly - proceed, small scope; (5) test taxonomy reorg - DEFER/SPLIT OUT, too much undirected churn for the current risk reduction; define the desired taxonomy plus a lightweight check enforcing it on NEW tests first, migrate existing files opportunistically rather than a noisy one-shot reorg. ag cross-check: AGREE across the board, explicitly endorses deferring (5) to limit PR blast radius and endorses keeping (not deleting) setup.py in (4) since dispatch.json/INSTALL.bat's bootstrap chain still depends on it. NECESSITY: proceed on (1)-(4) as small independent cleanups, defer (5) as its own future backlog item once a taxonomy is actually defined. STATUS: (1)-(4) TDD-ready as-is; (5) intentionally left undesigned pending a taxonomy proposal. IMPLEMENTED 2026-07-13 (full delegation - ag wrote the changes directly; the backgrounded ask zombie-timed-out at 1309s during the final full-suite run per the T23 background-unreliability finding, but all four sub-item edits were already on disk; cc recovered the governed hub.py+setup.py from .ai/quarantine/ask-4775, py_compiled, verified no dangling refs, ran the full suite, and committed; ag recovered from its post-violation quarantine). (1) Removed the inert broker enqueue path from hub.py (_enqueue_hub_mutation_request + _mutation_broker_enabled) - rg confirmed zero live callers; HubMutationRequest and the real _commit_hub_mutation_request/_broker_request_from_dict commit path were correctly LEFT intact (only the intent/enqueue side was dead). (2) Deleted redundant test_guard_dry_run.py - verified zero unique coverage: its 4 case tests + soak-matrix are fully subsumed by test_operational_guard_matrix.py (oracle unit tests) and test_check_operational_guard_matrix.py (the REAL _guard_action_dry_run vs oracle gate1 zero-mismatch + gate2 shuffle), so nothing needed merging. (3) Extracted the conftest.py OOM-guard decision point into a testable _enforce_oom_guard(threshold_mb, available_mb, marker_path) that writes a marker {timestamp,pid,available_mb,threshold_mb,reason} before os._exit; runtime MemoryGuard behavior preserved; test_oom_guard.py covers fires-below / no-fire-above with monkeypatched os._exit. (4) setup.py kept (INSTALL.bat/dispatch still route through it) with its stale comment corrected to the real chain (INSTALL.bat -> dispatch.bat -> dispatcher -> core.provisioner.deploy); new test_dispatch_wiring.py asserts the ACTUAL wiring from dispatch.json (install pipeline -> provision.deploy -> core.provisioner) and setup.py's real delegation to core.provisioner.deploy. Sub-item 5 (test taxonomy reorg) intentionally left deferred. Full suite 927 passed (929 pre - 5 deleted guard_dry_run + 3 new = 927).",
     P:/workspace/Engram/ai/infra.json:4:    "_help": "Physical environment mappings: launcher bat paths, config file registry, tool paths. Read by manage.py, setup.py, and peer entry points. All paths relative to BASE_DIR (P:\\) unless prefixed with _sys/.",
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:94:| `_sys/core/setup.py` | General dev environment bootstrap. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:94:| `_sys/core/setup.py` | General dev environment bootstrap. |
     P:/workspace/Engram/claude/project/skills/antigravity/SKILL.md:27:> Note: ag peer requires `_sys\tools\agy\agy.exe` ??bootstrapped via `setup.py`, not npm.
     P:/workspace/Engram/tests/launch-wsbtest.ps1:59:Write-Host "[WSB Test] Note: Networking is enabled to test setup.py downloads."
     P:/workspace/Engram/runtimes.json:2:    "_comment": "Runtime version and download URL registry. Single source of truth for INSTALL.bat and setup.py.",
@@ -3849,7 +3849,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/snapshot.py:gather_peer`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.telemetry.peer_collector`
-- **Current Real Consumers (Empirically Measured):** 27 matches across 13 files (_sys/ai/backlog.json, _sys/cli/diag.py, docs/design/ARCHITECTURE.md, docs/design/HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md, docs/design/peerhub-architecture-debate.md...)
+- **Current Real Consumers (Empirically Measured):** 27 matches across 13 files (_sys/ai/backlog.json, _sys/cli/diag.py, docs/history/design/2026-07/ARCHITECTURE.md, docs/history/design/2026-08/HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md, docs/history/design/2026-07/peerhub-architecture-debate.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w gather_peer P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (27 external matches, 1 self matches):
     ```
@@ -3859,10 +3859,10 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
     P:/workspace/Engram/ai/backlog.json:2286:      "title": "gather_peer() early-returns before reaching cx's independent live collectors when status/health files are both absent",
     P:/workspace/Engram/ai/backlog.json:2297:      "next_action": "cx.effort's codebase-health sweep (2026-07-22), P1 finding, verified by direct code read. snapshot.py ~864-865: `if not data and not health_data: return info` exits gather_peer() before reaching cx's independent SQLite/rollout/app-server collector block (~1025+, where _cached_codex_rate_limits() -- now also feeding EFF EXH and the reset-credit badge -- gets called). That live app-server fetch doesn't depend on `data`/`health_data` at all, so a peer with a missing/stale status file gets marked entirely 'empty' even though its live quota/credit source could still answer. Not yet confirmed how often this condition is actually hit in practice (may be rare if status files are normally present) -- that's the first thing to check before deciding on a fix. Fix direction (per cx.effort): split 'status metadata unavailable' from 'skip all peer-specific collection' so the two aren't conflated by one early return. Deferred: this is gather_peer()'s core control flow, shared across all peers, not scoped to cx -- needs its own careful review of what ELSE might currently depend on the early-return's exact semantics before changing it. FIXED 2026-08-02 by cx.deepthink (solo dispatch, ag.deepthink failed twice writing directly to snapshot.py despite explicit read-only instructions -- switched peer). Real-world frequency check: rare, not routine -- cx has no status file by design; the condition needs health.json specifically missing/empty/malformed, which was not observed in current or recent state. Fix: the early-return no longer skips the live-collector block below it, only skips setting empty=False/source when both status sources are absent; the app-server rate-limit success branch now explicitly sets empty=False itself. New test: test_gather_peer_cx_runs_live_collector_without_status_or_health.",
     P:/workspace/Engram/cli/diag.py:40:    _read_json_file, gather_peer, _is_synthetic_peer, _fmt_pacing,
-    P:/workspace/peerhub/docs/design/ARCHITECTURE.md:595:**Observed in `hub.py`:** `gather_peer()` returns immediately when both status and health dicts are empty (`snapshot.py:878-927`), before the independent Codex SQLite/rollout/app-server collectors (`snapshot.py:1094-1146`) ever run.
-    P:/workspace/peerhub/docs/design/HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md:36:*   **Quota/Headroom & Context:** Sourced natively from `SYS_DIR/data/temp/ag_statusline_stdin.log` (the real file `gather_peer()` uses), which is populated by `ag`'s statusline hook. We must determine and state explicitly whether PeerHub's `agy_adapter.py` dispatch path actually triggers this same statusline hook/log write. If this data source is unavailable to PeerHub-orchestrated `ag` dispatches, we must explicitly route to `absent` per DIR-004 rather than assuming reuse.
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:64:- **T87**: `gather_peer()`-style early-return control flow that
-    P:/workspace/peerhub/docs/design/peerhub-architecture-debate.md:298:- **Defect in `hub.py`**: `snapshot.py`'s `gather_peer()` contained `if not data and not health_data: return info`, aborting peer-specific data collection when top-level health metadata was missing.
+    P:/workspace/peerhub/docs/history/design/2026-07/ARCHITECTURE.md:595:**Observed in `hub.py`:** `gather_peer()` returns immediately when both status and health dicts are empty (`snapshot.py:878-927`), before the independent Codex SQLite/rollout/app-server collectors (`snapshot.py:1094-1146`) ever run.
+    P:/workspace/peerhub/docs/history/design/2026-08/HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md:36:*   **Quota/Headroom & Context:** Sourced natively from `SYS_DIR/data/temp/ag_statusline_stdin.log` (the real file `gather_peer()` uses), which is populated by `ag`'s statusline hook. We must determine and state explicitly whether PeerHub's `agy_adapter.py` dispatch path actually triggers this same statusline hook/log write. If this data source is unavailable to PeerHub-orchestrated `ag` dispatches, we must explicitly route to `absent` per DIR-004 rather than assuming reuse.
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:64:- **T87**: `gather_peer()`-style early-return control flow that
+    P:/workspace/peerhub/docs/history/design/2026-07/peerhub-architecture-debate.md:298:- **Defect in `hub.py`**: `snapshot.py`'s `gather_peer()` contained `if not data and not health_data: return info`, aborting peer-specific data collection when top-level health metadata was missing.
     ... [17 additional matches omitted]
     ```
 - **State Read / Written:** Queries peer status files, health records, and rate limit endpoints.
@@ -4517,7 +4517,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 |---|---|---|---|---|---|
 | 1 | `mig.core.config.config_manager` | `_sys/core/config.py:ConfigManager` | `split` | peerhub.config.manager (PeerHub hierarchical config) / core.config (Engram host config) | 48 matches across 5 files (_sys/ai/backlog.json, _sys/core/config.py, _sys/tests/unit/test_backlog_t9_errors.py, _sys/tests/unit/test_config_scoping.py, _sys/tests/unit/test_config.py) |
 | 2 | `mig.core.config.strict_loader` | `_sys/core/config.py:load_strict` | `replace` | peerhub.config.loader | 15 matches across 4 files (_sys/core/hub_peer.py, _sys/core/hub.py, _sys/core/config.py, _sys/tests/unit/test_config_validator.py) |
-| 3 | `mig.core.dispatch.bootstrap_bat` | `_sys/core/dispatch.bat` | `stay` | Engram host dispatch bridge (out of PeerHub core) | 9 matches across 8 files (docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/start.bat, _sys/core/setup.py, _sys/docs-v2/ops/conventions.md, _sys/docs-v2/ops/audit-checklist.md...) |
+| 3 | `mig.core.dispatch.bootstrap_bat` | `_sys/core/dispatch.bat` | `stay` | Engram host dispatch bridge (out of PeerHub core) | 9 matches across 8 files (docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/start.bat, _sys/core/setup.py, _sys/docs-v2/ops/conventions.md, _sys/docs-v2/ops/audit-checklist.md...) |
 | 4 | `mig.core.dispatcher.run_pipeline` | `_sys/core/dispatcher.py:run_pipeline` | `stay` | Engram host CLI dispatcher (out of PeerHub core) | 10 matches across 4 files (_sys/ai/backlog.json, _sys/core/dispatcher.py, _sys/tests/unit/test_dispatch_wiring.py, _sys/tests/unit/test_dispatcher_bool_result.py) |
 | 5 | `mig.core.doctor.check_python` | `_sys/core/doctor.py:check_python` | `stay` | Engram host diagnostic toolchain (out of PeerHub core) | 6 matches across 4 files (_sys/ai/backlog.json, _sys/core/doctor.py, _sys/tests/unit/test_doctor_missing_keys.py, _sys/tests/unit/test_doctor.py) |
 | 6 | `mig.core.doctor.check_subst` | `_sys/core/doctor.py:check_subst` | `stay` | Engram host diagnostic toolchain (out of PeerHub core) | 7 matches across 4 files (_sys/core/doctor.py, _sys/tests/unit/test_doctor_missing_keys.py, _sys/tests/unit/test_doctor.py, _sys/ai/backlog.json) |
@@ -4533,7 +4533,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 16 | `mig.core.hub.find_ai_root` | `_sys/core/hub.py:find_ai_root` | `replace` | peerhub.storage.root_locator | 107 matches across 21 files (tools/surface_manifest/generate_manifest.py, _sys/codex/config/rules/default.rules, _sys/core/pathlayout.py, _sys/core/hub.py, _sys/ai/backlog.json...) |
 | 17 | `mig.core.hub.is_routable` | `_sys/core/hub.py:is_routable` | `replace` | peerhub.routing.router | 79 matches across 15 files (docs/design/phase0/shared-seam-ledger.json, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_t3_oversized_ask_guard.py, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...) |
 | 18 | `mig.core.hub.ensure_ai_dir` | `_sys/core/hub.py:ensure_ai_dir` | `replace` | peerhub.storage.directory_manager | 28 matches across 11 files (tools/surface_manifest/generate_manifest.py, _sys/tests/unit/conftest.py, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_t3_oversized_ask_guard.py, _sys/tests/unit/test_process_lease_supervision_c7.py...) |
-| 19 | `mig.core.hub.sandbox_rename_denied_error` | `_sys/core/hub.py:SandboxRenameDeniedError` | `replace` | peerhub.security.sandbox | 16 matches across 7 files (_sys/tests/unit/l1_core/test_contracts.py, _sys/tests/unit/test_broker_transaction_safety.py, _sys/docs-v2/ops/diag-telemetry-architecture.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, docs/design/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md...) |
+| 19 | `mig.core.hub.sandbox_rename_denied_error` | `_sys/core/hub.py:SandboxRenameDeniedError` | `replace` | peerhub.security.sandbox | 16 matches across 7 files (_sys/tests/unit/l1_core/test_contracts.py, _sys/tests/unit/test_broker_transaction_safety.py, _sys/docs-v2/ops/diag-telemetry-architecture.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md...) |
 | 20 | `mig.core.hub.sandbox_spawn_denied_error` | `_sys/core/hub.py:SandboxSpawnDeniedError` | `replace` | peerhub.security.sandbox | 8 matches across 5 files (_sys/tests/unit/test_process_lease_supervision_c7.py, docs/design/phase0/fixtures/captures/DP-02-03.transcript.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/docs-v2/general/lifecycle.md, _sys/core/hub.py) |
 | 21 | `mig.core.hub.mutation_request` | `_sys/core/hub.py:HubMutationRequest` | `replace` | peerhub.core.mutation | 6 matches across 3 files (_sys/ai/backlog.json, _sys/core/hub.py, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
 | 22 | `mig.core.hub.load_config` | `_sys/core/hub.py:load_config` | `replace` | peerhub.config.loader | 1 matches across 1 files (_sys/core/hub.py) |
@@ -4545,100 +4545,100 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 28 | `mig.core.hub.detect_dissent` | `_sys/core/hub.py:detect_dissent` | `replace` | peerhub.governance.dissent_detector | 24 matches across 6 files (_sys/core/hub.py, _sys/tests/unit/test_dissent.py, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, docs/design/phase0/shared-seam-ledger.json...) |
 | 29 | `mig.core.hub.run_arbiter_on_round` | `_sys/core/hub.py:run_arbiter_on_round` | `replace` | peerhub.governance.arbiter_runner | 25 matches across 8 files (docs/design/phase0/migration-ledger-v2.json, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/migration-ledger-v2.csv, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...) |
 | 30 | `mig.core.hub.codex_account_client` | `_sys/core/hub.py:CodexAccountClient` | `replace` | peerhub.adapters.codex.account | 11 matches across 6 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/core/hub.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md, _sys/tests/unit/test_codex_reset_credits.py...) |
-| 31 | `mig.core.hub.lease_ownership_error` | `_sys/core/hub.py:LeaseOwnershipError` | `replace` | peerhub.coordination.lease_manager | 13 matches across 5 files (_sys/core/hub.py, _sys/tests/unit/test_lease_session_concurrency.py, _sys/tests/unit/test_process_lease_supervision_c7.py, docs/design/peerhub-architecture-debate.md, _sys/docs-v2/ops/architecture-audit-2026-07-24.md) |
+| 31 | `mig.core.hub.lease_ownership_error` | `_sys/core/hub.py:LeaseOwnershipError` | `replace` | peerhub.coordination.lease_manager | 13 matches across 5 files (_sys/core/hub.py, _sys/tests/unit/test_lease_session_concurrency.py, _sys/tests/unit/test_process_lease_supervision_c7.py, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/docs-v2/ops/architecture-audit-2026-07-24.md) |
 | 32 | `mig.core.hub.main_entrypoint` | `_sys/core/hub.py:main` | `replace` | peerhub.cli.hub / peerhub.engine.action_dispatcher | 354 matches across 179 files (_sys/ai/traceability_map.json, _sys/ai/common/statusline/statusline-schema.json, tools/surface_manifest/generate_manifest.py, _sys/cli/codex_entry.py, _sys/cli/diag.py...) |
 | 33 | `mig.core.hub.global_exception_trap` | `_sys/core/hub.py:global_exception_trap` | `replace` | peerhub.engine.error_trap | 1 matches across 1 files (_sys/core/hub.py) |
-| 34 | `mig.core.hub.action.init_session` | `_sys/core/hub.py:action_init_session` | `replace` | peerhub.session.manager | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #1: init-session)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 35 | `mig.core.hub.action.end_session` | `_sys/core/hub.py:action_end_session` | `replace` | peerhub.session.manager | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #2: end-session)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 36 | `mig.core.hub.action.send` | `_sys/core/hub.py:action_send` | `replace` | peerhub.messaging.mailbox | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #3: send)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 37 | `mig.core.hub.action.broadcast` | `_sys/core/hub.py:action_broadcast` | `replace` | peerhub.messaging.mailbox | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #4: broadcast)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 38 | `mig.core.hub.action.mark_read` | `_sys/core/hub.py:action_mark_read` | `replace` | peerhub.messaging.mailbox | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #5: mark-read)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 39 | `mig.core.hub.action.append_log` | `_sys/core/hub.py:action_append_log` | `replace` | peerhub.telemetry.logger | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #6: append-log)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 40 | `mig.core.hub.action.archive_file` | `_sys/core/hub.py:action_archive_file` | `replace` | peerhub.storage.archiver | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #7: archive-file)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 41 | `mig.core.hub.action.update_status` | `_sys/core/hub.py:action_update_status` | `replace` | peerhub.cluster.node_status | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #8: update-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 42 | `mig.core.hub.action.check` | `_sys/core/hub.py:action_check` | `replace` | peerhub.health.checker | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #9: check)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 43 | `mig.core.hub.action.status` | `_sys/core/hub.py:action_status` | `replace` | peerhub.cluster.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #10: status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 44 | `mig.core.hub.action.check_gate` | `_sys/core/hub.py:action_check_gate` | `replace` | peerhub.governance.gate_checker | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #11: check-gate)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 45 | `mig.core.hub.action.ask` | `_sys/core/hub.py:action_ask` | `replace` | peerhub.engine.invocation_runner | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #12: ask)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 46 | `mig.core.hub.action.ask_all` | `_sys/core/hub.py:action_ask_all` | `replace` | peerhub.engine.invocation_runner | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #13: ask-all)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 47 | `mig.core.hub.action.ask_coordinator` | `_sys/core/hub.py:action_ask_coordinator` | `replace` | peerhub.engine.invocation_runner | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #14: ask-coordinator)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 48 | `mig.core.hub.action.consensus_propose` | `_sys/core/hub.py:action_consensus_propose` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #15: consensus-propose)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 49 | `mig.core.hub.action.consensus_vote` | `_sys/core/hub.py:action_consensus_vote` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #16: consensus-vote)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 50 | `mig.core.hub.action.consensus_check` | `_sys/core/hub.py:action_consensus_check` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #17: consensus-check)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 51 | `mig.core.hub.action.consensus_sweep` | `_sys/core/hub.py:action_consensus_sweep` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #18: consensus-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
-| 52 | `mig.core.hub.action.register_node` | `_sys/core/hub.py:action_register_node` | `replace` | peerhub.cluster.node_registry | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #1: register-node)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 53 | `mig.core.hub.action.list_nodes` | `_sys/core/hub.py:action_list_nodes` | `replace` | peerhub.cluster.node_registry | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #2: list-nodes)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 54 | `mig.core.hub.action.health_update` | `_sys/core/hub.py:action_health_update` | `replace` | peerhub.health.state_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #3: health-update)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 55 | `mig.core.hub.action.health_check` | `_sys/core/hub.py:action_health_check` | `replace` | peerhub.health.checker | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #4: health-check)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 56 | `mig.core.hub.action.peer_status` | `_sys/core/hub.py:action_peer_status` | `replace` | peerhub.cluster.peer_status | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #5: peer-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 57 | `mig.core.hub.action.context_fill` | `_sys/core/hub.py:action_context_fill` | `replace` | peerhub.context.injector | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #6: context-fill)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 58 | `mig.core.hub.action.checkpoint` | `_sys/core/hub.py:action_checkpoint` | `replace` | peerhub.session.checkpoint | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #7: checkpoint)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 59 | `mig.core.hub.action.peer_quarantine` | `_sys/core/hub.py:action_peer_quarantine` | `replace` | peerhub.governance.quarantine | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #8: peer-quarantine)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 60 | `mig.core.hub.action.peer_recover` | `_sys/core/hub.py:action_peer_recover` | `replace` | peerhub.governance.quarantine | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #9: peer-recover)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 61 | `mig.core.hub.action.new_topic` | `_sys/core/hub.py:action_new_topic` | `replace` | peerhub.session.topic_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #10: new-topic)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 62 | `mig.core.hub.action.clear_room` | `_sys/core/hub.py:action_clear_room` | `replace` | peerhub.session.topic_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #11: clear-room)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 63 | `mig.core.hub.action.preflight` | `_sys/core/hub.py:action_preflight` | `replace` | peerhub.health.preflight | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #12: preflight)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 64 | `mig.core.hub.action.context_hash` | `_sys/core/hub.py:action_context_hash` | `replace` | peerhub.context.hasher | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #13: context-hash)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 65 | `mig.core.hub.action.report_error` | `_sys/core/hub.py:action_report_error` | `replace` | peerhub.telemetry.error_reporter | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #14: report-error)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 66 | `mig.core.hub.action.feedback_add` | `_sys/core/hub.py:action_feedback_add` | `replace` | peerhub.feedback.manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #15: feedback-add)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 67 | `mig.core.hub.action.feedback_list` | `_sys/core/hub.py:action_feedback_list` | `replace` | peerhub.feedback.manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #16: feedback-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 68 | `mig.core.hub.action.feedback_resolve` | `_sys/core/hub.py:action_feedback_resolve` | `replace` | peerhub.feedback.manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #17: feedback-resolve)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 69 | `mig.core.hub.action.artifact_claim` | `_sys/core/hub.py:action_artifact_claim` | `replace` | peerhub.artifacts.claim_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #18: artifact-claim)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
-| 70 | `mig.core.hub.action.artifact_status` | `_sys/core/hub.py:action_artifact_status` | `replace` | peerhub.artifacts.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #1: artifact-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 71 | `mig.core.hub.action.artifact_finalize` | `_sys/core/hub.py:action_artifact_finalize` | `replace` | peerhub.artifacts.lifecycle | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #2: artifact-finalize)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 72 | `mig.core.hub.action.leader_yield` | `_sys/core/hub.py:action_leader_yield` | `replace` | peerhub.cluster.leader_election | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #3: leader-yield)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 73 | `mig.core.hub.action.leader_claim` | `_sys/core/hub.py:action_leader_claim` | `replace` | peerhub.cluster.leader_election | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #4: leader-claim)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 74 | `mig.core.hub.action.elect_leader` | `_sys/core/hub.py:action_elect_leader` | `replace` | peerhub.cluster.leader_election | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #5: elect-leader)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 75 | `mig.core.hub.action.discover` | `_sys/core/hub.py:action_discover` | `replace` | peerhub.cluster.discovery | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #6: discover)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 76 | `mig.core.hub.action.assign_role` | `_sys/core/hub.py:action_assign_role` | `replace` | peerhub.governance.role_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #7: assign-role)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 77 | `mig.core.hub.action.release_role` | `_sys/core/hub.py:action_role_release` | `replace` | peerhub.governance.role_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #8: release-role)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 78 | `mig.core.hub.action.role_status` | `_sys/core/hub.py:action_role_status` | `replace` | peerhub.governance.role_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #9: role-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 79 | `mig.core.hub.action.health_precheck` | `_sys/core/hub.py:action_health_precheck` | `replace` | peerhub.health.checker | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #10: health-precheck)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 80 | `mig.core.hub.action.health_sweep` | `_sys/core/hub.py:action_health_sweep` | `replace` | peerhub.health.state_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #11: health-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 81 | `mig.core.hub.action.freshness_sweep` | `_sys/core/hub.py:action_freshness_sweep` | `replace` | peerhub.health.state_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #12: freshness-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 82 | `mig.core.hub.action.terminal_handoff` | `_sys/core/hub.py:action_terminal_handoff` | `replace` | peerhub.terminal.handoff | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #13: terminal-handoff)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 83 | `mig.core.hub.action.terminal_duty_sweep` | `_sys/core/hub.py:action_terminal_duty_sweep` | `replace` | peerhub.terminal.duty_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #14: terminal-duty-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 84 | `mig.core.hub.action.terminal_heartbeat` | `_sys/core/hub.py:action_terminal_heartbeat` | `replace` | peerhub.terminal.heartbeat | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #15: terminal-heartbeat)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 85 | `mig.core.hub.action.terminal_close` | `_sys/core/hub.py:action_terminal_close` | `replace` | peerhub.terminal.session_closer | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #16: terminal-close)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 86 | `mig.core.hub.action.append_handoff` | `_sys/core/hub.py:action_append_handoff` | `replace` | peerhub.terminal.handoff | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #17: append-handoff)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 87 | `mig.core.hub.action.task_checkpoint` | `_sys/core/hub.py:action_task_checkpoint` | `replace` | peerhub.tasks.checkpoint | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #18: task-checkpoint)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
-| 88 | `mig.core.hub.action.task_status` | `_sys/core/hub.py:action_task_status` | `replace` | peerhub.tasks.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #1: task-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 89 | `mig.core.hub.action.task_failover` | `_sys/core/hub.py:action_task_failover` | `replace` | peerhub.tasks.failover | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #2: task-failover)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 90 | `mig.core.hub.action.approval_request` | `_sys/core/hub.py:action_approval_request` | `replace` | peerhub.governance.approval_gate | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #3: approval-request)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 91 | `mig.core.hub.action.file_lock` | `_sys/core/hub.py:action_file_lock` | `replace` | peerhub.coordination.file_lock | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #4: file-lock)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 92 | `mig.core.hub.action.file_unlock` | `_sys/core/hub.py:action_file_unlock` | `replace` | peerhub.coordination.file_lock | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #5: file-unlock)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 93 | `mig.core.hub.action.lock_status` | `_sys/core/hub.py:action_lock_status` | `replace` | peerhub.coordination.file_lock | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #6: lock-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 94 | `mig.core.hub.action.profile_validate` | `_sys/core/hub.py:action_validate_profiles` | `replace` | peerhub.models.validator | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #7: profile-validate)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 95 | `mig.core.hub.action.lease_status` | `_sys/core/hub.py:action_lease_status` | `replace` | peerhub.coordination.lease_manager | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #8: lease-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 96 | `mig.core.hub.action.lease_sweep` | `_sys/core/hub.py:_lease_sweep` | `replace` | peerhub.coordination.lease_manager | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #9: lease-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 97 | `mig.core.hub.action.model_status` | `_sys/core/hub.py:action_model_status` | `replace` | peerhub.models.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #10: model-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 98 | `mig.core.hub.action.transient_scan` | `_sys/core/hub.py:action_transient_scan` | `replace` | peerhub.health.transient_scanner | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #11: transient-scan)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 99 | `mig.core.hub.action.directive_add` | `_sys/core/hub.py:action_directive_add` | `replace` | peerhub.governance.directives | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #12: directive-add)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 100 | `mig.core.hub.action.directive_list` | `_sys/core/hub.py:action_directive_list` | `replace` | peerhub.governance.directives | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #13: directive-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 101 | `mig.core.hub.action.directive_clear` | `_sys/core/hub.py:action_directive_clear` | `replace` | peerhub.governance.directives | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #14: directive-clear)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 102 | `mig.core.hub.action.lessons_list` | `_sys/core/hub.py:action_lessons_list` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #15: lessons-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 103 | `mig.core.hub.action.lessons_propose` | `_sys/core/hub.py:action_lessons_propose` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #16: lessons-propose)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 104 | `mig.core.hub.action.lessons_activate` | `_sys/core/hub.py:action_lessons_activate` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #17: lessons-activate)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 105 | `mig.core.hub.action.lessons_retire` | `_sys/core/hub.py:action_lessons_retire` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #18: lessons-retire)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
-| 106 | `mig.core.hub.action.lesson_broadcast` | `_sys/core/hub.py:action_lesson_broadcast` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #1: lesson-broadcast)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 107 | `mig.core.hub.action.lesson_sweep` | `_sys/core/hub.py:action_lesson_sweep` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #2: lesson-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 108 | `mig.core.hub.action.lesson_inject` | `_sys/core/hub.py:action_lesson_inject` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #3: lesson-inject)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 109 | `mig.core.hub.action.thread_new` | `_sys/core/hub.py:action_thread_new` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #4: thread-new)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 110 | `mig.core.hub.action.thread_append` | `_sys/core/hub.py:action_thread_append` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #5: thread-append)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 111 | `mig.core.hub.action.thread_react` | `_sys/core/hub.py:action_thread_react` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #6: thread-react)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 112 | `mig.core.hub.action.thread_promote` | `_sys/core/hub.py:action_thread_promote` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #7: thread-promote)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 113 | `mig.core.hub.action.alert_raise` | `_sys/core/hub.py:action_alert_raise` | `replace` | peerhub.telemetry.alerts | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #8: alert-raise)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 114 | `mig.core.hub.action.proposal_add` | `_sys/core/hub.py:action_proposal_add` | `replace` | peerhub.governance.proposals | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #9: proposal-add)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 115 | `mig.core.hub.action.proposal_vote` | `_sys/core/hub.py:action_proposal_vote` | `replace` | peerhub.governance.proposals | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #10: proposal-vote)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 116 | `mig.core.hub.action.proposal_list` | `_sys/core/hub.py:action_proposal_list` | `replace` | peerhub.governance.proposals | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #11: proposal-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 117 | `mig.core.hub.action.broker_submit` | `_sys/core/hub.py:action_broker_submit` | `replace` | peerhub.messaging.broker | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #12: broker-submit)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 118 | `mig.core.hub.action.broker_drain` | `_sys/core/hub.py:action_broker_drain` | `replace` | peerhub.messaging.broker | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #13: broker-drain)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 119 | `mig.core.hub.action.broker_status` | `_sys/core/hub.py:action_broker_status` | `replace` | peerhub.messaging.broker | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #14: broker-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 120 | `mig.core.hub.action.update_signatures` | `_sys/core/hub.py:action_update_signatures` | `replace` | peerhub.security.signatures | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #15: update-signatures)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 121 | `mig.core.hub.action.arbiter_review` | `_sys/core/hub.py:run_arbiter_on_round` | `replace` | peerhub.governance.arbiter | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #16: arbiter-review)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 122 | `mig.core.hub.action.credit_status` | `_sys/core/hub.py:action_credit_status` | `replace` | peerhub.telemetry.credits | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #17: credit-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 123 | `mig.core.hub.action.credit_consume` | `_sys/core/hub.py:action_credit_consume` | `replace` | peerhub.telemetry.credits | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #18: credit-consume)](https://github.com/greatgc-flow/peerhub/blob/main/docs/design/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 124 | `mig.core.config.hub_config_json` | `_sys/core/hub_config.json` | `replace` | peerhub.config.defaults | 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...) |
+| 34 | `mig.core.hub.action.init_session` | `_sys/core/hub.py:action_init_session` | `replace` | peerhub.session.manager | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #1: init-session)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 35 | `mig.core.hub.action.end_session` | `_sys/core/hub.py:action_end_session` | `replace` | peerhub.session.manager | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #2: end-session)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 36 | `mig.core.hub.action.send` | `_sys/core/hub.py:action_send` | `replace` | peerhub.messaging.mailbox | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #3: send)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 37 | `mig.core.hub.action.broadcast` | `_sys/core/hub.py:action_broadcast` | `replace` | peerhub.messaging.mailbox | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #4: broadcast)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 38 | `mig.core.hub.action.mark_read` | `_sys/core/hub.py:action_mark_read` | `replace` | peerhub.messaging.mailbox | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #5: mark-read)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 39 | `mig.core.hub.action.append_log` | `_sys/core/hub.py:action_append_log` | `replace` | peerhub.telemetry.logger | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #6: append-log)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 40 | `mig.core.hub.action.archive_file` | `_sys/core/hub.py:action_archive_file` | `replace` | peerhub.storage.archiver | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #7: archive-file)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 41 | `mig.core.hub.action.update_status` | `_sys/core/hub.py:action_update_status` | `replace` | peerhub.cluster.node_status | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #8: update-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 42 | `mig.core.hub.action.check` | `_sys/core/hub.py:action_check` | `replace` | peerhub.health.checker | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #9: check)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 43 | `mig.core.hub.action.status` | `_sys/core/hub.py:action_status` | `replace` | peerhub.cluster.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #10: status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 44 | `mig.core.hub.action.check_gate` | `_sys/core/hub.py:action_check_gate` | `replace` | peerhub.governance.gate_checker | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #11: check-gate)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 45 | `mig.core.hub.action.ask` | `_sys/core/hub.py:action_ask` | `replace` | peerhub.engine.invocation_runner | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #12: ask)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 46 | `mig.core.hub.action.ask_all` | `_sys/core/hub.py:action_ask_all` | `replace` | peerhub.engine.invocation_runner | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #13: ask-all)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 47 | `mig.core.hub.action.ask_coordinator` | `_sys/core/hub.py:action_ask_coordinator` | `replace` | peerhub.engine.invocation_runner | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #14: ask-coordinator)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 48 | `mig.core.hub.action.consensus_propose` | `_sys/core/hub.py:action_consensus_propose` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #15: consensus-propose)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 49 | `mig.core.hub.action.consensus_vote` | `_sys/core/hub.py:action_consensus_vote` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #16: consensus-vote)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 50 | `mig.core.hub.action.consensus_check` | `_sys/core/hub.py:action_consensus_check` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #17: consensus-check)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 51 | `mig.core.hub.action.consensus_sweep` | `_sys/core/hub.py:action_consensus_sweep` | `replace` | peerhub.governance.consensus | [`PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` (Batch 1, #18: consensus-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md) |
+| 52 | `mig.core.hub.action.register_node` | `_sys/core/hub.py:action_register_node` | `replace` | peerhub.cluster.node_registry | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #1: register-node)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 53 | `mig.core.hub.action.list_nodes` | `_sys/core/hub.py:action_list_nodes` | `replace` | peerhub.cluster.node_registry | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #2: list-nodes)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 54 | `mig.core.hub.action.health_update` | `_sys/core/hub.py:action_health_update` | `replace` | peerhub.health.state_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #3: health-update)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 55 | `mig.core.hub.action.health_check` | `_sys/core/hub.py:action_health_check` | `replace` | peerhub.health.checker | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #4: health-check)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 56 | `mig.core.hub.action.peer_status` | `_sys/core/hub.py:action_peer_status` | `replace` | peerhub.cluster.peer_status | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #5: peer-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 57 | `mig.core.hub.action.context_fill` | `_sys/core/hub.py:action_context_fill` | `replace` | peerhub.context.injector | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #6: context-fill)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 58 | `mig.core.hub.action.checkpoint` | `_sys/core/hub.py:action_checkpoint` | `replace` | peerhub.session.checkpoint | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #7: checkpoint)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 59 | `mig.core.hub.action.peer_quarantine` | `_sys/core/hub.py:action_peer_quarantine` | `replace` | peerhub.governance.quarantine | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #8: peer-quarantine)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 60 | `mig.core.hub.action.peer_recover` | `_sys/core/hub.py:action_peer_recover` | `replace` | peerhub.governance.quarantine | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #9: peer-recover)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 61 | `mig.core.hub.action.new_topic` | `_sys/core/hub.py:action_new_topic` | `replace` | peerhub.session.topic_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #10: new-topic)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 62 | `mig.core.hub.action.clear_room` | `_sys/core/hub.py:action_clear_room` | `replace` | peerhub.session.topic_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #11: clear-room)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 63 | `mig.core.hub.action.preflight` | `_sys/core/hub.py:action_preflight` | `replace` | peerhub.health.preflight | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #12: preflight)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 64 | `mig.core.hub.action.context_hash` | `_sys/core/hub.py:action_context_hash` | `replace` | peerhub.context.hasher | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #13: context-hash)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 65 | `mig.core.hub.action.report_error` | `_sys/core/hub.py:action_report_error` | `replace` | peerhub.telemetry.error_reporter | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #14: report-error)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 66 | `mig.core.hub.action.feedback_add` | `_sys/core/hub.py:action_feedback_add` | `replace` | peerhub.feedback.manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #15: feedback-add)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 67 | `mig.core.hub.action.feedback_list` | `_sys/core/hub.py:action_feedback_list` | `replace` | peerhub.feedback.manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #16: feedback-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 68 | `mig.core.hub.action.feedback_resolve` | `_sys/core/hub.py:action_feedback_resolve` | `replace` | peerhub.feedback.manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #17: feedback-resolve)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 69 | `mig.core.hub.action.artifact_claim` | `_sys/core/hub.py:action_artifact_claim` | `replace` | peerhub.artifacts.claim_manager | [`PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md` (Batch 2, #18: artifact-claim)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH2-2026-08-20.md) |
+| 70 | `mig.core.hub.action.artifact_status` | `_sys/core/hub.py:action_artifact_status` | `replace` | peerhub.artifacts.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #1: artifact-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 71 | `mig.core.hub.action.artifact_finalize` | `_sys/core/hub.py:action_artifact_finalize` | `replace` | peerhub.artifacts.lifecycle | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #2: artifact-finalize)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 72 | `mig.core.hub.action.leader_yield` | `_sys/core/hub.py:action_leader_yield` | `replace` | peerhub.cluster.leader_election | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #3: leader-yield)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 73 | `mig.core.hub.action.leader_claim` | `_sys/core/hub.py:action_leader_claim` | `replace` | peerhub.cluster.leader_election | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #4: leader-claim)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 74 | `mig.core.hub.action.elect_leader` | `_sys/core/hub.py:action_elect_leader` | `replace` | peerhub.cluster.leader_election | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #5: elect-leader)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 75 | `mig.core.hub.action.discover` | `_sys/core/hub.py:action_discover` | `replace` | peerhub.cluster.discovery | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #6: discover)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 76 | `mig.core.hub.action.assign_role` | `_sys/core/hub.py:action_assign_role` | `replace` | peerhub.governance.role_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #7: assign-role)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 77 | `mig.core.hub.action.release_role` | `_sys/core/hub.py:action_role_release` | `replace` | peerhub.governance.role_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #8: release-role)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 78 | `mig.core.hub.action.role_status` | `_sys/core/hub.py:action_role_status` | `replace` | peerhub.governance.role_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #9: role-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 79 | `mig.core.hub.action.health_precheck` | `_sys/core/hub.py:action_health_precheck` | `replace` | peerhub.health.checker | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #10: health-precheck)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 80 | `mig.core.hub.action.health_sweep` | `_sys/core/hub.py:action_health_sweep` | `replace` | peerhub.health.state_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #11: health-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 81 | `mig.core.hub.action.freshness_sweep` | `_sys/core/hub.py:action_freshness_sweep` | `replace` | peerhub.health.state_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #12: freshness-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 82 | `mig.core.hub.action.terminal_handoff` | `_sys/core/hub.py:action_terminal_handoff` | `replace` | peerhub.terminal.handoff | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #13: terminal-handoff)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 83 | `mig.core.hub.action.terminal_duty_sweep` | `_sys/core/hub.py:action_terminal_duty_sweep` | `replace` | peerhub.terminal.duty_manager | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #14: terminal-duty-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 84 | `mig.core.hub.action.terminal_heartbeat` | `_sys/core/hub.py:action_terminal_heartbeat` | `replace` | peerhub.terminal.heartbeat | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #15: terminal-heartbeat)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 85 | `mig.core.hub.action.terminal_close` | `_sys/core/hub.py:action_terminal_close` | `replace` | peerhub.terminal.session_closer | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #16: terminal-close)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 86 | `mig.core.hub.action.append_handoff` | `_sys/core/hub.py:action_append_handoff` | `replace` | peerhub.terminal.handoff | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #17: append-handoff)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 87 | `mig.core.hub.action.task_checkpoint` | `_sys/core/hub.py:action_task_checkpoint` | `replace` | peerhub.tasks.checkpoint | [`PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md` (Batch 3, #18: task-checkpoint)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH3-2026-08-20.md) |
+| 88 | `mig.core.hub.action.task_status` | `_sys/core/hub.py:action_task_status` | `replace` | peerhub.tasks.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #1: task-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 89 | `mig.core.hub.action.task_failover` | `_sys/core/hub.py:action_task_failover` | `replace` | peerhub.tasks.failover | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #2: task-failover)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 90 | `mig.core.hub.action.approval_request` | `_sys/core/hub.py:action_approval_request` | `replace` | peerhub.governance.approval_gate | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #3: approval-request)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 91 | `mig.core.hub.action.file_lock` | `_sys/core/hub.py:action_file_lock` | `replace` | peerhub.coordination.file_lock | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #4: file-lock)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 92 | `mig.core.hub.action.file_unlock` | `_sys/core/hub.py:action_file_unlock` | `replace` | peerhub.coordination.file_lock | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #5: file-unlock)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 93 | `mig.core.hub.action.lock_status` | `_sys/core/hub.py:action_lock_status` | `replace` | peerhub.coordination.file_lock | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #6: lock-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 94 | `mig.core.hub.action.profile_validate` | `_sys/core/hub.py:action_validate_profiles` | `replace` | peerhub.models.validator | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #7: profile-validate)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 95 | `mig.core.hub.action.lease_status` | `_sys/core/hub.py:action_lease_status` | `replace` | peerhub.coordination.lease_manager | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #8: lease-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 96 | `mig.core.hub.action.lease_sweep` | `_sys/core/hub.py:_lease_sweep` | `replace` | peerhub.coordination.lease_manager | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #9: lease-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 97 | `mig.core.hub.action.model_status` | `_sys/core/hub.py:action_model_status` | `replace` | peerhub.models.status_reporter | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #10: model-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 98 | `mig.core.hub.action.transient_scan` | `_sys/core/hub.py:action_transient_scan` | `replace` | peerhub.health.transient_scanner | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #11: transient-scan)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 99 | `mig.core.hub.action.directive_add` | `_sys/core/hub.py:action_directive_add` | `replace` | peerhub.governance.directives | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #12: directive-add)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 100 | `mig.core.hub.action.directive_list` | `_sys/core/hub.py:action_directive_list` | `replace` | peerhub.governance.directives | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #13: directive-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 101 | `mig.core.hub.action.directive_clear` | `_sys/core/hub.py:action_directive_clear` | `replace` | peerhub.governance.directives | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #14: directive-clear)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 102 | `mig.core.hub.action.lessons_list` | `_sys/core/hub.py:action_lessons_list` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #15: lessons-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 103 | `mig.core.hub.action.lessons_propose` | `_sys/core/hub.py:action_lessons_propose` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #16: lessons-propose)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 104 | `mig.core.hub.action.lessons_activate` | `_sys/core/hub.py:action_lessons_activate` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #17: lessons-activate)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 105 | `mig.core.hub.action.lessons_retire` | `_sys/core/hub.py:action_lessons_retire` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md` (Batch 4, #18: lessons-retire)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH4-2026-08-20.md) |
+| 106 | `mig.core.hub.action.lesson_broadcast` | `_sys/core/hub.py:action_lesson_broadcast` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #1: lesson-broadcast)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 107 | `mig.core.hub.action.lesson_sweep` | `_sys/core/hub.py:action_lesson_sweep` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #2: lesson-sweep)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 108 | `mig.core.hub.action.lesson_inject` | `_sys/core/hub.py:action_lesson_inject` | `replace` | peerhub.knowledge.lessons | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #3: lesson-inject)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 109 | `mig.core.hub.action.thread_new` | `_sys/core/hub.py:action_thread_new` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #4: thread-new)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 110 | `mig.core.hub.action.thread_append` | `_sys/core/hub.py:action_thread_append` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #5: thread-append)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 111 | `mig.core.hub.action.thread_react` | `_sys/core/hub.py:action_thread_react` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #6: thread-react)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 112 | `mig.core.hub.action.thread_promote` | `_sys/core/hub.py:action_thread_promote` | `replace` | peerhub.messaging.threads | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #7: thread-promote)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 113 | `mig.core.hub.action.alert_raise` | `_sys/core/hub.py:action_alert_raise` | `replace` | peerhub.telemetry.alerts | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #8: alert-raise)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 114 | `mig.core.hub.action.proposal_add` | `_sys/core/hub.py:action_proposal_add` | `replace` | peerhub.governance.proposals | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #9: proposal-add)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 115 | `mig.core.hub.action.proposal_vote` | `_sys/core/hub.py:action_proposal_vote` | `replace` | peerhub.governance.proposals | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #10: proposal-vote)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 116 | `mig.core.hub.action.proposal_list` | `_sys/core/hub.py:action_proposal_list` | `replace` | peerhub.governance.proposals | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #11: proposal-list)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 117 | `mig.core.hub.action.broker_submit` | `_sys/core/hub.py:action_broker_submit` | `replace` | peerhub.messaging.broker | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #12: broker-submit)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 118 | `mig.core.hub.action.broker_drain` | `_sys/core/hub.py:action_broker_drain` | `replace` | peerhub.messaging.broker | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #13: broker-drain)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 119 | `mig.core.hub.action.broker_status` | `_sys/core/hub.py:action_broker_status` | `replace` | peerhub.messaging.broker | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #14: broker-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 120 | `mig.core.hub.action.update_signatures` | `_sys/core/hub.py:action_update_signatures` | `replace` | peerhub.security.signatures | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #15: update-signatures)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 121 | `mig.core.hub.action.arbiter_review` | `_sys/core/hub.py:run_arbiter_on_round` | `replace` | peerhub.governance.arbiter | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #16: arbiter-review)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 122 | `mig.core.hub.action.credit_status` | `_sys/core/hub.py:action_credit_status` | `replace` | peerhub.telemetry.credits | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #17: credit-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 123 | `mig.core.hub.action.credit_consume` | `_sys/core/hub.py:action_credit_consume` | `replace` | peerhub.telemetry.credits | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #18: credit-consume)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
+| 124 | `mig.core.config.hub_config_json` | `_sys/core/hub_config.json` | `replace` | peerhub.config.defaults | 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...) |
 | 125 | `mig.core.context.resolved_context_target` | `_sys/core/hub_context.py:ResolvedContextTarget` | `replace` | peerhub.types.context | 21 matches across 5 files (_sys/core/hub_context.py, _sys/core/hub.py, _sys/tests/unit/l1_core/test_contracts.py, _sys/docs-v2/ops/health-mgmt-redesign-2026-08-06.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
 | 126 | `mig.core.context.resolved_dispatch_target` | `_sys/core/hub_context.py:ResolvedDispatchTarget` | `replace` | peerhub.types.context | 7 matches across 2 files (_sys/core/hub_context.py, _sys/core/hub.py) |
 | 127 | `mig.core.context.failover_plan` | `_sys/core/hub_context.py:ContextFailoverPlan` | `replace` | peerhub.routing.failover_plan | 8 matches across 3 files (_sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/tests/unit/l1_core/test_contracts.py, _sys/core/hub.py) |
@@ -4658,7 +4658,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 141 | `mig.core.logging.hub_logger` | `_sys/core/hub_logging.py:HubLogger` | `replace` | peerhub.telemetry.logger | 21 matches across 11 files (_sys/ai/backlog.json, _sys/tests/integration/test_hub_integration_v42.py, _sys/tests/unit/conftest.py, _sys/tests/unit/test_recent_session_consumption.py, _sys/core/hub_error.py...) |
 | 142 | `mig.core.peer.context_policy` | `_sys/core/hub_peer.py:ContextPolicy` | `replace` | peerhub.types.policy | 6 matches across 2 files (_sys/core/hub_peer.py, _sys/core/hub.py) |
 | 143 | `mig.core.peer.session_invocation` | `_sys/core/hub_peer.py:SessionInvocation` | `replace` | peerhub.adapters.invocation | 16 matches across 3 files (_sys/tests/unit/test_c10_remaining_items.py, _sys/core/hub.py, _sys/core/hub_peer.py) |
-| 144 | `mig.core.peer.prepared_invocation` | `_sys/core/hub_peer.py:PreparedInvocation` | `replace` | peerhub.adapters.invocation | 11 matches across 3 files (_sys/core/hub_peer.py, docs/design/peerhub-architecture-debate.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
+| 144 | `mig.core.peer.prepared_invocation` | `_sys/core/hub_peer.py:PreparedInvocation` | `replace` | peerhub.adapters.invocation | 11 matches across 3 files (_sys/core/hub_peer.py, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
 | 145 | `mig.core.peer.resolve_peer_sys_dir` | `_sys/core/hub_peer.py:resolve_peer_sys_dir` | `replace` | peerhub.storage.peer_paths | 27 matches across 14 files (_sys/core/hub_health.py, _sys/core/snapshot.py, _sys/core/hub.py, _sys/docs-v2/00-MANIFEST.md, _sys/docs-v2/general/lifecycle.md...) |
 | 146 | `mig.core.peer.normalize_orchestration` | `_sys/core/hub_peer.py:normalize_orchestration` | `replace` | peerhub.governance.orchestration_resolver | 33 matches across 11 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/ops/sandbox-behavior-probe-b7-2026-07-08.md, _sys/tests/unit/test_model_profiles.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py...) |
 | 147 | `mig.core.peer.profile_catalog` | `_sys/core/hub_peer.py:profile_catalog` | `replace` | peerhub.models.catalog | 2 matches across 2 files (_sys/checks/validate_peer_config.py, _sys/core/hub.py) |
@@ -4667,12 +4667,12 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 150 | `mig.core.peer.validate_model_operand` | `_sys/core/hub_peer.py:validate_model_operand` | `replace` | peerhub.models.validator | 16 matches across 8 files (_sys/tests/unit/test_model_profiles.py, _sys/tests/unit/test_cli_canary.py, _sys/docs/history/ops/overnight-hardening-2026-07-03.md, _sys/docs/history/ops/cli-crud-consistency-design.md, _sys/core/hub_peer.py...) |
 | 151 | `mig.core.peer.model_operand_report` | `_sys/core/hub_peer.py:model_operand_report` | `replace` | peerhub.models.reporter | 5 matches across 3 files (_sys/checks/check_lesson_enforcement.py, _sys/tests/unit/test_model_profiles.py, _sys/docs/history/ops/overnight-hardening-2026-07-03.md) |
 | 152 | `mig.core.peer.resolve_node_id` | `_sys/core/hub_peer.py:resolve_node_id` | `replace` | peerhub.routing.node_resolver | 12 matches across 7 files (_sys/core/hub.py, _sys/core/hub_peer.py, _sys/core/quota_capabilities.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, docs/design/phase0/legacy-hub-surface-old.json...) |
-| 153 | `mig.core.peer.is_routable` | `_sys/core/hub_peer.py:is_routable` | `replace` | peerhub.routing.router | 79 matches across 15 files (docs/design/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...) |
+| 153 | `mig.core.peer.is_routable` | `_sys/core/hub_peer.py:is_routable` | `replace` | peerhub.routing.router | 79 matches across 15 files (docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...) |
 | 154 | `mig.core.peer.root_peer_id` | `_sys/core/hub_peer.py:root_peer_id` | `replace` | peerhub.identity.peer_identity | 13 matches across 7 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, _sys/core/quota_capabilities.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md...) |
 | 155 | `mig.core.peer.adapter_contract` | `_sys/core/hub_peer.py:PeerAdapter` | `replace` | peerhub.adapters.base | 97 matches across 31 files (_sys/docs-v2/00-MANIFEST.md, _sys/ai/traceability_map.json, _sys/docs-v2/ops/t82-engram-rescope-2026-07-27.md, _sys/docs-v2/ops/residual-backlog-and-packaging-precheck-2026-07-26.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md...) |
 | 156 | `mig.core.peer.base_adapter` | `_sys/core/hub_peer.py:BaseAdapter` | `replace` | peerhub.adapters.base | 15 matches across 3 files (_sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/core/hub.py, _sys/core/hub_peer.py) |
-| 157 | `mig.core.peer.claude_adapter` | `_sys/core/hub_peer.py:ClaudeAdapter` | `replace` | peerhub.adapters.claude | 22 matches across 13 files (docs/design/ARCHITECTURE.md, _sys/ai/orchestration.json, docs/design/peerhub-architecture-debate.md, _sys/tests/integration/test_hub_integration_v42.py, _sys/ai/capability-declarations.json...) |
-| 158 | `mig.core.peer.codex_adapter` | `_sys/core/hub_peer.py:CodexAdapter` | `replace` | peerhub.adapters.codex | 38 matches across 16 files (docs/design/ARCHITECTURE.md, docs/design/peerhub-architecture-debate.md, _sys/tests/unit/test_recent_session_consumption.py, _sys/docs-v2/ops/schemas.md, _sys/docs-v2/ops/capability-leveling-decisions.md...) |
+| 157 | `mig.core.peer.claude_adapter` | `_sys/core/hub_peer.py:ClaudeAdapter` | `replace` | peerhub.adapters.claude | 22 matches across 13 files (docs/history/design/2026-07/ARCHITECTURE.md, _sys/ai/orchestration.json, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/tests/integration/test_hub_integration_v42.py, _sys/ai/capability-declarations.json...) |
+| 158 | `mig.core.peer.codex_adapter` | `_sys/core/hub_peer.py:CodexAdapter` | `replace` | peerhub.adapters.codex | 38 matches across 16 files (docs/history/design/2026-07/ARCHITECTURE.md, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/tests/unit/test_recent_session_consumption.py, _sys/docs-v2/ops/schemas.md, _sys/docs-v2/ops/capability-leveling-decisions.md...) |
 | 159 | `mig.core.peer.agy_adapter` | `_sys/core/hub_peer.py:AgyAdapter` | `replace` | peerhub.adapters.agy | 57 matches across 25 files (_sys/ai/backlog.json, _sys/antigravity/config/AGY.md, _sys/ai/capability-declarations.json, _sys/ai/user-directives.md, _sys/ai/orchestration.json...) |
 | 160 | `mig.core.peer.virtual_adapter` | `_sys/core/hub_peer.py:VirtualAdapter` | `replace` | peerhub.adapters.virtual | 6 matches across 3 files (_sys/docs/history/ops/remaining-items.md, _sys/docs/history/ops/perf-benchmark-2026-06-19-full.md, _sys/core/hub_peer.py) |
 | 161 | `mig.core.peer.get_adapter` | `_sys/core/hub_peer.py:get_adapter` | `replace` | peerhub.adapters.factory | 16 matches across 10 files (_sys/tests/unit/test_process_lease_supervision_c7.py, _sys/tests/unit/test_c10_remaining_items.py, _sys/core/hub_peer.py, _sys/core/hub.py, _sys/checks/check_sandbox_behavior.py...) |
@@ -4691,7 +4691,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 174 | `mig.core.guard.enumerate_origins` | `_sys/core/operational_guard_matrix.py:enumerate_origins` | `replace` | peerhub.security.guard_matrix | 1 matches across 1 files (_sys/core/operational_guard_matrix.py) |
 | 175 | `mig.core.guard.enumerate_cases` | `_sys/core/operational_guard_matrix.py:enumerate_cases` | `replace` | peerhub.security.guard_matrix | 9 matches across 4 files (_sys/tests/unit/test_operational_guard_matrix.py, _sys/tests/unit/test_check_operational_guard_matrix.py, _sys/checks/check_operational_guard_shadow.py, _sys/checks/check_operational_guard_matrix.py) |
 | 176 | `mig.core.guard.stratified_sample` | `_sys/core/operational_guard_matrix.py:stratified_sample_for_shuffle` | `replace` | peerhub.security.guard_matrix | 5 matches across 3 files (_sys/tests/unit/test_operational_guard_matrix.py, _sys/checks/check_operational_guard_matrix.py, _sys/tests/unit/test_check_operational_guard_matrix.py) |
-| 177 | `mig.core.pathlayout.path_layout_class` | `_sys/core/pathlayout.py:PathLayout` | `split` | peerhub.storage.layout / Engram host pathlayout | 60 matches across 21 files (tests/contract/test_phase0_sl_compatibility.py, tests/unit/cli/test_quota_wiring_e2e.py, docs/design/peerhub-architecture-debate.md, docs/design/ARCHITECTURE.md, tests/integration/test_stage2_boundary.py...) |
+| 177 | `mig.core.pathlayout.path_layout_class` | `_sys/core/pathlayout.py:PathLayout` | `split` | peerhub.storage.layout / Engram host pathlayout | 60 matches across 21 files (tests/contract/test_phase0_sl_compatibility.py, tests/unit/cli/test_quota_wiring_e2e.py, docs/history/design/2026-07/peerhub-architecture-debate.md, docs/history/design/2026-07/ARCHITECTURE.md, tests/integration/test_stage2_boundary.py...) |
 | 178 | `mig.core.pathlayout.resolve_path_layout` | `_sys/core/pathlayout.py:resolve_path_layout` | `split` | peerhub.storage.layout / Engram host pathlayout | 7 matches across 2 files (_sys/ai/unreferenced_functions_baseline.json, _sys/tests/unit/test_pathlayout.py) |
 | 179 | `mig.core.provisioner.toolchain_installer` | `_sys/core/provisioner.py:ensure_tool` | `stay` | Engram host provisioner (out of PeerHub core) | 35 matches across 6 files (_sys/tests/unit/test_provisioner_autoinstall.py, _sys/docs/history/ops/pretdd-prep-2026-07-10-tool-autoinstall.md, _sys/docs/history/ops/install-update-trigger-mece-2026-07-10.md, _sys/core/scrubber.py, _sys/core/provisioner.py...) |
 | 180 | `mig.core.provisioner.runtime_installer` | `_sys/core/provisioner.py:ensure_runtime` | `stay` | Engram host provisioner (out of PeerHub core) | 26 matches across 4 files (_sys/tests/unit/test_provisioner_autoinstall.py, _sys/core/provisioner.py, _sys/docs/history/ops/install-update-trigger-mece-2026-07-10.md, _sys/ai/backlog.json) |
@@ -4703,14 +4703,14 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 186 | `mig.core.quota.capabilities_lookup` | `_sys/core/quota_capabilities.py:root_quota_capability` | `replace` | peerhub.governance.quota_capabilities | 1 matches across 1 files (_sys/core/quota_capabilities.py) |
 | 187 | `mig.core.quota.supports_reset_credits` | `_sys/core/quota_capabilities.py:supports_reset_credits` | `replace` | peerhub.governance.quota_capabilities | 23 matches across 7 files (_sys/core/snapshot.py, _sys/core/hub.py, _sys/cli/diag.py, _sys/tests/unit/test_c10_remaining_items.py, _sys/tests/unit/test_diag_cli.py...) |
 | 188 | `mig.core.registrar.apply_registration` | `_sys/core/registrar.py:apply` | `stay` | Engram host registrar (out of PeerHub core) | 274 matches across 84 files (_sys/ai/backlog.json, alembic.ini, _sys/cli/peer_console.py, _sys/checks/sync_docs.py, _sys/cli/manage.py...) |
-| 189 | `mig.core.registrar.remove_registration` | `_sys/core/registrar.py:remove` | `stay` | Engram host registrar (out of PeerHub core) | 110 matches across 58 files (tools/surface_manifest/generate_manifest.py, docs/design/BACKLOG-CONSOLIDATED-2026-08-16.md, docs/design/peerhub-architecture-debate.md, docs/design/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md, docs/design/PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md...) |
-| 190 | `mig.core.relocator.relocate_path` | `_sys/core/relocator.py:relocate` | `deprecate` | core.launcher (Engram host) | 13 matches across 7 files (docs/design/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...) |
+| 189 | `mig.core.registrar.remove_registration` | `_sys/core/registrar.py:remove` | `stay` | Engram host registrar (out of PeerHub core) | 110 matches across 58 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/BACKLOG-CONSOLIDATED-2026-08-16.md, docs/history/design/2026-07/peerhub-architecture-debate.md, docs/history/design/2026-08/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md, docs/history/design/2026-08/PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md...) |
+| 190 | `mig.core.relocator.relocate_path` | `_sys/core/relocator.py:relocate` | `deprecate` | core.launcher (Engram host) | 13 matches across 7 files (docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...) |
 | 191 | `mig.core.scrubber.cleanup_engine` | `_sys/core/scrubber.py:run` | `stay` | Engram host scrubber (out of PeerHub core) | 2642 matches across 1823 files (alembic.ini, tools/surface_manifest/generate_manifest.py, peerhub/cli.py, docs/migrations.md, README.md...) |
-| 192 | `mig.core.setup.setup_shim` | `_sys/core/setup.py` | `deprecate` | core.provisioner (Engram host) | 25 matches across 17 files (_sys/ai/backlog.json, _sys/ai/infra.json, docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/claude/project/skills/antigravity/SKILL.md, _sys/tests/launch-wsbtest.ps1...) |
+| 192 | `mig.core.setup.setup_shim` | `_sys/core/setup.py` | `deprecate` | core.provisioner (Engram host) | 25 matches across 17 files (_sys/ai/backlog.json, _sys/ai/infra.json, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/claude/project/skills/antigravity/SKILL.md, _sys/tests/launch-wsbtest.ps1...) |
 | 193 | `mig.core.snapshot.telemetry_config` | `_sys/core/snapshot.py:telemetry_config` | `replace` | peerhub.telemetry.config | 34 matches across 12 files (_sys/core/snapshot.py, _sys/checks/check_policy_constants.py, _sys/checks/check_cli_reality.py, _sys/docs-v2/ops/diag-telemetry-architecture.md, _sys/tests/unit/test_telemetry_config.py...) |
 | 194 | `mig.core.snapshot.clear_expensive_cache` | `_sys/core/snapshot.py:clear_expensive_cache` | `replace` | peerhub.telemetry.cache | 2 matches across 1 files (_sys/cli/diag.py) |
 | 195 | `mig.core.snapshot.expensive_source_age_sec` | `_sys/core/snapshot.py:expensive_source_age_sec` | `replace` | peerhub.telemetry.cache | 7 matches across 3 files (_sys/tests/unit/test_diag_layout.py, _sys/tests/unit/test_diag_cli.py, _sys/cli/diag.py) |
-| 196 | `mig.core.snapshot.gather_peer` | `_sys/core/snapshot.py:gather_peer` | `replace` | peerhub.telemetry.peer_collector | 27 matches across 13 files (_sys/ai/backlog.json, _sys/cli/diag.py, docs/design/ARCHITECTURE.md, docs/design/HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md, docs/design/peerhub-architecture-debate.md...) |
+| 196 | `mig.core.snapshot.gather_peer` | `_sys/core/snapshot.py:gather_peer` | `replace` | peerhub.telemetry.peer_collector | 27 matches across 13 files (_sys/ai/backlog.json, _sys/cli/diag.py, docs/history/design/2026-07/ARCHITECTURE.md, docs/history/design/2026-08/HEALTH-QUOTA-TRACKING-DESIGN-2026-08-16.md, docs/history/design/2026-07/peerhub-architecture-debate.md...) |
 | 197 | `mig.core.snapshot.format_quota_bucket` | `_sys/core/snapshot.py:format_quota_bucket` | `replace` | peerhub.telemetry.formatter | 17 matches across 6 files (_sys/tests/unit/test_diag_quota_format.py, _sys/tests/unit/test_diag_layout.py, _sys/tests/unit/test_c10_remaining_items.py, _sys/cli/diag.py, _sys/docs/history/ops/diag-redesign-design.md...) |
 | 198 | `mig.core.snapshot.profile_health_gate_open` | `_sys/core/snapshot.py:profile_health_gate_open` | `replace` | peerhub.health.gate | 13 matches across 5 files (_sys/core/snapshot.py, _sys/core/hub_profile_router.py, _sys/core/hub.py, _sys/docs-v2/ops/architecture-audit-2026-07-24.md, _sys/docs/history/ops/backlog-5whys-consensus-2026-07-08-round4.md) |
 | 199 | `mig.core.snapshot.pacing_admission_for_profile` | `_sys/core/snapshot.py:pacing_admission_for_profile` | `replace` | peerhub.telemetry.pacing_gate | 17 matches across 4 files (_sys/docs-v2/ops/mega-mece-audit-2026-07-16.md, _sys/tests/unit/test_at1_transaction.py, _sys/core/snapshot.py, _sys/core/hub.py) |
@@ -4744,7 +4744,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 
 ## 5. Comprehensive 69-File Combined Crosswalk Synthesis
 
-Together with the CLI half (`docs/design/PHASE1-CAPABILITY-CROSSWALK-CLI-2026-08-20.md`), this document completes the exhaustive MECE migration crosswalk for the entire 69-file legacy codebase.
+Together with the CLI half (`docs/history/design/2026-08/PHASE1-CAPABILITY-CROSSWALK-CLI-2026-08-20.md`), this document completes the exhaustive MECE migration crosswalk for the entire 69-file legacy codebase.
 
 ### Combined Statistics & Disposition Breakdown
 | Partition | Legacy Files Covered | Total Public Symbols | Total Capability Rows | `replace` | `stay` | `split` | `deprecate` |

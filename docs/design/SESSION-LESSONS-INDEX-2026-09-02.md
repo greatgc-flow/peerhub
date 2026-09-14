@@ -58,7 +58,7 @@ pointer here.
 
 | Lesson | Where |
 |---|---|
-| The four recurring `P:\`/hub.py-layer infra incidents (drive-rename path resolution, cx sandbox DPAPI, and two more) — read before re-diagnosing any of the symptoms from scratch. | `docs/design/OVERNIGHT-INFRA-LESSONS-2026-08-10.md` |
+| The four recurring `P:\`/hub.py-layer infra incidents (drive-rename path resolution, cx sandbox DPAPI, and two more) — read before re-diagnosing any of the symptoms from scratch. | `docs/history/design/2026-08/OVERNIGHT-INFRA-LESSONS-2026-08-10.md` |
 | `git status`/`git clean`-based cleanup can be fully blind to real, non-empty scratch directories on disk. gitignore directory-name patterns (`.peerhub/`, `__pycache__/`) match at *any* depth, and git only ever tracks/lists files, never directories — so a one-off scratch directory whose sole contents happen to sit under a path component matching an ignored directory name (e.g. `.some-test-dir/.peerhub/peerhub.sqlite3`) is invisible to `git status` even though real bytes sit on disk, sometimes for days. A truly empty directory (0 files) is separately invisible for the same underlying reason (git never lists empty directories at all). Found 2026-09-02 while auditing whether the repo root was actually clean after an earlier `git status`-driven cleanup pass — it wasn't; dozens of `.codex-*`/`.manual_*`/`.debug-runtime*`/`.alert-*` directories from throughout the session remained. **Fix for a future cleanup pass: enumerate the filesystem directly (`os.scandir`/`find`), not `git status`, whenever the goal is "remove everything not meant to be here."** | This entry — not yet a dedicated round in the TDD-progress doc |
 
 ## What this index deliberately does not cover

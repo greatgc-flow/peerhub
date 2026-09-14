@@ -420,8 +420,8 @@ Below is the design-history/ratification record (kept for context on
 *why* the design looks the way it does -- skip to "Status: APPROVED"
 further down if you just need the current state).
 
-Two design passes: `docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md` (original) →
-`docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md` (commit
+Two design passes: `docs/history/design/2026-08/CAPABILITY-LEASE-DESIGN-2026-08-08.md` (original) →
+`docs/history/design/2026-08/CAPABILITY-LEASE-DESIGN-2026-08-08-ERRATA.md` (commit
 `d7017e9`, ag.opus's re-ratification resolving the anchor point,
 enforcement gate location, and a 3-level EnforcementLevel model) → cx's
 final cross-check (2026-08-10) found the errata itself has 4 concrete,
@@ -506,7 +506,7 @@ whenever picked up -- start with increment 1 (enums/DTOs/pure validators
 `test_generator_runs_and_produces_valid_manifest`), confirmed unrelated
 to any Phase 1/2 work via git-stash bisection, were fixed in `ac26ed9`
 (first `cc.*`-profile peer dispatch used this session) -- see
-`docs/design/OVERNIGHT-INFRA-LESSONS-2026-08-10.md` for detail.
+`docs/history/design/2026-08/OVERNIGHT-INFRA-LESSONS-2026-08-10.md` for detail.
 
 ## Phase 3 — Real orchestration loop (the actual hub.py replacement)
 Status: not started. **This is the critical path** -- nothing before this

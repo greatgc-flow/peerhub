@@ -2,7 +2,7 @@
 
 Covers ``mark_artifact_staged``, ``mark_artifact_verified``, and
 ``reclaim_orphaned_artifact`` added per the ratified ArtifactMaterializer
-contract in ``docs/design/SLICE5-KICKOFF-R1.md``.
+contract in ``docs/history/design/2026-08/SLICE5-KICKOFF-R1.md``.
 """
 
 from __future__ import annotations

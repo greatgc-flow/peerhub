@@ -77,4 +77,4 @@ pytest -q -m slow          # + the real-adapter/real-dispatch integration tests 
 pyright                    # static type check, should report 0 errors
 ```
 
-This repo's own convention (see `docs/design/FACT-REFRESH-PROCEDURE-R1.md`) is to never cite a specific "current passing count" in this file — it changes with nearly every commit. Run `pytest -q` yourself for the real, current number.
+This repo's own convention (see `docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md`) is to never cite a specific "current passing count" in this file — it changes with nearly every commit. Run `pytest -q` yourself for the real, current number.

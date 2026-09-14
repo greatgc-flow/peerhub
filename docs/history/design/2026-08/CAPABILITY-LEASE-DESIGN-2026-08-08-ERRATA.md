@@ -1,6 +1,6 @@
 # Capability/Mutation-Lease Design — Re-Ratification Errata (2026-08-08 → 2026-08-10)
 
-**Status: errata/addendum to [CAPABILITY-LEASE-DESIGN-2026-08-08.md](file:///P:/peerhub/docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md). Not a replacement — that document remains the canonical roadmap proposal; this one records verified/refuted findings, anchoring decisions, and concrete enforcement locations inside the codebase as of 2026-08-10. Section 7 is a second, normative addendum that supersedes Sections 2–5 wherever they conflict.**
+**Status: errata/addendum to [CAPABILITY-LEASE-DESIGN-2026-08-08.md](file:///P:/peerhub/docs/history/design/2026-08/CAPABILITY-LEASE-DESIGN-2026-08-08.md). Not a replacement — that document remains the canonical roadmap proposal; this one records verified/refuted findings, anchoring decisions, and concrete enforcement locations inside the codebase as of 2026-08-10. Section 7 is a second, normative addendum that supersedes Sections 2–5 wherever they conflict.**
 
 ---
 

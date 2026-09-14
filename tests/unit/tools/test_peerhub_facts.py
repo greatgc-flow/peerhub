@@ -1,4 +1,4 @@
-"""Tests for tools/peerhub_facts (docs/design/FACT-REFRESH-PROCEDURE-R1.md).
+"""Tests for tools/peerhub_facts (docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md).
 
 These deliberately do more than prove the routine runs. A drift detector
 that only ever sees a healthy machine is indistinguishable from one that

@@ -3,8 +3,8 @@
 > **DOCUMENT: Phase 1 Dialectical Revision (Round 5 Punch-List Item 1)**  
 > **AUTHOR:** `ag` (DeepMind Advanced Agentic Coding)  
 > **SCOPE:** Exhaustive capability and symbol decomposition of all 39 files in `_sys/cli`  
-> **TARGET PATH:** `docs/design/PHASE1-CAPABILITY-CROSSWALK-CLI-2026-08-20.md`  
-> **COMPLIANCE:** Addresses cx's Round 4 review (`docs/design/PHASE1-CX-COUNTERCRITIQUE-ROUND4-2026-08-20.md`), **DIR-004** (Measured-Only Claims with live grep citations), and 100% MECE symbol coverage across all 56 public top-level symbols and 10 capability-bearing underscored symbols.
+> **TARGET PATH:** `docs/history/design/2026-08/PHASE1-CAPABILITY-CROSSWALK-CLI-2026-08-20.md`  
+> **COMPLIANCE:** Addresses cx's Round 4 review (`docs/history/design/2026-08/PHASE1-CX-COUNTERCRITIQUE-ROUND4-2026-08-20.md`), **DIR-004** (Measured-Only Claims with live grep citations), and 100% MECE symbol coverage across all 56 public top-level symbols and 10 capability-bearing underscored symbols.
 
 ---
 
@@ -92,7 +92,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md _bat-shim P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (13 external matches, 0 self matches):
     ```
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:29:| `_sys/cli/_bat-shim` | **GAP** | **`peerhub.application.shims`**. Needs equivalent generation logic. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:29:| `_sys/cli/_bat-shim` | **GAP** | **`peerhub.application.shims`**. Needs equivalent generation logic. |
     P:/workspace/Engram/cli/set-collab-rate:2:. "$(dirname -- "${BASH_SOURCE[0]}")/_bat-shim"
     P:/workspace/Engram/cli/msg:2:. "$(dirname -- "${BASH_SOURCE[0]}")/_bat-shim"
     P:/workspace/Engram/cli/manage:2:. "$(dirname -- "${BASH_SOURCE[0]}")/_bat-shim"
@@ -152,8 +152,8 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/codex/config/rules/default.rules:23:prefix_rule(pattern=["bash", "-lc", "for c in hub diag claude codex agy gemini msg manage git-draft batch-review set-collab-rate collab-rate-gate launch; do printf /"%s=/" /"$c/"; command -v /"$c/" || true; done; diag --help >/dev/null 2>&1; echo diag_exit=$?; set-collab-rate | tail -n 6; collab-rate-gate 0; echo gate_exit=$?; msg status | head -n 6"], decision="allow")
     P:/workspace/Engram/codex/config/rules/default.rules:28:prefix_rule(pattern=["C://WINDOWS//System32//WindowsPowerShell//v1.0//powershell.exe", "-Command", "$env:TEMP='P://tmp//ag-context-tests'; $env:TMP='P://tmp//ag-context-tests'; batch-review"], decision="allow")
     P:/workspace/Engram/docs/history/SYSTEM_ARCHITECTURE_v3_legacy.md:20:[Tools]     _sys/cli/ (git-draft, batch-review) + _sys/hooks/ (archive-data)
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:34:| `_sys/cli/batch-review` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:35:| `_sys/cli/batch-review.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:34:| `_sys/cli/batch-review` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:35:| `_sys/cli/batch-review.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
     P:/workspace/Engram/cli/batch_review.py:23:    """Read the batch-review policy (ratio threshold + interval) from protocol.json."""
     P:/workspace/Engram/cli/batch_review.py:136:        log_collab("Axis-R", "batch-review.py", "FAIL", "Error: gemini call failed")
     ... [2 additional matches omitted]
@@ -231,8 +231,8 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/codex/config/rules/default.rules:22:prefix_rule(pattern=["bash", "-lc", "hub peer-status >/tmp/hub.out && tail -n +1 /tmp/hub.out; diag --help >/dev/null 2>&1; echo diag_exit=$?; set-collab-rate | tail -n 6; collab-rate-gate 0; echo gate_exit=$?; msg status | head -n 12"], decision="allow")
     P:/workspace/Engram/codex/config/rules/default.rules:23:prefix_rule(pattern=["bash", "-lc", "for c in hub diag claude codex agy gemini msg manage git-draft batch-review set-collab-rate collab-rate-gate launch; do printf /"%s=/" /"$c/"; command -v /"$c/" || true; done; diag --help >/dev/null 2>&1; echo diag_exit=$?; set-collab-rate | tail -n 6; collab-rate-gate 0; echo gate_exit=$?; msg status | head -n 6"], decision="allow")
     P:/workspace/Engram/ai/infra.json:24:        "collab_rate_gate": "_sys/cli/collab-rate-gate.bat",
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:43:| `_sys/cli/collab-rate-gate` | **GAP** | **`peerhub.governance.quota`**. Governance logic. |
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:44:| `_sys/cli/collab-rate-gate.bat` | **GAP** | **`peerhub.governance.quota`**. Governance logic. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:43:| `_sys/cli/collab-rate-gate` | **GAP** | **`peerhub.governance.quota`**. Governance logic. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:44:| `_sys/cli/collab-rate-gate.bat` | **GAP** | **`peerhub.governance.quota`**. Governance logic. |
     P:/workspace/Engram/cli/collab-rate-gate.bat:3::: collab-rate-gate.bat THRESHOLD
     P:/workspace/Engram/cli/collab-rate-gate.bat:7::: Usage: call collab-rate-gate.bat 7
     ```
@@ -339,9 +339,9 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/docs-v2/user/manual.md:163:Use bare commands from any workspace: `hub`, `diag`, `msg`, `manage`, `git-draft`, `batch-review`, `set-collab-rate`, and the peer launchers (`claude`, `codex`, `agy`). `_sys/cli` is the single PATH entry for these operator commands. cmd/PowerShell resolve the `.bat` wrappers; Git Bash resolves the extensionless shims. Do not call `python _sys/core/hub.py ...` from arbitrary workspaces.
     P:/workspace/Engram/docs-v2/specific/cx.md:24:launch pins the same home via `codex_entry.py`.
     P:/workspace/Engram/docs-v2/specific/cc.md:37:- **Session reuse:** hub IPC asks reuse per `session_mode: reuse` (orchestration.json), scoped by `room_id`. The interactive human-facing cc terminal is a separate fresh session per launch.
-    P:/workspace/peerhub/docs/design/BACKLOG-CONSOLIDATED-2026-08-16.md:32:- Capability-lease enforcement-evidence prerequisites - Zero code, trigger-gated on machine-owned launcher evidence (4 named prerequisites). [Source: HUB-REPLACEMENT-ROADMAP Cross-cutting & CAPABILITY-LEASE-DESIGN ERRATA Section 8] [Size: architecture]
-    P:/workspace/peerhub/docs/design/ARCHITECTURE.md:605:**Observed in `hub.py`/portable-dev-env:** every session end launches self-care unconditionally (`ctx_end.py:472-480`); missing `commit_count` silently defaults to `0` (`saturation_scan.py:219-229`); `0 % 10 == 0` makes the "every-10th-commit" scan run every single time (`saturation_scan.py:279-285`); any nonempty stdout triggers `proposal-add` (`self_care.py:244-264`); proposal creation only increments a filename sequence, no content dedup (`hub.py:10438-10472`) ??60+ near-duplicate proposal files accumulated in one day as a direct result.
-    P:/workspace/peerhub/docs/design/CAPABILITY-LEASE-DESIGN-2026-08-08.md:40:- **For real OS-level confinement of an unsandboxed peer** (ag's actual gap): proposed Windows restricted-token/restricted-process launchers as the genuine mechanism, since nothing at the shell-interception layer can be made airtight.
+    P:/workspace/peerhub/docs/history/design/2026-08/BACKLOG-CONSOLIDATED-2026-08-16.md:32:- Capability-lease enforcement-evidence prerequisites - Zero code, trigger-gated on machine-owned launcher evidence (4 named prerequisites). [Source: HUB-REPLACEMENT-ROADMAP Cross-cutting & CAPABILITY-LEASE-DESIGN ERRATA Section 8] [Size: architecture]
+    P:/workspace/peerhub/docs/history/design/2026-07/ARCHITECTURE.md:605:**Observed in `hub.py`/portable-dev-env:** every session end launches self-care unconditionally (`ctx_end.py:472-480`); missing `commit_count` silently defaults to `0` (`saturation_scan.py:219-229`); `0 % 10 == 0` makes the "every-10th-commit" scan run every single time (`saturation_scan.py:279-285`); any nonempty stdout triggers `proposal-add` (`self_care.py:244-264`); proposal creation only increments a filename sequence, no content dedup (`hub.py:10438-10472`) ??60+ near-duplicate proposal files accumulated in one day as a direct result.
+    P:/workspace/peerhub/docs/history/design/2026-08/CAPABILITY-LEASE-DESIGN-2026-08-08.md:40:- **For real OS-level confinement of an unsandboxed peer** (ag's actual gap): proposed Windows restricted-token/restricted-process launchers as the genuine mechanism, since nothing at the shell-interception layer can be made airtight.
     ... [371 additional matches omitted]
     ```
 - **State Read / Written:** Reads BASH_SOURCE[0]; writes no state.
@@ -417,8 +417,8 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/codex/config/rules/default.rules:21:prefix_rule(pattern=["bash", "-lc", "for c in hub diag claude codex agy gemini msg manage git-draft batch-review set-collab-rate collab-rate-gate launch; do printf /"%s=/" /"$c/"; command -v /"$c/" || true; done"], decision="allow")
     P:/workspace/Engram/codex/config/rules/default.rules:22:prefix_rule(pattern=["bash", "-lc", "hub peer-status >/tmp/hub.out && tail -n +1 /tmp/hub.out; diag --help >/dev/null 2>&1; echo diag_exit=$?; set-collab-rate | tail -n 6; collab-rate-gate 0; echo gate_exit=$?; msg status | head -n 12"], decision="allow")
     P:/workspace/Engram/codex/config/rules/default.rules:23:prefix_rule(pattern=["bash", "-lc", "for c in hub diag claude codex agy gemini msg manage git-draft batch-review set-collab-rate collab-rate-gate launch; do printf /"%s=/" /"$c/"; command -v /"$c/" || true; done; diag --help >/dev/null 2>&1; echo diag_exit=$?; set-collab-rate | tail -n 6; collab-rate-gate 0; echo gate_exit=$?; msg status | head -n 6"], decision="allow")
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:65:| `_sys/cli/set-collab-rate` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:66:| `_sys/cli/set-collab-rate.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:65:| `_sys/cli/set-collab-rate` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:66:| `_sys/cli/set-collab-rate.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
     P:/workspace/Engram/cli/set-collab-rate.bat:3::: set-collab-rate.bat [0-10]
     P:/workspace/Engram/cli/set-collab-rate.bat:13:    echo Usage: set-collab-rate.bat [0-10]
     P:/workspace/Engram/cli/set-collab-rate.bat:25:    echo Usage: set-collab-rate.bat [0-10]
@@ -447,7 +447,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/ai/backlog.json:2263:      "next_action": "Discovered via diag ACTIVE SESSIONS showing ag.effort scope=default, last_used_at=2026-07-21T22:12:15+09:00, last_ask_id=ask-6acc, with no corresponding entry anywhere: .ai/ask_history.jsonl (local-time '%Y-%m-%dT%H:%M:%S', no ask-6acc), _sys/data/logs/ipc-log.jsonl and cost-log.jsonl (UTC 'Z'-suffixed, no entry in the 13:12Z window), error-log.jsonl (clean), and ag's own local PTY conversation store (_sys/antigravity/config/brain/409c5c25-.../.system_generated/, no file activity after 2026-07-17). Resumed the exact session via `hub.py ask --to ag.effort --scope default` and asked ag directly: it reported zero memory of anything around that timestamp, and independently guessed 'a pre-dispatch, check-gate, or failed connection attempt that never reached an LLM call' - matching the local evidence exactly. hub.py's _set_active_session (session_state.json, peer-global, no ai_root dependency) and _append_ask_history (.ai/ask_history.jsonl, silently no-ops when ai_root is falsy) are called back-to-back on the PTY success path (hub.py ~5883-5888) but are NOT atomic with each other or with the ipc-log/cost-log calls a few lines above (gated on `if logger:`, itself populated by _get_logger() which used to swallow HubLogger() construction failures with a bare `except: pass`). Any of: (a) ai_root resolving falsy for that one call, (b) HubLogger() construction failing transiently, (c) the PTY output classifier mis-reading a connection/handshake artifact as a non-empty successful reply, could each independently produce exactly this signature. LOG HARDENING SHIPPED this session (see evidence_commit): _get_logger() now prints a stderr warning with the real exception on construction failure instead of swallowing it; both `if logger:` call sites (PTY branch ~5812, non-PTY branch ~5966) now emit '[HUB:WARN] ipc/cost log skipped for {peer} (ask_id=...): logger unavailable' on the else branch; _append_ask_history emits '[HUB:WARN] ask_history skipped for {peer}: ai_root is unset' instead of a silent return. Verified live: two follow-up `hub.py ask --to ag.effort --scope default` calls after the hardening landed produced NO warning and DID log correctly to ipc-log/cost-log/ask_history - so logging is not systemically broken right now; the original gap was a one-off (or rare) condition. GOTCHA for future investigators: ask_history.jsonl timestamps are local naive time (hub.py `_now()` = datetime.now().strftime(...), no tz marker) while ipc-log/cost-log/error-log timestamps are UTC with a 'Z' suffix (hub_logging.py `_now_iso()`) - cross-referencing by raw string match across these files WILL silently miss real matches unless you convert timezones first (caught this mid-investigation: an earlier UTC-vs-KST string search wrongly suggested logging was currently broken). Next step if this recurs: the new stderr warnings should immediately identify which of (a)/(b)/(c) is firing; if a recurrence produces NEITHER warning, the cause is a fourth, still-unknown path and deserves a fresh forensic pass (possibly related to [[T84]]'s ag-hang class, given both involve PTY-branch ag asks with an incomplete/uncertain hub-side outcome record). UPDATE 2026-07-21 23:20 KST: recurred a 3rd time live during this session (last_used_at=23:16:34, last_ask_id=ask-bf91, again zero ask_history/ipc-log/cost-log trace) while no hub.py ask in this conversation targeted --scope default. Found the real mechanism: _sys/antigravity/config/cache/last_conversations.json is agy's OWN per-workspace 'last conversation' cache, keyed by the LITERAL cwd path string (not resolved) -- its 'P://' entry (mtime matches the 23:16:34 touch almost exactly) still points at the stale 409c5c25, while 'D://PortableDev (v2.0)//' (the real underlying path once resolved) points at current, correct sessions. find_ai_root() only calls .resolve() on the HUB_AI_ROOT env-override branch; the normal cwd-ancestor-search branch does not, so any hub.py invocation whose process cwd is the literal 'P://' drive-letter (this terminal session's actual cwd throughout) can spawn an ag subprocess with an unresolved cwd, hitting agy's stale 'P://' cache key instead of the live per-room session agy would otherwise resume -- independent of and upstream of hub.py's own scope_key/session_state.json logic. This refines (doesn't replace) cc.effort's mtime-fallback critique: the 'wrong session picked' half is agy's own workspace-cache path-identity bug, not (only) AgyAdapter's directory-mtime fallback. Next step: confirm whether resolving cwd to the real path (mirroring the HUB_AI_ROOT branch's .resolve()) before spawning ag subprocesses eliminates the P:// vs D://PortableDev(v2.0) split entirely. CORRECTION 2026-07-22: tested the proposed next step myself before implementing (good thing -- it was wrong). find_ai_root() (hub.py:147) ALREADY calls Path.cwd().resolve(), and `subst` confirms P:// really does resolve to D://PortableDev (v2.0)// -- verified directly: Path.cwd().resolve() from a P:// cwd returns the D:// path. So proc_cwd (hub.py's own ai_root.parent, threaded to the ag subprocess) should already be the resolved D:// path for any ask going through _action_ask_inner's normal flow. The literal-'P://'-cwd theory as the root cause is therefore DISPROVEN for that code path. Remaining candidates: (a) _ask_with_pty (hub.py ~3199) or agy's own PTY spawn might resolve/pass cwd through a different path than proc_cwd, not yet checked; (b) agy's own binary might independently query its OWN process cwd via some Windows API that returns the unresolved drive letter even when the PARENT passed a resolved cwd (child processes can sometimes see the raw current directory differently under subst); (c) something entirely outside hub.py's ask pipeline. Not yet resolved -- do not re-attempt the disproven fix. FOUND 2026-07-22 (ag.effort, ~100-step direct code trace): two distinct mechanisms, not one. (1) _sys/cli/agy_entry.py:96 spawns agy.exe via subprocess.Popen WITHOUT a cwd= argument when a human runs `agy.bat` interactively from a shell -- agy.exe then inherits the raw unresolved shell cwd (literal 'P://' if that's where the shell sits) and uses it as-is for last_conversations.json's cache key. This is a genuinely different code path from hub.py's own action_ask() PTY spawn, which DOES pass the resolved proc_cwd correctly (confirmed separately, see the earlier correction on this same item). (2) Separately, ai_root can be None for certain non-terminal callers (ag.effort's trace pointed at action_context_fill and check_peer_capability_canary.py as candidates, not fully confirmed which), which combined with the now-fixed silent HubLogger/ask_history skips (e45f3bd) explains the missing log trace independent of the cwd issue. STATUS: understood well enough to be actionable, not yet fixed -- agy_entry.py's missing cwd= is a real, narrow, low-risk fix (pass cwd=Path.cwd().resolve() explicitly) but affects only interactive human agy.bat usage, not hub.py's automated ask flow, so deferred as a small standalone follow-up rather than bundled into this session's already-large batch. CLOSED 2026-07-21 (0ef7e7e): agy_entry.py's interactive Popen spawn now passes cwd=str(Path.cwd().resolve()) explicitly, confirmed live in v1.5.0's release notes. Re-verified present 2026-07-26 (T88/backlog sweep + the S3 console-runner migration, ee158d5): the fix was faithfully carried into the new shared console_runner.py's ConsoleSessionSpec.cwd field for agy_entry.py specifically (cc's own S3 review confirmed this line-by-line against the pre-migration source).",
     P:/workspace/Engram/antigravity/config/AGY.md:17:- **Launch:** Hub `ask --to ag` invokes the native `_sys/tools/agy/agy.exe` DIRECTLY via `AgyAdapter`. This bypasses `agy.bat` to avoid context-fill contamination. (`agy_entry.py` / `agy.bat` are used for INTERACTIVE launch only).
     P:/workspace/Engram/claude/config/settings.json:19:      "PowerShell(cmd /c /"P://_sys//cli//agy.bat/" *)",
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:32:| `_sys/cli/agy.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:32:| `_sys/cli/agy.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
     P:/workspace/Engram/docs-v2/user/manual.md:12:4. _sys/cli/claude.bat   # launch a peer (or codex.bat / agy.bat)
     P:/workspace/Engram/docs-v2/specific/ag.md:55:- **Entry:** `_sys/cli/agy.bat` ??`agy_entry.py`
     ... [7 additional matches omitted]
@@ -468,7 +468,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
   - Real Grep Evidence (2 external matches, 0 self matches):
     ```
     P:/workspace/Engram/claude/project/skills/gemini/SKILL.md:101:| R | `_sys/cli/batch-review.bat` | Manual | Uncommitted diff batch review |
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:35:| `_sys/cli/batch-review.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:35:| `_sys/cli/batch-review.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
     ```
 - **State Read / Written:** Reads _sys/env/venv/Scripts/python.exe, _sys/cli/batch_review.py; sets PYTHONUTF8=1.
 - **External Effects:** Spawns python.exe running batch_review.py %*.
@@ -489,7 +489,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/ai/orchestration.json:97:      "_interactive_default_profile_note": "Used only by cli/peer_console.py for human-driven interactive terminal launches (claude.bat etc). hub.py IPC ask default_profile set to effort per 2026-08-15 3-peer Accord (was deepthink, burning Opus-5 on routine IPC). Per-session override (e.g. /model) always wins; this only sets the launch-time seed.",
     P:/workspace/Engram/ai/peers.json:38:                "PowerShell(cmd /c /"{DRIVE}://_sys//cli//claude.bat/" *)",
     P:/workspace/Engram/claude/config/settings.json:16:      "PowerShell(cmd /c /"P://_sys//cli//claude.bat/" *)",
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:38:| `_sys/cli/claude.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:38:| `_sys/cli/claude.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
     P:/workspace/Engram/tests/unit/test_check_cli_reality.py:37:        assert ccr.is_wrapper(SYS_DIR / "cli" / "claude.bat")
     P:/workspace/Engram/docs-v2/user/manual.md:12:4. _sys/cli/claude.bat   # launch a peer (or codex.bat / agy.bat)
     P:/workspace/Engram/docs-v2/user/manual.md:169:hub init-session --agent cc     # (auto-called by claude.bat)
@@ -542,7 +542,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/cli/collab-rate-gate.bat:3::: collab-rate-gate.bat THRESHOLD
     P:/workspace/Engram/cli/collab-rate-gate.bat:7::: Usage: call collab-rate-gate.bat 7
     P:/workspace/Engram/ai/infra.json:24:        "collab_rate_gate": "_sys/cli/collab-rate-gate.bat",
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:44:| `_sys/cli/collab-rate-gate.bat` | **GAP** | **`peerhub.governance.quota`**. Governance logic. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:44:| `_sys/cli/collab-rate-gate.bat` | **GAP** | **`peerhub.governance.quota`**. Governance logic. |
     ```
 - **State Read / Written:** Reads _sys/ai/protocol.json via PowerShell.
 - **External Effects:** Exits 0 if collab_rate >= THRESHOLD, else 1.
@@ -563,7 +563,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/docs-v2/ops/logging.md:412:- **`diag` Command**: `diag` provides a global diagnostic dashboard via `_sys/cli` PATH wrappers (`diag.bat` for cmd/PowerShell, `diag` for Git Bash). It reads the live JSON logs directly for `ag` and `cc`. For `cx` (which lacks JSON), it queries `_sys/codex/config/state_5.sqlite` natively (`?mode=ro`) and uses app-server rate-limit reads where available. Gate and quarantine status fall back to `peer-status` (canonical). The expansion contract is `ops/diag-telemetry-architecture.md`: Specific collectors normalize into a Generic telemetry schema before `diag` renders freshness-aware summaries. Watch mode uses a 5s default interval, 2s minimum interval, TTL-gated expensive sources, and NDJSON for `--json --watch`.
     P:/workspace/Engram/docs/history/ops/diag-redesign-design.md:89:bucket still renders a bar. Verify live with `diag.bat` (NO_COLOR + colored).
     P:/workspace/Engram/docs/history/ops/diag-redesign-design.md:97:*Next: TDD from step 1 (snapshot sort) ??_dw/_pad ??render_profiles ??render_summary ??section order ??live diag.bat check.*
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:47:| `_sys/cli/diag.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:47:| `_sys/cli/diag.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
     ```
 - **State Read / Written:** Executes python.exe with diag.py.
 - **External Effects:** Invokes diag.py %*.
@@ -581,7 +581,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
   - Real Grep Evidence (18 external matches, 0 self matches):
     ```
     P:/workspace/Engram/docs/history/SYSTEM_ARCHITECTURE_v3_legacy.md:114:| G | `git-draft.bat` | Commit message draft | ??| ??|
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:50:| `_sys/cli/git-draft.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:50:| `_sys/cli/git-draft.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
     P:/workspace/Engram/claude/project/skills/portable-env/SKILL.md:117:           Auto-generate commit draft: Axis-G (_sys/cli/git-draft.bat)
     P:/workspace/Engram/claude/project/skills/gemini/SKILL.md:98:| G | `_sys/cli/git-draft.bat` | Unlimited | Commit message draft |
     P:/workspace/Engram/claude/project/agents/coordinator.md:98:Phase 4: Run Axis-G (_sys/cli/git-draft.bat). Run check-health.bat (MANDATORY). Present summary.
@@ -608,8 +608,8 @@ This document provides the normative **`migration_capability_id`** crosswalk for
   - Real Grep Evidence (4 external matches, 0 self matches):
     ```
     P:/workspace/Engram/tests/unit/test_check_cli_reality.py:55:            {"type": "peer", "node_id": "wrap", "invoke": "_sys/cli/hub.bat", "enabled": True},
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:53:| `_sys/cli/hub.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:64:| `_sys/cli/peerhub.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:53:| `_sys/cli/hub.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:64:| `_sys/cli/peerhub.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
     P:/workspace/Engram/ai/infra.json:23:        "hub": "_sys/cli/hub.bat",
     ```
 - **State Read / Written:** Reads _sys/env/venv/Scripts/python.exe, _sys/core/hub.py; sets PYTHONUTF8=1.
@@ -655,7 +655,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
   - Real Grep Evidence (13 external matches, 0 self matches):
     ```
     P:/workspace/Engram/cli/manage.bat:3::: manage.bat - Wrapper for manage.py
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:58:| `_sys/cli/manage.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:58:| `_sys/cli/manage.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
     P:/workspace/Engram/tests/lifecycle_tester.py:51:    manage_bat = tgt / "register.bat"
     P:/workspace/Engram/tests/lifecycle_tester.py:59:    subprocess.run([str(manage_bat)], cwd=tgt, check=True, input=b"/n")
     P:/workspace/Engram/checks/check_deps.py:24:        portable_root / "manage.bat",
@@ -704,11 +704,11 @@ This document provides the normative **`migration_capability_id`** crosswalk for
 - **Legacy File / Symbol:** `_sys/cli/peerhub.bat`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.cli / peerhub.cli.compat.shim`
-- **Current Real Consumers (Empirically Measured):** Windows batch shims and documentation; _sys/cli/diag.bat, _sys/cli/hub.bat, docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/ARCHIVE-2026-08-19-workspace-scratch.md
+- **Current Real Consumers (Empirically Measured):** Windows batch shims and documentation; _sys/cli/diag.bat, _sys/cli/hub.bat, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/ARCHIVE-2026-08-19-workspace-scratch.md
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md peerhub.bat P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (6 external matches, 0 self matches):
     ```
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:64:| `_sys/cli/peerhub.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:64:| `_sys/cli/peerhub.bat` | **GAP** | **`peerhub.application.shims`**. Windows shim. |
     P:/workspace/Engram/docs/ARCHIVE-2026-08-19-workspace-scratch.md:78:| 2.1 | `_sys/cli/hub.bat` and `_sys/cli/diag.bat` delegate to `_sys/cli/peerhub.bat`; they do not call the Python legacy files. | `[empirical_probe: source inspection]` | The branded aliases have already begun the cutover. |
     P:/workspace/Engram/docs/ARCHIVE-2026-08-19-workspace-scratch.md:115:| 4.6 | `_sys/cli/peerhub.bat` | **MOVE OR REDUCE TO AN INSTALLATION SHIM** under `_sys/tools/peerhub/`; it may only resolve Engram's venv and execute `peerhub.exe`/`python -m peerhub.cli`. Do not expose it as `engram peerhub`. | Installing a separate tool is compatible with Engram's environment role; owning its command API is not. | Removing the only PATH bridge could make the pip-installed executable inconvenient or unreachable. |
     P:/workspace/Engram/cli/hub.bat:4:    call "%~dp0peerhub.bat" status
@@ -735,7 +735,7 @@ This document provides the normative **`migration_capability_id`** crosswalk for
     P:/workspace/Engram/cli/set-collab-rate.bat:13:    echo Usage: set-collab-rate.bat [0-10]
     P:/workspace/Engram/cli/set-collab-rate.bat:25:    echo Usage: set-collab-rate.bat [0-10]
     P:/workspace/Engram/claude/project/skills/peer/SKILL.md:59:cmd /c "P:/workspace/Engram/cli/set-collab-rate.bat {N}"
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:66:| `_sys/cli/set-collab-rate.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:66:| `_sys/cli/set-collab-rate.bat` | **GAP** | **`peerhub.application.cli`**. Make peerhub subcommand. |
     ```
 - **State Read / Written:** Reads and writes _sys/ai/protocol.json (collab_rate.current, active_constraints.current_collab_rate).
 - **External Effects:** Overwrites _sys/ai/protocol.json via PowerShell ConvertFrom-Json / ConvertTo-Json.
@@ -753,8 +753,8 @@ This document provides the normative **`migration_capability_id`** crosswalk for
   - Real Grep Evidence (37 external matches, 0 self matches):
     ```
     P:/workspace/Engram/cli/launcher.py:2:launcher.py - Thin wrapper. Logic moved to core.launcher.
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:56:| `_sys/cli/launcher.py` | **Partial** (`peerhub.dispatch`) | **`peerhub.application.runtime`**. Core CLI event loop. |
-    P:/workspace/peerhub/docs/design/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:78:| `_sys/core/launcher.py` | **Partial** (`peerhub.dispatch`) | **`peerhub.application.runtime`**. App orchestration. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:56:| `_sys/cli/launcher.py` | **Partial** (`peerhub.dispatch`) | **`peerhub.application.runtime`**. Core CLI event loop. |
+    P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:78:| `_sys/core/launcher.py` | **Partial** (`peerhub.dispatch`) | **`peerhub.application.runtime`**. App orchestration. |
     P:/workspace/Engram/tests/lifecycle_tester.py:66:    # Create a dummy script to dump the environment variables provided by launcher.py
     P:/workspace/Engram/core/launcher.py:2:launcher.py - Environment setup and process spawning for Portable Dev Environment.
     P:/workspace/Engram/core/launcher.py:35:        if not (Path(drive_root) / "_sys" / "core" / "launcher.py").exists():

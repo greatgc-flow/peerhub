@@ -1,4 +1,4 @@
-"""peerhub fact-refresh routine (implements docs/design/FACT-REFRESH-PROCEDURE-R1.md).
+"""peerhub fact-refresh routine (implements docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md).
 
 Manually-invoked drift detector. Collects observed facts about the peer
 CLIs, the adapter decoders, the installed dependency set, and the test

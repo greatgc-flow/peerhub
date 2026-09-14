@@ -1,7 +1,7 @@
 # Empirical PTY / Buffering Probe Findings (2026-08-03)
 
 **Author / Runner**: `ag.effort` (Empirical Probe)  
-**Prerequisite Context**: `docs/design/SLICE5-KICKOFF-R1.md` ("Process runner backend + lease heartbeat RATIFIED" section)  
+**Prerequisite Context**: `docs/history/design/2026-08/SLICE5-KICKOFF-R1.md` ("Process runner backend + lease heartbeat RATIFIED" section)  
 **Authorization**: `--allow-governed-mutation` scoped exclusively to this document.  
 
 ---

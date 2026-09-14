@@ -1,7 +1,7 @@
 """Report data shapes for the fact-refresh routine.
 
 Field set and status vocabulary are fixed by
-``docs/design/FACT-REFRESH-PROCEDURE-R1.md`` ("Output contract"): per fact
+``docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md`` ("Output contract"): per fact
 a ``status``, ``expected``, ``observed``, ``source_tag``, the probe
 command run, its exit code, an evidence digest, and a recommended action.
 """

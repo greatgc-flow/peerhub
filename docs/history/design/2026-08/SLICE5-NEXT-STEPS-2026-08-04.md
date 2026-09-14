@@ -1,7 +1,7 @@
 # Slice 5 Follow-Up Work Plan & Next Steps (2026-08-04)
 
 > **Document Status**: SUPERSEDED — Historical record only. Heartbeat cancellation wiring is now completed in `peerhub/application/workflows.py`. See `PEERHUB-BACKLOG-2026-08-27.md` for current status. (Originally: Concrete, skimmable planning document for the next work session.)
-> **Scope**: Post-Slice-5 implementation follow-up, reconciling shipped work against `docs/design/SLICE5-KICKOFF-R1.md`, detailing the remaining heartbeat-to-cancellation gap, and defining the roadmap for E2E fault-injection tests.
+> **Scope**: Post-Slice-5 implementation follow-up, reconciling shipped work against `docs/history/design/2026-08/SLICE5-KICKOFF-R1.md`, detailing the remaining heartbeat-to-cancellation gap, and defining the roadmap for E2E fault-injection tests.
 > **Authoritative Baseline**: Full test suite green (324 passed, 0 failed across unit and contract tests).
 
 ---
@@ -72,7 +72,7 @@ When `HeartbeatWorker` detects a failure (e.g., `RENEWAL_FAILED`, `PROCESS_DEAD`
 
 ## 2. Re-check of the Original 7-Step Implementation Order
 
-Below is an honest reconciliation of the 7-step implementation plan from `docs/design/SLICE5-KICKOFF-R1.md` against what has actually shipped in the codebase as of tonight:
+Below is an honest reconciliation of the 7-step implementation plan from `docs/history/design/2026-08/SLICE5-KICKOFF-R1.md` against what has actually shipped in the codebase as of tonight:
 
 | Step | Planned Component | Status | Reality & Shipped Code Artifacts |
 |---|---|---|---|
@@ -111,7 +111,7 @@ Below is an honest reconciliation of the 7-step implementation plan from `docs/d
 
 ## 4. Stale Items & Design Doc Drift Audit (`SLICE5-KICKOFF-R1.md`)
 
-Reading through `docs/design/SLICE5-KICKOFF-R1.md` in full reveals several places where the kickoff doc drifted from what actually shipped tonight:
+Reading through `docs/history/design/2026-08/SLICE5-KICKOFF-R1.md` in full reveals several places where the kickoff doc drifted from what actually shipped tonight:
 
 1. **Doc Status Header (Lines 3-8)**:
    - *Doc states*: "proposed design document, not yet ratified... Pending one more cross-review pass".
@@ -157,7 +157,7 @@ Below is the skimmable, prioritized task list for the next session.
    - Create directory `tests/integration/dispatch/`.
    - Implement E2E vertical dispatch test suite (Happy path, DP-06 isolated journal fault injection, cancellation & timeout handling).
 
-4. **Update `docs/design/SLICE5-KICKOFF-R1.md` Header**:
+4. **Update `docs/history/design/2026-08/SLICE5-KICKOFF-R1.md` Header**:
    - Update header status from "proposed" to "ratified & shipped".
 
 ### `[NEEDS DESIGN ROUND FIRST]`

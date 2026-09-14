@@ -3,7 +3,7 @@
 
 > [!IMPORTANT]
 > **This is the required ratification-gate review** referenced by
-> `docs/design/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md` and the
+> `docs/history/design/2026-08/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md` and the
 > Engram-side deferral note
 > (`_sys/data/sessions/2026-09-03_gate2-lane2-deferred-security-note.md`).
 > Reviewed by: cx.deepthink, 2026-09-05. Dispatched early on the user's

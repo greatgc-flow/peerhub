@@ -2,10 +2,10 @@
 
 Durable home for empirically-discovered facts about the external peer CLIs,
 so they stop being rediscovered by hand every session
-(`docs/design/FACT-REFRESH-PROCEDURE-R1.md`, "Where the expected facts live").
+(`docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md`, "Where the expected facts live").
 
 One entry per discovery. Trace units follow
-`docs/design/TRACEABILITY-CONVENTION-R1.md` (`PH-<WORKSTREAM>-<UNIT>`).
+`docs/history/design/2026-08/TRACEABILITY-CONVENTION-R1.md` (`PH-<WORKSTREAM>-<UNIT>`).
 Entries are `ACTIVE` until something replaces them, then `SUPERSEDED` with a
 pointer — never deleted, because the reason a fact stopped being true is
 itself a fact worth keeping.

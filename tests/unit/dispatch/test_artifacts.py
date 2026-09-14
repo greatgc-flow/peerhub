@@ -1,6 +1,6 @@
 """Unit test suite for peerhub/dispatch/artifacts.py.
 
-Per the ratified design in docs/design/SLICE5-KICKOFF-R1.md.
+Per the ratified design in docs/history/design/2026-08/SLICE5-KICKOFF-R1.md.
 """
 
 from __future__ import annotations

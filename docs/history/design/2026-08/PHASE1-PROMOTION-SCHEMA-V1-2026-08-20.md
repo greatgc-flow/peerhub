@@ -201,7 +201,7 @@ def determine_evidence_state(cell, current_env) -> str:
 
 ### 5. Adapter Manifest Evaluation Context & Type Definitions
 
-To eliminate schema-drift vulnerabilities and establish a strict single source of truth (SSOT), `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md` (Section 3) is explicitly designated as the **single normative source of truth** for the Phase 1 Manifest JSON Schema (Draft 2020-12). This document does not maintain a second, decoupled inline transcription of the schema; the admission and promotion validator is loaded directly from that canonical source definition.
+To eliminate schema-drift vulnerabilities and establish a strict single source of truth (SSOT), `docs/history/design/2026-08/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md` (Section 3) is explicitly designated as the **single normative source of truth** for the Phase 1 Manifest JSON Schema (Draft 2020-12). This document does not maintain a second, decoupled inline transcription of the schema; the admission and promotion validator is loaded directly from that canonical source definition.
 
 To ground the requirement rules in concrete, typed contracts matching `PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`, the evaluation context defines `load_manifest_schema_v2`, `AdmissionRegistry`, `CellKey`, `ProfileDescriptor`, and `AdapterManifest` (which carries genuine immutable `ProfileDescriptor` snapshots of the admitted manifest's real declared profiles).
 
@@ -297,7 +297,7 @@ def load_manifest_schema_v2(schema_path: str | Path | None = None) -> dict:
     """Loads the normative Phase 1 Manifest JSON Schema (Draft 2020-12) directly from its canonical source of truth."""
     if schema_path is None:
         candidates = [
-            Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
+            Path("docs/history/design/2026-08/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
             Path(__file__).parent / "PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md" if "__file__" in globals() else None,
             Path("PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md"),
         ]
@@ -306,7 +306,7 @@ def load_manifest_schema_v2(schema_path: str | Path | None = None) -> dict:
                 schema_path = c
                 break
         if schema_path is None:
-            schema_path = Path("docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md")
+            schema_path = Path("docs/history/design/2026-08/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md")
     
     content = Path(schema_path).read_text(encoding="utf-8")
     match = re.search(r"```json\s*(\{[\s\S]*?\"\$id\":\s*\"https://peerhub\.local/schema/adapter-manifest/v2\"[\s\S]*?\})\s*```", content)
@@ -1266,7 +1266,7 @@ def can_promote(
 
 ## 8. Coverage Cases and Parity Ledger Mapping
 
-This maps representative actions from the 90-action Parity Ledger (`docs/design/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` through `BATCH5-2026-08-20.md`) and the three real peer adapters (`claude-peer`, `codex-peer`, `agy-peer` from `docs/design/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`) into concrete `coverage_case_id`s.
+This maps representative actions from the 90-action Parity Ledger (`docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH1-2026-08-20.md` through `BATCH5-2026-08-20.md`) and the three real peer adapters (`claude-peer`, `codex-peer`, `agy-peer` from `docs/history/design/2026-08/PHASE1-MANIFEST-SCHEMA-V2-2026-08-20.md`) into concrete `coverage_case_id`s.
 
 The table illustrates six genuinely distinct architectural situations across the parity ledger:
 1. **Core Adapter Manifest Dispatch (`ask`)**: Main prompt dispatch executing the real `claude.cmd` PIPE template (`cc.standard`) and validating the JSON response envelope.
@@ -2428,7 +2428,7 @@ except ValueError as e:
     print(f"RELATIVE PATH BLOCKED: {type(e).__name__}: {e}")
 
 print("\n--- 29. Round 53 NATIVE_BINARY magic-byte format validation ---")
-non_pe_path = os.path.abspath("docs/design/PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md")
+non_pe_path = os.path.abspath("docs/history/design/2026-08/PHASE1-PROMOTION-SCHEMA-V1-2026-08-20.md")
 with open(non_pe_path, "rb") as f:
     non_pe_hash = hashlib.sha256(f.read()).hexdigest().upper()
 

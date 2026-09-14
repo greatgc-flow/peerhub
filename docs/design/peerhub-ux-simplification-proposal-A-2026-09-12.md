@@ -3,7 +3,7 @@
 **Status:** PROPOSAL (Round-1 independent voice A of 2; awaiting cross-compilation and ratification)
 **Date:** 2026-09-12
 **Author:** ag (Antigravity, Opus)
-**Scope:** PeerHub user-facing surface ONLY — CLI command/flag ergonomics, install experience, config/dotdir layout, README length and clarity, folder-structure hygiene. **Explicitly out of scope:** peerhub's core service architecture (consensus machinery, capability-lease enforcement, persistence/UoW split, hub.py-replacement roadmap internals) — already converged through a documented 9-round adversarial review (`docs/design/ARCHITECTURE.md`, `docs/design/peerhub-architecture-debate.md`).
+**Scope:** PeerHub user-facing surface ONLY — CLI command/flag ergonomics, install experience, config/dotdir layout, README length and clarity, folder-structure hygiene. **Explicitly out of scope:** peerhub's core service architecture (consensus machinery, capability-lease enforcement, persistence/UoW split, hub.py-replacement roadmap internals) — already converged through a documented 9-round adversarial review (`docs/history/design/2026-07/ARCHITECTURE.md`, `docs/history/design/2026-07/peerhub-architecture-debate.md`).
 
 ---
 
@@ -78,7 +78,7 @@ The config/dotdir consolidation (ratified 2026-09-09, `docs/design/dotdir-consol
 
 | Document | Date | Key finding relevant to this review |
 |---|---|---|
-| `docs/design/INTERFACE-MECE-AESTHETIC-AUDIT-2026-08-24.md` | 2026-08-24 | Focused on P:\\'s non-peerhub entry points (`claude_entry.py`, `codex_entry.py`, `agy_entry.py`), not peerhub's own CLI surface. Found DRY violations in those files. Did not audit peerhub's CLI command/flag ergonomics. |
+| `docs/history/design/2026-08/INTERFACE-MECE-AESTHETIC-AUDIT-2026-08-24.md` | 2026-08-24 | Focused on P:\\'s non-peerhub entry points (`claude_entry.py`, `codex_entry.py`, `agy_entry.py`), not peerhub's own CLI surface. Found DRY violations in those files. Did not audit peerhub's CLI command/flag ergonomics. |
 | `docs/reviews/p-drive-folder-structure-mece-review-2026-09-09.md` | 2026-09-09 | Focused on P:\\ workspace folder organization, not peerhub repo structure. |
 | Project memory (referenced in task): "core `ask` sound but buried in enterprise-CQRS ceremony; proposals/consensus redundant" | 2026-09-07 | This finding is referenced in the project's own memory system. The characterization captures a real observation about the CLI surface. See §1 for whether this proposal should extend, supersede, or leave it. |
 

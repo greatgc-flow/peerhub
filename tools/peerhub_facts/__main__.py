@@ -5,7 +5,7 @@ Orchestration only -- the probing lives in ``collectors``, the judging in
 checks in the order the spec lists them, writes the two reports, and
 returns the ratified exit code.
 
-Exit codes (``docs/design/FACT-REFRESH-PROCEDURE-R1.md``, "Output contract"):
+Exit codes (``docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md``, "Output contract"):
 
 * ``0`` -- all mandatory checks pass. A peer that simply isn't installed
   locally lands here: ABSENT is recorded, not escalated.

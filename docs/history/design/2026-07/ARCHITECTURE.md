@@ -19,7 +19,7 @@
 > `peer_id` reference, confirmed directly against the live text; Round 8:
 > `ag` cited specific fields of a type, `ProfileDescriptor`, that a direct
 > `grep` proved were never actually defined anywhere in this document).
-> Full process record in `docs/design/peerhub-architecture-debate.md`. No
+> Full process record in `docs/history/design/2026-07/peerhub-architecture-debate.md`. No
 > code, tests, or scaffolding exist yet. A future, separately-authorized
 > round starts TDD implementation against this document, beginning with
 > Phase 0 below.
@@ -665,5 +665,5 @@ Phase 0 from starting.
 ---
 
 *Process record, full evidence citations, and the 3-round convergence debate
-that produced this document: `docs/design/peerhub-architecture-debate.md`
+that produced this document: `docs/history/design/2026-07/peerhub-architecture-debate.md`
 in this same directory.*
