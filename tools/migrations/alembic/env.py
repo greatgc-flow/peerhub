@@ -26,6 +26,31 @@ target_metadata = None
 # ... etc.
 
 
+def _explicit_db_url() -> str:
+    """Read the disposable validation-database path from ``-x db=<path>``.
+
+    This developer-only Alembic runner (see docs/design/peerhub-holistic-
+    renewal-RATIFIED-cx-astra-2026-09-13.md section 5.2) must never infer
+    a target from the current working directory: unlike PeerHub's own
+    bespoke migration runner, an Alembic invocation has no workspace-
+    resolution contract of its own, so an ambient cwd/.peerhub/peerhub.sqlite3
+    could silently point at someone's real workspace database instead of
+    the disposable validation database this tool is for.
+    """
+
+    from pathlib import Path
+
+    x_args = context.get_x_argument(as_dictionary=True)
+    db_path = x_args.get("db")
+    if not db_path:
+        raise SystemExit(
+            "This Alembic runner requires an explicit disposable database "
+            "target: pass -x db=/path/to/validation.sqlite3. It never "
+            "infers cwd/.peerhub/peerhub.sqlite3."
+        )
+    return f"sqlite:///{Path(db_path).absolute().as_posix()}"
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -38,9 +63,8 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=_explicit_db_url(),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -56,12 +80,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    import os
-    from pathlib import Path
-    workspace_root = Path(os.getcwd())
-    db_path = workspace_root / ".peerhub" / "peerhub.sqlite3"
-    db_url = f"sqlite:///{db_path.absolute().as_posix()}"
-    config.set_main_option("sqlalchemy.url", db_url)
+    config.set_main_option("sqlalchemy.url", _explicit_db_url())
 
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),

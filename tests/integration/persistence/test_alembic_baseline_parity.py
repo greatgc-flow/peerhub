@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from argparse import Namespace
 from pathlib import Path
 import re
 import sqlite3
@@ -10,7 +11,6 @@ from typing import cast
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-import pytest
 
 from peerhub.persistence.sqlite import SqliteStateStore
 
@@ -53,8 +53,10 @@ def _build_bespoke_v19_database(path: Path) -> None:
         connection.close()
 
 
-def _alembic_config() -> Config:
-    return Config(str(PROJECT_ROOT / "alembic.ini"))
+def _alembic_config(db_path: Path) -> Config:
+    config = Config(str(PROJECT_ROOT / "tools" / "migrations" / "alembic.ini"))
+    config.cmd_opts = Namespace(x=[f"db={db_path}"])
+    return config
 
 
 def _domain_schema_inventory(path: Path) -> dict[str, object]:
@@ -142,18 +144,15 @@ def _alembic_revision(path: Path) -> tuple[str, ...]:
 
 def test_consolidated_alembic_baseline_matches_bespoke_v19(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     bespoke_path = tmp_path / "bespoke.sqlite3"
     _build_bespoke_v19_database(bespoke_path)
 
-    alembic_workspace = tmp_path / "alembic-workspace"
-    alembic_database_dir = alembic_workspace / ".peerhub"
+    alembic_database_dir = tmp_path / "alembic-workspace" / ".peerhub"
     alembic_database_dir.mkdir(parents=True)
     alembic_path = alembic_database_dir / "peerhub.sqlite3"
-    monkeypatch.chdir(alembic_workspace)
 
-    config = _alembic_config()
+    config = _alembic_config(alembic_path)
     script = ScriptDirectory.from_config(config)
     assert script.get_heads() == [ALEMBIC_REVISION]
     assert tuple(revision.revision for revision in script.walk_revisions()) == (
@@ -198,17 +197,14 @@ def test_consolidated_alembic_baseline_matches_bespoke_v19(
 
 def test_stamp_marks_existing_bespoke_v19_without_replaying_schema(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    workspace = tmp_path / "existing-workspace"
-    database_dir = workspace / ".peerhub"
+    database_dir = tmp_path / "existing-workspace" / ".peerhub"
     database_dir.mkdir(parents=True)
     database_path = database_dir / "peerhub.sqlite3"
     _build_bespoke_v19_database(database_path)
     before = _domain_schema_inventory(database_path)
 
-    monkeypatch.chdir(workspace)
-    command.stamp(_alembic_config(), ALEMBIC_REVISION)
+    command.stamp(_alembic_config(database_path), ALEMBIC_REVISION)
 
     assert _domain_schema_inventory(database_path) == before
     assert _alembic_revision(database_path) == (ALEMBIC_REVISION,)

@@ -2,6 +2,8 @@
 
 PeerHub currently runs a bespoke SQLite migration engine from `peerhub/persistence/sqlite.py`. A consolidated Alembic baseline now describes the same schema, but switching the runtime to Alembic is a separate cutover increment.
 
+The Alembic config/environment lives at `tools/migrations/` (moved out of the repo root per `docs/design/peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md` section 5.2): it is a **development-only historical experiment on hold**, not a runtime dependency, and every invocation requires an explicit `-x db=<path>` target -- it never infers `.peerhub/peerhub.sqlite3` from the current directory.
+
 ## Current State & Supported Workflow
 
 - **Supported runtime migration engine**: The bespoke runner reading `peerhub/persistence/migrations/*.sql` remains authoritative until the Phase 2 runtime-cutover increment lands.
@@ -23,11 +25,13 @@ Before stamping:
    - `PRAGMA foreign_key_check` returns no rows.
 3. If any condition fails, do not stamp. Bring the database to bespoke v19 with the currently supported runner or restore a known-good backup.
 
-Then run, from that same workspace root:
+Then run, passing the workspace's own database path explicitly (this runner
+never infers a target from the current directory -- see
+`tools/migrations/alembic/env.py`):
 
 ```powershell
-python -m alembic -c P:\peerhub\alembic.ini stamp v19_consolidated
-python -m alembic -c P:\peerhub\alembic.ini current
+python -m alembic -c tools\migrations\alembic.ini -x db=.peerhub\peerhub.sqlite3 stamp v19_consolidated
+python -m alembic -c tools\migrations\alembic.ini -x db=.peerhub\peerhub.sqlite3 current
 ```
 
 The second command must report `v19_consolidated (head)`. Stamping does not switch runtime ownership; the bespoke runner remains active until increment 2 lands.

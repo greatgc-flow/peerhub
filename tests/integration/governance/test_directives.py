@@ -107,7 +107,7 @@ _ENGRAM_USER_DIRECTIVES_MD = Path(
 )
 
 # The real, independently-verified digest/consumers metadata for all 6
-# directives -- see scripts/migrate_engram_directives_2026_09_03.py's
+# directives -- see tools/migrations/migrate_engram_directives_2026_09_03.py's
 # DIRECTIVES_META for the single source of truth this mirrors. Duplicated
 # here (not imported) so this test still catches an accidental edit to the
 # script's own metadata table, not just a parsing regression.
@@ -153,7 +153,7 @@ def test_parse_directives_extracts_real_rule_text_exactly() -> None:
     """The migration script's own parser must extract each directive's real
     rule body byte-for-byte, not a placeholder or a truncated/mangled copy."""
     import sys as _sys
-    scripts_dir = str(Path(__file__).resolve().parents[3] / "scripts")
+    scripts_dir = str(Path(__file__).resolve().parents[3] / "tools" / "migrations")
     if scripts_dir not in _sys.path:
         _sys.path.insert(0, scripts_dir)
     from migrate_engram_directives_2026_09_03 import parse_directives
@@ -189,7 +189,7 @@ def test_full_migration_script_produces_all_6_directives_with_exact_metadata(
     digest/consumers/lifecycle recorded in the ratified design -- this is
     the real "verified migration receipt" Increment D's precondition needs."""
     import sys as _sys
-    scripts_dir = str(Path(__file__).resolve().parents[3] / "scripts")
+    scripts_dir = str(Path(__file__).resolve().parents[3] / "tools" / "migrations")
     if scripts_dir not in _sys.path:
         _sys.path.insert(0, scripts_dir)
     import migrate_engram_directives_2026_09_03 as migration_script
