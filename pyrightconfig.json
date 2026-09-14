@@ -2,5 +2,6 @@
   "include": ["peerhub"],
   "exclude": ["tests", "tools"],
   "typeCheckingMode": "strict",
-  "reportMissingTypeStubs": false
+  "reportMissingTypeStubs": false,
+  "pythonPlatform": "Linux"
 }

@@ -351,8 +351,13 @@ def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
                     print(presenter.format_ansi(" [Live Monitor Active: Press ESC or 'q' to exit]", "dim"))
                 elapsed = 0.0
                 while elapsed < 2.0:
-                    if msvcrt is not None and msvcrt.kbhit():
-                        if msvcrt.getch() in (b"\x1b", b"q", b"Q", b"\x03"):
+                    # msvcrt is Windows-only; typeshed's stub only exposes
+                    # kbhit/getch when pyright's pythonPlatform is Windows,
+                    # which this project's pinned "Linux" (matching CI)
+                    # never is -- correctly guarded at runtime by the
+                    # try/except ImportError above, not a real type error.
+                    if msvcrt is not None and msvcrt.kbhit():  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
+                        if msvcrt.getch() in (b"\x1b", b"q", b"Q", b"\x03"):  # pyright: ignore[reportUnknownMemberType, reportAttributeAccessIssue]
                             return 0
                     cli.time.sleep(0.05)
                     elapsed += 0.05
