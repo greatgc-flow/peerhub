@@ -41,6 +41,7 @@ Never delete history; if a document is superseded, mark it in its own header and
 - `quota-efficiency-RATIFIED-cx-astra-2026-09-13.md` — Final ratification/adjudication for quota-efficient dispatch usage.
 - `peerhub-dctx-proposal-1-2026-09-13.md` — D-CTX Round-1 proposal, voice 1 (rejected as ready-to-implement by `peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md` section 8; kept for its citations, and D0/D1 remain an open follow-up).
 - `peerhub-dctx-independent-review-ag-opus-2026-09-13.md` — First non-cx D-CTX independent security review voice; input to the still-open D0 independent-review gate (see the ratification below, section 8.4).
+- `peerhub-dctx-independent-review-cc-2026-09-14.md` — Second non-cx voice; concurs with ag.opus's REVISE verdict and proposes a concrete D0-closing disposition (D7's environment-composition bug fixed first, D1 held until a workspace-trust-anchor answer exists) pending DIR-006 unanimous confirmation.
 - `peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md` — Current superseding renewal direction for the whole PeerHub product/architecture (R0–R5, D0/D1 work-package ordering); the credential/authority system it scopes (D1) is explicitly held pending the independent review D0 requires, not yet implemented.
 
 ## Tier C: Older drafts/debates (Historical rationale only, not current status)
