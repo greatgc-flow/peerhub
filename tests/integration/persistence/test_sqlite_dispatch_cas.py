@@ -190,7 +190,13 @@ class CASStateMachine(RuleBasedStateMachine):
                 assert max_gen.claim_token == shadow.claim_token
                 assert max_gen.claim_expiry == shadow.claim_expiry
 
+@pytest.mark.timeout(300)
 def test_cas_state_machine():
+    # Each rule opens a real, file-locked connection (WorkspaceGuard's
+    # per-connection OS lock, added for R3 restore-safety) rather than a
+    # bare in-memory one, so a full ~100-example Hypothesis run of this
+    # state machine can exceed the suite's default 60s per-test timeout on
+    # a loaded machine even though no single step is slow on its own.
     class Machine(CASStateMachine):
         def __init__(self):
             import tempfile
