@@ -1,6 +1,6 @@
 # docs/design/ — Index
 
-This index categorizes all 85 documents in this directory into three tiers based on their current authority and relevance. 
+This index categorizes all 96 documents in this directory (phase0/ has its own index at `phase0/README.md`) into three tiers based on their current authority and relevance.
 Never delete history; if a document is superseded, mark it in its own header and point to the successor.
 
 ## Tier A: Current implementation/status source of truth
@@ -32,6 +32,16 @@ Never delete history; if a document is superseded, mark it in its own header and
 - `HUB-REPLACEMENT-REAL-CLI-AND-TUI-2026-08-24.md`
 - `dotdir-consolidation-RATIFIED-2026-09-09.md` — Final ratification for the `.engram`/`.peerhub` config-consolidation backlog (both PeerHub and Engram); user-facing reference: `../config-hierarchy.md`.
 - `dotdir-consolidation-peerhub-proposal-2026-09-09.md` — Round-1 proposal (superseded by the ratification above; kept for its citations).
+- `ask-context-injection-design-2026-09-09.md` — Ratified implementation design for direct-ask context injection, session lifecycle, resilient dispatch, and consensus effects (Backlog Item B).
+- `peerhub-ux-simplification-proposal-A-2026-09-12.md` — Round-1 proposal, voice A (superseded by the ratification below; kept for its citations).
+- `peerhub-ux-simplification-proposal-B-2026-09-12.md` — Round-1 proposal, voice B (superseded by the ratification below; kept for its citations).
+- `peerhub-ux-simplification-cc-deepthink-review-2026-09-12.md` — Third independent review that fed into the ratification below (read-and-propose only, not itself a vote).
+- `peerhub-ux-simplification-RATIFIED-2026-09-12.md` — Final ratification for the UX/structure simplification backlog (CLI ergonomics, install experience, config layout, root hygiene, README).
+- `quota-efficiency-discussion-ag-2026-09-13.md` — Independent proposal round on quota-efficient multi-peer dispatch usage (superseded by the ratification below; kept for its citations).
+- `quota-efficiency-RATIFIED-cx-astra-2026-09-13.md` — Final ratification/adjudication for quota-efficient dispatch usage.
+- `peerhub-dctx-proposal-1-2026-09-13.md` — D-CTX Round-1 proposal, voice 1 (rejected as ready-to-implement by `peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md` section 8; kept for its citations, and D0/D1 remain an open follow-up).
+- `peerhub-dctx-independent-review-ag-opus-2026-09-13.md` — First non-cx D-CTX independent security review voice; input to the still-open D0 independent-review gate (see the ratification below, section 8.4).
+- `peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md` — Current superseding renewal direction for the whole PeerHub product/architecture (R0–R5, D0/D1 work-package ordering); the credential/authority system it scopes (D1) is explicitly held pending the independent review D0 requires, not yet implemented.
 
 ## Tier C: Older drafts/debates (Historical rationale only, not current status)
 

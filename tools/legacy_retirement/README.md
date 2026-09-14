@@ -2,7 +2,7 @@
 
 > **Status (2026-09-09): retirement complete.** `LegacyTranslator`/`LEGACY_CATALOG` and their
 > supporting types have been deleted from `peerhub/application/legacy.py` across a 9-batch
-> effort (`docs/reviews/legacy-translator-retirement/batch-01.md` through `batch-09-final.md`).
+> effort (`docs/history/reviews/legacy-translator-retirement/batch-01.md` through `batch-09-final.md`).
 > This tool has no baseline left to gate for that specific class and will not be run again for
 > this project; it remains in the repo as reusable tooling for a similar future retirement
 > (a mechanized preservation gate for rewriting a large test surface off a class before
@@ -13,7 +13,7 @@ Run from the repository root with the project's Python environment (pytest and c
 ```powershell
 python tools/legacy_retirement/gate.py --help
 python tools/legacy_retirement/selftest.py -v
-python tools/legacy_retirement/gate.py --baseline b9031b4 --output tools/legacy_retirement/runs/batch-01 --waivers docs/reviews/legacy-translator-retirement/gate-canary-waivers.json tests/integration/application/test_lesson_inject.py
+python tools/legacy_retirement/gate.py --baseline b9031b4 --output tools/legacy_retirement/runs/batch-01 --waivers docs/history/reviews/legacy-translator-retirement/gate-canary-waivers.json tests/integration/application/test_lesson_inject.py
 ```
 
 Use a new output directory each time. The tool never deletes snapshots or changes Git state. `runs/` is ignored; retain the directory when reviewing or reproducing a result. Copy the reviewable report into a batch preservation record when accepted.

@@ -7,7 +7,7 @@
 > preserved as an accurate historical record of what was built and why at the time, but the
 > class and catalog they describe no longer exist in the codebase — confirmed to have zero
 > production callers (see `PEERHUB-BACKLOG-2026-08-27.md`'s 2026-09-07 correction), the shim was
-> fully retired across a 9-batch effort in `docs/reviews/legacy-translator-retirement/`. The
+> fully retired across a 9-batch effort in `docs/history/reviews/legacy-translator-retirement/`. The
 > native CLI commands and service-layer code this doc also describes are unaffected and remain
 > real and current.
 >

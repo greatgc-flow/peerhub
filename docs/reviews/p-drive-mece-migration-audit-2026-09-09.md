@@ -3,7 +3,7 @@
 > Zero-base re-audit: has every piece of `P:\`'s content (the frozen, original
 > combined system) been reflected -- or superseded -- in Engram (`main`) and
 > peerhub (`main`)? Requested after the 9-batch LegacyTranslator retirement
-> concluded (`docs/reviews/legacy-translator-retirement/batch-09-final.md`,
+> concluded (`docs/history/reviews/legacy-translator-retirement/batch-09-final.md`,
 > peerhub `8ae5791`, v0.1.16). Two independent reviewers, split by domain
 > (environment/tooling vs AI-collaboration), instructed NOT to presume prior
 > audit conclusions -- re-derive from current source, cross-check against

@@ -214,7 +214,7 @@ def snapshot(repo, ref, destination, worktree=False):
         paths = git(repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard").decode().split("\0")
         for relative in sorted(set(filter(None, paths))):
             # Runner and evidence are outside the test/product snapshot.
-            if relative.startswith(("tools/legacy_retirement/", "docs/reviews/legacy-translator-retirement/gate-")):
+            if relative.startswith(("tools/legacy_retirement/", "docs/history/reviews/legacy-translator-retirement/gate-")):
                 continue
             source, target = repo / relative, destination / relative
             if not source.exists():

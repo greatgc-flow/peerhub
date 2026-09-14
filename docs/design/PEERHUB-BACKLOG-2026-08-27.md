@@ -33,7 +33,7 @@
 > remaining unbacked `LegacyTranslator` actions is now moot rather than deferred. The wire-
 > protocol contracts this catalog used to exercise indirectly are preserved directly in
 > `tests/unit/application/test_command_wire_contracts.py`. Full account:
-> `docs/reviews/legacy-translator-retirement/batch-09-final.md`.
+> `docs/history/reviews/legacy-translator-retirement/batch-09-final.md`.
 >
 > **FOLLOW-UP (2026-09-09): a separate, real gap — production-path integration, not
 > compatibility-shim reach — was found and closed.** A zero-base MECE audit against `P:\`'s
