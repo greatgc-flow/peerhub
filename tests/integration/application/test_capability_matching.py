@@ -178,7 +178,18 @@ def test_discover_round_trips_through_real_sqlite_without_a_write(
         ))
 
     # Reopen the database: configuration and policy must come from SQLite,
-    # not from the importer files or in-memory objects.
+    # not from the importer files or in-memory objects. A fresh store mints
+    # its own opaque identity (R2 section 4.3), so the reopened context
+    # must carry the real minted identity rather than the original
+    # caller-supplied literal.
+    import dataclasses
+    import sqlite3
+
+    with sqlite3.connect(context.paths.database_path) as conn:
+        minted_identity = conn.execute(
+            "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"
+        ).fetchone()[0]
+    context = dataclasses.replace(context, workspace_home_id=minted_identity)
     with create_runtime(context) as runtime:
         ranking = runtime.capability_matching_coordinator.discover(
             needs="code-generation", effort="medium"

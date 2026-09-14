@@ -774,7 +774,15 @@ def test_direct_ask_circuit_breaker_opens_on_exhausted_failure(
     layout = PathLayout.for_workspace(tmp_path)
     from peerhub.core.context import RuntimeContext
     from peerhub.runtime import create_runtime
-    rt = create_runtime(RuntimeContext("cli", layout, clock, ids))
+
+    # A fresh store mints its own opaque identity (R2 section 4.3), so
+    # reopening it here must use the real minted identity rather than the
+    # "cli" literal execute_direct_ask's first call supplied.
+    with sqlite3.connect(layout.database_path) as conn:
+        minted_identity = conn.execute(
+            "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"
+        ).fetchone()[0]
+    rt = create_runtime(RuntimeContext(minted_identity, layout, clock, ids))
     try:
         with rt.state_store.read_unit_of_work() as unit:
             circuit = unit.get_health_circuit(

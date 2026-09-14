@@ -20,14 +20,16 @@ from peerhub.persistence.sqlite import SqliteStateStore
 
 
 REAL_MIGRATIONS = Path(str(resources.files("peerhub.persistence.migrations")))
-LATEST_PACKAGED_VERSION = 31
+LATEST_PACKAGED_VERSION = 32
 NEXT_PACKAGED_VERSION = LATEST_PACKAGED_VERSION + 1
 
 
-def _store(path: Path) -> SqliteStateStore:
+def _store(
+    path: Path, workspace_home_id: str = "migration-sequence-workspace"
+) -> SqliteStateStore:
     return SqliteStateStore(
         path,
-        workspace_home_id="migration-sequence-workspace",
+        workspace_home_id=workspace_home_id,
     )
 
 
@@ -188,6 +190,7 @@ def test_existing_database_picks_up_a_newly_added_migration(
     _use_migrations(monkeypatch, _migration_dir(tmp_path, name="before"))
     store = _store(database_path)
     store.initialize()
+    minted_identity = store._workspace_home_id
     store.close()
     assert _user_version(database_path) == LATEST_PACKAGED_VERSION
 
@@ -203,7 +206,7 @@ def test_existing_database_picks_up_a_newly_added_migration(
             name="after",
         ),
     )
-    store = _store(database_path)
+    store = _store(database_path, workspace_home_id=minted_identity)
     store.initialize()
     store.close()
 

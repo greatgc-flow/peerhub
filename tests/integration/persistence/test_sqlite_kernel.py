@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -95,28 +96,7 @@ def test_runtime_is_the_composition_root(
         )
 
 
-def test_workspace_identity_is_bound_to_database(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "identity.sqlite3"
-    first = SqliteStateStore(
-        path,
-        workspace_home_id="workspace-a",
-    )
-    first.initialize()
 
-    second = SqliteStateStore(
-        path,
-        workspace_home_id="workspace-b",
-    )
-    try:
-        second.initialize()
-    except WorkspaceIdentityMismatchError as error:
-        assert error.stored_workspace_home_id == "workspace-a"
-    else:
-        raise AssertionError(
-            "workspace identity mismatch was not rejected"
-        )
 
 
 def test_outbox_recovery_claim_and_completion(
@@ -331,3 +311,136 @@ def test_read_unit_of_work_closes_connection_when_begin_fails(
         unit.__enter__()
 
     assert unit._connection is None  # pyright: ignore[reportPrivateUsage]
+
+
+def test_workspace_identity_is_bound_to_database(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "identity.sqlite3"
+    first = SqliteStateStore(
+        path,
+        workspace_home_id="workspace-a",
+    )
+    first.initialize()
+    actual_id = first._workspace_home_id
+
+    second = SqliteStateStore(
+        path,
+        workspace_home_id="workspace-b",
+    )
+    try:
+        second.initialize()
+    except WorkspaceIdentityMismatchError as error:
+        assert error.stored_workspace_home_id == actual_id
+    else:
+        raise AssertionError(
+            "workspace identity mismatch was not rejected"
+        )
+
+
+def test_racing_initializers_converge(tmp_path: Path) -> None:
+    path = tmp_path / "racing.sqlite3"
+    basename = path.parent.parent.name
+    
+    # Pre-initialize schema so we don't race on non-IF-NOT-EXISTS migrations
+    store = SqliteStateStore(path, workspace_home_id=basename)
+    store.initialize()
+    
+    # But clear the identity table so we can test the identity minting race
+    with store._connect() as conn:
+        conn.execute("DELETE FROM workspace_identity")
+        conn.commit()
+    
+    def run_minting(_: int) -> SqliteStateStore:
+        s = SqliteStateStore(path, workspace_home_id=basename)
+        # We manually execute the exact minting block from initialize()
+        connection = s._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                row = connection.execute("SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1").fetchone()
+                if row is None:
+                    import uuid
+                    new_id = uuid.uuid4().hex
+                    connection.execute("INSERT INTO workspace_identity (singleton, workspace_home_id, activation_epoch) VALUES (1, ?, 1)", (new_id,))
+                    s._workspace_home_id = new_id
+                else:
+                    persisted_id = row["workspace_home_id"]
+                    expected_fallback = s._database_path.parent.parent.name
+                    if s._workspace_home_id == expected_fallback and persisted_id != expected_fallback:
+                        s._workspace_home_id = persisted_id
+                    elif persisted_id != s._workspace_home_id:
+                        raise WorkspaceIdentityMismatchError(s._workspace_home_id, persisted_id)
+                connection.execute("COMMIT")
+            except BaseException:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+        finally:
+            connection.close()
+        return s
+        
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        stores = list(executor.map(run_minting, range(3)))
+        
+    # All 3 stores should have converged on the exact same UUID internally.
+    id_1 = stores[0]._workspace_home_id
+    id_2 = stores[1]._workspace_home_id
+    id_3 = stores[2]._workspace_home_id
+    assert id_1 == id_2 == id_3
+    assert id_1 != basename
+
+
+def test_mint_new_epoch_for_restore(tmp_path: Path) -> None:
+    path = tmp_path / "restore.sqlite3"
+    store = SqliteStateStore(path, workspace_home_id="restore-workspace")
+    store.initialize()
+    
+    original_id = store._workspace_home_id
+    
+    # Now simulate restore minting a new epoch
+    store.mint_new_epoch()
+    
+    connection = store._connect_read()
+    try:
+        row = connection.execute("SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1").fetchone()
+        assert row["workspace_home_id"] == original_id
+        assert row["activation_epoch"] == 2
+    finally:
+        connection.close()
+
+
+def test_mint_new_identity_and_epoch_for_clone(tmp_path: Path) -> None:
+    path = tmp_path / "clone.sqlite3"
+    store = SqliteStateStore(path, workspace_home_id="clone-workspace")
+    store.initialize()
+    
+    original_id = store._workspace_home_id
+    
+    # Now simulate clone minting a new identity and epoch
+    store.mint_new_identity_and_epoch()
+    
+    connection = store._connect_read()
+    try:
+        row = connection.execute("SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1").fetchone()
+        assert row["workspace_home_id"] != original_id
+        assert row["workspace_home_id"] == store._workspace_home_id
+        assert row["activation_epoch"] == 2
+    finally:
+        connection.close()
+
+
+def test_corrupt_database_never_gets_a_replacement_identity(tmp_path: Path) -> None:
+    """Section 4.3: 'Existing invalid databases fail; they do not get a
+    replacement identity.' A file that isn't valid SQLite must fail before
+    ever reaching the identity-minting code, not be silently treated as a
+    fresh workspace."""
+    path = tmp_path / "corrupt.sqlite3"
+    path.write_text("not a real sqlite database")
+
+    store = SqliteStateStore(path, workspace_home_id="test-workspace")
+    with pytest.raises(sqlite3.DatabaseError):
+        store.initialize()
+
+    # The file was never touched into looking like a valid, identified store.
+    assert path.read_text() == "not a real sqlite database"

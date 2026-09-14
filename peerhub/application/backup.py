@@ -220,7 +220,9 @@ def restore_workspace_backup(
         # Validates schema version and workspace identity before activation:
         # a bundle recorded by a newer build, or belonging to a different
         # workspace identity, raises here -- workspace_root is untouched.
-        SqliteStateStore(staged_db, workspace_home_id=target_identity).initialize()
+        store = SqliteStateStore(staged_db, workspace_home_id=target_identity)
+        store.initialize()
+        store.mint_new_epoch()
 
         layout.database_path.parent.mkdir(parents=True, exist_ok=True)
         _sqlite_backup_copy(staged_db, layout.database_path)

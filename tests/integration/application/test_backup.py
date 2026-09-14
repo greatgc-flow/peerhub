@@ -95,7 +95,10 @@ def test_create_backup_bundles_database_and_config_files(
     assert (bundle_dir / "config" / "arbiter.json").is_file()
 
     manifest = load_manifest(bundle_dir)
-    assert manifest.workspace_home_id == "cli"
+    # A fresh workspace mints its own opaque identity (R2 section 4.3) --
+    # not derived from a directory basename or any caller-supplied literal.
+    assert manifest.workspace_home_id
+    assert manifest.workspace_home_id != "cli"
     assert manifest.include_transcripts is False
     assert manifest.config_files == ("arbiter.json",)
 
@@ -187,15 +190,28 @@ def test_restore_into_matching_identity_workspace_activates_database_and_config(
     bundle_dir = create_workspace_backup(
         source_root, output_dir=tmp_path / "backups", include_transcripts=True, now=_NOW
     )
+    source_identity = load_manifest(bundle_dir).workspace_home_id
 
     target_root = tmp_path / "target"
     target_root.mkdir()
     target_db = PathLayout.for_workspace(target_root).database_path
-    SqliteStateStore(target_db, workspace_home_id="cli").initialize()
+    SqliteStateStore(target_db, workspace_home_id=source_identity).initialize()
+    # A fresh store mints its own opaque identity regardless of the
+    # constructor argument (R2 section 4.3) -- force this target to match
+    # the source's real minted identity, simulating "this target already
+    # shares the source's identity" for the restore-activation scenario
+    # this test exercises (a low-level test-only technique; production
+    # code never rewrites an existing identity).
+    with sqlite3.connect(target_db) as conn:
+        conn.execute(
+            "UPDATE workspace_identity SET workspace_home_id = ? WHERE singleton = 1",
+            (source_identity,),
+        )
+        conn.commit()
 
     manifest = restore_workspace_backup(bundle_dir, workspace_root=target_root)
 
-    assert manifest.workspace_home_id == "cli"
+    assert manifest.workspace_home_id == source_identity
     assert _transcript_count(target_db) == 1
     restored_arbiter = (
         target_root / ".peerhub" / "config" / "arbiter.json"
@@ -220,7 +236,16 @@ def test_restore_rejects_workspace_identity_mismatch(
     target_root = tmp_path / "target"
     target_root.mkdir()
     target_db = PathLayout.for_workspace(target_root).database_path
+    # A fresh store mints its own opaque identity regardless of the
+    # constructor argument (R2 section 4.3); it is independent from the
+    # source's own minted identity, so the mismatch this test exercises
+    # occurs naturally -- capture the target's real identity to confirm
+    # it is left untouched by the rejected restore.
     SqliteStateStore(target_db, workspace_home_id="a-different-workspace").initialize()
+    with sqlite3.connect(target_db) as conn:
+        target_identity_before = conn.execute(
+            "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"
+        ).fetchone()[0]
 
     with pytest.raises(WorkspaceIdentityMismatchError):
         restore_workspace_backup(bundle_dir, workspace_root=target_root)
@@ -231,7 +256,7 @@ def test_restore_rejects_workspace_identity_mismatch(
         row = conn.execute(
             "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"
         ).fetchone()
-    assert row[0] == "a-different-workspace"
+    assert row[0] == target_identity_before
 
 
 def test_restore_missing_bundle_raises(tmp_path: Path) -> None:

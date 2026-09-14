@@ -83,10 +83,13 @@ class _RaisingFaultInjector(FaultInjector):
             raise RuntimeError(f"injected fault at {point}")
 
 
-def _store(database_path: Path) -> SqliteStateStore:
+def _store(
+    database_path: Path,
+    workspace_home_id: str = "workspace-capability-lease",
+) -> SqliteStateStore:
     store = SqliteStateStore(
         database_path,
-        workspace_home_id="workspace-capability-lease",
+        workspace_home_id=workspace_home_id,
     )
     store.initialize()
     return store
@@ -203,7 +206,7 @@ def test_migrations_register_capability_tiers_without_implicit_grants(
     try:
         assert connection.execute(
             "PRAGMA user_version"
-        ).fetchone() == (31,)
+        ).fetchone() == (32,)
         assert connection.execute(
             "SELECT name FROM schema_migrations WHERE version = 18"
         ).fetchone() == ("0018_capability_leases",)
@@ -312,7 +315,7 @@ def test_capability_lease_replay_returns_identical_durable_record(
     request, receipt, lease = _admit(store)
 
     store.close()
-    replay_store = _store(database_path)
+    replay_store = _store(database_path, workspace_home_id=store._workspace_home_id)
     with replay_store.read_unit_of_work() as unit:
         by_id = unit.get_capability_lease(lease.capability_lease_id)
         by_attempt = unit.get_capability_lease_for_attempt(

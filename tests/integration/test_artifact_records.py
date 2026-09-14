@@ -77,7 +77,18 @@ def test_claim_is_sqlite_durable_and_same_owner_reclaim_preserves_claimed_at(
         assert second.record.state["updated_at"] == 1000
 
     # Reopen the real SQLite store rather than relying on an in-memory view.
-    with create_runtime(context, adapter_peer_kind="fake") as runtime:
+    # A fresh store mints its own opaque identity (R2 section 4.3), so the
+    # reopened context must carry the real minted identity rather than the
+    # original caller-supplied literal.
+    import dataclasses
+    import sqlite3
+
+    with sqlite3.connect(context.paths.database_path) as conn:
+        minted_identity = conn.execute(
+            "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"
+        ).fetchone()[0]
+    reopened_context = dataclasses.replace(context, workspace_home_id=minted_identity)
+    with create_runtime(reopened_context, adapter_peer_kind="fake") as runtime:
         persisted = runtime.artifact_record_service.get_record("spec.md")
         assert persisted is not None
         assert persisted.state["claimed_at"] == 1000

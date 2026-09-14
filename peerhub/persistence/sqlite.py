@@ -185,22 +185,51 @@ class SqliteStateStore:
                     """
                 ).fetchone()
                 if row is None:
-                    connection.execute(
-                        """
-                        INSERT INTO workspace_identity (
-                            singleton,
-                            workspace_home_id
-                        ) VALUES (1, ?)
-                        """,
-                        (self._workspace_home_id,),
+                    import uuid
+                    new_id = uuid.uuid4().hex
+                    # activation_epoch (migration 0032) may not exist yet:
+                    # tests exercising an intentionally-truncated migration
+                    # sequence (an older schema snapshot, by design) run
+                    # initialize() against a database that never applied it.
+                    has_epoch_column = any(
+                        col["name"] == "activation_epoch"
+                        for col in connection.execute(
+                            "PRAGMA table_info(workspace_identity)"
+                        ).fetchall()
                     )
-                elif row["workspace_home_id"] != (
-                    self._workspace_home_id
-                ):
-                    raise WorkspaceIdentityMismatchError(
-                        self._workspace_home_id,
-                        row["workspace_home_id"],
-                    )
+                    if has_epoch_column:
+                        connection.execute(
+                            """
+                            INSERT INTO workspace_identity (
+                                singleton,
+                                workspace_home_id,
+                                activation_epoch
+                            ) VALUES (1, ?, 1)
+                            """,
+                            (new_id,),
+                        )
+                    else:
+                        connection.execute(
+                            """
+                            INSERT INTO workspace_identity (
+                                singleton,
+                                workspace_home_id
+                            ) VALUES (1, ?)
+                            """,
+                            (new_id,),
+                        )
+                    self._workspace_home_id = new_id
+                else:
+                    persisted_id = row["workspace_home_id"]
+                    # Adopt the persisted identity if we were using the fallback basename
+                    expected_fallback = self._database_path.parent.parent.name
+                    if self._workspace_home_id == expected_fallback and persisted_id != expected_fallback:
+                        self._workspace_home_id = persisted_id
+                    elif persisted_id != self._workspace_home_id:
+                        raise WorkspaceIdentityMismatchError(
+                            self._workspace_home_id,
+                            persisted_id,
+                        )
                 connection.execute("COMMIT")
             except BaseException:
                 if connection.in_transaction:
@@ -234,6 +263,52 @@ class SqliteStateStore:
                     f"--workspace \"{workspace_root}\"`"
                 )
             self._verify_sequence_complete(connection, available)
+        finally:
+            connection.close()
+
+    def mint_new_epoch(self) -> None:
+        """Increment the activation epoch. Used during restore to invalidate prior authority."""
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    """
+                    UPDATE workspace_identity
+                    SET activation_epoch = activation_epoch + 1
+                    WHERE singleton = 1
+                    """
+                )
+                connection.execute("COMMIT")
+            except BaseException:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
+        finally:
+            connection.close()
+
+    def mint_new_identity_and_epoch(self) -> None:
+        """Mint a new opaque identity and increment the epoch. Used during independent clone."""
+        import uuid
+        new_id = uuid.uuid4().hex
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    """
+                    UPDATE workspace_identity
+                    SET workspace_home_id = ?, activation_epoch = activation_epoch + 1
+                    WHERE singleton = 1
+                    """,
+                    (new_id,)
+                )
+                connection.execute("COMMIT")
+                self._workspace_home_id = new_id
+            except BaseException:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise
         finally:
             connection.close()
 

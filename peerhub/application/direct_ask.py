@@ -35,6 +35,7 @@ from peerhub.application.retry import (
     ResolvedRetryTarget,
     RetryLoopStopReason,
 )
+from peerhub.application.workspace_identity import detect_workspace_home_id
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
 from peerhub.core.identity import AuthenticatedSubject
@@ -521,8 +522,19 @@ def execute_direct_ask(
 
     paths = PathLayout.for_workspace(request.workspace_root)
 
+    # A hardcoded literal here (e.g. "cli") is only ever right for a
+    # workspace's very first initialize() -- a fresh store mints its own
+    # opaque identity anyway (R2 section 4.3) and ignores it, but any
+    # SUBSEQUENT ask against an already-initialized workspace must supply
+    # the real persisted identity, or initialize() raises
+    # WorkspaceIdentityMismatchError comparing this literal against the
+    # real one. detect_workspace_home_id() reads it back when present,
+    # falling back to the directory basename (adopted automatically by
+    # initialize() on a fresh store) otherwise.
     context = RuntimeContext(
-        workspace_home_id="cli",
+        workspace_home_id=detect_workspace_home_id(
+            paths.database_path, request.workspace_root.name
+        ),
         paths=paths,
         clock=clock,
         ids=ids,

@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from peerhub.persistence.sqlite import SqliteStateStore
 
-def _store(path: Path) -> SqliteStateStore:
-    return SqliteStateStore(path, workspace_home_id="test-workspace")
+def _store(path: Path, workspace_home_id: str = "test-workspace") -> SqliteStateStore:
+    return SqliteStateStore(path, workspace_home_id=workspace_home_id)
 
 def test_v22_migrates_to_v23_cleanly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "peerhub.sqlite3"
@@ -30,12 +30,13 @@ def test_v22_migrates_to_v23_cleanly(tmp_path: Path, monkeypatch: pytest.MonkeyP
 
     store = _store(db_path)
     store.initialize()
+    minted_identity = store._workspace_home_id
     store.close()
 
     # Now add v23 and initialize to migrate
     shutil.copy2(real_migrations / "0023_evidence_artifacts.sql", migration_dir / "0023_evidence_artifacts.sql")
 
-    store = _store(db_path)
+    store = _store(db_path, workspace_home_id=minted_identity)
     store.initialize()
     store.close()
 
