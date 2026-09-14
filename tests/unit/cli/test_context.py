@@ -78,6 +78,21 @@ def test_resolve_nearest_peerhub_discovery(tmp_path):
     assert res.root == root_dir
     assert res.selection_source == "discovered"
 
+
+def test_resolve_marker_below_git_root_reports_project_boundary(tmp_path):
+    project = tmp_path / "project"
+    workspace = project / "packages" / "selected"
+    nested = workspace / "src"
+    (project / ".git").mkdir(parents=True)
+    (workspace / ".peerhub").mkdir(parents=True)
+    nested.mkdir()
+
+    res = resolve_workspace(cwd_override=nested)
+
+    assert res.root == workspace
+    assert res.selection_source == "discovered"
+    assert res.project_boundary == project
+
 def test_resolve_git_worktree_boundary_dir(tmp_path):
     # .git directory
     git_dir = tmp_path / "git_project"
@@ -197,4 +212,3 @@ def test_check_store_state_database_error_is_corrupt(tmp_path, monkeypatch):
     assert state == "corrupt"
     assert is_init is False
     assert identity is None
-

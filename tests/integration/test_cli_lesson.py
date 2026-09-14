@@ -28,5 +28,7 @@ def test_cli_lesson_propose_approve_activate_and_status(tmp_path: Path, capsys) 
 
 
 def test_cli_lesson_status_missing_returns_two(tmp_path: Path, capsys) -> None:
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    capsys.readouterr()
     assert main(["lesson", "status", "--workspace", str(tmp_path), "--lesson-id", "missing"]) == 2
     assert "not found" in capsys.readouterr().err

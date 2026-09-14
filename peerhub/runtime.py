@@ -122,7 +122,51 @@ def create_runtime(
     arbiter_executor: ArbiterExecutor | None = None,
     proposal_voters: tuple[str, ...] | None = None,
 ) -> Runtime:
-    """Create the composed Phase 1 runtime."""
+    """Create the composed Phase 1 runtime, initializing writable state."""
+
+    return _compose_runtime(
+        context,
+        admission_provider=admission_provider,
+        adapter_peer_kind=adapter_peer_kind,
+        admission_config=admission_config,
+        arbiter_executor=arbiter_executor,
+        proposal_voters=proposal_voters,
+        initialize=True,
+    )
+
+
+def create_read_runtime(
+    context: RuntimeContext,
+    *,
+    admission_provider: AdmissionInputsProvider | None = None,
+    adapter_peer_kind: str = "fake",
+    arbiter_executor: ArbiterExecutor | None = None,
+    proposal_voters: tuple[str, ...] | None = None,
+) -> Runtime:
+    """Compose query services without initializing or migrating state."""
+
+    return _compose_runtime(
+        context,
+        admission_provider=admission_provider,
+        adapter_peer_kind=adapter_peer_kind,
+        admission_config=None,
+        arbiter_executor=arbiter_executor,
+        proposal_voters=proposal_voters,
+        initialize=False,
+    )
+
+
+def _compose_runtime(
+    context: RuntimeContext,
+    *,
+    admission_provider: AdmissionInputsProvider | None,
+    adapter_peer_kind: str,
+    admission_config: "DirectAskAdmissionConfig | None",
+    arbiter_executor: ArbiterExecutor | None,
+    proposal_voters: tuple[str, ...] | None,
+    initialize: bool,
+) -> Runtime:
+    """Build the shared service graph for writable or read-only callers."""
 
     peer_adapter = resolve_peer_adapter(adapter_peer_kind)
 
@@ -130,7 +174,10 @@ def create_runtime(
         context.paths.database_path,
         workspace_home_id=context.workspace_home_id,
     )
-    state_store.initialize()
+    if initialize:
+        state_store.initialize()
+    else:
+        state_store.require_current_schema()
 
     governance_broker = GovernanceBroker(
         state_store,
@@ -181,11 +228,12 @@ def create_runtime(
             readiness_observation_threshold=1,
             administrative_recovery_probe_limit=1,
         )
-        with state_store.unit_of_work() as uow:
-            existing = uow.get_health_policy_revision(policy.policy_id, policy.revision)
-            if existing is None:
-                uow.add_health_policy_revision(policy)
-                uow.commit()
+        if initialize:
+            with state_store.unit_of_work() as uow:
+                existing = uow.get_health_policy_revision(policy.policy_id, policy.revision)
+                if existing is None:
+                    uow.add_health_policy_revision(policy)
+                    uow.commit()
         membership = HealthScopeMembershipSnapshot(
             configuration_revision=1,
             configuration_digest="0" * 64,

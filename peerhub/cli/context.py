@@ -21,6 +21,19 @@ def _is_git_boundary(path: Path) -> bool:
     return git_marker.exists()
 
 
+def _nearest_git_boundary(start: Path) -> Optional[Path]:
+    """Return the nearest enclosing Git worktree boundary, if any."""
+
+    current = start
+    while True:
+        if _is_git_boundary(current):
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 def _check_store_state(peerhub_dir: Path) -> Tuple[bool, Optional[str], str]:
     """Returns (is_initialized, identity, state_description)"""
     db_path = peerhub_dir / "peerhub.sqlite3"
@@ -101,12 +114,9 @@ def resolve_workspace(explicit_workspace: Optional[str] = None, cwd_override: Op
         
     # 3c, 3d, 3e. Discover walking up
     current = cwd
-    first_git_boundary = None
+    project_boundary = _nearest_git_boundary(cwd)
     
     while True:
-        if _is_git_boundary(current) and first_git_boundary is None:
-            first_git_boundary = current
-            
         peerhub_dir = current / ".peerhub"
         if peerhub_dir.exists():
             is_init, identity, state = _check_store_state(peerhub_dir)
@@ -115,11 +125,11 @@ def resolve_workspace(explicit_workspace: Optional[str] = None, cwd_override: Op
                 identity=identity,
                 selection_source="discovered",
                 is_initialized=is_init,
-                project_boundary=first_git_boundary or current,
+                project_boundary=project_boundary,
                 state_description=state
             )
             
-        if first_git_boundary and current == first_git_boundary:
+        if project_boundary is not None and current == project_boundary:
             break
             
         parent = current.parent
@@ -127,14 +137,14 @@ def resolve_workspace(explicit_workspace: Optional[str] = None, cwd_override: Op
             break
         current = parent
         
-    if first_git_boundary:
-        is_init, identity, state = _check_store_state(first_git_boundary / ".peerhub")
+    if project_boundary is not None:
+        is_init, identity, state = _check_store_state(project_boundary / ".peerhub")
         return WorkspaceResolution(
-            root=first_git_boundary,
+            root=project_boundary,
             identity=identity,
             selection_source="discovered",
             is_initialized=is_init,
-            project_boundary=first_git_boundary,
+            project_boundary=project_boundary,
             state_description=state
         )
         

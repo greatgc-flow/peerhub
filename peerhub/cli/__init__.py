@@ -14,7 +14,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from peerhub.cli.context import resolve_workspace
+from peerhub.cli.context import WorkspaceResolution, resolve_workspace
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -59,7 +59,7 @@ from peerhub.core.identity import (
 from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import ProcessSupervisor  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
-from peerhub.runtime import create_runtime
+from peerhub.runtime import create_read_runtime, create_runtime
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
@@ -168,6 +168,17 @@ def _run_health(parsed: argparse.Namespace) -> int:
 
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = (
+        parsed.health_action in ("precheck", "sweep")
+        or (parsed.health_action == "check" and not parsed.recover)
+    )
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("Workspace uninitialized; no health state to report.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),
         paths=paths,
@@ -203,7 +214,8 @@ def _run_health(parsed: argparse.Namespace) -> int:
                 return 0
 
         if parsed.health_action == "check":
-            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            runtime_factory = create_read_runtime if read_only else create_runtime
+            with runtime_factory(context, adapter_peer_kind="fake") as runtime:
                 coordinator = runtime.health_revalidation_coordinator
                 caller = require_caller_identity(LocalProcessCallerIdentityProvider()) if parsed.recover else None
                 result = collect_health_check(
@@ -233,7 +245,7 @@ def _run_health(parsed: argparse.Namespace) -> int:
                 return 0
 
         if parsed.health_action == "precheck":
-            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            with create_read_runtime(context, adapter_peer_kind="fake") as runtime:
                 result = collect_health_precheck(
                     runtime.peer_registry_service,
                     runtime.health_service,
@@ -267,7 +279,7 @@ def _run_health(parsed: argparse.Namespace) -> int:
                 return 0 if result.get("ok") else 1
 
         if parsed.health_action == "sweep":
-            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            with create_read_runtime(context, adapter_peer_kind="fake") as runtime:
                 result = collect_health_sweep(
                     runtime.peer_registry_service,
                     runtime.health_service,
@@ -281,7 +293,7 @@ def _run_health(parsed: argparse.Namespace) -> int:
                 return 0
 
         return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError, sqlite3.Error) as exc:
         print(f"peerhub health: {exc}", file=sys.stderr)
         return 2
 
@@ -342,35 +354,54 @@ def _guard_implicit_workspace_init(
     """Resolution must never silently become initialization (dotdir
     consolidation, ratified 2026-09-09, item 2).
 
-    Only the implicit `.` default is guarded -- an explicit `--workspace
-    PATH` (even `--workspace .`) is a deliberate choice and is always
-    allowed to proceed, matching today's behavior. Directly closes the
-    stray root-level `.peerhub/` this session found: any command run from
-    an arbitrary cwd with no `--workspace` flag used to silently create a
-    database there via `create_runtime()`'s unconditional
-    `state_store.initialize()`.
+    A read-only action against a missing store is empty regardless of how
+    the workspace was selected. Explicit selection authorizes creation only
+    for actions that actually create state.
 
     Returns an int when the CALLER must immediately return that value
     without doing any real work (this function already printed the
     appropriate message): `2` for a state-creating action that would
     otherwise silently initialize an implicit workspace, `0` for a
     read-only action against one (valid, just genuinely empty -- not an
-    error). Returns None when it's safe to proceed normally (workspace
-    already initialized, or the workspace was named explicitly) --
-    callers must not return in that case, real work happens below.
+    error). Returns None when it's safe to proceed normally.
     """
 
-    if paths.database_path.exists() or parsed.workspace is not None:
+    if paths.database_path.exists():
         return None
-    if creating:
-        print(
-            "peerhub: refusing to initialize a new workspace at the implicit "
-            "current directory. Pass an explicit --workspace PATH, or run "
-            "`peerhub workspace init` first.",
-            file=sys.stderr,
-        )
-        return 2
-    return 0
+    if not creating:
+        return 0
+    if parsed.workspace is not None:
+        return None
+    print(
+        "peerhub: refusing to initialize a new workspace at the implicit "
+        "current directory. Pass an explicit --workspace PATH, or run "
+        "`peerhub workspace init` first.",
+        file=sys.stderr,
+    )
+    return 2
+
+
+def _guard_automatic_workspace_init(  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    parsed: argparse.Namespace,
+    resolution: WorkspaceResolution,
+    paths: "PathLayout",
+) -> int | None:
+    """Allow ask/broadcast auto-init only for a selected project."""
+
+    if (
+        paths.database_path.exists()
+        or parsed.workspace is not None
+        or resolution.selection_source == "env"
+        or resolution.root == resolution.project_boundary
+    ):
+        return None
+    print(
+        "peerhub: no Git project or initialized workspace found at "
+        f"{resolution.root}. Run `peerhub workspace init` here, or choose "
+        "a project with `-w PATH`.",
+        file=sys.stderr,
+    )
+    return 2
 
 
 def _detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
@@ -437,14 +468,9 @@ def _json_safe(value: Any) -> Any:
 def _run_consensus(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
-    # Item 2 (dotdir consolidation, ratified 2026-09-09): `list` is the one
-    # read-only consensus action verified not to silently initialize an
-    # implicit, uninitialized workspace. `propose` legitimately needs to be
-    # able to initialize one; other actions' exact creating/reading nature
-    # was not individually re-audited in this pass, so their existing
-    # implicit-init behavior is left unchanged here.
+    read_only = parsed.consensus_action in ("list", "status")
     guard_code = _guard_implicit_workspace_init(
-        parsed, paths, creating=(parsed.consensus_action != "list")
+        parsed, paths, creating=not read_only
     )
     if guard_code == 0:
         if parsed.json:
@@ -460,7 +486,8 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = ConsensusService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             if parsed.consensus_action == "proposal-add":
                 result = runtime.proposal_coordinator.add_proposal(
@@ -609,7 +636,13 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                 quorum = cast(dict[str, Any], state["quorum"])
                 print(f"Consensus round {parsed.round_id}: phase={state['phase']}, votes={quorum['counted_votes']}/{quorum['required_votes']}, quorum reached={quorum['reached']}")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (
+        InvalidMutationError,
+        RecordNotFoundError,
+        RuntimeError,
+        ValueError,
+        sqlite3.Error,
+    ) as exc:
         print(f"peerhub consensus: {exc}", file=sys.stderr)
         return 2
 
@@ -640,7 +673,10 @@ def _run_task(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
     action = parsed.task_action
-    guard_code = _guard_implicit_workspace_init(parsed, paths, creating=(action == "create"))
+    read_only = action == "status"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
     if guard_code == 0:
         if parsed.json:
             print(json.dumps({"error": "not_found", "task_id": getattr(parsed, "task_id", None)}))
@@ -655,7 +691,8 @@ def _run_task(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = TaskService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             if action == "create":
                 submission = service.create(task_id=parsed.task_id, summary=parsed.summary, spec=parsed.spec, creator_id=parsed.creator, room_id=parsed.room_id or None)
@@ -688,7 +725,13 @@ def _run_task(parsed: argparse.Namespace) -> int:
                 verb = {"create": "created", "claim-start": "started", "checkpoint": "checkpointed", "complete": "completed", "fail": "failed", "cancel": "cancelled"}[action]
                 print(f"Task {parsed.task_id} {verb} (state={state['state']})")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (
+        InvalidMutationError,
+        RecordNotFoundError,
+        RuntimeError,
+        ValueError,
+        sqlite3.Error,
+    ) as exc:
         print(f"peerhub task: {exc}", file=sys.stderr)
         return 2
 
@@ -696,11 +739,20 @@ def _run_task(parsed: argparse.Namespace) -> int:
 def _run_lesson(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    action = parsed.lesson_action
+    read_only = action in ("inject", "status")
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("Workspace uninitialized; no lessons to report.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = LessonService(runtime.governance_broker, clock=context.clock, ids=context.ids)
-            action = parsed.lesson_action
             if action == "propose":
                 submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id, expires_at=parsed.expires_at)
             elif action == "approve":
@@ -799,7 +851,7 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                 verb = {"propose": "proposed", "approve": "approved", "activate": "activated", "retire": "retired", "supersede": "superseded", "quarantine": "quarantined"}[action]
                 print(f"Lesson {parsed.lesson_id} {verb} (lifecycle={state['lifecycle']})")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub lesson: {exc}", file=sys.stderr)
         return 2
 
@@ -807,9 +859,16 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
 def _run_directive(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.directive_action == "list"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.directive_service
             action = parsed.directive_action
             if action == "add":
@@ -862,7 +921,7 @@ def _run_directive(parsed: argparse.Namespace) -> int:
                 verb = {"add": "proposed", "migrate": "migrated", "clear": "retired"}[action]
                 print(f"Directive {parsed.directive_id} {verb} (lifecycle={state['lifecycle']})")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub directive: {exc}", file=sys.stderr)
         return 2
 
@@ -870,14 +929,9 @@ def _run_directive(parsed: argparse.Namespace) -> int:
 def _run_node(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
-    # Item 2 (dotdir consolidation, ratified 2026-09-09): `list` (the
-    # implicit fallthrough action) is the one read-only node action
-    # verified not to silently initialize an implicit, uninitialized
-    # workspace. `register`/`bind-profile` legitimately create state;
-    # `model-status` was not individually re-audited and keeps its
-    # existing implicit-init behavior.
+    read_only = parsed.node_action in (None, "list", "model-status")
     guard_code = _guard_implicit_workspace_init(
-        parsed, paths, creating=(parsed.node_action not in (None, "list"))
+        parsed, paths, creating=not read_only
     )
     if guard_code == 0:
         if parsed.json:
@@ -888,7 +942,8 @@ def _run_node(parsed: argparse.Namespace) -> int:
         return guard_code
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.peer_registry_service
             if parsed.node_action == "register":
                 submission = service.register_node(
@@ -970,7 +1025,7 @@ def _run_node(parsed: argparse.Namespace) -> int:
                     state = cast(Mapping[str, Any], n.state)
                     print(f"{state['node_id']}: peer_kind={state['peer_kind']}, profile_id={state['profile_id']}, source={state.get('source', 'registered')}")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub node: {exc}", file=sys.stderr)
         return 2
 
@@ -984,12 +1039,9 @@ def _run_peer(parsed: argparse.Namespace) -> int:
 
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
-    # Item 2 (dotdir consolidation, ratified 2026-09-09): `status` is the
-    # one read-only peer action verified not to silently initialize an
-    # implicit, uninitialized workspace. `quarantine`/`recover` legitimately
-    # mutate state and keep their existing implicit-init behavior.
+    read_only = parsed.peer_action == "status"
     guard_code = _guard_implicit_workspace_init(
-        parsed, paths, creating=(parsed.peer_action != "status")
+        parsed, paths, creating=not read_only
     )
     if guard_code == 0:
         if parsed.json:
@@ -1008,7 +1060,7 @@ def _run_peer(parsed: argparse.Namespace) -> int:
     )
     try:
         if parsed.peer_action == "status":
-            with create_runtime(context, adapter_peer_kind="fake") as runtime:
+            with create_read_runtime(context, adapter_peer_kind="fake") as runtime:
                 rows = collect_peer_status(
                     runtime.peer_registry_service,
                     runtime.health_service,
@@ -1123,6 +1175,11 @@ def _format_lease_timestamp(timestamp_ms: object) -> str:
 def _run_broker(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    guard_code = _guard_implicit_workspace_init(parsed, paths, creating=False)
+    if guard_code == 0:
+        print("[HUB] No unfinished governance effect deliveries.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1132,7 +1189,7 @@ def _run_broker(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        with create_read_runtime(context, adapter_peer_kind="fake") as runtime:
             result = collect_effect_status(
                 runtime.governance_broker,
                 limit=parsed.limit,
@@ -1164,7 +1221,7 @@ def _run_broker(parsed: argparse.Namespace) -> int:
                 f"{result['visible_unfinished_count']}{suffix}"
             )
             return 0
-    except (ValueError, RuntimeError, PeerHubError) as exc:
+    except (ValueError, RuntimeError, PeerHubError, sqlite3.Error) as exc:
         print(f"peerhub broker: {exc}", file=sys.stderr)
         return 2
 
@@ -1174,6 +1231,14 @@ def _run_lease(parsed: argparse.Namespace) -> int:
 
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.lease_action == "status"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("[HUB] No active leases.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1183,7 +1248,8 @@ def _run_lease(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             if parsed.lease_action == "sweep":
                 caller = require_caller_identity(
                     LocalProcessCallerIdentityProvider()
@@ -1260,7 +1326,7 @@ def _run_lease(parsed: argparse.Namespace) -> int:
                         f"{_format_lease_timestamp(row['heartbeat_at']):<20}"
                     )
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub lease: {exc}", file=sys.stderr)
         return 2
 
@@ -1270,6 +1336,11 @@ def _run_gate(parsed: argparse.Namespace) -> int:
 
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    guard_code = _guard_implicit_workspace_init(parsed, paths, creating=False)
+    if guard_code == 0:
+        print("Workspace uninitialized; no gate state to report.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1279,7 +1350,7 @@ def _run_gate(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        with create_read_runtime(context, adapter_peer_kind="fake") as runtime:
             result = collect_check_gate(
                 runtime.peer_registry_service,
                 runtime.health_service,
@@ -1293,7 +1364,7 @@ def _run_gate(parsed: argparse.Namespace) -> int:
                 gate = result.get("gate")
                 print(f"[GATE] {agent}={gate}")
             return 0 if result.get("open") else 1
-    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError, sqlite3.Error) as exc:
         print(f"peerhub gate: {exc}", file=sys.stderr)
         return 2
 
@@ -1301,6 +1372,14 @@ def _run_gate(parsed: argparse.Namespace) -> int:
 def _run_role(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.role_action == "status"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("No roles assigned.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1310,7 +1389,8 @@ def _run_role(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.role_assignment_service
             if parsed.role_action == "assign":
                 submission = service.assign_role(
@@ -1375,7 +1455,7 @@ def _run_role(parsed: argparse.Namespace) -> int:
                         f"{target.state['peer_node_id']}"
                     )
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub role: {exc}", file=sys.stderr)
         return 2
 
@@ -1383,6 +1463,14 @@ def _run_role(parsed: argparse.Namespace) -> int:
 def _run_leadership(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.leadership_action == "status"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("No leadership record.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1392,7 +1480,8 @@ def _run_leadership(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.leadership_service
             if parsed.leadership_action == "claim":
                 result = service.claim_leadership(
@@ -1471,7 +1560,7 @@ def _run_leadership(parsed: argparse.Namespace) -> int:
                     f"{state['challenge_until']}"
                 )
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub leadership: {exc}", file=sys.stderr)
         return 2
 
@@ -1487,6 +1576,14 @@ def _run_routing(parsed: argparse.Namespace) -> int:
 
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.routing_action == "discover"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("Workspace uninitialized; no routing state to report.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1496,7 +1593,8 @@ def _run_routing(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             if parsed.routing_action == "import-capabilities":
                 sys_root = workspace_root.parent.parent / "_sys" / "ai"
                 protocol_path = Path(
@@ -1573,7 +1671,7 @@ def _run_routing(parsed: argparse.Namespace) -> int:
                     f"claim={receipt.leadership_claim_id}"
                 )
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError, PeerHubError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError, sqlite3.Error) as exc:
         print(f"peerhub routing: {exc}", file=sys.stderr)
         return 2
 
@@ -1581,6 +1679,14 @@ def _run_routing(parsed: argparse.Namespace) -> int:
 def _run_feedback(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.feedback_action == "list"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("No feedback records found.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1590,7 +1696,8 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.feedback_service
             if parsed.feedback_action == "add":
                 submission = service.add_feedback(
@@ -1659,7 +1766,7 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
                         f"{state['title']}"
                     )
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub feedback: {exc}", file=sys.stderr)
         return 2
 
@@ -1667,6 +1774,14 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
 def _run_error(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = (
+        parsed.error_action == "review" and parsed.review_action == "list"
+    )
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1676,7 +1791,8 @@ def _run_error(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             if parsed.error_action == "report":
                 submission = runtime.operational_error_service.report_error(
                     peer_key=parsed.peer,
@@ -1738,7 +1854,7 @@ def _run_error(parsed: argparse.Namespace) -> int:
                             f"status={target.state['status']})"
                         )
                     return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub error: {exc}", file=sys.stderr)
         return 2
 
@@ -1748,6 +1864,9 @@ def _run_error(parsed: argparse.Namespace) -> int:
 def _run_alert(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    guard_code = _guard_implicit_workspace_init(parsed, paths, creating=True)
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -1790,19 +1909,9 @@ def _run_alert(parsed: argparse.Namespace) -> int:
 def _run_room(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
-    # Item 2 (dotdir consolidation, ratified 2026-09-09): `status` is the
-    # one read-only room action verified not to silently initialize an
-    # implicit, uninitialized workspace. The many mutating room actions
-    # (create, send, mark-read, etc.) were not individually re-audited in
-    # this pass and keep their existing implicit-init behavior.
-    #
-    # Separately noted, NOT fixed here (out of this item's scope): `status`
-    # has no explicit branch below and falls through to the generic
-    # `else: print(f"Room {parsed.room_id} created")` -- a pre-existing,
-    # misleading message for a read action (it does not actually call
-    # create_room(), so no state is mutated, but the printed text is wrong).
+    read_only = parsed.room_action in ("check-inbox", "context-fill", "status")
     guard_code = _guard_implicit_workspace_init(
-        parsed, paths, creating=(parsed.room_action != "status")
+        parsed, paths, creating=not read_only
     )
     if guard_code == 0:
         if parsed.json:
@@ -1813,7 +1922,8 @@ def _run_room(parsed: argparse.Namespace) -> int:
         return guard_code
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = RoomsService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             action = parsed.room_action
             if action == "create":
@@ -2064,7 +2174,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
             else:
                 print(f"Room {parsed.room_id} created")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub room: {exc}", file=sys.stderr)
         return 2
 
@@ -2072,9 +2182,18 @@ def _run_room(parsed: argparse.Namespace) -> int:
 def _run_duty(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.duty_action == "status"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print(f"Terminal duty for room {parsed.room_id}: UNHELD")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name), paths=paths, clock=SystemClock(), ids=UuidSource())
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             coordinator = runtime.duty_lease_coordinator
             service = TerminalDutyService(coordinator, default_heartbeat_timeout_ms=parsed.heartbeat_timeout_ms if hasattr(parsed, "heartbeat_timeout_ms") else 60_000)
             owner = cast(DutyOwnerIdentity, DutyOwnerIdentity(parsed.instance_id, parsed.profile_id) if hasattr(parsed, "instance_id") else None)
@@ -2196,7 +2315,7 @@ def _run_duty(parsed: argparse.Namespace) -> int:
             else:
                 print(f"Terminal duty lease {lease.lease_id} closed")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub duty: {exc}", file=sys.stderr)
         return 2
 
@@ -2241,6 +2360,9 @@ def _room_session_payload(session: RoomSessionSnapshot) -> dict[str, Any]:
 def _run_session(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    guard_code = _guard_implicit_workspace_init(parsed, paths, creating=True)
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -3787,6 +3909,14 @@ if __name__ == "__main__":
 def _run_lock(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.lock_action == "status"
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("No active file locks.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -3796,7 +3926,8 @@ def _run_lock(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.file_lock_service
             if parsed.lock_action == "acquire":
                 submission = service.lock_file(
@@ -3863,7 +3994,7 @@ def _run_lock(parsed: argparse.Namespace) -> int:
                     locked_at = state.get("locked_at", "")
                     print(f"{name}\t{owner}\t{scope}\t{locked_at}")
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError, PeerHubError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError, sqlite3.Error) as exc:
         print(f"peerhub lock: {exc}", file=sys.stderr)
         return 2
 
@@ -3871,6 +4002,16 @@ def _run_lock(parsed: argparse.Namespace) -> int:
 def _run_artifact(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
+    read_only = parsed.artifact_action == "status" and not (
+        parsed.name and parsed.peer and parsed.draft_path
+    )
+    guard_code = _guard_implicit_workspace_init(
+        parsed, paths, creating=not read_only
+    )
+    if guard_code == 0:
+        print("{}" if parsed.name else "No artifact metadata records found.")
+    if guard_code is not None:
+        return guard_code
     context = RuntimeContext(
         workspace_home_id=_detect_workspace_home_id(
             paths.database_path, workspace_root.name
@@ -3880,7 +4021,8 @@ def _run_artifact(parsed: argparse.Namespace) -> int:
         ids=UuidSource(),
     )
     try:
-        with create_runtime(context, adapter_peer_kind="fake") as runtime:
+        runtime_factory = create_read_runtime if read_only else create_runtime
+        with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.artifact_record_service
             if parsed.artifact_action == "claim":
                 result = service.claim(parsed.name, parsed.peer)
@@ -3965,6 +4107,6 @@ def _run_artifact(parsed: argparse.Namespace) -> int:
                     f"hash={result.record.state.get('hash', '')}"
                 )
             return 0
-    except (InvalidMutationError, RecordNotFoundError, ValueError, PeerHubError) as exc:
+    except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError, sqlite3.Error) as exc:
         print(f"peerhub artifact: {exc}", file=sys.stderr)
         return 2

@@ -134,9 +134,7 @@ def run_setup_command(parsed: argparse.Namespace, cli: ModuleType) -> int | None
     if parsed.command == "workspace" and parsed.workspace_action == "init":
         workspace_root = resolve_workspace(parsed.workspace).root
         paths = cli.PathLayout.for_workspace(workspace_root)
-        if paths.database_path.exists():
-            print(f"Workspace already initialized: {workspace_root}")
-            return 0
+        already_initialized = paths.database_path.exists()
         context = cli.RuntimeContext(
             workspace_home_id=cli._detect_workspace_home_id(
                 paths.database_path, workspace_root.name
@@ -147,7 +145,10 @@ def run_setup_command(parsed: argparse.Namespace, cli: ModuleType) -> int | None
         )
         with cli.create_runtime(context, adapter_peer_kind="fake"):
             pass
-        print(f"Workspace initialized: {workspace_root}")
+        if already_initialized:
+            print(f"Workspace already initialized: {workspace_root}")
+        else:
+            print(f"Workspace initialized: {workspace_root}")
         return 0
 
     if parsed.command == "config" and parsed.config_command == "paths":

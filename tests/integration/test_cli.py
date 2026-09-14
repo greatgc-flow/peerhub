@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 import sys
 import uuid
 from pathlib import Path
@@ -164,6 +165,26 @@ def test_cli_read_only_inspection_never_initializes_workspace(
     assert not (tmp_path / ".peerhub").exists()
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    (
+        ["task", "status", "--task-id", "missing"],
+        ["consensus", "list"],
+        ["peer", "status"],
+        ["node", "list"],
+        ["room", "status", "--room-id", "missing"],
+    ),
+)
+def test_cli_explicit_read_only_inspection_never_initializes_workspace(
+    arguments: list[str],
+    tmp_path: Path,
+) -> None:
+    with patch("peerhub.cli.create_runtime") as create:
+        assert main([*arguments, "--workspace", str(tmp_path)]) == 0
+    assert create.call_count == 0
+    assert not (tmp_path / ".peerhub").exists()
+
+
 def test_cli_workspace_init_is_explicit_initialization_intent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -206,6 +227,65 @@ def test_cli_status_initialized(tmp_path: Path, capsys):
     assert "Health Circuit ('system'): (no listing API exists yet -- not queryable from the CLI)" in stdout
     assert "Active Leases: 0" in stdout
     assert "Status: OK" in stdout
+
+
+def test_cli_read_rejects_old_schema_without_migrating(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from peerhub.cli import SystemClock
+    from peerhub.core.context import PathLayout, RuntimeContext
+    from peerhub.persistence.sqlite import SqliteStateStore
+    from peerhub.runtime import create_runtime
+
+    paths = PathLayout.for_workspace(tmp_path)
+    context = RuntimeContext(
+        workspace_home_id="old-schema-workspace",
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    available = SqliteStateStore._available_migrations()  # pyright: ignore[reportPrivateUsage]
+    with patch.object(
+        SqliteStateStore,
+        "_available_migrations",
+        return_value=available[:-1],
+    ):
+        with create_runtime(context):
+            pass
+
+    with sqlite3.connect(paths.database_path) as connection:
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone() == (30,)
+
+    before = paths.database_path.read_bytes()
+    exit_code = main(
+        [
+            "task",
+            "status",
+            "--task-id",
+            "missing",
+            "--workspace",
+            str(tmp_path),
+        ]
+    )
+
+    assert exit_code == 2
+    assert paths.database_path.read_bytes() == before
+    error = capsys.readouterr().err
+    assert "migration required" in error
+    assert "peerhub workspace init" in error
+    with sqlite3.connect(paths.database_path) as connection:
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone() == (30,)
+
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    with sqlite3.connect(paths.database_path) as connection:
+        assert connection.execute(
+            "SELECT MAX(version) FROM schema_migrations"
+        ).fetchone() == (31,)
 
 def test_cli_config_paths_json_reports_every_family_and_source(
     tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
@@ -787,6 +867,89 @@ def test_cli_ask_defaults_capability_tier_to_read_only(tmp_path: Path) -> None:
         request = execute.call_args.args[0]
         assert request.required_capability_tier is CapabilityTier.READ_ONLY
 
+
+def test_cli_ask_auto_initializes_at_discovered_git_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from peerhub.cli import SystemClock
+    from peerhub.core.context import PathLayout, RuntimeContext
+    from peerhub.runtime import create_runtime
+
+    (tmp_path / ".git").mkdir()
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+
+    def _bootstrap_and_succeed(request, **kwargs):
+        del kwargs
+        paths = PathLayout.for_workspace(request.workspace_root)
+        context = RuntimeContext(
+            workspace_home_id=request.workspace_root.name,
+            paths=paths,
+            clock=SystemClock(),
+            ids=UuidSource(),
+        )
+        with create_runtime(context):
+            pass
+        return _ask_result()
+
+    with (
+        patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
+        patch(
+            "peerhub.cli.execute_direct_ask",
+            side_effect=_bootstrap_and_succeed,
+        ) as execute,
+    ):
+        provider_type.return_value.resolve.return_value = AuthenticatedSubject(
+            principal_id="test", evidence_source="test"
+        )
+        assert main(["ask", "ag", "hello"]) == 0
+
+    request = execute.call_args.args[0]
+    assert request.workspace_root == tmp_path.resolve()
+    database_path = tmp_path / ".peerhub" / "peerhub.sqlite3"
+    assert database_path.is_file()
+    assert (
+        f"[peerhub] initialized workspace at {database_path.parent.resolve()}"
+        in capsys.readouterr().err
+    )
+
+
+def test_cli_ask_refuses_auto_init_without_project_boundary(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from peerhub.cli.context import WorkspaceResolution
+
+    resolution = WorkspaceResolution(
+        root=tmp_path.resolve(),
+        identity=None,
+        selection_source="cwd",
+        is_initialized=False,
+        project_boundary=None,
+        state_description="missing",
+    )
+    with (
+        patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
+        patch(
+            "peerhub.cli.commands.daily.resolve_workspace",
+            return_value=resolution,
+        ),
+        patch("peerhub.cli.execute_direct_ask") as execute,
+    ):
+        provider_type.return_value.resolve.return_value = AuthenticatedSubject(
+            principal_id="test", evidence_source="test"
+        )
+        assert main(["ask", "ag", "hello"]) == 2
+
+    assert execute.call_count == 0
+    assert not (tmp_path / ".peerhub").exists()
+    error = capsys.readouterr().err
+    assert "peerhub workspace init" in error
+    assert "-w PATH" in error
+
 def test_cli_ask_explicit_capability_tier_override(tmp_path: Path) -> None:
     with (
         patch("peerhub.cli.LocalProcessCallerIdentityProvider") as provider_type,
@@ -1189,9 +1352,14 @@ def test_cli_short_flags(tmp_path, capsys):
         coordinator.return_value.fan_out.return_value = FanOutResult(round_id="1", disposition="all_completed", legs=())
         exit_code = main(["broadcast", "hello", "--peers", "ag", "-w", str(tmp_path), "-t", "READ_ONLY", "-j"])
         assert exit_code == 0
+        assert (tmp_path / ".peerhub" / "peerhub.sqlite3").is_file()
         req = coordinator.return_value.fan_out.call_args.args[0]
         assert req.workspace_root == tmp_path.resolve()
         assert req.required_capability_tier is CapabilityTier.READ_ONLY
         captured = capsys.readouterr()
         assert json.loads(captured.out)
+        assert (
+            f"[peerhub] initialized workspace at "
+            f"{(tmp_path / '.peerhub').resolve()}"
+        ) in captured.err
 

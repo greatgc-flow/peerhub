@@ -1,12 +1,15 @@
 """Integration tests for the composed Phase 1 runtime."""
 
 import pytest
+import sqlite3
 from pathlib import Path
+
+import pytest
 
 from peerhub.adapters.codex_adapter import RealCodexAdapter
 from peerhub.builtins.fake_adapter import FakePeerAdapter
 from peerhub.core.context import RuntimeContext, PathLayout
-from peerhub.runtime import create_runtime
+from peerhub.runtime import create_read_runtime, create_runtime
 from tests.fakes import DeterministicClock, SequentialIdSource
 
 def test_composed_runtime_initializes_and_wires_services(tmp_path: Path):
@@ -57,3 +60,40 @@ def test_create_runtime_selects_requested_real_adapter(tmp_path: Path):
     with create_runtime(context, adapter_peer_kind="cx") as runtime:
         assert isinstance(runtime.peer_adapter, RealCodexAdapter)
         assert runtime.application_workflows._peer_adapter is runtime.peer_adapter
+
+
+def test_create_read_runtime_does_not_seed_policy(tmp_path: Path) -> None:
+    context = RuntimeContext(
+        workspace_home_id="read-only-workspace",
+        paths=PathLayout.for_workspace(tmp_path),
+        clock=DeterministicClock(),
+        ids=SequentialIdSource(),
+    )
+    with create_runtime(context):
+        pass
+
+    with sqlite3.connect(context.paths.database_path) as connection:
+        connection.execute("DELETE FROM health_policy_revisions")
+        connection.commit()
+
+    with create_read_runtime(context):
+        pass
+
+    with sqlite3.connect(context.paths.database_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM health_policy_revisions"
+        ).fetchone() == (0,)
+
+
+def test_create_read_runtime_does_not_create_missing_store(tmp_path: Path) -> None:
+    context = RuntimeContext(
+        workspace_home_id="missing-read-only-workspace",
+        paths=PathLayout.for_workspace(tmp_path),
+        clock=DeterministicClock(),
+        ids=SequentialIdSource(),
+    )
+
+    with pytest.raises(sqlite3.OperationalError, match="unable to open database file"):
+        create_read_runtime(context)
+
+    assert not context.paths.workspace_home.exists()

@@ -209,6 +209,34 @@ class SqliteStateStore:
         finally:
             connection.close()
 
+    def require_current_schema(self) -> None:
+        """Verify that reads can use this database without changing it.
+
+        Read composition must not turn inspection into an implicit migration.
+        This check therefore uses a read-only connection and reports pending
+        migrations with the explicit operation that can apply them.
+        """
+
+        connection = self._connect_read()
+        try:
+            available = self._available_migrations()
+            applied = self._applied_versions(connection)
+            self._reject_unknown_migrations(applied, available)
+            pending = tuple(
+                version for version, _ in available if version not in applied
+            )
+            if pending:
+                workspace_root = self._database_path.parent.parent.resolve()
+                rendered = ", ".join(f"{version:04d}" for version in pending)
+                raise RuntimeError(
+                    "workspace database migration required "
+                    f"(pending: {rendered}); run `peerhub workspace init "
+                    f"--workspace \"{workspace_root}\"`"
+                )
+            self._verify_sequence_complete(connection, available)
+        finally:
+            connection.close()
+
     def unit_of_work(self) -> SqliteUnitOfWork:
         """Return a new SQLite unit of work."""
 
@@ -242,7 +270,18 @@ class SqliteStateStore:
         return connection
 
     def _connect_read(self) -> sqlite3.Connection:
-        connection = self._connect()
+        database_uri = self._database_path.absolute().as_uri() + "?mode=ro"
+        connection = sqlite3.connect(
+            database_uri,
+            uri=True,
+            isolation_level=None,
+            timeout=self._busy_timeout_ms / 1_000,
+        )
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute(
+            f"PRAGMA busy_timeout = {self._busy_timeout_ms}"
+        )
         connection.execute("PRAGMA query_only = ON")
         return connection
 

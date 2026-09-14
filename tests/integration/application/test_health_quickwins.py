@@ -759,7 +759,7 @@ def test_legacy_translation_and_api_execution(test_setup, monkeypatch):
 def test_cli_commands_execution(tmp_path: Path, capsys):
     # Initialize workspace DB
     store = SqliteStateStore(
-        tmp_path / ".peerhub" / "state.sqlite3",
+        tmp_path / ".peerhub" / "peerhub.sqlite3",
         workspace_home_id="cli-test",
     )
     store.initialize()

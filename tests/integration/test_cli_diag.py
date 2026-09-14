@@ -43,10 +43,16 @@ def test_diag_domains_and_default_output(tmp_path: Path, capsys) -> None:
 def test_diag_domains_degrades_when_governance_collection_fails(tmp_path: Path, capsys, monkeypatch) -> None:
     import peerhub.cli as cli_module
 
+    paths = PathLayout.for_workspace(tmp_path)
+    with create_runtime(
+        RuntimeContext("diag-home", paths, FakeClock(), FakeIdSource())
+    ):
+        pass
+
     def fail(*args, **kwargs):
         raise RuntimeError("unavailable")
 
-    monkeypatch.setattr(cli_module, "create_runtime", fail)
+    monkeypatch.setattr(cli_module, "create_read_runtime", fail)
     assert main(["diag", "--workspace", str(tmp_path), "--domains"]) == 0
     output = capsys.readouterr().out
     assert "governance state unavailable" in output

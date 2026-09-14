@@ -23,7 +23,8 @@ def detect_workspace_home_id(database_path: Path, fallback_name: str) -> str:
 
     if database_path.is_file():
         try:
-            connection = sqlite3.connect(str(database_path))
+            database_uri = database_path.absolute().as_uri() + "?mode=ro"
+            connection = sqlite3.connect(database_uri, uri=True)
             try:
                 row = connection.execute(
                     "SELECT workspace_home_id FROM workspace_identity WHERE singleton = 1"

@@ -29,6 +29,9 @@ from unittest.mock import patch
 import pytest
 
 from peerhub.cli import main
+from peerhub.cli import SystemClock, UuidSource
+from peerhub.core.context import PathLayout, RuntimeContext
+from peerhub.runtime import create_runtime
 
 
 def _make_executable(path: Path) -> None:
@@ -88,6 +91,16 @@ def isolated_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # Point env so _resolve_sys_dir finds this _sys
     monkeypatch.setenv("PEERHUB_SYS_DIR", str(sys_dir))
     monkeypatch.chdir(ws)
+
+    paths = PathLayout.for_workspace(ws)
+    context = RuntimeContext(
+        workspace_home_id="quota-wiring-workspace",
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
+    )
+    with create_runtime(context):
+        pass
 
     return ws
 
@@ -231,21 +244,6 @@ class TestQuotaPipelineHasNoCallersBug:
         self, isolated_workspace: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:
         """peerhub status --peer cc shows 'No quota data' because write-side is never called."""
-        # Initialize the database so status --peer works
-        from peerhub.core.context import PathLayout, RuntimeContext
-        from peerhub.cli import SystemClock, UuidSource
-        from peerhub.runtime import create_runtime
-
-        paths = PathLayout.for_workspace(isolated_workspace)
-        ctx = RuntimeContext(
-            workspace_home_id="test",
-            paths=paths,
-            clock=SystemClock(),
-            ids=UuidSource(),
-        )
-        with create_runtime(ctx, adapter_peer_kind="fake"):
-            pass  # just initialize the DB
-
         exit_code = main(["status", "--peer", "cc", "--workspace", str(isolated_workspace)])
         out = capsys.readouterr().out
 
@@ -403,6 +401,16 @@ class TestSysDirDerivedFromWorkspaceNotCwd:
         sys_dir = ws / "_sys"
         (sys_dir / "data" / "temp").mkdir(parents=True)
         _fake_claude_binary_returning_usage(sys_dir)
+
+        paths = PathLayout.for_workspace(ws)
+        context = RuntimeContext(
+            workspace_home_id="quota-wiring-workspace",
+            paths=paths,
+            clock=SystemClock(),
+            ids=UuidSource(),
+        )
+        with create_runtime(context):
+            pass
 
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()

@@ -25,5 +25,7 @@ def test_cli_task_lifecycle_and_json_status(tmp_path: Path, capsys) -> None:
 
 
 def test_cli_task_missing_status_returns_two(tmp_path: Path, capsys) -> None:
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    capsys.readouterr()
     assert main(["task", "status", "--workspace", str(tmp_path), "--task-id", "missing"]) == 2
     assert "not found" in capsys.readouterr().err

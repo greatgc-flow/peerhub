@@ -108,8 +108,14 @@ def run_ask(
             if caller_identity_provider is not None
             else cli.LocalProcessCallerIdentityProvider()
         )
-        workspace_root = resolve_workspace(parsed.workspace).root
+        resolution = resolve_workspace(parsed.workspace)
+        workspace_root = resolution.root
         paths = cli.PathLayout.for_workspace(workspace_root)
+        guard_code = cli._guard_automatic_workspace_init(
+            parsed, resolution, paths
+        )
+        if guard_code is not None:
+            return guard_code
         is_first_init = not paths.database_path.exists()
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
@@ -212,6 +218,8 @@ def refresh_usage_projections(
     )
 
     paths = cli.PathLayout.for_workspace(workspace_root)
+    if not paths.database_path.exists():
+        return []
     try:
         context = cli.RuntimeContext(
             workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
@@ -219,7 +227,7 @@ def refresh_usage_projections(
             clock=cli.SystemClock(),
             ids=cli.UuidSource(),
         )
-        with cli.create_runtime(context, adapter_peer_kind="fake") as runtime:
+        with cli.create_read_runtime(context, adapter_peer_kind="fake") as runtime:
             ids = context.ids
             now = int(context.clock.now())
             with runtime.state_store.read_unit_of_work() as uow:
@@ -285,13 +293,26 @@ def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
                 list_active_tasks,
             )
             paths = cli.PathLayout.for_workspace(workspace_root)
+            if not paths.database_path.exists():
+                snapshot["domains"] = {
+                    "consensus": [],
+                    "tasks": [],
+                    "lessons": [],
+                    "duty_leases": {
+                        "status": "unavailable",
+                        "reason": (
+                            "cross-room duty lease enumeration is not implemented"
+                        ),
+                    },
+                }
+                return snapshot
             context = cli.RuntimeContext(
                 workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
                 paths=paths,
                 clock=cli.SystemClock(),
                 ids=cli.UuidSource(),
             )
-            with cli.create_runtime(context, adapter_peer_kind="fake") as runtime:
+            with cli.create_read_runtime(context, adapter_peer_kind="fake") as runtime:
                 now = int(cli.time.time())
                 consensus = list_active_consensus_rounds(runtime.governance_broker)
                 tasks = list_active_tasks(runtime.governance_broker)
@@ -362,30 +383,37 @@ def run_status(parsed: argparse.Namespace, cli: ModuleType) -> int:
         clock=cli.SystemClock(),
         ids=cli.UuidSource(),
     )
-    with cli.create_runtime(context, adapter_peer_kind="fake") as runtime:
-        conn = runtime.state_store._connect()  # pyright: ignore[reportPrivateUsage]
-        try:
-            migrations = runtime.state_store._migration_versions(conn)  # pyright: ignore[reportPrivateUsage]
-            print(f"Schema Migrations Applied: {len(migrations)}")
-        except cli.sqlite3.OperationalError:
-            print("Schema Migrations Applied: 0 (table missing)")
-        finally:
-            conn.close()
-        print("Health Circuit ('system'): (no listing API exists yet -- not queryable from the CLI)")
-        print(f"Active Leases: {runtime.dispatch_service.count_active_leases()}")
-        print("Status: OK")
-        if getattr(parsed, "all", False) or getattr(parsed, "peer", None) is not None:
-            cli._refresh_usage_projections(workspace_root, force=False)
-            with runtime.state_store.read_unit_of_work() as uow:
-                cli._print_quota_table(uow, parsed.peer)
+    try:
+        with cli.create_read_runtime(context, adapter_peer_kind="fake") as runtime:
+            conn = runtime.state_store._connect_read()  # pyright: ignore[reportPrivateUsage]
+            try:
+                migrations = runtime.state_store._migration_versions(conn)  # pyright: ignore[reportPrivateUsage]
+                print(f"Schema Migrations Applied: {len(migrations)}")
+            finally:
+                conn.close()
+            print("Health Circuit ('system'): (no listing API exists yet -- not queryable from the CLI)")
+            print(f"Active Leases: {runtime.dispatch_service.count_active_leases()}")
+            print("Status: OK")
+            if getattr(parsed, "all", False) or getattr(parsed, "peer", None) is not None:
+                cli._refresh_usage_projections(workspace_root, force=False)
+                with runtime.state_store.read_unit_of_work() as uow:
+                    cli._print_quota_table(uow, parsed.peer)
+    except (RuntimeError, cli.sqlite3.Error) as error:
+        print(f"peerhub status: {error}", file=cli.sys.stderr)
+        return 2
     return 0
 
 
 def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
 
-    workspace_root = resolve_workspace(parsed.workspace).root
+    resolution = resolve_workspace(parsed.workspace)
+    workspace_root = resolution.root
     paths = cli.PathLayout.for_workspace(workspace_root)
+    guard_code = cli._guard_automatic_workspace_init(parsed, resolution, paths)
+    if guard_code is not None:
+        return guard_code
+    is_first_init = not paths.database_path.exists()
     context = cli.RuntimeContext(
         workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
         paths=paths,
@@ -416,6 +444,11 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
             authenticated_subject=cli.require_caller_identity(cli.LocalProcessCallerIdentityProvider()),
         )
         result = coordinator.fan_out(request)
+        if is_first_init and paths.database_path.exists():
+            print(
+                f"[peerhub] initialized workspace at {paths.database_path.parent}",
+                file=cli.sys.stderr,
+            )
         if parsed.json:
             print(cli.json.dumps({"round_id": result.round_id, "disposition": result.disposition, "legs": [{"target": leg.target, "leg_state": leg.leg_state, "response_text": leg.response_text} for leg in result.legs]}, indent=2))
         else:

@@ -32,6 +32,8 @@ def test_cli_room_create_thread_append_and_clear_preserves_old(tmp_path: Path, c
 
 
 def test_cli_room_status_missing_returns_two(tmp_path: Path, capsys) -> None:
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    capsys.readouterr()
     assert main(["room", "status", "--workspace", str(tmp_path), "--room-id", "missing"]) == 2
     assert "not found" in capsys.readouterr().err
 

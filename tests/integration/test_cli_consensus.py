@@ -43,6 +43,8 @@ def test_cli_consensus_propose_vote_and_status(tmp_path: Path, capsys) -> None:
 
 
 def test_cli_consensus_status_not_found_returns_nonzero(tmp_path: Path, capsys) -> None:
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    capsys.readouterr()
     assert main([
         "consensus", "status", "--workspace", str(tmp_path),
         "--round-id", "missing",
