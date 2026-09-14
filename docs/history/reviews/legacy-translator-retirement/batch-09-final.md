@@ -19,7 +19,7 @@ This final batch:
    translator-only supporting symbols from `peerhub/application/legacy.py`.
 3. Deleted the 5 unit test files that exercised `LegacyTranslator`/
    `LEGACY_CATALOG` directly.
-4. Updated `docs/design/phase0/migration-ledger-v2.json`'s status note
+4. Updated `docs/history/design/phase0/migration-ledger-v2.json`'s status note
    to reflect the ledger's new historical (non-authoritative) status.
 5. Fixed a stale `LEGACY_CATALOG` docstring reference in
    `peerhub/governance/feedback.py`.
@@ -133,7 +133,7 @@ full suite still 1475 passed after the rename.
 
 ## Ledger & Docstring Updates
 
-`docs/design/phase0/migration-ledger-v2.json`'s `meta.note`:
+`docs/history/design/phase0/migration-ledger-v2.json`'s `meta.note`:
 - Before: `"Authoritative migration ledger v2"`
 - After: `"Historical record of the legacy CLI action -> peerhub command mapping. No longer authoritative: the LegacyTranslator that implemented this mapping was fully retired in 2026-09-09; all listed legacy actions now have permanent native Command equivalents, exercised directly in tests/unit/application/test_command_wire_contracts.py."`
 

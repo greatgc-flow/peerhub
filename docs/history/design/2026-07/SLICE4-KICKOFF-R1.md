@@ -356,7 +356,7 @@ additional confirming citation of its own. All 4 below are unanimous
    `HealthScopeMembershipSnapshot`, required now, not deferrable.**
    Initially proposed as an out-of-scope narrowing (defer non-PROFILE
    circuit propagation), this was rejected on cross-check:
-   `docs/design/phase0/RUNTIME-HEALTH-RECOVERY-ADDENDUM-R3-2026-07-28.md`
+   `docs/history/design/phase0/RUNTIME-HEALTH-RECOVERY-ADDENDUM-R3-2026-07-28.md`
    establishes quota-family/root/environment-scoped health gates as a
    real, already-designed Phase 0 concept (not hypothetical), and its
    own "Additional mandatory tests" section requires "a verified 429

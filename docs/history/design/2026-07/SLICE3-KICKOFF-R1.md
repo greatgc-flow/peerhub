@@ -15,7 +15,7 @@ passing, matching the same closure step Slice 1 and Slice 2 each received.
 Status: ratified. Produced by a 2-round adversarial mutual-critique between
 ag.deepthink and cx.deepthink (2026-07-31), reconciled by cc with direct
 independent verification of every load-bearing citation against the live
-`docs/design/phase0/PROTOCOL-V1-FREEZE.md` and `peerhub/dispatch/contract.py`
+`docs/history/design/phase0/PROTOCOL-V1-FREEZE.md` and `peerhub/dispatch/contract.py`
 files (not accepted from either peer at face value). Continues the same
 Slice 1 -> Slice 2 -> **Slice 3** sequencing named in
 `PHASE1-KICKOFF-R1.md`'s "Full subsequent order", authorized by the user's

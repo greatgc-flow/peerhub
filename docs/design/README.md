@@ -1,6 +1,6 @@
 # docs/design/ — Index
 
-This index categorizes the 34 documents in this directory (phase0/ has its own index at `phase0/README.md`) into two tiers based on their current authority and relevance. Tier C's 62 older drafts/debates were physically relocated to `../history/design/2026-07/` and `../history/design/2026-08/` on 2026-09-14 (section 5.3 of `peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md`) and are kept below only as a dated index into their new location -- every real repo-wide reference to their old `docs/design/` path was updated in the same change.
+This index categorizes the 34 documents in this directory into two tiers based on their current authority and relevance. Tier C's 62 older drafts/debates, and the separate closed `phase0/` corpus (133 files, own index), were physically relocated to `../history/design/2026-07/`, `../history/design/2026-08/`, and `../history/design/phase0/` on 2026-09-14 (section 5.3 of `peerhub-holistic-renewal-RATIFIED-cx-astra-2026-09-13.md`) and are kept below only as a dated index into their new location -- every real repo-wide reference to their old `docs/design/` path was updated in the same change.
 Never delete history; if a document is superseded, mark it in its own header and point to the successor.
 
 ## Tier A: Current implementation/status source of truth
@@ -116,3 +116,6 @@ These files were retained for historical record and now live under `../history/d
 - [`TDD-READINESS-INVENTORY-R1.md`](../history/design/2026-08/TDD-READINESS-INVENTORY-R1.md)
 - [`TRACEABILITY-CONVENTION-R1.md`](../history/design/2026-08/TRACEABILITY-CONVENTION-R1.md)
 - [`WINDOWS-BROKERED-REDUCERS-DESIGN-2026-08-16.md`](../history/design/2026-08/WINDOWS-BROKERED-REDUCERS-DESIGN-2026-08-16.md)
+
+### Phase 0 (closed 2026-07-30; own index)
+- [`phase0/`](../history/design/phase0/README.md) — 133 files (fixture/authority/health/session-lease classification specs, controlled-fake-runner contracts, and their ratification rounds); see its own README for the full breakdown.

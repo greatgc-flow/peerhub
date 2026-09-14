@@ -164,7 +164,7 @@ required for two distinct additions:
 1. **Compatibility tests**: port the `DP-06` and `DT-01` through `DT-06`
    vectors as failing tests. For `DT-02..05`, bind to the existing JSON
    vectors and domain oracles in
-   `docs/design/phase0/DOMAIN-ORACLE-VERIFIER-CONTRACT-R1.md`, not just
+   `docs/history/design/phase0/DOMAIN-ORACLE-VERIFIER-CONTRACT-R1.md`, not just
    `V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md`'s one-line summaries.
 2. **Contracts**: solidify `ExecutionOutcome`, `ProtocolAssessment`, and
    `CompletionAssessment` boundaries; formally declare the `PeerAdapter`
@@ -233,7 +233,7 @@ with `ImportError` for this reason):
 
 1. The full `TerminalClassification` vocabulary is explicitly listed as
    an open decision in
-   `docs/design/phase0/DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` (line
+   `docs/history/design/phase0/DP06-DT01-DT06-CLASSIFICATION-SPEC-R1.md` (line
    ~112); that same document classifies both zero and nonzero exits as
    one `EXITED` value (line ~48), conflicting with this slice's test
    requiring a distinct `EXIT_NON_ZERO`. Only the 4 test-required
@@ -1089,7 +1089,7 @@ probe above.
 The empirical probe specified above was run against all 3 active peer
 CLIs (`cc`/claude, `ag`/agy, `cx`/codex) under real `subprocess.Popen`
 pipes -- full results in
-`docs/design/phase0/PTY-BUFFERING-PROBE-2026-08-03.md`.
+`docs/history/design/phase0/PTY-BUFFERING-PROBE-2026-08-03.md`.
 
 **Finding: none of the 3 peers requires Windows ConPTY.** Plain pipes
 are fully sufficient for all three, with one required mitigation:

@@ -119,7 +119,7 @@ Reading through `docs/history/design/2026-08/SLICE5-KICKOFF-R1.md` in full revea
 
 2. **PTY Runner Requirement (Lines 126, 193-199)**:
    - *Doc states*: `peerhub/dispatch/pty.py` and `tools/fake_peer/pty_executable.py` are required open items.
-   - *Actual*: Empirical probe (`docs/design/phase0/PTY-BUFFERING-PROBE-2026-08-03.md`, cited in lines 1077-1107) proved plain pipes handle all active peers (`cc`, `ag`, `cx`) without Windows ConPTY when `stdin=subprocess.DEVNULL`. `pty.py` was intentionally skipped.
+   - *Actual*: Empirical probe (`docs/history/design/phase0/PTY-BUFFERING-PROBE-2026-08-03.md`, cited in lines 1077-1107) proved plain pipes handle all active peers (`cc`, `ag`, `cx`) without Windows ConPTY when `stdin=subprocess.DEVNULL`. `pty.py` was intentionally skipped.
 
 3. **Migration File Name (Lines 131, 738-742)**:
    - *Doc states*: `0008_dispatch_artifacts_journal.sql`.

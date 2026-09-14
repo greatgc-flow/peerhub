@@ -13,7 +13,7 @@ runner result, canonical transcript, record digest, and status `V1_CAPTURE`.
 
 > **Update 2026-08-17 (found by an audit pass): stale.** All of the
 > fixtures listed above were subsequently promoted. Per
-> `docs/design/phase0/TDD-READINESS-GATE-CLOSURE-R1.md` condition 1
+> `docs/history/design/phase0/TDD-READINESS-GATE-CLOSURE-R1.md` condition 1
 > (RATIFIED 2026-07-30): all 54 contract IDs are now `evidence_status:
 > V1_CAPTURE`, and further, all 54 at `coverage_scope: SPEC_FAITHFUL` --
 > none remain `V1_SPEC_ONLY`. Left below as the original pre-closure

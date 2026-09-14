@@ -22,7 +22,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 SCRIPT_DIR = Path(__file__).resolve().parent
 PEERHUB_ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_SYS_DIR = Path("P:/_sys")
-DEFAULT_OUTPUT_PATH = PEERHUB_ROOT / "docs" / "design" / "phase0" / "legacy-hub-surface-current.json"
+DEFAULT_OUTPUT_PATH = PEERHUB_ROOT / "docs" / "history" / "design" / "phase0" / "legacy-hub-surface-current.json"
 
 
 def calculate_file_hash(path: Path) -> Tuple[Optional[str], int, int]:

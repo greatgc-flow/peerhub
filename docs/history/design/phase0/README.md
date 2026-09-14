@@ -1,11 +1,11 @@
-# docs/design/phase0/ — Index
+# docs/history/design/phase0/ — Index
 
 **Status: CLOSED — Historical ratification record only, not current status.**
 Phase 0 (fixture/authority/health/session-lease classification specs,
 controlled-fake-runner contracts, and their ratification rounds) was formally
 closed 2026-07-30 (see `TDD-READINESS-GATE-CLOSURE-R1.md`). Everything in this
 directory predates and led into the Phase 1 design round
-(`docs/design/*.md`, see `../README.md`) and the later TDD implementation
+(`docs/design/*.md`, see `../../../design/README.md`) and the later TDD implementation
 phase (`docs/design/PEERHUB-BACKLOG-2026-08-27.md`,
 `docs/design/HUB-REPLACEMENT-TDD-PROGRESS-2026-08-27.md`), both of which
 supersede these documents for "what's implemented / what's left" questions.

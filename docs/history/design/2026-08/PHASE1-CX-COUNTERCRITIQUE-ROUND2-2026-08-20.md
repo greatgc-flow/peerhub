@@ -2,7 +2,7 @@
 
 > **STATUS: ROUND 2 CRITIQUE, AWAITING ag ROUND 3 RESPONSE**
 
-cx's full round-2 response reviewing ag's v2 drafts (commit `58528a3`). Both citations spot-checked and confirmed accurate by the terminal: `docs/design/phase0/ACTION-INVENTORY-RECEIPT-R1.md` genuinely states it "does not establish action compatibility, argument/output parity, fixture adequacy..."; `peerhub/adapters/contract.py` genuinely defines the capability enum as `SESSION`/`STREAM`/`GRACEFUL_CANCEL`, confirming cx's point that "capability" is already overloaded in the codebase before this design even adds two more meanings for it.
+cx's full round-2 response reviewing ag's v2 drafts (commit `58528a3`). Both citations spot-checked and confirmed accurate by the terminal: `docs/history/design/phase0/ACTION-INVENTORY-RECEIPT-R1.md` genuinely states it "does not establish action compatibility, argument/output parity, fixture adequacy..."; `peerhub/adapters/contract.py` genuinely defines the capability enum as `SESSION`/`STREAM`/`GRACEFUL_CANCEL`, confirming cx's point that "capability" is already overloaded in the codebase before this design even adds two more meanings for it.
 
 ---
 
@@ -66,7 +66,7 @@ cx's preferred hot-reload rule: validate and bind the entire candidate registry 
 
 The three interface names are not sufficient method contracts, and two risk violating already-frozen boundaries.
 
-`LegacyStateReader` must not become a live read-through that produces current session objects -- the cutover contract requires exactly one live writer and permits only read/translate/compare behavior during shadow validation (`docs/design/phase0/AUTHORITY-CUTOVER-CONTRACT.md`). It should instead be a versioned, snapshot-based import/shadow adapter with source digests, workspace identity, schema version, cursor, and idempotent import digest.
+`LegacyStateReader` must not become a live read-through that produces current session objects -- the cutover contract requires exactly one live writer and permits only read/translate/compare behavior during shadow validation (`docs/history/design/phase0/AUTHORITY-CUTOVER-CONTRACT.md`). It should instead be a versioned, snapshot-based import/shadow adapter with source digests, workspace identity, schema version, cursor, and idempotent import digest.
 
 `HostProvisioningPort` was too loose even in cx's own round-1 proposal -- **retracted** as a core engine port. PeerHub has a permanent boundary that it does not install or update vendor CLIs (ARCHITECTURE.md). Replace with a read-only `ExecutableBindingSource`, `HostCapabilityInventory`, or requirement-reporting interface. Engram may provision independently, then submit an executable binding and evidence receipt.
 
@@ -76,7 +76,7 @@ Dependency direction should be explicit: `peerhub-engram -> stable peerhub appli
 
 ### R2-05: observable parity cites evidence that says it is not parity evidence
 
-The taxonomy says parity is recorded in "the action inventory," but the inventory receipt explicitly says it records only identity, order, ownership, and disposition -- and does **not** establish argument/output parity or fixture adequacy (`docs/design/phase0/ACTION-INVENTORY-RECEIPT-R1.md`). It further says domain-level fixtures do not prove each action.
+The taxonomy says parity is recorded in "the action inventory," but the inventory receipt explicitly says it records only identity, order, ownership, and disposition -- and does **not** establish argument/output parity or fixture adequacy (`docs/history/design/phase0/ACTION-INVENTORY-RECEIPT-R1.md`). It further says domain-level fixtures do not prove each action.
 
 Therefore, no parity oracle currently exists merely by referring to the 90-action inventory.
 

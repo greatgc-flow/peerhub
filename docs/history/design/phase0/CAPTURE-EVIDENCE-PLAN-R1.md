@@ -58,7 +58,7 @@ Example shape (illustrative, not an added index record):
   "fixture_ids": ["DP-02", "DP-03"],
   "evidence_class": "LEGACY_SHARED_TRANSCRIPT",
   "artifacts": [{
-    "path": "docs/design/phase0/fixtures/captures/DP-02-03.transcript.json",
+    "path": "docs/history/design/phase0/fixtures/captures/DP-02-03.transcript.json",
     "role": "transcript",
     "raw_bytes_sha256": "d77be372e8ea6ff2206fe663c7152ff585f0a6a5b2f982a78e74140576f1d7cd",
     "bytes": 861

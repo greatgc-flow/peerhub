@@ -1,7 +1,7 @@
 # Phase 0 Golden Fixture Contract v1
 
 > Status: draft. This is the normative fixture checklist referenced by
-> `../../PHASE0-COMPATIBILITY.md`. Phase 0 may not substitute a representative
+> `../../2026-07/PHASE0-COMPATIBILITY.md`. Phase 0 may not substitute a representative
 > sample for an ID in this table.
 
 Each fixture record uses its ID below and contains the pinned baseline

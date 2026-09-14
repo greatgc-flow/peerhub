@@ -15,7 +15,7 @@ module already applies: ``stdin`` defaults to ``subprocess.DEVNULL``
 when no payload is supplied, because ``ag`` and ``cx`` hang indefinitely
 waiting for stdin EOF under an open, empty ``subprocess.PIPE``.  See
 ``SLICE5-KICKOFF-R1.md`` ("PTY probe run, empirical resolution: no peer
-needs ConPTY") and ``docs/design/phase0/PTY-BUFFERING-PROBE-2026-08-03.md``.
+needs ConPTY") and ``docs/history/design/phase0/PTY-BUFFERING-PROBE-2026-08-03.md``.
 ``pty.py`` and ``pywinpty`` are therefore NOT dependencies;
 ``InvocationPlan.transport`` keeps ``PTY`` only for forward
 compatibility with a future peer type that genuinely needs a TTY.

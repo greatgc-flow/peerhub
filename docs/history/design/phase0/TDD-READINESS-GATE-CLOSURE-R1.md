@@ -117,7 +117,7 @@ document's condition-6 disposition bound only design documents and status
 overlays, not the actual domain module / test / fixture source bytes. That
 gap is closed by the `session-2026-07-30-source-manifest-track` row in
 `RATIFICATION-PROVENANCE-INDEX-R1.md`, which hash-binds
-`docs/design/phase0/fixtures/source-evidence-manifest-v1.json` (SHA-256
+`docs/history/design/phase0/fixtures/source-evidence-manifest-v1.json` (SHA-256
 `471ef229290956765afa7a8b1ac82885a043496e79603bf4a96368dc3bce797a`, see
 `RATIFICATION-PROVENANCE-INDEX-R1.md` for the regeneration note) --
 raw-byte SHA-256 for all 336 domain/test/fixture/legacy-capture files. This

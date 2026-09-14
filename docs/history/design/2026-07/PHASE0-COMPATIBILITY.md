@@ -144,7 +144,7 @@ key and its payload digest matches.
 ### 4.4 Golden-fixture index and Phase boundary
 
 Golden fixture **definitions and baseline captures are Phase 0 artifacts**.
-They live under `docs/design/phase0/fixtures/` with a manifest that assigns a
+They live under `docs/history/design/phase0/fixtures/` with a manifest that assigns a
 stable fixture ID, domain, baseline revision, command/input, environment and
 state preconditions, redaction declaration, expected observable outcome,
 capture location, and SHA-256. Captures may be text/JSON transcript data;

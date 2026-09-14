@@ -14,7 +14,7 @@ this document does not explicitly name.
 contains no frozen session-lease identity/ownership/fingerprint schema (unlike
 the authority-cutover fence lease, whose CAS tuple is fully frozen). No other
 doc in the corpus supplies one either. The six SL legacy captures
-(`docs/design/phase0/fixtures/captures/SL-0{1..6}.json`) are real OBS-tier
+(`docs/history/design/phase0/fixtures/captures/SL-0{1..6}.json`) are real OBS-tier
 evidence of concrete legacy defects, but do not themselves specify a
 replacement schema. This is a genuine DP-06-caliber gap: unresolvable by
 further reading, requiring original design work under unanimous ratification

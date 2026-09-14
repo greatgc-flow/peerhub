@@ -4,7 +4,7 @@ from pathlib import Path
 
 def main():
     root = Path(__file__).resolve().parent.parent.parent
-    surface_json_path = root / "docs" / "design" / "phase0" / "legacy-hub-surface-current.json"
+    surface_json_path = root / "docs" / "history" / "design" / "phase0" / "legacy-hub-surface-current.json"
     
     with open(surface_json_path, 'r', encoding='utf-8') as f:
         surface = json.load(f)
@@ -55,7 +55,7 @@ def main():
         "shared_seams": sorted_shared_seams
     }
     
-    out_json = root / "docs" / "design" / "phase0" / "shared-seam-ledger.json"
+    out_json = root / "docs" / "history" / "design" / "phase0" / "shared-seam-ledger.json"
     with open(out_json, 'w', encoding='utf-8') as f:
         json.dump(ledger, f, indent=2)
         

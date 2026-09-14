@@ -5,8 +5,8 @@ from pathlib import Path
 
 def main():
     root = Path(__file__).resolve().parent.parent.parent
-    csv_path = root / "docs" / "design" / "phase0" / "hub-actions-v1.csv"
-    json_path = root / "docs" / "design" / "phase0" / "legacy-hub-surface-current.json"
+    csv_path = root / "docs" / "history" / "design" / "phase0" / "hub-actions-v1.csv"
+    json_path = root / "docs" / "history" / "design" / "phase0" / "legacy-hub-surface-current.json"
     
     with open(csv_path, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -64,11 +64,11 @@ def main():
         "ledger": ledger_entries
     }
     
-    out_json = root / "docs" / "design" / "phase0" / "migration-ledger-v2.json"
+    out_json = root / "docs" / "history" / "design" / "phase0" / "migration-ledger-v2.json"
     with open(out_json, 'w', encoding='utf-8') as f:
         json.dump(ledger_v2, f, indent=2)
         
-    out_csv = root / "docs" / "design" / "phase0" / "migration-ledger-v2.csv"
+    out_csv = root / "docs" / "history" / "design" / "phase0" / "migration-ledger-v2.csv"
     with open(out_csv, 'w', encoding='utf-8', newline='') as f:
         if not ledger_entries:
             return

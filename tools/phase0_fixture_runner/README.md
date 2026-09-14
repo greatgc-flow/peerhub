@@ -2,7 +2,7 @@
 
 This directory contains provider-free Phase 0 test-evidence tooling. It is not PeerHub product source and does not invoke providers, access the network, read credentials or live Hub files, perform authority cutover, mutate configuration, or implement the host mutation broker.
 
-The normative contract is [`CONTROLLED-FAKE-RUNNER-CONTRACT-R2.md`](../../docs/design/phase0/CONTROLLED-FAKE-RUNNER-CONTRACT-R2.md).
+The normative contract is [`CONTROLLED-FAKE-RUNNER-CONTRACT-R2.md`](../../docs/history/design/phase0/CONTROLLED-FAKE-RUNNER-CONTRACT-R2.md).
 
 ## Run the example
 

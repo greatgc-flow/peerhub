@@ -22,19 +22,19 @@ documents in the same corpus state the answer directly.
 ## Evidence (independently verified by cc against the actual files, not
 taken on either peer's claim alone)
 
-- `docs/design/phase0/fixtures/CONTRACT.md` (the same MUST-tier scope
+- `docs/history/design/phase0/fixtures/CONTRACT.md` (the same MUST-tier scope
   document every other fixture this session was built against) states, for
   DP-06 itself: "Crash after dispatch intent becomes MAY_HAVE_STARTED/UNKNOWN
   and is not automatically replayed."
 - `docs/history/design/2026-07/ARCHITECTURE.md` section 14: "post-`DISPATCH_INTENT` crash is
   `MAY_HAVE_STARTED`."
-- `docs/design/phase0/V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md` (R2's own
+- `docs/history/design/phase0/V1-CONTROLLED-FAKE-CONFORMANCE-SPEC-R1.md` (R2's own
   named predecessor, explicitly retained as "historical design input" by
   R2 section 7 -- only its ambiguous event *names* were superseded, not its
   substantive mappings): "DP-06 | `INTENT_PERSISTED` then injected runner
   crash | recovery is `MAY_HAVE_STARTED`; no automatic replay; journal digest
   retained."
-- `docs/design/phase0/PROTOCOL-V1-FREEZE.md` (the ratified v1 protocol, round
+- `docs/history/design/phase0/PROTOCOL-V1-FREEZE.md` (the ratified v1 protocol, round
   `r-aec7`, unanimous, that this whole Phase 0 evidence effort exists to
   produce conformance evidence for): defines `PRE_SPAWN`/`POST_SPAWN` as
   distinct phases; states "`START_UNCERTAIN` and post-spawn timeouts are

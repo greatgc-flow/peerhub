@@ -457,20 +457,20 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:is_routable`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.routing.router`
-- **Current Real Consumers (Empirically Measured):** 79 matches across 15 files (docs/design/phase0/shared-seam-ledger.json, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_t3_oversized_ask_guard.py, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...)
+- **Current Real Consumers (Empirically Measured):** 79 matches across 15 files (docs/history/design/phase0/shared-seam-ledger.json, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_t3_oversized_ask_guard.py, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w is_routable P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (79 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/phase0/shared-seam-ledger.json:1187:    "is_routable": {
+    P:/workspace/peerhub/docs/history/design/phase0/shared-seam-ledger.json:1187:    "is_routable": {
     P:/workspace/Engram/tests/unit/test_terminal_spend_guard.py:29:    monkeypatch.setattr(hub, "is_routable", lambda *a, **k: True)
     P:/workspace/Engram/tests/unit/test_t3_oversized_ask_guard.py:194:        monkeypatch.setattr(hub, "is_routable", lambda node_id, orch=None: True)
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1573:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1728:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1765:          "is_routable",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1781:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1802:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2079:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2334:          "is_routable",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1573:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1728:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1765:          "is_routable",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1781:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1802:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2079:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2334:          "is_routable",
     ... [69 additional matches omitted]
     ```
 - **State Read / Written:** Reads orchestration.json, health status records, and lease tables.
@@ -538,12 +538,12 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:SandboxSpawnDeniedError`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.security.sandbox`
-- **Current Real Consumers (Empirically Measured):** 8 matches across 5 files (_sys/tests/unit/test_process_lease_supervision_c7.py, docs/design/phase0/fixtures/captures/DP-02-03.transcript.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/docs-v2/general/lifecycle.md, _sys/core/hub.py)
+- **Current Real Consumers (Empirically Measured):** 8 matches across 5 files (_sys/tests/unit/test_process_lease_supervision_c7.py, docs/history/design/phase0/fixtures/captures/DP-02-03.transcript.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/docs-v2/general/lifecycle.md, _sys/core/hub.py)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w SandboxSpawnDeniedError P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (8 external matches, 1 self matches):
     ```
     P:/workspace/Engram/tests/unit/test_process_lease_supervision_c7.py:85:        denied = hub.SandboxSpawnDeniedError(
-    P:/workspace/peerhub/docs/design/phase0/fixtures/captures/DP-02-03.transcript.json:9:    "spawned_false": "SandboxSpawnDeniedError before provider process; expected category=not_started and soft-skip exit 7",
+    P:/workspace/peerhub/docs/history/design/phase0/fixtures/captures/DP-02-03.transcript.json:9:    "spawned_false": "SandboxSpawnDeniedError before provider process; expected category=not_started and soft-skip exit 7",
     P:/workspace/Engram/docs-v2/ops/backlog-design-consensus-2026-07-24.md:1137:   `SandboxSpawnDeniedError`, eligible for policy-approved auto-failover)
     P:/workspace/Engram/docs-v2/general/lifecycle.md:357:  short (~150ms) backoff, then raises the typed `SandboxSpawnDeniedError(OSError)`.
     P:/workspace/Engram/docs-v2/general/lifecycle.md:359:- The ask loop records `SandboxSpawnDeniedError` as **transient** (terminal_timeout-class)
@@ -601,20 +601,20 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:resolve_terminal_identity`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.identity.terminal_resolver`
-- **Current Real Consumers (Empirically Measured):** 39 matches across 9 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, docs/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/tests/unit/test_terminal_identity_c5.py...)
+- **Current Real Consumers (Empirically Measured):** 39 matches across 9 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, docs/history/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/tests/unit/test_terminal_identity_c5.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w resolve_terminal_identity P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (39 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2335:          "resolve_terminal_identity"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2629:          "resolve_terminal_identity"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:4807:          "resolve_terminal_identity",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:4817:          "resolve_terminal_identity"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:4861:          "resolve_terminal_identity"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:2333:          "resolve_terminal_identity"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:2627:          "resolve_terminal_identity"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:4805:          "resolve_terminal_identity",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:4815:          "resolve_terminal_identity"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:4859:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2335:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2629:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:4807:          "resolve_terminal_identity",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:4817:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:4861:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:2333:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:2627:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:4805:          "resolve_terminal_identity",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:4815:          "resolve_terminal_identity"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:4859:          "resolve_terminal_identity"
     ... [29 additional matches omitted]
     ```
 - **State Read / Written:** Inspects environment variables (HUB_CALLER, AI_AGENT), process ancestry, and session state.
@@ -655,7 +655,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:arbiter_decide`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.arbiter`
-- **Current Real Consumers (Empirically Measured):** 20 matches across 6 files (_sys/tests/unit/test_arbiter_wiring.py, _sys/tests/unit/test_arbiter_orchestrator.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...)
+- **Current Real Consumers (Empirically Measured):** 20 matches across 6 files (_sys/tests/unit/test_arbiter_wiring.py, _sys/tests/unit/test_arbiter_orchestrator.py, docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w arbiter_decide P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (20 external matches, 1 self matches):
     ```
@@ -665,10 +665,10 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
     P:/workspace/Engram/tests/unit/test_arbiter_wiring.py:146:    result = hub.arbiter_decide(
     P:/workspace/Engram/tests/unit/test_arbiter_orchestrator.py:125:    monkeypatch.setattr(hub, "arbiter_decide", fake_decide)
     P:/workspace/Engram/tests/unit/test_arbiter_orchestrator.py:164:        "arbiter_decide",
-    P:/workspace/peerhub/docs/design/phase0/shared-seam-ledger.json:2709:    "arbiter_decide": {
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2812:          "arbiter_decide",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6809:          "arbiter_decide",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6905:          "arbiter_decide",
+    P:/workspace/peerhub/docs/history/design/phase0/shared-seam-ledger.json:2709:    "arbiter_decide": {
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2812:          "arbiter_decide",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6809:          "arbiter_decide",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6905:          "arbiter_decide",
     ... [10 additional matches omitted]
     ```
 - **State Read / Written:** Parses peer voting distributions, dissent metrics, and risk classifications.
@@ -682,20 +682,20 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:condense_arbiter_input`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.arbiter`
-- **Current Real Consumers (Empirically Measured):** 13 matches across 6 files (_sys/core/hub.py, docs/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/architecture-audit-2026-07-24.md, _sys/tests/unit/test_arbiter_invoke.py, docs/design/phase0/legacy-hub-surface-old.json...)
+- **Current Real Consumers (Empirically Measured):** 13 matches across 6 files (_sys/core/hub.py, docs/history/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/architecture-audit-2026-07-24.md, _sys/tests/unit/test_arbiter_invoke.py, docs/history/design/phase0/legacy-hub-surface-old.json...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w condense_arbiter_input P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (13 external matches, 1 self matches):
     ```
     P:/workspace/Engram/core/hub.py:5706:    condensed = condense_arbiter_input(context)
-    P:/workspace/peerhub/docs/design/phase0/shared-seam-ledger.json:2721:    "condense_arbiter_input": {
+    P:/workspace/peerhub/docs/history/design/phase0/shared-seam-ledger.json:2721:    "condense_arbiter_input": {
     P:/workspace/Engram/docs-v2/ops/architecture-audit-2026-07-24.md:154:- **Arbiter override (Top-5 #3) ??APPLIED (`feb7d22`)**: `_apply_arbiter_override_to_round()` under a per-round lock, refusing to touch `finalized`/`unanimous` rounds, validating `round_id` match and `authority == "override"`, requiring a strict first-line `VERDICT: APPROVE|REJECT` parse (loosened prefix-matching was rejected after cx found it could misparse). Ships with the required companion fix to `_real_arbiter_invoker()` (now checks the arbiter subprocess's own return code) and an explicit output-contract instruction in `condense_arbiter_input()`. A SEPARATE duplicate-invocation race (direct-vote vs broker-merge paths could each independently finalize+invoke) was found and fixed during implementation verification, not in the original design ??`_apply_vote_merge` now shares the same `consensus_{round_id}` lock, and `_maybe_run_arbiter_on_finalize` atomically claims the round before invoking. Verified with real separate-process race tests, not just threading.
     P:/workspace/Engram/tests/unit/test_arbiter_invoke.py:40:    text = hub.condense_arbiter_input({
     P:/workspace/Engram/tests/unit/test_arbiter_invoke.py:56:    text = hub.condense_arbiter_input({"positions": {"cx": "GO"}})
     P:/workspace/Engram/tests/unit/test_arbiter_invoke.py:65:    text = hub.condense_arbiter_input({"proposal": "x" * 5000})
     P:/workspace/Engram/tests/unit/test_arbiter_invoke.py:76:    text = hub.condense_arbiter_input({
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2813:          "condense_arbiter_input",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6810:          "condense_arbiter_input",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6927:          "condense_arbiter_input",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2813:          "condense_arbiter_input",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6810:          "condense_arbiter_input",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6927:          "condense_arbiter_input",
     ... [3 additional matches omitted]
     ```
 - **State Read / Written:** Reads round JSON transcript, peer vote payloads, and dissent points; strips boilerplate.
@@ -709,20 +709,20 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:invoke_arbiter`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.arbiter`
-- **Current Real Consumers (Empirically Measured):** 20 matches across 6 files (docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_arbiter_invoke.py, _sys/tests/unit/test_process_lease_supervision_c7.py...)
+- **Current Real Consumers (Empirically Measured):** 20 matches across 6 files (docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_arbiter_invoke.py, _sys/tests/unit/test_process_lease_supervision_c7.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w invoke_arbiter P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (20 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/phase0/shared-seam-ledger.json:2743:    "invoke_arbiter": {
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2815:          "invoke_arbiter",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6812:          "invoke_arbiter",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6909:          "invoke_arbiter",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6917:          "invoke_arbiter"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6929:          "invoke_arbiter"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:2813:          "invoke_arbiter",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:6810:          "invoke_arbiter",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:6907:          "invoke_arbiter",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:6915:          "invoke_arbiter"
+    P:/workspace/peerhub/docs/history/design/phase0/shared-seam-ledger.json:2743:    "invoke_arbiter": {
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2815:          "invoke_arbiter",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6812:          "invoke_arbiter",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6909:          "invoke_arbiter",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6917:          "invoke_arbiter"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6929:          "invoke_arbiter"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:2813:          "invoke_arbiter",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:6810:          "invoke_arbiter",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:6907:          "invoke_arbiter",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:6915:          "invoke_arbiter"
     ... [10 additional matches omitted]
     ```
 - **State Read / Written:** Sends invocation request to premium model adapter with strict timeout and budget guard.
@@ -736,7 +736,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:detect_dissent`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.dissent_detector`
-- **Current Real Consumers (Empirically Measured):** 24 matches across 6 files (_sys/core/hub.py, _sys/tests/unit/test_dissent.py, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, docs/design/phase0/shared-seam-ledger.json...)
+- **Current Real Consumers (Empirically Measured):** 24 matches across 6 files (_sys/core/hub.py, _sys/tests/unit/test_dissent.py, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, docs/history/design/phase0/shared-seam-ledger.json...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w detect_dissent P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (24 external matches, 1 self matches):
     ```
@@ -763,20 +763,20 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:run_arbiter_on_round`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.arbiter_runner`
-- **Current Real Consumers (Empirically Measured):** 25 matches across 8 files (docs/design/phase0/migration-ledger-v2.json, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/migration-ledger-v2.csv, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...)
+- **Current Real Consumers (Empirically Measured):** 25 matches across 8 files (docs/history/design/phase0/migration-ledger-v2.json, docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/migration-ledger-v2.csv, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w run_arbiter_on_round P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (25 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/phase0/migration-ledger-v2.json:3131:      "legacy_handler": "run_arbiter_on_round",
-    P:/workspace/peerhub/docs/design/phase0/shared-seam-ledger.json:3583:    "run_arbiter_on_round": {
-    P:/workspace/peerhub/docs/design/phase0/migration-ledger-v2.csv:89:arbiter-review,run_arbiter_on_round,consensus,unspecified,mutable,see_global_surface,"{""reads"": [""call:_read_json"", ""call:read_text"", ""state:consensus_dir""], ""writes"": [""call:mkdir"", ""call:unlink"", ""call:write_text""]}","[""process:run""]",unspecified,consensus.arbiter.review,unspecified,required,INVENTORIED,[],,NONE,ENGRAM_AUTHORITY,legacy_hub,,[]
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1487:    "arbiter-review": "run_arbiter_on_round",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2816:          "run_arbiter_on_round"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6813:          "run_arbiter_on_round"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6900:      "handler": "run_arbiter_on_round",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:1485:    "arbiter-review": "run_arbiter_on_round",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:2814:          "run_arbiter_on_round"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:6811:          "run_arbiter_on_round"
+    P:/workspace/peerhub/docs/history/design/phase0/migration-ledger-v2.json:3131:      "legacy_handler": "run_arbiter_on_round",
+    P:/workspace/peerhub/docs/history/design/phase0/shared-seam-ledger.json:3583:    "run_arbiter_on_round": {
+    P:/workspace/peerhub/docs/history/design/phase0/migration-ledger-v2.csv:89:arbiter-review,run_arbiter_on_round,consensus,unspecified,mutable,see_global_surface,"{""reads"": [""call:_read_json"", ""call:read_text"", ""state:consensus_dir""], ""writes"": [""call:mkdir"", ""call:unlink"", ""call:write_text""]}","[""process:run""]",unspecified,consensus.arbiter.review,unspecified,required,INVENTORIED,[],,NONE,ENGRAM_AUTHORITY,legacy_hub,,[]
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1487:    "arbiter-review": "run_arbiter_on_round",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2816:          "run_arbiter_on_round"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6813:          "run_arbiter_on_round"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6900:      "handler": "run_arbiter_on_round",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:1485:    "arbiter-review": "run_arbiter_on_round",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:2814:          "run_arbiter_on_round"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:6811:          "run_arbiter_on_round"
     ... [15 additional matches omitted]
     ```
 - **State Read / Written:** Reads round state, checks trigger conditions, invokes arbiter, and writes final decision.
@@ -790,14 +790,14 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub.py:CodexAccountClient`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.adapters.codex.account`
-- **Current Real Consumers (Empirically Measured):** 11 matches across 6 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/core/hub.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md, _sys/tests/unit/test_codex_reset_credits.py...)
+- **Current Real Consumers (Empirically Measured):** 11 matches across 6 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/core/hub.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md, _sys/tests/unit/test_codex_reset_credits.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w CodexAccountClient P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (11 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6951:          "CodexAccountClient",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:6975:          "CodexAccountClient",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:6949:          "CodexAccountClient",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:6973:          "CodexAccountClient",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6951:          "CodexAccountClient",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:6975:          "CodexAccountClient",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:6949:          "CodexAccountClient",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:6973:          "CodexAccountClient",
     P:/workspace/Engram/core/hub.py:8297:    def __enter__(self) -> "CodexAccountClient":
     P:/workspace/Engram/core/hub.py:8457:    with CodexAccountClient() as client:
     P:/workspace/Engram/core/hub.py:8502:    with CodexAccountClient() as client:
@@ -2058,14 +2058,14 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_config.json`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.config.defaults`
-- **Current Real Consumers (Empirically Measured):** 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...)
+- **Current Real Consumers (Empirically Measured):** 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md hub_config.json P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (11 external matches, 0 self matches):
     ```
     P:/workspace/peerhub/tools/surface_manifest/generate_manifest.py:338:        sys_dir / "core" / "hub_config.json",
     P:/workspace/peerhub/docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md:70:| `_sys/core/hub_config.json` | **Partial** | **`peerhub.application.runtime`**. Core config. |
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:55:      "core/hub_config.json": {
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:53:      "core/hub_config.json": {
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:55:      "core/hub_config.json": {
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:53:      "core/hub_config.json": {
     P:/workspace/Engram/docs/history/workspace-environment.md:27:| `_sys/core/hub_config.json` | Hub limits for mailbox, handoff rolling windows, and payload threshold. |
     P:/workspace/Engram/docs/history/workspace-connectivity-map.md:150:| `hub_config.json` | `hub.py` looks for `_sys/core/hub_config.json`, but only defaults are guaranteed | Silent fallback hides tuning surface |
     P:/workspace/Engram/docs/history/workspace-connectivity-map.md:202:4. Add `_sys/core/hub_config.json.example`, or move hub limits into `protocol.json` or `lifecycle_policy.json`.
@@ -2611,12 +2611,12 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:normalize_orchestration`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.governance.orchestration_resolver`
-- **Current Real Consumers (Empirically Measured):** 33 matches across 11 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/ops/sandbox-behavior-probe-b7-2026-07-08.md, _sys/tests/unit/test_model_profiles.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py...)
+- **Current Real Consumers (Empirically Measured):** 33 matches across 11 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/ops/sandbox-behavior-probe-b7-2026-07-08.md, _sys/tests/unit/test_model_profiles.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w normalize_orchestration P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (33 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:3172:          "hub_peer.normalize_orchestration",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:3170:          "hub_peer.normalize_orchestration",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:3172:          "hub_peer.normalize_orchestration",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:3170:          "hub_peer.normalize_orchestration",
     P:/workspace/Engram/docs/history/ops/sandbox-behavior-probe-b7-2026-07-08.md:35:`hub_peer.get_adapter`/`normalize_orchestration`) ??none were hallucinated.
     P:/workspace/Engram/tests/unit/test_model_profiles.py:64:    normalized = hub_peer.normalize_orchestration(_raw())
     P:/workspace/Engram/tests/unit/test_model_profiles.py:78:    normalized = hub_peer.normalize_orchestration(_raw())
@@ -2753,7 +2753,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:resolve_node_id`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.routing.node_resolver`
-- **Current Real Consumers (Empirically Measured):** 12 matches across 7 files (_sys/core/hub.py, _sys/core/hub_peer.py, _sys/core/quota_capabilities.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, docs/design/phase0/legacy-hub-surface-old.json...)
+- **Current Real Consumers (Empirically Measured):** 12 matches across 7 files (_sys/core/hub.py, _sys/core/hub_peer.py, _sys/core/quota_capabilities.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, docs/history/design/phase0/legacy-hub-surface-old.json...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w resolve_node_id P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (12 external matches, 1 self matches):
     ```
@@ -2766,7 +2766,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
     P:/workspace/Engram/core/hub_peer.py:1256:    canonical = resolve_node_id(peer_id, orch=orch)
     P:/workspace/Engram/core/quota_capabilities.py:37:    canonical = hub_peer.resolve_node_id(str(peer_id or ""), orch=orch)
     P:/workspace/Engram/tests/unit/test_ag_health_bookkeeping_gaps.py:176:    monkeypatch.setattr(hub.hub_peer, "resolve_node_id", lambda node_id, orch=None: node_id)
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:3173:          "hub_peer.resolve_node_id",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:3173:          "hub_peer.resolve_node_id",
     ... [2 additional matches omitted]
     ```
 - **State Read / Written:** Reads orchestration node mapping table.
@@ -2780,20 +2780,20 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:is_routable`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.routing.router`
-- **Current Real Consumers (Empirically Measured):** 79 matches across 15 files (docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...)
+- **Current Real Consumers (Empirically Measured):** 79 matches across 15 files (docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w is_routable P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (79 external matches, 1 self matches):
     ```
     P:/workspace/peerhub/docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md:243:- **`is_routable` / `_healthy_peer` reading per-peer `health.json`
     P:/workspace/Engram/tests/integration/test_hub_integration_v42.py:213:         patch("hub.is_routable", return_value=True), \
-    P:/workspace/peerhub/docs/design/phase0/shared-seam-ledger.json:1187:    "is_routable": {
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1573:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1728:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1765:          "is_routable",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1781:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:1802:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2079:          "is_routable"
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:2334:          "is_routable",
+    P:/workspace/peerhub/docs/history/design/phase0/shared-seam-ledger.json:1187:    "is_routable": {
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1573:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1728:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1765:          "is_routable",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1781:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:1802:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2079:          "is_routable"
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:2334:          "is_routable",
     ... [69 additional matches omitted]
     ```
 - **State Read / Written:** Queries peer health status and operational state.
@@ -2807,12 +2807,12 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/hub_peer.py:root_peer_id`
 - **Disposition:** `REPLACE`
 - **Target Owner / API:** `peerhub.identity.peer_identity`
-- **Current Real Consumers (Empirically Measured):** 13 matches across 7 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, _sys/core/quota_capabilities.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md...)
+- **Current Real Consumers (Empirically Measured):** 13 matches across 7 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, _sys/core/quota_capabilities.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w root_peer_id P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (13 external matches, 1 self matches):
     ```
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-old.json:5523:          "hub_peer.root_peer_id",
-    P:/workspace/peerhub/docs/design/phase0/legacy-hub-surface-current.json:5521:          "hub_peer.root_peer_id",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-old.json:5523:          "hub_peer.root_peer_id",
+    P:/workspace/peerhub/docs/history/design/phase0/legacy-hub-surface-current.json:5521:          "hub_peer.root_peer_id",
     P:/workspace/Engram/tests/unit/test_ag_health_bookkeeping_gaps.py:80:    monkeypatch.setattr(hub.hub_peer, "root_peer_id", lambda node_id, orch=None: "ag")
     P:/workspace/Engram/core/quota_capabilities.py:40:    root_id = hub_peer.root_peer_id(canonical, orch=orch)
     P:/workspace/Engram/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md:198:- **Group key**: `(root_peer_id, session_id)`; if `session_id` is null but `ask_id` exists, `(root_peer_id, "ask:" + ask_id)`. Rows lacking both IDs are legacy/unattributed ??**excluded** from this view, not counted as zero.
@@ -3700,13 +3700,13 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 - **Legacy File / Symbol:** `_sys/core/relocator.py:relocate`
 - **Disposition:** `DEPRECATE`
 - **Target Owner / API:** `core.launcher (Engram host)`
-- **Current Real Consumers (Empirically Measured):** 13 matches across 7 files (docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...)
+- **Current Real Consumers (Empirically Measured):** 13 matches across 7 files (docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/history/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...)
   - Real Search Command: `rg -n --glob !**/env/** --glob !**/venv/** --glob !**/.git/** --glob !**/__pycache__/** --glob !**/*.pyc --glob !**/node_modules/** --glob !**/dist/** --glob !**/build/** --glob !**/.pytest_cache/** --glob !**/.hypothesis/** --glob !**/tmp/** --glob !docs/design/PHASE1-CAPABILITY-CROSSWALK-*.md --glob !docs/design/PHASE1-CX-COUNTERCRITIQUE-*.md --glob !docs/design/PHASE1-PARITY-LEDGER-*.md -w relocate P:/workspace/Engram P:/workspace/peerhub`
   - Real Grep Evidence (13 external matches, 1 self matches):
     ```
     P:/workspace/peerhub/docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md:562:1. **Classification plumbing:** relocate/re-export
     P:/workspace/peerhub/docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md:684:| D | Proposed process codes duplicated centrally computed `TerminalClassification` and discarded existing evidence | **Fixed.** Surface the existing enum, relocate/re-export it to avoid a circular import, and define one central mapper. Withdraw both duplicate codes (Sections 2.2-2.3) |
-    P:/workspace/peerhub/docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md:54:  would just relocate the same false assurance under a new name. A
+    P:/workspace/peerhub/docs/history/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md:54:  would just relocate the same false assurance under a new name. A
     P:/workspace/Engram/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md:502:    *   **`WorkspaceCatalog` and init ordering (closes a discovery gap, cx.deepthink finding, 2026-07-22):** duplicate-ID detection and any cross-workspace aggregation (§13.5.5) require actually knowing which workspaces exist -- an arbitrary copied-then-abandoned workspace directory can't be discovered by magic. `EngramHome` maintains a `WorkspaceCatalog` -- a **Binding-plane artifact living in Shared Config** (given an exact home, 2026-07-22, cx.deepthink finding: "a Shared Data record" was too loose for an authoritative ID-to-path binding), atomically updated with compare-and-set semantics: a new `workspace_id` inserts; the same ID at the same canonical path is idempotent; the same ID reachable at a DIFFERENT path is a duplicate and is refused; an ID whose last-known path is no longer reachable requires an explicit relocate/rekey confirmation rather than silent removal. Duplicate detection is scoped to one `EngramHome` -- cross-machine duplicates (the same workspace directory copied to a second machine with its own separate `EngramHome`) cannot be guaranteed detectable and are out of scope. `engram workspace init`'s precise order, made crash-safe with two-phase registration (2026-07-22, cx.deepthink finding: a plain single commit could orphan a workspace if the process crashes between the local commit and the catalog registration): resolve `WorkspaceRoot` -> validate the Base Template (§13.9) -> generate `workspace_id` in a staging area (not yet committed) -> reserve that `workspace_id` in the `WorkspaceCatalog` as `pending` -> create any template-specified registry/Evidence entries using that `workspace_id` (still staged) -> atomically commit the whole Workspace State directory into place (§13.9's containment/staging rule) -> flip the `WorkspaceCatalog` reservation from `pending` to `active`. A `pending` entry whose Workspace State commit never completed (crash recovery) is reclaimable/retriable, never silently treated as a real workspace.
     P:/workspace/Engram/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md:503:    *   **First-init vs. re-init catalog flows must branch, not share one path (fixed 2026-07-22, cx.deepthink finding: applying the pending-then-active two-phase flow unconditionally to re-init would incorrectly demote an already-`active` entry back to `pending`):** the two-phase `pending -> active` protocol above applies ONLY to a genuinely first `engram workspace init` (no existing catalog entry for this workspace). Re-running init against an already-`active` workspace does NOT touch its catalog entry's `active` status at all -- the entry stays `active` throughout, unaffected by whatever the template-application transaction (§13.9) is doing to the Workspace-State content underneath it. Moving a workspace to a new path is a third, separate, explicit catalog-relocate flow (not implied by either init path), which must complete before the entry's recorded path changes.
     P:/workspace/Engram/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md:654:*   **Three separate lifecycles, not one (MECE correction):** the clean partition is **Host Distribution Lifecycle** (Engram Core, `EngramHome`, the trust catalog, repair/update/uninstall of Engram itself), **Capability Lifecycle** (§13.5's bundles, plus external vendor CLI dependencies), and **Workspace Lifecycle** (create, open, migrate, relocate, retire, export, destroy). Forcing them into one lifecycle would repeat the exact over-generalization mistake §13.15/§13.16 already rejected. **Every Engram-owned authoritative transition in all three lifecycles uses §13.15 once Policy exists (corrected 2026-07-23, cx.deepthink finding, HIGH -- see §13.15's own scope-broadening fix); external facts/effects and the explicitly named pre-runtime bootstrap paths do not.** A normal Core update, for instance, is TWO governed requests, not one -- the compatibility-plan digest that a single request would need doesn't exist until after staging/compatibility-plan construction has already happened, so it cannot be part of the very first request (fixed 2026-07-23, cx.deepthink finding, narrow diff-verification pass):
@@ -4531,20 +4531,20 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 14 | `mig.core.hub.arbiter_soft_skipped_error` | `_sys/core/hub.py:ArbiterSoftSkippedError` | `replace` | peerhub.governance.arbiter | 3 matches across 1 files (_sys/core/hub.py) |
 | 15 | `mig.core.hub.pipe_reader_error` | `_sys/core/hub.py:PipeReaderError` | `replace` | peerhub.adapters.transport | 5 matches across 4 files (_sys/ai/backlog.json, _sys/core/hub.py, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/tests/unit/test_process_lease_supervision_c7.py) |
 | 16 | `mig.core.hub.find_ai_root` | `_sys/core/hub.py:find_ai_root` | `replace` | peerhub.storage.root_locator | 107 matches across 21 files (tools/surface_manifest/generate_manifest.py, _sys/codex/config/rules/default.rules, _sys/core/pathlayout.py, _sys/core/hub.py, _sys/ai/backlog.json...) |
-| 17 | `mig.core.hub.is_routable` | `_sys/core/hub.py:is_routable` | `replace` | peerhub.routing.router | 79 matches across 15 files (docs/design/phase0/shared-seam-ledger.json, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_t3_oversized_ask_guard.py, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...) |
+| 17 | `mig.core.hub.is_routable` | `_sys/core/hub.py:is_routable` | `replace` | peerhub.routing.router | 79 matches across 15 files (docs/history/design/phase0/shared-seam-ledger.json, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_t3_oversized_ask_guard.py, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json...) |
 | 18 | `mig.core.hub.ensure_ai_dir` | `_sys/core/hub.py:ensure_ai_dir` | `replace` | peerhub.storage.directory_manager | 28 matches across 11 files (tools/surface_manifest/generate_manifest.py, _sys/tests/unit/conftest.py, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_t3_oversized_ask_guard.py, _sys/tests/unit/test_process_lease_supervision_c7.py...) |
 | 19 | `mig.core.hub.sandbox_rename_denied_error` | `_sys/core/hub.py:SandboxRenameDeniedError` | `replace` | peerhub.security.sandbox | 16 matches across 7 files (_sys/tests/unit/l1_core/test_contracts.py, _sys/tests/unit/test_broker_transaction_safety.py, _sys/docs-v2/ops/diag-telemetry-architecture.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md...) |
-| 20 | `mig.core.hub.sandbox_spawn_denied_error` | `_sys/core/hub.py:SandboxSpawnDeniedError` | `replace` | peerhub.security.sandbox | 8 matches across 5 files (_sys/tests/unit/test_process_lease_supervision_c7.py, docs/design/phase0/fixtures/captures/DP-02-03.transcript.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/docs-v2/general/lifecycle.md, _sys/core/hub.py) |
+| 20 | `mig.core.hub.sandbox_spawn_denied_error` | `_sys/core/hub.py:SandboxSpawnDeniedError` | `replace` | peerhub.security.sandbox | 8 matches across 5 files (_sys/tests/unit/test_process_lease_supervision_c7.py, docs/history/design/phase0/fixtures/captures/DP-02-03.transcript.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/docs-v2/general/lifecycle.md, _sys/core/hub.py) |
 | 21 | `mig.core.hub.mutation_request` | `_sys/core/hub.py:HubMutationRequest` | `replace` | peerhub.core.mutation | 6 matches across 3 files (_sys/ai/backlog.json, _sys/core/hub.py, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
 | 22 | `mig.core.hub.load_config` | `_sys/core/hub.py:load_config` | `replace` | peerhub.config.loader | 1 matches across 1 files (_sys/core/hub.py) |
-| 23 | `mig.core.hub.resolve_terminal_identity` | `_sys/core/hub.py:resolve_terminal_identity` | `replace` | peerhub.identity.terminal_resolver | 39 matches across 9 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, docs/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/tests/unit/test_terminal_identity_c5.py...) |
+| 23 | `mig.core.hub.resolve_terminal_identity` | `_sys/core/hub.py:resolve_terminal_identity` | `replace` | peerhub.identity.terminal_resolver | 39 matches across 9 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, docs/history/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/tests/unit/test_terminal_identity_c5.py...) |
 | 24 | `mig.core.hub.resolve_auto_target` | `_sys/core/hub.py:resolve_auto_target` | `replace` | peerhub.routing.auto_target | 21 matches across 7 files (_sys/docs-v2/ops/profile-policy.md, _sys/docs-v2/ops/profile-policy-decisions.md, _sys/tests/unit/test_terminal_spend_guard.py, _sys/tests/unit/test_auto_route.py, _sys/tests/unit/test_load_balancer.py...) |
-| 25 | `mig.core.hub.arbiter_decide` | `_sys/core/hub.py:arbiter_decide` | `replace` | peerhub.governance.arbiter | 20 matches across 6 files (_sys/tests/unit/test_arbiter_wiring.py, _sys/tests/unit/test_arbiter_orchestrator.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...) |
-| 26 | `mig.core.hub.condense_arbiter_input` | `_sys/core/hub.py:condense_arbiter_input` | `replace` | peerhub.governance.arbiter | 13 matches across 6 files (_sys/core/hub.py, docs/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/architecture-audit-2026-07-24.md, _sys/tests/unit/test_arbiter_invoke.py, docs/design/phase0/legacy-hub-surface-old.json...) |
-| 27 | `mig.core.hub.invoke_arbiter` | `_sys/core/hub.py:invoke_arbiter` | `replace` | peerhub.governance.arbiter | 20 matches across 6 files (docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_arbiter_invoke.py, _sys/tests/unit/test_process_lease_supervision_c7.py...) |
-| 28 | `mig.core.hub.detect_dissent` | `_sys/core/hub.py:detect_dissent` | `replace` | peerhub.governance.dissent_detector | 24 matches across 6 files (_sys/core/hub.py, _sys/tests/unit/test_dissent.py, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, docs/design/phase0/shared-seam-ledger.json...) |
-| 29 | `mig.core.hub.run_arbiter_on_round` | `_sys/core/hub.py:run_arbiter_on_round` | `replace` | peerhub.governance.arbiter_runner | 25 matches across 8 files (docs/design/phase0/migration-ledger-v2.json, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/migration-ledger-v2.csv, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json...) |
-| 30 | `mig.core.hub.codex_account_client` | `_sys/core/hub.py:CodexAccountClient` | `replace` | peerhub.adapters.codex.account | 11 matches across 6 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/core/hub.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md, _sys/tests/unit/test_codex_reset_credits.py...) |
+| 25 | `mig.core.hub.arbiter_decide` | `_sys/core/hub.py:arbiter_decide` | `replace` | peerhub.governance.arbiter | 20 matches across 6 files (_sys/tests/unit/test_arbiter_wiring.py, _sys/tests/unit/test_arbiter_orchestrator.py, docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json...) |
+| 26 | `mig.core.hub.condense_arbiter_input` | `_sys/core/hub.py:condense_arbiter_input` | `replace` | peerhub.governance.arbiter | 13 matches across 6 files (_sys/core/hub.py, docs/history/design/phase0/shared-seam-ledger.json, _sys/docs-v2/ops/architecture-audit-2026-07-24.md, _sys/tests/unit/test_arbiter_invoke.py, docs/history/design/phase0/legacy-hub-surface-old.json...) |
+| 27 | `mig.core.hub.invoke_arbiter` | `_sys/core/hub.py:invoke_arbiter` | `replace` | peerhub.governance.arbiter | 20 matches across 6 files (docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_arbiter_invoke.py, _sys/tests/unit/test_process_lease_supervision_c7.py...) |
+| 28 | `mig.core.hub.detect_dissent` | `_sys/core/hub.py:detect_dissent` | `replace` | peerhub.governance.dissent_detector | 24 matches across 6 files (_sys/core/hub.py, _sys/tests/unit/test_dissent.py, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, docs/history/design/phase0/shared-seam-ledger.json...) |
+| 29 | `mig.core.hub.run_arbiter_on_round` | `_sys/core/hub.py:run_arbiter_on_round` | `replace` | peerhub.governance.arbiter_runner | 25 matches across 8 files (docs/history/design/phase0/migration-ledger-v2.json, docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/migration-ledger-v2.csv, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json...) |
+| 30 | `mig.core.hub.codex_account_client` | `_sys/core/hub.py:CodexAccountClient` | `replace` | peerhub.adapters.codex.account | 11 matches across 6 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/core/hub.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md, _sys/tests/unit/test_codex_reset_credits.py...) |
 | 31 | `mig.core.hub.lease_ownership_error` | `_sys/core/hub.py:LeaseOwnershipError` | `replace` | peerhub.coordination.lease_manager | 13 matches across 5 files (_sys/core/hub.py, _sys/tests/unit/test_lease_session_concurrency.py, _sys/tests/unit/test_process_lease_supervision_c7.py, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/docs-v2/ops/architecture-audit-2026-07-24.md) |
 | 32 | `mig.core.hub.main_entrypoint` | `_sys/core/hub.py:main` | `replace` | peerhub.cli.hub / peerhub.engine.action_dispatcher | 354 matches across 179 files (_sys/ai/traceability_map.json, _sys/ai/common/statusline/statusline-schema.json, tools/surface_manifest/generate_manifest.py, _sys/cli/codex_entry.py, _sys/cli/diag.py...) |
 | 33 | `mig.core.hub.global_exception_trap` | `_sys/core/hub.py:global_exception_trap` | `replace` | peerhub.engine.error_trap | 1 matches across 1 files (_sys/core/hub.py) |
@@ -4638,7 +4638,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 121 | `mig.core.hub.action.arbiter_review` | `_sys/core/hub.py:run_arbiter_on_round` | `replace` | peerhub.governance.arbiter | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #16: arbiter-review)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
 | 122 | `mig.core.hub.action.credit_status` | `_sys/core/hub.py:action_credit_status` | `replace` | peerhub.telemetry.credits | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #17: credit-status)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
 | 123 | `mig.core.hub.action.credit_consume` | `_sys/core/hub.py:action_credit_consume` | `replace` | peerhub.telemetry.credits | [`PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md` (Batch 5, #18: credit-consume)](https://github.com/greatgc-flow/peerhub/blob/main/docs/history/design/2026-08/PHASE1-PARITY-LEDGER-BATCH5-2026-08-20.md) |
-| 124 | `mig.core.config.hub_config_json` | `_sys/core/hub_config.json` | `replace` | peerhub.config.defaults | 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...) |
+| 124 | `mig.core.config.hub_config_json` | `_sys/core/hub_config.json` | `replace` | peerhub.config.defaults | 11 matches across 10 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/workspace-environment.md...) |
 | 125 | `mig.core.context.resolved_context_target` | `_sys/core/hub_context.py:ResolvedContextTarget` | `replace` | peerhub.types.context | 21 matches across 5 files (_sys/core/hub_context.py, _sys/core/hub.py, _sys/tests/unit/l1_core/test_contracts.py, _sys/docs-v2/ops/health-mgmt-redesign-2026-08-06.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
 | 126 | `mig.core.context.resolved_dispatch_target` | `_sys/core/hub_context.py:ResolvedDispatchTarget` | `replace` | peerhub.types.context | 7 matches across 2 files (_sys/core/hub_context.py, _sys/core/hub.py) |
 | 127 | `mig.core.context.failover_plan` | `_sys/core/hub_context.py:ContextFailoverPlan` | `replace` | peerhub.routing.failover_plan | 8 matches across 3 files (_sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md, _sys/tests/unit/l1_core/test_contracts.py, _sys/core/hub.py) |
@@ -4660,15 +4660,15 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 143 | `mig.core.peer.session_invocation` | `_sys/core/hub_peer.py:SessionInvocation` | `replace` | peerhub.adapters.invocation | 16 matches across 3 files (_sys/tests/unit/test_c10_remaining_items.py, _sys/core/hub.py, _sys/core/hub_peer.py) |
 | 144 | `mig.core.peer.prepared_invocation` | `_sys/core/hub_peer.py:PreparedInvocation` | `replace` | peerhub.adapters.invocation | 11 matches across 3 files (_sys/core/hub_peer.py, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
 | 145 | `mig.core.peer.resolve_peer_sys_dir` | `_sys/core/hub_peer.py:resolve_peer_sys_dir` | `replace` | peerhub.storage.peer_paths | 27 matches across 14 files (_sys/core/hub_health.py, _sys/core/snapshot.py, _sys/core/hub.py, _sys/docs-v2/00-MANIFEST.md, _sys/docs-v2/general/lifecycle.md...) |
-| 146 | `mig.core.peer.normalize_orchestration` | `_sys/core/hub_peer.py:normalize_orchestration` | `replace` | peerhub.governance.orchestration_resolver | 33 matches across 11 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/ops/sandbox-behavior-probe-b7-2026-07-08.md, _sys/tests/unit/test_model_profiles.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py...) |
+| 146 | `mig.core.peer.normalize_orchestration` | `_sys/core/hub_peer.py:normalize_orchestration` | `replace` | peerhub.governance.orchestration_resolver | 33 matches across 11 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/docs/history/ops/sandbox-behavior-probe-b7-2026-07-08.md, _sys/tests/unit/test_model_profiles.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py...) |
 | 147 | `mig.core.peer.profile_catalog` | `_sys/core/hub_peer.py:profile_catalog` | `replace` | peerhub.models.catalog | 2 matches across 2 files (_sys/checks/validate_peer_config.py, _sys/core/hub.py) |
 | 148 | `mig.core.peer.canonical_reality_model_key` | `_sys/core/hub_peer.py:canonical_reality_model_key` | `replace` | peerhub.models.canonicalizer | 8 matches across 2 files (_sys/checks/check_cli_reality.py, _sys/core/hub_context.py) |
 | 149 | `mig.core.peer.extract_model_operand` | `_sys/core/hub_peer.py:extract_model_operand` | `replace` | peerhub.models.parser | 9 matches across 3 files (_sys/core/hub_peer.py, _sys/tests/unit/test_model_profiles.py, _sys/docs-v2/ops/backlog-design-consensus-2026-07-24.md) |
 | 150 | `mig.core.peer.validate_model_operand` | `_sys/core/hub_peer.py:validate_model_operand` | `replace` | peerhub.models.validator | 16 matches across 8 files (_sys/tests/unit/test_model_profiles.py, _sys/tests/unit/test_cli_canary.py, _sys/docs/history/ops/overnight-hardening-2026-07-03.md, _sys/docs/history/ops/cli-crud-consistency-design.md, _sys/core/hub_peer.py...) |
 | 151 | `mig.core.peer.model_operand_report` | `_sys/core/hub_peer.py:model_operand_report` | `replace` | peerhub.models.reporter | 5 matches across 3 files (_sys/checks/check_lesson_enforcement.py, _sys/tests/unit/test_model_profiles.py, _sys/docs/history/ops/overnight-hardening-2026-07-03.md) |
-| 152 | `mig.core.peer.resolve_node_id` | `_sys/core/hub_peer.py:resolve_node_id` | `replace` | peerhub.routing.node_resolver | 12 matches across 7 files (_sys/core/hub.py, _sys/core/hub_peer.py, _sys/core/quota_capabilities.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, docs/design/phase0/legacy-hub-surface-old.json...) |
-| 153 | `mig.core.peer.is_routable` | `_sys/core/hub_peer.py:is_routable` | `replace` | peerhub.routing.router | 79 matches across 15 files (docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/design/phase0/shared-seam-ledger.json, docs/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...) |
-| 154 | `mig.core.peer.root_peer_id` | `_sys/core/hub_peer.py:root_peer_id` | `replace` | peerhub.identity.peer_identity | 13 matches across 7 files (docs/design/phase0/legacy-hub-surface-old.json, docs/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, _sys/core/quota_capabilities.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md...) |
+| 152 | `mig.core.peer.resolve_node_id` | `_sys/core/hub_peer.py:resolve_node_id` | `replace` | peerhub.routing.node_resolver | 12 matches across 7 files (_sys/core/hub.py, _sys/core/hub_peer.py, _sys/core/quota_capabilities.py, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, docs/history/design/phase0/legacy-hub-surface-old.json...) |
+| 153 | `mig.core.peer.is_routable` | `_sys/core/hub_peer.py:is_routable` | `replace` | peerhub.routing.router | 79 matches across 15 files (docs/history/design/2026-08/PEERHUB-MULTIPEER-BROADCAST-DESIGN-2026-08-11.md, _sys/tests/integration/test_hub_integration_v42.py, docs/history/design/phase0/shared-seam-ledger.json, docs/history/design/phase0/legacy-hub-surface-old.json, _sys/tests/unit/test_cli_reality_c11.py...) |
+| 154 | `mig.core.peer.root_peer_id` | `_sys/core/hub_peer.py:root_peer_id` | `replace` | peerhub.identity.peer_identity | 13 matches across 7 files (docs/history/design/phase0/legacy-hub-surface-old.json, docs/history/design/phase0/legacy-hub-surface-current.json, _sys/tests/unit/test_ag_health_bookkeeping_gaps.py, _sys/core/quota_capabilities.py, _sys/docs-v2/ops/pretdd-prep-2026-07-21-diag-quota-metrics.md...) |
 | 155 | `mig.core.peer.adapter_contract` | `_sys/core/hub_peer.py:PeerAdapter` | `replace` | peerhub.adapters.base | 97 matches across 31 files (_sys/docs-v2/00-MANIFEST.md, _sys/ai/traceability_map.json, _sys/docs-v2/ops/t82-engram-rescope-2026-07-27.md, _sys/docs-v2/ops/residual-backlog-and-packaging-precheck-2026-07-26.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md...) |
 | 156 | `mig.core.peer.base_adapter` | `_sys/core/hub_peer.py:BaseAdapter` | `replace` | peerhub.adapters.base | 15 matches across 3 files (_sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/core/hub.py, _sys/core/hub_peer.py) |
 | 157 | `mig.core.peer.claude_adapter` | `_sys/core/hub_peer.py:ClaudeAdapter` | `replace` | peerhub.adapters.claude | 22 matches across 13 files (docs/history/design/2026-07/ARCHITECTURE.md, _sys/ai/orchestration.json, docs/history/design/2026-07/peerhub-architecture-debate.md, _sys/tests/integration/test_hub_integration_v42.py, _sys/ai/capability-declarations.json...) |
@@ -4704,7 +4704,7 @@ Per Round 5 instructions, the 90 action functions in `hub.py` (`action_init_sess
 | 187 | `mig.core.quota.supports_reset_credits` | `_sys/core/quota_capabilities.py:supports_reset_credits` | `replace` | peerhub.governance.quota_capabilities | 23 matches across 7 files (_sys/core/snapshot.py, _sys/core/hub.py, _sys/cli/diag.py, _sys/tests/unit/test_c10_remaining_items.py, _sys/tests/unit/test_diag_cli.py...) |
 | 188 | `mig.core.registrar.apply_registration` | `_sys/core/registrar.py:apply` | `stay` | Engram host registrar (out of PeerHub core) | 274 matches across 84 files (_sys/ai/backlog.json, alembic.ini, _sys/cli/peer_console.py, _sys/checks/sync_docs.py, _sys/cli/manage.py...) |
 | 189 | `mig.core.registrar.remove_registration` | `_sys/core/registrar.py:remove` | `stay` | Engram host registrar (out of PeerHub core) | 110 matches across 58 files (tools/surface_manifest/generate_manifest.py, docs/history/design/2026-08/BACKLOG-CONSOLIDATED-2026-08-16.md, docs/history/design/2026-07/peerhub-architecture-debate.md, docs/history/design/2026-08/PHASE1-THIRDPARTY-DEFERRAL-AND-SHIMS-2026-08-20.md, docs/history/design/2026-08/PHASE3-T1-INCREMENT5C-OUTER-LOOP-PLAN-2026-08-14.md...) |
-| 190 | `mig.core.relocator.relocate_path` | `_sys/core/relocator.py:relocate` | `deprecate` | core.launcher (Engram host) | 13 matches across 7 files (docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...) |
+| 190 | `mig.core.relocator.relocate_path` | `_sys/core/relocator.py:relocate` | `deprecate` | core.launcher (Engram host) | 13 matches across 7 files (docs/history/design/2026-08/PHASE3-DISPATCH-LOOP-CONTRACT-DESIGN-2026-08-12.md, docs/history/design/phase0/NARROW-COVERAGE-EVIDENCE-DECISION-R1.md, _sys/docs-v2/ops/phase2-arch-general-specific-2026-07-22.md, _sys/tests/unit/test_launcher.py, _sys/core/relocator.py...) |
 | 191 | `mig.core.scrubber.cleanup_engine` | `_sys/core/scrubber.py:run` | `stay` | Engram host scrubber (out of PeerHub core) | 2642 matches across 1823 files (alembic.ini, tools/surface_manifest/generate_manifest.py, peerhub/cli.py, docs/migrations.md, README.md...) |
 | 192 | `mig.core.setup.setup_shim` | `_sys/core/setup.py` | `deprecate` | core.provisioner (Engram host) | 25 matches across 17 files (_sys/ai/backlog.json, _sys/ai/infra.json, docs/history/design/2026-08/PHASE1-AUTODETECT-SIDECAR-2026-08-19.md, _sys/claude/project/skills/antigravity/SKILL.md, _sys/tests/launch-wsbtest.ps1...) |
 | 193 | `mig.core.snapshot.telemetry_config` | `_sys/core/snapshot.py:telemetry_config` | `replace` | peerhub.telemetry.config | 34 matches across 12 files (_sys/core/snapshot.py, _sys/checks/check_policy_constants.py, _sys/checks/check_cli_reality.py, _sys/docs-v2/ops/diag-telemetry-architecture.md, _sys/tests/unit/test_telemetry_config.py...) |
