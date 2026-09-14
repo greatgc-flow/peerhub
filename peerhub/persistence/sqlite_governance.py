@@ -395,6 +395,7 @@ class SqliteGovernanceRepository:
                     er.completed_at as consumed_at,
                     CASE
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
@@ -446,6 +447,7 @@ class SqliteGovernanceRepository:
                     er.completed_at as consumed_at,
                     CASE
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
@@ -456,6 +458,7 @@ class SqliteGovernanceRepository:
                 AND (
                     CASE
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END
@@ -485,6 +488,7 @@ class SqliteGovernanceRepository:
                     er.completed_at as consumed_at,
                     CASE
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
@@ -516,6 +520,7 @@ class SqliteGovernanceRepository:
                     er.completed_at as consumed_at,
                     CASE 
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
@@ -551,6 +556,7 @@ class SqliteGovernanceRepository:
                     er.completed_at as consumed_at,
                     CASE 
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
@@ -589,13 +595,14 @@ class SqliteGovernanceRepository:
                     er.completed_at as consumed_at,
                     CASE 
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
+                        WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
                 FROM effect_deliveries ed
                 JOIN event_log el ON ed.event_id = el.event_id
                 LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
-                WHERE ed.claimed_at IS NULL 
+                WHERE ed.reconciliation_required = 0 AND ed.claimed_at IS NULL 
                 AND ed.claimed_by IS NULL 
                 AND ed.claim_attempt_id IS NULL 
                 AND er.effect_receipt_id IS NULL
@@ -625,6 +632,7 @@ class SqliteGovernanceRepository:
                     claimed_at = ?
                 WHERE
                     event_id = ?
+                    AND reconciliation_required = 0
                     AND claimed_by IS NULL
                     AND claim_attempt_id IS NULL
                     AND claimed_at IS NULL
@@ -681,6 +689,7 @@ class SqliteGovernanceRepository:
                     delivery.event_id = ?
                     AND delivery.claimed_by = ?
                     AND delivery.claim_attempt_id = ?
+                    AND delivery.reconciliation_required = 0
                     AND delivery.claimed_at IS NOT NULL
                     AND existing.outbox_event_id IS NULL
                 """,

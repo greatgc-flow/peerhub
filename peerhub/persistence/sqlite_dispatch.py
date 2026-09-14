@@ -884,7 +884,7 @@ class SqliteDispatchRepository:
             f"""
             SELECT *
             FROM capability_leases
-            WHERE {column} = ?
+            WHERE {column} = ? AND revoked_at_epoch IS NULL
             """,
             (value,),
         ).fetchone()
@@ -937,7 +937,7 @@ class SqliteDispatchRepository:
             """
             SELECT *
             FROM capability_leases
-            WHERE command_id = ? AND authorized_attempt_number = ?
+            WHERE command_id = ? AND authorized_attempt_number = ? AND revoked_at_epoch IS NULL
             """,
             (str(command_id), authorized_attempt_number),
         ).fetchone()

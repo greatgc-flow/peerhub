@@ -37,6 +37,7 @@ class OutboxState(str, Enum):
     PENDING = "PENDING"
     CLAIMED = "CLAIMED"
     CONSUMED = "CONSUMED"
+    RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
 
 
 class EffectOutcome(str, Enum):

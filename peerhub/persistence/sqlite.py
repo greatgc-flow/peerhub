@@ -20,6 +20,20 @@ from types import TracebackType
 
 from typing import Self, Sequence
 
+from .maintenance import WorkspaceGuard, WorkspaceMaintenanceError
+
+
+class _GuardedConnection(sqlite3.Connection):
+    guard: WorkspaceGuard | None = None
+
+    def close(self) -> None:
+        try:
+            super().close()
+        finally:
+            if self.guard is not None:
+                self.guard.close()
+                self.guard = None
+
 from .sqlite_governance import SqliteGovernanceRepository
 from .sqlite_dispatch import SqliteDispatchRepository
 from .sqlite_health import SqliteHealthRepository
@@ -134,6 +148,7 @@ class SqliteStateStore:
         self._database_path = database_path
         self._workspace_home_id = workspace_home_id
         self._busy_timeout_ms = busy_timeout_ms
+        self._generation: tuple[str, int] | None = None
 
     @property
     def database_path(self) -> Path:
@@ -231,6 +246,7 @@ class SqliteStateStore:
                             persisted_id,
                         )
                 connection.execute("COMMIT")
+                self._check_generation(connection)
             except BaseException:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
@@ -266,7 +282,7 @@ class SqliteStateStore:
         finally:
             connection.close()
 
-    def mint_new_epoch(self) -> None:
+    def mint_new_epoch(self, *, minimum_epoch: int = 0) -> None:
         """Increment the activation epoch. Used during restore to invalidate prior authority."""
         connection = self._connect()
         try:
@@ -275,11 +291,14 @@ class SqliteStateStore:
                 connection.execute(
                     """
                     UPDATE workspace_identity
-                    SET activation_epoch = activation_epoch + 1
+                    SET activation_epoch = max(activation_epoch, ?) + 1
                     WHERE singleton = 1
-                    """
+                    """,
+                    (minimum_epoch,),
                 )
                 connection.execute("COMMIT")
+                self._generation = None
+                self._check_generation(connection)
             except BaseException:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
@@ -305,6 +324,8 @@ class SqliteStateStore:
                 )
                 connection.execute("COMMIT")
                 self._workspace_home_id = new_id
+                self._generation = None
+                self._check_generation(connection)
             except BaseException:
                 if connection.in_transaction:
                     connection.execute("ROLLBACK")
@@ -330,35 +351,61 @@ class SqliteStateStore:
         """
 
     def _connect(self) -> sqlite3.Connection:
+        guard = WorkspaceGuard(self._database_path.parent)
+        guard.__enter__()
+        try:
+            return self._open_guarded(guard, readonly=False)
+        except BaseException:
+            guard.close()
+            raise
+
+    def _open_guarded(self, guard: WorkspaceGuard, *, readonly: bool) -> sqlite3.Connection:
         connection = sqlite3.connect(
+            self._database_path.absolute().as_uri() + "?mode=ro" if readonly else
             str(self._database_path),
+            uri=readonly,
             isolation_level=None,
             timeout=self._busy_timeout_ms / 1_000,
+            factory=_GuardedConnection,
         )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(
-            f"PRAGMA busy_timeout = {self._busy_timeout_ms}"
-        )
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA synchronous = FULL")
+        connection.guard = guard
+        try:
+            connection.row_factory = sqlite3.Row
+            self._check_generation(connection)
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute(f"PRAGMA busy_timeout = {self._busy_timeout_ms}")
+            if readonly:
+                connection.execute("PRAGMA query_only = ON")
+            else:
+                connection.execute("PRAGMA journal_mode = WAL")
+                connection.execute("PRAGMA synchronous = FULL")
+        except BaseException:
+            connection.close()
+            raise
         return connection
 
     def _connect_read(self) -> sqlite3.Connection:
-        database_uri = self._database_path.absolute().as_uri() + "?mode=ro"
-        connection = sqlite3.connect(
-            database_uri,
-            uri=True,
-            isolation_level=None,
-            timeout=self._busy_timeout_ms / 1_000,
-        )
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(
-            f"PRAGMA busy_timeout = {self._busy_timeout_ms}"
-        )
-        connection.execute("PRAGMA query_only = ON")
-        return connection
+        guard = WorkspaceGuard(self._database_path.parent, readonly=True)
+        guard.__enter__()
+        try:
+            return self._open_guarded(guard, readonly=True)
+        except BaseException:
+            guard.close()
+            raise
+
+    def _check_generation(self, connection: sqlite3.Connection) -> None:
+        columns = connection.execute("PRAGMA table_info(workspace_identity)").fetchall()
+        if not any(row["name"] == "activation_epoch" for row in columns):
+            return
+        row = connection.execute(
+            "SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1"
+        ).fetchone()
+        if row is None:
+            return
+        generation = (str(row[0]), int(row[1]))
+        if self._generation is not None and self._generation != generation:
+            raise WorkspaceMaintenanceError("workspace activation changed; reopen runtime")
+        self._generation = generation
 
     @staticmethod
     def _table_exists(
