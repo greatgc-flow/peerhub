@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
+import os
 from pathlib import Path
 import subprocess
 from typing import Protocol, TypeAlias, assert_never
@@ -893,9 +894,23 @@ class ApplicationWorkflows:
         config = PipeRunnerConfig(
             argv=manifest.substituted_argv,  # pyright: ignore[reportCallIssue]
             cwd=workspace.workspace_root,  # pyright: ignore[reportCallIssue]
-            env=dict(invocation_plan.environment_delta)  # pyright: ignore[reportCallIssue]
-            if invocation_plan.environment_delta
-            else None,
+            # environment_delta is a PATCH on top of the ambient environment
+            # (AdapterRequest's own contract: adapters declare only what they
+            # add/override, never a full environment -- see
+            # peerhub/adapters/contract.py's InvocationPlan docstring). A bare
+            # `dict(environment_delta)` here would hand subprocess.Popen a
+            # non-None `env`, which per Python's subprocess semantics REPLACES
+            # rather than merges the child's environment -- wiping PATH,
+            # SystemRoot, TEMP, and auth/proxy variables the moment any
+            # adapter starts returning a non-empty delta (D7, D-CTX D0
+            # closure 2026-09-14). Merge onto the real parent environment
+            # instead; every current adapter emits an empty delta, so this is
+            # a no-op today and only changes behavior once a delta is used.
+            env=(
+                {**os.environ, **invocation_plan.environment_delta}  # pyright: ignore[reportCallIssue]
+                if invocation_plan.environment_delta
+                else None
+            ),
             stdin_data=invocation_plan.stdin_payload,  # pyright: ignore[reportCallIssue]
             process_timeout_ms=invocation_plan.limits.process_timeout_ms,  # pyright: ignore[reportCallIssue]
             silence_timeout_ms=invocation_plan.limits.silence_timeout_ms,  # pyright: ignore[reportCallIssue]

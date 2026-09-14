@@ -434,6 +434,90 @@ def test_dispatch_and_execute_happy_path_zero_artifacts(tmp_path: Path, store: S
     assert res.completion_assessment.state is CompletionAssessmentState.VERIFIED
 
 
+def test_dispatch_and_execute_merges_environment_delta_onto_ambient_environment(
+    tmp_path: Path, store: SqliteStateStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression test for D7 (D-CTX D0 closure, 2026-09-14): a non-empty
+    environment_delta must be MERGED onto the ambient environment, not used
+    as the child's entire environment -- otherwise PATH/SystemRoot/etc. are
+    wiped the moment any adapter starts returning a delta."""
+
+    monkeypatch.setenv("PEERHUB_TEST_AMBIENT_MARKER", "ambient-value")
+
+    class EnvDeltaAdapter(FakePeerAdapter):
+        def plan_invocation(
+            self,
+            request: AdapterRequest,
+            profile: ProfileDescriptor,
+            session: SessionHint | None,
+            limits: TransportLimits,
+        ) -> InvocationPlan:
+            script = (
+                "import os, sys; "
+                "sys.stdout.write(os.environ.get('PEERHUB_TEST_AMBIENT_MARKER', '<missing>') + '|'); "
+                "sys.stdout.write(os.environ.get('PEERHUB_TEST_DELTA_MARKER', '<missing>'))"
+            )
+            return InvocationPlan(
+                argv=(sys.executable, "-c", script),
+                cwd_reference=request.workspace_scope,
+                environment_delta={"PEERHUB_TEST_DELTA_MARKER": "delta-value"},
+                transport=TransportKind.PIPE,
+                stdin_payload=None,
+                limits=limits,
+                redacted_display="python -c <redacted>",
+                artifacts=(),
+                session_action=request.requested_session_action,
+            )
+
+    adapter = EnvDeltaAdapter()
+    workflows, dispatch = _workflows(store, peer_adapter=adapter)
+    cmd_id, cap_lease_id, peer_instance = _admit_and_prepare(workflows, _envelope())
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    materializer = ArtifactMaterializer(
+        unit_of_work_factory=store.unit_of_work,
+        workspace_root=workspace_root,
+    )
+
+    contract = _completion_contract()
+    adapter_req = AdapterRequest(
+        request_id="req-env-delta-01",
+        prompt_content="hello",
+        prompt_reference=None,
+        workspace_scope="ws-1",
+        profile_id="ag.deepthink",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=contract,
+    )
+    limits = TransportLimits(process_timeout_ms=5000, silence_timeout_ms=5000, max_output_bytes=65536)
+    res = workflows.dispatch_and_execute(
+        cmd_id,
+        capability_lease_id=cap_lease_id,
+        peer_instance_id=peer_instance,
+        current_policy_revision=7,
+        materializer=materializer,
+        adapter_request=adapter_req,
+        profile=_ROUTED_PROFILE,
+        limits=limits,
+        workspace_roots={"ws-1": workspace_root},
+        content_providers={},
+        completion_contract=contract,
+        heartbeat_timeout_ms=10000,
+    )
+
+    assert res.process_outcome is not None
+    assert res.process_outcome.execution_outcome.exit_code == 0
+    assert res.decoded_output is not None
+    stdout_text = "".join(
+        str(event.payload["text"])
+        for event in res.decoded_output.events
+        if event.payload["channel"] == "STDOUT"
+    )
+    assert stdout_text == "ambient-value|delta-value"
+
+
 def test_dispatch_and_execute_streams_ordered_decoder_events(
     tmp_path: Path,
     store: SqliteStateStore,
