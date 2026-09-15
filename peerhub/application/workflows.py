@@ -625,6 +625,7 @@ class ApplicationWorkflows:
         transport: str = "pipe",
         service: DispatchService | None = None,
         session: SessionHint | None = None,
+        dispatch_context_env: Mapping[str, str] | None = None,
         event_sink: Callable[[DecoderEvent], None] | None = None,
         cancellation_hook: Callable[["ProcessSupervisor"], None] | None = None,
     ) -> ExecutionWorkflowResult:
@@ -907,8 +908,12 @@ class ApplicationWorkflows:
             # instead; every current adapter emits an empty delta, so this is
             # a no-op today and only changes behavior once a delta is used.
             env=(
-                {**os.environ, **invocation_plan.environment_delta}  # pyright: ignore[reportCallIssue]
-                if invocation_plan.environment_delta
+                {
+                    **os.environ,
+                    **(invocation_plan.environment_delta or {}),
+                    **(dispatch_context_env or {}),
+                }
+                if invocation_plan.environment_delta or dispatch_context_env
                 else None
             ),
             stdin_data=invocation_plan.stdin_payload,  # pyright: ignore[reportCallIssue]
@@ -1319,6 +1324,7 @@ class ApplicationWorkflows:
                     transport=transport,
                     service=service,
                     session=current_plan.session,
+                    dispatch_context_env=current_plan.dispatch_context_env,
                     event_sink=event_sink,
                     cancellation_hook=cancellation_hook,
                 )
@@ -1538,6 +1544,7 @@ class ApplicationWorkflows:
                     transport=transport,
                     service=service,
                     session=current_plan.session,
+                    dispatch_context_env=current_plan.dispatch_context_env,
                     event_sink=event_sink,
                     cancellation_hook=cancellation_hook,
                 )

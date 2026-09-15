@@ -8,6 +8,8 @@ if TYPE_CHECKING:
     from peerhub.runtime import Runtime
 
 import hashlib
+import secrets
+import sqlite3
 
 from peerhub.adapters.prompt_transport import (
     remove_staged_prompt,
@@ -36,6 +38,8 @@ from peerhub.application.retry import (
     RetryLoopStopReason,
 )
 from peerhub.application.workspace_identity import detect_workspace_home_id
+from peerhub.dispatch.context_carrier import cleanup_context_file, create_context_file
+from peerhub.persistence.dispatch_context import issue_credential
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
 from peerhub.core.identity import AuthenticatedSubject
@@ -615,6 +619,54 @@ def execute_direct_ask(
             
         admitted_request = admission_result.dispatch_admission[0]
         command_id = admitted_request.command_id
+        
+        context_file_path = None
+        credential_id = None
+        dispatch_context_env = None
+        
+        try:
+            conn = sqlite3.connect(str(paths.database_path))
+            try:
+                cursor = conn.execute("SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1")
+                row = cursor.fetchone()
+                if row:
+                    w_id, a_epoch = row
+                    credential_id = secrets.token_urlsafe(32)
+                    issued_at = clock.now()
+                    # clock.now() is seconds (see SystemClock); process_timeout_ms
+                    # is milliseconds -- convert before adding, plus a 60s grace
+                    # period past the process timeout for retry/cleanup slack.
+                    timeout_seconds = (
+                        request.limits.process_timeout_ms // 1000
+                        if request.limits.process_timeout_ms
+                        else 3600
+                    )
+                    expires_at = issued_at + timeout_seconds + 60
+                    
+                    issue_credential(
+                        conn,
+                        credential_id=credential_id,
+                        command_id=str(command_id),
+                        workspace_home_id=w_id,
+                        activation_epoch=a_epoch,
+                        issued_at=issued_at,
+                        expires_at=expires_at
+                    )
+                    conn.commit()
+                    
+                    context_file_path = create_context_file(request.workspace_root, credential_id=credential_id)
+            finally:
+                conn.close()
+        except Exception:
+            context_file_path = None
+            credential_id = None
+            
+        if context_file_path is not None:
+            dispatch_context_env = {
+                "PEERHUB_CONTEXT_FILE": str(context_file_path),
+                "PEERHUB_WORKSPACE": str(request.workspace_root)
+            }
+            
         capability_lease_id = (
             admission_result.dispatch_admission[3].capability_lease_id
         )
@@ -641,6 +693,18 @@ def execute_direct_ask(
             policy=policy,
             config=ask_config,
         )
+        
+        if context_file_path is not None:
+            trailer = (
+                "\n\n[PEERHUB DISPATCH CONTEXT]\n"
+                f"Authoritative context file: {context_file_path}\n"
+                "For PeerHub governance commands, allow PEERHUB_CONTEXT_FILE to resolve it.\n"
+                "If that variable is unavailable in a tool subprocess, pass:\n"
+                f'  peerhub --context "{context_file_path}" ...\n'
+                "Never print or copy the file contents."
+            )
+            assembled_prompt += trailer
+
         # Item H: past the profile's inline ceiling, stage the payload
         # verbatim and carry a reference rather than failing the dispatch.
         # AdapterRequest requires exactly one of content/reference, so these
@@ -706,27 +770,35 @@ def execute_direct_ask(
             peer_adapter=target.adapter,
             profile=target.profile,
             session=session_hint if session_action is SessionAction.RESUME else None,
+            dispatch_context_env=dispatch_context_env,
         )
 
         retry_target_resolver = DirectAskRetryTargetResolver(
             workspace_root=request.workspace_root,
         )
 
-        multi_result = runtime.application_workflows.dispatch_with_retries(
-            command_id,
-            initial_attempt=initial_attempt,
-            route_request_factory=route_request_factory,
-            current_policy_revision=policy_revision,
-            materializer=materializer,
-            limits=request.limits,
-            workspace_roots={"default": request.workspace_root},
-            content_providers={},
-            completion_contract=completion_contract,
-            heartbeat_timeout_ms=30000,
-            max_attempts=request.max_attempts,
-            retry_target_resolver=retry_target_resolver,
-            cancellation_hook=cancellation_hook,
-        )
+        try:
+            multi_result = runtime.application_workflows.dispatch_with_retries(
+                command_id,
+                initial_attempt=initial_attempt,
+                route_request_factory=route_request_factory,
+                current_policy_revision=policy_revision,
+                materializer=materializer,
+                limits=request.limits,
+                workspace_roots={"default": request.workspace_root},
+                content_providers={},
+                completion_contract=completion_contract,
+                heartbeat_timeout_ms=30000,
+                max_attempts=request.max_attempts,
+                retry_target_resolver=retry_target_resolver,
+                cancellation_hook=cancellation_hook,
+            )
+        finally:
+            if context_file_path is not None:
+                try:
+                    cleanup_context_file(context_file_path)
+                except Exception:
+                    pass
 
         last_record = multi_result.attempts[-1]
         execution_result = last_record.execution

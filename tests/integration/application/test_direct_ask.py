@@ -509,7 +509,9 @@ def test_direct_ask_without_context_preserves_raw_prompt(
 
     assert len(adapter.recorded_requests) == 1
     sent_prompt = adapter.recorded_requests[0].prompt_content
-    assert sent_prompt == "just a simple prompt"
+    # D-CTX (2026-09-14) appends a trailer naming the context file when one
+    # is successfully created; the raw prompt itself is still untouched.
+    assert sent_prompt.startswith("just a simple prompt")
 
 
 def test_direct_ask_session_resume_compatible(
@@ -1034,7 +1036,9 @@ def test_direct_ask_continuity_absent_when_no_checkpoints_exist(
         authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
     )
 
-    assert adapter.recorded_requests[0].prompt_content == "plain question"
+    # D-CTX (2026-09-14) appends a trailer naming the context file when one
+    # is successfully created; the raw prompt itself is still untouched.
+    assert adapter.recorded_requests[0].prompt_content.startswith("plain question")
 
 
 def test_direct_ask_continuity_disabled_by_global_config(
@@ -1100,7 +1104,9 @@ def test_direct_ask_continuity_disabled_by_global_config(
     )
 
     sent_prompt = adapter.recorded_requests[0].prompt_content
-    assert sent_prompt == "gated question"
+    # D-CTX (2026-09-14) appends a trailer naming the context file when one
+    # is successfully created; the raw prompt itself is still untouched.
+    assert sent_prompt.startswith("gated question")
 
 
 # ---------------------------------------------------------------------------
@@ -1261,7 +1267,11 @@ def test_direct_ask_inline_prompt_is_not_staged(
     )
 
     sent = adapter.recorded_requests[0]
-    assert sent.prompt_content == "small enough to go inline"
+    # D-CTX (2026-09-14) appends a trailer naming the context file when one
+    # is successfully created; the raw prompt itself is still untouched,
+    # and the trailer is far too small to push this well under the inline
+    # ceiling into staging.
+    assert sent.prompt_content.startswith("small enough to go inline")
     assert sent.prompt_reference is None
 
 
@@ -1356,3 +1366,116 @@ def test_direct_ask_transcript_persistence_disabled_by_config(
         # Table exists but should be empty
         count = conn.execute("SELECT COUNT(*) FROM dispatch_transcripts").fetchone()[0]
     assert count == 0
+
+
+def test_execute_direct_ask_issues_dctx_credential_and_context_file(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-CTX Increment 1 mechanical wiring (D0/Q2/D2 closed 2026-09-14):
+    a successful ask issues a real credential row and a real context file,
+    the prompt trailer names that file, and the file is cleaned up once
+    the dispatch completes -- all without changing quorum/authorization
+    (nothing here verifies or enforces the credential yet)."""
+
+    adapter, target = _continuity_target("hello with dctx")
+    _patch_direct_ask(monkeypatch, target)
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    result = execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+    assert result.error_code is None
+
+    db_path = PathLayout.for_workspace(tmp_path).database_path
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT credential_id, command_id FROM dispatch_context_credentials"
+        ).fetchall()
+    assert len(rows) == 1
+    credential_id, command_id = rows[0]
+    assert credential_id
+    assert command_id
+
+    sent = adapter.recorded_requests[-1]
+    assert "[PEERHUB DISPATCH CONTEXT]" in sent.prompt_content
+    assert "Never print or copy the file contents." in sent.prompt_content
+
+    # The trailer names the file; extract it and confirm cleanup ran.
+    marker = "Authoritative context file: "
+    start = sent.prompt_content.index(marker) + len(marker)
+    end = sent.prompt_content.index("\n", start)
+    context_file = Path(sent.prompt_content[start:end])
+    assert not context_file.exists()
+
+
+def test_execute_direct_ask_degrades_gracefully_when_context_file_creation_fails(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A D-CTX plumbing failure (disk full, ACL restriction failure, etc.)
+    must never break a real ask -- the dispatch proceeds exactly as if
+    D-CTX did not exist, with no trailer and no credential env."""
+
+    adapter, target = _continuity_target("hello without dctx")
+    _patch_direct_ask(monkeypatch, target)
+
+    def _boom(*args: object, **kwargs: object) -> Path:
+        raise RuntimeError("simulated context-file creation failure")
+
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.create_context_file", _boom
+    )
+
+    request = DirectAskRequest(
+        workspace_root=tmp_path,
+        peer_name="fake",
+        prompt="hello",
+        required_capability_tier=CapabilityTier.READ_ONLY,
+        profile_id=target.profile.profile_id,
+        limits=TransportLimits(
+            process_timeout_ms=10_000,
+            silence_timeout_ms=10_000,
+            max_output_bytes=1_000_000,
+        ),
+    )
+
+    result = execute_direct_ask(
+        request,
+        clock=clock,
+        ids=ids,
+        authenticated_subject=AuthenticatedSubject("local-cli:test-user", "test"),
+    )
+    assert result.error_code is None
+    assert result.request_state == RequestState.SUCCEEDED_VERIFIED
+
+    sent = adapter.recorded_requests[-1]
+    assert "[PEERHUB DISPATCH CONTEXT]" not in sent.prompt_content
+
+    db_path = PathLayout.for_workspace(tmp_path).database_path
+    with sqlite3.connect(db_path) as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM dispatch_context_credentials"
+        ).fetchone()[0]
+    # issue_credential ran and committed before create_context_file raised
+    # -- an orphaned but harmless row that expires naturally on its own.
+    assert count == 1

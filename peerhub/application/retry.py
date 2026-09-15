@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol
+from collections.abc import Mapping
 
 from peerhub.adapters.contract import SessionAction
 from peerhub.core.errors import (
@@ -289,6 +290,7 @@ class AttemptDispatchPlan:
     peer_adapter: PeerAdapter
     profile: ProfileDescriptor
     session: SessionHint | None
+    dispatch_context_env: Mapping[str, str] | None = None
 
     def __post_init__(self) -> None:
         for name in (
