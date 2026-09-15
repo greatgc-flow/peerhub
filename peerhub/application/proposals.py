@@ -241,6 +241,7 @@ class ProposalCoordinator:
         impact: str = "med",
         rationale: str = "",
         text: str = "",
+        verified_required: bool = False,
     ) -> ProposalAddResult:
         normalized_subject = require_text(subject, "subject")
         normalized_from_peer = require_text(from_peer, "from_peer")
@@ -289,6 +290,7 @@ class ProposalCoordinator:
                     eligible_participants=eligible,
                     risk=self._risk(impact),
                     source_hash=source_hash,
+                    verified_required=verified_required,
                 )
             except StaleRevisionError:
                 sequence_floor = sequence + 1
@@ -712,6 +714,7 @@ class ProposalCoordinator:
         voter: str = "cc",
         vote: str,
         reason: str = "",
+        credential_id: str | None = None,
     ) -> ProposalVoteResult:
         normalized_round_id = require_text(proposal_id, "proposal_id")
         normalized_voter = require_text(voter, "voter")
@@ -723,6 +726,7 @@ class ProposalCoordinator:
             actor_id=normalized_voter,
             choice=normalized_choice,
             reason=reason,
+            credential_id=credential_id,
         )
         return self.reconcile_outcome(
             normalized_round_id,

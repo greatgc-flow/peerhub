@@ -523,6 +523,7 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     impact=parsed.impact,
                     rationale=parsed.rationale,
                     text=parsed.text,
+                    verified_required=parsed.verified_required,
                 )
                 if parsed.json:
                     print(json.dumps(_json_safe({
@@ -553,6 +554,7 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     voter=parsed.voter,
                     vote=parsed.vote,
                     reason=parsed.reason,
+                    credential_id=parsed.credential_id,
                 )
                 if parsed.json:
                     print(json.dumps(_json_safe({
@@ -2757,6 +2759,11 @@ def main(args: list[str] | None = None) -> int:
         "--rationale", "--detail", dest="rationale", default=""
     )
     proposal_add_parser.add_argument("--text", default="")
+    proposal_add_parser.add_argument(
+        "--verified-required",
+        action="store_true",
+        help="Require a verified D-CTX credential (--credential-id on proposal-vote) to vote on this proposal",
+    )
     proposal_add_parser.add_argument("--json", action="store_true")
     proposal_vote_parser = consensus_subparsers.add_parser(
         "proposal-vote",
@@ -2777,6 +2784,11 @@ def main(args: list[str] | None = None) -> int:
         choices=("agree", "disagree", "abstain", "need_more_info"),
     )
     proposal_vote_parser.add_argument("--reason", default="")
+    proposal_vote_parser.add_argument(
+        "--credential-id",
+        default=None,
+        help="D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+    )
     proposal_vote_parser.add_argument("--json", action="store_true")
     list_parser = consensus_subparsers.add_parser(
         "list",

@@ -1888,7 +1888,10 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/application/test_proposals.py::test_cli_add_and_vote_exact_compatibility_stdout"
+        "tests/integration/application/test_proposals.py::test_cli_add_and_vote_exact_compatibility_stdout",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_accepts_real_credential",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_impersonation",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_missing_credential"
       ],
       "parser_contract": {
         "arguments": [
@@ -1976,6 +1979,19 @@
             "action": "_StoreTrueAction",
             "choices": null,
             "default": false,
+            "dest": "verified_required",
+            "help": "Require a verified D-CTX credential (--credential-id on proposal-vote) to vote on this proposal",
+            "nargs": 0,
+            "option_strings": [
+              "--verified-required"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
             "dest": "json",
             "help": null,
             "nargs": 0,
@@ -2006,7 +2022,10 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/application/test_proposals.py::test_cli_add_and_vote_exact_compatibility_stdout"
+        "tests/integration/application/test_proposals.py::test_cli_add_and_vote_exact_compatibility_stdout",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_accepts_real_credential",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_impersonation",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_missing_credential"
       ],
       "parser_contract": {
         "arguments": [
@@ -2079,6 +2098,19 @@
             "nargs": null,
             "option_strings": [
               "--reason"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "credential_id",
+            "help": "D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            "nargs": null,
+            "option_strings": [
+              "--credential-id"
             ],
             "required": false,
             "type": null
