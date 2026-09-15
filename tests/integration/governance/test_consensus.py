@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -8,6 +9,7 @@ from fakes import FakeClock, FakeIdSource
 from peerhub.core.errors import InvalidMutationError, StaleRevisionError
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.consensus import ConsensusService
+from peerhub.persistence.dispatch_context import issue_credential, verify_credential_for_actor
 from peerhub.persistence.sqlite import SqliteStateStore
 
 
@@ -305,3 +307,198 @@ def test_reject_on_dissent_and_abandon_emit_observable_effect_intents(tmp_path: 
     assert abandon_payload["effect_kind"] == "consensus.abandoned"
     assert abandon_payload["effect_payload"]["reason_code"] == "CANCELLED"
 
+
+def _seed_dctx(conn: sqlite3.Connection, command_id: str, peer_instance_id: str) -> None:
+    conn.execute(
+        """INSERT INTO dispatch_requests (command_id, client_id, client_request_id, correlation_id, authenticated_principal, command_type, idempotency_key, payload_digest, scope_json, params_json, expected_policy_revision_json, expected_configuration_revision_json, policy_revision_json, configuration_revision_json, completion_contract_json, required_capability_tier, selected_peer_instance_id, selected_profile_id, route_decision_digest, lease_id, state, revision, created_at, updated_at)
+        VALUES (?, 'client', ?, 'corr', 'prin', 'type', ?, 'hash', '[]', '{}', '0', '0', '0', '0', '{"contract_id":"x","kind":"ALL_OF","requirements":[],"replay_safe":true}', 'READ_ONLY', ?, 'prof', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, 'ADMITTED', 1, 0, 0)""",
+        (command_id, f"req-{command_id}", f"idem-{command_id}", peer_instance_id, f"L-{command_id}"),
+    )
+
+def _verified_service(tmp_path: Path) -> tuple[ConsensusService, GovernanceBroker, sqlite3.Connection]:
+    store = SqliteStateStore(
+        tmp_path / "consensus.sqlite3",
+        workspace_home_id="consensus-test",
+    )
+    store.initialize()
+    conn = sqlite3.connect(tmp_path / "consensus.sqlite3")
+    conn.execute("PRAGMA foreign_keys = ON")
+    
+    row = conn.execute(
+        "SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1"
+    ).fetchone()
+    workspace_home_id, activation_epoch = row
+
+    def verifier(*, credential_id: str, claimed_actor_id: str) -> bool:
+        return verify_credential_for_actor(
+            conn,
+            credential_id=credential_id,
+            claimed_actor_id=claimed_actor_id,
+            workspace_home_id=workspace_home_id,
+            activation_epoch=activation_epoch,
+            now=1000,
+        )
+
+    broker = GovernanceBroker(
+        store,
+        clock=FakeClock(range(1, 100)),
+        ids=FakeIdSource([f"id-{i}" for i in range(1, 100)]),
+    )
+    service = ConsensusService(
+        broker, 
+        clock=FakeClock(range(1, 100)), 
+        ids=FakeIdSource([f"domain-{i}" for i in range(1, 100)]),
+        credential_verifier=verifier
+    )
+    return service, broker, conn
+
+def test_vote_with_verified_credential(tmp_path: Path) -> None:
+    service, broker, conn = _verified_service(tmp_path)
+    
+    workspace_home_id, activation_epoch = conn.execute(
+        "SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1"
+    ).fetchone()
+    _seed_dctx(conn, "cmd-a", "peer-a")
+    issue_credential(
+        conn,
+        credential_id="cred-a",
+        command_id="cmd-a",
+        workspace_home_id=workspace_home_id,
+        activation_epoch=activation_epoch,
+        issued_at=500,
+        expires_at=2000,
+    )
+    conn.commit()
+
+    service.propose(
+        round_id="round-cred",
+        title="Cred Round",
+        question="Agree?",
+        body="body",
+        proposer_id="peer-a",
+        required_participants=("peer-a", "peer-b"),
+        eligible_participants=("peer-a", "peer-b"),
+        risk="normal",
+        source_hash="sha256:cred",
+        verified_required=True,
+    )
+
+    service.cast_vote("round-cred", actor_id="peer-a", choice="agree", credential_id="cred-a")
+    target = broker.get_target("round-cred")
+    assert target is not None
+    assert target.state["votes"]["peer-a"]["choice"] == "agree"
+
+    with pytest.raises(InvalidMutationError, match="credential does not verify"):
+        service.cast_vote("round-cred", actor_id="peer-b", choice="agree", credential_id="cred-a")
+    target = broker.get_target("round-cred")
+    assert target is not None
+    assert "peer-b" not in target.state["votes"]
+
+def test_vote_verified_required_but_no_credential(tmp_path: Path) -> None:
+    service, broker, conn = _verified_service(tmp_path)
+    service.propose(
+        round_id="round-req",
+        title="Req Round",
+        question="Agree?",
+        body="body",
+        proposer_id="peer-a",
+        required_participants=("peer-a", "peer-b"),
+        eligible_participants=("peer-a", "peer-b"),
+        risk="normal",
+        source_hash="sha256:req",
+        verified_required=True,
+    )
+
+    with pytest.raises(InvalidMutationError, match="this round requires a verified credential"):
+        service.cast_vote("round-req", actor_id="peer-a", choice="agree")
+
+def test_vote_default_behavior(tmp_path: Path) -> None:
+    service, broker, conn = _verified_service(tmp_path)
+    service.propose(
+        round_id="round-def",
+        title="Def Round",
+        question="Agree?",
+        body="body",
+        proposer_id="peer-a",
+        required_participants=("peer-a", "peer-b"),
+        eligible_participants=("peer-a", "peer-b"),
+        risk="normal",
+        source_hash="sha256:def",
+    )
+
+    service.cast_vote("round-def", actor_id="peer-a", choice="agree")
+    target = broker.get_target("round-def")
+    assert target is not None
+    assert target.state["votes"]["peer-a"]["choice"] == "agree"
+
+def test_vote_wrong_credential(tmp_path: Path) -> None:
+    service, broker, conn = _verified_service(tmp_path)
+    service.propose(
+        round_id="round-wrong",
+        title="Wrong Round",
+        question="Agree?",
+        body="body",
+        proposer_id="peer-a",
+        required_participants=("peer-a",),
+        eligible_participants=("peer-a",),
+        risk="normal",
+        source_hash="sha256:wrong",
+        verified_required=False,
+    )
+
+    with pytest.raises(InvalidMutationError, match="credential does not verify"):
+        service.cast_vote("round-wrong", actor_id="peer-a", choice="agree", credential_id="invalid-cred")
+
+def test_final_call_ack_impersonation(tmp_path: Path) -> None:
+    service, broker, conn = _verified_service(tmp_path)
+    
+    workspace_home_id, activation_epoch = conn.execute(
+        "SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1"
+    ).fetchone()
+    _seed_dctx(conn, "cmd-b", "peer-b")
+    issue_credential(
+        conn,
+        credential_id="cred-b",
+        command_id="cmd-b",
+        workspace_home_id=workspace_home_id,
+        activation_epoch=activation_epoch,
+        issued_at=500,
+        expires_at=2000,
+    )
+    conn.commit()
+
+    service.propose(
+        round_id="round-final",
+        title="Final Round",
+        question="Agree?",
+        body="body",
+        proposer_id="peer-a",
+        required_participants=("peer-a", "peer-b"),
+        eligible_participants=("peer-a", "peer-b"),
+        risk="normal",
+        source_hash="sha256:final",
+        verified_required=True,
+    )
+    
+    _seed_dctx(conn, "cmd-a", "peer-a")
+    issue_credential(
+        conn,
+        credential_id="cred-a",
+        command_id="cmd-a",
+        workspace_home_id=workspace_home_id,
+        activation_epoch=activation_epoch,
+        issued_at=500,
+        expires_at=2000,
+    )
+    conn.commit()
+
+    service.cast_vote("round-final", actor_id="peer-a", choice="agree", credential_id="cred-a")
+    service.cast_vote("round-final", actor_id="peer-b", choice="agree", credential_id="cred-b")
+
+    service.final_call_ack("round-final", actor_id="peer-b", ack=True, credential_id="cred-b")
+
+    with pytest.raises(InvalidMutationError, match="credential does not verify"):
+        service.final_call_ack("round-final", actor_id="peer-a", ack=True, credential_id="cred-b")
+
+    with pytest.raises(InvalidMutationError, match="this round requires a verified credential"):
+        service.final_call_ack("round-final", actor_id="peer-a", ack=True)

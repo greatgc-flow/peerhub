@@ -184,8 +184,33 @@ def _compose_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    def _verify_dctx_credential(*, credential_id: str, claimed_actor_id: str) -> bool:
+        import sqlite3
+        from peerhub.persistence.dispatch_context import verify_credential_for_actor
+        conn = sqlite3.connect(str(context.paths.database_path))
+        try:
+            row = conn.execute(
+                "SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1"
+            ).fetchone()
+            if row is None:
+                return False
+            workspace_home_id, activation_epoch = row
+            return verify_credential_for_actor(
+                conn,
+                credential_id=credential_id,
+                claimed_actor_id=claimed_actor_id,
+                workspace_home_id=workspace_home_id,
+                activation_epoch=activation_epoch,
+                now=context.clock.now(),
+            )
+        finally:
+            conn.close()
+
     consensus_service = ConsensusService(
-        governance_broker, clock=context.clock, ids=context.ids
+        governance_broker,
+        clock=context.clock,
+        ids=context.ids,
+        credential_verifier=_verify_dctx_credential,
     )
     task_service = TaskService(governance_broker, clock=context.clock, ids=context.ids)
     lesson_service = LessonService(governance_broker, clock=context.clock, ids=context.ids)

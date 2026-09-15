@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 import hashlib
 import re
-from typing import cast
+from typing import cast, Protocol
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -28,13 +28,26 @@ from .contract import (
 )
 
 
+class CredentialVerifier(Protocol):
+    """Opt-in D-CTX credential check (Increment 1 verification, D0/Q2/D2
+    closed 2026-09-14). A plain callable so this module never depends on
+    peerhub.persistence directly -- the real implementation (joining back
+    to dispatch_requests.selected_peer_instance_id) lives in
+    peerhub.persistence.dispatch_context.verify_credential_for_actor and
+    is wired in at the two production ConsensusService construction
+    sites (peerhub/runtime.py, peerhub/cli/__init__.py)."""
+
+    def __call__(self, *, credential_id: str, claimed_actor_id: str) -> bool: ...
+
+
 class ConsensusService:
     """Create and mutate consensus-round TargetStates."""
 
-    def __init__(self, broker: GovernanceBroker, *, clock: Clock, ids: IdSource) -> None:
+    def __init__(self, broker: GovernanceBroker, *, clock: Clock, ids: IdSource, credential_verifier: CredentialVerifier | None = None) -> None:
         self._broker = broker
         self._clock = clock
         self._ids = ids
+        self._credential_verifier = credential_verifier
 
     def get_target(self, round_id: str) -> TargetState | None:
         """Read a consensus round without exposing the broker internals."""
@@ -60,6 +73,7 @@ class ConsensusService:
         eligible_participants: Sequence[str],
         risk: str,
         source_hash: str,
+        verified_required: bool = False,
     ) -> MutationSubmission:
         timestamp = self._clock.now()
         required = tuple(required_participants)
@@ -72,6 +86,7 @@ class ConsensusService:
             "status": "open",
             "kind": "consensus-round",
             "scope": None,
+            "verified_required": verified_required,
             "proposal": {
                 "title": title,
                 "question": question,
@@ -143,6 +158,7 @@ class ConsensusService:
         actor_id: str,
         ack: bool,
         expected_revision: int | None = None,
+        credential_id: str | None = None,
     ) -> MutationSubmission:
         target, state, audit, participants = self._open_state(
             round_id, {"quorum_reached", "final_call"}
@@ -150,6 +166,15 @@ class ConsensusService:
         eligible = participants.get("eligible")
         if not isinstance(eligible, (list, tuple)) or actor_id not in eligible:
             raise InvalidMutationError("actor is not an eligible final-call acknowledger")
+
+        verified_required = bool(state.get("verified_required", False))
+        if credential_id is not None:
+            if self._credential_verifier is None or not self._credential_verifier(
+                credential_id=credential_id, claimed_actor_id=actor_id
+            ):
+                raise InvalidMutationError("credential does not verify for this actor")
+        elif verified_required:
+            raise InvalidMutationError("this round requires a verified credential to vote")
 
         final_raw = state.get("final_call")
         if final_raw is None:
@@ -507,6 +532,7 @@ class ConsensusService:
         choice: str,
         reason: str | None = None,
         expected_revision: int | None = None,
+        credential_id: str | None = None,
     ) -> MutationSubmission:
         target = self._broker.get_target(round_id)
         if target is None:
@@ -519,6 +545,16 @@ class ConsensusService:
         eligible = participants["eligible"]
         if not isinstance(eligible, (tuple, list)) or actor_id not in eligible:
             raise InvalidMutationError("actor is not an eligible voter")
+
+        verified_required = bool(state.get("verified_required", False))
+        if credential_id is not None:
+            if self._credential_verifier is None or not self._credential_verifier(
+                credential_id=credential_id, claimed_actor_id=actor_id
+            ):
+                raise InvalidMutationError("credential does not verify for this actor")
+        elif verified_required:
+            raise InvalidMutationError("this round requires a verified credential to vote")
+
         if choice not in {"agree", "disagree", "abstain", "need_more_info"}:
             raise InvalidMutationError(
                 "choice must be agree, disagree, abstain, or need_more_info"
