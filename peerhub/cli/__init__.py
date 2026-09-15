@@ -584,6 +584,7 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     eligible_participants=eligible,
                     risk=parsed.risk,
                     source_hash="sha256:" + hashlib.sha256(parsed.body.encode()).hexdigest(),
+                    verified_required=parsed.verified_required,
                 )
                 target = runtime.governance_broker.get_target(submission.receipt.target_id)
                 assert target is not None
@@ -596,7 +597,12 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     print(f"Consensus round {parsed.round_id} proposed (phase={payload['phase']}, quorum required={payload['quorum_required']})")
                 return 0
             if parsed.consensus_action == "vote":
-                submission = service.cast_vote(parsed.round_id, actor_id=parsed.actor, choice=parsed.choice)
+                submission = service.cast_vote(
+                    parsed.round_id,
+                    actor_id=parsed.actor,
+                    choice=parsed.choice,
+                    credential_id=parsed.credential_id,
+                )
                 target = runtime.governance_broker.get_target(submission.receipt.target_id)
                 assert target is not None
                 state = cast(dict[str, Any], target.state)
@@ -2729,6 +2735,11 @@ def main(args: list[str] | None = None) -> int:
     propose_parser.add_argument("--required", required=True, help="Comma-separated peer IDs required for quorum (for example: cc,cx,ag)")
     propose_parser.add_argument("--eligible", required=True, help="Comma-separated eligible peer IDs")
     propose_parser.add_argument("--risk", default="normal", help="Risk tier used for quorum calculation (default: normal)")
+    propose_parser.add_argument(
+        "--verified-required",
+        action="store_true",
+        help="Require a verified D-CTX credential (--credential-id on vote) to cast a vote on this round",
+    )
     propose_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
     proposal_add_parser = consensus_subparsers.add_parser(
         "proposal-add",
@@ -2808,6 +2819,11 @@ def main(args: list[str] | None = None) -> int:
         if action == "vote":
             command_parser.add_argument("--actor", required=True, help="Voting peer ID")
             command_parser.add_argument("--choice", required=True, choices=("agree", "disagree", "abstain", "need_more_info"), help="Vote choice")
+            command_parser.add_argument(
+                "--credential-id",
+                default=None,
+                help="D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            )
 
     task_parser = subparsers.add_parser("task", help="Manage task lifecycles")
     task_subparsers = task_parser.add_subparsers(dest="task_action", required=True)

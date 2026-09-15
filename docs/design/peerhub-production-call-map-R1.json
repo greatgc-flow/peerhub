@@ -1845,6 +1845,19 @@
             "action": "_StoreTrueAction",
             "choices": null,
             "default": false,
+            "dest": "verified_required",
+            "help": "Require a verified D-CTX credential (--credential-id on vote) to cast a vote on this round",
+            "nargs": 0,
+            "option_strings": [
+              "--verified-required"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
             "dest": "json",
             "help": "Emit machine-readable JSON",
             "nargs": 0,
@@ -2291,6 +2304,19 @@
               "--choice"
             ],
             "required": true,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "credential_id",
+            "help": "D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            "nargs": null,
+            "option_strings": [
+              "--credential-id"
+            ],
+            "required": false,
             "type": null
           }
         ],
