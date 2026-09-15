@@ -132,6 +132,46 @@ def verify_credential_for_actor(
     return row is not None
 
 
+def resolve_actor_for_credential(
+    connection: sqlite3.Connection,
+    *,
+    credential_id: str,
+    workspace_home_id: str,
+    activation_epoch: int,
+    now: int,
+) -> str | None:
+    """Return the peer identity a valid credential is bound to, or ``None``
+    if it does not currently authorize anyone (invalid, wrong workspace/
+    epoch, expired, or revoked).
+
+    This is the read-side counterpart to ``verify_credential_for_actor``:
+    where that function checks a *caller-claimed* actor against the
+    credential's bound ``dispatch_requests.selected_peer_instance_id``,
+    this one has no claim to check yet and simply returns that bound
+    identity -- used to let a caller omit an explicit actor/voter flag when
+    it already holds a valid credential, instead of retyping an identity
+    PeerHub already recorded at admission time. A caller that also supplies
+    an explicit actor must still route through ``verify_credential_for_actor``
+    (or ``ConsensusService.cast_vote``'s existing check) so an explicit
+    contradiction is rejected, not silently overridden by this function."""
+
+    row = connection.execute(
+        """
+        SELECT request.selected_peer_instance_id
+        FROM dispatch_context_credentials AS credential
+        JOIN dispatch_requests AS request
+          ON request.command_id = credential.command_id
+        WHERE credential.credential_id = ?
+          AND credential.workspace_home_id = ?
+          AND credential.activation_epoch = ?
+          AND credential.revoked_at IS NULL
+          AND credential.expires_at > ?
+        """,
+        (credential_id, workspace_home_id, activation_epoch, now),
+    ).fetchone()
+    return row[0] if row is not None else None
+
+
 def revoke_credentials_below_epoch(
     connection: sqlite3.Connection,
     *,

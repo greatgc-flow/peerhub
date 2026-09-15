@@ -8,6 +8,7 @@ from pathlib import Path
 
 from peerhub.persistence.dispatch_context import (
     issue_credential,
+    resolve_actor_for_credential,
     revoke_credentials_below_epoch,
     verify_credential,
     verify_credential_for_actor,
@@ -383,3 +384,97 @@ def test_verify_credential_for_actor_rejects_expired_and_revoked(tmp_path: Path)
             activation_epoch=epoch,
             now=1500,
         )
+
+
+def test_resolve_actor_for_credential_returns_the_bound_peer(tmp_path: Path) -> None:
+    db_path = tmp_path / "peerhub.sqlite3"
+    store = _store(db_path)
+    store.initialize()
+    store.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        workspace_home_id, epoch = _identity(conn)
+        _seed_dispatch_request(conn, "cmd-1", peer_instance_id="cx-instance-1")
+        issue_credential(
+            conn,
+            credential_id="cred-1",
+            command_id="cmd-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            issued_at=1000,
+            expires_at=2000,
+        )
+        conn.commit()
+
+        assert resolve_actor_for_credential(
+            conn,
+            credential_id="cred-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            now=1500,
+        ) == "cx-instance-1"
+
+
+def test_resolve_actor_for_credential_returns_none_when_invalid(tmp_path: Path) -> None:
+    db_path = tmp_path / "peerhub.sqlite3"
+    store = _store(db_path)
+    store.initialize()
+    store.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        workspace_home_id, epoch = _identity(conn)
+
+        # Unknown credential_id entirely.
+        assert resolve_actor_for_credential(
+            conn,
+            credential_id="does-not-exist",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            now=1500,
+        ) is None
+
+        _seed_dispatch_request(conn, "cmd-1", peer_instance_id="cx-instance-1")
+        issue_credential(
+            conn,
+            credential_id="cred-1",
+            command_id="cmd-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            issued_at=1000,
+            expires_at=2000,
+        )
+        conn.commit()
+
+        # Expired: now is at/after expires_at.
+        assert resolve_actor_for_credential(
+            conn,
+            credential_id="cred-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            now=2000,
+        ) is None
+
+        # Wrong workspace.
+        assert resolve_actor_for_credential(
+            conn,
+            credential_id="cred-1",
+            workspace_home_id="a-different-workspace",
+            activation_epoch=epoch,
+            now=1500,
+        ) is None
+
+        conn.execute(
+            "UPDATE dispatch_context_credentials SET revoked_at = 1200 WHERE credential_id = 'cred-1'"
+        )
+        conn.commit()
+
+        # Revoked.
+        assert resolve_actor_for_credential(
+            conn,
+            credential_id="cred-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            now=1500,
+        ) is None

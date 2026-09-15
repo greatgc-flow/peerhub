@@ -871,3 +871,99 @@ def test_cli_proposal_verified_required_rejects_missing_credential(
     ])
     assert exit_code == 2
     assert "requires a verified credential" in capsys.readouterr().err
+
+
+def test_cli_proposal_vote_derives_voter_from_credential_when_omitted(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A caller holding a valid D-CTX credential can omit --voter entirely
+    on the legacy-compatible proposal-vote path too -- the vote is cast as
+    the peer PeerHub already recorded at admission time."""
+
+    _setup_verified_round(tmp_path)
+    add_lines = capsys.readouterr().out.splitlines()
+    round_id = add_lines[0].split()[2]
+
+    _seed_dctx_credential(tmp_path, credential_id="cred-cx", peer_instance_id="cx")
+
+    assert main([
+        "consensus",
+        "proposal-vote",
+        "--workspace",
+        str(tmp_path),
+        "--proposal-id",
+        round_id,
+        "--vote",
+        "agree",
+        "--credential-id",
+        "cred-cx",
+    ]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"[HUB] PROPOSAL-VOTE {round_id} | cx:AGREE"
+    ]
+
+
+def test_cli_proposal_vote_defaults_to_cc_when_voter_and_credential_both_omitted(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Backward-compatibility regression: a plain round with neither
+    --voter nor --credential-id must still default to "cc", exactly as
+    before context-derived actor resolution was added."""
+
+    config_dir = tmp_path / ".peerhub"
+    config_dir.mkdir(parents=True)
+    (config_dir / "proposals.json").write_text(
+        json.dumps({"schema_version": 1, "voters": ["cc", "cx"]}),
+        encoding="utf-8",
+    )
+    timestamp = int(time.time())
+    context = RuntimeContext(
+        "cli-proposal-default-voter-test",
+        PathLayout.for_workspace(tmp_path),
+        FixedClock(timestamp),
+        SequentialIdSource(),
+    )
+    with create_runtime(
+        context,
+        proposal_voters=("cc", "cx"),
+    ) as runtime:
+        _seed_runtime_health(
+            runtime.state_store,
+            runtime.health_service.policy,
+            timestamp=timestamp,
+        )
+
+    assert main([
+        "consensus",
+        "proposal-add",
+        "--workspace",
+        str(tmp_path),
+        "--subject",
+        "Default voter proposal",
+        "--from",
+        "cc",
+        "--impact",
+        "high",
+        "--rationale",
+        "because",
+        "--text",
+        "change",
+    ]) == 0
+    add_lines = capsys.readouterr().out.splitlines()
+    round_id = add_lines[0].split()[2]
+
+    assert main([
+        "consensus",
+        "proposal-vote",
+        "--workspace",
+        str(tmp_path),
+        "--proposal-id",
+        round_id,
+        "--vote",
+        "agree",
+    ]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"[HUB] PROPOSAL-VOTE {round_id} | cc:AGREE"
+    ]

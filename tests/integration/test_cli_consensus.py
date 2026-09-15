@@ -167,3 +167,55 @@ def test_cli_consensus_verified_required_rejects_missing_credential(tmp_path: Pa
     ])
     assert exit_code == 2
     assert "requires a verified credential" in capsys.readouterr().err
+
+
+def test_cli_consensus_vote_derives_actor_from_credential_when_omitted(tmp_path: Path, capsys) -> None:
+    """A caller holding a valid D-CTX credential can omit --actor entirely
+    -- the vote is cast as the peer PeerHub already recorded at admission
+    time, not a value the caller retypes."""
+
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    capsys.readouterr()
+
+    assert main(_propose_args(tmp_path)) == 0
+    capsys.readouterr()
+
+    _seed_dctx_credential(tmp_path, credential_id="cred-cx", peer_instance_id="cx")
+
+    assert main([
+        "consensus", "vote", "--workspace", str(tmp_path),
+        "--round-id", "round-cli", "--choice", "agree",
+        "--credential-id", "cred-cx",
+    ]) == 0
+    assert "voting" in capsys.readouterr().out
+
+
+def test_cli_consensus_vote_rejects_invalid_credential_when_actor_omitted(tmp_path: Path, capsys) -> None:
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    capsys.readouterr()
+
+    assert main(_propose_args(tmp_path)) == 0
+    capsys.readouterr()
+
+    exit_code = main([
+        "consensus", "vote", "--workspace", str(tmp_path),
+        "--round-id", "round-cli", "--choice", "agree",
+        "--credential-id", "cred-does-not-exist",
+    ])
+    assert exit_code == 2
+    assert "does not resolve to a known actor" in capsys.readouterr().err
+
+
+def test_cli_consensus_vote_requires_actor_or_credential(tmp_path: Path, capsys) -> None:
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+    capsys.readouterr()
+
+    assert main(_propose_args(tmp_path)) == 0
+    capsys.readouterr()
+
+    exit_code = main([
+        "consensus", "vote", "--workspace", str(tmp_path),
+        "--round-id", "round-cli", "--choice", "agree",
+    ])
+    assert exit_code == 2
+    assert "requires --actor or a valid --credential-id" in capsys.readouterr().err

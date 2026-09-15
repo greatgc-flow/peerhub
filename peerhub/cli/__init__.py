@@ -510,6 +510,42 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                 finally:
                     conn.close()
 
+            def _resolve_dctx_actor(*, credential_id: str) -> str | None:
+                import sqlite3
+                from peerhub.persistence.dispatch_context import resolve_actor_for_credential
+                conn = sqlite3.connect(str(context.paths.database_path))
+                try:
+                    row = conn.execute(
+                        "SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1"
+                    ).fetchone()
+                    if row is None:
+                        return None
+                    workspace_home_id, activation_epoch = row
+                    return resolve_actor_for_credential(
+                        conn,
+                        credential_id=credential_id,
+                        workspace_home_id=workspace_home_id,
+                        activation_epoch=activation_epoch,
+                        now=context.clock.now(),
+                    )
+                finally:
+                    conn.close()
+
+            def _require_actor_id(explicit: str | None, credential_id: str | None) -> str:
+                if explicit is not None:
+                    return explicit
+                if credential_id is not None:
+                    resolved = _resolve_dctx_actor(credential_id=credential_id)
+                    if resolved is None:
+                        raise InvalidMutationError(
+                            "credential does not resolve to a known actor "
+                            "(invalid, expired, or revoked)"
+                        )
+                    return resolved
+                raise InvalidMutationError(
+                    "consensus vote requires --actor or a valid --credential-id"
+                )
+
             service = ConsensusService(
                 runtime.governance_broker,
                 clock=context.clock,
@@ -549,9 +585,21 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     )
                 return 0
             if parsed.consensus_action == "proposal-vote":
+                if parsed.voter is not None:
+                    voter_id = parsed.voter
+                elif parsed.credential_id is not None:
+                    resolved_voter = _resolve_dctx_actor(credential_id=parsed.credential_id)
+                    if resolved_voter is None:
+                        raise InvalidMutationError(
+                            "credential does not resolve to a known actor "
+                            "(invalid, expired, or revoked)"
+                        )
+                    voter_id = resolved_voter
+                else:
+                    voter_id = "cc"
                 result = runtime.proposal_coordinator.vote_proposal(
                     parsed.proposal_id,
-                    voter=parsed.voter,
+                    voter=voter_id,
                     vote=parsed.vote,
                     reason=parsed.reason,
                     credential_id=parsed.credential_id,
@@ -599,9 +647,10 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     print(f"Consensus round {parsed.round_id} proposed (phase={payload['phase']}, quorum required={payload['quorum_required']})")
                 return 0
             if parsed.consensus_action == "vote":
+                actor_id = _require_actor_id(parsed.actor, parsed.credential_id)
                 submission = service.cast_vote(
                     parsed.round_id,
-                    actor_id=parsed.actor,
+                    actor_id=actor_id,
                     choice=parsed.choice,
                     credential_id=parsed.credential_id,
                 )
@@ -2776,7 +2825,7 @@ def main(args: list[str] | None = None) -> int:
         "--proposal-id", "--round-id", dest="proposal_id", required=True
     )
     proposal_vote_parser.add_argument(
-        "--voter", "--peer", "--agent", dest="voter", default="cc"
+        "--voter", "--peer", "--agent", dest="voter", default=None
     )
     proposal_vote_parser.add_argument(
         "--vote",
@@ -2829,7 +2878,12 @@ def main(args: list[str] | None = None) -> int:
         command_parser.add_argument("--round-id", required=True, help="Consensus round identifier")
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
         if action == "vote":
-            command_parser.add_argument("--actor", required=True, help="Voting peer ID")
+            command_parser.add_argument(
+                "--actor",
+                required=False,
+                default=None,
+                help="Voting peer ID (omit when presenting a valid --credential-id instead)",
+            )
             command_parser.add_argument("--choice", required=True, choices=("agree", "disagree", "abstain", "need_more_info"), help="Vote choice")
             command_parser.add_argument(
                 "--credential-id",
