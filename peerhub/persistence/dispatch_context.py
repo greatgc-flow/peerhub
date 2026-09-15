@@ -85,6 +85,53 @@ def verify_credential(
     return row is not None
 
 
+def verify_credential_for_actor(
+    connection: sqlite3.Connection,
+    *,
+    credential_id: str,
+    claimed_actor_id: str,
+    workspace_home_id: str,
+    activation_epoch: int,
+    now: int,
+) -> bool:
+    """Return whether this credential authorizes ``claimed_actor_id`` to
+    act as a governance participant, right now, in this workspace.
+
+    A governance mutation (a consensus vote, a Final Call ACK) is a
+    *different* command than the ``peer.ask`` dispatch the credential was
+    minted for -- ``verify_credential``'s exact ``command_id`` match does
+    not apply here. Instead this joins back to the ``dispatch_requests``
+    row the credential's own ``command_id`` names, and checks that ITS
+    ``selected_peer_instance_id`` (the peer PeerHub's own routing actually
+    dispatched -- never a value the caller supplies) equals
+    ``claimed_actor_id``. This is what actually stops one dispatched
+    process from casting a vote as a *different* peer than the one it was
+    admitted and routed as: the credential can only ever assert the
+    identity PeerHub itself already recorded at admission time.
+
+    Same fail-closed semantics as ``verify_credential``: wrong workspace,
+    superseded epoch, expired, revoked, or an actor mismatch all fail
+    identically -- no partial credit, no distinguishing error detail that
+    would help a caller iterate toward a working forgery.
+    """
+
+    row = connection.execute(
+        """
+        SELECT 1 FROM dispatch_context_credentials AS credential
+        JOIN dispatch_requests AS request
+          ON request.command_id = credential.command_id
+        WHERE credential.credential_id = ?
+          AND credential.workspace_home_id = ?
+          AND credential.activation_epoch = ?
+          AND credential.revoked_at IS NULL
+          AND credential.expires_at > ?
+          AND request.selected_peer_instance_id = ?
+        """,
+        (credential_id, workspace_home_id, activation_epoch, now, claimed_actor_id),
+    ).fetchone()
+    return row is not None
+
+
 def revoke_credentials_below_epoch(
     connection: sqlite3.Connection,
     *,

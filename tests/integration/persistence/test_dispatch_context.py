@@ -10,6 +10,7 @@ from peerhub.persistence.dispatch_context import (
     issue_credential,
     revoke_credentials_below_epoch,
     verify_credential,
+    verify_credential_for_actor,
 )
 from peerhub.persistence.sqlite import SqliteStateStore
 
@@ -18,11 +19,13 @@ def _store(path: Path, workspace_home_id: str = "test-workspace") -> SqliteState
     return SqliteStateStore(path, workspace_home_id=workspace_home_id)
 
 
-def _seed_dispatch_request(conn: sqlite3.Connection, command_id: str) -> None:
+def _seed_dispatch_request(
+    conn: sqlite3.Connection, command_id: str, *, peer_instance_id: str = "inst"
+) -> None:
     conn.execute(
         """INSERT INTO dispatch_requests (command_id, client_id, client_request_id, correlation_id, authenticated_principal, command_type, idempotency_key, payload_digest, scope_json, params_json, expected_policy_revision_json, expected_configuration_revision_json, policy_revision_json, configuration_revision_json, completion_contract_json, required_capability_tier, selected_peer_instance_id, selected_profile_id, route_decision_digest, lease_id, state, revision, created_at, updated_at)
-        VALUES (?, 'client', ?, 'corr', 'prin', 'type', ?, 'hash', '[]', '{}', '0', '0', '0', '0', '{"contract_id":"x","kind":"ALL_OF","requirements":[],"replay_safe":true}', 'READ_ONLY', 'inst', 'prof', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, 'ADMITTED', 1, 0, 0)""",
-        (command_id, f"req-{command_id}", f"idem-{command_id}", f"L-{command_id}"),
+        VALUES (?, 'client', ?, 'corr', 'prin', 'type', ?, 'hash', '[]', '{}', '0', '0', '0', '0', '{"contract_id":"x","kind":"ALL_OF","requirements":[],"replay_safe":true}', 'READ_ONLY', ?, 'prof', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', ?, 'ADMITTED', 1, 0, 0)""",
+        (command_id, f"req-{command_id}", f"idem-{command_id}", peer_instance_id, f"L-{command_id}"),
     )
 
 
@@ -264,5 +267,119 @@ def test_revoke_credentials_below_epoch_revokes_prior_epoch_only(tmp_path: Path)
             command_id="cmd-2",
             workspace_home_id=workspace_home_id,
             activation_epoch=epoch_2,
+            now=1500,
+        )
+
+
+def test_verify_credential_for_actor_accepts_the_peer_it_was_dispatched_as(tmp_path: Path) -> None:
+    db_path = tmp_path / "peerhub.sqlite3"
+    store = _store(db_path)
+    store.initialize()
+    store.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        workspace_home_id, epoch = _identity(conn)
+        _seed_dispatch_request(conn, "cmd-1", peer_instance_id="cx-instance-1")
+        issue_credential(
+            conn,
+            credential_id="cred-1",
+            command_id="cmd-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            issued_at=1000,
+            expires_at=2000,
+        )
+        conn.commit()
+
+        assert verify_credential_for_actor(
+            conn,
+            credential_id="cred-1",
+            claimed_actor_id="cx-instance-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            now=1500,
+        )
+
+
+def test_verify_credential_for_actor_rejects_impersonation_of_a_different_peer(tmp_path: Path) -> None:
+    """The core impersonation defense: a credential minted for the process
+    PeerHub actually dispatched as cx-instance-1 must not authorize a vote
+    claiming to be a completely different peer (ag-instance-1), even
+    though every other field (workspace, epoch, expiry) matches."""
+
+    db_path = tmp_path / "peerhub.sqlite3"
+    store = _store(db_path)
+    store.initialize()
+    store.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        workspace_home_id, epoch = _identity(conn)
+        _seed_dispatch_request(conn, "cmd-1", peer_instance_id="cx-instance-1")
+        issue_credential(
+            conn,
+            credential_id="cred-1",
+            command_id="cmd-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            issued_at=1000,
+            expires_at=2000,
+        )
+        conn.commit()
+
+        assert not verify_credential_for_actor(
+            conn,
+            credential_id="cred-1",
+            claimed_actor_id="ag-instance-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            now=1500,
+        )
+
+
+def test_verify_credential_for_actor_rejects_expired_and_revoked(tmp_path: Path) -> None:
+    db_path = tmp_path / "peerhub.sqlite3"
+    store = _store(db_path)
+    store.initialize()
+    store.close()
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("PRAGMA foreign_keys = ON")
+        workspace_home_id, epoch = _identity(conn)
+        _seed_dispatch_request(conn, "cmd-1", peer_instance_id="cx-instance-1")
+        issue_credential(
+            conn,
+            credential_id="cred-1",
+            command_id="cmd-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            issued_at=1000,
+            expires_at=2000,
+        )
+        conn.commit()
+
+        # Expired: now is at/after expires_at.
+        assert not verify_credential_for_actor(
+            conn,
+            credential_id="cred-1",
+            claimed_actor_id="cx-instance-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
+            now=2000,
+        )
+
+        conn.execute(
+            "UPDATE dispatch_context_credentials SET revoked_at = 1200 WHERE credential_id = 'cred-1'"
+        )
+        conn.commit()
+
+        # Revoked: even well before its own expires_at.
+        assert not verify_credential_for_actor(
+            conn,
+            credential_id="cred-1",
+            claimed_actor_id="cx-instance-1",
+            workspace_home_id=workspace_home_id,
+            activation_epoch=epoch,
             now=1500,
         )
