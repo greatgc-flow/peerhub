@@ -546,6 +546,8 @@ These are work packages for the separate follow-up, not changes made by this doc
 
 Security dependencies must not postpone all useful work. Folder cleanup cannot declare completion while governance still trusts arbitrary actor strings.
 
+**Update (2026-09-13, same day): R0 shipped.** `.github/workflows/publish.yml`'s release-tag-vs-package-version check was broken (`KeyError: 'version'`) by P8's dynamic-version change; fixed in commit `a92c6e6` to parse `peerhub/_version.py`'s `__version__` directly and still enforce `RELEASE_TAG == "v$PACKAGE_VERSION"`. All three exit-evidence criteria confirmed against the live workflow file on 2026-09-16: release guard runs without error, a wrong tag is refused (explicit non-zero exit), and artifact metadata agrees by construction (`pyproject.toml`'s `version = {attr = "peerhub._version.__version__"}` is the same single source the check reads). D0/D1 (D-CTX) closure is tracked separately in `docs/design/README.md`'s Tier B index; R2/R3/R5 are likewise already shipped (see the same index) — R4 (P4b governance convergence + typed call) is the only item in this table not yet started.
+
 ### 10.3 Acceptance gates
 
 1. **Reachability:** every supported boundary has a production caller and entrance-level test; no direct CLI mutating service/private-SQL bypass after R4.
