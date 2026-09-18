@@ -22,6 +22,7 @@ from peerhub.core.protocol import CommandID, JsonValue, require_text
 
 from .broker import GovernanceBroker
 from .contract import (
+    CURRENT_POLICY_REVISION,
     EffectIntent,
     MutationRequest,
     MutationSubmission,
@@ -89,7 +90,7 @@ class ArtifactRecordService:
                 command_type=operation,
                 idempotency_key=request_id,
                 actor_id=actor_id,
-                policy_revision="protocol-v2",
+                policy_revision=CURRENT_POLICY_REVISION,
                 target_id=target_id,
                 expected_revision=expected_revision,
                 operation=operation,

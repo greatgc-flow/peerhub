@@ -10,7 +10,7 @@ from peerhub.core.protocol import CommandID, JsonValue
 from peerhub.dispatch.room_session import RoomSessionSnapshot, RoomSessionState
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
+from .contract import CURRENT_POLICY_REVISION, EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
 
 
 def list_active_consensus_rounds(
@@ -95,7 +95,7 @@ def rebuild_room_session_bindings(
             command_type="room.session_bindings.rebuild",
             idempotency_key=request_id,
             actor_id="peerhub.maintenance",
-            policy_revision="protocol-v2",
+            policy_revision=CURRENT_POLICY_REVISION,
             target_id=room_id,
             expected_revision=room.revision,
             operation="room.session_bindings.rebuild",

@@ -15,6 +15,11 @@ from peerhub.core.protocol import (
     require_uuid4,
 )
 
+CURRENT_POLICY_REVISION = "protocol-v2"
+"""The governance policy revision every domain service's MutationRequest
+currently declares. Distinct from core.protocol.SCHEMA_VERSION (the wire
+schema version) -- this identifies which governance policy is in force."""
+
 
 class MutationDisposition(str, Enum):
     """The result of submitting a mutation request."""
