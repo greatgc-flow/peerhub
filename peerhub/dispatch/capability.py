@@ -32,6 +32,26 @@ class CapabilityTier(IntEnum):
     REMOTE_MUTATE = 3
 
 
+def capability_tier_from_stored(raw: object, subject: str) -> CapabilityTier:
+    """Parse a persisted required_capability_tier column value.
+
+    Consolidates an identical implementation independently defined as
+    _required_capability_tier_from_stored in persistence/sqlite_dispatch.py
+    ("stored request is missing/invalid required_capability_tier") and
+    persistence/sqlite_routing.py ("stored route decision is
+    missing/invalid required_capability_tier") -- `subject` parameterizes
+    that one differing noun phrase.
+    """
+    if not isinstance(raw, str):
+        raise RuntimeError(f"{subject} is missing required_capability_tier")
+    try:
+        return CapabilityTier[raw]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"{subject} required_capability_tier is invalid"
+        ) from exc
+
+
 class EnforcementLevel(IntEnum):
     """Increasing strength of enforcement for a capability tier."""
 

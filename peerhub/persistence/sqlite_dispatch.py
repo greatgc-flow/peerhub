@@ -21,6 +21,7 @@ from peerhub.dispatch.capability import (
     CapabilityLease,
     CapabilityTier,
     EnforcementLevel,
+    capability_tier_from_stored,
 )
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
@@ -90,19 +91,8 @@ def _completion_contract_from_raw(
     )
 
 
-def _required_capability_tier_from_stored(
-    raw: object,
-) -> CapabilityTier:
-    if not isinstance(raw, str):
-        raise RuntimeError(
-            "stored request is missing required_capability_tier"
-        )
-    try:
-        return CapabilityTier[raw]
-    except KeyError as exc:
-        raise RuntimeError(
-            "stored request required_capability_tier is invalid"
-        ) from exc
+def _required_capability_tier_from_stored(raw: object) -> CapabilityTier:
+    return capability_tier_from_stored(raw, "stored request")
 
 
 def _ask_result_data(result: AskResult) -> Mapping[str, object]:
