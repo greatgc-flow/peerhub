@@ -17,6 +17,7 @@ from peerhub.application.commands.sessions import (
     SessionHeartbeatCommand,
     SessionOpenCommand,
 )
+from peerhub.application.handlers._params import optional_text_or, required_text as text
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.dispatch.duty_lease import (
     DutyLeaseCoordinator,
@@ -66,12 +67,6 @@ def register_duty_handlers(
     domain_atomic_required = IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
     available = CommandAvailability.AVAILABLE
 
-    def text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params[name]
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
-
     def integer(envelope: CommandEnvelope, name: str) -> int:
         value = envelope.params[name]
         if not isinstance(value, int) or isinstance(value, bool):
@@ -82,12 +77,6 @@ def register_duty_handlers(
         value = envelope.params.get(name, False)
         if not isinstance(value, bool):
             raise ValueError(f"{name} must be a boolean")
-        return value
-
-    def optional_text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params.get(name, "")
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
         return value
 
     def optional_integer(envelope: CommandEnvelope, name: str) -> int:
@@ -137,10 +126,10 @@ def register_duty_handlers(
             integer(envelope, "term"),
             integer(envelope, "authority_epoch"),
             boolean(envelope, "close_session"),
-            optional_text(envelope, "session_id"),
+            optional_text_or(envelope, "session_id", ""),
             optional_integer(envelope, "session_generation"),
-            optional_text(envelope, "workspace_scope_id"),
-            optional_text(envelope, "actor_principal_id"),
+            optional_text_or(envelope, "workspace_scope_id", ""),
+            optional_text_or(envelope, "actor_principal_id", ""),
         )
         if command.close_session and (
             not command.session_id
@@ -341,12 +330,6 @@ def register_room_session_handlers(
     any_scope = ScopeKind.ANY
     domain_atomic_required = IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
     available = CommandAvailability.AVAILABLE
-
-    def text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params[name]
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
 
     def integer(envelope: CommandEnvelope, name: str) -> int:
         value = envelope.params[name]

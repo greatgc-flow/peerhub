@@ -10,6 +10,7 @@ from peerhub.application.commands.feedback import (
     FeedbackListCommand,
     FeedbackResolveCommand,
 )
+from peerhub.application.handlers._params import optional_text, required_text
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.governance.feedback import FeedbackService
 
@@ -35,20 +36,6 @@ def register_feedback_handlers(*, api: Any, service: FeedbackService) -> None:
     domain_atomic_required = IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
     idempotency_read_only = IdempotencyPolicy.READ_ONLY
     available = CommandAvailability.AVAILABLE
-
-    def required_text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params[name]
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
-
-    def optional_text(envelope: CommandEnvelope, name: str) -> str | None:
-        value = envelope.params.get(name)
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string or null")
-        return value
 
     def decode_add(envelope: CommandEnvelope) -> FeedbackAddCommand:
         detail = envelope.params.get("detail", "")

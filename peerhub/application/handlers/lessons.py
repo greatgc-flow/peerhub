@@ -22,6 +22,7 @@ from peerhub.application.lesson_inject import (
     LessonInjectionPolicy,
     inject_lessons,
 )
+from peerhub.application.handlers._params import string_tuple as strings
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.governance.activity import list_active_lessons
 from peerhub.governance.broker import GovernanceBroker
@@ -71,16 +72,6 @@ def register_lesson_handlers(
         ):
             raise ValueError(f"{name} must be an integer or null")
         return cast(int | None, params[name])
-
-    def strings(
-        params: Mapping[str, JsonValue], name: str
-    ) -> tuple[str, ...]:
-        value = params[name]
-        if not isinstance(value, (list, tuple)) or not all(
-            isinstance(item, str) for item in value
-        ):
-            raise ValueError(f"{name} must be a sequence of strings")
-        return tuple(cast(str, item) for item in value)
 
     def boolean(
         params: Mapping[str, JsonValue], name: str, default: bool

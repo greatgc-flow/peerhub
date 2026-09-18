@@ -10,6 +10,7 @@ from peerhub.application.alert_raise import (
     AlertRaiseResult,
 )
 from peerhub.application.commands.alerts import AlertRaiseCommand
+from peerhub.application.handlers._params import required_text
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 
 
@@ -35,15 +36,6 @@ def register_alert_handlers(
     any_scope = ScopeKind.ANY
     domain_atomic_required = IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
     available = CommandAvailability.AVAILABLE
-
-    def required_text(
-        envelope: CommandEnvelope,
-        name: str,
-    ) -> str:
-        value = envelope.params[name]
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
 
     def decode_alert(envelope: CommandEnvelope) -> AlertRaiseCommand:
         return AlertRaiseCommand(

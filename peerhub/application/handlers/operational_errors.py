@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from peerhub.application.commands.operational_errors import ReportErrorCommand
+from peerhub.application.handlers._params import required_text
 from peerhub.core.protocol import CommandEnvelope
 from peerhub.governance.operational_errors import OperationalErrorService
 
@@ -32,12 +33,6 @@ def register_operational_error_handlers(
     any_scope = ScopeKind.ANY
     domain_atomic_required = IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
     available = CommandAvailability.AVAILABLE
-
-    def required_text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params[name]
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
 
     def decode_report(envelope: CommandEnvelope) -> ReportErrorCommand:
         threshold = envelope.params.get("threshold", 3)

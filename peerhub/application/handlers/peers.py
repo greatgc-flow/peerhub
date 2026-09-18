@@ -36,6 +36,7 @@ from peerhub.application.peer_registry import (
     collect_model_status,
     collect_peer_status,
 )
+from peerhub.application.handlers._params import optional_text, required_text
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.dispatch.service import DispatchService
@@ -71,17 +72,6 @@ def register_peer_registry_handlers(
     idempotency_read_only = IdempotencyPolicy.READ_ONLY
     available = CommandAvailability.AVAILABLE
 
-    def optional_text(
-        envelope: CommandEnvelope,
-        name: str,
-    ) -> str | None:
-        value = envelope.params.get(name)
-        if value is None:
-            return None
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string or null")
-        return value
-
     def decode_register(envelope: CommandEnvelope) -> RegisterNodeCommand:
         params = envelope.params
         node_id = params["node_id"]
@@ -109,12 +99,6 @@ def register_peer_registry_handlers(
 
     def decode_list(envelope: CommandEnvelope) -> ListNodesCommand:
         return ListNodesCommand(submission(envelope))
-
-    def required_text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params[name]
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
 
     def decode_bind(envelope: CommandEnvelope) -> BindProfileCommand:
         return BindProfileCommand(
