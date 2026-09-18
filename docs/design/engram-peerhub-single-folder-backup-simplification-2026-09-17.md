@@ -38,6 +38,14 @@ To the user, the *output* of `engram backup` genuinely is one clean, pristine fo
 
 Wire `_sys/checks/backup_personal_data.py`'s existing, correct logic into `engram backup`/`engram restore`/`engram reset` as real CLI subcommands (today it's a standalone script the user has to know exists and invoke with `python _sys/checks/...`). This is a thin CLI-surface addition over already-correct, already-tested logic — not new backup logic. Peerhub needs no equivalent work; `peerhub backup workspace`/`restore` already exists at the CLI level.
 
+## Addendum (2026-09-18): output format and default location, 2-voice converged
+
+Refines the deliverable above; does not reopen the core decision.
+
+- **`engram backup` produces a single `.zip` file by default**, not a plain folder. This matches the project's own existing convention (release artifacts are already `Engram-vX.Y.Z-portable-x64.zip`; ad-hoc full-environment backups already found on disk this week were also `.zip`), guarantees an atomic transfer (no half-copied backup left behind if interrupted), and is simply easier for a user to move/attach/upload than a folder. Low-risk to implement: `shutil.make_archive`/`shutil.unpack_archive` over the existing `_sync_item_to_bundle` per-ITEM logic.
+- **Default location**: `<base-dir>/_sys/data/backups/engram_backup_<timestamp>.zip` (gitignored, timestamped so repeated runs don't clobber each other, unlike P:'s legacy `.ais/`-as-standing-mirror behavior). The CLI's own output must print an explicit, high-visibility note that a same-drive backup protects against accidental local resets/config mistakes only, NOT against drive failure — real disaster recovery requires the user to copy the resulting zip off-drive themselves; this is a user practice the tool should prompt for, not something it manages.
+- **`--restore`/`--list` accept both a `.zip` and a legacy folder-shaped bundle** (trivial to support both: `--restore` unpacks a zip into a `tempfile.TemporaryDirectory()` before running the existing per-ITEM restore loop; `--list` reads `MANIFEST.txt` straight out of the zip via `zipfile.ZipFile(...).read(...)` with no unpacking needed) — accepting both costs almost nothing and avoids a needless compatibility break for anyone who already has a folder-shaped bundle from the current standalone script.
+
 ## Open items for cx (and any further cc/ag rounds)
 
 1. Does cx agree the physical-split options are genuinely dead ends, or does it find a vendor mechanism ag/cc missed?
