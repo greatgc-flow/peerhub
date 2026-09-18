@@ -33,6 +33,9 @@ from peerhub.core.protocol import (
     require_text,
 )
 
+OUTBOX_EVENT_ID_PREFIX = "outbox-event"
+CAPABILITY_LEASE_ID_PREFIX = "capability-lease"
+
 if TYPE_CHECKING:
     from peerhub.routing.contract import RouteDecision
 

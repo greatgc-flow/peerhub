@@ -40,6 +40,7 @@ from .capability import (
 from .contract import (
     AdmissionReceipt,
     AttemptSnapshot,
+    CAPABILITY_LEASE_ID_PREFIX,
     LeaseReservationRequest,
     LeaseSnapshot,
     RequestSnapshot,
@@ -820,7 +821,7 @@ class RetryAuthorizationCoordinator:
                 updated_at=timestamp,
             )
             capability = CapabilityLease(
-                capability_lease_id=self._ids.new_id("capability-lease"),
+                capability_lease_id=self._ids.new_id(CAPABILITY_LEASE_ID_PREFIX),
                 command_id=updated_request.command_id,
                 admission_receipt_id=context.receipt.admission_receipt_id,
                 session_lease_id=new_lease.lease_id,

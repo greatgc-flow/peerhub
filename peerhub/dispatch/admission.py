@@ -11,10 +11,12 @@ from peerhub.state.contract import StateStore
 
 from .contract import (
     AdmissionReceipt,
+    CAPABILITY_LEASE_ID_PREFIX,
     ClientRequestBinding,
     CommandIdempotencyBinding,
     CompletionContract,
     LeaseSnapshot,
+    OUTBOX_EVENT_ID_PREFIX,
     RequestSnapshot,
     SessionBindingKey,
     ValidatedSubmission,
@@ -363,7 +365,7 @@ class AdmissionCoordinator:
             command_id = CommandID(self._ids.new_id("command"))
             admission_receipt_id = self._ids.new_id("admission-receipt")
             lease_id = self._ids.new_id("lease")
-            event_id = self._ids.new_id("outbox-event")
+            event_id = self._ids.new_id(OUTBOX_EVENT_ID_PREFIX)
             fencing_token = unit.allocate_fencing_token()
 
             (
@@ -492,7 +494,7 @@ class AdmissionCoordinator:
             )
 
         capability_lease = CapabilityLease(
-            capability_lease_id=self._ids.new_id("capability-lease"),
+            capability_lease_id=self._ids.new_id(CAPABILITY_LEASE_ID_PREFIX),
             command_id=request.command_id,
             admission_receipt_id=receipt.admission_receipt_id,
             session_lease_id=request.lease_id,
@@ -543,7 +545,7 @@ class AdmissionCoordinator:
             unit.add_outbox_event(
                 dispatch_event(
                     updated,
-                    event_id=self._ids.new_id("outbox-event"),
+                    event_id=self._ids.new_id(OUTBOX_EVENT_ID_PREFIX),
                     occurred_at=timestamp,
                 )
             )

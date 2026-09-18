@@ -28,6 +28,7 @@ from .contract import (
     LeaseCloseRequest,
     LeaseFenceTuple,
     LeaseSnapshot,
+    OUTBOX_EVENT_ID_PREFIX,
     ProcessBirthIdentity,
     RequestSnapshot,
 )
@@ -163,7 +164,7 @@ class AttemptLifecycleCoordinator:
             unit.add_outbox_event(
                 _dispatch_event(
                     updated_request,
-                    event_id=self._ids.new_id("outbox-event"),
+                    event_id=self._ids.new_id(OUTBOX_EVENT_ID_PREFIX),
                     occurred_at=timestamp,
                 )
             )
@@ -173,7 +174,7 @@ class AttemptLifecycleCoordinator:
                     updated_request,
                     updated_attempt,
                     event_id=self._ids.new_id(
-                        "outbox-event"
+                        OUTBOX_EVENT_ID_PREFIX
                     ),
                     terminal_at=timestamp,
                     transport=transport,
@@ -310,7 +311,7 @@ class AttemptLifecycleCoordinator:
         # DP-06: durable isolated-journal boundary -- INTENT_PERSISTED
         # must be durably appended here (SLICE5-KICKOFF-R1.md
         # "Ratified decisions" item 4).
-        event_id = self._ids.new_id("outbox-event")
+        event_id = self._ids.new_id(OUTBOX_EVENT_ID_PREFIX)
         unit.add_outbox_event(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             _dispatch_event(
                 updated_request,
@@ -448,7 +449,7 @@ class AttemptLifecycleCoordinator:
             unit.add_outbox_event(
                 _dispatch_event(
                     updated_request,
-                    event_id=self._ids.new_id("outbox-event"),
+                    event_id=self._ids.new_id(OUTBOX_EVENT_ID_PREFIX),
                     occurred_at=timestamp,
                 )
             )
@@ -508,7 +509,7 @@ class AttemptLifecycleCoordinator:
             unit.add_outbox_event(
                 _dispatch_event(
                     updated_request,
-                    event_id=self._ids.new_id("outbox-event"),
+                    event_id=self._ids.new_id(OUTBOX_EVENT_ID_PREFIX),
                     occurred_at=timestamp,
                 )
             )
@@ -601,12 +602,12 @@ class AttemptLifecycleCoordinator:
         unit.add_outbox_event(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             _dispatch_event(
                 updated_request,
-                event_id=self._ids.new_id("outbox-event"),
+                event_id=self._ids.new_id(OUTBOX_EVENT_ID_PREFIX),
                 occurred_at=timestamp,
             )
         )
         self._faults.hit(FaultPoint.AFTER_OUTBOX_WRITE)
-        terminal_event_id = self._ids.new_id("outbox-event")
+        terminal_event_id = self._ids.new_id(OUTBOX_EVENT_ID_PREFIX)
         unit.add_outbox_event(  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
             _attempt_terminal_event(
                 updated_request,
