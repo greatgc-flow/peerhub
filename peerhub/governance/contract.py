@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 
+from peerhub.core.errors import InvalidMutationError
 from peerhub.core.protocol import (
     CommandID,
     JsonValue,
@@ -19,6 +20,15 @@ CURRENT_POLICY_REVISION = "protocol-v2"
 """The governance policy revision every domain service's MutationRequest
 currently declares. Distinct from core.protocol.SCHEMA_VERSION (the wire
 schema version) -- this identifies which governance policy is in force."""
+
+
+def require_text_field(value: Mapping[str, JsonValue], field: str) -> str:
+    """Extract a required non-empty string field from a governance state
+    mapping, raising InvalidMutationError otherwise."""
+    result = value.get(field)
+    if not isinstance(result, str) or not result.strip():
+        raise InvalidMutationError(f"{field} must be a non-empty string")
+    return result
 
 
 class MutationDisposition(str, Enum):
