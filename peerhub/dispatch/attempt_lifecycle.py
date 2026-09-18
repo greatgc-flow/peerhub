@@ -5,7 +5,6 @@ from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
     ConcurrentAttemptClaimError,
     InvalidMutationError,
-    RecordNotFoundError,
 )
 from peerhub.core.protocol import (
     CommandID,
@@ -35,7 +34,6 @@ from .contract import (
 from .model import (
     begin_assessment as reduce_begin_assessment,
     begin_cancellation as reduce_begin_cancellation,
-    close_lease,
     complete_attempt as reduce_complete_attempt,
     create_attempt as reduce_create_attempt,
     fail_pre_dispatch as reduce_fail_pre_dispatch,
@@ -46,6 +44,7 @@ from .model import (
 from .helpers import (
     attempt_terminal_event as _attempt_terminal_event,
     cas_request_attempt as _cas_request_attempt,
+    close_lease_in_unit as _close_lease_in_unit_impl,
     dispatch_event as _dispatch_event,
     require_attempt as _require_attempt,
     require_lease as _require_lease,
@@ -672,26 +671,12 @@ class AttemptLifecycleCoordinator:
         request: LeaseCloseRequest,
         timestamp: int,
     ) -> LeaseSnapshot:
-        current = unit.get_lease(request.lease_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
-        if current is None:
-            raise RecordNotFoundError(
-                "lease",
-                request.lease_id,
-            )
-
-        updated = close_lease(
-            current,  # pyright: ignore[reportUnknownArgumentType]
+        return _close_lease_in_unit_impl(
+            unit,  # pyright: ignore[reportArgumentType]
             request,
-            updated_at=timestamp,
+            timestamp,
+            self._faults,
         )
-
-        if not unit.cas_update_lease(current, updated):  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
-            raise InvalidMutationError(
-                f"CAS failure closing lease "
-                f"{request.lease_id}"
-            )
-        self._faults.hit(FaultPoint.AFTER_LEASE_CAS)
-        return updated
 
     def complete_attempt_with_artifacts_and_lease(
         self,

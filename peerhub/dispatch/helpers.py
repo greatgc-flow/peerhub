@@ -17,7 +17,13 @@ from peerhub.core.protocol import (
 )
 from peerhub.governance.contract import OutboxEvent, OutboxState
 
-from .contract import AttemptSnapshot, LeaseSnapshot, RequestSnapshot
+from .contract import (
+    AttemptSnapshot,
+    LeaseCloseRequest,
+    LeaseSnapshot,
+    RequestSnapshot,
+)
+from .model import close_lease
 from .unit_of_work import (
     DispatchReadUnitOfWork,
     DispatchUnitOfWork,
@@ -54,6 +60,31 @@ def require_lease(
     if lease is None:
         raise RecordNotFoundError("lease", lease_id)
     return lease
+
+
+def close_lease_in_unit(
+    unit: DispatchUnitOfWork,
+    request: LeaseCloseRequest,
+    timestamp: int,
+    faults: FaultInjector,
+) -> LeaseSnapshot:
+    """Consolidates an identical implementation independently defined as
+    a private method on both AttemptLifecycleService (attempt_lifecycle.py)
+    and SessionLeaseService (session_lease.py) -- the only `self` reference
+    in either original was `self._faults.hit(FaultPoint.AFTER_LEASE_CAS)`,
+    now passed in explicitly as `faults`."""
+    current = unit.get_lease(request.lease_id)
+    if current is None:
+        raise RecordNotFoundError("lease", request.lease_id)
+
+    updated = close_lease(current, request, updated_at=timestamp)
+
+    if not unit.cas_update_lease(current, updated):
+        raise InvalidMutationError(
+            f"CAS failure closing lease {request.lease_id}"
+        )
+    faults.hit(FaultPoint.AFTER_LEASE_CAS)
+    return updated
 
 
 def raise_request_cas(
