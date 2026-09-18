@@ -1,6 +1,6 @@
 # `_sys` folder renameability — feasibility conclusion (Part C)
 
-**Status:** Concluded, not pursued further. Research by ag.deepthink, independently re-verified by cc. Lower-priority follow-up to the backup-simplification round (`docs/design/engram-peerhub-single-folder-backup-simplification-2026-09-17.md`); user explicitly authorized skipping this if genuinely too costly.
+**Status: SUPERSEDED on its central claim, 2026-09-18 — see the second addendum below.** The user pushed back on treating the Python import-namespace coupling as an unfixable "true boundary," and a real, empirically-verified fix exists. The original research below (sections through "Conclusion") remains accurate for *why the naive approaches fail* and is kept as real history — do not delete it — but its bottom-line recommendation ("do not attempt dynamic renameability") no longer holds as stated. Read the 2026-09-18 addendum for the current position.
 
 ## Finding: dynamic renameability is not viable with reasonable effort
 
@@ -34,3 +34,38 @@ Does not reopen dynamic renameability. A narrower, low-risk, incremental hygiene
 4. **HIGH RISK, last, extra care** (`_sys/core/provisioner.py`, `setup.py`, `updater.py`, `uninstaller.py`, `_sys/tests/unit/conftest.py`) — boot/update/uninstall-critical; a mistake here can leave an install unable to start or self-update, or break the entire test suite's fixture setup.
 
 Not yet implemented — a proposal for cx's review (still rate-limited) alongside the rest of this backup-simplification round.
+
+## Addendum 2 (2026-09-18): the import-namespace "true boundary" is actually fixable — recommendation reversed
+
+**Recount first:** the "14 files" above was imprecise — it's 14 import *lines* across **9 distinct files**, and 6 of those 9 are test files (`_sys/tests/unit/test_check_unreferenced_functions.py`, `test_env_loader_json.py`, `test_launcher_log.py`, `test_layout_migration.py` ×4 lines, `test_state_paths.py` ×2 lines, `test_version_ssot.py`). Only 3 are production/tooling code: `_sys/checks/check_tool_updates.py`, `_sys/core/layout_migration.py`, `_sys/core/version_resolver.py`.
+
+**The fix, empirically verified (cc ran a real test, not just reasoning about it):** Python's import machinery lets you register an arbitrary on-disk directory under a *fixed, stable* name in `sys.modules`, once, at process bootstrap, before anything imports it:
+
+```python
+import importlib.machinery, importlib.util, sys
+from pathlib import Path
+
+def bootstrap_root_package(actual_root: Path, stable_name: str = "_sys") -> None:
+    if stable_name in sys.modules:
+        return
+    # _sys has no __init__.py (implicit namespace package) -- a plain
+    # spec_from_file_location() would raise FileNotFoundError looking for
+    # one. Build the ModuleSpec directly instead, exactly like Python's
+    # own PEP 420 namespace-package machinery does internally.
+    spec = importlib.machinery.ModuleSpec(stable_name, None, is_package=True)
+    spec.submodule_search_locations = [str(actual_root)]
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[stable_name] = module
+```
+
+The virtual import name (`"_sys"`) never changes, so **none of the 9 files' import statements need to be touched at all** — only the physical on-disk folder can be renamed to anything, as long as `bootstrap_root_package()` runs once, early, pointing at wherever it actually is.
+
+**Empirically confirmed** (cc, real Python run against a throwaway fake root named `totally_not_sys` with the exact same shape as `_sys` — no `__init__.py` anywhere, a nested `core/layout_migration.py`): a 2-level deep import, `from _sys.core.layout_migration import merge_declarations_impl`, resolved correctly and loaded the physical file from `.../totally_not_sys/core/layout_migration.py`. Python's import machinery naturally walks `__path__`/`submodule_search_locations` downward through the namespace hierarchy — no per-submodule registration is needed, contrary to an initial worry.
+
+**Why this doesn't hit the "breaks static analysis" objection** raised against a `sys.path`-manipulation shim in the original research: pyright/type-checking only ever runs against the real git checkout during development and CI, where the folder is always literally `_sys` — it never runs against an end-user's renamed portable installation. Static analysis and the runtime bootstrap are decoupled by *when* each one executes, not by any typing trick.
+
+**Where it must run** (verified against the real entrypoint chain): at the top of `_sys/core/dispatcher.py`, before `_resolve_paths` imports `core.env_loader` and before its `importlib.import_module()` calls — this covers everything routed through `engram.cmd`/`dispatch.bat`. Also at the top of `_sys/checks/check_tool_updates.py`, since it has its own `if __name__ == "__main__":` entrypoint and can run standalone. `_sys/tests/unit/conftest.py`'s existing `sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))` (its own comment: "so 'from _sys.core import ...' works") can be replaced by the same `bootstrap_root_package()` call — verified this is the real, current mechanism the 6 test files rely on, and pytest imports test files by path (no `__init__.py` under `_sys/tests/`), so they cleanly pick up whatever `sys.modules["_sys"]` the conftest bootstrap registered.
+
+**Real remaining cost, unchanged from Addendum 1:** `tools/winget/build_package.py` still hardcodes `_sys` literally (`repo_root / "_sys"`, `"_sys/runtimes.json"`, `"_sys/core/release-manifest.json"` — verified at its real line numbers) — this only affects a *developer* building a release from a renamed checkout, never an end user's already-downloaded/renamed installation, so it's real but non-blocking, and falls under the same "31-files-plus-batch-files" de-hardcoding bucket as Addendum 1, not a new category.
+
+**Revised recommendation: dynamic renameability is viable**, as a two-part effort: (1) the import-namespace bootstrap above (small, now-verified, ~9 files affected but 0 of them need editing — only the bootstrap call sites, ~2-3 locations, need adding), (2) the Addendum 1 path-centralization work (31 files, phased, safest-first) plus the batch-file entrypoints and `build_package.py`. Neither part alone reproduces the 2026-06-18 failure's shape (that attempt tried to move/duplicate the entire tree at once with no bootstrap indirection at all); done as two small, independently-verified, incremental steps, this is a fundamentally different risk profile than the cancelled root-swap. Still not implemented — this, like everything else in this round, is pending cx's independent review.
