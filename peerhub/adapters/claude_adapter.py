@@ -27,6 +27,7 @@ from peerhub.adapters.contract import (
     split_canonical_lines as _split_canonical_lines,
 )
 from peerhub.adapters.prompt_transport import resolve_prompt_payload
+from peerhub.core.binary_resolution import CLAUDE_CMD
 from peerhub.core.protocol import ErrorCode
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
@@ -238,7 +239,7 @@ class RealClaudeAdapter:
             else:
                 exec_argv = (str(self.executable_path),)
         else:
-            exec_argv = ("claude.cmd",)
+            exec_argv = (CLAUDE_CMD,)
 
         # Model resolution is centralized: the caller resolves a
         # ResolvedModelBinding (workspace binding > global config > packaged

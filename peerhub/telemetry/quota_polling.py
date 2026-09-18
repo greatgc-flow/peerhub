@@ -6,6 +6,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Sequence, Optional, TypedDict, Callable, cast, Any
 
+from peerhub.core.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.core.context import IdSource
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
 from peerhub.telemetry.contract import UsageObserved, UsageMeasurement, UsageProjectionSnapshot
@@ -172,9 +173,9 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     resolved_sys = _resolve_sys_dir(sys_dir)
     cli_dir = resolved_sys / "cli"
     if peer == "cc":
-        cand = resolved_sys / "env" / "nodejs" / "npm-global" / "claude.cmd"
+        cand = resolved_sys / "env" / "nodejs" / "npm-global" / CLAUDE_CMD
     elif peer == "cx":
-        cand = resolved_sys / "env" / "nodejs" / "npm-global" / "codex.cmd"
+        cand = resolved_sys / "env" / "nodejs" / "npm-global" / CODEX_CMD
     else:
         return None
         

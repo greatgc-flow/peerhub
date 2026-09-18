@@ -30,6 +30,7 @@ from peerhub.adapters.contract import (
 
 logger = logging.getLogger(__name__)
 from peerhub.adapters.prompt_transport import resolve_prompt_payload
+from peerhub.core.binary_resolution import CODEX_CMD
 from peerhub.core.protocol import ErrorCode, JsonValue
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
@@ -396,7 +397,7 @@ class RealCodexAdapter:
             else:
                 exec_argv = (str(self.executable_path),)
         else:
-            exec_argv = ("codex.cmd",)
+            exec_argv = (CODEX_CMD,)
 
         # Model resolution is centralized: the caller resolves a
         # ResolvedModelBinding (workspace binding > global config > packaged
