@@ -10,6 +10,7 @@ from peerhub.core.evidence import (
     EvidenceRef,
     EvidenceState,
     EvidenceValue,
+    normalize_evidence_refs as _normalize_refs,
 )
 from peerhub.core.protocol import (
     AttemptTerminalObserved,
@@ -29,13 +30,6 @@ def _require_positive(
     return value
 
 
-def _normalize_refs(
-    values: tuple[EvidenceRef, ...],
-) -> tuple[EvidenceRef, ...]:
-    return tuple(
-        EvidenceRef(require_text(value, "evidence_ref"))
-        for value in values
-    )
 
 
 @dataclass(frozen=True)

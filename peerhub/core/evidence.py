@@ -14,6 +14,17 @@ T = TypeVar("T")
 EvidenceRef = NewType("EvidenceRef", str)
 
 
+def normalize_evidence_refs(
+    values: tuple[EvidenceRef, ...],
+) -> tuple[EvidenceRef, ...]:
+    """Validate and NFC-normalize each ref. Consolidates an identical
+    _normalize_refs independently defined in health/contract.py,
+    routing/contract.py, and telemetry/contract.py."""
+    return tuple(
+        EvidenceRef(require_text(value, "evidence_ref")) for value in values
+    )
+
+
 class EvidenceState(str, Enum):
     """The complete Protocol v1 evidence-state vocabulary."""
 

@@ -134,6 +134,22 @@ def require_text(value: str, name: str) -> str:
     return unicodedata.normalize("NFC", value)
 
 
+def require_sha256_hex(value: str, name: str) -> str:
+    """Validate a lowercase 64-char hex SHA-256 digest string.
+
+    Consolidates an identical implementation independently defined as
+    _require_sha256_hex in health/contract.py, routing/contract.py, and
+    routing/model.py.
+    """
+
+    normalized = require_text(value, name)
+    if len(normalized) != 64 or any(
+        character not in "0123456789abcdef" for character in normalized
+    ):
+        raise ValueError(f"{name} must be a lowercase SHA-256 digest")
+    return normalized
+
+
 def require_nonnegative_int(value: int, name: str) -> int:
     """Validate a nonnegative int, returning it unchanged.
 
