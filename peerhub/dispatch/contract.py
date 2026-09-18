@@ -29,6 +29,7 @@ from peerhub.core.protocol import (
     JsonValue,
     RevisionValue,
     freeze_json_mapping,
+    require_nonnegative_int as _require_nonnegative_int,
     require_text,
 )
 
@@ -177,11 +178,6 @@ class RecoveryDecision(str, Enum):
     REJECT_AND_QUARANTINE = "REJECT_AND_QUARANTINE"
     MARK_SUSPECT = "MARK_SUSPECT"
     MARK_INTERRUPTED = "MARK_INTERRUPTED"
-
-
-def _require_nonnegative_int(value: int, name: str) -> None:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
 
 
 def _require_positive_int(value: int, name: str) -> None:

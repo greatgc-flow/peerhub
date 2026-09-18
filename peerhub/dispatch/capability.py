@@ -12,7 +12,12 @@ from enum import IntEnum
 from typing import TYPE_CHECKING, Protocol
 
 from peerhub.core.errors import InvalidMutationError
-from peerhub.core.protocol import CommandID, RevisionValue, require_text
+from peerhub.core.protocol import (
+    CommandID,
+    RevisionValue,
+    require_nonnegative_int as _require_nonnegative_int,
+    require_text,
+)
 
 if TYPE_CHECKING:
     from .contract import AdmissionReceipt, AttemptSnapshot, LeaseSnapshot, RequestSnapshot
@@ -49,11 +54,6 @@ class CapabilityLeaseViolation(InvalidMutationError):
 def _require_enum_member(value: object, enum_type: type[IntEnum], name: str) -> None:
     if not isinstance(value, enum_type):
         raise ValueError(f"{name} must be {enum_type.__name__}")
-
-
-def _require_nonnegative_int(value: int, name: str) -> None:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
 
 
 def _normalize_revision(value: RevisionValue, name: str) -> RevisionValue:

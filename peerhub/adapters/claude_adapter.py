@@ -24,6 +24,7 @@ from peerhub.adapters.contract import (
     PromptPolicy,
     SessionAction,
     SessionHint,
+    split_canonical_lines as _split_canonical_lines,
 )
 from peerhub.adapters.prompt_transport import resolve_prompt_payload
 from peerhub.core.protocol import ErrorCode
@@ -32,16 +33,6 @@ from peerhub.core.execution import (
     TransportKind,
     TransportLimits,
 )
-
-
-def _split_canonical_lines(text: str) -> tuple[str, ...]:
-    if not text:
-        return ()
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = normalized.split("\n")
-    if normalized.endswith("\n"):
-        lines = lines[:-1]
-    return tuple(lines)
 
 
 _CLAUDE_STANDARD_PROFILE = ProfileDescriptor(

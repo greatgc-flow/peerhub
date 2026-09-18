@@ -13,6 +13,7 @@ from peerhub.core.errors import InvalidMutationError
 from peerhub.core.protocol import (
     CommandID,
     JsonValue,
+    require_nonnegative_int as _nonnegative,
     require_uuid4,
 )
 
@@ -82,12 +83,6 @@ def _optional_text(
     if value is None:
         return None
     return _text(value, name)
-
-
-def _nonnegative(value: int, name: str) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
 
 
 def _positive(value: int, name: str) -> int:

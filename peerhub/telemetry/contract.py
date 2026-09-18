@@ -14,18 +14,10 @@ from peerhub.core.evidence import (
 from peerhub.core.protocol import (
     AttemptTerminalObserved,
     OperationalFailureCategory,
+    require_nonnegative_int as _require_nonnegative,
     require_text,
 )
 from peerhub.dispatch.contract import SessionBindingKey
-
-
-def _require_nonnegative(
-    value: int,
-    name: str,
-) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
 
 
 def _require_positive(

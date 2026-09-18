@@ -9,17 +9,9 @@ from enum import Enum
 from peerhub.core.evidence import EvidenceRef
 from peerhub.core.protocol import (
     OperationalFailureCategory,
+    require_nonnegative_int as _require_nonnegative,
     require_text,
 )
-
-
-def _require_nonnegative(
-    value: int,
-    name: str,
-) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
 
 
 def _require_positive(

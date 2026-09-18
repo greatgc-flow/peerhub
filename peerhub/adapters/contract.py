@@ -31,6 +31,7 @@ from peerhub.core.protocol import (
     ErrorCode,
     JsonValue,
     freeze_json_mapping,
+    require_nonnegative_int as _require_nonnegative_int,
     require_text,
 )
 
@@ -40,9 +41,18 @@ def _require_bool(value: bool, name: str) -> None:
         raise ValueError(f"{name} must be a boolean")
 
 
-def _require_nonnegative_int(value: int, name: str) -> None:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
+def split_canonical_lines(text: str) -> tuple[str, ...]:
+    """Split output text into canonical lines (CRLF/CR normalized to LF, no
+    trailing empty line). Consolidates an identical implementation
+    independently defined in agy_adapter.py, claude_adapter.py, and
+    codex_adapter.py as `_split_canonical_lines`."""
+    if not text:
+        return ()
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    lines = normalized.split("\n")
+    if normalized.endswith("\n"):
+        lines = lines[:-1]
+    return tuple(lines)
 
 
 # --- Protocol assessment (moved from dispatch.contract, item 5) -----------

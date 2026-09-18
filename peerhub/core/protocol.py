@@ -134,6 +134,22 @@ def require_text(value: str, name: str) -> str:
     return unicodedata.normalize("NFC", value)
 
 
+def require_nonnegative_int(value: int, name: str) -> int:
+    """Validate a nonnegative int, returning it unchanged.
+
+    Consolidates a pattern independently reimplemented under 3 different
+    local names (_require_nonnegative_int returning None, _require_nonnegative
+    and _nonnegative each returning the value) across core/evidence.py,
+    health/contract.py, routing/contract.py, telemetry/contract.py,
+    governance/contract.py, dispatch/capability.py, dispatch/contract.py,
+    and adapters/contract.py.
+    """
+
+    if type(value) is not int or value < 0:
+        raise ValueError(f"{name} must be a nonnegative integer")
+    return value
+
+
 def require_uuid4(value: str, name: str) -> str:
     """Validate and return one canonical RFC 4122 UUIDv4 string."""
 

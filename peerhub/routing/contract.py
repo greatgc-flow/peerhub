@@ -13,20 +13,12 @@ from peerhub.core.protocol import (
     JsonValue,
     canonical_json_bytes,
     freeze_json_mapping,
+    require_nonnegative_int as _require_nonnegative,
     require_text,
 )
 from peerhub.health.contract import AdmissionSnapshot
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.telemetry.contract import UsageEvidence
-
-
-def _require_nonnegative(
-    value: int,
-    name: str,
-) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
 
 
 def _require_positive(

@@ -25,6 +25,7 @@ from peerhub.adapters.contract import (
     PromptPolicy,
     SessionAction,
     SessionHint,
+    split_canonical_lines as _split_canonical_lines,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,14 +38,6 @@ from peerhub.core.execution import (
 )
 
 
-def _split_canonical_lines(text: str) -> tuple[str, ...]:
-    if not text:
-        return ()
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = normalized.split("\n")
-    if normalized.endswith("\n"):
-        lines = lines[:-1]
-    return tuple(lines)
 
 
 _CODEX_STANDARD_PROFILE = ProfileDescriptor(

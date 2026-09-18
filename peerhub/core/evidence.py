@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Generic, NewType, TypeVar
 
-from .protocol import require_text
+from .protocol import require_nonnegative_int as _require_nonnegative, require_text
 
 
 T = TypeVar("T")
@@ -22,15 +22,6 @@ class EvidenceState(str, Enum):
     UNAVAILABLE = "UNAVAILABLE"
     ERROR = "ERROR"
     STALE = "STALE"
-
-
-def _require_nonnegative(
-    value: int,
-    name: str,
-) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
 
 
 @dataclass(frozen=True)
