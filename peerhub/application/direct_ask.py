@@ -43,7 +43,7 @@ from peerhub.persistence.dispatch_context import issue_credential
 from peerhub.core.context import Clock, IdSource, RuntimeContext, PathLayout
 from peerhub.core.execution import TransportLimits, ExecutionCertainty
 from peerhub.core.identity import AuthenticatedSubject
-from peerhub.core.protocol import ErrorCode
+from peerhub.core.protocol import ErrorCode, SCHEMA_VERSION
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import (
     CommandEnvelope,
@@ -573,7 +573,7 @@ def execute_direct_ask(
         envelope = CommandEnvelope(
             protocol_major=1,
             protocol_minor=0,
-            schema_version="1.0.0",
+            schema_version=SCHEMA_VERSION,
             client_request_id=client_request_id,
             correlation_id=ids.new_id("corr"),
             client_id="peerhub-cli",
