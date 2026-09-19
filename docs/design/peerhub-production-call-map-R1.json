@@ -5264,9 +5264,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_role -> RoleAssignmentService.assign_role",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_role -> peerhub.client:Client.submit(AssignRoleCommand) -> ApplicationAPI.submit() -> RoleAssignmentService.assign_role",
       "transactional_owner": "RoleAssignmentService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Role assignment/release target or role list",
       "external_effects": "Persists role-assignment governance records",
@@ -5347,16 +5347,17 @@
           "Manage durable workspace role assignments",
           "Assign or reassign one durable role to a peer node"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "role release",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_role -> RoleAssignmentService.release_role",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_role -> peerhub.client:Client.submit(ReleaseRoleCommand) -> ApplicationAPI.submit() -> RoleAssignmentService.release_role",
       "transactional_owner": "RoleAssignmentService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Role assignment/release target or role list",
       "external_effects": "Persists role-assignment governance records",
@@ -5437,7 +5438,8 @@
           "Manage durable workspace role assignments",
           "Release a durable role assignment"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "role status",
@@ -5739,9 +5741,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_leadership -> LeadershipService.claim_leadership",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_leadership -> peerhub.client:Client.submit(LeaderClaimCommand) -> ApplicationAPI.submit() -> LeadershipService.claim_leadership",
       "transactional_owner": "LeadershipService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Leadership target/release disposition/current leader mapping",
       "external_effects": "Persists leadership claim/yield history and current state",
@@ -5835,16 +5837,17 @@
           "Manage the workspace-global leadership slot",
           "Claim leadership, opening a challenge window"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "leadership yield",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_leadership -> LeadershipService.yield_leadership",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_leadership -> peerhub.client:Client.submit(LeaderYieldCommand) -> ApplicationAPI.submit() -> LeadershipService.yield_leadership",
       "transactional_owner": "LeadershipService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Leadership target/release disposition/current leader mapping",
       "external_effects": "Persists leadership claim/yield history and current state",
@@ -5925,7 +5928,8 @@
           "Manage the workspace-global leadership slot",
           "Vacate leadership (always succeeds)"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "leadership status",

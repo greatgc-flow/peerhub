@@ -75,6 +75,14 @@ from peerhub.application.commands.locks import (
     LockReleaseCommand,
 )
 from peerhub.application.commands.tasks import TaskCheckpointCommand
+from peerhub.application.commands.leadership import (
+    LeaderClaimCommand,
+    LeaderYieldCommand,
+)
+from peerhub.application.commands.roles import (
+    AssignRoleCommand,
+    ReleaseRoleCommand,
+)
 from peerhub.application.commands.lessons import (
     LessonActivateCommand,
     LessonBroadcastCommand,
@@ -1577,14 +1585,21 @@ def _run_role(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.role_assignment_service
             if parsed.role_action == "assign":
-                submission = service.assign_role(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, AssignRoleCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="role-assign"
+                    ),
                     role=parsed.role,
                     peer_node_id=parsed.peer_node_id,
                     actor_id=parsed.actor,
-                )
-                target = runtime.governance_broker.get_target(
-                    submission.receipt.target_id
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub role: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 if parsed.json:
                     print(json.dumps(_json_safe(target.state)))
@@ -1595,22 +1610,23 @@ def _run_role(parsed: argparse.Namespace) -> int:
                     )
                 return 0
             if parsed.role_action == "release":
-                result = service.release_role(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ReleaseRoleCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="role-release"
+                    ),
                     role=parsed.role,
                     actor_id=parsed.actor,
                     peer_node_id=parsed.peer_node_id,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub role: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
-                    target = None if result.target is None else {
-                        "target_id": result.target.target_id,
-                        "revision": result.target.revision,
-                        "state": result.target.state,
-                    }
-                    print(json.dumps(_json_safe({
-                        "disposition": result.disposition.value,
-                        "target": target,
-                    })))
-                elif result.disposition is RoleReleaseDisposition.NOT_ASSIGNED:
+                    print(json.dumps(_json_safe(result)))
+                elif result["disposition"] == RoleReleaseDisposition.NOT_ASSIGNED.value:
                     print(f"Warning: role {parsed.role} is not assigned.")
                 else:
                     print(f"Role {parsed.role} released.")
@@ -1668,50 +1684,63 @@ def _run_leadership(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.leadership_service
             if parsed.leadership_action == "claim":
-                result = service.claim_leadership(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client. Wire shape is the
+                # registered command's own (flat: disposition/status/term/
+                # challenge_until alongside receipt fields), not the old
+                # CLI-local nested {"disposition":, "target": {...}} shape.
+                outcome = _submit_via_gateway(runtime, LeaderClaimCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="leadership-claim"
+                    ),
                     peer_node_id=parsed.peer_node_id,
                     actor_id=parsed.actor,
                     reason=parsed.reason,
                     domain=parsed.domain,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub leadership: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                claim_result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
-                    print(json.dumps(_json_safe({
-                        "disposition": result.disposition.value,
-                        "target": {
-                            "target_id": result.target.target_id,
-                            "revision": result.target.revision,
-                            "state": result.target.state,
-                        },
-                    })))
+                    print(json.dumps(_json_safe(claim_result)))
                 else:
                     print(
                         f"Leadership claimed by {parsed.peer_node_id} "
-                        f"(status={result.target.state['status']}, "
-                        f"disposition={result.disposition.value}, "
-                        f"challenge_until="
-                        f"{result.target.state['challenge_until']})"
+                        f"(status={claim_result['status']}, "
+                        f"disposition={claim_result['disposition']}, "
+                        f"challenge_until={claim_result['challenge_until']})"
                     )
                 return 0
 
             if parsed.leadership_action == "yield":
-                outcome = service.yield_leadership(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LeaderYieldCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="leadership-yield"
+                    ),
                     yielding_peer_id=parsed.peer_node_id,
                     actor_id=parsed.actor,
                     reason=parsed.reason,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub leadership: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                yield_result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                owner_mismatch = yield_result["owner_mismatch"]
+                previous_leader_peer_node_id = yield_result["previous_leader_peer_node_id"]
                 if parsed.json:
                     print(json.dumps(_json_safe({
-                        "owner_mismatch": outcome.owner_mismatch,
-                        "previous_leader_peer_node_id": (
-                            outcome.previous_leader_peer_node_id
-                        ),
+                        "owner_mismatch": owner_mismatch,
+                        "previous_leader_peer_node_id": previous_leader_peer_node_id,
                     })))
                 else:
-                    if outcome.owner_mismatch:
+                    if owner_mismatch:
                         print(
                             f"Warning: {parsed.peer_node_id} yielded "
                             f"leadership, but the current leader is "
-                            f"{outcome.previous_leader_peer_node_id}.",
+                            f"{previous_leader_peer_node_id}.",
                             file=sys.stderr,
                         )
                     print(
