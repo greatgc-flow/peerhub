@@ -33,7 +33,7 @@ pip install peerhub
 ### Option B: Install an exact GitHub release
 
 ```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.4.0"
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.5.0"
 ```
 
 ### Option C: Local editable development install
@@ -65,7 +65,7 @@ See `peerhub --help` for the full command list — including the governance/room
 
 ## Status
 
-**Released as v0.4.0.** `peerhub ask` and the full governance/room/session command surface are real, working, and dispatch through peerhub's own governance, admission, and process-supervision layers today — not a stub. D-CTX (dispatch-context credential verification, closing the consensus-vote impersonation gap) is fully wired end-to-end as of this release. `hub.py` remains the authoritative system for production multi-peer coordination; peerhub is a real, tested candidate replacement, not yet a cutover.
+**Released as v0.5.0.** `peerhub ask` and the full governance/room/session command surface are real, working, and dispatch through peerhub's own governance, admission, and process-supervision layers today — not a stub. D-CTX (dispatch-context credential verification, closing the consensus-vote impersonation gap) is fully wired end-to-end. As of this release, 9 CLI domains route through a uniform `ApplicationAPI.submit()` gateway (R4/P4b governance convergence) instead of bypassing it, with `consensus vote` the first command exercising the gateway's verified-credential path. `hub.py` remains the authoritative system for production multi-peer coordination; peerhub is a real, tested candidate replacement, not yet a cutover.
 
 For the detailed development history — implementation status by feature, deferred items with their triggers, the hub.py-replacement roadmap, and the full architecture debate record — see [`docs/STATUS.md`](docs/STATUS.md).
 
