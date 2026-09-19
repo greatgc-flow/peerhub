@@ -7,6 +7,11 @@ from .sqlite_helpers import (
     _string_tuple,   # pyright: ignore[reportPrivateUsage]
     _optional_json_object  # pyright: ignore[reportPrivateUsage]
 )
+from .tables import (
+    TABLE_CONSUMER_OFFSETS,
+    TABLE_EFFECT_DELIVERIES,
+    TABLE_EFFECT_RECEIPTS,
+)
 from peerhub.dispatch.contract import OutboxCheckpoint
 from peerhub.governance.contract import (
     CommandBinding,
@@ -390,7 +395,7 @@ class SqliteGovernanceRepository:
             """Return one canonical outbox event from event_log / effect_deliveries."""
 
             row = self._db().execute(
-                """
+                f"""
                 SELECT
                     el.*,
                     ed.claimed_by,
@@ -406,8 +411,8 @@ class SqliteGovernanceRepository:
                         ELSE 'CLAIMED'
                     END as state
                 FROM event_log el
-                LEFT JOIN effect_deliveries ed ON ed.event_id = el.event_id
-                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                LEFT JOIN {TABLE_EFFECT_DELIVERIES} ed ON ed.event_id = el.event_id
+                LEFT JOIN {TABLE_EFFECT_RECEIPTS} er ON ed.event_id = er.outbox_event_id
                 WHERE el.event_id = ?
                 """,
                 (event_id,),
@@ -458,8 +463,8 @@ class SqliteGovernanceRepository:
                         ELSE 'CLAIMED'
                     END as state
                 FROM event_log el
-                LEFT JOIN effect_deliveries ed ON ed.event_id = el.event_id
-                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                LEFT JOIN {TABLE_EFFECT_DELIVERIES} ed ON ed.event_id = el.event_id
+                LEFT JOIN {TABLE_EFFECT_RECEIPTS} er ON ed.event_id = er.outbox_event_id
                 WHERE el.outbox_position > ?
                 AND (
                     CASE
@@ -483,7 +488,7 @@ class SqliteGovernanceRepository:
         ) -> tuple[OutboxEvent, ...]:
             """Return all outbox events for a given command_id, ordered by position."""
             rows = self._db().execute(
-                """
+                f"""
                 SELECT
                     el.*,
                     ed.claimed_by,
@@ -499,8 +504,8 @@ class SqliteGovernanceRepository:
                         ELSE 'CLAIMED'
                     END as state
                 FROM event_log el
-                LEFT JOIN effect_deliveries ed ON ed.event_id = el.event_id
-                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                LEFT JOIN {TABLE_EFFECT_DELIVERIES} ed ON ed.event_id = el.event_id
+                LEFT JOIN {TABLE_EFFECT_RECEIPTS} er ON ed.event_id = er.outbox_event_id
                 WHERE json_extract(el.payload_json, '$.command_id') = ?
                    OR el.request_id = ?
                 ORDER BY el.outbox_position ASC
@@ -515,8 +520,8 @@ class SqliteGovernanceRepository:
         ) -> OutboxEvent | None:
             """Return one effect delivery hydrated as an OutboxEvent."""
             row = self._db().execute(
-                """
-                SELECT 
+                f"""
+                SELECT
                     el.*,
                     ed.claimed_by,
                     ed.claim_attempt_id,
@@ -524,15 +529,15 @@ class SqliteGovernanceRepository:
                     ed.topic,
                     ed.transition_receipt_id,
                     er.completed_at as consumed_at,
-                    CASE 
+                    CASE
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
                         WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
-                FROM effect_deliveries ed
+                FROM {TABLE_EFFECT_DELIVERIES} ed
                 JOIN event_log el ON ed.event_id = el.event_id
-                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                LEFT JOIN {TABLE_EFFECT_RECEIPTS} er ON ed.event_id = er.outbox_event_id
                 WHERE ed.event_id = ?
                 """,
                 (event_id,),
@@ -551,8 +556,8 @@ class SqliteGovernanceRepository:
             if type(limit) is not int or limit < 1:
                 raise ValueError("limit must be a positive integer")
             rows = self._db().execute(
-                """
-                SELECT 
+                f"""
+                SELECT
                     el.*,
                     ed.claimed_by,
                     ed.claim_attempt_id,
@@ -560,15 +565,15 @@ class SqliteGovernanceRepository:
                     ed.topic,
                     ed.transition_receipt_id,
                     er.completed_at as consumed_at,
-                    CASE 
+                    CASE
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
                         WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
-                FROM effect_deliveries ed
+                FROM {TABLE_EFFECT_DELIVERIES} ed
                 JOIN event_log el ON ed.event_id = el.event_id
-                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
+                LEFT JOIN {TABLE_EFFECT_RECEIPTS} er ON ed.event_id = er.outbox_event_id
                 WHERE er.effect_receipt_id IS NULL
                 AND ed.outbox_position > ?
                 ORDER BY ed.outbox_position
@@ -590,8 +595,8 @@ class SqliteGovernanceRepository:
             if type(limit) is not int or limit < 1:
                 raise ValueError("limit must be a positive integer")
             rows = self._db().execute(
-                """
-                SELECT 
+                f"""
+                SELECT
                     el.*,
                     ed.claimed_by,
                     ed.claim_attempt_id,
@@ -599,18 +604,18 @@ class SqliteGovernanceRepository:
                     ed.topic,
                     ed.transition_receipt_id,
                     er.completed_at as consumed_at,
-                    CASE 
+                    CASE
                         WHEN er.effect_receipt_id IS NOT NULL THEN 'CONSUMED'
                         WHEN ed.reconciliation_required = 1 THEN 'RECONCILIATION_REQUIRED'
                         WHEN ed.claimed_at IS NULL THEN 'PENDING'
                         ELSE 'CLAIMED'
                     END as state
-                FROM effect_deliveries ed
+                FROM {TABLE_EFFECT_DELIVERIES} ed
                 JOIN event_log el ON ed.event_id = el.event_id
-                LEFT JOIN effect_receipts er ON ed.event_id = er.outbox_event_id
-                WHERE ed.reconciliation_required = 0 AND ed.claimed_at IS NULL 
-                AND ed.claimed_by IS NULL 
-                AND ed.claim_attempt_id IS NULL 
+                LEFT JOIN {TABLE_EFFECT_RECEIPTS} er ON ed.event_id = er.outbox_event_id
+                WHERE ed.reconciliation_required = 0 AND ed.claimed_at IS NULL
+                AND ed.claimed_by IS NULL
+                AND ed.claim_attempt_id IS NULL
                 AND er.effect_receipt_id IS NULL
                 AND ed.outbox_position > ?
                 ORDER BY ed.outbox_position
@@ -630,8 +635,8 @@ class SqliteGovernanceRepository:
             """CAS-claim one unreceipted effect delivery and mirror legacy state."""
 
             cursor = self._db().execute(
-                """
-                UPDATE effect_deliveries
+                f"""
+                UPDATE {TABLE_EFFECT_DELIVERIES}
                 SET
                     claimed_by = ?,
                     claim_attempt_id = ?,
@@ -644,8 +649,8 @@ class SqliteGovernanceRepository:
                     AND claimed_at IS NULL
                     AND NOT EXISTS (
                         SELECT 1
-                        FROM effect_receipts
-                        WHERE outbox_event_id = effect_deliveries.event_id
+                        FROM {TABLE_EFFECT_RECEIPTS}
+                        WHERE outbox_event_id = {TABLE_EFFECT_DELIVERIES}.event_id
                     )
                 """,
                 (owner_id, attempt_id, claimed_at, event_id),
@@ -668,8 +673,8 @@ class SqliteGovernanceRepository:
             """Guardedly complete one claimed delivery."""
 
             cursor = self._db().execute(
-                """
-                INSERT INTO effect_receipts (
+                f"""
+                INSERT INTO {TABLE_EFFECT_RECEIPTS} (
                     effect_receipt_id,
                     request_id,
                     outbox_event_id,
@@ -688,8 +693,8 @@ class SqliteGovernanceRepository:
                     ?,
                     ?,
                     ?
-                FROM effect_deliveries AS delivery
-                LEFT JOIN effect_receipts AS existing
+                FROM {TABLE_EFFECT_DELIVERIES} AS delivery
+                LEFT JOIN {TABLE_EFFECT_RECEIPTS} AS existing
                     ON existing.outbox_event_id = delivery.event_id
                 WHERE
                     delivery.event_id = ?
@@ -779,13 +784,13 @@ class SqliteGovernanceRepository:
             """Return a consumer's revisioned outbox checkpoint from consumer_offsets."""
 
             row = self._db().execute(
-                """
+                f"""
                 SELECT
                     consumer_id,
                     outbox_position,
                     event_id,
                     revision
-                FROM consumer_offsets
+                FROM {TABLE_CONSUMER_OFFSETS}
                 WHERE consumer_id = ?
                 """,
                 (consumer_id,),
@@ -806,8 +811,8 @@ class SqliteGovernanceRepository:
             """Insert a consumer's initial checkpoint into consumer_offsets."""
 
             self._db().execute(
-                """
-                INSERT INTO consumer_offsets (
+                f"""
+                INSERT INTO {TABLE_CONSUMER_OFFSETS} (
                     consumer_id,
                     outbox_position,
                     event_id,
@@ -843,8 +848,8 @@ class SqliteGovernanceRepository:
                 )
 
             cursor = self._db().execute(
-                """
-                UPDATE consumer_offsets
+                f"""
+                UPDATE {TABLE_CONSUMER_OFFSETS}
                 SET
                     outbox_position = ?,
                     event_id = ?,
@@ -874,8 +879,8 @@ class SqliteGovernanceRepository:
             """Insert one immutable terminal effect receipt."""
 
             self._db().execute(
-                """
-                INSERT INTO effect_receipts (
+                f"""
+                INSERT INTO {TABLE_EFFECT_RECEIPTS} (
                     effect_receipt_id,
                     request_id,
                     outbox_event_id,
@@ -905,7 +910,7 @@ class SqliteGovernanceRepository:
             """Return an outbox event's immutable terminal receipt."""
 
             row = self._db().execute(
-                """
+                f"""
                 SELECT
                     effect_receipt_id,
                     request_id,
@@ -915,7 +920,7 @@ class SqliteGovernanceRepository:
                     outcome,
                     completed_at,
                     evidence_refs_json
-                FROM effect_receipts
+                FROM {TABLE_EFFECT_RECEIPTS}
                 WHERE outbox_event_id = ?
                 """,
                 (outbox_event_id,),
