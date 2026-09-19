@@ -38,7 +38,6 @@ from peerhub.application.direct_ask import (
     execute_direct_ask,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 )
 from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
-from peerhub.application.room_broadcast import RoomBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.proposals import ProposalVoteResult, load_proposal_voters  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.role_assignment import RoleReleaseDisposition
@@ -48,7 +47,6 @@ from peerhub.application.legacy import legacy_thread_slug
 from peerhub.application.config_paths import resolve_config_paths  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.arbiter_review import load_final_arbiter_policy  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.workspace_identity import detect_workspace_home_id
-from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.core.protocol import CommandOutcome, JsonValue
@@ -78,6 +76,20 @@ from peerhub.application.commands.locks import (
     LockReleaseCommand,
 )
 from peerhub.application.commands.tasks import TaskCheckpointCommand
+from peerhub.application.commands.rooms import (
+    AppendHandoffCommand,
+    ClearRoomCommand,
+    ContinuityCheckpointCommand,
+    MessageMarkReadCommand,
+    MessageSendCommand,
+    NewTopicCommand,
+    RoomBroadcastCommand,
+    ThreadAppendCommand,
+    ThreadNewCommand,
+    ThreadPromoteCommand,
+    ThreadReactCommand,
+    UpdateStatusCommand,
+)
 from peerhub.core.ports import RequestContext
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
@@ -2141,34 +2153,77 @@ def _run_room(parsed: argparse.Namespace) -> int:
             action = parsed.room_action
             if action == "create":
                 submission = service.create_room(room_id=parsed.room_id, topic_id=parsed.topic_id, title=parsed.title, creator_id=parsed.creator, participants=tuple(x for x in parsed.participants.split(",") if x))
+                target_id = submission.receipt.target_id
             elif action == "thread-new":
-                result = create_thread_new(
-                    service,
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ThreadNewCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.creator or "cc", request_kind="room-thread-new"
+                    ),
                     thread_id=legacy_thread_slug(parsed.topic),
                     room_id=parsed.room_id,
                     subject=parsed.topic,
                     creator_id=parsed.creator or "cc",
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result_payload = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(_json_safe({
-                        "thread_id": result.thread_id,
-                        "created": result.created,
-                        "message": result.message,
+                        "thread_id": result_payload["thread_id"],
+                        "created": result_payload["created"],
+                        "message": result_payload["message"],
                     })))
-                elif result.message is not None:
-                    print(f"[HUB] {result.message}")
+                elif result_payload["message"] is not None:
+                    print(f"[HUB] {result_payload['message']}")
                 else:
                     print(
-                        f"[HUB] THREAD-NEW '{result.thread_id}' "
-                        f"| from={parsed.creator} | file={result.thread_id}.jsonl"
+                        f"[HUB] THREAD-NEW '{result_payload['thread_id']}' "
+                        f"| from={parsed.creator} | file={result_payload['thread_id']}.jsonl"
                     )
                 return 0
             elif action == "create-thread":
-                submission = service.create_thread(thread_id=parsed.thread_id, room_id=parsed.room_id, subject=parsed.subject, creator_id=parsed.creator)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, NewTopicCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.creator, request_kind="room-create-thread"
+                    ),
+                    thread_id=parsed.thread_id,
+                    room_id=parsed.room_id,
+                    subject=parsed.subject,
+                    creator_id=parsed.creator,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "append-message":
-                submission = service.append_message(message_id=parsed.message_id, room_id=parsed.room_id, thread_id=parsed.thread_id, author_id=parsed.author, body=parsed.body)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ThreadAppendCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.author, request_kind="room-append-message"
+                    ),
+                    message_id=parsed.message_id,
+                    room_id=parsed.room_id,
+                    thread_id=parsed.thread_id,
+                    author_id=parsed.author,
+                    body=parsed.body,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "send":
-                submission = service.send_message(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, MessageSendCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.sender_profile_id, request_kind="room-send"
+                    ),
                     room_id=parsed.room_id,
                     sender_instance_id=parsed.sender_instance_id,
                     sender_profile_id=parsed.sender_profile_id,
@@ -2179,7 +2234,11 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     thread_ref=parsed.thread_ref,
                     resource_ref=parsed.resource_ref,
                     correlation_id=parsed.correlation_id,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "broadcast":
                 targets = (
                     None
@@ -2190,28 +2249,35 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         if target.strip()
                     )
                 )
-                result = RoomBroadcastCoordinator(rooms=service).broadcast(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, RoomBroadcastCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.from_, request_kind="room-broadcast"
+                    ),
                     room_id=parsed.room_id,
                     from_=parsed.from_,
                     msg=parsed.msg,
                     targets=targets,
                     msg_type=parsed.msg_type,
                     priority=parsed.priority,
-                )
-                envelope = {
-                    "room_id": result.room_id,
-                    "delivered": result.delivered,
-                }
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                envelope = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(_json_safe(envelope)))
                 else:
+                    delivered = cast(
+                        "list[Mapping[str, JsonValue]]", envelope["delivered"]
+                    )
                     successes = sum(
-                        outcome["status"] == "OK"
-                        for outcome in result.delivered
+                        item["status"] == "OK" for item in delivered
                     )
                     print(
                         f"Broadcast delivered to {successes}/"
-                        f"{len(result.delivered)} target(s)"
+                        f"{len(delivered)} target(s)"
                     )
                 return 0
             elif action == "check-inbox":
@@ -2246,35 +2312,87 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         )
                 return 0
             elif action == "mark-read":
-                submission = service.mark_read(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, MessageMarkReadCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.recipient_profile_id, request_kind="room-mark-read"
+                    ),
                     room_id=parsed.room_id,
                     recipient_instance_id=parsed.recipient_instance_id,
                     recipient_profile_id=parsed.recipient_profile_id,
                     up_through_sequence=parsed.up_through_sequence,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "promote-message":
-                submission = service.promote_message(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ThreadPromoteCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="room-promote-message"
+                    ),
                     message_id=parsed.message_id,
                     room_id=parsed.room_id,
                     thread_id=parsed.thread_id,
                     actor_id=parsed.actor,
-                )
-            elif action == "react":
-                submission = service.react(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
-            elif action == "unreact":
-                submission = service.unreact(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+            elif action in ("react", "unreact"):
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client. Both CLI actions share
+                # one registered command (ThreadReactCommand.action ADD/REMOVE),
+                # matching how ConsensusService-style domains already do it.
+                outcome = _submit_via_gateway(runtime, ThreadReactCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor_profile_id, request_kind="room-react"
+                    ),
+                    message_id=parsed.message_id,
+                    room_id=parsed.room_id,
+                    actor_instance_id=parsed.actor_instance_id,
+                    actor_profile_id=parsed.actor_profile_id,
+                    reaction_type=parsed.reaction_type,
+                    action="ADD" if action == "react" else "REMOVE",
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "append-handoff":
-                submission = service.append_handoff_note(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, AppendHandoffCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="room-append-handoff"
+                    ),
                     room_id=parsed.room_id,
                     section=parsed.section,
                     text=parsed.text,
                     actor_id=parsed.actor,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "checkpoint":
-                checkpoint = service.checkpoint(
-                    parsed.room_id,
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ContinuityCheckpointCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor or "peerhub", request_kind="room-checkpoint"
+                    ),
+                    room_id=parsed.room_id,
                     actor_id=parsed.actor or "peerhub",
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                checkpoint = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 export_format = parsed.export or (
                     "json" if parsed.json else "markdown"
                 )
@@ -2301,20 +2419,37 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 print(json.dumps(_json_safe(context_envelope)))
                 return 0
             elif action == "update-status":
-                fields: dict[str, str] = {}
-                if parsed.mission is not None:
-                    fields["mission"] = parsed.mission
-                if parsed.blocked is not None:
-                    fields["blocked"] = parsed.blocked
-                if parsed.phase is not None:
-                    fields["phase"] = parsed.phase
-                submission = service.update_room_summary(
-                    parsed.room_id,
-                    actor_id=parsed.actor or "peerhub-cli",
-                    **fields,
-                )
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, UpdateStatusCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor or "peerhub-cli", request_kind="room-update-status"
+                    ),
+                    room_id=parsed.room_id,
+                    mission=parsed.mission,
+                    blocked=parsed.blocked,
+                    phase=parsed.phase,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "clear":
-                submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ClearRoomCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="room-clear"
+                    ),
+                    old_room_id=parsed.room_id,
+                    new_room_id=parsed.new_room_id,
+                    subject=parsed.subject,
+                    actor_id=parsed.actor,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "rebuild-session-bindings":
                 submission = rebuild_room_session_bindings(
                     runtime.governance_broker,
@@ -2323,6 +2458,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         parsed.room_id
                     ),
                 )
+                target_id = submission.receipt.target_id
             else:
                 result = collect_room_status(service, room_id=parsed.room_id, room_sessions=runtime.room_participation_coordinator)
                 if parsed.json:
@@ -2346,7 +2482,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         f"message_count={result['message_count']}"
                     )
                 return 0
-            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            target = runtime.governance_broker.get_target(target_id)
             assert target is not None
             state = cast(dict[str, Any], target.state)
             if parsed.json:

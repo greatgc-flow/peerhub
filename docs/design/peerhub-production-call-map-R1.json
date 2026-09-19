@@ -6660,7 +6660,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.create_room",
+      "handler": "peerhub.cli:_run_room -> RoomsService.create_room -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet, so it remains a direct call until that gap is closed as separate work.",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -6774,9 +6774,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> peerhub.application.thread_new:create_thread_new",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ThreadNewCommand) -> ApplicationAPI.submit() -> peerhub.application.thread_new:create_thread_new",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -6857,16 +6857,17 @@
           "Manage rooms and messages",
           "Create a legacy-compatible thread inside an existing room"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room create-thread",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.create_thread",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(NewTopicCommand) -> ApplicationAPI.submit() -> RoomsService.create_thread",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -6960,16 +6961,17 @@
           "Manage rooms and messages",
           "Create a new thread inside an existing room"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room append-message",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.append_message",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ThreadAppendCommand) -> ApplicationAPI.submit() -> RoomsService.append_message",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7076,16 +7078,17 @@
           "Manage rooms and messages",
           "Append a message to a thread"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room send",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.send_message",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(MessageSendCommand) -> ApplicationAPI.submit() -> RoomsService.send_message",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7257,16 +7260,17 @@
           "Manage rooms and messages",
           "Deliver one private mailbox message to a room recipient"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room broadcast",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomBroadcastCoordinator.broadcast",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(RoomBroadcastCommand) -> ApplicationAPI.submit() -> RoomBroadcastCoordinator.broadcast",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7386,7 +7390,8 @@
           "Manage rooms and messages",
           "Deliver one fresh mailbox message to each selected room participant"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room check-inbox",
@@ -7496,9 +7501,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.mark_read",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(MessageMarkReadCommand) -> ApplicationAPI.submit() -> RoomsService.mark_read",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7592,16 +7597,17 @@
           "Manage rooms and messages",
           "Advance one recipient's mailbox read cursor through a delivery sequence"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room promote-message",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.promote_message",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ThreadPromoteCommand) -> ApplicationAPI.submit() -> RoomsService.promote_message",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7695,16 +7701,17 @@
           "Manage rooms and messages",
           "Copy one mailbox message into a thread and record the promotion"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room react",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.react",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ThreadReactCommand(action=ADD)) -> ApplicationAPI.submit() -> RoomsService.react",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7811,16 +7818,17 @@
           "Manage rooms and messages",
           "Record this peer's active reaction to a message"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room unreact",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.unreact",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ThreadReactCommand(action=REMOVE)) -> ApplicationAPI.submit() -> RoomsService.unreact",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7927,16 +7935,17 @@
           "Manage rooms and messages",
           "Remove this peer's active reaction from a message"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room append-handoff",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.append_handoff_note",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(AppendHandoffCommand) -> ApplicationAPI.submit() -> RoomsService.append_handoff_note",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -8036,16 +8045,17 @@
           "Manage rooms and messages",
           "Append an immutable note to the room's continuity history"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room checkpoint",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.checkpoint",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ContinuityCheckpointCommand) -> ApplicationAPI.submit() -> RoomsService.checkpoint",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -8129,7 +8139,8 @@
           "Manage rooms and messages",
           "Generate and record the room's bounded handoff projection"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room context-fill",
@@ -8226,9 +8237,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.update_room_summary",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(UpdateStatusCommand) -> ApplicationAPI.submit() -> RoomsService.update_room_summary",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -8335,16 +8346,17 @@
           "Manage rooms and messages",
           "Update the room mission, blocked reason, or phase"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room clear",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> RoomsService.clear_room",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ClearRoomCommand) -> ApplicationAPI.submit() -> RoomsService.clear_room",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -8438,7 +8450,8 @@
           "Manage rooms and messages",
           "Start a fresh room boundary; the old room is preserved untouched"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "room rebuild-session-bindings",
@@ -8447,7 +8460,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_room -> peerhub.governance.activity:rebuild_room_session_bindings",
+      "handler": "peerhub.cli:_run_room -> peerhub.governance.activity:rebuild_room_session_bindings -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet, so it remains a direct call until that gap is closed as separate work.",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
