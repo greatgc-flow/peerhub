@@ -37,7 +37,6 @@ from peerhub.application.direct_ask import (
     DirectAskResult,
     execute_direct_ask,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 )
-from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.proposals import ProposalVoteResult, load_proposal_voters  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.role_assignment import RoleReleaseDisposition
@@ -76,6 +75,11 @@ from peerhub.application.commands.locks import (
     LockReleaseCommand,
 )
 from peerhub.application.commands.tasks import TaskCheckpointCommand
+from peerhub.application.commands.lessons import (
+    LessonActivateCommand,
+    LessonBroadcastCommand,
+    LessonRetireCommand,
+)
 from peerhub.application.commands.rooms import (
     AppendHandoffCommand,
     ClearRoomCommand,
@@ -899,17 +903,54 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = LessonService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             if action == "propose":
+                # NOT migrated (R4/P4b, 2026-09-19): the registered
+                # governance.lesson.propose command's LessonProposeCommand
+                # has no expires_at field, so routing through it would
+                # silently drop the CLI's --expires-at support -- a real
+                # functional regression, not just a routing change. Left as
+                # a direct call until that command is extended.
                 submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id, expires_at=parsed.expires_at)
+                target_id = submission.receipt.target_id
             elif action == "approve":
                 submission = service.approve(parsed.lesson_id, approved_by_actor_id=parsed.approved_by, authority_target_id=parsed.authority_target_id)
+                target_id = submission.receipt.target_id
             elif action == "activate":
-                submission = service.activate(parsed.lesson_id, actor_id=parsed.actor)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LessonActivateCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="lesson-activate"
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    actor_id=parsed.actor,
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "retire":
-                submission = service.retire(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LessonRetireCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="lesson-retire"
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    actor_id=parsed.actor,
+                    reason=parsed.reason,
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "supersede":
                 submission = service.supersede(parsed.lesson_id, actor_id=parsed.actor, replacement_lesson_id=parsed.replacement_lesson_id)
+                target_id = submission.receipt.target_id
             elif action == "quarantine":
                 submission = service.quarantine(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason, evidence=parsed.evidence)
+                target_id = submission.receipt.target_id
             elif action == "sweep":
                 submissions = service.sweep_expired()
                 retired_ids = [s.receipt.target_id for s in submissions]
@@ -945,32 +986,30 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                     print(f"[HUB] No active lessons for peer={parsed.target_peer}")
                 return 0
             elif action == "broadcast":
-                result = LessonBroadcastCoordinator(
-                    broker=runtime.governance_broker,
-                    lessons=service,
-                    rooms=runtime.rooms_service,
-                ).broadcast(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LessonBroadcastCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.sender_profile_id, request_kind="lesson-broadcast"
+                    ),
                     lesson_id=parsed.lesson_id,
                     room_id=parsed.room_id,
                     sender_instance_id=parsed.sender_instance_id,
                     sender_profile_id=parsed.sender_profile_id,
-                    created_at=context.clock.now(),
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                payload = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                recipient_profile_ids = cast(
+                    "list[str]", payload["recipient_profile_ids"]
                 )
-                payload = {
-                    "campaign_id": result.campaign_id,
-                    "campaign_target_id": result.campaign_target_id,
-                    "lesson_id": result.lesson_id,
-                    "room_id": result.room_id,
-                    "recipient_profile_ids": result.recipient_profile_ids,
-                    "inbox_message_target_ids": result.inbox_message_target_ids,
-                    "delivery_target_ids": result.delivery_target_ids,
-                }
                 if parsed.json:
                     print(json.dumps(_json_safe(payload)))
-                elif result.recipient_profile_ids:
+                elif recipient_profile_ids:
                     print(
                         f"LESSON-BROADCAST {parsed.lesson_id} -> "
-                        f"{','.join(result.recipient_profile_ids)}"
+                        f"{','.join(recipient_profile_ids)}"
                     )
                 else:
                     print(
@@ -987,7 +1026,7 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                 else:
                     print(f"Lesson {parsed.lesson_id}: lifecycle={target.state['lifecycle']}")
                 return 0
-            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            target = runtime.governance_broker.get_target(target_id)
             assert target is not None
             state = cast(dict[str, Any], target.state)
             if parsed.json:
