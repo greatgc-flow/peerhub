@@ -8,6 +8,7 @@ from .sqlite_helpers import (
     _stored_revision,  # pyright: ignore[reportPrivateUsage]
     _stored_optional_revision,  # pyright: ignore[reportPrivateUsage]
 )
+from .tables import TABLE_DISPATCH_ATTEMPTS, TABLE_DISPATCH_REQUESTS
 
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.execution import ExecutionCertainty
@@ -21,6 +22,7 @@ from peerhub.dispatch.capability import (
     CapabilityLease,
     CapabilityTier,
     EnforcementLevel,
+    capability_tier_from_stored,
 )
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
@@ -90,19 +92,8 @@ def _completion_contract_from_raw(
     )
 
 
-def _required_capability_tier_from_stored(
-    raw: object,
-) -> CapabilityTier:
-    if not isinstance(raw, str):
-        raise RuntimeError(
-            "stored request is missing required_capability_tier"
-        )
-    try:
-        return CapabilityTier[raw]
-    except KeyError as exc:
-        raise RuntimeError(
-            "stored request required_capability_tier is invalid"
-        ) from exc
+def _required_capability_tier_from_stored(raw: object) -> CapabilityTier:
+    return capability_tier_from_stored(raw, "stored request")
 
 
 def _ask_result_data(result: AskResult) -> Mapping[str, object]:
@@ -1005,8 +996,8 @@ class SqliteDispatchRepository:
         """Insert an admitted request snapshot."""
 
         self._db().execute(  # pyright: ignore[reportUnknownMemberType]
-            """
-            INSERT INTO dispatch_requests (
+            f"""
+            INSERT INTO {TABLE_DISPATCH_REQUESTS} (
                 command_id,
                 client_id,
                 client_request_id,
@@ -1047,9 +1038,9 @@ class SqliteDispatchRepository:
         """Return a request snapshot by server command ID."""
 
         row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            """
+            f"""
             SELECT *
-            FROM dispatch_requests
+            FROM {TABLE_DISPATCH_REQUESTS}
             WHERE command_id = ?
             """,
             (str(command_id),),
@@ -1066,8 +1057,8 @@ class SqliteDispatchRepository:
         if current.command_id != updated.command_id:
             raise ValueError("request command IDs do not match")
         cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            """
-            UPDATE dispatch_requests
+            f"""
+            UPDATE {TABLE_DISPATCH_REQUESTS}
             SET
                 lease_id = ?,
                 configuration_revision_json = ?,
@@ -1107,9 +1098,9 @@ class SqliteDispatchRepository:
         """Return the next monotonic attempt number in this transaction."""
 
         row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            """
+            f"""
             SELECT COALESCE(MAX(attempt_number), 0) + 1 AS next_number
-            FROM dispatch_attempts
+            FROM {TABLE_DISPATCH_ATTEMPTS}
             WHERE command_id = ?
             """,
             (str(command_id),),
@@ -1153,8 +1144,8 @@ class SqliteDispatchRepository:
         """Insert a revision-one dispatch attempt."""
 
         self._db().execute(  # pyright: ignore[reportUnknownMemberType]
-            """
-            INSERT INTO dispatch_attempts (
+            f"""
+            INSERT INTO {TABLE_DISPATCH_ATTEMPTS} (
                 attempt_id,
                 command_id,
                 attempt_number,
@@ -1179,9 +1170,9 @@ class SqliteDispatchRepository:
         """Return an attempt by server attempt ID."""
 
         row = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            """
+            f"""
             SELECT *
-            FROM dispatch_attempts
+            FROM {TABLE_DISPATCH_ATTEMPTS}
             WHERE attempt_id = ?
             """,
             (attempt_id,),
@@ -1195,9 +1186,9 @@ class SqliteDispatchRepository:
         """Return command attempts in monotonic attempt order."""
 
         rows = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            """
+            f"""
             SELECT *
-            FROM dispatch_attempts
+            FROM {TABLE_DISPATCH_ATTEMPTS}
             WHERE command_id = ?
             ORDER BY attempt_number
             """,
@@ -1215,8 +1206,8 @@ class SqliteDispatchRepository:
         if current.attempt_id != updated.attempt_id:
             raise ValueError("attempt IDs do not match")
         cursor = self._db().execute(  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-            """
-            UPDATE dispatch_attempts
+            f"""
+            UPDATE {TABLE_DISPATCH_ATTEMPTS}
             SET
                 state = ?,
                 execution_certainty = ?,

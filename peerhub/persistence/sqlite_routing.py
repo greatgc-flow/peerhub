@@ -2,7 +2,7 @@ import sqlite3
 from typing import Callable
 
 from peerhub.core.evidence import EvidenceRef
-from peerhub.dispatch.capability import CapabilityTier
+from peerhub.dispatch.capability import CapabilityTier, capability_tier_from_stored
 from peerhub.routing.contract import (
     ConfigurationSnapshot,
     RouteCandidateDecision,
@@ -181,16 +181,5 @@ class SqliteRoutingRepository:
         return matches[0] if len(matches) == 1 else None
 
 
-def _required_capability_tier_from_stored(
-    raw: object,
-) -> CapabilityTier:
-    if not isinstance(raw, str):
-        raise RuntimeError(
-            "stored route decision is missing required_capability_tier"
-        )
-    try:
-        return CapabilityTier[raw]
-    except KeyError as exc:
-        raise RuntimeError(
-            "stored route decision required_capability_tier is invalid"
-        ) from exc
+def _required_capability_tier_from_stored(raw: object) -> CapabilityTier:
+    return capability_tier_from_stored(raw, "stored route decision")

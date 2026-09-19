@@ -7,6 +7,7 @@ from types import ModuleType
 from typing import Any, Mapping, cast
 
 from peerhub.cli.context import resolve_workspace
+from peerhub.cli.parser import add_json_arg, add_workspace_arg
 
 
 def register_status_command(
@@ -34,11 +35,11 @@ def register_daily_commands(
     diag_parser = subparsers.add_parser(
         "diag", help="Show live peer diagnostics and quota telemetry"
     )
-    diag_parser.add_argument("-w", "--workspace", default=None, help="Path to workspace root")
+    add_workspace_arg(diag_parser)
     diag_parser.add_argument("--live", action="store_true", help="Run in continuous monitoring loop")
     diag_parser.add_argument("--fresh", action="store_true", help="Bypass telemetry cache")
     diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
-    diag_parser.add_argument("-j", "--json", action="store_true", help="Emit JSON output")
+    add_json_arg(diag_parser)
     diag_parser.add_argument(
         "--domains", action="store_true",
         help="Include a governed-domain state section (consensus/task/lesson) alongside peer-CLI telemetry",
@@ -55,11 +56,11 @@ def register_daily_commands(
         "-t", "--capability-tier", default="READ_ONLY", choices=capability_tier_names,
         help="Required downstream capability tier",
     )
-    broadcast_parser.add_argument("-w", "--workspace", default=None, help="Path to workspace root")
+    add_workspace_arg(broadcast_parser)
     broadcast_parser.add_argument("--timeout-seconds", type=int, default=60)
     broadcast_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     broadcast_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
-    broadcast_parser.add_argument("-j", "--json", action="store_true", help="Emit JSON")
+    add_json_arg(broadcast_parser, help="Emit JSON")
 
 def register_ask_command(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],  # pyright: ignore[reportPrivateUsage]
@@ -75,15 +76,15 @@ def register_ask_command(
         "-t", "--capability-tier", default="READ_ONLY", choices=capability_tier_names,
         help="Required downstream capability tier",
     )
-    ask_parser.add_argument(
-        "-w", "--workspace", default=None,
+    add_workspace_arg(
+        ask_parser,
         help="Path to the workspace root (default: current directory)",
     )
     ask_parser.add_argument("-p", "--profile", default=None, help="Explicit profile ID")
     ask_parser.add_argument("--timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
-    ask_parser.add_argument("-j", "--json", action="store_true", help="Emit JSON")
+    add_json_arg(ask_parser, help="Emit JSON")
 
 
 def run_ask(

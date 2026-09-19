@@ -10,22 +10,34 @@ from peerhub.core.evidence import (
     EvidenceRef,
     EvidenceState,
     EvidenceValue,
+    normalize_evidence_refs as _normalize_refs,
 )
 from peerhub.core.protocol import (
     AttemptTerminalObserved,
     OperationalFailureCategory,
+    require_nonnegative_int as _require_nonnegative,
     require_text,
 )
 from peerhub.dispatch.contract import SessionBindingKey
 
+QUOTA_FAMILY_GEMINI_5H = "gemini-5h"
+QUOTA_FAMILY_GEMINI_WEEKLY = "gemini-weekly"
+QUOTA_FAMILY_3P_5H = "3p-5h"
+QUOTA_FAMILY_3P_WEEKLY = "3p-weekly"
 
-def _require_nonnegative(
-    value: int,
-    name: str,
-) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
+AG_QUOTA_LABELS: tuple[tuple[str, str], ...] = (
+    (QUOTA_FAMILY_GEMINI_5H, "G-5H"),
+    (QUOTA_FAMILY_GEMINI_WEEKLY, "G-7D"),
+    (QUOTA_FAMILY_3P_5H, "3P-5H"),
+    (QUOTA_FAMILY_3P_WEEKLY, "3P-7D"),
+)
+"""Canonical (raw quota-family key, short display label) pairs, in display
+order. Consolidates an identical mapping independently defined in
+telemetry/quota_polling.py (as a dict). telemetry/statusline.py has its own
+identical-looking tuple list too, but is deliberately NOT migrated to this
+constant -- that module's docstring declares it a zero-peerhub-import,
+<2ms-hot-path formatter, and importing telemetry.contract would pull in
+its dispatch.contract/core.evidence/core.protocol import chain."""
 
 
 def _require_positive(
@@ -37,13 +49,6 @@ def _require_positive(
     return value
 
 
-def _normalize_refs(
-    values: tuple[EvidenceRef, ...],
-) -> tuple[EvidenceRef, ...]:
-    return tuple(
-        EvidenceRef(require_text(value, "evidence_ref"))
-        for value in values
-    )
 
 
 @dataclass(frozen=True)

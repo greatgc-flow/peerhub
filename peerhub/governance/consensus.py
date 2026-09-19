@@ -13,17 +13,17 @@ from peerhub.core.errors import (
     RecordNotFoundError,
     StaleRevisionError,
 )
-from peerhub.core.protocol import CommandID, JsonValue
+from peerhub.core.protocol import JsonValue
 from peerhub.core.protocol import canonical_json_bytes
 
 from .broker import GovernanceBroker
 from .contract import (
+    build_mutation_request,
     EffectIntent,
     EffectOutcome,
     EffectReceipt,
-    MutationRequest,
     MutationSubmission,
-    resolve_local_os_write_provenance,
+    require_text_field,
     TargetState,
 )
 
@@ -664,7 +664,7 @@ class ConsensusService:
 
         request_state = request_target.state
         opinion_state = opinion_target.state
-        review_id = _required_text(request_state, "review_id")
+        review_id = require_text_field(request_state, "review_id")
         expected_request_id = f"arbiter-review:{round_id}:{review_id}"
         expected_opinion_id = f"arbiter-opinion:{round_id}:{review_id}"
         if (
@@ -683,11 +683,11 @@ class ConsensusService:
 
         candidate = _required_mapping(request_state, "candidate")
         returned_by = _required_mapping(opinion_state, "returned_by")
-        candidate_peer = _required_text(candidate, "peer_name")
-        candidate_profile = _required_text(candidate, "profile_id")
+        candidate_peer = require_text_field(candidate, "peer_name")
+        candidate_profile = require_text_field(candidate, "profile_id")
         if (
-            _required_text(returned_by, "peer_name") != candidate_peer
-            or _required_text(returned_by, "profile_id")
+            require_text_field(returned_by, "peer_name") != candidate_peer
+            or require_text_field(returned_by, "profile_id")
             != candidate_profile
         ):
             raise InvalidMutationError(
@@ -773,19 +773,14 @@ class ConsensusService:
         desired_state: dict[str, JsonValue],
         effect_intent: EffectIntent | None = None,
     ) -> MutationSubmission:
-        request_id = self._ids.new_id("consensus-request")
         return self._broker.submit(
-            MutationRequest(
-                request_id=request_id,
-                command_id=CommandID(self._ids.new_id("consensus-command")),
-                correlation_id=self._ids.new_id("consensus-correlation"),
+            build_mutation_request(
+                self._ids,
+                id_prefix="consensus",
                 client_id="peerhub.consensus",
-                command_type=operation,
-                idempotency_key=request_id,
-                actor_id=actor_id,
-                policy_revision="protocol-v2",
                 target_id=target_id,
                 expected_revision=expected_revision,
+                actor_id=actor_id,
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=(
@@ -793,7 +788,6 @@ class ConsensusService:
                     if effect_intent is not None
                     else EffectIntent(kind="consensus.noop", payload={})
                 ),
-                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 
@@ -805,13 +799,6 @@ def _required_mapping(
     result = value.get(field)
     if not isinstance(result, Mapping):
         raise InvalidMutationError(f"{field} must be an object")
-    return result
-
-
-def _required_text(value: Mapping[str, JsonValue], field: str) -> str:
-    result = value.get(field)
-    if not isinstance(result, str) or not result.strip():
-        raise InvalidMutationError(f"{field} must be a non-empty string")
     return result
 
 

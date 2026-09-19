@@ -6,9 +6,16 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Sequence, Optional, TypedDict, Callable, cast, Any
 
+from peerhub.core.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.core.context import IdSource
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
-from peerhub.telemetry.contract import UsageObserved, UsageMeasurement, UsageProjectionSnapshot
+from peerhub.telemetry.contract import AG_QUOTA_LABELS, UsageObserved, UsageMeasurement, UsageProjectionSnapshot
+
+_CODEX_CLIENT_INFO = {"name": "hub-credit", "version": "1.0"}
+_RATE_LIMITS_READ_METHOD = "account/rateLimits/read"
+"""Codex app-server JSON-RPC constants, shared with codex_credit.py (which
+already reuses other private helpers from this module -- see its own
+import comment)."""
 
 
 def _resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
@@ -172,9 +179,9 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     resolved_sys = _resolve_sys_dir(sys_dir)
     cli_dir = resolved_sys / "cli"
     if peer == "cc":
-        cand = resolved_sys / "env" / "nodejs" / "npm-global" / "claude.cmd"
+        cand = resolved_sys / "env" / "nodejs" / "npm-global" / CLAUDE_CMD
     elif peer == "cx":
-        cand = resolved_sys / "env" / "nodejs" / "npm-global" / "codex.cmd"
+        cand = resolved_sys / "env" / "nodejs" / "npm-global" / CODEX_CMD
     else:
         return None
         
@@ -443,7 +450,7 @@ def poll_codex_usage(
 
         proc.stdin.write(json.dumps({
             "id": 0, "method": "initialize", "params": {
-                "clientInfo": {"name": "hub-credit", "version": "1.0"},
+                "clientInfo": _CODEX_CLIENT_INFO,
                 "capabilities": {"experimentalApi": True},
             },
         }) + "\n")
@@ -454,7 +461,7 @@ def poll_codex_usage(
 
         proc.stdin.write(json.dumps({"method": "initialized"}) + "\n")
         proc.stdin.write(json.dumps({
-            "id": 1, "method": "account/rateLimits/read", "params": None,
+            "id": 1, "method": _RATE_LIMITS_READ_METHOD, "params": None,
         }) + "\n")
         proc.stdin.flush()
 
@@ -616,10 +623,7 @@ def poll_agy_usage(
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at_now = int(clock_fn())
     
-    _AG_QUOTA_LABELS = {
-        "gemini-5h": "G-5H", "gemini-weekly": "G-7D",
-        "3p-5h": "3P-5H", "3p-weekly": "3P-7D",
-    }
+    _AG_QUOTA_LABELS = dict(AG_QUOTA_LABELS)
     
     resolved_sys = _resolve_sys_dir(sys_dir)
     path = Path(log_path) if log_path is not None else (resolved_sys / "data" / "temp" / "ag_statusline_stdin.log")

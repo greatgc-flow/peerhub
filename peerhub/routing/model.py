@@ -13,6 +13,7 @@ import hashlib
 from peerhub.core.protocol import (
     ErrorCode,
     canonical_json_bytes,
+    require_sha256_hex as _require_sha256_hex,
     require_text,
 )
 from peerhub.routing.contract import (
@@ -28,22 +29,6 @@ from peerhub.routing.contract import (
 )
 
 
-def _require_sha256_hex(
-    value: str,
-    name: str,
-) -> str:
-    normalized = require_text(value, name)
-    if (
-        len(normalized) != 64
-        or any(
-            character not in "0123456789abcdef"
-            for character in normalized
-        )
-    ):
-        raise ValueError(
-            f"{name} must be a lowercase SHA-256 digest"
-        )
-    return normalized
 
 
 def evaluate_route_candidates(

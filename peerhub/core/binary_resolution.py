@@ -13,6 +13,9 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+CLAUDE_CMD = "claude.cmd"
+CODEX_CMD = "codex.cmd"
+
 
 def resolve_direct_binary(cmd_path: Path) -> list[str] | None:
     """Given a resolved path to claude.cmd or codex.cmd, return the direct
@@ -20,23 +23,23 @@ def resolve_direct_binary(cmd_path: Path) -> list[str] | None:
     binary/runtime cannot be located on disk."""
     name = cmd_path.name.lower()
 
-    if name == "claude.cmd":
+    if name == CLAUDE_CMD:
         real_exe = cmd_path.parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
         if not real_exe.exists():
             try:
                 real_exe = cmd_path.resolve().parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-            except Exception:
+            except OSError:
                 pass
         if real_exe.exists():
             return [str(real_exe)]
         return None
 
-    if name == "codex.cmd":
+    if name == CODEX_CMD:
         codex_js = cmd_path.parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
         if not codex_js.exists():
             try:
                 codex_js = cmd_path.resolve().parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-            except Exception:
+            except OSError:
                 pass
         node_exe = cmd_path.parent.parent / "node.exe"
         if not node_exe.exists():
@@ -58,7 +61,7 @@ def resolve_direct_binary(cmd_path: Path) -> list[str] | None:
                     cmd_path.resolve().parent / "node_modules" / "@openai" / "codex" / "node_modules"
                     / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
                 )
-            except Exception:
+            except OSError:
                 pass
         if codex_exe.exists():
             return [str(codex_exe)]

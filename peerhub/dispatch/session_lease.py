@@ -21,8 +21,8 @@ from .contract import (
     SessionBindingSnapshot,
     SessionResumeRequest,
 )
+from .helpers import close_lease_in_unit as _close_lease_in_unit_impl
 from .model import (
-    close_lease,
     create_lease,
     create_session_binding,
     expire_and_recover_lease,
@@ -218,26 +218,12 @@ class SessionLeaseCoordinator:
         request: LeaseCloseRequest,
         timestamp: int,
     ) -> LeaseSnapshot:
-        current = unit.get_lease(request.lease_id)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportUnknownVariableType]
-        if current is None:
-            raise RecordNotFoundError(
-                "lease",
-                request.lease_id,
-            )
-
-        updated = close_lease(
-            current,  # pyright: ignore[reportUnknownArgumentType]
+        return _close_lease_in_unit_impl(
+            unit,  # pyright: ignore[reportArgumentType]
             request,
-            updated_at=timestamp,
+            timestamp,
+            self._faults,
         )
-
-        if not unit.cas_update_lease(current, updated):  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
-            raise InvalidMutationError(
-                f"CAS failure closing lease "
-                f"{request.lease_id}"
-            )
-        self._faults.hit(FaultPoint.AFTER_LEASE_CAS)
-        return updated
 
     def close_lease(
         self,

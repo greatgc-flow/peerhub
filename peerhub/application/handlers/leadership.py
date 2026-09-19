@@ -21,6 +21,7 @@ from peerhub.application.leadership import (
     LeadershipService,
     LeadershipYieldResult,
 )
+from peerhub.application.handlers._params import optional_text_or, required_text
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 
 
@@ -48,25 +49,13 @@ def register_leadership_handlers(
     domain_atomic_required = IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
     available = CommandAvailability.AVAILABLE
 
-    def required_text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params[name]
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
-
-    def optional_text(envelope: CommandEnvelope, name: str) -> str:
-        value = envelope.params.get(name, "")
-        if not isinstance(value, str):
-            raise ValueError(f"{name} must be a string")
-        return value
-
     def decode_claim(envelope: CommandEnvelope) -> LeaderClaimCommand:
         return LeaderClaimCommand(
             submission=submission(envelope),
             peer_node_id=required_text(envelope, "peer_node_id"),
             actor_id=required_text(envelope, "actor_id"),
-            reason=optional_text(envelope, "reason"),
-            domain=optional_text(envelope, "domain"),
+            reason=optional_text_or(envelope, "reason", ""),
+            domain=optional_text_or(envelope, "domain", ""),
         )
 
     def decode_yield(envelope: CommandEnvelope) -> LeaderYieldCommand:
@@ -74,7 +63,7 @@ def register_leadership_handlers(
             submission=submission(envelope),
             yielding_peer_id=required_text(envelope, "yielding_peer_id"),
             actor_id=required_text(envelope, "actor_id"),
-            reason=optional_text(envelope, "reason"),
+            reason=optional_text_or(envelope, "reason", ""),
         )
 
     def encode_claim(

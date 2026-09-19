@@ -12,7 +12,12 @@ from enum import IntEnum
 from typing import TYPE_CHECKING, Protocol
 
 from peerhub.core.errors import InvalidMutationError
-from peerhub.core.protocol import CommandID, RevisionValue, require_text
+from peerhub.core.protocol import (
+    CommandID,
+    RevisionValue,
+    require_nonnegative_int as _require_nonnegative_int,
+    require_text,
+)
 
 if TYPE_CHECKING:
     from .contract import AdmissionReceipt, AttemptSnapshot, LeaseSnapshot, RequestSnapshot
@@ -25,6 +30,26 @@ class CapabilityTier(IntEnum):
     WORKTREE_WRITE = 1
     GIT_MUTATE = 2
     REMOTE_MUTATE = 3
+
+
+def capability_tier_from_stored(raw: object, subject: str) -> CapabilityTier:
+    """Parse a persisted required_capability_tier column value.
+
+    Consolidates an identical implementation independently defined as
+    _required_capability_tier_from_stored in persistence/sqlite_dispatch.py
+    ("stored request is missing/invalid required_capability_tier") and
+    persistence/sqlite_routing.py ("stored route decision is
+    missing/invalid required_capability_tier") -- `subject` parameterizes
+    that one differing noun phrase.
+    """
+    if not isinstance(raw, str):
+        raise RuntimeError(f"{subject} is missing required_capability_tier")
+    try:
+        return CapabilityTier[raw]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"{subject} required_capability_tier is invalid"
+        ) from exc
 
 
 class EnforcementLevel(IntEnum):
@@ -49,11 +74,6 @@ class CapabilityLeaseViolation(InvalidMutationError):
 def _require_enum_member(value: object, enum_type: type[IntEnum], name: str) -> None:
     if not isinstance(value, enum_type):
         raise ValueError(f"{name} must be {enum_type.__name__}")
-
-
-def _require_nonnegative_int(value: int, name: str) -> None:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
 
 
 def _normalize_revision(value: RevisionValue, name: str) -> RevisionValue:

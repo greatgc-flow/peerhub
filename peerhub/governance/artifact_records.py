@@ -18,14 +18,13 @@ from peerhub.core.errors import (
     ArtifactFileNotFoundError,
     ArtifactNotClaimedError,
 )
-from peerhub.core.protocol import CommandID, JsonValue, require_text
+from peerhub.core.protocol import JsonValue, require_text
 
 from .broker import GovernanceBroker
 from .contract import (
+    build_mutation_request,
     EffectIntent,
-    MutationRequest,
     MutationSubmission,
-    resolve_local_os_write_provenance,
     TargetState,
 )
 
@@ -75,30 +74,17 @@ class ArtifactRecordService:
         operation: str,
         desired_state: dict[str, JsonValue],
     ) -> ArtifactMutationResult:
-        request_id = self._ids.new_id("artifact-record-request")
         submission = self._broker.submit(
-            MutationRequest(
-                request_id=request_id,
-                command_id=CommandID(
-                    self._ids.new_id("artifact-record-command")
-                ),
-                correlation_id=self._ids.new_id(
-                    "artifact-record-correlation"
-                ),
+            build_mutation_request(
+                self._ids,
+                id_prefix="artifact-record",
                 client_id="peerhub.artifact_records",
-                command_type=operation,
-                idempotency_key=request_id,
-                actor_id=actor_id,
-                policy_revision="protocol-v2",
                 target_id=target_id,
                 expected_revision=expected_revision,
+                actor_id=actor_id,
                 operation=operation,
                 desired_state=desired_state,
-                effect_intent=EffectIntent(
-                    kind="artifact-record.noop",
-                    payload={},
-                ),
-                write_provenance=resolve_local_os_write_provenance(),
+                effect_intent=EffectIntent(kind="artifact-record.noop", payload={}),
             )
         )
         record = self._broker.get_target(target_id)

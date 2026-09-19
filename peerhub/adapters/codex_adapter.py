@@ -25,10 +25,12 @@ from peerhub.adapters.contract import (
     PromptPolicy,
     SessionAction,
     SessionHint,
+    split_canonical_lines as _split_canonical_lines,
 )
 
 logger = logging.getLogger(__name__)
 from peerhub.adapters.prompt_transport import resolve_prompt_payload
+from peerhub.core.binary_resolution import CODEX_CMD
 from peerhub.core.protocol import ErrorCode, JsonValue
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
@@ -37,14 +39,6 @@ from peerhub.core.execution import (
 )
 
 
-def _split_canonical_lines(text: str) -> tuple[str, ...]:
-    if not text:
-        return ()
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = normalized.split("\n")
-    if normalized.endswith("\n"):
-        lines = lines[:-1]
-    return tuple(lines)
 
 
 _CODEX_STANDARD_PROFILE = ProfileDescriptor(
@@ -403,7 +397,7 @@ class RealCodexAdapter:
             else:
                 exec_argv = (str(self.executable_path),)
         else:
-            exec_argv = ("codex.cmd",)
+            exec_argv = (CODEX_CMD,)
 
         # Model resolution is centralized: the caller resolves a
         # ResolvedModelBinding (workspace binding > global config > packaged

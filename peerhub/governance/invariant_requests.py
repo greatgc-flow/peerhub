@@ -22,6 +22,7 @@ from .contract import (
     EffectOutcome,
     MutationRequest,
     OutboxState,
+    require_text_field,
     resolve_local_os_write_provenance,
     TargetState,
 )
@@ -50,9 +51,9 @@ class RatifiedInvariantRequestProjector:
     def _request_state(
         payload: Mapping[str, JsonValue],
     ) -> tuple[str, dict[str, JsonValue]]:
-        request_id = _required_text(payload, "request_id")
-        round_id = _required_text(payload, "round_id")
-        decision_hash = _required_text(payload, "decision_hash")
+        request_id = require_text_field(payload, "request_id")
+        round_id = require_text_field(payload, "round_id")
+        decision_hash = require_text_field(payload, "decision_hash")
         expected_id = (
             f"ratified-invariant-write-request:{round_id}:{decision_hash}"
         )
@@ -163,13 +164,6 @@ class RatifiedInvariantRequestProjector:
             evidence_refs=(target_id,),
         )
         return created
-
-
-def _required_text(value: Mapping[str, JsonValue], field: str) -> str:
-    result = value.get(field)
-    if not isinstance(result, str) or not result.strip():
-        raise InvalidMutationError(f"{field} must be a non-empty string")
-    return result
 
 
 __all__ = [

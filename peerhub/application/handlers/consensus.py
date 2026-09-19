@@ -23,6 +23,8 @@ from peerhub.application.proposals import (
     ProposalCoordinator,
     ProposalVoteResult,
 )
+from peerhub.application.handlers._params import required_text as proposal_text
+from peerhub.application.handlers._params import string_tuple
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.consensus import ConsensusService
@@ -56,16 +58,6 @@ def register_consensus_handlers(
     domain_atomic_required = IdempotencyPolicy.DOMAIN_ATOMIC_REQUIRED
     idempotency_read_only = IdempotencyPolicy.READ_ONLY
     available = CommandAvailability.AVAILABLE
-
-    def string_tuple(
-        params: Mapping[str, JsonValue], name: str
-    ) -> tuple[str, ...]:
-        value = params[name]
-        if not isinstance(value, (list, tuple)) or not all(
-            isinstance(item, str) for item in value
-        ):
-            raise ValueError(f"{name} must be a sequence of strings")
-        return tuple(cast(str, item) for item in value)
 
     def decode_propose(envelope: CommandEnvelope) -> ConsensusProposeCommand:
         params = envelope.params
@@ -212,12 +204,6 @@ def register_consensus_handlers(
         ))
 
     if proposals is not None:
-        def proposal_text(envelope: CommandEnvelope, name: str) -> str:
-            value = envelope.params[name]
-            if not isinstance(value, str):
-                raise ValueError(f"{name} must be a string")
-            return value
-
         def decode_proposal_add(
             envelope: CommandEnvelope,
         ) -> ProposalAddCommand:

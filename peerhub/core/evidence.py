@@ -6,12 +6,23 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Generic, NewType, TypeVar
 
-from .protocol import require_text
+from .protocol import require_nonnegative_int as _require_nonnegative, require_text
 
 
 T = TypeVar("T")
 
 EvidenceRef = NewType("EvidenceRef", str)
+
+
+def normalize_evidence_refs(
+    values: tuple[EvidenceRef, ...],
+) -> tuple[EvidenceRef, ...]:
+    """Validate and NFC-normalize each ref. Consolidates an identical
+    _normalize_refs independently defined in health/contract.py,
+    routing/contract.py, and telemetry/contract.py."""
+    return tuple(
+        EvidenceRef(require_text(value, "evidence_ref")) for value in values
+    )
 
 
 class EvidenceState(str, Enum):
@@ -22,15 +33,6 @@ class EvidenceState(str, Enum):
     UNAVAILABLE = "UNAVAILABLE"
     ERROR = "ERROR"
     STALE = "STALE"
-
-
-def _require_nonnegative(
-    value: int,
-    name: str,
-) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
 
 
 @dataclass(frozen=True)

@@ -306,8 +306,14 @@ def _resolve_real_direct_binary(argv: list[str]) -> list[str]:
     if not argv or sys.platform != "win32":
         return argv
 
+    from peerhub.core.binary_resolution import (
+        CLAUDE_CMD,
+        CODEX_CMD,
+        resolve_direct_binary,
+    )
+
     exe_name = Path(argv[0]).name.lower()
-    if exe_name not in ("claude.cmd", "codex.cmd"):
+    if exe_name not in (CLAUDE_CMD, CODEX_CMD):
         return argv
 
     first_arg = Path(argv[0])
@@ -330,7 +336,6 @@ def _resolve_real_direct_binary(argv: list[str]) -> list[str]:
     if cand_path is None:
         return argv
 
-    from peerhub.core.binary_resolution import resolve_direct_binary
     result = resolve_direct_binary(cand_path)
     if result is not None:
         return result + argv[1:]

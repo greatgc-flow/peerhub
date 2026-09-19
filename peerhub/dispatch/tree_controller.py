@@ -35,7 +35,11 @@ from dataclasses import dataclass
 
 from peerhub.dispatch.contract import ProcessBirthIdentity
 from peerhub.dispatch.pipe import TreeHandle, TreeDispatchReceipt
-from peerhub.dispatch.process import ObservationState, TreeProcessObservation
+from peerhub.dispatch.process import (
+    CancellationAction,
+    ObservationState,
+    TreeProcessObservation,
+)
 
 
 @dataclass
@@ -272,7 +276,7 @@ class RealTreeController:
         if not verified:
             return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
-                signal_name="SOFT_CANCEL",
+                signal_name=CancellationAction.SOFT_CANCEL.value,
                 target_identities=(),
             )
 
@@ -329,7 +333,7 @@ class RealTreeController:
         if not verified:
             return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
-                signal_name="TERMINATE_TREE",
+                signal_name=CancellationAction.TERMINATE_TREE.value,
                 target_identities=(),
             )
 
@@ -338,7 +342,7 @@ class RealTreeController:
             # Record unavailable and advance immediately.
             return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
-                signal_name="TERMINATE_TREE",
+                signal_name=CancellationAction.TERMINATE_TREE.value,
                 target_identities=(),
             )
         else:
@@ -376,7 +380,7 @@ class RealTreeController:
         if not verified:
             return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
-                signal_name="KILL_TREE",
+                signal_name=CancellationAction.KILL_TREE.value,
                 target_identities=(),
             )
 
@@ -416,7 +420,7 @@ class RealTreeController:
 
             return TreeDispatchReceipt(  # pyright: ignore[reportUnknownVariableType]
                 dispatched=False,
-                signal_name="KILL_TREE",
+                signal_name=CancellationAction.KILL_TREE.value,
                 target_identities=(),
             )
         else:

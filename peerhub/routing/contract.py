@@ -7,26 +7,19 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import Enum
 
-from peerhub.core.evidence import EvidenceRef
+from peerhub.core.evidence import EvidenceRef, normalize_evidence_refs as _normalize_refs
 from peerhub.core.protocol import (
     ErrorCode,
     JsonValue,
     canonical_json_bytes,
     freeze_json_mapping,
+    require_nonnegative_int as _require_nonnegative,
+    require_sha256_hex as _require_sha256_hex,
     require_text,
 )
 from peerhub.health.contract import AdmissionSnapshot
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.telemetry.contract import UsageEvidence
-
-
-def _require_nonnegative(
-    value: int,
-    name: str,
-) -> int:
-    if type(value) is not int or value < 0:
-        raise ValueError(f"{name} must be a nonnegative integer")
-    return value
 
 
 def _require_positive(
@@ -38,22 +31,6 @@ def _require_positive(
     return value
 
 
-def _require_sha256_hex(
-    value: str,
-    name: str,
-) -> str:
-    normalized = require_text(value, name)
-    if (
-        len(normalized) != 64
-        or any(
-            character not in "0123456789abcdef"
-            for character in normalized
-        )
-    ):
-        raise ValueError(
-            f"{name} must be a lowercase SHA-256 digest"
-        )
-    return normalized
 
 
 def _normalize_text_tuple(
@@ -69,13 +46,6 @@ def _normalize_text_tuple(
     return normalized
 
 
-def _normalize_refs(
-    values: tuple[EvidenceRef, ...],
-) -> tuple[EvidenceRef, ...]:
-    return tuple(
-        EvidenceRef(require_text(value, "evidence_ref"))
-        for value in values
-    )
 
 
 class RouteEligibility(str, Enum):

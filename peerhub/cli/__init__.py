@@ -1,6 +1,7 @@
 """Command-line interface for PeerHub."""
 
 import argparse
+import functools
 import hashlib
 import json
 import os  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
@@ -57,7 +58,7 @@ from peerhub.core.identity import (
 from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import ProcessSupervisor  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
-from peerhub.runtime import create_read_runtime, create_runtime
+from peerhub.runtime import create_read_runtime, create_runtime, verify_dctx_credential
 from peerhub.client import Client
 from peerhub.application.commands import Command, SubmissionMetadata
 from peerhub.application.commands.operational_errors import ReportErrorCommand
@@ -532,27 +533,7 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
     try:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
-            def _verify_dctx_credential(*, credential_id: str, claimed_actor_id: str) -> bool:
-                import sqlite3
-                from peerhub.persistence.dispatch_context import verify_credential_for_actor
-                conn = sqlite3.connect(str(context.paths.database_path))
-                try:
-                    row = conn.execute(
-                        "SELECT workspace_home_id, activation_epoch FROM workspace_identity WHERE singleton = 1"
-                    ).fetchone()
-                    if row is None:
-                        return False
-                    workspace_home_id, activation_epoch = row
-                    return verify_credential_for_actor(
-                        conn,
-                        credential_id=credential_id,
-                        claimed_actor_id=claimed_actor_id,
-                        workspace_home_id=workspace_home_id,
-                        activation_epoch=activation_epoch,
-                        now=context.clock.now(),
-                    )
-                finally:
-                    conn.close()
+            _verify_dctx_credential = functools.partial(verify_dctx_credential, context)
 
             def _resolve_dctx_actor(*, credential_id: str) -> str | None:
                 import sqlite3

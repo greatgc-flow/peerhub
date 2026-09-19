@@ -7,10 +7,10 @@ from collections.abc import Sequence
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
-from peerhub.core.protocol import CommandID, JsonValue
+from peerhub.core.protocol import JsonValue
 
 from .broker import GovernanceBroker
-from .contract import EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
+from .contract import build_mutation_request, EffectIntent, MutationSubmission, TargetState
 
 
 class DirectiveService:
@@ -144,22 +144,16 @@ class DirectiveService:
         operation: str,
         desired_state: dict[str, JsonValue],
     ) -> MutationSubmission:
-        request_id = self._ids.new_id("directives-request")
         return self._broker.submit(
-            MutationRequest(
-                request_id=request_id,
-                command_id=CommandID(self._ids.new_id("directives-command")),
-                correlation_id=self._ids.new_id("directives-correlation"),
+            build_mutation_request(
+                self._ids,
+                id_prefix="directives",
                 client_id="peerhub.directives",
-                command_type=operation,
-                idempotency_key=request_id,
-                actor_id=actor_id,
-                policy_revision="protocol-v2",
                 target_id=target_id,
                 expected_revision=expected_revision,
+                actor_id=actor_id,
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=EffectIntent(kind="directives.noop", payload={}),
-                write_provenance=resolve_local_os_write_provenance(),
             )
         )

@@ -28,3 +28,28 @@ def create_root_parser(
         help="show program's version number and exit",
     )
     return parser
+
+
+def add_workspace_arg(
+    parser: argparse.ArgumentParser,
+    *,
+    help: str = "Path to workspace root",
+) -> None:
+    """Register the standard -w/--workspace flag, consolidating an
+    identical add_argument call repeated across daily.py's diag/broadcast
+    parsers and ask's own parser (which customizes only the help text)."""
+    parser.add_argument("-w", "--workspace", default=None, help=help)
+
+
+def add_json_arg(
+    parser: argparse.ArgumentParser,
+    *,
+    short: bool = True,
+    help: str = "Emit JSON output",
+) -> None:
+    """Register the standard --json flag, consolidating an identical
+    add_argument call repeated across daily.py's diag/broadcast/ask
+    parsers and setup.py's config-paths/adapter-discover parsers (which
+    vary only in help text and whether -j is offered)."""
+    names = ("-j", "--json") if short else ("--json",)
+    parser.add_argument(*names, action="store_true", help=help)

@@ -13,6 +13,7 @@ from peerhub.application.model_config import ModelConfigService
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.execution import TransportLimits
 from peerhub.core.identity import AuthenticatedSubject
+from peerhub.core.protocol import SCHEMA_VERSION
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import (
     CommandEnvelope,
@@ -239,7 +240,7 @@ class BroadcastCoordinator:
         envelope = CommandEnvelope(
             protocol_major=1,
             protocol_minor=0,
-            schema_version="1.0.0",
+            schema_version=SCHEMA_VERSION,
             client_request_id=client_leg_request_id,
             correlation_id=self.ids.new_id("corr"),
             client_id=_CLIENT_ID,

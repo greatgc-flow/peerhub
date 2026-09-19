@@ -5,6 +5,12 @@ from __future__ import annotations
 import sqlite3
 
 from .maintenance import WorkspaceMaintenanceError
+from .tables import (
+    TABLE_DISPATCH_ATTEMPTS,
+    TABLE_DISPATCH_REQUESTS,
+    TABLE_EFFECT_DELIVERIES,
+    TABLE_EFFECT_RECEIPTS,
+)
 
 
 _TERMINAL = """'REJECTED_POLICY', 'FAILED_PRE_DISPATCH', 'SUCCEEDED_VERIFIED',
@@ -14,8 +20,8 @@ _TERMINAL = """'REJECTED_POLICY', 'FAILED_PRE_DISPATCH', 'SUCCEEDED_VERIFIED',
 def require_quiescent(connection: sqlite3.Connection) -> None:
     """Expiry alone is not evidence that a process or claimed effect stopped."""
     checks = {
-        "dispatch_requests": f"state NOT IN ({_TERMINAL})",
-        "dispatch_attempts": f"state NOT IN ({_TERMINAL}) OR "
+        TABLE_DISPATCH_REQUESTS: f"state NOT IN ({_TERMINAL})",
+        TABLE_DISPATCH_ATTEMPTS: f"state NOT IN ({_TERMINAL}) OR "
             "execution_certainty IN ('MAY_HAVE_STARTED', 'STARTED')",
         "leases": "state NOT IN ('RELEASED', 'FENCED', 'ABANDONED_PRE_SPAWN')",
         "session_bindings": "state IN ('CREATING', 'IN_USE', 'VERIFYING', 'SUSPECT', 'UNKNOWN')",
@@ -23,8 +29,8 @@ def require_quiescent(connection: sqlite3.Connection) -> None:
         "duty_leases": "state NOT IN ('RELEASED', 'EXPIRED')",
         "room_participation_sessions": "state = 'ACTIVE'",
         "recovery_probe_grants": "state IN ('GRANTED', 'CLAIMED')",
-        "effect_deliveries": "claimed_at IS NOT NULL AND NOT EXISTS "
-            "(SELECT 1 FROM effect_receipts WHERE outbox_event_id = effect_deliveries.event_id)",
+        TABLE_EFFECT_DELIVERIES: f"claimed_at IS NOT NULL AND NOT EXISTS "
+            f"(SELECT 1 FROM {TABLE_EFFECT_RECEIPTS} WHERE outbox_event_id = {TABLE_EFFECT_DELIVERIES}.event_id)",
         "capability_leases": "revoked_at_epoch IS NULL AND NOT EXISTS "
             "(SELECT 1 FROM leases WHERE lease_id = session_lease_id AND "
             "state IN ('RELEASED', 'FENCED', 'ABANDONED_PRE_SPAWN'))",
@@ -39,14 +45,14 @@ def invalidate_restored_authority(connection: sqlite3.Connection) -> None:
     connection.execute("BEGIN IMMEDIATE")
     try:
         # Attempts first: the request quarantine subsequently forbids attempts.
-        connection.execute(f"""UPDATE dispatch_attempts
+        connection.execute(f"""UPDATE {TABLE_DISPATCH_ATTEMPTS}
             SET state = 'INTERRUPTED', revision = revision + 1,
                 reconciliation_complete = 0,
                 terminal_error_code = 'RESTORE_RECONCILIATION_REQUIRED'
-            WHERE command_id IN (SELECT command_id FROM dispatch_requests
+            WHERE command_id IN (SELECT command_id FROM {TABLE_DISPATCH_REQUESTS}
                                  WHERE restore_quarantined = 0)
               AND state NOT IN ({_TERMINAL})""")
-        connection.execute(f"""UPDATE dispatch_requests
+        connection.execute(f"""UPDATE {TABLE_DISPATCH_REQUESTS}
             SET state = CASE WHEN state NOT IN ({_TERMINAL}) THEN 'INTERRUPTED' ELSE state END,
                 terminal_error_code = CASE WHEN state NOT IN ({_TERMINAL})
                     THEN 'RESTORE_RECONCILIATION_REQUIRED' ELSE terminal_error_code END,
@@ -69,9 +75,9 @@ def invalidate_restored_authority(connection: sqlite3.Connection) -> None:
             WHERE state = 'ACTIVE'""")
         connection.execute("""UPDATE recovery_probe_grants SET state = 'EXPIRED',
             revision = revision + 1 WHERE state IN ('GRANTED', 'CLAIMED')""")
-        connection.execute("""UPDATE effect_deliveries SET reconciliation_required = 1
-            WHERE NOT EXISTS (SELECT 1 FROM effect_receipts
-                              WHERE outbox_event_id = effect_deliveries.event_id)""")
+        connection.execute(f"""UPDATE {TABLE_EFFECT_DELIVERIES} SET reconciliation_required = 1
+            WHERE NOT EXISTS (SELECT 1 FROM {TABLE_EFFECT_RECEIPTS}
+                              WHERE outbox_event_id = {TABLE_EFFECT_DELIVERIES}.event_id)""")
         connection.commit()
     except BaseException:
         connection.rollback()

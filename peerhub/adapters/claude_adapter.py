@@ -24,24 +24,16 @@ from peerhub.adapters.contract import (
     PromptPolicy,
     SessionAction,
     SessionHint,
+    split_canonical_lines as _split_canonical_lines,
 )
 from peerhub.adapters.prompt_transport import resolve_prompt_payload
+from peerhub.core.binary_resolution import CLAUDE_CMD
 from peerhub.core.protocol import ErrorCode
 from peerhub.core.execution import (
     ProcessTerminalEvidence,
     TransportKind,
     TransportLimits,
 )
-
-
-def _split_canonical_lines(text: str) -> tuple[str, ...]:
-    if not text:
-        return ()
-    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
-    lines = normalized.split("\n")
-    if normalized.endswith("\n"):
-        lines = lines[:-1]
-    return tuple(lines)
 
 
 _CLAUDE_STANDARD_PROFILE = ProfileDescriptor(
@@ -247,7 +239,7 @@ class RealClaudeAdapter:
             else:
                 exec_argv = (str(self.executable_path),)
         else:
-            exec_argv = ("claude.cmd",)
+            exec_argv = (CLAUDE_CMD,)
 
         # Model resolution is centralized: the caller resolves a
         # ResolvedModelBinding (workspace binding > global config > packaged
