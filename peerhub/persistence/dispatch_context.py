@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from .tables import TABLE_DISPATCH_REQUESTS
+
 
 def issue_credential(
     connection: sqlite3.Connection,
@@ -116,9 +118,9 @@ def verify_credential_for_actor(
     """
 
     row = connection.execute(
-        """
+        f"""
         SELECT 1 FROM dispatch_context_credentials AS credential
-        JOIN dispatch_requests AS request
+        JOIN {TABLE_DISPATCH_REQUESTS} AS request
           ON request.command_id = credential.command_id
         WHERE credential.credential_id = ?
           AND credential.workspace_home_id = ?
@@ -156,10 +158,10 @@ def resolve_actor_for_credential(
     contradiction is rejected, not silently overridden by this function."""
 
     row = connection.execute(
-        """
+        f"""
         SELECT request.selected_peer_instance_id
         FROM dispatch_context_credentials AS credential
-        JOIN dispatch_requests AS request
+        JOIN {TABLE_DISPATCH_REQUESTS} AS request
           ON request.command_id = credential.command_id
         WHERE credential.credential_id = ?
           AND credential.workspace_home_id = ?
