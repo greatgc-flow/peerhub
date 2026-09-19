@@ -28,7 +28,7 @@ def resolve_direct_binary(cmd_path: Path) -> list[str] | None:
         if not real_exe.exists():
             try:
                 real_exe = cmd_path.resolve().parent / "node_modules" / "@anthropic-ai" / "claude-code" / "bin" / "claude.exe"
-            except Exception:
+            except OSError:
                 pass
         if real_exe.exists():
             return [str(real_exe)]
@@ -39,7 +39,7 @@ def resolve_direct_binary(cmd_path: Path) -> list[str] | None:
         if not codex_js.exists():
             try:
                 codex_js = cmd_path.resolve().parent / "node_modules" / "@openai" / "codex" / "bin" / "codex.js"
-            except Exception:
+            except OSError:
                 pass
         node_exe = cmd_path.parent.parent / "node.exe"
         if not node_exe.exists():
@@ -61,7 +61,7 @@ def resolve_direct_binary(cmd_path: Path) -> list[str] | None:
                     cmd_path.resolve().parent / "node_modules" / "@openai" / "codex" / "node_modules"
                     / "@openai" / "codex-win32-x64" / "vendor" / "x86_64-pc-windows-msvc" / "bin" / "codex.exe"
                 )
-            except Exception:
+            except OSError:
                 pass
         if codex_exe.exists():
             return [str(codex_exe)]

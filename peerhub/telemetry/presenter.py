@@ -83,18 +83,20 @@ def _get_cx_context(sys_dir: Path) -> Tuple[int, int, float]:
     db_path = sys_dir / "codex" / "config" / "state_5.sqlite"
     if not db_path.exists():
         return (15000, 258400, 5.8)
+    import sqlite3
     try:
-        import sqlite3
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-        row = conn.execute("SELECT rollout_path FROM threads ORDER BY updated_at DESC LIMIT 1").fetchone()
-        conn.close()
+        try:
+            row = conn.execute("SELECT rollout_path FROM threads ORDER BY updated_at DESC LIMIT 1").fetchone()
+        finally:
+            conn.close()
         if row and row[0]:
             rollout_path = Path(row[0])
             if rollout_path.exists():
                 for line in rollout_path.read_text(encoding="utf-8").splitlines():
                     try:
                         obj: dict[str, Any] = json.loads(line)
-                    except Exception:
+                    except json.JSONDecodeError:
                         continue
                     payload = obj.get("payload", {})
                     if not isinstance(payload, dict):
@@ -109,7 +111,7 @@ def _get_cx_context(sys_dir: Path) -> Tuple[int, int, float]:
                         used = last_usage_dict.get("total_tokens")
                         if isinstance(used, (int, float)) and isinstance(win, (int, float)) and win > 0:
                             return (int(used), int(win), (float(used) / float(win)) * 100.0)
-    except Exception:
+    except (OSError, sqlite3.Error, UnicodeDecodeError):
         pass
     return (15000, 258400, 5.8)
 

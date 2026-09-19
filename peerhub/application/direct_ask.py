@@ -277,7 +277,7 @@ def assemble_ask_prompt(
         )
         if lessons_block:
             lessons_lines.append(lessons_block)
-    except Exception:
+    except (KeyError, AttributeError, ValueError, TypeError):
         pass
 
     # 4. Room Context & Handoff via RoomsService
@@ -290,7 +290,7 @@ def assemble_ask_prompt(
                 for p in participants
             ]
             members_str = ", ".join(members) if members else "none"
-        except Exception:
+        except (KeyError, AttributeError, ValueError, TypeError):
             members_str = "none"
 
         if room_summary is not None:
@@ -329,7 +329,7 @@ def assemble_ask_prompt(
                             sec_lines.extend(f"- {item}" for item in items)
                 if sec_lines:
                     handoff_lines.extend(["[HANDOFF]", "\n".join(sec_lines)])
-        except Exception:
+        except (KeyError, AttributeError, ValueError, TypeError):
             pass
 
     # 5. Task Context via TaskService
@@ -364,7 +364,7 @@ def assemble_ask_prompt(
         )
         if continuity_block:
             continuity_lines.append(continuity_block)
-    except Exception:
+    except (KeyError, AttributeError, ValueError, TypeError):
         pass
 
     has_context = bool(
