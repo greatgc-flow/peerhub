@@ -7,6 +7,7 @@ from pathlib import Path
 from types import ModuleType
 
 from peerhub.cli.context import resolve_workspace
+from peerhub.cli.parser import add_json_arg
 
 
 def register_workspace_command(
@@ -50,7 +51,7 @@ def register_setup_commands(
         default=None,
         help="Path to the workspace root (default: current directory)",
     )
-    config_paths_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    add_json_arg(config_paths_parser, short=False)
     config_migrate_parser = config_subparsers.add_parser(
         "migrate",
         help="Move legacy .peerhub/{arbiter,proposals}.json to the config/ tier (item 8)",
@@ -68,9 +69,7 @@ def register_setup_commands(
         default=None,
         help="Path to the workspace root (default: current directory)",
     )
-    config_validate_parser.add_argument(
-        "--json", action="store_true", help="Emit JSON output"
-    )
+    add_json_arg(config_validate_parser, short=False)
     config_init_parser = config_subparsers.add_parser(
         "init", help="Scaffold the config/ directory for one scope, seeding starter files"
     )
@@ -125,7 +124,7 @@ def register_setup_commands(
     adapter_discover_parser = adapter_subparsers.add_parser(
         "discover", help="Discover installed built-in adapters"
     )
-    adapter_discover_parser.add_argument("--json", action="store_true", help="Emit JSON output")
+    add_json_arg(adapter_discover_parser, short=False)
 
 
 def run_setup_command(parsed: argparse.Namespace, cli: ModuleType) -> int | None:
