@@ -11,6 +11,12 @@ from peerhub.core.context import IdSource
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
 from peerhub.telemetry.contract import AG_QUOTA_LABELS, UsageObserved, UsageMeasurement, UsageProjectionSnapshot
 
+_CODEX_CLIENT_INFO = {"name": "hub-credit", "version": "1.0"}
+_RATE_LIMITS_READ_METHOD = "account/rateLimits/read"
+"""Codex app-server JSON-RPC constants, shared with codex_credit.py (which
+already reuses other private helpers from this module -- see its own
+import comment)."""
+
 
 def _resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
     """Resolve the _sys directory from explicit parameter, env var, or workspace-relative default.
@@ -444,7 +450,7 @@ def poll_codex_usage(
 
         proc.stdin.write(json.dumps({
             "id": 0, "method": "initialize", "params": {
-                "clientInfo": {"name": "hub-credit", "version": "1.0"},
+                "clientInfo": _CODEX_CLIENT_INFO,
                 "capabilities": {"experimentalApi": True},
             },
         }) + "\n")
@@ -455,7 +461,7 @@ def poll_codex_usage(
 
         proc.stdin.write(json.dumps({"method": "initialized"}) + "\n")
         proc.stdin.write(json.dumps({
-            "id": 1, "method": "account/rateLimits/read", "params": None,
+            "id": 1, "method": _RATE_LIMITS_READ_METHOD, "params": None,
         }) + "\n")
         proc.stdin.flush()
 

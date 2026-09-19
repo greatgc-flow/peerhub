@@ -38,11 +38,11 @@ from typing import Any, Optional, cast
 # module (not a stable public API), so the reuse is explicitly
 # acknowledged here rather than silently suppressed.
 from peerhub.telemetry.quota_polling import (
+    _CODEX_CLIENT_INFO as _CLIENT_INFO,  # pyright: ignore[reportPrivateUsage]
+    _RATE_LIMITS_READ_METHOD,  # pyright: ignore[reportPrivateUsage]
     _real_command,  # pyright: ignore[reportPrivateUsage]
     _resolve_sys_dir,  # pyright: ignore[reportPrivateUsage]
 )
-
-_CLIENT_INFO = {"name": "hub-credit", "version": "1.0"}
 
 
 class CodexCreditError(RuntimeError):
@@ -174,7 +174,7 @@ class _CodexAppServerSession:
     def read_rate_limits(self) -> dict[str, Any]:
         rid = self._next_id
         self._next_id += 1
-        self._send({"id": rid, "method": "account/rateLimits/read", "params": None})
+        self._send({"id": rid, "method": _RATE_LIMITS_READ_METHOD, "params": None})
         return self._recv(rid)
 
     def consume_reset_credit_rpc(self, *, credit_id: str, idempotency_key: str) -> dict[str, Any]:
