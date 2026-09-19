@@ -1713,7 +1713,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ConsensusService.propose",
+      "handler": "peerhub.cli:_run_consensus -> ConsensusService.propose -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -1881,7 +1881,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ProposalCoordinator.add_proposal",
+      "handler": "peerhub.cli:_run_consensus -> ProposalCoordinator.add_proposal -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -2015,7 +2015,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ProposalCoordinator.vote_proposal",
+      "handler": "peerhub.cli:_run_consensus -> ProposalCoordinator.vote_proposal -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -2195,7 +2195,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ArbiterReviewCoordinator.review",
+      "handler": "peerhub.cli:_run_consensus -> ArbiterReviewCoordinator.review -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -2257,9 +2257,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ConsensusService.cast_vote",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- the FIRST domain to actually use the verified path: when --credential-id is presented, the gateway verifies it against the envelope's actor_id via verify_credential_for_actor BEFORE ConsensusService.cast_vote is ever invoked. ConsensusService's own domain-level CredentialVerifier check (D-CTX Increment 1) is deliberately KEPT, not retired, as defense-in-depth for direct/internal callers that bypass the gateway, and because it alone enforces verified_required (a per-round policy field invisible to the generic gateway).",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusVoteCommand, credential_id=...) -> ApplicationAPI.submit() -> ConsensusService.cast_vote",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -2361,7 +2361,8 @@
           "Manage consensus rounds",
           "Cast a vote"
         ]
-      }
+      },
+      "authorizer_behavior": "VERIFIED_WHEN_PRESENTED"
     },
     {
       "path": "consensus status",

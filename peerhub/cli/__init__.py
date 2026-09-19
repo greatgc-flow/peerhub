@@ -75,6 +75,7 @@ from peerhub.application.commands.locks import (
     LockReleaseCommand,
 )
 from peerhub.application.commands.tasks import TaskCheckpointCommand
+from peerhub.application.commands.consensus import ConsensusVoteCommand
 from peerhub.application.commands.leadership import (
     LeaderClaimCommand,
     LeaderYieldCommand,
@@ -690,14 +691,34 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     print(f"Consensus round {parsed.round_id} proposed (phase={payload['phase']}, quorum required={payload['quorum_required']})")
                 return 0
             if parsed.consensus_action == "vote":
+                # R4/P4b final domain (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client, with credential_id
+                # threaded onto the envelope so GovernanceAuthorizer
+                # verifies it BEFORE ConsensusService.cast_vote ever runs
+                # -- see docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md.
+                # ConsensusService's own domain-level credential check is
+                # kept as defense-in-depth (see its inline comment) rather
+                # than removed, since direct/internal callers still rely
+                # on it and it also enforces verified_required, which the
+                # generic gateway cannot see.
                 actor_id = _require_actor_id(parsed.actor, parsed.credential_id)
-                submission = service.cast_vote(
-                    parsed.round_id,
-                    actor_id=actor_id,
-                    choice=parsed.choice,
+                outcome = _submit_via_gateway(
+                    runtime,
+                    ConsensusVoteCommand(
+                        submission=_cli_submission(
+                            context, actor_id=actor_id, request_kind="consensus-vote"
+                        ),
+                        round_id=parsed.round_id,
+                        actor_id=actor_id,
+                        choice=parsed.choice,
+                    ),
                     credential_id=parsed.credential_id,
                 )
-                target = runtime.governance_broker.get_target(submission.receipt.target_id)
+                if not outcome.ok:
+                    print(f"peerhub consensus: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 state = cast(dict[str, Any], target.state)
                 payload: dict[str, Any] = {"round_id": parsed.round_id, "phase": state["phase"], "quorum": state["quorum"]}
@@ -2032,12 +2053,19 @@ def _cli_submission(
 
 
 def _submit_via_gateway(
-    runtime: "Runtime", command: "Command[Any]"
+    runtime: "Runtime",
+    command: "Command[Any]",
+    *,
+    credential_id: str | None = None,
 ) -> "CommandOutcome[Any]":
-    """Submit one command through ApplicationAPI.submit() (R4/P4b gateway),
-    as a locally-authenticated CLI caller asserting its own actor_id (no
-    D-CTX credential presented -- see GovernanceAuthorizer's asserted
-    path)."""
+    """Submit one command through ApplicationAPI.submit() (R4/P4b gateway).
+
+    Without ``credential_id``: a locally-authenticated CLI caller
+    asserting its own actor_id (no D-CTX credential presented -- see
+    GovernanceAuthorizer's asserted path). With ``credential_id``: the
+    gateway verifies it against the command's actor_id via
+    GovernanceAuthorizer's verified path before the domain handler runs
+    at all (currently only `consensus vote` presents one)."""
 
     from peerhub.core.identity import AuthenticatedSubject
 
@@ -2051,7 +2079,7 @@ def _submit_via_gateway(
             client_id=_GATEWAY_CLIENT_ID,
         ),
     )
-    return client.submit(command)
+    return client.submit(command, credential_id=credential_id)
 
 
 def _run_error(parsed: argparse.Namespace) -> int:

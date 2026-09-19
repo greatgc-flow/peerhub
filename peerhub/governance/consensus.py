@@ -547,6 +547,19 @@ class ConsensusService:
             raise InvalidMutationError("actor is not an eligible voter")
 
         verified_required = bool(state.get("verified_required", False))
+        # R4/P4b (ratified 2026-09-19): when this call arrives through
+        # ApplicationAPI.submit() (peerhub.cli's gateway-routed `consensus
+        # vote`), the gateway's GovernanceAuthorizer has already verified
+        # this exact credential_id/actor_id pair before this method was
+        # ever invoked. This check is kept as defense-in-depth -- it is
+        # still the ONLY protection for any caller that constructs
+        # ConsensusService directly and bypasses the gateway entirely
+        # (existing tests, and any future internal caller), so it is
+        # deliberately not removed even though the ratified design's
+        # migration-order text described this domain's endpoint as
+        # "retiring" the domain-level check. verified_required (a
+        # per-round policy field invisible to the generic gateway) can
+        # only ever be enforced here.
         if credential_id is not None:
             if self._credential_verifier is None or not self._credential_verifier(
                 credential_id=credential_id, claimed_actor_id=actor_id

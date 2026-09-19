@@ -49,6 +49,11 @@ class ConsensusVoteCommand(Command[Any]):
     round_id: str
     actor_id: str
     choice: str
+    credential_id: str | None = None
+    """Not encoded into wire params -- carried on CommandEnvelope.credential_id
+    instead (R4/P4b gateway verification), matching how the gateway's
+    GovernanceAuthorizer reads it. decode_vote reads it back from the
+    envelope, not from params, for the same reason."""
 
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {

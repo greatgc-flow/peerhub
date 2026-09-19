@@ -219,3 +219,35 @@ def test_cli_consensus_vote_requires_actor_or_credential(tmp_path: Path, capsys)
     ])
     assert exit_code == 2
     assert "requires --actor or a valid --credential-id" in capsys.readouterr().err
+
+
+def test_cli_consensus_vote_rejects_mismatched_asserted_client(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """R4/P4b (ratified 2026-09-19): `consensus vote` now routes through
+    ApplicationAPI.submit(), the final domain in the migration. This
+    proves the gateway's asserted-path GovernanceAuthorizer check (no
+    credential presented) actually runs for this command too, matching
+    every other migrated domain's coverage."""
+
+    assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
+
+    assert main(_propose_args(tmp_path)) == 0
+
+    import peerhub.cli as cli_module
+
+    original_request_context = cli_module.RequestContext
+
+    def _mismatched_request_context(*, principal: str, client_id: str):
+        del client_id
+        return original_request_context(
+            principal=principal, client_id="a-different-client"
+        )
+
+    monkeypatch.setattr(cli_module, "RequestContext", _mismatched_request_context)
+
+    exit_code = main([
+        "consensus", "vote", "--workspace", str(tmp_path),
+        "--round-id", "round-cli", "--actor", "cx", "--choice", "agree",
+    ])
+    assert exit_code == 2
