@@ -2434,7 +2434,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.create",
+      "handler": "peerhub.cli:_run_task -> TaskService.create -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
@@ -2550,7 +2550,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.claim_start",
+      "handler": "peerhub.cli:_run_task -> TaskService.claim_start -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
@@ -2664,9 +2664,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.checkpoint",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_task -> peerhub.client:Client.submit(TaskCheckpointCommand) -> ApplicationAPI.submit() -> TaskService.checkpoint",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
@@ -2825,7 +2825,8 @@
           "Manage task lifecycles",
           "Record a resumable checkpoint for a running task"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "task complete",
@@ -2834,7 +2835,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.complete",
+      "handler": "peerhub.cli:_run_task -> TaskService.complete -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
@@ -2911,7 +2912,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.fail",
+      "handler": "peerhub.cli:_run_task -> TaskService.fail -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
@@ -3014,7 +3015,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
       "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.cancel",
+      "handler": "peerhub.cli:_run_task -> TaskService.cancel -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
@@ -4790,9 +4791,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_lock -> FileLockService.lock_file",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_lock -> peerhub.client:Client.submit(LockAcquireCommand) -> ApplicationAPI.submit() -> FileLockService.lock_file",
       "transactional_owner": "FileLockService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Lock target, unlock disposition, or active-lock list",
       "external_effects": "Persists logical PeerHub file-lock records; does not lock host filesystem files",
@@ -4873,16 +4874,17 @@
           "Manage durable file locks",
           "Acquire a file lock"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "lock release",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_lock -> FileLockService.unlock_file",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_lock -> peerhub.client:Client.submit(LockReleaseCommand) -> ApplicationAPI.submit() -> FileLockService.unlock_file",
       "transactional_owner": "FileLockService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Lock target, unlock disposition, or active-lock list",
       "external_effects": "Persists logical PeerHub file-lock records; does not lock host filesystem files",
@@ -4950,7 +4952,8 @@
           "Manage durable file locks",
           "Release a file lock"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "lock status",
@@ -5008,9 +5011,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_artifact -> ArtifactRecordService.claim",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_artifact -> peerhub.client:Client.submit(ArtifactClaimCommand) -> ApplicationAPI.submit() -> ArtifactRecordService.claim",
       "transactional_owner": "ArtifactRecordService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Artifact record/status mapping",
       "external_effects": "Persists claim/draft/final metadata; finalize reads and hashes --file-path but does not write that project file",
@@ -5079,16 +5082,17 @@
           "Manage durable named artifact records",
           "Claim a named artifact for one peer"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "artifact status",
       "effect": "CONDITIONAL_MUTATION",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_artifact -> ArtifactRecordService.status or register_draft when all draft fields are present",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_artifact -> peerhub.client:Client.submit(ArtifactStatusCommand) -> ApplicationAPI.submit() -> ArtifactRecordService.status or register_draft when all draft fields are present",
       "transactional_owner": "ArtifactRecordService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Artifact record/status mapping",
       "external_effects": "Persists claim/draft/final metadata; finalize reads and hashes --file-path but does not write that project file",
@@ -5170,16 +5174,17 @@
           "Manage durable named artifact records",
           "Query artifact records or register a peer draft"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "artifact finalize",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_artifact -> ArtifactRecordService.finalize",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_artifact -> peerhub.client:Client.submit(ArtifactFinalizeCommand) -> ApplicationAPI.submit() -> ArtifactRecordService.finalize",
       "transactional_owner": "ArtifactRecordService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Artifact record/status mapping",
       "external_effects": "Persists claim/draft/final metadata; finalize reads and hashes --file-path but does not write that project file",
@@ -5248,7 +5253,8 @@
           "Manage durable named artifact records",
           "Finalize a claimed artifact from a real file"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "role assign",
@@ -5974,9 +5980,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_feedback -> FeedbackService.add_feedback",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_feedback -> peerhub.client:Client.submit(FeedbackAddCommand) -> ApplicationAPI.submit() -> FeedbackService.add_feedback",
       "transactional_owner": "FeedbackService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Feedback target/list/resolve mapping",
       "external_effects": "Persists feedback lifecycle records",
@@ -6096,7 +6102,8 @@
           "Manage the governance feedback journal",
           "Append one new feedback item with a fresh GAP ID"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "feedback list",
@@ -6154,9 +6161,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_feedback -> FeedbackService.resolve_feedback",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_feedback -> peerhub.client:Client.submit(FeedbackResolveCommand) -> ApplicationAPI.submit() -> FeedbackService.resolve_feedback",
       "transactional_owner": "FeedbackService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Feedback target/list/resolve mapping",
       "external_effects": "Persists feedback lifecycle records",
@@ -6250,7 +6257,8 @@
           "Manage the governance feedback journal",
           "Set one feedback item's status and refresh its timestamps"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "error report",
