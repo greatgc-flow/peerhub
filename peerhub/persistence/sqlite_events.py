@@ -5,6 +5,7 @@ from typing import Callable
 from peerhub.core.protocol import EventEnvelope
 from peerhub.events.contract import ConsumerOffset, EventLogRecord
 from .sqlite_helpers import _json_text, _string_tuple, _optional_json_object  # pyright: ignore[reportPrivateUsage]
+from .tables import TABLE_CONSUMER_OFFSETS
 
 
 class SqliteEventRepository:
@@ -122,9 +123,9 @@ class SqliteEventRepository:
     def get_consumer_offset(self, consumer_id: str) -> ConsumerOffset | None:
         """Return the current offset for a consumer."""
         row = self._db().execute(
-            """
+            f"""
             SELECT *
-            FROM consumer_offsets
+            FROM {TABLE_CONSUMER_OFFSETS}
             WHERE consumer_id = ?
             """,
             (consumer_id,),
@@ -141,8 +142,8 @@ class SqliteEventRepository:
     def add_consumer_offset(self, offset: ConsumerOffset) -> None:
         """Insert a new consumer offset."""
         self._db().execute(
-            """
-            INSERT INTO consumer_offsets (
+            f"""
+            INSERT INTO {TABLE_CONSUMER_OFFSETS} (
                 consumer_id,
                 outbox_position,
                 event_id,
@@ -169,8 +170,8 @@ class SqliteEventRepository:
             raise ValueError("revision must monotonically increase")
 
         cursor = self._db().execute(
-            """
-            UPDATE consumer_offsets
+            f"""
+            UPDATE {TABLE_CONSUMER_OFFSETS}
             SET outbox_position = ?, event_id = ?, revision = ?
             WHERE consumer_id = ? AND revision = ?
             """,
