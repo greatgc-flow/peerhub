@@ -28,6 +28,11 @@
 **Commands used to verify**:
 `rg -w "assemble_ask_prompt" tests/` (returns 0 matches)
 
+**RESOLVED (cc, 2026-09-19):**
+- `validate_retry_authorizable`: 8 new focused unit tests added (`tests/unit/dispatch/test_validate_retry_authorizable.py`) covering the happy path, command/lease-id mismatch rejection, non-retryable request/attempt states, the "no replay-safety evidence" rejection, and both ways to satisfy replay safety (`reconciliation_complete`, `completion_contract.replay_safe`).
+- `collect_room_status`: 3 new unit tests added (`tests/unit/application/test_status.py`). Found 2 real behavioral details while writing them that the audit (and this doc) hadn't noted: (1) it has no not-found guard of its own -- calling it on a room that doesn't exist raises `RecordNotFoundError` via the underlying `RoomsService.count_unread_messages()`, it doesn't return an empty/None result; (2) a freshly-created room's `room_summary` is `None` until `update_room_summary()` is called at least once -- summary reflects an explicit update, not mere room existence.
+- `assemble_ask_prompt`: **not a true 0-coverage gap** -- `tests/integration/application/test_direct_ask.py` (~line 368-403) already asserts on the fully-assembled prompt's exact content (directives, lessons, hub context, user query sections all present with real text), exercising this function's main content-assembly path end-to-end even though nothing calls it directly in isolation. Left without an additional narrow unit test given the existing integration coverage's genuine strength; a future pass could still add unit tests for specific edge cases (missing room/task context, empty directive/lesson lists) if that granularity becomes valuable.
+
 ### 3. [MEDIUM] Genuinely Duplicated Logic (`_verify_dctx_credential`)
 **Description**: The internal function `_verify_dctx_credential` (which opens a SQLite connection, queries the `workspace_identity` table, validates singleton status, and delegates to `verify_credential_for_actor`) is exactly copy-pasted as a nested closure inside two different integration boundaries.
 **Occurrences**:
