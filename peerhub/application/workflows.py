@@ -14,6 +14,7 @@ from typing import Protocol, TypeAlias, assert_never
 from peerhub.adapters.contract import (
     AdapterRequest,
     Capability,
+    InvocationPlan,
     PeerAdapter,
     ProfileDescriptor,
     DecodedOutput,
@@ -42,12 +43,15 @@ from peerhub.core.execution import (
 from peerhub.dispatch.artifacts import (
     generate_materialization_manifest,
     resolve_workspace_paths,
+    MaterializationManifest,
+    WorkspacePaths,
 )
 from peerhub.dispatch.completion import assess_completion
 from peerhub.dispatch.capability import (
     CapabilityLease,
     CapabilityTier,
     InvocationEnforcementReceipt,
+    ValidatedCapabilityLease,
 )
 from peerhub.dispatch.contract import (
     AdmissionReceipt,
@@ -58,6 +62,7 @@ from peerhub.dispatch.contract import (
     AttemptSnapshot,
     CompletionAssessment,
     CompletionContract,
+    LeaseFenceTuple,
     LeaseSnapshot,
     ProcessBirthIdentity,
     RequestSnapshot,
@@ -139,6 +144,48 @@ class ExecutionWorkflowResult:
     process_outcome: ProcessSupervisionOutcome | None = None
     completion_assessment: CompletionAssessment | None = None
     decoded_output: DecodedOutput | None = None
+
+
+@dataclass(frozen=True)
+class _InvocationPlanResult:
+    """Internal result of ApplicationWorkflows._plan_and_gate_invocation --
+    not part of the public dispatch_and_execute contract."""
+
+    validated_capability: ValidatedCapabilityLease
+    invocation_plan: InvocationPlan
+    enforcement_receipt: InvocationEnforcementReceipt
+
+
+@dataclass(frozen=True)
+class _ArtifactPreparationResult:
+    """Internal result of ApplicationWorkflows._prepare_and_materialize_artifacts."""
+
+    attempt: AttemptSnapshot
+    workspace: WorkspacePaths
+    manifest: MaterializationManifest
+    manifest_digest: str
+    materialization_results: tuple[MaterializationResult, ...]
+
+
+@dataclass(frozen=True)
+class _ReservationResult:
+    """Internal result of ApplicationWorkflows._reserve_dispatch_intent."""
+
+    req: RequestSnapshot
+    att: AttemptSnapshot
+    lease: LeaseSnapshot
+
+
+@dataclass(frozen=True)
+class _ProcessSupervisionResult:
+    """Internal result of ApplicationWorkflows._spawn_and_supervise_process."""
+
+    process_outcome: ProcessSupervisionOutcome
+    running_lease: LeaseSnapshot
+    lease_owned: bool
+    latest_fence: LeaseFenceTuple
+    live_decoder: OutputDecoder | None
+    streamed_event_count: int
 
 
 DispatchAdmission: TypeAlias = tuple[
@@ -606,43 +653,27 @@ class ApplicationWorkflows:
             retry_admission=retry_admission,
         )
 
-    def dispatch_and_execute(
+    def _plan_and_gate_invocation(
         self,
         command_id: CommandID | str,
         *,
         capability_lease_id: str,
         peer_instance_id: str,
         current_policy_revision: RevisionValue,
-        materializer: ArtifactMaterializer,
         adapter_request: AdapterRequest,
-        peer_adapter: PeerAdapter | None = None,
+        selected_peer_adapter: PeerAdapter,
         profile: ProfileDescriptor,
         limits: TransportLimits,
-        workspace_roots: Mapping[str, Path],
-        content_providers: Mapping[str, Callable[[], bytes]],
-        completion_contract: CompletionContract,
-        heartbeat_timeout_ms: int,
-        transport: str = "pipe",
-        service: DispatchService | None = None,
-        session: SessionHint | None = None,
-        dispatch_context_env: Mapping[str, str] | None = None,
-        event_sink: Callable[[DecoderEvent], None] | None = None,
-        cancellation_hook: Callable[["ProcessSupervisor"], None] | None = None,
-    ) -> ExecutionWorkflowResult:
-        """Dispatch and execute an admitted/prepared command through process supervision."""
+        session: SessionHint | None,
+        dispatch_service: DispatchService,
+    ) -> "_InvocationPlanResult":
+        """Pre-spawn enforcement gate (errata 7.2 point 3 / 7.4) plus
+        invocation planning. Runs between adapter selection and attempt
+        creation, so a denied dispatch never reaches plan_invocation(),
+        attempt creation, or run_process(). CapabilityLeaseViolation
+        propagates to the caller by design."""
 
-        dispatch_service = service if service is not None else self._dispatch
-        selected_peer_adapter = (
-            peer_adapter if peer_adapter is not None else self._peer_adapter
-        )
-        if selected_peer_adapter is None:
-            raise ValueError("peer_adapter is required")
-
-        # Pre-spawn enforcement gate (errata 7.2 point 3 / 7.4).  This runs
-        # between adapter selection and planning, so a denied dispatch never
-        # reaches plan_invocation(), attempt creation, or run_process().
-        # CapabilityLeaseViolation propagates to the caller by design.
-        _validated_capability = dispatch_service.require_dispatch_capability(
+        validated_capability = dispatch_service.require_dispatch_capability(
             command_id,
             capability_lease_id=capability_lease_id,
             peer_instance_id=peer_instance_id,
@@ -657,7 +688,6 @@ class ApplicationWorkflows:
                     capability=Capability.SESSION,
                 )
 
-
         invocation_plan = selected_peer_adapter.plan_invocation(
             request=adapter_request,
             profile=profile,
@@ -668,19 +698,42 @@ class ApplicationWorkflows:
         # Produce the enforcement receipt for this invocation plan.
         # Increment 4 scope: adapters emit "unverified" enforcement tags;
         # increment 5 will extend each adapter to report its actual vector.
-        _enforcement_receipt = InvocationEnforcementReceipt(
-            capability_lease_id=_validated_capability.capability_lease_id,
-            command_id=_validated_capability.command_id,
-            realized_enforcement=_validated_capability.satisfied_floor,
+        enforcement_receipt = InvocationEnforcementReceipt(
+            capability_lease_id=validated_capability.capability_lease_id,
+            command_id=validated_capability.command_id,
+            realized_enforcement=validated_capability.satisfied_floor,
             controls_description="unverified",
             evidence_source_tag="unverified",
             plan_digest="unverified",
         )
+        return _InvocationPlanResult(
+            validated_capability=validated_capability,
+            invocation_plan=invocation_plan,
+            enforcement_receipt=enforcement_receipt,
+        )
+
+    def _prepare_and_materialize_artifacts(
+        self,
+        command_id: CommandID | str,
+        *,
+        dispatch_service: DispatchService,
+        validated_capability: ValidatedCapabilityLease,
+        adapter_request: AdapterRequest,
+        invocation_plan: InvocationPlan,
+        workspace_roots: Mapping[str, Path],
+        materializer: ArtifactMaterializer,
+        content_providers: Mapping[str, Callable[[], bytes]],
+        transport: str,
+    ) -> "_ArtifactPreparationResult | ExecutionWorkflowResult":
+        """Create the attempt, resolve/generate the artifact manifest, record
+        it if non-empty, then materialize. Returns an early
+        ExecutionWorkflowResult if materialization fails (PRE_DISPATCH_FAILED)
+        -- the caller must check for this before continuing the pipeline."""
 
         # Step 1: Create attempt under PREPARED request
         attempt = dispatch_service.create_attempt(
             command_id,
-            expected_authorized_attempt_number=_validated_capability.authorized_attempt_number,
+            expected_authorized_attempt_number=validated_capability.authorized_attempt_number,
         )
 
         # Step 2: Resolve workspace paths and generate manifest
@@ -787,24 +840,48 @@ class ApplicationWorkflows:
                 decoded_output=None,
             )
 
-        # Step 4: Record dispatch intent and reserve artifacts atomically if artifacts exist
+        return _ArtifactPreparationResult(
+            attempt=attempt,
+            workspace=workspace,
+            manifest=manifest,
+            manifest_digest=manifest_digest,
+            materialization_results=mat_results,
+        )
+
+    def _reserve_dispatch_intent(
+        self,
+        command_id: CommandID | str,
+        *,
+        dispatch_service: DispatchService,
+        attempt: AttemptSnapshot,
+        manifest: MaterializationManifest,
+        manifest_digest: str,
+        validated_capability: ValidatedCapabilityLease,
+        enforcement_receipt: InvocationEnforcementReceipt,
+        materialization_results: tuple[MaterializationResult, ...],
+        transport: str,
+    ) -> "_ReservationResult | ExecutionWorkflowResult":
+        """Record dispatch intent and reserve artifacts atomically if
+        artifacts exist. Returns an early ExecutionWorkflowResult if
+        reservation fails (ARTIFACT_RESERVATION_FAILED)."""
+
         try:
             if manifest.items:
-                req, att, lease = (  # pyright: ignore[reportUnusedVariable]
+                req, att, lease = (
                     dispatch_service.record_dispatch_intent_and_reserve_artifacts(
                         command_id,
                         attempt.attempt_id,
                         expected_manifest_digest=manifest_digest,
-                        validated_lease=_validated_capability,
-                        enforcement_receipt=_enforcement_receipt,
+                        validated_lease=validated_capability,
+                        enforcement_receipt=enforcement_receipt,
                     )
                 )
             else:
-                req, att, lease = dispatch_service.record_dispatch_intent(  # pyright: ignore[reportUnusedVariable]
+                req, att, lease = dispatch_service.record_dispatch_intent(
                     command_id,
                     attempt.attempt_id,
-                    validated_lease=_validated_capability,
-                    enforcement_receipt=_enforcement_receipt,
+                    validated_lease=validated_capability,
+                    enforcement_receipt=enforcement_receipt,
                 )
         except Exception:
             dispatch_service.mark_artifacts_orphaned_if_manifest_exists(
@@ -821,13 +898,37 @@ class ApplicationWorkflows:
                 request=updated_req,
                 attempt=updated_att,
                 lease=None,
-                materialization_results=mat_results,
+                materialization_results=materialization_results,
                 process_outcome=None,
                 completion_assessment=None,
                 decoded_output=None,
             )
 
-        # Step 5: Spawn process and drive supervisor + heartbeat
+        return _ReservationResult(req=req, att=att, lease=lease)
+
+    def _spawn_and_supervise_process(
+        self,
+        command_id: CommandID | str,
+        *,
+        dispatch_service: DispatchService,
+        selected_peer_adapter: PeerAdapter,
+        attempt: AttemptSnapshot,
+        workspace: WorkspacePaths,
+        manifest: MaterializationManifest,
+        invocation_plan: InvocationPlan,
+        lease: LeaseSnapshot,
+        heartbeat_timeout_ms: int,
+        dispatch_context_env: Mapping[str, str] | None,
+        event_sink: Callable[[DecoderEvent], None] | None,
+        cancellation_hook: Callable[["ProcessSupervisor"], None] | None,
+        materialization_results: tuple[MaterializationResult, ...],
+        transport: str,
+    ) -> "_ProcessSupervisionResult | ExecutionWorkflowResult":
+        """Spawn the process and drive the supervisor + heartbeat worker.
+
+        Returns an early ExecutionWorkflowResult if the process never spawned
+        (SPAWN_FAILED) or its outcome is uncertain (START_UNCERTAIN)."""
+
         supervisor = ProcessSupervisor()
         if cancellation_hook is not None:
             cancellation_hook(supervisor)
@@ -937,7 +1038,7 @@ class ApplicationWorkflows:
         except Exception as exc:
             spawn_error = exc
 
-        # Step 6: Stop heartbeat and capture latest fence / ownership
+        # Stop heartbeat and capture latest fence / ownership
         if heartbeat_worker is not None:
             heartbeat_worker.stop(timeout=10.0)
             latest_fence = heartbeat_worker.latest_fence
@@ -957,7 +1058,7 @@ class ApplicationWorkflows:
                 request=updated_req,
                 attempt=updated_att,
                 lease=running_lease,
-                materialization_results=mat_results,
+                materialization_results=materialization_results,
                 process_outcome=None,
                 completion_assessment=None,
                 decoded_output=None,
@@ -972,15 +1073,42 @@ class ApplicationWorkflows:
                 request=updated_req,
                 attempt=updated_att,
                 lease=running_lease,
-                materialization_results=mat_results,
+                materialization_results=materialization_results,
                 process_outcome=process_outcome,
                 completion_assessment=None,
                 decoded_output=None,
             )
 
         assert process_outcome is not None
+        return _ProcessSupervisionResult(
+            process_outcome=process_outcome,
+            running_lease=running_lease,
+            lease_owned=lease_owned,
+            latest_fence=latest_fence,
+            live_decoder=live_decoder,
+            streamed_event_count=streamed_event_count,
+        )
 
-        # Step 7: Assess completion and begin assessment
+    def _assess_and_terminalize(
+        self,
+        command_id: CommandID | str,
+        *,
+        dispatch_service: DispatchService,
+        selected_peer_adapter: PeerAdapter,
+        attempt: AttemptSnapshot,
+        invocation_plan: InvocationPlan,
+        completion_contract: CompletionContract,
+        req: RequestSnapshot,
+        supervision: "_ProcessSupervisionResult",
+        event_sink: Callable[[DecoderEvent], None] | None,
+        materialization_results: tuple[MaterializationResult, ...],
+        transport: str,
+    ) -> ExecutionWorkflowResult:
+        """Interpret process output, assess completion, and terminalize the
+        attempt (complete + consume + close lease) if the lease is still
+        owned; otherwise leave the attempt for conservative recovery."""
+
+        process_outcome = supervision.process_outcome
         raw_chunks = (process_outcome.canonical_stream,) if process_outcome.canonical_stream else ()
         execution_outcome = process_outcome.execution_outcome
         terminal_evidence = ProcessTerminalEvidence(
@@ -993,22 +1121,22 @@ class ApplicationWorkflows:
             terminal_evidence,
             raw_chunks,
         )
-        
+
         decoder = (
-            live_decoder
-            if live_decoder is not None
+            supervision.live_decoder
+            if supervision.live_decoder is not None
             else selected_peer_adapter.new_decoder(invocation_plan)
         )
-        if live_decoder is None and process_outcome.canonical_stream:
+        if supervision.live_decoder is None and process_outcome.canonical_stream:
             decoder.feed(
                 process_outcome.canonical_stream,
                 channel=OutputChannel.STDOUT,
             )
         decoded_output = decoder.finalize()
         if event_sink is not None:
-            for event in decoded_output.events[streamed_event_count:]:
+            for event in decoded_output.events[supervision.streamed_event_count:]:
                 event_sink(event)
-        
+
         assessment = assess_completion(
             completion_contract,
             execution_outcome,
@@ -1016,8 +1144,8 @@ class ApplicationWorkflows:
         )
         dispatch_service.begin_assessment(command_id, attempt.attempt_id)
 
-        # Step 8: Terminalize attempt (complete + consume + close lease) if lease owned
-        if lease_owned:
+        # Terminalize attempt (complete + consume + close lease) if lease owned
+        if supervision.lease_owned:
             started_at = dispatch_service.now()
             terminal_classification = process_outcome.terminal_classification
             failure_classification = classify_attempt_failure(
@@ -1040,7 +1168,7 @@ class ApplicationWorkflows:
                     ),
                     transport=transport,
                     started_at=started_at,
-                    final_fence=latest_fence,
+                    final_fence=supervision.latest_fence,
                     process_integrity=process_outcome.stream_events_ordered,
                 )
             )
@@ -1049,7 +1177,7 @@ class ApplicationWorkflows:
                 request=updated_req,
                 attempt=updated_att,
                 lease=closed_lease,
-                materialization_results=mat_results,
+                materialization_results=materialization_results,
                 process_outcome=process_outcome,
                 completion_assessment=assessment,
                 decoded_output=decoded_output,
@@ -1063,11 +1191,129 @@ class ApplicationWorkflows:
         return ExecutionWorkflowResult(
             request=latest_req,
             attempt=latest_att,
-            lease=running_lease,
-            materialization_results=mat_results,
+            lease=supervision.running_lease,
+            materialization_results=materialization_results,
             process_outcome=process_outcome,
             completion_assessment=assessment,
             decoded_output=decoded_output,
+        )
+
+    def dispatch_and_execute(
+        self,
+        command_id: CommandID | str,
+        *,
+        capability_lease_id: str,
+        peer_instance_id: str,
+        current_policy_revision: RevisionValue,
+        materializer: ArtifactMaterializer,
+        adapter_request: AdapterRequest,
+        peer_adapter: PeerAdapter | None = None,
+        profile: ProfileDescriptor,
+        limits: TransportLimits,
+        workspace_roots: Mapping[str, Path],
+        content_providers: Mapping[str, Callable[[], bytes]],
+        completion_contract: CompletionContract,
+        heartbeat_timeout_ms: int,
+        transport: str = "pipe",
+        service: DispatchService | None = None,
+        session: SessionHint | None = None,
+        dispatch_context_env: Mapping[str, str] | None = None,
+        event_sink: Callable[[DecoderEvent], None] | None = None,
+        cancellation_hook: Callable[["ProcessSupervisor"], None] | None = None,
+    ) -> ExecutionWorkflowResult:
+        """Dispatch and execute an admitted/prepared command through process
+        supervision.
+
+        Decomposed into 5 phases (quality-audit-2026-09-19.md item 5), each
+        independently unit-testable without mocking the other phases'
+        dependencies: plan+gate -> prepare/materialize artifacts -> reserve
+        dispatch intent -> spawn+supervise the process -> assess+terminalize.
+        Each of the first 4 phases can short-circuit with an early
+        ExecutionWorkflowResult (materialization failure, reservation
+        failure, spawn failure, or start-uncertain); this method's job is
+        purely to sequence the phases and check for that early exit --
+        exactly the same control flow and behavior as before decomposition.
+        """
+
+        dispatch_service = service if service is not None else self._dispatch
+        selected_peer_adapter = (
+            peer_adapter if peer_adapter is not None else self._peer_adapter
+        )
+        if selected_peer_adapter is None:
+            raise ValueError("peer_adapter is required")
+
+        plan_result = self._plan_and_gate_invocation(
+            command_id,
+            capability_lease_id=capability_lease_id,
+            peer_instance_id=peer_instance_id,
+            current_policy_revision=current_policy_revision,
+            adapter_request=adapter_request,
+            selected_peer_adapter=selected_peer_adapter,
+            profile=profile,
+            limits=limits,
+            session=session,
+            dispatch_service=dispatch_service,
+        )
+
+        artifact_result = self._prepare_and_materialize_artifacts(
+            command_id,
+            dispatch_service=dispatch_service,
+            validated_capability=plan_result.validated_capability,
+            adapter_request=adapter_request,
+            invocation_plan=plan_result.invocation_plan,
+            workspace_roots=workspace_roots,
+            materializer=materializer,
+            content_providers=content_providers,
+            transport=transport,
+        )
+        if isinstance(artifact_result, ExecutionWorkflowResult):
+            return artifact_result
+
+        reservation_result = self._reserve_dispatch_intent(
+            command_id,
+            dispatch_service=dispatch_service,
+            attempt=artifact_result.attempt,
+            manifest=artifact_result.manifest,
+            manifest_digest=artifact_result.manifest_digest,
+            validated_capability=plan_result.validated_capability,
+            enforcement_receipt=plan_result.enforcement_receipt,
+            materialization_results=artifact_result.materialization_results,
+            transport=transport,
+        )
+        if isinstance(reservation_result, ExecutionWorkflowResult):
+            return reservation_result
+
+        supervision_result = self._spawn_and_supervise_process(
+            command_id,
+            dispatch_service=dispatch_service,
+            selected_peer_adapter=selected_peer_adapter,
+            attempt=artifact_result.attempt,
+            workspace=artifact_result.workspace,
+            manifest=artifact_result.manifest,
+            invocation_plan=plan_result.invocation_plan,
+            lease=reservation_result.lease,
+            heartbeat_timeout_ms=heartbeat_timeout_ms,
+            dispatch_context_env=dispatch_context_env,
+            event_sink=event_sink,
+            cancellation_hook=cancellation_hook,
+            materialization_results=artifact_result.materialization_results,
+            transport=transport,
+        )
+        if isinstance(supervision_result, ExecutionWorkflowResult):
+            return supervision_result
+
+        return self._assess_and_terminalize(
+            command_id,
+            dispatch_service=dispatch_service,
+            selected_peer_adapter=selected_peer_adapter,
+            attempt=artifact_result.attempt,
+            invocation_plan=plan_result.invocation_plan,
+            completion_contract=completion_contract,
+            req=reservation_result.req,
+            supervision=supervision_result,
+            event_sink=event_sink,
+            materialization_results=artifact_result.materialization_results,
+            transport=transport,
         )
 
     # -- T1 increment 5C-2b: bounded outer retry loop --
