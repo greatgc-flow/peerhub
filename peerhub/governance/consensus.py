@@ -13,19 +13,17 @@ from peerhub.core.errors import (
     RecordNotFoundError,
     StaleRevisionError,
 )
-from peerhub.core.protocol import CommandID, JsonValue
+from peerhub.core.protocol import JsonValue
 from peerhub.core.protocol import canonical_json_bytes
 
 from .broker import GovernanceBroker
 from .contract import (
-    CURRENT_POLICY_REVISION,
+    build_mutation_request,
     EffectIntent,
     EffectOutcome,
     EffectReceipt,
-    MutationRequest,
     MutationSubmission,
     require_text_field,
-    resolve_local_os_write_provenance,
     TargetState,
 )
 
@@ -762,19 +760,14 @@ class ConsensusService:
         desired_state: dict[str, JsonValue],
         effect_intent: EffectIntent | None = None,
     ) -> MutationSubmission:
-        request_id = self._ids.new_id("consensus-request")
         return self._broker.submit(
-            MutationRequest(
-                request_id=request_id,
-                command_id=CommandID(self._ids.new_id("consensus-command")),
-                correlation_id=self._ids.new_id("consensus-correlation"),
+            build_mutation_request(
+                self._ids,
+                id_prefix="consensus",
                 client_id="peerhub.consensus",
-                command_type=operation,
-                idempotency_key=request_id,
-                actor_id=actor_id,
-                policy_revision=CURRENT_POLICY_REVISION,
                 target_id=target_id,
                 expected_revision=expected_revision,
+                actor_id=actor_id,
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=(
@@ -782,7 +775,6 @@ class ConsensusService:
                     if effect_intent is not None
                     else EffectIntent(kind="consensus.noop", payload={})
                 ),
-                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

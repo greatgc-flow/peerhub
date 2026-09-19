@@ -16,15 +16,13 @@ from datetime import datetime, timezone
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import RecordNotFoundError
-from peerhub.core.protocol import CommandID, JsonValue, require_text
+from peerhub.core.protocol import JsonValue, require_text
 
 from .broker import GovernanceBroker
 from .contract import (
-    CURRENT_POLICY_REVISION,
+    build_mutation_request,
     EffectIntent,
-    MutationRequest,
     MutationSubmission,
-    resolve_local_os_write_provenance,
     TargetState,
 )
 
@@ -58,23 +56,17 @@ class FeedbackService:
         operation: str,
         desired_state: dict[str, JsonValue],
     ) -> MutationSubmission:
-        request_id = self._ids.new_id("feedback-request")
         return self._broker.submit(
-            MutationRequest(
-                request_id=request_id,
-                command_id=CommandID(self._ids.new_id("feedback-command")),
-                correlation_id=self._ids.new_id("feedback-correlation"),
+            build_mutation_request(
+                self._ids,
+                id_prefix="feedback",
                 client_id="peerhub.feedback",
-                command_type=operation,
-                idempotency_key=request_id,
-                actor_id=actor_id,
-                policy_revision=CURRENT_POLICY_REVISION,
                 target_id=target_id,
                 expected_revision=expected_revision,
+                actor_id=actor_id,
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=EffectIntent(kind="feedback.noop", payload={}),
-                write_provenance=resolve_local_os_write_provenance(),
             )
         )
 

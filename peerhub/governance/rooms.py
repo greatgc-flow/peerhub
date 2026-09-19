@@ -8,10 +8,10 @@ from typing import cast
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, StaleRevisionError
-from peerhub.core.protocol import CommandID, JsonValue, require_text
+from peerhub.core.protocol import JsonValue, require_text
 
 from .broker import GovernanceBroker
-from .contract import CURRENT_POLICY_REVISION, EffectIntent, MutationRequest, MutationSubmission, resolve_local_os_write_provenance, TargetState
+from .contract import build_mutation_request, EffectIntent, MutationSubmission, TargetState
 
 
 HANDOFF_LIST_SECTIONS = (
@@ -1242,26 +1242,17 @@ class RoomsService:
         *,
         correlation_id: str | None = None,
     ) -> MutationSubmission:
-        request_id = self._ids.new_id("rooms-request")
         return self._broker.submit(
-            MutationRequest(
-                request_id=request_id,
-                command_id=CommandID(self._ids.new_id("rooms-command")),
-                correlation_id=(
-                    self._ids.new_id("rooms-correlation")
-                    if correlation_id is None
-                    else correlation_id
-                ),
+            build_mutation_request(
+                self._ids,
+                id_prefix="rooms",
                 client_id="peerhub.rooms",
-                command_type=operation,
-                idempotency_key=request_id,
-                actor_id=actor_id,
-                policy_revision=CURRENT_POLICY_REVISION,
                 target_id=target_id,
                 expected_revision=expected_revision,
+                actor_id=actor_id,
                 operation=operation,
                 desired_state=desired_state,
                 effect_intent=EffectIntent(kind="rooms.noop", payload={}),
-                write_provenance=resolve_local_os_write_provenance(),
+                correlation_id=correlation_id,
             )
         )

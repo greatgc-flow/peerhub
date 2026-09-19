@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 
+from peerhub.core.context import IdSource
 from peerhub.core.errors import InvalidMutationError
 from peerhub.core.protocol import (
     CommandID,
@@ -297,6 +298,57 @@ class MutationRequest:
             "desired_state",
             _freeze_mapping(self.desired_state),
         )
+
+
+def build_mutation_request(
+    ids: IdSource,
+    *,
+    id_prefix: str,
+    client_id: str,
+    target_id: str,
+    expected_revision: int,
+    actor_id: str,
+    operation: str,
+    desired_state: dict[str, JsonValue],
+    effect_intent: EffectIntent,
+    correlation_id: str | None = None,
+) -> MutationRequest:
+    """Build the MutationRequest boilerplate shared across every governance
+    service's private `_submit` method (artifact_records.py, consensus.py,
+    directives.py, feedback.py, file_locks.py, lessons.py,
+    operational_errors.py, rooms.py, tasks.py).
+
+    Each service keeps its own `_submit` signature and any extra behavior
+    exactly as before -- artifact_records.py does extra post-processing
+    after the broker call, consensus.py lets its caller override
+    effect_intent (resolve the default before calling this), rooms.py lets
+    its caller override correlation_id (pass it through via `correlation_id`)
+    -- only the MutationRequest construction itself is unified. `id_prefix`
+    and `client_id` differ per service (and are not always derivable from
+    one another -- e.g. operational_errors.py uses id_prefix
+    "operational-error" but client_id "peerhub.operational-errors").
+    """
+    request_id = ids.new_id(f"{id_prefix}-request")
+    return MutationRequest(
+        request_id=request_id,
+        command_id=CommandID(ids.new_id(f"{id_prefix}-command")),
+        correlation_id=(
+            ids.new_id(f"{id_prefix}-correlation")
+            if correlation_id is None
+            else correlation_id
+        ),
+        client_id=client_id,
+        command_type=operation,
+        idempotency_key=request_id,
+        actor_id=actor_id,
+        policy_revision=CURRENT_POLICY_REVISION,
+        target_id=target_id,
+        expected_revision=expected_revision,
+        operation=operation,
+        desired_state=desired_state,
+        effect_intent=effect_intent,
+        write_provenance=resolve_local_os_write_provenance(),
+    )
 
 
 @dataclass(frozen=True)
