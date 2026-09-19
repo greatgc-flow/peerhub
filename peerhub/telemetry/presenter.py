@@ -16,7 +16,13 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
-from peerhub.telemetry.contract import UsageProjectionSnapshot
+from peerhub.telemetry.contract import (
+    QUOTA_FAMILY_3P_5H,
+    QUOTA_FAMILY_3P_WEEKLY,
+    QUOTA_FAMILY_GEMINI_5H,
+    QUOTA_FAMILY_GEMINI_WEEKLY,
+    UsageProjectionSnapshot,
+)
 
 
 def _dw(s: str) -> int:
@@ -344,8 +350,8 @@ class TelemetryPresenter:
 
             quotas: Dict[str, Any] = raw_ag.get("quota", {})
             # 3P-pool (Claude / Codex through AG)
-            p3_5h: Dict[str, Any] = quotas.get("3p-5h", {})
-            p3_wk: Dict[str, Any] = quotas.get("3p-weekly", {})
+            p3_5h: Dict[str, Any] = quotas.get(QUOTA_FAMILY_3P_5H, {})
+            p3_wk: Dict[str, Any] = quotas.get(QUOTA_FAMILY_3P_WEEKLY, {})
             p3_5h_rem = float(p3_5h.get("remaining_fraction", 1.0))
             p3_wk_rem = float(p3_wk.get("remaining_fraction", 1.0))
             p3_5h_used_frac = max(0.0, min(1.0, 1.0 - p3_5h_rem))
@@ -369,8 +375,8 @@ class TelemetryPresenter:
             })
 
             # G-pool (Gemini native)
-            g_5h: Dict[str, Any] = quotas.get("gemini-5h", {})
-            g_wk: Dict[str, Any] = quotas.get("gemini-weekly", {})
+            g_5h: Dict[str, Any] = quotas.get(QUOTA_FAMILY_GEMINI_5H, {})
+            g_wk: Dict[str, Any] = quotas.get(QUOTA_FAMILY_GEMINI_WEEKLY, {})
             g_5h_rem = float(g_5h.get("remaining_fraction", 1.0))
             g_wk_rem = float(g_wk.get("remaining_fraction", 1.0))
             g_5h_used_frac = max(0.0, min(1.0, 1.0 - g_5h_rem))

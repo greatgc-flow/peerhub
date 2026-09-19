@@ -9,7 +9,7 @@ from typing import Sequence, Optional, TypedDict, Callable, cast, Any
 from peerhub.core.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.core.context import IdSource
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
-from peerhub.telemetry.contract import UsageObserved, UsageMeasurement, UsageProjectionSnapshot
+from peerhub.telemetry.contract import AG_QUOTA_LABELS, UsageObserved, UsageMeasurement, UsageProjectionSnapshot
 
 
 def _resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
@@ -617,10 +617,7 @@ def poll_agy_usage(
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at_now = int(clock_fn())
     
-    _AG_QUOTA_LABELS = {
-        "gemini-5h": "G-5H", "gemini-weekly": "G-7D",
-        "3p-5h": "3P-5H", "3p-weekly": "3P-7D",
-    }
+    _AG_QUOTA_LABELS = dict(AG_QUOTA_LABELS)
     
     resolved_sys = _resolve_sys_dir(sys_dir)
     path = Path(log_path) if log_path is not None else (resolved_sys / "data" / "temp" / "ag_statusline_stdin.log")
