@@ -63,6 +63,7 @@ from peerhub.governance.operational_errors import OperationalErrorService
 from peerhub.governance.file_locks import FileLockService
 from peerhub.governance.artifact_records import ArtifactRecordService
 from peerhub.health.service import HealthService
+from peerhub.application.governance_authorizer import GovernanceAuthorizer
 
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
@@ -140,13 +141,15 @@ class ApplicationAPI:
         health_revalidation: HealthRevalidationCoordinator | None = None,
         process_lease_sweep: ProcessLeaseSweepCoordinator | None = None,
         governance_broker: GovernanceBroker | None = None,
+        authorizer: GovernanceAuthorizer | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
         self._admission_provider = admission_provider
         self._consensus = consensus
+        self._authorizer = authorizer if authorizer is not None else GovernanceAuthorizer(verifier=None)
         self._registry: dict[str, CommandDescriptor[Any, Any]] = {}  # pyright: ignore[reportInvalidTypeArguments]
-        
+
         self._register_builtins()
         if governance_broker is not None:
             self._register_effect_status(governance_broker)
@@ -529,8 +532,14 @@ class ApplicationAPI:
                 ),
             )
 
-        # 4. Auth (assume caller context checks out for this skeleton, normally we'd check `caller.client_id == cmd.submission.client_id`)
-        if caller.client_id != cmd.submission.client_id:  # pyright: ignore[reportUnknownMemberType]
+        # 4. Auth: gateway-level GovernanceAuthorizer (R4/P4b, ratified
+        # 2026-09-19). Verified when a credential is presented on the
+        # envelope; otherwise the pre-existing asserted client-identity check.
+        if not self._authorizer.authorize(
+            caller=caller,
+            envelope=envelope,
+            submission_client_id=cmd.submission.client_id,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        ):
             return CommandFailure(
                 ok=False,
                 protocol_major=PROTOCOL_MAJOR,

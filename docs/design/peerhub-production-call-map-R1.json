@@ -6257,9 +6257,9 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_error -> OperationalErrorService.report_error",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_error -> peerhub.client:Client.submit(ReportErrorCommand) -> ApplicationAPI.submit() -> OperationalErrorService.report_error",
       "transactional_owner": "OperationalErrorService/QuarantineReviewCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Operational-error result or quarantine-review record/list",
       "external_effects": "Persists error counters and quarantine-review decisions; may update health quarantine state",
@@ -6379,7 +6379,8 @@
           "Record durable operational-error evidence",
           "Append one report to an operational-error series"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "error review list",

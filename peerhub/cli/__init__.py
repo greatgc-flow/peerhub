@@ -60,6 +60,10 @@ from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import ProcessSupervisor  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.runtime import create_read_runtime, create_runtime
+from peerhub.client import Client
+from peerhub.application.commands import SubmissionMetadata
+from peerhub.application.commands.operational_errors import ReportErrorCommand
+from peerhub.core.ports import RequestContext
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
@@ -1878,28 +1882,57 @@ def _run_error(parsed: argparse.Namespace) -> int:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             if parsed.error_action == "report":
-                submission = runtime.operational_error_service.report_error(
+                # R4/P4b template-domain migration (ratified 2026-09-19):
+                # routed through ApplicationAPI.submit() via Client, not a
+                # direct OperationalErrorService call -- see
+                # docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md.
+                from peerhub.core.identity import AuthenticatedSubject
+                client = Client(
+                    runtime.application_api,
+                    caller=RequestContext(
+                        principal=AuthenticatedSubject(
+                            principal_id=parsed.actor,
+                            evidence_source="cli-argument",
+                        ).principal_id,
+                        client_id="peerhub-cli",
+                    ),
+                )
+                outcome = client.submit(ReportErrorCommand(
+                    submission=SubmissionMetadata(
+                        client_request_id=context.ids.new_id("error-report-request"),
+                        correlation_id=context.ids.new_id("error-report-correlation"),
+                        client_id="peerhub-cli",
+                        actor_id=parsed.actor,
+                        scope={},
+                        idempotency_key=context.ids.new_id("error-report-idempotency"),
+                        expected_policy_revision=None,
+                        expected_configuration_revision=None,
+                        client_timestamp=context.clock.now(),
+                    ),
                     peer_key=parsed.peer,
                     pattern=parsed.pattern,
                     severity=parsed.severity,
                     detail=parsed.detail,
                     actor_id=parsed.actor,
                     threshold=parsed.threshold,
-                )
-                target = runtime.governance_broker.get_target(
-                    submission.receipt.target_id
-                )
-                assert target is not None
-                if parsed.json:
-                    print(json.dumps(_json_safe(target.state)))
+                ))
+                if outcome.ok:
+                    target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                    target = runtime.governance_broker.get_target(target_id)
+                    assert target is not None
+                    if parsed.json:
+                        print(json.dumps(_json_safe(target.state)))
+                    else:
+                        print(
+                            "Operational error recorded "
+                            f"(peer={target.state['peer_key']}, "
+                            f"pattern={target.state['pattern']}, "
+                            f"count={target.state['count']})"
+                        )
+                    return 0
                 else:
-                    print(
-                        "Operational error recorded "
-                        f"(peer={target.state['peer_key']}, "
-                        f"pattern={target.state['pattern']}, "
-                        f"count={target.state['count']})"
-                    )
-                return 0
+                    print(f"peerhub error: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
             elif parsed.error_action == "review":
                 if parsed.review_action == "list":
                     reviews = runtime.quarantine_review_coordinator.list_pending_quarantine_reviews()
