@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 from .adapters.contract import PeerAdapter
 from .adapters.registry import resolve_peer_adapter
 from .application.api import AdmissionInputsProvider, ApplicationAPI
+from .application.governance_authorizer import GovernanceAuthorizer
 from .application.workflows import ApplicationWorkflows
 from .core.context import RuntimeContext
 from .dispatch.service import DispatchService
@@ -216,12 +217,14 @@ def _compose_runtime(
         clock=context.clock,
         ids=context.ids,
     )
+    bound_verify_dctx_credential = functools.partial(verify_dctx_credential, context)
     consensus_service = ConsensusService(
         governance_broker,
         clock=context.clock,
         ids=context.ids,
-        credential_verifier=functools.partial(verify_dctx_credential, context),
+        credential_verifier=bound_verify_dctx_credential,
     )
+    governance_authorizer = GovernanceAuthorizer(verifier=bound_verify_dctx_credential)
     task_service = TaskService(governance_broker, clock=context.clock, ids=context.ids)
     lesson_service = LessonService(governance_broker, clock=context.clock, ids=context.ids)
     directive_service = DirectiveService(governance_broker, clock=context.clock, ids=context.ids)
@@ -478,6 +481,7 @@ def _compose_runtime(
         health_revalidation=health_revalidation_coordinator,
         process_lease_sweep=process_lease_sweep_coordinator,
         governance_broker=governance_broker,
+        authorizer=governance_authorizer,
     )
 
     return Runtime(

@@ -31,6 +31,8 @@ class Client:
         self,
         command: Command[R],
         /,
+        *,
+        credential_id: str | None = None,
     ) -> CommandOutcome[R]:
         envelope = CommandEnvelope(
             protocol_major=PROTOCOL_MAJOR,
@@ -47,6 +49,7 @@ class Client:
             expected_policy_revision=command.submission.expected_policy_revision,
             expected_configuration_revision=command.submission.expected_configuration_revision,
             client_timestamp=command.submission.client_timestamp,
+            credential_id=credential_id,
         )
 
         outcome = self._submitter.submit(envelope, caller=self._caller)

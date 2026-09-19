@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, TypeVar, Generic
 
+from peerhub.core.errors import PeerHubError
 from peerhub.core.execution import ExecutionCertainty
 from peerhub.core.ports import RequestContext
 from peerhub.core.protocol import (
@@ -63,6 +64,7 @@ from peerhub.governance.operational_errors import OperationalErrorService
 from peerhub.governance.file_locks import FileLockService
 from peerhub.governance.artifact_records import ArtifactRecordService
 from peerhub.health.service import HealthService
+from peerhub.application.governance_authorizer import GovernanceAuthorizer
 
 
 C = TypeVar("C", bound=Command[Any])  # pyright: ignore[reportUnknownVariableType]
@@ -140,13 +142,15 @@ class ApplicationAPI:
         health_revalidation: HealthRevalidationCoordinator | None = None,
         process_lease_sweep: ProcessLeaseSweepCoordinator | None = None,
         governance_broker: GovernanceBroker | None = None,
+        authorizer: GovernanceAuthorizer | None = None,
     ) -> None:
         self._workflows = workflows
         self._dispatch = dispatch
         self._admission_provider = admission_provider
         self._consensus = consensus
+        self._authorizer = authorizer if authorizer is not None else GovernanceAuthorizer(verifier=None)
         self._registry: dict[str, CommandDescriptor[Any, Any]] = {}  # pyright: ignore[reportInvalidTypeArguments]
-        
+
         self._register_builtins()
         if governance_broker is not None:
             self._register_effect_status(governance_broker)
@@ -529,8 +533,25 @@ class ApplicationAPI:
                 ),
             )
 
-        # 4. Auth (assume caller context checks out for this skeleton, normally we'd check `caller.client_id == cmd.submission.client_id`)
-        if caller.client_id != cmd.submission.client_id:  # pyright: ignore[reportUnknownMemberType]
+        # 4. Auth: gateway-level GovernanceAuthorizer (R4/P4b, ratified
+        # 2026-09-19). Verified when a credential is presented on the
+        # envelope; otherwise the pre-existing asserted client-identity check.
+        if not self._authorizer.authorize(
+            caller=caller,
+            envelope=envelope,
+            submission_client_id=cmd.submission.client_id,  # pyright: ignore[reportUnknownMemberType, reportUnknownArgumentType]
+        ):
+            if envelope.credential_id is not None:
+                # Verified path failed: a credential was presented but did
+                # not verify for the claimed actor -- distinct from a plain
+                # asserted client_id mismatch, both in code and message, so
+                # a caller (or a human reading CLI stderr) can tell the two
+                # failure modes apart.
+                auth_code = ErrorCode.ACTOR_UNAUTHORIZED
+                auth_message = "credential does not verify for this actor"
+            else:
+                auth_code = ErrorCode.CLIENT_UNKNOWN
+                auth_message = "Client ID mismatch"
             return CommandFailure(
                 ok=False,
                 protocol_major=PROTOCOL_MAJOR,
@@ -540,11 +561,11 @@ class ApplicationAPI:
                 correlation_id=envelope.correlation_id,
                 command_id=None,
                 error=ErrorDetail(
-                    code=ErrorCode.CLIENT_UNKNOWN,
+                    code=auth_code,
                     phase=ErrorPhase.VALIDATION,
                     execution_certainty=ExecutionCertainty.NOT_STARTED,
                     retry_disposition=RetryDisposition.NEVER,
-                    message="Client ID mismatch",
+                    message=auth_message,
                     details={},
                 ),
             )
@@ -609,6 +630,33 @@ class ApplicationAPI:
                     execution_certainty=ExecutionCertainty.NOT_STARTED,
                     retry_disposition=RetryDisposition.NEVER,
                     message=f"Record not found: {exc}",
+                    details={},
+                ),
+            )
+        except PeerHubError as exc:
+            # R4/P4b (found migrating consensus, 2026-09-19): PeerHubError
+            # subclasses already carry a precise error_code (see
+            # peerhub/core/errors.py's protocol-code mapping), but nothing
+            # here ever read it before this fix -- every domain validation
+            # error (InvalidMutationError, ActorUnauthorizedError, etc.)
+            # fell through to the generic Exception branch below as an
+            # opaque "Internal server error", discarding the real message.
+            # This was a pre-existing gap in ApplicationAPI.submit(),
+            # invisible until a gateway-routed call actually raised one.
+            return CommandFailure(
+                ok=False,
+                protocol_major=PROTOCOL_MAJOR,
+                protocol_minor=PROTOCOL_MINOR,
+                schema_version=SCHEMA_VERSION,
+                diagnostic_id="diag-10",
+                correlation_id=envelope.correlation_id,
+                command_id=None,
+                error=ErrorDetail(
+                    code=exc.error_code,
+                    phase=ErrorPhase.VALIDATION,
+                    execution_certainty=ExecutionCertainty.NOT_STARTED,
+                    retry_disposition=RetryDisposition.NEVER,
+                    message=str(exc),
                     details={},
                 ),
             )

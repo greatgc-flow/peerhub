@@ -81,6 +81,7 @@ def register_consensus_handlers(
             str(params["round_id"]),
             str(params["actor_id"]),
             str(params["choice"]),
+            credential_id=envelope.credential_id,
         )
 
     def decode_check(envelope: CommandEnvelope) -> ConsensusCheckCommand:
@@ -125,6 +126,7 @@ def register_consensus_handlers(
             command.round_id,
             actor_id=command.actor_id,
             choice=command.choice,
+            credential_id=command.credential_id,
         ),
         receipt,
         available,

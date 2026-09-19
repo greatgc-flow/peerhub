@@ -433,6 +433,12 @@ class CommandEnvelope:
     expected_policy_revision: RevisionValue | None
     expected_configuration_revision: RevisionValue | None
     client_timestamp: int
+    credential_id: str | None = None
+    """Optional D-CTX credential (R4/P4b gateway authorization, see
+    peerhub.application.governance_authorizer.GovernanceAuthorizer). When
+    present, the gateway verifies it against ``actor_id`` before admission;
+    when absent, the call remains a valid asserted actor claim unless the
+    specific command has opted into ``verified_required``."""
 
     def __post_init__(self) -> None:
         _validate_protocol_component(

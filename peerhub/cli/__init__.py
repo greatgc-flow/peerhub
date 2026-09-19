@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from peerhub.persistence.sqlite import SqliteReadUnitOfWork
     from peerhub.telemetry.contract import UsageProjectionSnapshot
+    from peerhub.runtime import Runtime
 
 from peerhub.adapters.registry import (
     ExecutableNotFoundError,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
@@ -37,8 +38,6 @@ from peerhub.application.direct_ask import (
     DirectAskResult,
     execute_direct_ask,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 )
-from peerhub.application.lesson_broadcast import LessonBroadcastCoordinator
-from peerhub.application.room_broadcast import RoomBroadcastCoordinator
 from peerhub.application.peer_registry import collect_model_status
 from peerhub.application.proposals import ProposalVoteResult, load_proposal_voters  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.role_assignment import RoleReleaseDisposition
@@ -48,10 +47,9 @@ from peerhub.application.legacy import legacy_thread_slug
 from peerhub.application.config_paths import resolve_config_paths  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.arbiter_review import load_final_arbiter_policy  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.workspace_identity import detect_workspace_home_id
-from peerhub.application.thread_new import create_thread_new
 from peerhub.core.context import Clock, IdSource, PathLayout, RuntimeContext
 from peerhub.core.execution import ExecutionCertainty, TransportLimits  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
-from peerhub.core.protocol import JsonValue
+from peerhub.core.protocol import CommandOutcome, JsonValue
 from peerhub.core.identity import (
     CallerIdentityProvider,
     LocalProcessCallerIdentityProvider,
@@ -61,6 +59,52 @@ from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import ProcessSupervisor  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.runtime import create_read_runtime, create_runtime, verify_dctx_credential
+from peerhub.client import Client
+from peerhub.application.commands import Command, SubmissionMetadata
+from peerhub.application.commands.operational_errors import ReportErrorCommand
+from peerhub.application.commands.feedback import (
+    FeedbackAddCommand,
+    FeedbackResolveCommand,
+)
+from peerhub.application.commands.artifacts import (
+    ArtifactClaimCommand,
+    ArtifactFinalizeCommand,
+    ArtifactStatusCommand,
+)
+from peerhub.application.commands.locks import (
+    LockAcquireCommand,
+    LockReleaseCommand,
+)
+from peerhub.application.commands.tasks import TaskCheckpointCommand
+from peerhub.application.commands.consensus import ConsensusVoteCommand
+from peerhub.application.commands.leadership import (
+    LeaderClaimCommand,
+    LeaderYieldCommand,
+)
+from peerhub.application.commands.roles import (
+    AssignRoleCommand,
+    ReleaseRoleCommand,
+)
+from peerhub.application.commands.lessons import (
+    LessonActivateCommand,
+    LessonBroadcastCommand,
+    LessonRetireCommand,
+)
+from peerhub.application.commands.rooms import (
+    AppendHandoffCommand,
+    ClearRoomCommand,
+    ContinuityCheckpointCommand,
+    MessageMarkReadCommand,
+    MessageSendCommand,
+    NewTopicCommand,
+    RoomBroadcastCommand,
+    ThreadAppendCommand,
+    ThreadNewCommand,
+    ThreadPromoteCommand,
+    ThreadReactCommand,
+    UpdateStatusCommand,
+)
+from peerhub.core.ports import RequestContext
 from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
@@ -628,14 +672,34 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     print(f"Consensus round {parsed.round_id} proposed (phase={payload['phase']}, quorum required={payload['quorum_required']})")
                 return 0
             if parsed.consensus_action == "vote":
+                # R4/P4b final domain (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client, with credential_id
+                # threaded onto the envelope so GovernanceAuthorizer
+                # verifies it BEFORE ConsensusService.cast_vote ever runs
+                # -- see docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md.
+                # ConsensusService's own domain-level credential check is
+                # kept as defense-in-depth (see its inline comment) rather
+                # than removed, since direct/internal callers still rely
+                # on it and it also enforces verified_required, which the
+                # generic gateway cannot see.
                 actor_id = _require_actor_id(parsed.actor, parsed.credential_id)
-                submission = service.cast_vote(
-                    parsed.round_id,
-                    actor_id=actor_id,
-                    choice=parsed.choice,
+                outcome = _submit_via_gateway(
+                    runtime,
+                    ConsensusVoteCommand(
+                        submission=_cli_submission(
+                            context, actor_id=actor_id, request_kind="consensus-vote"
+                        ),
+                        round_id=parsed.round_id,
+                        actor_id=actor_id,
+                        choice=parsed.choice,
+                    ),
                     credential_id=parsed.credential_id,
                 )
-                target = runtime.governance_broker.get_target(submission.receipt.target_id)
+                if not outcome.ok:
+                    print(f"peerhub consensus: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 state = cast(dict[str, Any], target.state)
                 payload: dict[str, Any] = {"round_id": parsed.round_id, "phase": state["phase"], "quorum": state["quorum"]}
@@ -761,16 +825,46 @@ def _run_task(parsed: argparse.Namespace) -> int:
             service = TaskService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             if action == "create":
                 submission = service.create(task_id=parsed.task_id, summary=parsed.summary, spec=parsed.spec, creator_id=parsed.creator, room_id=parsed.room_id or None)
+                target_id = submission.receipt.target_id
             elif action == "claim-start":
                 submission = service.claim_start(parsed.task_id, actor_id=parsed.actor, request_id=parsed.request_id, coordinator=parsed.coordinator, attempt_id=parsed.attempt_id)
+                target_id = submission.receipt.target_id
             elif action == "checkpoint":
-                submission = service.checkpoint(parsed.task_id, actor_id=parsed.actor, checkpoint_id=parsed.checkpoint_id, stage=parsed.stage, request_id=parsed.request_id, attempt_id=parsed.attempt_id, resume_token_ref=parsed.resume_token or None, completed_units=tuple(x for x in parsed.completed.split(",") if x), remaining_units=tuple(x for x in parsed.remaining.split(",") if x))
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client -- the only task action
+                # with a registered ApplicationAPI command today
+                # (coordination.task.checkpoint); create/claim-start/complete/
+                # fail/cancel have no registered command yet and remain
+                # direct TaskService calls until that gap is closed
+                # separately.
+                outcome = _submit_via_gateway(runtime, TaskCheckpointCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="task-checkpoint"
+                    ),
+                    task_id=parsed.task_id,
+                    actor_id=parsed.actor,
+                    checkpoint_id=parsed.checkpoint_id,
+                    stage=parsed.stage,
+                    request_id=parsed.request_id,
+                    attempt_id=parsed.attempt_id,
+                    resume_token_ref=parsed.resume_token or None,
+                    completed_units=tuple(x for x in parsed.completed.split(",") if x),
+                    remaining_units=tuple(x for x in parsed.remaining.split(",") if x),
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub task: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "complete":
                 submission = service.complete(parsed.task_id, actor_id=parsed.actor)
+                target_id = submission.receipt.target_id
             elif action == "fail":
                 submission = service.fail(parsed.task_id, actor_id=parsed.actor, failure_class=parsed.failure_class, reason=parsed.reason)
+                target_id = submission.receipt.target_id
             elif action == "cancel":
                 submission = service.cancel(parsed.task_id, actor_id=parsed.actor, reason=parsed.reason)
+                target_id = submission.receipt.target_id
             else:
                 target = runtime.governance_broker.get_target(parsed.task_id)
                 if target is None:
@@ -780,7 +874,7 @@ def _run_task(parsed: argparse.Namespace) -> int:
                 else:
                     print(f"Task {parsed.task_id}: state={target.state['state']}")
                 return 0
-            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            target = runtime.governance_broker.get_target(target_id)
             assert target is not None
             state = cast(dict[str, Any], target.state)
             payload = _json_safe(target.state)
@@ -819,17 +913,54 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = LessonService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             if action == "propose":
+                # NOT migrated (R4/P4b, 2026-09-19): the registered
+                # governance.lesson.propose command's LessonProposeCommand
+                # has no expires_at field, so routing through it would
+                # silently drop the CLI's --expires-at support -- a real
+                # functional regression, not just a routing change. Left as
+                # a direct call until that command is extended.
                 submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id, expires_at=parsed.expires_at)
+                target_id = submission.receipt.target_id
             elif action == "approve":
                 submission = service.approve(parsed.lesson_id, approved_by_actor_id=parsed.approved_by, authority_target_id=parsed.authority_target_id)
+                target_id = submission.receipt.target_id
             elif action == "activate":
-                submission = service.activate(parsed.lesson_id, actor_id=parsed.actor)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LessonActivateCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="lesson-activate"
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    actor_id=parsed.actor,
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "retire":
-                submission = service.retire(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LessonRetireCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="lesson-retire"
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    actor_id=parsed.actor,
+                    reason=parsed.reason,
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "supersede":
                 submission = service.supersede(parsed.lesson_id, actor_id=parsed.actor, replacement_lesson_id=parsed.replacement_lesson_id)
+                target_id = submission.receipt.target_id
             elif action == "quarantine":
                 submission = service.quarantine(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason, evidence=parsed.evidence)
+                target_id = submission.receipt.target_id
             elif action == "sweep":
                 submissions = service.sweep_expired()
                 retired_ids = [s.receipt.target_id for s in submissions]
@@ -865,32 +996,30 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                     print(f"[HUB] No active lessons for peer={parsed.target_peer}")
                 return 0
             elif action == "broadcast":
-                result = LessonBroadcastCoordinator(
-                    broker=runtime.governance_broker,
-                    lessons=service,
-                    rooms=runtime.rooms_service,
-                ).broadcast(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LessonBroadcastCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.sender_profile_id, request_kind="lesson-broadcast"
+                    ),
                     lesson_id=parsed.lesson_id,
                     room_id=parsed.room_id,
                     sender_instance_id=parsed.sender_instance_id,
                     sender_profile_id=parsed.sender_profile_id,
-                    created_at=context.clock.now(),
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                payload = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                recipient_profile_ids = cast(
+                    "list[str]", payload["recipient_profile_ids"]
                 )
-                payload = {
-                    "campaign_id": result.campaign_id,
-                    "campaign_target_id": result.campaign_target_id,
-                    "lesson_id": result.lesson_id,
-                    "room_id": result.room_id,
-                    "recipient_profile_ids": result.recipient_profile_ids,
-                    "inbox_message_target_ids": result.inbox_message_target_ids,
-                    "delivery_target_ids": result.delivery_target_ids,
-                }
                 if parsed.json:
                     print(json.dumps(_json_safe(payload)))
-                elif result.recipient_profile_ids:
+                elif recipient_profile_ids:
                     print(
                         f"LESSON-BROADCAST {parsed.lesson_id} -> "
-                        f"{','.join(result.recipient_profile_ids)}"
+                        f"{','.join(recipient_profile_ids)}"
                     )
                 else:
                     print(
@@ -907,7 +1036,7 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                 else:
                     print(f"Lesson {parsed.lesson_id}: lifecycle={target.state['lifecycle']}")
                 return 0
-            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            target = runtime.governance_broker.get_target(target_id)
             assert target is not None
             state = cast(dict[str, Any], target.state)
             if parsed.json:
@@ -1458,14 +1587,21 @@ def _run_role(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.role_assignment_service
             if parsed.role_action == "assign":
-                submission = service.assign_role(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, AssignRoleCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="role-assign"
+                    ),
                     role=parsed.role,
                     peer_node_id=parsed.peer_node_id,
                     actor_id=parsed.actor,
-                )
-                target = runtime.governance_broker.get_target(
-                    submission.receipt.target_id
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub role: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 if parsed.json:
                     print(json.dumps(_json_safe(target.state)))
@@ -1476,22 +1612,23 @@ def _run_role(parsed: argparse.Namespace) -> int:
                     )
                 return 0
             if parsed.role_action == "release":
-                result = service.release_role(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ReleaseRoleCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="role-release"
+                    ),
                     role=parsed.role,
                     actor_id=parsed.actor,
                     peer_node_id=parsed.peer_node_id,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub role: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
-                    target = None if result.target is None else {
-                        "target_id": result.target.target_id,
-                        "revision": result.target.revision,
-                        "state": result.target.state,
-                    }
-                    print(json.dumps(_json_safe({
-                        "disposition": result.disposition.value,
-                        "target": target,
-                    })))
-                elif result.disposition is RoleReleaseDisposition.NOT_ASSIGNED:
+                    print(json.dumps(_json_safe(result)))
+                elif result["disposition"] == RoleReleaseDisposition.NOT_ASSIGNED.value:
                     print(f"Warning: role {parsed.role} is not assigned.")
                 else:
                     print(f"Role {parsed.role} released.")
@@ -1549,50 +1686,63 @@ def _run_leadership(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.leadership_service
             if parsed.leadership_action == "claim":
-                result = service.claim_leadership(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client. Wire shape is the
+                # registered command's own (flat: disposition/status/term/
+                # challenge_until alongside receipt fields), not the old
+                # CLI-local nested {"disposition":, "target": {...}} shape.
+                outcome = _submit_via_gateway(runtime, LeaderClaimCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="leadership-claim"
+                    ),
                     peer_node_id=parsed.peer_node_id,
                     actor_id=parsed.actor,
                     reason=parsed.reason,
                     domain=parsed.domain,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub leadership: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                claim_result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
-                    print(json.dumps(_json_safe({
-                        "disposition": result.disposition.value,
-                        "target": {
-                            "target_id": result.target.target_id,
-                            "revision": result.target.revision,
-                            "state": result.target.state,
-                        },
-                    })))
+                    print(json.dumps(_json_safe(claim_result)))
                 else:
                     print(
                         f"Leadership claimed by {parsed.peer_node_id} "
-                        f"(status={result.target.state['status']}, "
-                        f"disposition={result.disposition.value}, "
-                        f"challenge_until="
-                        f"{result.target.state['challenge_until']})"
+                        f"(status={claim_result['status']}, "
+                        f"disposition={claim_result['disposition']}, "
+                        f"challenge_until={claim_result['challenge_until']})"
                     )
                 return 0
 
             if parsed.leadership_action == "yield":
-                outcome = service.yield_leadership(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, LeaderYieldCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="leadership-yield"
+                    ),
                     yielding_peer_id=parsed.peer_node_id,
                     actor_id=parsed.actor,
                     reason=parsed.reason,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub leadership: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                yield_result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                owner_mismatch = yield_result["owner_mismatch"]
+                previous_leader_peer_node_id = yield_result["previous_leader_peer_node_id"]
                 if parsed.json:
                     print(json.dumps(_json_safe({
-                        "owner_mismatch": outcome.owner_mismatch,
-                        "previous_leader_peer_node_id": (
-                            outcome.previous_leader_peer_node_id
-                        ),
+                        "owner_mismatch": owner_mismatch,
+                        "previous_leader_peer_node_id": previous_leader_peer_node_id,
                     })))
                 else:
-                    if outcome.owner_mismatch:
+                    if owner_mismatch:
                         print(
                             f"Warning: {parsed.peer_node_id} yielded "
                             f"leadership, but the current leader is "
-                            f"{outcome.previous_leader_peer_node_id}.",
+                            f"{previous_leader_peer_node_id}.",
                             file=sys.stderr,
                         )
                     print(
@@ -1765,17 +1915,25 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.feedback_service
             if parsed.feedback_action == "add":
-                submission = service.add_feedback(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client, not a direct
+                # FeedbackService call.
+                outcome = _submit_via_gateway(runtime, FeedbackAddCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="feedback-add"
+                    ),
                     source_peer=parsed.source_peer,
                     category=parsed.category,
                     severity=parsed.severity,
                     title=parsed.title,
                     detail=parsed.detail,
                     actor_id=parsed.actor,
-                )
-                target = runtime.governance_broker.get_target(
-                    submission.receipt.target_id
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub feedback: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 if parsed.json:
                     print(json.dumps(_json_safe(target.state)))
@@ -1788,15 +1946,23 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
                 return 0
 
             if parsed.feedback_action == "resolve":
-                submission = service.resolve_feedback(
-                    parsed.feedback_id,
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client, not a direct
+                # FeedbackService call.
+                outcome = _submit_via_gateway(runtime, FeedbackResolveCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="feedback-resolve"
+                    ),
+                    feedback_id=parsed.feedback_id,
                     status=parsed.status,
                     owner=parsed.owner,
                     actor_id=parsed.actor,
-                )
-                target = runtime.governance_broker.get_target(
-                    submission.receipt.target_id
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub feedback: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 if parsed.json:
                     print(json.dumps(_json_safe(target.state)))
@@ -1836,6 +2002,67 @@ def _run_feedback(parsed: argparse.Namespace) -> int:
         return 2
 
 
+_GATEWAY_CLIENT_ID = "peerhub-cli"
+"""R4/P4b (docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md):
+stable client_id used by every CLI entrance migrated onto the
+ApplicationAPI gateway, for both the RequestContext (caller) and the
+SubmissionMetadata (submission) built for a given command -- these two
+must match for the gateway's asserted-path GovernanceAuthorizer check to
+pass, since the CLI presents no D-CTX credential of its own."""
+
+
+def _cli_submission(
+    context: RuntimeContext, *, actor_id: str | None, request_kind: str
+) -> SubmissionMetadata:
+    """Build SubmissionMetadata for a gateway-routed CLI command.
+
+    ``request_kind`` is a short label (e.g. "error-report") used only to
+    make generated request/correlation/idempotency IDs recognizable in
+    logs -- it carries no semantic meaning to the gateway itself."""
+
+    return SubmissionMetadata(
+        client_request_id=context.ids.new_id(f"{request_kind}-request"),
+        correlation_id=context.ids.new_id(f"{request_kind}-correlation"),
+        client_id=_GATEWAY_CLIENT_ID,
+        actor_id=actor_id,
+        scope={},
+        idempotency_key=context.ids.new_id(f"{request_kind}-idempotency"),
+        expected_policy_revision=None,
+        expected_configuration_revision=None,
+        client_timestamp=context.clock.now(),
+    )
+
+
+def _submit_via_gateway(
+    runtime: "Runtime",
+    command: "Command[Any]",
+    *,
+    credential_id: str | None = None,
+) -> "CommandOutcome[Any]":
+    """Submit one command through ApplicationAPI.submit() (R4/P4b gateway).
+
+    Without ``credential_id``: a locally-authenticated CLI caller
+    asserting its own actor_id (no D-CTX credential presented -- see
+    GovernanceAuthorizer's asserted path). With ``credential_id``: the
+    gateway verifies it against the command's actor_id via
+    GovernanceAuthorizer's verified path before the domain handler runs
+    at all (currently only `consensus vote` presents one)."""
+
+    from peerhub.core.identity import AuthenticatedSubject
+
+    principal = command.submission.actor_id or _GATEWAY_CLIENT_ID
+    client = Client(
+        runtime.application_api,
+        caller=RequestContext(
+            principal=AuthenticatedSubject(
+                principal_id=principal, evidence_source="cli-argument"
+            ).principal_id,
+            client_id=_GATEWAY_CLIENT_ID,
+        ),
+    )
+    return client.submit(command, credential_id=credential_id)
+
+
 def _run_error(parsed: argparse.Namespace) -> int:
     workspace_root = resolve_workspace(parsed.workspace).root
     paths = PathLayout.for_workspace(workspace_root)
@@ -1859,28 +2086,38 @@ def _run_error(parsed: argparse.Namespace) -> int:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             if parsed.error_action == "report":
-                submission = runtime.operational_error_service.report_error(
+                # R4/P4b template-domain migration (ratified 2026-09-19):
+                # routed through ApplicationAPI.submit() via Client, not a
+                # direct OperationalErrorService call -- see
+                # docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md.
+                outcome = _submit_via_gateway(runtime, ReportErrorCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="error-report"
+                    ),
                     peer_key=parsed.peer,
                     pattern=parsed.pattern,
                     severity=parsed.severity,
                     detail=parsed.detail,
                     actor_id=parsed.actor,
                     threshold=parsed.threshold,
-                )
-                target = runtime.governance_broker.get_target(
-                    submission.receipt.target_id
-                )
-                assert target is not None
-                if parsed.json:
-                    print(json.dumps(_json_safe(target.state)))
+                ))
+                if outcome.ok:
+                    target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                    target = runtime.governance_broker.get_target(target_id)
+                    assert target is not None
+                    if parsed.json:
+                        print(json.dumps(_json_safe(target.state)))
+                    else:
+                        print(
+                            "Operational error recorded "
+                            f"(peer={target.state['peer_key']}, "
+                            f"pattern={target.state['pattern']}, "
+                            f"count={target.state['count']})"
+                        )
+                    return 0
                 else:
-                    print(
-                        "Operational error recorded "
-                        f"(peer={target.state['peer_key']}, "
-                        f"pattern={target.state['pattern']}, "
-                        f"count={target.state['count']})"
-                    )
-                return 0
+                    print(f"peerhub error: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
             elif parsed.error_action == "review":
                 if parsed.review_action == "list":
                     reviews = runtime.quarantine_review_coordinator.list_pending_quarantine_reviews()
@@ -1993,34 +2230,77 @@ def _run_room(parsed: argparse.Namespace) -> int:
             action = parsed.room_action
             if action == "create":
                 submission = service.create_room(room_id=parsed.room_id, topic_id=parsed.topic_id, title=parsed.title, creator_id=parsed.creator, participants=tuple(x for x in parsed.participants.split(",") if x))
+                target_id = submission.receipt.target_id
             elif action == "thread-new":
-                result = create_thread_new(
-                    service,
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ThreadNewCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.creator or "cc", request_kind="room-thread-new"
+                    ),
                     thread_id=legacy_thread_slug(parsed.topic),
                     room_id=parsed.room_id,
                     subject=parsed.topic,
                     creator_id=parsed.creator or "cc",
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result_payload = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(_json_safe({
-                        "thread_id": result.thread_id,
-                        "created": result.created,
-                        "message": result.message,
+                        "thread_id": result_payload["thread_id"],
+                        "created": result_payload["created"],
+                        "message": result_payload["message"],
                     })))
-                elif result.message is not None:
-                    print(f"[HUB] {result.message}")
+                elif result_payload["message"] is not None:
+                    print(f"[HUB] {result_payload['message']}")
                 else:
                     print(
-                        f"[HUB] THREAD-NEW '{result.thread_id}' "
-                        f"| from={parsed.creator} | file={result.thread_id}.jsonl"
+                        f"[HUB] THREAD-NEW '{result_payload['thread_id']}' "
+                        f"| from={parsed.creator} | file={result_payload['thread_id']}.jsonl"
                     )
                 return 0
             elif action == "create-thread":
-                submission = service.create_thread(thread_id=parsed.thread_id, room_id=parsed.room_id, subject=parsed.subject, creator_id=parsed.creator)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, NewTopicCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.creator, request_kind="room-create-thread"
+                    ),
+                    thread_id=parsed.thread_id,
+                    room_id=parsed.room_id,
+                    subject=parsed.subject,
+                    creator_id=parsed.creator,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "append-message":
-                submission = service.append_message(message_id=parsed.message_id, room_id=parsed.room_id, thread_id=parsed.thread_id, author_id=parsed.author, body=parsed.body)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ThreadAppendCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.author, request_kind="room-append-message"
+                    ),
+                    message_id=parsed.message_id,
+                    room_id=parsed.room_id,
+                    thread_id=parsed.thread_id,
+                    author_id=parsed.author,
+                    body=parsed.body,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "send":
-                submission = service.send_message(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, MessageSendCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.sender_profile_id, request_kind="room-send"
+                    ),
                     room_id=parsed.room_id,
                     sender_instance_id=parsed.sender_instance_id,
                     sender_profile_id=parsed.sender_profile_id,
@@ -2031,7 +2311,11 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     thread_ref=parsed.thread_ref,
                     resource_ref=parsed.resource_ref,
                     correlation_id=parsed.correlation_id,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "broadcast":
                 targets = (
                     None
@@ -2042,28 +2326,35 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         if target.strip()
                     )
                 )
-                result = RoomBroadcastCoordinator(rooms=service).broadcast(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, RoomBroadcastCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.from_, request_kind="room-broadcast"
+                    ),
                     room_id=parsed.room_id,
                     from_=parsed.from_,
                     msg=parsed.msg,
                     targets=targets,
                     msg_type=parsed.msg_type,
                     priority=parsed.priority,
-                )
-                envelope = {
-                    "room_id": result.room_id,
-                    "delivered": result.delivered,
-                }
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                envelope = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(_json_safe(envelope)))
                 else:
+                    delivered = cast(
+                        "list[Mapping[str, JsonValue]]", envelope["delivered"]
+                    )
                     successes = sum(
-                        outcome["status"] == "OK"
-                        for outcome in result.delivered
+                        item["status"] == "OK" for item in delivered
                     )
                     print(
                         f"Broadcast delivered to {successes}/"
-                        f"{len(result.delivered)} target(s)"
+                        f"{len(delivered)} target(s)"
                     )
                 return 0
             elif action == "check-inbox":
@@ -2098,35 +2389,87 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         )
                 return 0
             elif action == "mark-read":
-                submission = service.mark_read(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, MessageMarkReadCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.recipient_profile_id, request_kind="room-mark-read"
+                    ),
                     room_id=parsed.room_id,
                     recipient_instance_id=parsed.recipient_instance_id,
                     recipient_profile_id=parsed.recipient_profile_id,
                     up_through_sequence=parsed.up_through_sequence,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "promote-message":
-                submission = service.promote_message(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ThreadPromoteCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="room-promote-message"
+                    ),
                     message_id=parsed.message_id,
                     room_id=parsed.room_id,
                     thread_id=parsed.thread_id,
                     actor_id=parsed.actor,
-                )
-            elif action == "react":
-                submission = service.react(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
-            elif action == "unreact":
-                submission = service.unreact(message_id=parsed.message_id, room_id=parsed.room_id, actor_instance_id=parsed.actor_instance_id, actor_profile_id=parsed.actor_profile_id, reaction_type=parsed.reaction_type)
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+            elif action in ("react", "unreact"):
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client. Both CLI actions share
+                # one registered command (ThreadReactCommand.action ADD/REMOVE),
+                # matching how ConsensusService-style domains already do it.
+                outcome = _submit_via_gateway(runtime, ThreadReactCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor_profile_id, request_kind="room-react"
+                    ),
+                    message_id=parsed.message_id,
+                    room_id=parsed.room_id,
+                    actor_instance_id=parsed.actor_instance_id,
+                    actor_profile_id=parsed.actor_profile_id,
+                    reaction_type=parsed.reaction_type,
+                    action="ADD" if action == "react" else "REMOVE",
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "append-handoff":
-                submission = service.append_handoff_note(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, AppendHandoffCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="room-append-handoff"
+                    ),
                     room_id=parsed.room_id,
                     section=parsed.section,
                     text=parsed.text,
                     actor_id=parsed.actor,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "checkpoint":
-                checkpoint = service.checkpoint(
-                    parsed.room_id,
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ContinuityCheckpointCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor or "peerhub", request_kind="room-checkpoint"
+                    ),
+                    room_id=parsed.room_id,
                     actor_id=parsed.actor or "peerhub",
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                checkpoint = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 export_format = parsed.export or (
                     "json" if parsed.json else "markdown"
                 )
@@ -2153,20 +2496,37 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 print(json.dumps(_json_safe(context_envelope)))
                 return 0
             elif action == "update-status":
-                fields: dict[str, str] = {}
-                if parsed.mission is not None:
-                    fields["mission"] = parsed.mission
-                if parsed.blocked is not None:
-                    fields["blocked"] = parsed.blocked
-                if parsed.phase is not None:
-                    fields["phase"] = parsed.phase
-                submission = service.update_room_summary(
-                    parsed.room_id,
-                    actor_id=parsed.actor or "peerhub-cli",
-                    **fields,
-                )
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, UpdateStatusCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor or "peerhub-cli", request_kind="room-update-status"
+                    ),
+                    room_id=parsed.room_id,
+                    mission=parsed.mission,
+                    blocked=parsed.blocked,
+                    phase=parsed.phase,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "clear":
-                submission = service.clear_room(parsed.room_id, new_room_id=parsed.new_room_id, subject=parsed.subject, actor_id=parsed.actor)
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client.
+                outcome = _submit_via_gateway(runtime, ClearRoomCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="room-clear"
+                    ),
+                    old_room_id=parsed.room_id,
+                    new_room_id=parsed.new_room_id,
+                    subject=parsed.subject,
+                    actor_id=parsed.actor,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "rebuild-session-bindings":
                 submission = rebuild_room_session_bindings(
                     runtime.governance_broker,
@@ -2175,6 +2535,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         parsed.room_id
                     ),
                 )
+                target_id = submission.receipt.target_id
             else:
                 result = collect_room_status(service, room_id=parsed.room_id, room_sessions=runtime.room_participation_coordinator)
                 if parsed.json:
@@ -2198,7 +2559,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
                         f"message_count={result['message_count']}"
                     )
                 return 0
-            target = runtime.governance_broker.get_target(submission.receipt.target_id)
+            target = runtime.governance_broker.get_target(target_id)
             assert target is not None
             state = cast(dict[str, Any], target.state)
             if parsed.json:
@@ -4020,14 +4381,22 @@ def _run_lock(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = runtime.file_lock_service
             if parsed.lock_action == "acquire":
-                submission = service.lock_file(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client, not a direct
+                # FileLockService call.
+                outcome = _submit_via_gateway(runtime, LockAcquireCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.owner, request_kind="lock-acquire"
+                    ),
                     name=parsed.name,
                     owner=parsed.owner,
                     lock_scope=parsed.scope,
-                )
-                target = runtime.governance_broker.get_target(
-                    submission.receipt.target_id
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lock: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 if parsed.json:
                     print(json.dumps(_json_safe(target.state)))
@@ -4036,21 +4405,23 @@ def _run_lock(parsed: argparse.Namespace) -> int:
                 return 0
             if parsed.lock_action == "release":
                 from peerhub.governance.file_locks import FileUnlockDisposition
-                result = service.unlock_file(
+                # R4/P4b migration (ratified 2026-09-19): routed through
+                # ApplicationAPI.submit() via Client, not a direct
+                # FileLockService call.
+                outcome = _submit_via_gateway(runtime, LockReleaseCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.owner, request_kind="lock-release"
+                    ),
                     name=parsed.name,
                     owner=parsed.owner,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lock: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
-                    target = None if result.target is None else {
-                        "target_id": result.target.target_id,
-                        "revision": result.target.revision,
-                        "state": result.target.state,
-                    }
-                    print(json.dumps(_json_safe({
-                        "disposition": result.disposition.value,
-                        "target": target,
-                    })))
-                elif result.disposition is FileUnlockDisposition.NOT_LOCKED:
+                    print(json.dumps(_json_safe(result)))
+                elif result["disposition"] == FileUnlockDisposition.NOT_LOCKED.value:
                     print(f"Warning: file {parsed.name} is not locked.")
                 else:
                     print(f"File {parsed.name} unlocked.")
@@ -4113,11 +4484,23 @@ def _run_artifact(parsed: argparse.Namespace) -> int:
     try:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
-            service = runtime.artifact_record_service
+            # R4/P4b migration (ratified 2026-09-19): routed through
+            # ApplicationAPI.submit() via Client, not a direct
+            # ArtifactRecordService call.
             if parsed.artifact_action == "claim":
-                result = service.claim(parsed.name, parsed.peer)
+                outcome = _submit_via_gateway(runtime, ArtifactClaimCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.peer, request_kind="artifact-claim"
+                    ),
+                    name=parsed.name,
+                    owner=parsed.peer,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub artifact: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                artifact_state = cast(Mapping[str, JsonValue], outcome.result["artifact"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
-                    print(json.dumps(_json_safe(result.record.state)))
+                    print(json.dumps(_json_safe(artifact_state)))
                 else:
                     print(
                         f"[HUB] ARTIFACT-CLAIM {parsed.name} | "
@@ -4127,20 +4510,31 @@ def _run_artifact(parsed: argparse.Namespace) -> int:
 
             if parsed.artifact_action == "status":
                 if parsed.name and parsed.peer and parsed.draft_path:
-                    is_local = service.is_workspace_local(parsed.draft_path)
-                    result = service.register_draft(
-                        parsed.name,
+                    is_local = runtime.artifact_record_service.is_workspace_local(
+                        parsed.draft_path
+                    )
+                    outcome = _submit_via_gateway(runtime, ArtifactStatusCommand(
+                        submission=_cli_submission(
+                            context,
+                            actor_id=parsed.peer,
+                            request_kind="artifact-draft",
+                        ),
+                        name=parsed.name,
                         peer=parsed.peer,
                         draft_path=parsed.draft_path,
-                    )
+                    ))
+                    if not outcome.ok:
+                        print(f"peerhub artifact: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                        return 2
                     if not is_local:
                         print(
                             "[HUB:WARN] artifact draft path is outside "
                             f"workspace: {parsed.draft_path}",
                             file=sys.stderr,
                         )
+                    artifact_state = cast(Mapping[str, JsonValue], outcome.result["artifact"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                     if parsed.json:
-                        print(json.dumps(_json_safe(result.record.state)))
+                        print(json.dumps(_json_safe(artifact_state)))
                     else:
                         print(
                             f"[HUB] ARTIFACT-DRAFT {parsed.name} | "
@@ -4148,10 +4542,18 @@ def _run_artifact(parsed: argparse.Namespace) -> int:
                         )
                     return 0
 
-                status = service.status(parsed.name)
-                if status.single:
-                    payload: Mapping[str, JsonValue] = (
-                        {} if not status.items else status.items[0].state
+                outcome = _submit_via_gateway(runtime, ArtifactStatusCommand(
+                    submission=_cli_submission(
+                        context, actor_id=None, request_kind="artifact-status"
+                    ),
+                    name=parsed.name,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub artifact: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                if "artifact" in outcome.result:  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType, reportOperatorIssue]
+                    payload: Mapping[str, JsonValue] = cast(
+                        Mapping[str, JsonValue], outcome.result["artifact"]  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                     )
                     print(
                         json.dumps(
@@ -4161,18 +4563,17 @@ def _run_artifact(parsed: argparse.Namespace) -> int:
                     )
                     return 0
 
+                items = cast(
+                    "tuple[Mapping[str, JsonValue], ...]",
+                    outcome.result["items"],  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                )
                 if parsed.json:
-                    print(json.dumps(_json_safe({
-                        "items": tuple(
-                            target.state for target in status.items
-                        )
-                    })))
-                elif not status.items:
+                    print(json.dumps(_json_safe({"items": items})))
+                elif not items:
                     print("No artifact metadata records found.")
                 else:
                     print("artifact\towner\tstatus\tclaimed_at")
-                    for target in status.items:
-                        state = target.state
+                    for state in items:
                         print(
                             f"{state.get('artifact', '')}\t"
                             f"{state.get('owner', '')}\t"
@@ -4181,20 +4582,30 @@ def _run_artifact(parsed: argparse.Namespace) -> int:
                         )
                 return 0
 
-            is_local = service.is_workspace_local(parsed.file_path)
-            result = service.finalize(parsed.name, parsed.file_path)
+            is_local = runtime.artifact_record_service.is_workspace_local(parsed.file_path)
+            outcome = _submit_via_gateway(runtime, ArtifactFinalizeCommand(
+                submission=_cli_submission(
+                    context, actor_id=None, request_kind="artifact-finalize"
+                ),
+                name=parsed.name,
+                file_path=parsed.file_path,
+            ))
+            if not outcome.ok:
+                print(f"peerhub artifact: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                return 2
             if not is_local:
                 print(
                     "[HUB:WARN] artifact final path is outside workspace: "
                     f"{parsed.file_path}",
                     file=sys.stderr,
                 )
+            artifact_state = cast(Mapping[str, JsonValue], outcome.result["artifact"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             if parsed.json:
-                print(json.dumps(_json_safe(result.record.state)))
+                print(json.dumps(_json_safe(artifact_state)))
             else:
                 print(
                     f"[HUB] ARTIFACT-FINALIZE {parsed.name} | "
-                    f"hash={result.record.state.get('hash', '')}"
+                    f"hash={artifact_state.get('hash', '')}"
                 )
             return 0
     except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, PeerHubError, sqlite3.Error) as exc:
