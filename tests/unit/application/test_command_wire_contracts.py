@@ -325,6 +325,7 @@ def test_task_and_lesson_commands_wire_contracts() -> None:
         os=None,
         shell=None,
         task_types=None,
+        expires_at=1_700_000_000,
     )
     assert propose.method == "governance.lesson.propose"
     assert propose.encode_params() == {
@@ -341,6 +342,7 @@ def test_task_and_lesson_commands_wire_contracts() -> None:
         "os": None,
         "shell": None,
         "task_types": None,
+        "expires_at": 1_700_000_000,
     }
 
     activate = LessonActivateCommand(

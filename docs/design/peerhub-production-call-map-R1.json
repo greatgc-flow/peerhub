@@ -3185,16 +3185,16 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_lesson -> LessonService.propose -- NOTE (R4/P4b, 2026-09-19): a governance.lesson.propose command IS registered, but LessonProposeCommand has no expires_at field -- routing through it would silently drop this CLI flag's effect. Left as a direct call until the command is extended to cover expires_at.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance, so authorizer_behavior is ASSERTED_ONLY.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_lesson -> peerhub.client:Client.submit(LessonProposeCommand) -> ApplicationAPI.submit() -> LessonService.propose",
       "transactional_owner": "LessonService/LessonBroadcastCoordinator over GovernanceBroker, RoomsService, and SqliteStateStore UoW",
       "receipt": "Lesson target state, sweep result, or broadcast receipt rendered as JSON/text",
       "external_effects": "Persists lesson lifecycle; broadcast writes room/inbox messages; no vendor process",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_lesson.py::test_cli_lesson_propose_approve_activate_and_status"
+        "tests/integration/application/test_lesson_gateway_cli.py::test_cli_lesson_propose_routes_through_application_api_gateway_with_and_without_expiry"
       ],
       "parser_contract": {
         "arguments": [
@@ -3359,7 +3359,8 @@
           "Manage governance lessons",
           "Propose a new governance lesson"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "lesson approve",

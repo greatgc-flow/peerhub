@@ -101,6 +101,7 @@ from peerhub.application.commands.lessons import (
     LessonActivateCommand,
     LessonApproveCommand,
     LessonBroadcastCommand,
+    LessonProposeCommand,
     LessonQuarantineCommand,
     LessonRetireCommand,
     LessonSupersedeCommand,
@@ -123,7 +124,6 @@ from peerhub.application.commands.rooms import (
     UpdateStatusCommand,
 )
 from peerhub.core.ports import RequestContext
-from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import HANDOFF_LIST_SECTIONS, RoomsService
 from peerhub.dispatch.duty_lease import (
     DutyLeaseSnapshot,
@@ -999,16 +999,34 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
     try:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
-            service = LessonService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             if action == "propose":
-                # NOT migrated (R4/P4b, 2026-09-19): the registered
-                # governance.lesson.propose command's LessonProposeCommand
-                # has no expires_at field, so routing through it would
-                # silently drop the CLI's --expires-at support -- a real
-                # functional regression, not just a routing change. Left as
-                # a direct call until that command is extended.
-                submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id, expires_at=parsed.expires_at)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, LessonProposeCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.proposer,
+                        request_kind="lesson-propose",
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    title=parsed.title,
+                    rule=parsed.rule,
+                    category=parsed.category,
+                    severity=parsed.severity,
+                    proposer_id=parsed.proposer,
+                    affected_peers=tuple(
+                        peer for peer in parsed.affected.split(",") if peer
+                    ),
+                    scope_kind=parsed.scope_kind,
+                    workspace_id=parsed.workspace_id,
+                    sticky=False,
+                    os=None,
+                    shell=None,
+                    task_types=None,
+                    expires_at=parsed.expires_at,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "approve":
                 outcome = _submit_via_gateway(runtime, LessonApproveCommand(
                     submission=_cli_submission(

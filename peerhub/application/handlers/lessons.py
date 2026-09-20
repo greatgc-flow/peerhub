@@ -114,6 +114,7 @@ def register_lesson_handlers(
                 if params.get("task_types") is None
                 else strings(params, "task_types")
             ),
+            integer(params, "expires_at"),
         )
 
     def decode_activate(envelope: CommandEnvelope) -> LessonActivateCommand:
@@ -200,6 +201,7 @@ def register_lesson_handlers(
             os=command.os,
             shell=command.shell,
             task_types=command.task_types,
+            expires_at=command.expires_at,
         ),
         receipt,
         available,

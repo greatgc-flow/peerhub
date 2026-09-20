@@ -202,6 +202,7 @@ def test_legacy_lesson_propose_translates_and_executes(runtime_setup) -> None:
             os=None,
             shell=None,
             task_types=None,
+            expires_at=None,
         )
     )
     assert isinstance(client.submit(translated.command), CommandSuccess)

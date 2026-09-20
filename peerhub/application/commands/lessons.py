@@ -49,9 +49,10 @@ class LessonProposeCommand(Command[Any]):
     os: tuple[str, ...] | None
     shell: tuple[str, ...] | None
     task_types: tuple[str, ...] | None
+    expires_at: int | None
 
     def encode_params(self) -> Mapping[str, JsonValue]:
-        return {"lesson_id": self.lesson_id, "title": self.title, "rule": self.rule, "category": self.category, "severity": self.severity, "proposer_id": self.proposer_id, "affected_peers": self.affected_peers, "scope_kind": self.scope_kind, "workspace_id": self.workspace_id, "sticky": self.sticky, "os": self.os, "shell": self.shell, "task_types": self.task_types}
+        return {"lesson_id": self.lesson_id, "title": self.title, "rule": self.rule, "category": self.category, "severity": self.severity, "proposer_id": self.proposer_id, "affected_peers": self.affected_peers, "scope_kind": self.scope_kind, "workspace_id": self.workspace_id, "sticky": self.sticky, "os": self.os, "shell": self.shell, "task_types": self.task_types, "expires_at": self.expires_at}
 
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:

@@ -4,8 +4,7 @@ routed through ApplicationAPI.submit()
 LessonBroadcastCoordinator directly -- see
 docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md.
 
-`lesson propose` remains a direct call because its registered command is
-missing the CLI's expires_at field."""
+Every lesson mutation is routed through the ApplicationAPI gateway."""
 
 from __future__ import annotations
 
@@ -19,13 +18,14 @@ def _propose_lesson(
     tmp_path: Path,
     *,
     lesson_id: str = "lesson-1",
-    expires_at: int = 4_102_444_800,
+    expires_at: int | None = 4_102_444_800,
+    json_output: bool = False,
 ) -> None:
     # activation requires either an advisory validity.expires_at or a
     # PASSED enforcement result (LessonService.activate) -- pass a
     # far-future expires_at so the migrated `activate`/`retire`/`broadcast`
     # gateway calls below exercise a real, activatable lesson.
-    assert main([
+    args = [
         "lesson", "propose",
         "--workspace", str(tmp_path),
         "--lesson-id", lesson_id,
@@ -35,8 +35,12 @@ def _propose_lesson(
         "--severity", "HIGH",
         "--proposer", "cc",
         "--affected", "cc,cx",
-        "--expires-at", str(expires_at),
-    ]) == 0
+    ]
+    if expires_at is not None:
+        args.extend(["--expires-at", str(expires_at)])
+    if json_output:
+        args.append("--json")
+    assert main(args) == 0
 
 
 def _propose_and_approve(tmp_path: Path) -> None:
@@ -160,6 +164,56 @@ def test_cli_lesson_activate_rejects_mismatched_asserted_client(
         "--actor", "cc",
     ])
     assert exit_code == 2
+
+
+def test_cli_lesson_propose_routes_through_application_api_gateway_with_and_without_expiry(
+    tmp_path: Path, capsys
+) -> None:
+    _propose_lesson(
+        tmp_path,
+        lesson_id="lesson-expiring",
+        expires_at=4_102_444_800,
+        json_output=True,
+    )
+    expiring = json.loads(capsys.readouterr().out)
+    assert expiring["validity"]["expires_at"] == 4_102_444_800
+
+    _propose_lesson(
+        tmp_path,
+        lesson_id="lesson-permanent",
+        expires_at=None,
+        json_output=True,
+    )
+    permanent = json.loads(capsys.readouterr().out)
+    assert permanent["validity"]["expires_at"] is None
+
+
+def test_cli_lesson_propose_rejects_mismatched_asserted_client(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import peerhub.cli as cli_module
+
+    original_request_context = cli_module.RequestContext
+
+    def _mismatched_request_context(*, principal: str, client_id: str):
+        del client_id
+        return original_request_context(
+            principal=principal, client_id="a-different-client"
+        )
+
+    monkeypatch.setattr(cli_module, "RequestContext", _mismatched_request_context)
+
+    assert main([
+        "lesson", "propose",
+        "--workspace", str(tmp_path),
+        "--lesson-id", "lesson-1",
+        "--title", "Always verify",
+        "--rule", "Never trust unverified claims",
+        "--category", "process",
+        "--severity", "HIGH",
+        "--proposer", "cc",
+        "--affected", "cc,cx",
+    ]) == 2
 
 
 def test_cli_lesson_approve_routes_through_application_api_gateway(
