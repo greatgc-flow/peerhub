@@ -123,10 +123,15 @@ from peerhub.application.commands.rooms import (
     ThreadReactCommand,
     UpdateStatusCommand,
 )
+from peerhub.application.commands.duty import (
+    TerminalClaimCommand,
+    TerminalCloseCommand,
+    TerminalDutySweepCommand,
+    TerminalHeartbeatCommand,
+)
 from peerhub.core.ports import RequestContext
 from peerhub.governance.rooms import HANDOFF_LIST_SECTIONS, RoomsService
 from peerhub.dispatch.duty_lease import (
-    DutyLeaseSnapshot,
     DutyOwnerIdentity,
 )
 from peerhub.dispatch.room_session import (
@@ -136,7 +141,6 @@ from peerhub.dispatch.room_session import (
     RoomSessionOpenRequest,
     RoomSessionSnapshot,
 )
-from peerhub.dispatch.terminal_duty import TerminalDutyService
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, PeerHubError
 from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.cli.parser import create_root_parser
@@ -2800,13 +2804,56 @@ def _run_duty(parsed: argparse.Namespace) -> int:
     try:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
-            coordinator = runtime.duty_lease_coordinator
-            service = TerminalDutyService(coordinator, default_heartbeat_timeout_ms=parsed.heartbeat_timeout_ms if hasattr(parsed, "heartbeat_timeout_ms") else 60_000)
-            owner = cast(DutyOwnerIdentity, DutyOwnerIdentity(parsed.instance_id, parsed.profile_id) if hasattr(parsed, "instance_id") else None)
             if parsed.duty_action == "claim":
-                lease = service.claim_terminal_duty(parsed.room_id, owner, parsed.owner_principal_id, parsed.authority_epoch)
+                outcome = _submit_via_gateway(runtime, TerminalClaimCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.owner_principal_id,
+                        request_kind="duty-claim",
+                    ),
+                    room_id=parsed.room_id,
+                    instance_id=parsed.instance_id,
+                    profile_id=parsed.profile_id,
+                    owner_principal_id=parsed.owner_principal_id,
+                    authority_epoch=parsed.authority_epoch,
+                    heartbeat_timeout_ms=parsed.heartbeat_timeout_ms,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub duty: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                    return 2
+                payload = cast(Mapping[str, Any], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                if parsed.json:
+                    print(json.dumps(payload))
+                else:
+                    print(
+                        "Terminal duty claimed for room "
+                        f"{payload['room_id']} (lease={payload['lease_id']}, "
+                        f"epoch={payload['authority_epoch']})"
+                    )
+                return 0
             elif parsed.duty_action == "heartbeat":
-                lease = service.send_heartbeat(parsed.lease_id, parsed.room_id, owner, parsed.term, parsed.authority_epoch)
+                outcome = _submit_via_gateway(runtime, TerminalHeartbeatCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.profile_id,
+                        request_kind="duty-heartbeat",
+                    ),
+                    lease_id=parsed.lease_id,
+                    room_id=parsed.room_id,
+                    instance_id=parsed.instance_id,
+                    profile_id=parsed.profile_id,
+                    term=parsed.term,
+                    authority_epoch=parsed.authority_epoch,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub duty: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                    return 2
+                payload = cast(Mapping[str, Any], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                if parsed.json:
+                    print(json.dumps(payload))
+                else:
+                    print(f"Heartbeat sent for lease {payload['lease_id']}")
+                return 0
             elif parsed.duty_action == "close":
                 if parsed.close_session and (
                     not parsed.session_id
@@ -2820,68 +2867,65 @@ def _run_duty(parsed: argparse.Namespace) -> int:
                         "--session-generation, --workspace-scope-id, "
                         "and --actor-principal-id"
                     )
-                lease = service.close_terminal_duty(parsed.lease_id, parsed.room_id, owner, parsed.term, parsed.authority_epoch)
+                outcome = _submit_via_gateway(runtime, TerminalCloseCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.profile_id,
+                        request_kind="duty-close",
+                    ),
+                    lease_id=parsed.lease_id,
+                    room_id=parsed.room_id,
+                    instance_id=parsed.instance_id,
+                    profile_id=parsed.profile_id,
+                    term=parsed.term,
+                    authority_epoch=parsed.authority_epoch,
+                    close_session=parsed.close_session,
+                    session_id=parsed.session_id,
+                    session_generation=(
+                        0 if parsed.session_generation is None
+                        else parsed.session_generation
+                    ),
+                    workspace_scope_id=parsed.workspace_scope_id,
+                    actor_principal_id=parsed.actor_principal_id,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub duty: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, Any], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                duty_close = cast(Mapping[str, Any], result["duty_close"])
+                payload = cast(Mapping[str, Any], duty_close["lease"])
                 if parsed.close_session:
-                    duty_close: dict[str, Any] = {
-                        "status": "ok",
-                        "lease": _duty_lease_payload(lease),
-                    }
-                    try:
-                        session = runtime.room_participation_coordinator.end_session(
-                            RoomSessionEndRequest(
-                                session_id=parsed.session_id,
-                                session_generation=parsed.session_generation,
-                                workspace_scope_id=parsed.workspace_scope_id,
-                                room_id=parsed.room_id,
-                                actor_principal_id=parsed.actor_principal_id,
-                                owner=owner,
-                            )
-                        )
-                    except (
-                        InvalidMutationError,
-                        RecordNotFoundError,
-                        ValueError,
-                    ) as exc:
-                        result = {
-                            "duty_close": duty_close,
-                            "session_close": {
-                                "status": "failed",
-                                "reason": f"{type(exc).__name__}: {exc}",
-                            },
-                        }
-                        if parsed.json:
-                            print(json.dumps(result))
-                        else:
-                            print(
-                                f"Terminal duty lease {lease.lease_id} closed"
-                            )
-                            print(
-                                f"Room session close failed: {exc}",
-                                file=sys.stderr,
-                            )
-                        return 2
-                    result = {
-                        "duty_close": duty_close,
-                        "session_close": {
-                            "status": "ok",
-                            "session_id": session.session_id,
-                            "session_generation": (
-                                session.session_generation
-                            ),
-                            "state": session.state.value,
-                        },
-                    }
+                    session_close = cast(
+                        Mapping[str, Any], result["session_close"]
+                    )
+                    session_failed = session_close["status"] == "failed"
                     if parsed.json:
                         print(json.dumps(result))
                     else:
                         print(
-                            f"Terminal duty lease {lease.lease_id} closed"
+                            f"Terminal duty lease {payload['lease_id']} closed"
                         )
-                        print(f"Room session {session.session_id} ended")
-                    return 0
+                        if session_failed:
+                            reason = cast(str, session_close["reason"])
+                            print(
+                                "Room session close failed: "
+                                f"{reason.partition(': ')[2] or reason}",
+                                file=sys.stderr,
+                            )
+                        else:
+                            print(
+                                "Room session "
+                                f"{session_close['session_id']} ended"
+                            )
+                    return 2 if session_failed else 0
             elif parsed.duty_action == "sweep":
-                leases = coordinator.sweep_expired_leases(
-                    parsed.role,
+                outcome = _submit_via_gateway(runtime, TerminalDutySweepCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.recovery_actor_principal_id,
+                        request_kind="duty-sweep",
+                    ),
+                    role=parsed.role,
                     recovery_actor_principal_id=(
                         parsed.recovery_actor_principal_id
                     ),
@@ -2889,58 +2933,36 @@ def _run_duty(parsed: argparse.Namespace) -> int:
                     evidence_digest=parsed.evidence_digest,
                     policy_id=parsed.policy_id,
                     policy_revision=parsed.policy_revision,
-                )
-                result = {
-                    "expired_count": len(leases),
-                    "leases": [
-                        _duty_lease_payload(item) for item in leases
-                    ],
-                }
+                ))
+                if not outcome.ok:
+                    print(f"peerhub duty: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, Any], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(result))
                 else:
                     print(
-                        f"Expired {len(leases)} {parsed.role} duty "
+                        f"Expired {result['expired_count']} {parsed.role} duty "
                         "lease(s)"
                     )
                 return 0
             else:
-                holder = service.active_terminal_holder(parsed.room_id)
+                holder = runtime.terminal_duty_service.active_terminal_holder(
+                    parsed.room_id
+                )
                 if parsed.json:
                     print(json.dumps(_json_safe({"room_id": parsed.room_id, "owner": None if holder is None else {"instance_id": holder.instance_id, "profile_id": holder.profile_id}})))
                 else:
                     print(f"Terminal duty for room {parsed.room_id}: UNHELD" if holder is None else f"Terminal duty for room {parsed.room_id}: held by {holder.instance_id}/{holder.profile_id}")
                 return 0
-            payload = _duty_lease_payload(lease)
             if parsed.json:
                 print(json.dumps(payload))
-            elif parsed.duty_action == "claim":
-                print(f"Terminal duty claimed for room {lease.room_id} (lease={lease.lease_id}, epoch={lease.authority_epoch})")
-            elif parsed.duty_action == "heartbeat":
-                print(f"Heartbeat sent for lease {lease.lease_id}")
             else:
-                print(f"Terminal duty lease {lease.lease_id} closed")
+                print(f"Terminal duty lease {payload['lease_id']} closed")
             return 0
     except (InvalidMutationError, RecordNotFoundError, ValueError, RuntimeError, sqlite3.Error) as exc:
         print(f"peerhub duty: {exc}", file=sys.stderr)
         return 2
-
-
-def _duty_lease_payload(lease: DutyLeaseSnapshot) -> dict[str, Any]:
-    return {
-        "lease_id": lease.lease_id,
-        "room_id": lease.room_id,
-        "role": lease.role,
-        "owner": {
-            "instance_id": lease.owner.instance_id,
-            "profile_id": lease.owner.profile_id,
-        },
-        "owner_principal_id": lease.owner_principal_id,
-        "authority_epoch": lease.authority_epoch,
-        "term": lease.term,
-        "state": lease.state.value,
-        "heartbeat_expires_at": lease.heartbeat_expires_at,
-    }
 
 
 def _room_session_payload(session: RoomSessionSnapshot) -> dict[str, Any]:

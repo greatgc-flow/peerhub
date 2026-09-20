@@ -9,6 +9,32 @@ from peerhub.core.protocol import JsonValue
 
 
 @dataclass(frozen=True, slots=True)
+class TerminalClaimCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.terminal.claim"
+    submission: SubmissionMetadata
+    room_id: str
+    instance_id: str
+    profile_id: str
+    owner_principal_id: str
+    authority_epoch: int
+    heartbeat_timeout_ms: int
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "instance_id": self.instance_id,
+            "profile_id": self.profile_id,
+            "owner_principal_id": self.owner_principal_id,
+            "authority_epoch": self.authority_epoch,
+            "heartbeat_timeout_ms": self.heartbeat_timeout_ms,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class TerminalHandoffCommand(Command[Any]):
     method: ClassVar[str] = "coordination.terminal.handoff"
     submission: SubmissionMetadata

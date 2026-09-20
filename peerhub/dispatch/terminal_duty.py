@@ -33,6 +33,7 @@ class TerminalDutyService:
         owner: DutyOwnerIdentity,
         owner_principal_id: str,
         authority_epoch: int,
+        heartbeat_timeout_ms: int | None = None,
     ) -> DutyLeaseSnapshot:
         return self._coordinator.create_lease(
             DutyLeaseCreateRequest(
@@ -40,7 +41,11 @@ class TerminalDutyService:
                 "terminal-duty",
                 owner,
                 owner_principal_id,
-                self._default_heartbeat_timeout_ms,
+                (
+                    self._default_heartbeat_timeout_ms
+                    if heartbeat_timeout_ms is None
+                    else heartbeat_timeout_ms
+                ),
                 authority_epoch,
             )
         )

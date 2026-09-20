@@ -53,6 +53,7 @@ DiscoverCandidatesCommand = _leadership_commands.DiscoverCandidatesCommand
 ElectLeaderCommand = _leadership_commands.ElectLeaderCommand
 LeaderYieldCommand = _leadership_commands.LeaderYieldCommand
 TerminalHandoffCommand = _duty_commands.TerminalHandoffCommand
+TerminalClaimCommand = _duty_commands.TerminalClaimCommand
 TerminalHeartbeatCommand = _duty_commands.TerminalHeartbeatCommand
 TerminalCloseCommand = _duty_commands.TerminalCloseCommand
 TerminalDutySweepCommand = _duty_commands.TerminalDutySweepCommand

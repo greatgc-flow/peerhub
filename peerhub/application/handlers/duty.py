@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from peerhub.application.commands.duty import (
+    TerminalClaimCommand,
     TerminalCloseCommand,
     TerminalDutySweepCommand,
     TerminalHandoffCommand,
@@ -18,6 +19,7 @@ from peerhub.application.commands.sessions import (
     SessionOpenCommand,
 )
 from peerhub.application.handlers._params import optional_text_or, required_text as text
+from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.dispatch.duty_lease import (
     DutyLeaseCoordinator,
@@ -85,8 +87,21 @@ def register_duty_handlers(
             raise ValueError(f"{name} must be an integer")
         return value
 
-    def owner(command: TerminalHeartbeatCommand) -> DutyOwnerIdentity:
+    def owner(
+        command: TerminalClaimCommand | TerminalHeartbeatCommand,
+    ) -> DutyOwnerIdentity:
         return DutyOwnerIdentity(command.instance_id, command.profile_id)
+
+    def decode_claim(envelope: CommandEnvelope) -> TerminalClaimCommand:
+        return TerminalClaimCommand(
+            submission(envelope),
+            text(envelope, "room_id"),
+            text(envelope, "instance_id"),
+            text(envelope, "profile_id"),
+            text(envelope, "owner_principal_id"),
+            integer(envelope, "authority_epoch"),
+            integer(envelope, "heartbeat_timeout_ms"),
+        )
 
     def decode_handoff(envelope: CommandEnvelope) -> TerminalHandoffCommand:
         return TerminalHandoffCommand(
@@ -155,14 +170,20 @@ def register_duty_handlers(
             text(envelope, "policy_revision"),
         )
 
-    def encode_lease(result: Any) -> Mapping[str, JsonValue]:
+    def encode_lease(result: DutyLeaseSnapshot) -> Mapping[str, JsonValue]:
         return {
             "lease_id": result.lease_id,
             "room_id": result.room_id,
             "role": result.role,
-            "state": result.state.value,
-            "term": result.term,
+            "owner": {
+                "instance_id": result.owner.instance_id,
+                "profile_id": result.owner.profile_id,
+            },
+            "owner_principal_id": result.owner_principal_id,
             "authority_epoch": result.authority_epoch,
+            "term": result.term,
+            "state": result.state.value,
+            "heartbeat_expires_at": result.heartbeat_expires_at,
         }
 
     def close_terminal(command: TerminalCloseCommand) -> _TerminalCloseResult:
@@ -196,7 +217,11 @@ def register_duty_handlers(
                     ),
                 )
             )
-        except Exception as exc:
+        except (
+            InvalidMutationError,
+            RecordNotFoundError,
+            ValueError,
+        ) as exc:
             return _TerminalCloseResult(
                 duty_lease,
                 "failed",
@@ -236,6 +261,22 @@ def register_duty_handlers(
             "leases": cast(JsonValue, encoded),
         }
 
+    register(descriptor(
+        "coordination.terminal.claim",
+        mutating,
+        any_scope,
+        domain_atomic_required,
+        decode_claim,
+        lambda command, _context: terminal_duty.claim_terminal_duty(
+            command.room_id,
+            owner(command),
+            command.owner_principal_id,
+            command.authority_epoch,
+            heartbeat_timeout_ms=command.heartbeat_timeout_ms,
+        ),
+        encode_lease,
+        available,
+    ))
     register(descriptor(
         "coordination.terminal.handoff",
         mutating,

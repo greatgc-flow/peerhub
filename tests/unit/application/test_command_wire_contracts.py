@@ -21,6 +21,7 @@ from peerhub.application.legacy import (
     TaskCheckpointCommand,
     TaskFailoverCommand,
     TaskStatusCommand,
+    TerminalClaimCommand,
     TerminalHandoffCommand,
     TerminalHeartbeatCommand,
     ThreadReactCommand,
@@ -149,6 +150,18 @@ def test_duty_commands_wire_contracts() -> None:
                 new_authority_epoch=3,
             ),
             "coordination.terminal.handoff",
+        ),
+        (
+            TerminalClaimCommand(
+                submission=_submission(),
+                room_id="room",
+                instance_id="i",
+                profile_id="cx",
+                owner_principal_id="p",
+                authority_epoch=2,
+                heartbeat_timeout_ms=30_000,
+            ),
+            "coordination.terminal.claim",
         ),
         (
             TerminalHeartbeatCommand(
