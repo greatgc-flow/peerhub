@@ -106,10 +106,12 @@ from peerhub.application.commands.rooms import (
     AppendHandoffCommand,
     ClearRoomCommand,
     ContinuityCheckpointCommand,
+    CreateRoomCommand,
     MessageMarkReadCommand,
     MessageSendCommand,
     NewTopicCommand,
     RoomBroadcastCommand,
+    RebuildRoomSessionBindingsCommand,
     ThreadAppendCommand,
     ThreadNewCommand,
     ThreadPromoteCommand,
@@ -119,7 +121,6 @@ from peerhub.application.commands.rooms import (
 from peerhub.core.ports import RequestContext
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import HANDOFF_LIST_SECTIONS, RoomsService
-from peerhub.governance.activity import rebuild_room_session_bindings
 from peerhub.dispatch.duty_lease import (
     DutyLeaseSnapshot,
     DutyOwnerIdentity,
@@ -2312,8 +2313,24 @@ def _run_room(parsed: argparse.Namespace) -> int:
             service = RoomsService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             action = parsed.room_action
             if action == "create":
-                submission = service.create_room(room_id=parsed.room_id, topic_id=parsed.topic_id, title=parsed.title, creator_id=parsed.creator, participants=tuple(x for x in parsed.participants.split(",") if x))
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, CreateRoomCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.creator, request_kind="room-create"
+                    ),
+                    room_id=parsed.room_id,
+                    topic_id=parsed.topic_id,
+                    title=parsed.title,
+                    creator_id=parsed.creator,
+                    participants=tuple(
+                        participant
+                        for participant in parsed.participants.split(",")
+                        if participant
+                    ),
+                ))
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "thread-new":
                 # R4/P4b migration (ratified 2026-09-19): routed through
                 # ApplicationAPI.submit() via Client.
@@ -2611,14 +2628,21 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     return 2
                 target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "rebuild-session-bindings":
-                submission = rebuild_room_session_bindings(
-                    runtime.governance_broker,
-                    parsed.room_id,
-                    runtime.room_participation_coordinator.list_active_sessions(
-                        parsed.room_id
+                outcome = _submit_via_gateway(
+                    runtime,
+                    RebuildRoomSessionBindingsCommand(
+                        submission=_cli_submission(
+                            context,
+                            actor_id="peerhub.maintenance",
+                            request_kind="room-rebuild-session-bindings",
+                        ),
+                        room_id=parsed.room_id,
                     ),
                 )
-                target_id = submission.receipt.target_id
+                if not outcome.ok:
+                    print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             else:
                 result = collect_room_status(service, room_id=parsed.room_id, room_sessions=runtime.room_participation_coordinator)
                 if parsed.json:

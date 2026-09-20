@@ -3,8 +3,7 @@ domain's mutating actions: routed through ApplicationAPI.submit() (via
 peerhub.client:Client) instead of calling RoomsService directly -- see
 docs/design/peerhub-r4-p4b-converged-design-2026-09-17.md.
 
-`room create` and `room rebuild-session-bindings` remain direct calls
-(no registered ApplicationAPI command for them yet)."""
+Every mutating room action is routed through the ApplicationAPI gateway."""
 
 from __future__ import annotations
 
@@ -211,5 +210,94 @@ def test_cli_room_create_thread_rejects_mismatched_asserted_client(
         "--room-id", "room-1",
         "--subject", "kickoff",
         "--creator", "cc",
+    ])
+    assert exit_code == 2
+
+
+def test_cli_room_create_routes_through_application_api_gateway(
+    tmp_path: Path, capsys
+) -> None:
+    assert main([
+        "room", "create",
+        "--workspace", str(tmp_path),
+        "--room-id", "room-1",
+        "--topic-id", "topic-1",
+        "--title", "General",
+        "--creator", "cc",
+        "--participants", "cc,cx",
+        "--json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["room_id"] == "room-1"
+    assert payload["title"] == "General"
+
+
+def test_cli_room_create_rejects_mismatched_asserted_client(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import peerhub.cli as cli_module
+
+    original_request_context = cli_module.RequestContext
+
+    def _mismatched_request_context(*, principal: str, client_id: str):
+        del client_id
+        return original_request_context(
+            principal=principal, client_id="a-different-client"
+        )
+
+    monkeypatch.setattr(cli_module, "RequestContext", _mismatched_request_context)
+
+    exit_code = main([
+        "room", "create",
+        "--workspace", str(tmp_path),
+        "--room-id", "room-1",
+        "--topic-id", "topic-1",
+        "--title", "General",
+        "--creator", "cc",
+        "--participants", "cc,cx",
+    ])
+    assert exit_code == 2
+
+
+def test_cli_room_rebuild_session_bindings_routes_through_application_api_gateway(
+    tmp_path: Path, capsys
+) -> None:
+    _create_room(tmp_path)
+    capsys.readouterr()
+
+    assert main([
+        "room", "rebuild-session-bindings",
+        "--workspace", str(tmp_path),
+        "--room-id", "room-1",
+        "--json",
+    ]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["room_id"] == "room-1"
+    assert payload["session_bindings"] == []
+
+
+def test_cli_room_rebuild_session_bindings_rejects_mismatched_asserted_client(
+    tmp_path: Path, monkeypatch
+) -> None:
+    _create_room(tmp_path)
+
+    import peerhub.cli as cli_module
+
+    original_request_context = cli_module.RequestContext
+
+    def _mismatched_request_context(*, principal: str, client_id: str):
+        del client_id
+        return original_request_context(
+            principal=principal, client_id="a-different-client"
+        )
+
+    monkeypatch.setattr(cli_module, "RequestContext", _mismatched_request_context)
+
+    exit_code = main([
+        "room", "rebuild-session-bindings",
+        "--workspace", str(tmp_path),
+        "--room-id", "room-1",
     ])
     assert exit_code == 2

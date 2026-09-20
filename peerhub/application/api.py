@@ -161,7 +161,9 @@ class ApplicationAPI:
         if task is not None: self._register_task(task)
         if lesson is not None and lesson_broker is not None:
             self._register_lesson(lesson, lesson_broker, room)
-        if room is not None: self._register_room(room, room_session)
+        if room is not None: self._register_room(
+            room, governance_broker, room_session
+        )
         if duty is not None and terminal_duty is not None:
             self._register_duty(duty, terminal_duty, room_session)
         if room_session is not None: self._register_room_session(room_session)
@@ -254,11 +256,17 @@ class ApplicationAPI:
     def _register_room(
         self,
         s: RoomsService,
+        broker: GovernanceBroker | None,
         room_session: RoomParticipationCoordinator | None = None,
     ) -> None:
         from peerhub.application.handlers.rooms import register_room_handlers
 
-        register_room_handlers(api=self, service=s, room_session=room_session)
+        register_room_handlers(
+            api=self,
+            service=s,
+            broker=broker,
+            room_session=room_session,
+        )
 
     def _register_duty(
         self,

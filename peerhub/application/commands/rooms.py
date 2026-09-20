@@ -338,6 +338,44 @@ class ClearRoomCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class CreateRoomCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.room.create"
+    submission: SubmissionMetadata
+    room_id: str
+    topic_id: str
+    title: str
+    creator_id: str
+    participants: tuple[str, ...]
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "room_id": self.room_id,
+            "topic_id": self.topic_id,
+            "title": self.title,
+            "creator_id": self.creator_id,
+            "participants": self.participants,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class RebuildRoomSessionBindingsCommand(Command[Any]):
+    method: ClassVar[str] = "coordination.room.rebuild_session_bindings"
+    submission: SubmissionMetadata
+    room_id: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"room_id": self.room_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class RoomStatusCommand(Command[Any]):
     method: ClassVar[str] = "peerhub.status.read"
     submission: SubmissionMetadata

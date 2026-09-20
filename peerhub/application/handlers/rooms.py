@@ -10,11 +10,13 @@ from peerhub.application.commands.rooms import (
     ClearRoomCommand,
     ContextFillCommand,
     ContinuityCheckpointCommand,
+    CreateRoomCommand,
     MessageCheckCommand,
     MessageMarkReadCommand,
     MessageSendCommand,
     NewTopicCommand,
     RoomBroadcastCommand,
+    RebuildRoomSessionBindingsCommand,
     StatusReadCommand,
     ThreadAppendCommand,
     ThreadNewCommand,
@@ -30,6 +32,8 @@ from peerhub.application.status import collect_room_status
 from peerhub.application.thread_new import ThreadNewResult, create_thread_new
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.dispatch.room_session import RoomParticipationCoordinator
+from peerhub.governance.activity import rebuild_room_session_bindings
+from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.rooms import RoomsService
 
 
@@ -37,6 +41,7 @@ def register_room_handlers(
     *,
     api: Any,
     service: RoomsService,
+    broker: GovernanceBroker | None = None,
     room_session: RoomParticipationCoordinator | None = None,
 ) -> None:
     """Register the existing room-management wire handlers unchanged."""
@@ -74,6 +79,26 @@ def register_room_handlers(
             text(e, "subject"),
             text(e, "creator_id"),
         )
+
+    def create(e: CommandEnvelope) -> CreateRoomCommand:
+        raw_participants = e.params["participants"]
+        if not isinstance(raw_participants, (list, tuple)) or not all(
+            isinstance(participant, str) for participant in raw_participants
+        ):
+            raise ValueError("participants must be a sequence of strings")
+        return CreateRoomCommand(
+            submission(e),
+            text(e, "room_id"),
+            text(e, "topic_id"),
+            text(e, "title"),
+            text(e, "creator_id"),
+            tuple(cast(str, participant) for participant in raw_participants),
+        )
+
+    def rebuild_session_bindings(
+        e: CommandEnvelope,
+    ) -> RebuildRoomSessionBindingsCommand:
+        return RebuildRoomSessionBindingsCommand(submission(e), text(e, "room_id"))
 
     def thread_new(e: CommandEnvelope) -> ThreadNewCommand:
         return ThreadNewCommand(
@@ -371,6 +396,47 @@ def register_room_handlers(
         domain_atomic_required,
         update_status,
         lambda c, _: update_room_summary(c),
+        receipt,
+        available,
+    ))
+
+    register(descriptor(
+        "coordination.room.create",
+        mutating,
+        any_scope,
+        domain_atomic_required,
+        create,
+        lambda c, _: service.create_room(
+            room_id=c.room_id,
+            topic_id=c.topic_id,
+            title=c.title,
+            creator_id=c.creator_id,
+            participants=c.participants,
+        ),
+        receipt,
+        available,
+    ))
+
+    def rebuild_session_bindings_command(
+        command: RebuildRoomSessionBindingsCommand,
+    ):
+        if broker is None:
+            raise RuntimeError("governance broker is unavailable")
+        if room_session is None:
+            raise RuntimeError("room participation coordinator is unavailable")
+        return rebuild_room_session_bindings(
+            broker,
+            command.room_id,
+            room_session.list_active_sessions(command.room_id),
+        )
+
+    register(descriptor(
+        "coordination.room.rebuild_session_bindings",
+        mutating,
+        any_scope,
+        domain_atomic_required,
+        rebuild_session_bindings,
+        lambda c, _: rebuild_session_bindings_command(c),
         receipt,
         available,
     ))
