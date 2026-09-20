@@ -99,8 +99,12 @@ from peerhub.application.commands.roles import (
 )
 from peerhub.application.commands.lessons import (
     LessonActivateCommand,
+    LessonApproveCommand,
     LessonBroadcastCommand,
+    LessonQuarantineCommand,
     LessonRetireCommand,
+    LessonSupersedeCommand,
+    LessonSweepCommand,
 )
 from peerhub.application.commands.rooms import (
     AppendHandoffCommand,
@@ -1006,8 +1010,21 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                 submission = service.propose(lesson_id=parsed.lesson_id, title=parsed.title, rule=parsed.rule, category=parsed.category, severity=parsed.severity, proposer_id=parsed.proposer, affected_peers=tuple(x for x in parsed.affected.split(",") if x), scope_kind=parsed.scope_kind, workspace_id=parsed.workspace_id, expires_at=parsed.expires_at)
                 target_id = submission.receipt.target_id
             elif action == "approve":
-                submission = service.approve(parsed.lesson_id, approved_by_actor_id=parsed.approved_by, authority_target_id=parsed.authority_target_id)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, LessonApproveCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.approved_by,
+                        request_kind="lesson-approve",
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    approved_by_actor_id=parsed.approved_by,
+                    authority_target_id=parsed.authority_target_id,
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "activate":
                 # R4/P4b migration (ratified 2026-09-19): routed through
                 # ApplicationAPI.submit() via Client.
@@ -1040,14 +1057,52 @@ def _run_lesson(parsed: argparse.Namespace) -> int:
                     return 2
                 target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "supersede":
-                submission = service.supersede(parsed.lesson_id, actor_id=parsed.actor, replacement_lesson_id=parsed.replacement_lesson_id)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, LessonSupersedeCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.actor,
+                        request_kind="lesson-supersede",
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    actor_id=parsed.actor,
+                    replacement_lesson_id=parsed.replacement_lesson_id,
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "quarantine":
-                submission = service.quarantine(parsed.lesson_id, actor_id=parsed.actor, reason=parsed.reason, evidence=parsed.evidence)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, LessonQuarantineCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.actor,
+                        request_kind="lesson-quarantine",
+                    ),
+                    lesson_id=parsed.lesson_id,
+                    actor_id=parsed.actor,
+                    reason=parsed.reason,
+                    evidence=parsed.evidence,
+                    expected_revision=None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "sweep":
-                submissions = service.sweep_expired()
-                retired_ids = [s.receipt.target_id for s in submissions]
+                outcome = _submit_via_gateway(runtime, LessonSweepCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id="peerhub-lesson-sweep",
+                        request_kind="lesson-sweep",
+                    ),
+                    actor_id="peerhub-lesson-sweep",
+                ))
+                if not outcome.ok:
+                    print(f"peerhub lesson: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                sweep_result = cast(Mapping[str, JsonValue], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                retired_ids = cast("list[str]", sweep_result["retired"])
                 if parsed.json:
                     print(json.dumps(_json_safe({"retired": retired_ids})))
                 else:

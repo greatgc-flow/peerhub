@@ -7,10 +7,14 @@ from typing import Any, cast
 
 from peerhub.application.commands.lessons import (
     LessonActivateCommand,
+    LessonApproveCommand,
     LessonBroadcastCommand,
     LessonInjectCommand,
     LessonProposeCommand,
+    LessonQuarantineCommand,
     LessonRetireCommand,
+    LessonSupersedeCommand,
+    LessonSweepCommand,
     LessonsListCommand,
 )
 from peerhub.application.lesson_broadcast import (
@@ -131,6 +135,51 @@ def register_lesson_handlers(
             integer(params, "expected_revision"),
         )
 
+    def decode_approve(envelope: CommandEnvelope) -> LessonApproveCommand:
+        params = envelope.params
+        authority_target_id = params["authority_target_id"]
+        if authority_target_id is not None and not isinstance(
+            authority_target_id, str
+        ):
+            raise ValueError("authority_target_id must be a string or null")
+        return LessonApproveCommand(
+            submission(envelope),
+            text(params, "lesson_id"),
+            text(params, "approved_by_actor_id"),
+            authority_target_id,
+            integer(params, "expected_revision"),
+        )
+
+    def decode_supersede(
+        envelope: CommandEnvelope,
+    ) -> LessonSupersedeCommand:
+        params = envelope.params
+        return LessonSupersedeCommand(
+            submission(envelope),
+            text(params, "lesson_id"),
+            text(params, "actor_id"),
+            text(params, "replacement_lesson_id"),
+            integer(params, "expected_revision"),
+        )
+
+    def decode_quarantine(
+        envelope: CommandEnvelope,
+    ) -> LessonQuarantineCommand:
+        params = envelope.params
+        return LessonQuarantineCommand(
+            submission(envelope),
+            text(params, "lesson_id"),
+            text(params, "actor_id"),
+            text(params, "reason"),
+            text(params, "evidence"),
+            integer(params, "expected_revision"),
+        )
+
+    def decode_sweep(envelope: CommandEnvelope) -> LessonSweepCommand:
+        return LessonSweepCommand(
+            submission(envelope), text(envelope.params, "actor_id")
+        )
+
     register(descriptor(
         "governance.lesson.propose",
         mutating,
@@ -156,6 +205,21 @@ def register_lesson_handlers(
         available,
     ))
     register(descriptor(
+        "governance.lesson.approve",
+        mutating,
+        any_scope,
+        domain_atomic_required,
+        decode_approve,
+        lambda command, _context: service.approve(
+            command.lesson_id,
+            approved_by_actor_id=command.approved_by_actor_id,
+            authority_target_id=command.authority_target_id,
+            expected_revision=command.expected_revision,
+        ),
+        receipt,
+        available,
+    ))
+    register(descriptor(
         "governance.lesson.activate",
         mutating,
         any_scope,
@@ -169,6 +233,59 @@ def register_lesson_handlers(
         receipt,
         available,
     ))
+    register(descriptor(
+        "governance.lesson.supersede",
+        mutating,
+        any_scope,
+        domain_atomic_required,
+        decode_supersede,
+        lambda command, _context: service.supersede(
+            command.lesson_id,
+            actor_id=command.actor_id,
+            replacement_lesson_id=command.replacement_lesson_id,
+            expected_revision=command.expected_revision,
+        ),
+        receipt,
+        available,
+    ))
+    register(descriptor(
+        "governance.lesson.quarantine",
+        mutating,
+        any_scope,
+        domain_atomic_required,
+        decode_quarantine,
+        lambda command, _context: service.quarantine(
+            command.lesson_id,
+            actor_id=command.actor_id,
+            reason=command.reason,
+            evidence=command.evidence,
+            expected_revision=command.expected_revision,
+        ),
+        receipt,
+        available,
+    ))
+
+    def encode_sweep(results: Sequence[Any]) -> Mapping[str, JsonValue]:
+        return {
+            "retired": cast(
+                JsonValue,
+                [result.receipt.target_id for result in results],
+            )
+        }
+
+    register(descriptor(
+        "governance.lesson.sweep",
+        mutating,
+        any_scope,
+        domain_atomic_required,
+        decode_sweep,
+        lambda command, _context: service.sweep_expired(
+            actor_id=command.actor_id
+        ),
+        encode_sweep,
+        available,
+    ))
+
     register(descriptor(
         "governance.lesson.retire",
         mutating,

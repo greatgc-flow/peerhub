@@ -113,6 +113,7 @@ class LessonService:
             json.dumps(hash_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         authority["resolution_sha256"] = resolution_hash
+        state["lifecycle"] = "APPROVED"
         state["approval"] = {
             "method": "ratified_governance_proposal",
             "approved_by": (

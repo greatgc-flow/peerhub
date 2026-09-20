@@ -3366,16 +3366,16 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_lesson -> LessonService.approve -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet, so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance, so authorizer_behavior is ASSERTED_ONLY.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_lesson -> peerhub.client:Client.submit(LessonApproveCommand) -> ApplicationAPI.submit() -> LessonService.approve",
       "transactional_owner": "LessonService/LessonBroadcastCoordinator over GovernanceBroker, RoomsService, and SqliteStateStore UoW",
       "receipt": "Lesson target state, sweep result, or broadcast receipt rendered as JSON/text",
       "external_effects": "Persists lesson lifecycle; broadcast writes room/inbox messages; no vendor process",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_lesson.py::test_cli_lesson_propose_approve_activate_and_status"
+        "tests/integration/application/test_lesson_gateway_cli.py::test_cli_lesson_approve_routes_through_application_api_gateway"
       ],
       "parser_contract": {
         "arguments": [
@@ -3449,7 +3449,8 @@
           "Manage governance lessons",
           "Approve a proposed lesson, authorizing later activation"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "lesson activate",
@@ -3625,16 +3626,16 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_lesson -> LessonService.supersede -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet, so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance, so authorizer_behavior is ASSERTED_ONLY.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_lesson -> peerhub.client:Client.submit(LessonSupersedeCommand) -> ApplicationAPI.submit() -> LessonService.supersede",
       "transactional_owner": "LessonService/LessonBroadcastCoordinator over GovernanceBroker, RoomsService, and SqliteStateStore UoW",
       "receipt": "Lesson target state, sweep result, or broadcast receipt rendered as JSON/text",
       "external_effects": "Persists lesson lifecycle; broadcast writes room/inbox messages; no vendor process",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "TEST NEEDED: execution-level integration test reaching peerhub.cli:main for 'lesson supersede'"
+        "tests/integration/application/test_lesson_gateway_cli.py::test_cli_lesson_supersede_routes_through_application_api_gateway"
       ],
       "parser_contract": {
         "arguments": [
@@ -3708,23 +3709,24 @@
           "Manage governance lessons",
           "Mark an active lesson as superseded by a replacement lesson"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "lesson quarantine",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_lesson -> LessonService.quarantine -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet, so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance, so authorizer_behavior is ASSERTED_ONLY.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_lesson -> peerhub.client:Client.submit(LessonQuarantineCommand) -> ApplicationAPI.submit() -> LessonService.quarantine",
       "transactional_owner": "LessonService/LessonBroadcastCoordinator over GovernanceBroker, RoomsService, and SqliteStateStore UoW",
       "receipt": "Lesson target state, sweep result, or broadcast receipt rendered as JSON/text",
       "external_effects": "Persists lesson lifecycle; broadcast writes room/inbox messages; no vendor process",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "TEST NEEDED: execution-level integration test reaching peerhub.cli:main for 'lesson quarantine'"
+        "tests/integration/application/test_lesson_gateway_cli.py::test_cli_lesson_quarantine_routes_through_application_api_gateway"
       ],
       "parser_contract": {
         "arguments": [
@@ -3811,7 +3813,8 @@
           "Manage governance lessons",
           "Quarantine a lesson due to a correctness/evidence concern"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "lesson broadcast",
@@ -3986,16 +3989,16 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_lesson -> LessonService.sweep_expired -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet, so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance, so authorizer_behavior is ASSERTED_ONLY.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_lesson -> peerhub.client:Client.submit(LessonSweepCommand) -> ApplicationAPI.submit() -> LessonService.sweep_expired",
       "transactional_owner": "LessonService/LessonBroadcastCoordinator over GovernanceBroker, RoomsService, and SqliteStateStore UoW",
       "receipt": "Lesson target state, sweep result, or broadcast receipt rendered as JSON/text",
       "external_effects": "Persists lesson lifecycle; broadcast writes room/inbox messages; no vendor process",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "TEST NEEDED: execution-level integration test reaching peerhub.cli:main for 'lesson sweep'"
+        "tests/integration/application/test_lesson_gateway_cli.py::test_cli_lesson_sweep_routes_through_application_api_gateway"
       ],
       "parser_contract": {
         "arguments": [
@@ -4030,7 +4033,8 @@
           "Manage governance lessons",
           "Retire every active, non-sticky lesson whose expires-at has passed"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "directive add",

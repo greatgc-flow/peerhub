@@ -92,6 +92,88 @@ class LessonRetireCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class LessonApproveCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.approve"
+    submission: SubmissionMetadata
+    lesson_id: str
+    approved_by_actor_id: str
+    authority_target_id: str | None
+    expected_revision: int | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "lesson_id": self.lesson_id,
+            "approved_by_actor_id": self.approved_by_actor_id,
+            "authority_target_id": self.authority_target_id,
+            "expected_revision": self.expected_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class LessonSupersedeCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.supersede"
+    submission: SubmissionMetadata
+    lesson_id: str
+    actor_id: str
+    replacement_lesson_id: str
+    expected_revision: int | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "lesson_id": self.lesson_id,
+            "actor_id": self.actor_id,
+            "replacement_lesson_id": self.replacement_lesson_id,
+            "expected_revision": self.expected_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class LessonQuarantineCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.quarantine"
+    submission: SubmissionMetadata
+    lesson_id: str
+    actor_id: str
+    reason: str
+    evidence: str
+    expected_revision: int | None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "lesson_id": self.lesson_id,
+            "actor_id": self.actor_id,
+            "reason": self.reason,
+            "evidence": self.evidence,
+            "expected_revision": self.expected_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class LessonSweepCommand(Command[Any]):
+    method: ClassVar[str] = "governance.lesson.sweep"
+    submission: SubmissionMetadata
+    actor_id: str = "peerhub-lesson-sweep"
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {"actor_id": self.actor_id}
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class LessonBroadcastCommand(Command[Any]):
     method: ClassVar[str] = "coordination.lesson.broadcast"
     submission: SubmissionMetadata
