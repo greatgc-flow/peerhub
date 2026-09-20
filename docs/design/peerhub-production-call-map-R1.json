@@ -2440,16 +2440,17 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.create -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_task -> peerhub.client:Client.submit(TaskCreateCommand) -> ApplicationAPI.submit() -> TaskService.create",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_task.py::test_cli_task_lifecycle_and_json_status"
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_route_through_application_api_gateway",
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_reject_mismatched_asserted_client"
       ],
       "parser_contract": {
         "arguments": [
@@ -2549,23 +2550,25 @@
           "Manage task lifecycles",
           "Create a new task"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "task claim-start",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.claim_start -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_task -> peerhub.client:Client.submit(TaskClaimStartCommand) -> ApplicationAPI.submit() -> TaskService.claim_start",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_task.py::test_cli_task_lifecycle_and_json_status"
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_route_through_application_api_gateway",
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_reject_mismatched_asserted_client"
       ],
       "parser_contract": {
         "arguments": [
@@ -2665,7 +2668,8 @@
           "Manage task lifecycles",
           "Bind an executor and start running a task"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "task checkpoint",
@@ -2841,16 +2845,17 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.complete -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_task -> peerhub.client:Client.submit(TaskCompleteCommand) -> ApplicationAPI.submit() -> TaskService.complete",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_task.py::test_cli_task_lifecycle_and_json_status"
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_route_through_application_api_gateway",
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_reject_mismatched_asserted_client"
       ],
       "parser_contract": {
         "arguments": [
@@ -2911,23 +2916,25 @@
           "Manage task lifecycles",
           "Mark a running task as succeeded"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "task fail",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.fail -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_task -> peerhub.client:Client.submit(TaskFailCommand) -> ApplicationAPI.submit() -> TaskService.fail",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "TEST NEEDED: execution-level integration test reaching peerhub.cli:main for 'task fail'"
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_route_through_application_api_gateway",
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_reject_mismatched_asserted_client"
       ],
       "parser_contract": {
         "arguments": [
@@ -3014,23 +3021,25 @@
           "Manage task lifecycles",
           "Mark a task as failed, recording a failure class and reason"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "task cancel",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_task -> TaskService.cancel -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (register_task_handlers only registers checkpoint/status/failover/approval.request), so it remains a direct TaskService call until that gap is closed as separate work; not an oversight in this migration round, a real prerequisite gap found while implementing it.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_task -> peerhub.client:Client.submit(TaskCancelCommand) -> ApplicationAPI.submit() -> TaskService.cancel",
       "transactional_owner": "TaskService over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt target state or task status target rendered as JSON/text",
       "external_effects": "Persists task lifecycle/checkpoint governance records and outbox entries",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "TEST NEEDED: execution-level integration test reaching peerhub.cli:main for 'task cancel'"
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_route_through_application_api_gateway",
+        "tests/integration/application/test_task_checkpoint_cli.py::test_cli_task_actions_reject_mismatched_asserted_client"
       ],
       "parser_contract": {
         "arguments": [
@@ -3104,7 +3113,8 @@
           "Manage task lifecycles",
           "Cancel a task before it reaches a terminal state"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "task status",

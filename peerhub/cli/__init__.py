@@ -74,7 +74,14 @@ from peerhub.application.commands.locks import (
     LockAcquireCommand,
     LockReleaseCommand,
 )
-from peerhub.application.commands.tasks import TaskCheckpointCommand
+from peerhub.application.commands.tasks import (
+    TaskCancelCommand,
+    TaskClaimStartCommand,
+    TaskCheckpointCommand,
+    TaskCompleteCommand,
+    TaskCreateCommand,
+    TaskFailCommand,
+)
 from peerhub.application.commands.consensus import (
     ArbiterReviewCommand,
     ConsensusProposeCommand,
@@ -110,7 +117,6 @@ from peerhub.application.commands.rooms import (
     UpdateStatusCommand,
 )
 from peerhub.core.ports import RequestContext
-from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import HANDOFF_LIST_SECTIONS, RoomsService
 from peerhub.governance.activity import rebuild_room_session_bindings
@@ -853,21 +859,37 @@ def _run_task(parsed: argparse.Namespace) -> int:
     try:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
-            service = TaskService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             if action == "create":
-                submission = service.create(task_id=parsed.task_id, summary=parsed.summary, spec=parsed.spec, creator_id=parsed.creator, room_id=parsed.room_id or None)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, TaskCreateCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.creator, request_kind="task-create"
+                    ),
+                    task_id=parsed.task_id,
+                    summary=parsed.summary,
+                    spec=parsed.spec,
+                    creator_id=parsed.creator,
+                    room_id=parsed.room_id or None,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub task: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "claim-start":
-                submission = service.claim_start(parsed.task_id, actor_id=parsed.actor, request_id=parsed.request_id, coordinator=parsed.coordinator, attempt_id=parsed.attempt_id)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, TaskClaimStartCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="task-claim-start"
+                    ),
+                    task_id=parsed.task_id,
+                    actor_id=parsed.actor,
+                    request_id=parsed.request_id,
+                    coordinator=parsed.coordinator,
+                    attempt_id=parsed.attempt_id,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub task: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "checkpoint":
-                # R4/P4b migration (ratified 2026-09-19): routed through
-                # ApplicationAPI.submit() via Client -- the only task action
-                # with a registered ApplicationAPI command today
-                # (coordination.task.checkpoint); create/claim-start/complete/
-                # fail/cancel have no registered command yet and remain
-                # direct TaskService calls until that gap is closed
-                # separately.
                 outcome = _submit_via_gateway(runtime, TaskCheckpointCommand(
                     submission=_cli_submission(
                         context, actor_id=parsed.actor, request_kind="task-checkpoint"
@@ -888,14 +910,44 @@ def _run_task(parsed: argparse.Namespace) -> int:
                     return 2
                 target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "complete":
-                submission = service.complete(parsed.task_id, actor_id=parsed.actor)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, TaskCompleteCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="task-complete"
+                    ),
+                    task_id=parsed.task_id,
+                    actor_id=parsed.actor,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub task: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "fail":
-                submission = service.fail(parsed.task_id, actor_id=parsed.actor, failure_class=parsed.failure_class, reason=parsed.reason)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, TaskFailCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="task-fail"
+                    ),
+                    task_id=parsed.task_id,
+                    actor_id=parsed.actor,
+                    failure_class=parsed.failure_class,
+                    reason=parsed.reason,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub task: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             elif action == "cancel":
-                submission = service.cancel(parsed.task_id, actor_id=parsed.actor, reason=parsed.reason)
-                target_id = submission.receipt.target_id
+                outcome = _submit_via_gateway(runtime, TaskCancelCommand(
+                    submission=_cli_submission(
+                        context, actor_id=parsed.actor, request_kind="task-cancel"
+                    ),
+                    task_id=parsed.task_id,
+                    actor_id=parsed.actor,
+                    reason=parsed.reason,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub task: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
             else:
                 target = runtime.governance_broker.get_target(parsed.task_id)
                 if target is None:
