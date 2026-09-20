@@ -1,7 +1,6 @@
 """Command-line interface for PeerHub."""
 
 import argparse
-import functools
 import hashlib
 import json
 import os  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
@@ -39,7 +38,7 @@ from peerhub.application.direct_ask import (
     execute_direct_ask,  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 )
 from peerhub.application.peer_registry import collect_model_status
-from peerhub.application.proposals import ProposalVoteResult, load_proposal_voters  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
+from peerhub.application.proposals import load_proposal_voters  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
 from peerhub.application.role_assignment import RoleReleaseDisposition
 from peerhub.application.status import collect_room_status
 from peerhub.application.broker_status import collect_effect_status
@@ -58,7 +57,7 @@ from peerhub.core.identity import (
 from peerhub.dispatch.contract import RequestState
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.process import ProcessSupervisor  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
-from peerhub.runtime import create_read_runtime, create_runtime, verify_dctx_credential
+from peerhub.runtime import create_read_runtime, create_runtime
 from peerhub.client import Client
 from peerhub.application.commands import Command, SubmissionMetadata
 from peerhub.application.commands.operational_errors import ReportErrorCommand
@@ -76,7 +75,13 @@ from peerhub.application.commands.locks import (
     LockReleaseCommand,
 )
 from peerhub.application.commands.tasks import TaskCheckpointCommand
-from peerhub.application.commands.consensus import ConsensusVoteCommand
+from peerhub.application.commands.consensus import (
+    ArbiterReviewCommand,
+    ConsensusProposeCommand,
+    ConsensusVoteCommand,
+    ProposalAddCommand,
+    ProposalVoteCommand,
+)
 from peerhub.application.commands.leadership import (
     LeaderClaimCommand,
     LeaderYieldCommand,
@@ -105,7 +110,6 @@ from peerhub.application.commands.rooms import (
     UpdateStatusCommand,
 )
 from peerhub.core.ports import RequestContext
-from peerhub.governance.consensus import ConsensusService
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import HANDOFF_LIST_SECTIONS, RoomsService
@@ -533,8 +537,6 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
     try:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
-            _verify_dctx_credential = functools.partial(verify_dctx_credential, context)
-
             def _resolve_dctx_actor(*, credential_id: str) -> str | None:
                 import sqlite3
                 from peerhub.persistence.dispatch_context import resolve_actor_for_credential
@@ -571,41 +573,42 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     "consensus vote requires --actor or a valid --credential-id"
                 )
 
-            service = ConsensusService(
-                runtime.governance_broker,
-                clock=context.clock,
-                ids=context.ids,
-                credential_verifier=_verify_dctx_credential,
-            )
             if parsed.consensus_action == "proposal-add":
-                result = runtime.proposal_coordinator.add_proposal(
+                outcome = _submit_via_gateway(runtime, ProposalAddCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.from_peer,
+                        request_kind="consensus-proposal-add",
+                    ),
                     subject=parsed.subject,
                     from_peer=parsed.from_peer,
                     impact=parsed.impact,
                     rationale=parsed.rationale,
                     text=parsed.text,
                     verified_required=parsed.verified_required,
-                )
+                ))
+                if not outcome.ok:
+                    print(f"peerhub consensus: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, Any], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(_json_safe({
-                        "round_id": result.round_id,
-                        "from_peer": result.from_peer,
-                        "impact": result.impact,
-                        "eligible_participants": (
-                            result.eligible_participants
-                        ),
-                        "receipt_id": result.receipt_id,
-                        "revision": result.revision,
+                        "round_id": result["round_id"],
+                        "from_peer": result["from_peer"],
+                        "impact": result["impact"],
+                        "eligible_participants": result["eligible_participants"],
+                        "receipt_id": result["receipt_id"],
+                        "revision": result["revision"],
                     })))
                 else:
                     print(
-                        f"[HUB] PROPOSAL-ADD {result.round_id} | "
-                        f"from={result.from_peer} | "
-                        f"impact={result.impact.upper()}"
+                        f"[HUB] PROPOSAL-ADD {result['round_id']} | "
+                        f"from={result['from_peer']} | "
+                        f"impact={str(result['impact']).upper()}"
                     )
                     print(
                         "      Vote with: peerhub consensus proposal-vote "
-                        f"--proposal-id {result.round_id} --vote agree "
+                        f"--proposal-id {result['round_id']} --vote agree "
                         "--voter <peer>"
                     )
                 return 0
@@ -622,26 +625,33 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     voter_id = resolved_voter
                 else:
                     voter_id = "cc"
-                result = runtime.proposal_coordinator.vote_proposal(
-                    parsed.proposal_id,
+                outcome = _submit_via_gateway(runtime, ProposalVoteCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=voter_id,
+                        request_kind="consensus-proposal-vote",
+                    ),
+                    proposal_id=parsed.proposal_id,
                     voter=voter_id,
                     vote=parsed.vote,
                     reason=parsed.reason,
                     credential_id=parsed.credential_id,
-                )
+                ), credential_id=parsed.credential_id)
+                if not outcome.ok:
+                    print(f"peerhub consensus: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, Any], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(_json_safe({
-                        "round_id": result.round_id,
-                        "voter": result.voter,
-                        "choice": result.choice,
-                        "outcome": result.outcome,
-                        "agreed": result.agreed,
-                        "disagreed": result.disagreed,
-                        "escalation_reason": result.escalation_reason,
-                        "invariant_request_target_id": (
-                            result.invariant_request_target_id
-                        ),
-                        "revision": result.revision,
+                        "round_id": result["round_id"],
+                        "voter": result["voter"],
+                        "choice": result["choice"],
+                        "outcome": result["outcome"],
+                        "agreed": result["agreed"],
+                        "disagreed": result["disagreed"],
+                        "escalation_reason": result["escalation_reason"],
+                        "invariant_request_target_id": result["invariant_request_target_id"],
+                        "revision": result["revision"],
                     })))
                 else:
                     _print_proposal_vote_compatibility(result)
@@ -649,7 +659,12 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
             if parsed.consensus_action == "propose":
                 required = tuple(item for item in parsed.required.split(",") if item)
                 eligible = tuple(item for item in parsed.eligible.split(",") if item)
-                submission = service.propose(
+                outcome = _submit_via_gateway(runtime, ConsensusProposeCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=parsed.proposer,
+                        request_kind="consensus-propose",
+                    ),
                     round_id=parsed.round_id,
                     title=parsed.title,
                     question=parsed.question,
@@ -660,8 +675,12 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                     risk=parsed.risk,
                     source_hash="sha256:" + hashlib.sha256(parsed.body.encode()).hexdigest(),
                     verified_required=parsed.verified_required,
-                )
-                target = runtime.governance_broker.get_target(submission.receipt.target_id)
+                ))
+                if not outcome.ok:
+                    print(f"peerhub consensus: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                target = runtime.governance_broker.get_target(target_id)
                 assert target is not None
                 state = cast(dict[str, Any], target.state)
                 quorum = cast(dict[str, Any], state["quorum"])
@@ -692,6 +711,7 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                         round_id=parsed.round_id,
                         actor_id=actor_id,
                         choice=parsed.choice,
+                        credential_id=parsed.credential_id,
                     ),
                     credential_id=parsed.credential_id,
                 )
@@ -744,7 +764,18 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                         )
                 return 0
             if parsed.consensus_action == "arbiter-review":
-                result = runtime.arbiter_coordinator.review(parsed.round_id)
+                outcome = _submit_via_gateway(runtime, ArbiterReviewCommand(
+                    submission=_cli_submission(
+                        context,
+                        actor_id=None,
+                        request_kind="consensus-arbiter-review",
+                    ),
+                    round_id=parsed.round_id,
+                ))
+                if not outcome.ok:
+                    print(f"peerhub consensus: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                result = cast(Mapping[str, Any], outcome.result)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
                 if parsed.json:
                     print(json.dumps(_json_safe(result)))
                 else:
@@ -776,25 +807,25 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
         return 2
 
 
-def _print_proposal_vote_compatibility(result: ProposalVoteResult) -> None:
+def _print_proposal_vote_compatibility(result: Mapping[str, Any]) -> None:
     print(
-        f"[HUB] PROPOSAL-VOTE {result.round_id} | "
-        f"{result.voter}:{result.choice.upper()}"
+        f"[HUB] PROPOSAL-VOTE {result['round_id']} | "
+        f"{result['voter']}:{str(result['choice']).upper()}"
     )
-    if result.outcome == "CONSENSUS_OK":
+    if result["outcome"] == "CONSENSUS_OK":
         print(
-            f"[HUB] PROPOSAL CONSENSUS_OK {result.round_id} | "
-            f"unanimous agree: {','.join(result.agreed)}"
+            f"[HUB] PROPOSAL CONSENSUS_OK {result['round_id']} | "
+            f"unanimous agree: {','.join(cast(Sequence[str], result['agreed']))}"
         )
-    elif result.outcome == "NACK":
+    elif result["outcome"] == "NACK":
         print(
-            f"[HUB] PROPOSAL NACK {result.round_id} | "
-            f"disagreed: {','.join(result.disagreed)}"
+            f"[HUB] PROPOSAL NACK {result['round_id']} | "
+            f"disagreed: {','.join(cast(Sequence[str], result['disagreed']))}"
         )
-    elif result.outcome == "ESCALATED":
+    elif result["outcome"] == "ESCALATED":
         print(
-            f"[HUB] PROPOSAL ESCALATED {result.round_id} | "
-            f"{result.escalation_reason}"
+            f"[HUB] PROPOSAL ESCALATED {result['round_id']} | "
+            f"{result['escalation_reason']}"
         )
 
 

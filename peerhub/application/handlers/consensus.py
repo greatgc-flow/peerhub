@@ -72,6 +72,7 @@ def register_consensus_handlers(
             string_tuple(params, "eligible_participants"),
             str(params["risk"]),
             str(params["source_hash"]),
+            bool(params["verified_required"]),
         )
 
     def decode_vote(envelope: CommandEnvelope) -> ConsensusVoteCommand:
@@ -112,6 +113,7 @@ def register_consensus_handlers(
             eligible_participants=command.eligible_participants,
             risk=command.risk,
             source_hash=command.source_hash,
+            verified_required=command.verified_required,
         ),
         receipt,
         available,
@@ -214,6 +216,7 @@ def register_consensus_handlers(
                 impact=proposal_text(envelope, "impact"),
                 rationale=proposal_text(envelope, "rationale"),
                 text=proposal_text(envelope, "text"),
+                verified_required=bool(envelope.params["verified_required"]),
             )
 
         def decode_proposal_vote(
@@ -225,6 +228,7 @@ def register_consensus_handlers(
                 voter=proposal_text(envelope, "voter"),
                 vote=proposal_text(envelope, "vote"),
                 reason=proposal_text(envelope, "reason"),
+                credential_id=envelope.credential_id,
             )
 
         def encode_proposal_add(
@@ -266,6 +270,7 @@ def register_consensus_handlers(
                 impact=command.impact,
                 rationale=command.rationale,
                 text=command.text,
+                verified_required=command.verified_required,
             ),
             encode_proposal_add,
             available,
@@ -281,6 +286,7 @@ def register_consensus_handlers(
                 voter=command.voter,
                 vote=command.vote,
                 reason=command.reason,
+                credential_id=command.credential_id,
             ),
             encode_proposal_vote,
             available,

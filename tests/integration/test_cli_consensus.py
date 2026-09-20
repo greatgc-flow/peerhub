@@ -5,6 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from peerhub.cli import main
+from peerhub.application.governance_authorizer import GovernanceAuthorizer
 from peerhub.core.context import PathLayout
 from peerhub.persistence.dispatch_context import issue_credential
 
@@ -43,6 +44,64 @@ def test_cli_consensus_propose_vote_and_status(tmp_path: Path, capsys) -> None:
     ]) == 0
     status_output = json.loads(capsys.readouterr().out)
     assert status_output["round_id"] == "round-cli"
+
+
+def test_cli_consensus_propose_routes_through_gateway_and_preserves_verified_required(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    observed: list[tuple[str, str | None]] = []
+    original_authorize = GovernanceAuthorizer.authorize
+
+    def record_authorize(self, *, caller, envelope, submission_client_id):
+        observed.append((envelope.method, envelope.credential_id))
+        return original_authorize(
+            self,
+            caller=caller,
+            envelope=envelope,
+            submission_client_id=submission_client_id,
+        )
+
+    monkeypatch.setattr(GovernanceAuthorizer, "authorize", record_authorize)
+    args = _propose_args(tmp_path) + ["--verified-required", "--json"]
+    assert main(args) == 0
+    assert json.loads(capsys.readouterr().out)["round_id"] == "round-cli"
+    assert observed == [("consensus.round.propose", None)]
+
+    assert main([
+        "consensus", "status", "--workspace", str(tmp_path),
+        "--round-id", "round-cli", "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["verified_required"] is True
+
+
+def test_cli_consensus_arbiter_review_routes_through_gateway(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    assert main(_propose_args(tmp_path)) == 0
+    capsys.readouterr()
+
+    observed: list[tuple[str, str | None]] = []
+    original_authorize = GovernanceAuthorizer.authorize
+
+    def record_authorize(self, *, caller, envelope, submission_client_id):
+        observed.append((envelope.method, envelope.credential_id))
+        return original_authorize(
+            self,
+            caller=caller,
+            envelope=envelope,
+            submission_client_id=submission_client_id,
+        )
+
+    monkeypatch.setattr(GovernanceAuthorizer, "authorize", record_authorize)
+    assert main([
+        "consensus", "arbiter-review", "--workspace", str(tmp_path),
+        "--round-id", "round-cli", "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "fired": False,
+        "reason": "arbiter_disabled",
+    }
+    assert observed == [("consensus.arbiter.review", None)]
 
 
 def test_cli_consensus_status_not_found_returns_nonzero(tmp_path: Path, capsys) -> None:

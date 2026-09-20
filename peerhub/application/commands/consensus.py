@@ -23,6 +23,7 @@ class ConsensusProposeCommand(Command[Any]):
     eligible_participants: tuple[str, ...]
     risk: str
     source_hash: str
+    verified_required: bool = False
 
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {
@@ -35,6 +36,7 @@ class ConsensusProposeCommand(Command[Any]):
             "eligible_participants": self.eligible_participants,
             "risk": self.risk,
             "source_hash": self.source_hash,
+            "verified_required": self.verified_required,
         }
 
     @classmethod
@@ -110,6 +112,7 @@ class ProposalAddCommand(Command[Any]):
     impact: str
     rationale: str
     text: str
+    verified_required: bool = False
 
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {
@@ -118,6 +121,7 @@ class ProposalAddCommand(Command[Any]):
             "impact": self.impact,
             "rationale": self.rationale,
             "text": self.text,
+            "verified_required": self.verified_required,
         }
 
     @classmethod
@@ -133,6 +137,9 @@ class ProposalVoteCommand(Command[Any]):
     voter: str
     vote: str
     reason: str
+    credential_id: str | None = None
+    """Not encoded into wire params -- carried on CommandEnvelope.credential_id
+    instead (R4/P4b gateway verification), matching ConsensusVoteCommand."""
 
     def encode_params(self) -> Mapping[str, JsonValue]:
         return {

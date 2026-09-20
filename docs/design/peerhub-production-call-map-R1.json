@@ -1711,16 +1711,17 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ConsensusService.propose -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b): caller.client_id must equal the command submission client_id when no credential is presented. This entrance declares asserted-only authorization; verified_required remains a per-round policy enforced by ConsensusService.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusProposeCommand) -> ApplicationAPI.submit() -> ConsensusService.propose",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status"
+        "tests/integration/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status",
+        "tests/integration/test_cli_consensus.py::test_cli_consensus_propose_routes_through_gateway_and_preserves_verified_required"
       ],
       "parser_contract": {
         "arguments": [
@@ -1872,16 +1873,17 @@
           "Manage consensus rounds",
           "Propose a new consensus round"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "consensus proposal-add",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ProposalCoordinator.add_proposal -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b): caller.client_id must equal the command submission client_id when no credential is presented. This entrance declares asserted-only authorization; verified_required is carried to ProposalCoordinator as per-round policy.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ProposalAddCommand) -> ApplicationAPI.submit() -> ProposalCoordinator.add_proposal",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -1889,6 +1891,7 @@
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
         "tests/integration/application/test_proposals.py::test_cli_add_and_vote_exact_compatibility_stdout",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_add_routes_through_gateway",
         "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_accepts_real_credential",
         "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_impersonation",
         "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_missing_credential"
@@ -2006,16 +2009,17 @@
           "Manage consensus rounds",
           "Create a health-filtered legacy-compatible proposal"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "consensus proposal-vote",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ProposalCoordinator.vote_proposal -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b): when --credential-id is presented, the gateway verifies it against the envelope voter before ProposalCoordinator.vote_proposal runs. ConsensusService retains its domain-level verifier as defense-in-depth and to enforce verified_required.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ProposalVoteCommand, credential_id=...) -> ApplicationAPI.submit() -> ProposalCoordinator.vote_proposal",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -2023,6 +2027,7 @@
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
         "tests/integration/application/test_proposals.py::test_cli_add_and_vote_exact_compatibility_stdout",
+        "tests/integration/application/test_proposals.py::test_cli_proposal_vote_routes_through_gateway_with_credential",
         "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_accepts_real_credential",
         "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_impersonation",
         "tests/integration/application/test_proposals.py::test_cli_proposal_verified_required_rejects_missing_credential",
@@ -2186,23 +2191,24 @@
           "Manage consensus rounds",
           "List every consensus proposal, including resolved rounds"
         ]
-      }
+      },
+      "authorizer_behavior": "VERIFIED_WHEN_PRESENTED"
     },
     {
       "path": "consensus arbiter-review",
       "effect": "MUTATING_EXTERNAL",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_consensus -> ArbiterReviewCoordinator.review -- NOTE (R4/P4b, 2026-09-19): this action has no registered ApplicationAPI command yet (or, for `propose`, the registered consensus.round.propose command has no verified_required field), so it remains a direct call until that gap is closed as separate work.",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b): caller.client_id must equal the command submission client_id when no credential is presented. This entrance declares asserted-only authorization.",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ArbiterReviewCommand) -> ApplicationAPI.submit() -> ArbiterReviewCoordinator.review",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "TEST NEEDED: execution-level integration test reaching peerhub.cli:main for 'consensus arbiter-review'"
+        "tests/integration/test_cli_consensus.py::test_cli_consensus_arbiter_review_routes_through_gateway"
       ],
       "parser_contract": {
         "arguments": [
@@ -2250,7 +2256,8 @@
           "Manage consensus rounds",
           "Run final arbiter review on a consensus round"
         ]
-      }
+      },
+      "authorizer_behavior": "ASSERTED_ONLY"
     },
     {
       "path": "consensus vote",

@@ -10,6 +10,8 @@ from peerhub.application.legacy import (
     ConsensusCheckCommand,
     ConsensusProposeCommand,
     ConsensusVoteCommand,
+    ProposalAddCommand,
+    ProposalVoteCommand,
     LeaderClaimCommand,
     LeaderYieldCommand,
     LessonActivateCommand,
@@ -48,7 +50,18 @@ def test_consensus_commands_wire_contracts() -> None:
         source_hash="sha256:x",
     )
     assert proposal.method == "consensus.round.propose"
-    assert proposal.encode_params()["round_id"] == "r1"
+    assert proposal.encode_params() == {
+        "round_id": "r1",
+        "title": "T",
+        "question": "Q",
+        "body": "B",
+        "proposer_id": "cx",
+        "required_participants": ("cx", "ag"),
+        "eligible_participants": ("cx", "ag"),
+        "risk": "normal",
+        "source_hash": "sha256:x",
+        "verified_required": False,
+    }
 
     vote = ConsensusVoteCommand(
         submission=_submission(),
@@ -65,6 +78,32 @@ def test_consensus_commands_wire_contracts() -> None:
     )
     assert check.method == "consensus.round.read"
     assert check.encode_params() == {"round_id": "r1"}
+
+    proposal_add = ProposalAddCommand(
+        submission=_submission(),
+        subject="Proposal",
+        from_peer="cx",
+        impact="high",
+        rationale="R",
+        text="T",
+        verified_required=True,
+    )
+    assert proposal_add.encode_params()["verified_required"] is True
+
+    proposal_vote = ProposalVoteCommand(
+        submission=_submission(),
+        proposal_id="r1",
+        voter="ag",
+        vote="agree",
+        reason="R",
+        credential_id="credential-not-a-wire-param",
+    )
+    assert proposal_vote.encode_params() == {
+        "proposal_id": "r1",
+        "voter": "ag",
+        "vote": "agree",
+        "reason": "R",
+    }
 
 
 # ---------------------------------------------------------------------------

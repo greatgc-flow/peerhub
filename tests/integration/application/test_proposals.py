@@ -11,6 +11,7 @@ import time
 import pytest
 
 from peerhub.application.commands import SubmissionMetadata
+from peerhub.application.governance_authorizer import GovernanceAuthorizer
 from peerhub.application.legacy import (
     ProposalAddCommand,
     ProposalVoteCommand,
@@ -706,6 +707,65 @@ def test_cli_add_and_vote_exact_compatibility_stdout(
         f"[HUB] PROPOSAL CONSENSUS_OK {round_id} | "
         "unanimous agree: cc,cx",
     ]
+
+
+def test_cli_proposal_add_routes_through_gateway(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[tuple[str, str | None]] = []
+    original_authorize = GovernanceAuthorizer.authorize
+
+    def record_authorize(self, *, caller, envelope, submission_client_id):
+        observed.append((envelope.method, envelope.credential_id))
+        return original_authorize(
+            self,
+            caller=caller,
+            envelope=envelope,
+            submission_client_id=submission_client_id,
+        )
+
+    monkeypatch.setattr(GovernanceAuthorizer, "authorize", record_authorize)
+    _setup_verified_round(tmp_path)
+    round_id = capsys.readouterr().out.splitlines()[0].split()[2]
+    assert observed == [("governance.proposal.create", None)]
+
+    assert main([
+        "consensus", "status", "--workspace", str(tmp_path),
+        "--round-id", round_id, "--json",
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["verified_required"] is True
+
+
+def test_cli_proposal_vote_routes_through_gateway_with_credential(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _setup_verified_round(tmp_path)
+    round_id = capsys.readouterr().out.splitlines()[0].split()[2]
+    _seed_dctx_credential(tmp_path, credential_id="cred-cx", peer_instance_id="cx")
+
+    observed: list[tuple[str, str | None]] = []
+    original_authorize = GovernanceAuthorizer.authorize
+
+    def record_authorize(self, *, caller, envelope, submission_client_id):
+        observed.append((envelope.method, envelope.credential_id))
+        return original_authorize(
+            self,
+            caller=caller,
+            envelope=envelope,
+            submission_client_id=submission_client_id,
+        )
+
+    monkeypatch.setattr(GovernanceAuthorizer, "authorize", record_authorize)
+    assert main([
+        "consensus", "proposal-vote", "--workspace", str(tmp_path),
+        "--proposal-id", round_id, "--voter", "cx", "--vote", "agree",
+        "--credential-id", "cred-cx",
+    ]) == 0
+    assert observed == [("governance.proposal.vote", "cred-cx")]
 
 
 def _seed_dctx_credential(workspace: Path, *, credential_id: str, peer_instance_id: str) -> None:
