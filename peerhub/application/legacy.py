@@ -104,6 +104,9 @@ FeedbackAddCommand = _feedback_commands.FeedbackAddCommand
 FeedbackListCommand = _feedback_commands.FeedbackListCommand
 FeedbackResolveCommand = _feedback_commands.FeedbackResolveCommand
 ReportErrorCommand = _operational_errors_commands.ReportErrorCommand
+ResolveQuarantineReviewCommand = (
+    _operational_errors_commands.ResolveQuarantineReviewCommand
+)
 ConsensusCheckCommand = _consensus_commands.ConsensusCheckCommand
 ConsensusProposeCommand = _consensus_commands.ConsensusProposeCommand
 ConsensusSweepCommand = _consensus_commands.ConsensusSweepCommand

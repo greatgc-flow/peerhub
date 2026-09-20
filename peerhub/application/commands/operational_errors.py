@@ -32,3 +32,27 @@ class ReportErrorCommand(Command[Any]):
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
         return value
+
+
+@dataclass(frozen=True, slots=True)
+class ResolveQuarantineReviewCommand(Command[Any]):
+    method: ClassVar[str] = "governance.quarantine_review.resolve"
+    submission: SubmissionMetadata
+    review_id: str
+    decision: str
+    actor_principal_id: str
+    evidence_source: str
+    reason: str
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "review_id": self.review_id,
+            "decision": self.decision,
+            "actor_principal_id": self.actor_principal_id,
+            "evidence_source": self.evidence_source,
+            "reason": self.reason,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value

@@ -12,6 +12,7 @@ from peerhub.application.legacy import (
     ConsensusVoteCommand,
     ProposalAddCommand,
     ProposalVoteCommand,
+    ResolveQuarantineReviewCommand,
     LeaderClaimCommand,
     LeaderYieldCommand,
     LessonActivateCommand,
@@ -205,6 +206,30 @@ def test_leadership_commands_workspace_global_params() -> None:
         "yielding_peer_id": "cc",
         "actor_id": "cx",
         "reason": "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Operational-error commands
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_quarantine_review_command_wire_contract() -> None:
+    command = ResolveQuarantineReviewCommand(
+        submission=_submission(),
+        review_id="review-1",
+        decision="DISMISS",
+        actor_principal_id="admin",
+        evidence_source="cli-argument",
+        reason="evidence was insufficient",
+    )
+    assert command.method == "governance.quarantine_review.resolve"
+    assert command.encode_params() == {
+        "review_id": "review-1",
+        "decision": "DISMISS",
+        "actor_principal_id": "admin",
+        "evidence_source": "cli-argument",
+        "reason": "evidence was insufficient",
     }
 
 

@@ -59,6 +59,7 @@ from peerhub.application.health_revalidation import HealthRevalidationCoordinato
 from peerhub.application.role_assignment import RoleAssignmentService
 from peerhub.application.leadership import LeadershipService
 from peerhub.application.capability_matching import CapabilityMatchingCoordinator
+from peerhub.application.quarantine_review import QuarantineReviewCoordinator
 from peerhub.governance.feedback import FeedbackService
 from peerhub.governance.operational_errors import OperationalErrorService
 from peerhub.governance.file_locks import FileLockService
@@ -138,6 +139,7 @@ class ApplicationAPI:
         file_locks: FileLockService | None = None,
         artifact_records: ArtifactRecordService | None = None,
         operational_errors: OperationalErrorService | None = None,
+        quarantine_reviews: QuarantineReviewCoordinator | None = None,
         alert_raise: AlertRaiseCoordinator | None = None,
         health_revalidation: HealthRevalidationCoordinator | None = None,
         process_lease_sweep: ProcessLeaseSweepCoordinator | None = None,
@@ -183,7 +185,9 @@ class ApplicationAPI:
             self._register_artifact_records(artifact_records)
 
         if operational_errors is not None:
-            self._register_operational_errors(operational_errors)
+            self._register_operational_errors(
+                operational_errors, quarantine_reviews
+            )
         if alert_raise is not None:
             self._register_alert_raise(alert_raise)
         if process_lease_sweep is not None:
@@ -379,6 +383,7 @@ class ApplicationAPI:
     def _register_operational_errors(
         self,
         service: OperationalErrorService,
+        quarantine_reviews: QuarantineReviewCoordinator | None,
     ) -> None:
         from peerhub.application.handlers.operational_errors import (
             register_operational_error_handlers,
@@ -387,6 +392,7 @@ class ApplicationAPI:
         register_operational_error_handlers(
             api=self,
             service=service,
+            quarantine_reviews=quarantine_reviews,
         )
 
     def _register_process_lease_sweep(

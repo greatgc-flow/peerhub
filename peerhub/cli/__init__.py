@@ -60,7 +60,10 @@ from peerhub.dispatch.process import ProcessSupervisor  # pyright: ignore[report
 from peerhub.runtime import create_read_runtime, create_runtime
 from peerhub.client import Client
 from peerhub.application.commands import Command, SubmissionMetadata
-from peerhub.application.commands.operational_errors import ReportErrorCommand
+from peerhub.application.commands.operational_errors import (
+    ReportErrorCommand,
+    ResolveQuarantineReviewCommand,
+)
 from peerhub.application.commands.feedback import (
     FeedbackAddCommand,
     FeedbackResolveCommand,
@@ -2293,20 +2296,26 @@ def _run_error(parsed: argparse.Namespace) -> int:
                             )
                     return 0
                 elif parsed.review_action == "resolve":
-                    from peerhub.core.identity import AuthenticatedSubject
-                    actor = AuthenticatedSubject(
-                        principal_id=parsed.actor,
-                        evidence_source="cli-argument",
+                    outcome = _submit_via_gateway(
+                        runtime,
+                        ResolveQuarantineReviewCommand(
+                            submission=_cli_submission(
+                                context,
+                                actor_id=parsed.actor,
+                                request_kind="error-review-resolve",
+                            ),
+                            review_id=parsed.review_id,
+                            decision=parsed.decision,
+                            actor_principal_id=parsed.actor,
+                            evidence_source="cli-argument",
+                            reason=parsed.reason,
+                        ),
                     )
-                    submission = runtime.quarantine_review_coordinator.resolve_quarantine_review(
-                        parsed.review_id,
-                        decision=parsed.decision,
-                        actor=actor,
-                        reason=parsed.reason,
-                    )
-                    target = runtime.governance_broker.get_target(
-                        submission.receipt.target_id
-                    )
+                    if not outcome.ok:
+                        print(f"peerhub error: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                        return 2
+                    target_id = cast(str, outcome.result["target_id"])  # pyright: ignore[reportAttributeAccessIssue, reportUnknownArgumentType, reportUnknownMemberType]
+                    target = runtime.governance_broker.get_target(target_id)
                     assert target is not None
                     if parsed.json:
                         print(json.dumps(_json_safe(target.state)))

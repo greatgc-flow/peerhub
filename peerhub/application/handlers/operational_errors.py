@@ -4,8 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from peerhub.application.commands.operational_errors import ReportErrorCommand
+from peerhub.application.commands.operational_errors import (
+    ReportErrorCommand,
+    ResolveQuarantineReviewCommand,
+)
 from peerhub.application.handlers._params import required_text
+from peerhub.application.quarantine_review import QuarantineReviewCoordinator
+from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import CommandEnvelope
 from peerhub.governance.operational_errors import OperationalErrorService
 
@@ -14,6 +19,7 @@ def register_operational_error_handlers(
     *,
     api: Any,
     service: OperationalErrorService,
+    quarantine_reviews: QuarantineReviewCoordinator | None = None,
 ) -> None:
     """Register the existing operational-error wire handler unchanged."""
 
@@ -51,6 +57,20 @@ def register_operational_error_handlers(
             threshold=threshold,
         )
 
+    def decode_resolve(
+        envelope: CommandEnvelope,
+    ) -> ResolveQuarantineReviewCommand:
+        return ResolveQuarantineReviewCommand(
+            submission=submission(envelope),
+            review_id=required_text(envelope, "review_id"),
+            decision=required_text(envelope, "decision"),
+            actor_principal_id=required_text(
+                envelope, "actor_principal_id"
+            ),
+            evidence_source=required_text(envelope, "evidence_source"),
+            reason=required_text(envelope, "reason"),
+        )
+
     register(descriptor(
         "telemetry.error.record",
         mutating,
@@ -68,3 +88,24 @@ def register_operational_error_handlers(
         receipt,
         available,
     ))
+    if quarantine_reviews is not None:
+        register(descriptor(
+            "governance.quarantine_review.resolve",
+            mutating,
+            any_scope,
+            domain_atomic_required,
+            decode_resolve,
+            lambda command, _context: (
+                quarantine_reviews.resolve_quarantine_review(
+                    command.review_id,
+                    decision=command.decision,
+                    actor=AuthenticatedSubject(
+                        principal_id=command.actor_principal_id,
+                        evidence_source=command.evidence_source,
+                    ),
+                    reason=command.reason,
+                )
+            ),
+            receipt,
+            available,
+        ))

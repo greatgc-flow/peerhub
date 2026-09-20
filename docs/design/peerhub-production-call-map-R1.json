@@ -6464,16 +6464,20 @@
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
-      "authorizer": "CLI-supplied actor/proposer/owner identifiers are forwarded to domain validation; no common caller verifier or exact-grant check is on this entrance",
-      "gateway": "DIRECT_CLI_BYPASS",
-      "handler": "peerhub.cli:_run_error -> QuarantineReviewCoordinator.resolve_quarantine_review",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "authorizer_behavior": "ASSERTED_ONLY",
+      "handler": "peerhub.cli:_run_error -> peerhub.client:Client.submit(ResolveQuarantineReviewCommand) -> ApplicationAPI.submit() -> QuarantineReviewCoordinator.resolve_quarantine_review",
       "transactional_owner": "OperationalErrorService/QuarantineReviewCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Operational-error result or quarantine-review record/list",
       "external_effects": "Persists error counters and quarantine-review decisions; may update health quarantine state",
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; report returns 1 when its result marks ok=false; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2)",
       "integration_tests": [
-        "TEST NEEDED: execution-level integration test reaching peerhub.cli:main for 'error review resolve'"
+        "tests/integration/application/test_error_report_cli.py::test_cli_error_review_resolve_dismiss_routes_through_gateway",
+        "tests/integration/application/test_error_report_cli.py::test_cli_error_review_resolve_escalate_routes_through_gateway",
+        "tests/integration/application/test_error_report_cli.py::test_cli_error_review_resolve_rejects_mismatched_asserted_client",
+        "tests/integration/application/test_error_report_cli.py::test_cli_error_review_resolve_rejects_invalid_decision"
       ],
       "parser_contract": {
         "arguments": [

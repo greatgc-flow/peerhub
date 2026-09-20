@@ -477,6 +477,7 @@ def _compose_runtime(
         file_locks=file_lock_service,
         artifact_records=artifact_record_service,
         operational_errors=operational_error_service,
+        quarantine_reviews=quarantine_review_coordinator,
         alert_raise=alert_raise_coordinator,
         health_revalidation=health_revalidation_coordinator,
         process_lease_sweep=process_lease_sweep_coordinator,
