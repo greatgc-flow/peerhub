@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from peerhub.runtime import Runtime
 
 import hashlib
+import os
 import secrets
 import sqlite3
 
@@ -224,8 +225,16 @@ def assemble_ask_prompt(
     task_context_lines: list[str] = []
     continuity_lines: list[str] = []
 
-    # 1. User Directives from _sys/ai/user-directives.md
-    user_dir_path = request.workspace_root / "_sys" / "ai" / "user-directives.md"
+    # 1. User Directives (Legacy P:\ / hub.py-environment compatibility:
+    # default location in the unified layout is _sys/ai/user-directives.md.
+    # Configurable via PEERHUB_USER_DIRECTIVES_PATH or PEERHUB_SYS_DIR / "ai" / "user-directives.md").
+    user_dir_override = os.environ.get("PEERHUB_USER_DIRECTIVES_PATH")
+    if user_dir_override:
+        user_dir_path = Path(user_dir_override)
+    elif os.environ.get("PEERHUB_SYS_DIR"):
+        user_dir_path = Path(os.environ["PEERHUB_SYS_DIR"]) / "ai" / "user-directives.md"
+    else:
+        user_dir_path = request.workspace_root / "_sys" / "ai" / "user-directives.md"
     if user_dir_path.exists():
         text = user_dir_path.read_text(encoding="utf-8", errors="replace").strip()
         if text:

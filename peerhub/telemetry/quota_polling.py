@@ -176,12 +176,26 @@ def _parse_claude_usage(text: str, now: Optional[datetime] = None) -> list[Claud
     return rows
 
 def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
+    # Legacy P:\ / hub.py-environment compatibility: in the legacy unified
+    # environment, node CLI binaries live in _sys/env/nodejs/npm-global.
+    # Configurable via PEERHUB_NPM_GLOBAL_DIR or PEERHUB_CC_BINARY/PEERHUB_CX_BINARY;
+    # defaults to legacy resolved_sys / "env" / "nodejs" / "npm-global".
     resolved_sys = _resolve_sys_dir(sys_dir)
     cli_dir = resolved_sys / "cli"
     if peer == "cc":
-        cand = resolved_sys / "env" / "nodejs" / "npm-global" / CLAUDE_CMD
+        cand_override = os.environ.get("PEERHUB_CC_BINARY")
+        if cand_override:
+            cand = Path(cand_override)
+        else:
+            npm_global = Path(os.environ.get("PEERHUB_NPM_GLOBAL_DIR", resolved_sys / "env" / "nodejs" / "npm-global"))
+            cand = npm_global / CLAUDE_CMD
     elif peer == "cx":
-        cand = resolved_sys / "env" / "nodejs" / "npm-global" / CODEX_CMD
+        cand_override = os.environ.get("PEERHUB_CX_BINARY")
+        if cand_override:
+            cand = Path(cand_override)
+        else:
+            npm_global = Path(os.environ.get("PEERHUB_NPM_GLOBAL_DIR", resolved_sys / "env" / "nodejs" / "npm-global"))
+            cand = npm_global / CODEX_CMD
     else:
         return None
         
@@ -275,7 +289,16 @@ def poll_claude_usage(
         return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at, freshness_ttl),)
 
     env = os.environ.copy()
-    env["CLAUDE_CONFIG_DIR"] = str((resolved_sys / "claude" / "config").resolve())
+    # Legacy P:\ / hub.py-environment compatibility: Claude CLI configuration
+    # directory in the legacy frozen environment lives at _sys/claude/config.
+    # Configurable via PEERHUB_CLAUDE_CONFIG_DIR or existing CLAUDE_CONFIG_DIR;
+    # defaults to legacy (resolved_sys / "claude" / "config").
+    claude_cfg_dir = (
+        os.environ.get("PEERHUB_CLAUDE_CONFIG_DIR")
+        or env.get("CLAUDE_CONFIG_DIR")
+        or str((resolved_sys / "claude" / "config").resolve())
+    )
+    env["CLAUDE_CONFIG_DIR"] = claude_cfg_dir
 
     # Direct binary invocation (bypassing claude.cmd wrapper per pattern a)
     # avoids both cmd.exe '&' splitting and orphaned grandchild process leaks.
@@ -626,7 +649,16 @@ def poll_agy_usage(
     _AG_QUOTA_LABELS = dict(AG_QUOTA_LABELS)
     
     resolved_sys = _resolve_sys_dir(sys_dir)
-    path = Path(log_path) if log_path is not None else (resolved_sys / "data" / "temp" / "ag_statusline_stdin.log")
+    # Legacy P:\ / hub.py-environment compatibility: Antigravity statusline log
+    # in the legacy frozen environment lives at _sys/data/temp/ag_statusline_stdin.log.
+    # Configurable via PEERHUB_AG_STATUSLINE_LOG; defaults to legacy
+    # resolved_sys / "data" / "temp" / "ag_statusline_stdin.log".
+    default_log_path = (
+        Path(os.environ["PEERHUB_AG_STATUSLINE_LOG"])
+        if "PEERHUB_AG_STATUSLINE_LOG" in os.environ
+        else (resolved_sys / "data" / "temp" / "ag_statusline_stdin.log")
+    )
+    path = Path(log_path) if log_path is not None else default_log_path
     
     try:
         st = path.stat()

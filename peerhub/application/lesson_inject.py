@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Iterable
@@ -110,7 +111,13 @@ def render_lesson_block(lessons: Iterable[TargetState], policy: LessonInjectionP
     block_lines = ["[PEER LESSONS]"]
     block_lines.extend(lines)
     if omitted > 0:
-        pack_path = "_sys/ai/knowledge/general/active-lessons.jsonl"
+        # Legacy P:\ / hub.py-environment compatibility: informational reference
+        # to active lessons pack lives at _sys/ai/knowledge/general/active-lessons.jsonl.
+        # Configurable via PEERHUB_LESSONS_PACK_PATH.
+        pack_path = os.environ.get(
+            "PEERHUB_LESSONS_PACK_PATH",
+            "_sys/ai/knowledge/general/active-lessons.jsonl",
+        )
         block_lines.append(f"Omitted: {omitted} lower-priority matches. Full pack: {pack_path}")
     return "\n".join(block_lines)
 

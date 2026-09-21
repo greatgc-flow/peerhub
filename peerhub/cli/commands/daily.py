@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import os
+from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, cast
 
@@ -244,7 +246,14 @@ def refresh_usage_projections(
                 if instance_id in fresh_instances:
                     continue
                 try:
-                    observations.extend(poll(ids, instance_id, "standard", freshness_ttl=freshness_ttl, sys_dir=workspace_root / "_sys"))
+                    # Legacy P:\ / hub.py-environment compatibility: resolves sys_dir
+                    # via PEERHUB_SYS_DIR if set, falling back to legacy workspace_root / "_sys".
+                    daily_sys_dir = (
+                        Path(os.environ["PEERHUB_SYS_DIR"])
+                        if os.environ.get("PEERHUB_SYS_DIR")
+                        else (workspace_root / "_sys")
+                    )
+                    observations.extend(poll(ids, instance_id, "standard", freshness_ttl=freshness_ttl, sys_dir=daily_sys_dir))
                 except Exception:
                     continue
             if observations:

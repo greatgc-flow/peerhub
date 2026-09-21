@@ -1975,7 +1975,18 @@ def _run_routing(parsed: argparse.Namespace) -> int:
         runtime_factory = create_read_runtime if read_only else create_runtime
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             if parsed.routing_action == "import-capabilities":
-                sys_root = workspace_root.parent.parent / "_sys" / "ai"
+                # Legacy P:\ / hub.py-environment compatibility: import capability
+                # configs from legacy _sys/ai directory. Configurable via
+                # PEERHUB_LEGACY_AI_DIR or PEERHUB_SYS_DIR; defaults to legacy
+                # unified layout workspace_root.parent.parent / "_sys" / "ai".
+                legacy_ai_env = os.environ.get("PEERHUB_LEGACY_AI_DIR")
+                sys_dir_env = os.environ.get("PEERHUB_SYS_DIR")
+                if legacy_ai_env:
+                    sys_root = Path(legacy_ai_env)
+                elif sys_dir_env:
+                    sys_root = Path(sys_dir_env) / "ai"
+                else:
+                    sys_root = workspace_root.parent.parent / "_sys" / "ai"
                 protocol_path = Path(
                     parsed.protocol or sys_root / "protocol.json"
                 ).resolve()

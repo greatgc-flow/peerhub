@@ -298,3 +298,101 @@ def test_poll_agy_usage_success(tmp_path):
     obs_3p = scopes["3P-7D"]
     assert obs_3p.evidence.state == EvidenceState.MEASURED
     assert obs_3p.evidence.value.used_fraction == pytest.approx(0.2)
+
+
+def test_real_binary_default_and_overrides(monkeypatch, tmp_path):
+    # 1. Default legacy layout
+    sys_dir = tmp_path / "_sys"
+    default_npm = sys_dir / "env" / "nodejs" / "npm-global"
+    default_npm.mkdir(parents=True)
+    cc_default = default_npm / "claude.cmd"
+    cc_default.write_text("@echo off\n")
+    cx_default = default_npm / "codex.cmd"
+    cx_default.write_text("@echo off\n")
+
+    monkeypatch.delenv("PEERHUB_NPM_GLOBAL_DIR", raising=False)
+    monkeypatch.delenv("PEERHUB_CC_BINARY", raising=False)
+    monkeypatch.delenv("PEERHUB_CX_BINARY", raising=False)
+
+    assert _real_binary("cc", sys_dir) == str(cc_default)
+    assert _real_binary("cx", sys_dir) == str(cx_default)
+
+    # 2. PEERHUB_NPM_GLOBAL_DIR override
+    custom_npm = tmp_path / "custom_npm"
+    custom_npm.mkdir(parents=True)
+    cc_custom_npm = custom_npm / "claude.cmd"
+    cc_custom_npm.write_text("@echo off\n")
+    cx_custom_npm = custom_npm / "codex.cmd"
+    cx_custom_npm.write_text("@echo off\n")
+
+    monkeypatch.setenv("PEERHUB_NPM_GLOBAL_DIR", str(custom_npm))
+    assert _real_binary("cc", sys_dir) == str(cc_custom_npm)
+    assert _real_binary("cx", sys_dir) == str(cx_custom_npm)
+
+    # 3. Direct binary overrides PEERHUB_CC_BINARY / PEERHUB_CX_BINARY
+    direct_cc = tmp_path / "bin" / "my_claude.exe"
+    direct_cc.parent.mkdir(parents=True, exist_ok=True)
+    direct_cc.write_text("")
+    direct_cx = tmp_path / "bin" / "my_codex.exe"
+    direct_cx.write_text("")
+
+    monkeypatch.setenv("PEERHUB_CC_BINARY", str(direct_cc))
+    monkeypatch.setenv("PEERHUB_CX_BINARY", str(direct_cx))
+    assert _real_binary("cc", sys_dir) == str(direct_cc)
+    assert _real_binary("cx", sys_dir) == str(direct_cx)
+
+
+def test_poll_claude_usage_config_dir_override(monkeypatch, tmp_path):
+    captured_envs = []
+
+    class FakeProc:
+        pid = 1234
+        def communicate(self, timeout=None):
+            return "Usage: 50%", ""
+
+    def fake_popen(*args, **kwargs):
+        if args and args[0] and "/usage" in args[0]:
+            captured_envs.append(kwargs.get("env", {}))
+        return FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_command",
+        lambda _peer, _sys_dir=None: ["dummy.exe"],
+    )
+
+    sys_dir = tmp_path / "_sys"
+    sys_dir.mkdir(parents=True)
+    ids = DummyIdSource()
+
+    # Default: legacy (sys_dir / claude / config)
+    monkeypatch.delenv("PEERHUB_CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    poll_claude_usage(ids, "inst-1", "prof-1", sys_dir=sys_dir)
+    assert captured_envs[-1]["CLAUDE_CONFIG_DIR"] == str((sys_dir / "claude" / "config").resolve())
+
+    # Override: PEERHUB_CLAUDE_CONFIG_DIR
+    custom_cfg = tmp_path / "custom_claude_config"
+    monkeypatch.setenv("PEERHUB_CLAUDE_CONFIG_DIR", str(custom_cfg))
+    poll_claude_usage(ids, "inst-1", "prof-1", sys_dir=sys_dir)
+    assert captured_envs[-1]["CLAUDE_CONFIG_DIR"] == str(custom_cfg)
+
+
+def test_poll_agy_usage_log_path_override(monkeypatch, tmp_path):
+    custom_log = tmp_path / "custom_ag.json"
+    custom_log.write_text(json.dumps({
+        "quota": {
+            "gemini-5h": {
+                "remaining_fraction": 0.5,
+                "reset_in_seconds": 1800
+            }
+        }
+    }), encoding="utf-8")
+
+    monkeypatch.setenv("PEERHUB_AG_STATUSLINE_LOG", str(custom_log))
+    ids = DummyIdSource()
+    res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=None)
+    assert len(res) == 1
+    assert res[0].evidence.state == EvidenceState.MEASURED
+
