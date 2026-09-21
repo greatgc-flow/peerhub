@@ -42,3 +42,6 @@ Updated after each phase.
 ## Terminal close-out (2026-09-21)
 - E1 15da09c, E2 0c82044, E3 d1cc169/282a8ad/03d70a3, E4 0fd2aff (Engram main, suite 414 passed/3 skipped); P1 in the peerhub commit that adds this note (suite 1773 passed/5 skipped, pyright 0 errors).
 - Still open: E5 L-4 (harness .bat/.ps1 smoke contract) and L-6 (saturation_scan noise) -- deferred, low priority. Engram v3.3.1 patch release pending cx.effort static review.
+
+## Final state (2026-09-21)
+- E5 L-6 DONE (5433b50), L-4 DONE (f0cdb28 test + fix commit); 6 harness references remain documented strict-xfail (legacy local-test.bat artifacts / runtime dir). cx.effort review findings fixed in 5433b50. Engram v3.3.1 released; v3.3.0 zip asset withdrawn from GitHub (release annotated). Engram main suite: 455 passed, 3 skipped, 6 xfailed.
