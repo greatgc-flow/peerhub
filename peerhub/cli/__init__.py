@@ -3375,6 +3375,11 @@ def main(args: list[str] | None = None) -> int:
     statusline_parser = subparsers.add_parser(
         "statusline",
         help="Format live statusline for an AI peer",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub statusline --peer cx --workspace ./peerhub-demo  render Codex's current workspace statusline"
+        ),
     )
     statusline_parser.add_argument(
         "--peer",
@@ -3388,7 +3393,15 @@ def main(args: list[str] | None = None) -> int:
         help="Path to workspace root",
     )
 
-    consensus_parser = subparsers.add_parser("consensus", help="Manage consensus rounds")
+    consensus_parser = subparsers.add_parser(
+        "consensus",
+        help="Manage consensus rounds",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub consensus list --workspace ./peerhub-demo  review active and resolved consensus rounds"
+        ),
+    )
     consensus_subparsers = consensus_parser.add_subparsers(dest="consensus_action", required=True)
     propose_parser = consensus_subparsers.add_parser("propose", help="Propose a new consensus round")
     propose_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
@@ -3505,7 +3518,15 @@ def main(args: list[str] | None = None) -> int:
                 help="D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
             )
 
-    task_parser = subparsers.add_parser("task", help="Manage task lifecycles")
+    task_parser = subparsers.add_parser(
+        "task",
+        help="Manage task lifecycles",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary \"Refresh docs\" --spec \"Add a usage example.\" --creator cx  create a governed task"
+        ),
+    )
     task_subparsers = task_parser.add_subparsers(dest="task_action", required=True)
     task_specs = {
         "create": ([("--task-id", True), ("--summary", True), ("--spec", True), ("--creator", True), ("--room-id", False)],),
@@ -3550,7 +3571,15 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required, default="", help=task_arg_help[name])
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
-    lesson_parser = subparsers.add_parser("lesson", help="Manage governance lessons")
+    lesson_parser = subparsers.add_parser(
+        "lesson",
+        help="Manage governance lessons",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub lesson sweep --workspace ./peerhub-demo  retire expired non-sticky governance lessons"
+        ),
+    )
     lesson_subparsers = lesson_parser.add_subparsers(dest="lesson_action", required=True)
     lesson_specs = {
         "propose": [("--lesson-id", True), ("--title", True), ("--rule", True), ("--category", True), ("--severity", True), ("--proposer", True), ("--affected", True), ("--scope-kind", False), ("--workspace-id", False), ("--expires-at", False)],
@@ -3613,7 +3642,15 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required, default=default, help=lesson_arg_help[name])
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
-    directive_parser = subparsers.add_parser("directive", help="Manage governance directives")
+    directive_parser = subparsers.add_parser(
+        "directive",
+        help="Manage governance directives",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub directive list --workspace ./peerhub-demo  review active and retired governance directives"
+        ),
+    )
     directive_subparsers = directive_parser.add_subparsers(dest="directive_action", required=True)
     directive_specs = {
         "add": [("--directive-id", True), ("--title", True), ("--rule", True), ("--effective-date", True), ("--proposer", True), ("--category", False)],
@@ -3738,7 +3775,13 @@ def main(args: list[str] | None = None) -> int:
     )
 
     lock_parser = subparsers.add_parser(
-        "lock", help="Manage durable file locks"
+        "lock",
+        help="Manage durable file locks",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub lock status --workspace ./peerhub-demo  inspect active durable file locks"
+        ),
     )
     lock_subparsers = lock_parser.add_subparsers(
         dest="lock_action", required=True
@@ -3787,7 +3830,13 @@ def main(args: list[str] | None = None) -> int:
     )
 
     artifact_parser = subparsers.add_parser(
-        "artifact", help="Manage durable named artifact records"
+        "artifact",
+        help="Manage durable named artifact records",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub artifact status --workspace ./peerhub-demo  inspect recorded artifact claims and drafts"
+        ),
     )
     artifact_subparsers = artifact_parser.add_subparsers(
         dest="artifact_action", required=True
@@ -3853,7 +3902,13 @@ def main(args: list[str] | None = None) -> int:
     )
 
     role_parser = subparsers.add_parser(
-        "role", help="Manage durable workspace role assignments"
+        "role",
+        help="Manage durable workspace role assignments",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub role status --workspace ./peerhub-demo  list active durable workspace roles"
+        ),
     )
     role_subparsers = role_parser.add_subparsers(
         dest="role_action", required=True
@@ -4038,7 +4093,13 @@ def main(args: list[str] | None = None) -> int:
     )
 
     feedback_parser = subparsers.add_parser(
-        "feedback", help="Manage the governance feedback journal"
+        "feedback",
+        help="Manage the governance feedback journal",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub feedback list --workspace ./peerhub-demo  review recorded governance feedback"
+        ),
     )
     feedback_subparsers = feedback_parser.add_subparsers(
         dest="feedback_action", required=True
@@ -4114,7 +4175,13 @@ def main(args: list[str] | None = None) -> int:
     )
 
     error_parser = subparsers.add_parser(
-        "error", help="Record durable operational-error evidence"
+        "error",
+        help="Record durable operational-error evidence",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub error review list --workspace ./peerhub-demo  inspect operational-error quarantine requests"
+        ),
     )
     error_subparsers = error_parser.add_subparsers(
         dest="error_action", required=True
@@ -4176,7 +4243,13 @@ def main(args: list[str] | None = None) -> int:
     error_review_resolve.add_argument("--json", action="store_true")
 
     alert_parser = subparsers.add_parser(
-        "alert", help="Raise durable alerts for live room participants"
+        "alert",
+        help="Raise durable alerts for live room participants",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub alert raise --workspace ./peerhub-demo --room-id docs-room --raiser-instance-id cx-1 --raiser-profile-id standard --message \"Review blocked\"  notify live room participants"
+        ),
     )
     alert_subparsers = alert_parser.add_subparsers(
         dest="alert_action", required=True
@@ -4216,7 +4289,15 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
 
-    room_parser = subparsers.add_parser("room", help="Manage rooms and messages")
+    room_parser = subparsers.add_parser(
+        "room",
+        help="Manage rooms and messages",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub room create --workspace ./peerhub-demo --room-id docs-room --topic-id docs --title \"Docs review\" --creator cx --participants cx,ag  start a collaborative room"
+        ),
+    )
     room_subparsers = room_parser.add_subparsers(dest="room_action", required=True)
     room_specs = {
         "create": [("--room-id", True), ("--topic-id", True), ("--title", True), ("--creator", True), ("--participants", True)],
@@ -4367,7 +4448,15 @@ def main(args: list[str] | None = None) -> int:
             )
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
-    duty_parser = subparsers.add_parser("duty", help="Manage terminal duty")
+    duty_parser = subparsers.add_parser(
+        "duty",
+        help="Manage terminal duty",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub duty status --workspace ./peerhub-demo --room-id docs-room  see who currently holds terminal duty"
+        ),
+    )
     duty_subparsers = duty_parser.add_subparsers(dest="duty_action", required=True)
     duty_specs = {
         "claim": [("--room-id", True), ("--instance-id", True), ("--profile-id", True), ("--owner-principal-id", True), ("--authority-epoch", True)],
@@ -4451,7 +4540,13 @@ def main(args: list[str] | None = None) -> int:
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     session_parser = subparsers.add_parser(
-        "session", help="Manage room-participation sessions"
+        "session",
+        help="Manage room-participation sessions",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub session open --workspace ./peerhub-demo --workspace-scope-id demo --room-id docs-room --actor-principal-id cx --instance-id cx-1 --profile-id standard --session-fingerprint cx-1-demo  open or resume a room session"
+        ),
     )
     session_subparsers = session_parser.add_subparsers(
         dest="session_action", required=True

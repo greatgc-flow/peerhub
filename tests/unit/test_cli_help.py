@@ -166,3 +166,40 @@ def test_operations_group_help_includes_usage_examples(
     assert "Examples:" in output
     for example in examples:
         assert example in output
+
+
+@pytest.mark.parametrize(
+    ("command", "example"),
+    [
+        ("ask", "peerhub ask cx \"Summarize this repository\" --workspace ./peerhub-demo"),
+        ("broadcast", "peerhub broadcast \"List one risk.\" --peers cx,ag --workspace ./peerhub-demo"),
+        ("status", "peerhub status --workspace ./peerhub-demo --all"),
+        ("diag", "peerhub diag --workspace ./peerhub-demo --domains"),
+        ("statusline", "peerhub statusline --peer cx --workspace ./peerhub-demo"),
+        ("consensus", "peerhub consensus list --workspace ./peerhub-demo"),
+        ("task", "peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary \"Refresh docs\" --spec \"Add a usage example.\" --creator cx"),
+        ("lesson", "peerhub lesson sweep --workspace ./peerhub-demo"),
+        ("directive", "peerhub directive list --workspace ./peerhub-demo"),
+        ("lock", "peerhub lock status --workspace ./peerhub-demo"),
+        ("artifact", "peerhub artifact status --workspace ./peerhub-demo"),
+        ("role", "peerhub role status --workspace ./peerhub-demo"),
+        ("feedback", "peerhub feedback list --workspace ./peerhub-demo"),
+        ("error", "peerhub error review list --workspace ./peerhub-demo"),
+        ("alert", "peerhub alert raise --workspace ./peerhub-demo --room-id docs-room --raiser-instance-id cx-1 --raiser-profile-id standard --message \"Review blocked\""),
+        ("room", "peerhub room create --workspace ./peerhub-demo --room-id docs-room --topic-id docs --title \"Docs review\" --creator cx --participants cx,ag"),
+        ("duty", "peerhub duty status --workspace ./peerhub-demo --room-id docs-room"),
+        ("session", "peerhub session open --workspace ./peerhub-demo --workspace-scope-id demo --room-id docs-room --actor-principal-id cx --instance-id cx-1 --profile-id standard --session-fingerprint cx-1-demo"),
+    ],
+)
+def test_final_stage_group_help_includes_usage_examples(
+    command: str, example: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Final-stage groups, including unlisted primary commands, expose examples."""
+
+    with pytest.raises(SystemExit) as exit_info:
+        peerhub.cli.main([command, "--help"])
+
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    assert example in output

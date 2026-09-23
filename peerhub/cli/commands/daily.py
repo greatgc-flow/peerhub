@@ -17,7 +17,15 @@ def register_status_command(
 ) -> None:
     """Register the stable status command at its established order."""
 
-    status_parser = subparsers.add_parser("status", help="Show the current workspace status")
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Show the current workspace status",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub status --workspace ./peerhub-demo --all  inspect workspace health and quota data for every peer"
+        ),
+    )
     status_parser.add_argument(
         "-w", "--workspace", default=None,
         help="Path to the workspace root (default: current directory)",
@@ -35,7 +43,13 @@ def register_daily_commands(
     """Register the stable diagnostic and broadcast command surface."""
 
     diag_parser = subparsers.add_parser(
-        "diag", help="Show live peer diagnostics and quota telemetry"
+        "diag",
+        help="Show live peer diagnostics and quota telemetry",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub diag --workspace ./peerhub-demo --domains  inspect live telemetry alongside governed work"
+        ),
     )
     add_workspace_arg(diag_parser)
     diag_parser.add_argument("--live", action="store_true", help="Run in continuous monitoring loop")
@@ -48,7 +62,13 @@ def register_daily_commands(
     )
 
     broadcast_parser = subparsers.add_parser(
-        "broadcast", help="Broadcast one prompt to multiple peers"
+        "broadcast",
+        help="Broadcast one prompt to multiple peers",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub broadcast \"List one risk.\" --peers cx,ag --workspace ./peerhub-demo  ask several configured peers"
+        ),
     )
     broadcast_parser.add_argument("prompt", help="Prompt text to broadcast")
     broadcast_parser.add_argument(
@@ -71,7 +91,15 @@ def register_ask_command(
 ) -> None:
     """Register ``ask`` at its established position in the root command order."""
 
-    ask_parser = subparsers.add_parser("ask", help="Send one prompt to a real peer CLI")
+    ask_parser = subparsers.add_parser(
+        "ask",
+        help="Send one prompt to a real peer CLI",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub ask cx \"Summarize this repository\" --workspace ./peerhub-demo  send one prompt to a configured peer"
+        ),
+    )
     ask_parser.add_argument("peer", help="Peer name (ag/agy, cc/claude, cx/codex)")
     ask_parser.add_argument("prompt", help="Prompt text to send")
     ask_parser.add_argument(
