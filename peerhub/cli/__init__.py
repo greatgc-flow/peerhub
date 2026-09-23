@@ -497,11 +497,15 @@ def _run_statusline(parsed: argparse.Namespace) -> int:
     # agy CLI's own hook, not by this command. An orphaned durable write
     # was deleted rather than kept or relocated, per the ratified spec.
     peer = getattr(parsed, "peer", "ag")
+    if peer != "ag":
+        print(
+            f"peerhub statusline: no statusline formatter implemented for peer "
+            f"'{peer}'; only ag is currently supported",
+            file=sys.stderr,
+        )
+        return 2
     try:
-        if peer == "ag":
-            print(format_statusline_ag(stdin_data), end="")
-        else:
-            print(format_statusline_ag(stdin_data), end="")
+        print(format_statusline_ag(stdin_data), end="")
     except Exception:
         print("ag:Gemini | ctx:ok | hub:idle", end="")
     return 0
@@ -2622,6 +2626,9 @@ def _run_room(parsed: argparse.Namespace) -> int:
                 # ApplicationAPI.submit() via Client. Both CLI actions share
                 # one registered command (ThreadReactCommand.action ADD/REMOVE),
                 # matching how ConsensusService-style domains already do it.
+                remove_reaction = action == "unreact" or (
+                    action == "react" and getattr(parsed, "remove", False)
+                )
                 outcome = _submit_via_gateway(runtime, ThreadReactCommand(
                     submission=_cli_submission(
                         context, actor_id=parsed.actor_profile_id, request_kind="room-react"
@@ -2631,7 +2638,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     actor_instance_id=parsed.actor_instance_id,
                     actor_profile_id=parsed.actor_profile_id,
                     reaction_type=parsed.reaction_type,
-                    action="ADD" if action == "react" else "REMOVE",
+                    action="REMOVE" if remove_reaction else "ADD",
                 ))
                 if not outcome.ok:
                     print(f"peerhub room: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
@@ -2788,9 +2795,9 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     f"Mailbox message {parsed.message_id} promoted to "
                     f"thread {parsed.thread_id}"
                 )
-            elif action == "react":
+            elif action == "react" and not getattr(parsed, "remove", False):
                 print(f"Reaction {parsed.reaction_type} added to message {parsed.message_id}")
-            elif action == "unreact":
+            elif action in ("react", "unreact"):
                 print(f"Reaction {parsed.reaction_type} removed from message {parsed.message_id}")
             elif action == "append-handoff":
                 print(
@@ -3378,14 +3385,14 @@ def main(args: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
-            "  peerhub statusline --peer cx --workspace ./peerhub-demo  render Codex's current workspace statusline"
+            "  peerhub statusline --peer ag --workspace ./peerhub-demo  render Antigravity's current workspace statusline"
         ),
     )
     statusline_parser.add_argument(
         "--peer",
         default="ag",
         choices=["ag", "cc", "cx"],
-        help="Target peer identifier (default: ag)",
+        help="Target peer identifier (only ag currently has a formatter; default: ag)",
     )
     statusline_parser.add_argument(
         "--workspace",
@@ -4436,6 +4443,12 @@ def main(args: list[str] | None = None) -> int:
                 )
             else:
                 command_parser.add_argument(name, required=required, help=room_arg_help[name])
+        if action == "react":
+            command_parser.add_argument(
+                "--remove",
+                action="store_true",
+                help="Remove this peer's active reaction instead of adding it",
+            )
         if action == "checkpoint":
             command_parser.add_argument(
                 "--export",

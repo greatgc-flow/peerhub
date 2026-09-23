@@ -175,7 +175,7 @@ def test_operations_group_help_includes_usage_examples(
         ("broadcast", "peerhub broadcast \"List one risk.\" --peers cx,ag --workspace ./peerhub-demo"),
         ("status", "peerhub status --workspace ./peerhub-demo --all"),
         ("diag", "peerhub diag --workspace ./peerhub-demo --domains"),
-        ("statusline", "peerhub statusline --peer cx --workspace ./peerhub-demo"),
+        ("statusline", "peerhub statusline --peer ag --workspace ./peerhub-demo"),
         ("consensus", "peerhub consensus list --workspace ./peerhub-demo"),
         ("task", "peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary \"Refresh docs\" --spec \"Add a usage example.\" --creator cx"),
         ("lesson", "peerhub lesson sweep --workspace ./peerhub-demo"),

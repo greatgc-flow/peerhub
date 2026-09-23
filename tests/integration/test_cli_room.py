@@ -222,12 +222,14 @@ def test_cli_room_react_unreact_react_round_trip(
     ]
 
     added = run(["room", "react", *reaction_args])
-    removed = run(["room", "unreact", *reaction_args])
+    removed_with_modern_spelling = run(["room", "react", "--remove", *reaction_args])
     readded = run(["room", "react", *reaction_args])
+    removed_with_legacy_alias = run(["room", "unreact", *reaction_args])
 
     assert added["status"] == "ACTIVE"
-    assert removed["status"] == "REMOVED"
+    assert removed_with_modern_spelling["status"] == "REMOVED"
     assert readded["status"] == "ACTIVE"
+    assert removed_with_legacy_alias["status"] == "REMOVED"
 
     context = RuntimeContext(
         workspace_home_id=tmp_path.name,
@@ -247,14 +249,15 @@ def test_cli_room_react_unreact_react_round_trip(
         )
 
     assert projection is not None
-    assert projection.state["status"] == "ACTIVE"
-    assert projection.state["latest_action"] == "ADD"
-    assert projection.revision == 3
-    assert len(events) == 3
-    assert len({event.target_id for event in events}) == 3
+    assert projection.state["status"] == "REMOVED"
+    assert projection.state["latest_action"] == "REMOVE"
+    assert projection.revision == 4
+    assert len(events) == 4
+    assert len({event.target_id for event in events}) == 4
     assert sorted(event.state["action"] for event in events) == [
         "ADD",
         "ADD",
+        "REMOVE",
         "REMOVE",
     ]
 
