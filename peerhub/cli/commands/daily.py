@@ -381,11 +381,8 @@ def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
             msvcrt = None
         try:
             while True:
-                if cli.os.name == "nt":
-                    cli.subprocess.run("cls", shell=True)
-                else:
-                    cli.sys.stdout.write("\033[2J\033[H")
-                    cli.sys.stdout.flush()
+                cli.sys.stdout.write("\033[2J\033[H")
+                cli.sys.stdout.flush()
                 snapshot = with_domains(presenter.collect_live_snapshot())
                 if parsed.json:
                     print(cli.json.dumps(snapshot, indent=2))

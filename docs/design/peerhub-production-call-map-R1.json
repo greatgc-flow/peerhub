@@ -1656,15 +1656,15 @@
       "path": "statusline",
       "effect": "READ_ONLY",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
-      "resolver": "Optional --workspace plus --peer; stdin JSON is parsed by peerhub.telemetry.statusline:format_statusline_ag",
+      "resolver": "Optional --workspace plus --peer; stdin JSON is parsed by peerhub.telemetry.statusline:format_statusline_ag when --peer=ag",
       "authorizer": "Not applicable: pure renderer",
       "gateway": "DIRECT_READ_COMPOSITION",
-      "handler": "peerhub.cli:_run_statusline -> peerhub.telemetry.statusline:format_statusline_ag",
+      "handler": "peerhub.cli:_run_statusline -> peerhub.telemetry.statusline:format_statusline_ag (ag only; cc/cx return an explicit unsupported-peer error, fixed 2026-09-23 from a prior silent-fallback-to-ag defect)",
       "transactional_owner": "None",
-      "receipt": "Single formatted statusline string",
+      "receipt": "Single formatted statusline string for --peer=ag; an explicit stderr error for cc/cx (no formatter implemented for them yet)",
       "external_effects": "Reads stdin only; no log or durable-state write",
-      "output_contract": "stdout: one statusline string; no JSON flag",
-      "exit_contract": "0 after rendering; argparse usage errors raise SystemExit(2); malformed input exceptions propagate",
+      "output_contract": "stdout: one statusline string for --peer=ag; stderr error message for cc/cx; no JSON flag",
+      "exit_contract": "0 after rendering for --peer=ag; 2 for --peer=cc/cx (no formatter implemented); argparse usage errors raise SystemExit(2); malformed input exceptions propagate",
       "integration_tests": [
         "tests/integration/test_cli.py::test_cli_statusline_writes_no_log_file"
       ],
@@ -1679,7 +1679,7 @@
             ],
             "default": "ag",
             "dest": "peer",
-            "help": "Target peer identifier (default: ag)",
+            "help": "Target peer identifier (only ag currently has a formatter; default: ag)",
             "nargs": null,
             "option_strings": [
               "--peer"
@@ -7746,7 +7746,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- caller.client_id must equal the command's submission.client_id; no credential is presented by this CLI entrance yet, so this domain's authorizer_behavior stays ASSERTED_ONLY (routing changed, enforcement behavior did not)",
       "gateway": "APPLICATION_API_GATEWAY",
-      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ThreadReactCommand(action=ADD)) -> ApplicationAPI.submit() -> RoomsService.react",
+      "handler": "peerhub.cli:_run_room -> peerhub.client:Client.submit(ThreadReactCommand(action=ADD or REMOVE if --remove)) -> ApplicationAPI.submit() -> RoomsService.react (2026-09-23: --remove added as the modern spelling of the existing `room unreact` leaf, which remains a working alias)",
       "transactional_owner": "RoomsService and specialized room coordinators over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Room/thread/message/handoff/checkpoint/context/status target or coordinator result",
       "external_effects": "Mutators persist room/thread/message/inbox/handoff/session-binding records; read actions only query state",
@@ -7833,6 +7833,19 @@
               "--reaction-type"
             ],
             "required": true,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
+            "dest": "remove",
+            "help": "Remove this peer's active reaction instead of adding it",
+            "nargs": 0,
+            "option_strings": [
+              "--remove"
+            ],
+            "required": false,
             "type": null
           },
           {

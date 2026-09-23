@@ -1254,6 +1254,24 @@ def test_cli_statusline_writes_no_log_file(tmp_path: Path, capsys, monkeypatch):
     assert not (tmp_path / ".peerhub" / "statusline").exists()
     assert not (tmp_path / "_sys").exists()
 
+
+def test_cli_statusline_rejects_peers_without_formatters(capsys) -> None:
+    exit_code = main(
+        [
+            "statusline",
+            "--peer",
+            "cx",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert (
+        "no statusline formatter implemented for peer 'cx'; only ag is currently supported"
+        in captured.err
+    )
+
 def test_cli_ask_auto_provision_notice(tmp_path, capsys):
     from peerhub.cli import main
     from unittest.mock import patch
@@ -1362,4 +1380,3 @@ def test_cli_short_flags(tmp_path, capsys):
             f"[peerhub] initialized workspace at "
             f"{(tmp_path / '.peerhub').resolve()}"
         ) in captured.err
-
