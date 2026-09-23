@@ -49,17 +49,62 @@ Requires Python >= 3.11. This installs the `peerhub` package and registers a `pe
 
 ## Key commands
 
+`peerhub --help` is the authoritative command inventory. Every current top-level command is listed here with its one-line purpose.
+
 | Command | What it does |
 |---|---|
-| `peerhub adapter discover` | Find which peer CLIs (agy/claude/codex) are installed and ready |
-| `peerhub ask PEER PROMPT` | Dispatch a prompt to a real peer CLI (defaults to `--capability-tier READ_ONLY`) |
-| `peerhub broadcast PROMPT --peers ag,cx` | Fan out one prompt to multiple peers with unified consensus |
-| `peerhub diag` | Live multi-peer quota telemetry, headroom, and failover routing |
-| `peerhub status` | Workspace health check |
-| `peerhub config validate` | Check every config layer (workspace/global/built-in) resolves cleanly |
-| `peerhub backup workspace` / `backup restore` | Live SQLite-snapshot backup and restore |
+| `peerhub workspace` | Manage the peerhub workspace itself |
+| `peerhub status` | Show the current workspace status |
+| `peerhub config` | Inspect peerhub's own resolved configuration |
+| `peerhub backup` | Back up or restore one workspace |
+| `peerhub adapter` | Manage peerhub adapters |
+| `peerhub diag` | Show live peer diagnostics and quota telemetry |
+| `peerhub broadcast` | Broadcast one prompt to multiple peers |
+| `peerhub health` | Manage peer health |
+| `peerhub peer` | Inspect and recover peer nodes |
+| `peerhub lease` | Inspect session leases |
+| `peerhub broker` | Inspect governance effect delivery status |
+| `peerhub gate` | Check dispatch gate condition for an agent |
+| `peerhub ask` | Send one prompt to a real peer CLI |
+| `peerhub statusline` | Format live statusline for an AI peer |
+| `peerhub consensus` | Manage consensus rounds |
+| `peerhub task` | Manage task lifecycles |
+| `peerhub lesson` | Manage governance lessons |
+| `peerhub directive` | Manage governance directives |
+| `peerhub node` | Manage the peer node registry |
+| `peerhub lock` | Manage durable file locks |
+| `peerhub artifact` | Manage durable named artifact records |
+| `peerhub role` | Manage durable workspace role assignments |
+| `peerhub routing` | Discover candidates and elect capability-fit leaders |
+| `peerhub leadership` | Manage the workspace-global leadership slot |
+| `peerhub feedback` | Manage the governance feedback journal |
+| `peerhub error` | Record durable operational-error evidence |
+| `peerhub alert` | Raise durable alerts for live room participants |
+| `peerhub room` | Manage rooms and messages |
+| `peerhub duty` | Manage terminal duty |
+| `peerhub session` | Manage room-participation sessions |
 
-See `peerhub --help` for the full command list — including the governance/room/session surface (`consensus`, `task`, `lesson`, `room`, `duty`, `session`, ...), grouped into its own tier since it's primarily an API contract for automated multi-peer coordination (hub.py-parity), not something a human types day to day.
+## Try it
+
+Use a separate workspace for this walkthrough; every command below refers to the same `./peerhub-demo` directory.
+
+```bash
+# Initialize the workspace first.
+peerhub workspace init --workspace ./peerhub-demo
+
+# Send one prompt, then fan the same kind of work out to two configured peers.
+peerhub ask cx "Summarize this repository" --workspace ./peerhub-demo
+peerhub broadcast "List one risk." --peers cx,ag --workspace ./peerhub-demo
+
+# Create, start, and complete a task.
+peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary "Refresh docs" --spec "Add a usage example." --creator cx
+peerhub task claim-start --workspace ./peerhub-demo --task-id docs-demo --actor cx --request-id docs-demo-request --coordinator cx --attempt-id docs-demo-attempt
+peerhub task complete --workspace ./peerhub-demo --task-id docs-demo --actor cx
+
+# Propose a consensus round and cast its first vote.
+peerhub consensus propose --workspace ./peerhub-demo --round-id docs-demo-round --title "Adopt docs" --question "Adopt the README update?" --body "Approve the proposed README example." --proposer cx --required cx,ag --eligible cx,ag
+peerhub consensus vote --workspace ./peerhub-demo --round-id docs-demo-round --actor cx --choice agree
+```
 
 `ask` also accepts `--workspace PATH` (default `.`), `--profile PROFILE_ID`, `--timeout-seconds`/`--silence-timeout-seconds`/`--max-output-bytes` (process limits), and `--json`. Exit codes: `0` verified response, `2` usage/config/pre-spawn failure (unknown peer, executable not found, readiness probe failed), `3` definite peer/protocol failure, `4` uncertain execution (timeout, lost lease ownership), `130` interrupted. It requires the real peer CLI (`agy.exe`/`claude.cmd`/`codex.cmd`) to be installed and authenticated on your machine — `ask` will tell you clearly if it can't find or run one, rather than failing silently.
 
@@ -73,7 +118,8 @@ For the detailed development history — implementation status by feature, defer
 
 ```bash
 pytest -q                 # fast suite, no real CLI calls
-pytest -q -m slow          # + the real-adapter/real-dispatch integration tests (needs real CLIs installed & authenticated, real wall-clock time)
+pytest -q -m slow          # + the real-adapter integration tests (needs real CLIs installed & authenticated, real wall-clock time)
+pytest -q -m e2e           # + genuine end-to-end `peerhub ask` dispatch through a real peer CLI (separate marker from slow -- also needs real CLIs)
 pyright                    # static type check, should report 0 errors
 ```
 

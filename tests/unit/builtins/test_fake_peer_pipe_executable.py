@@ -1,4 +1,4 @@
-"""Unit tests for tools/fake_peer/pipe_executable.py."""
+"""Unit tests for peerhub/builtins/_fake_peer_pipe_executable.py."""
 
 from __future__ import annotations
 
@@ -10,10 +10,9 @@ from pathlib import Path
 
 import pytest
 
+import peerhub.builtins
 
-SCRIPT_PATH = (
-    Path(__file__).resolve().parents[3] / "tools" / "fake_peer" / "pipe_executable.py"
-)
+SCRIPT_PATH = Path(peerhub.builtins.__file__).resolve().parent / "_fake_peer_pipe_executable.py"
 
 
 def test_script_exists() -> None:

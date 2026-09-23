@@ -8,6 +8,7 @@ This directory holds audit reports, architecture and structure reviews, and reti
 |---|---|---|---|
 | [p-drive-folder-structure-mece-review-2026-09-09.md](p-drive-folder-structure-mece-review-2026-09-09.md) | 2026-09-09 | P:\, peerhub, and Engram repository & runtime directory structure review (Rounds 1-3) | In Progress / Active Reference |
 | [p-drive-mece-migration-audit-2026-09-09.md](p-drive-mece-migration-audit-2026-09-09.md) | 2026-09-09 | Comprehensive P:\ -> Engram + peerhub file & capability migration verification | In Progress (Env closed, AI-collaboration side pending cx quota reset) |
+| [engram-peerhub-cross-repo-structure-audit-2026-09-23.md](engram-peerhub-cross-repo-structure-audit-2026-09-23.md) | 2026-09-23 | Engram v3.3.2-v3.3.7 applicable-fix parity check + cross-repo MECE file/directory placement audit (cx.effort + ag.opus, cross-verified by terminal) | Closed — materializer.py retry fix + 2 test file moves + CONVENTION.md shipped |
 
 ## 2. LegacyTranslator Retirement Series (Archived / Closed)
 

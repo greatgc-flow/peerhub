@@ -425,3 +425,31 @@ class TestSysDirDerivedFromWorkspaceNotCwd:
             "BUG: CC quota came back empty because sys_dir resolution fell "
             "back to cwd instead of the explicit --workspace argument"
         )
+
+
+class TestPollerFailureIsSurfacedNotSwallowed:
+    """A poller raising must be visible on stderr, not fully silent.
+
+    Regression guard: refresh_usage_projections() used to `except Exception:
+    continue` with no logging at all, so a rate-limited or network-failed
+    poll for one peer looked identical to "nothing to report" -- there was
+    no way to tell the two apart from the CLI's output.
+    """
+
+    def test_diag_reports_failed_poller_on_stderr_but_still_succeeds(
+        self, isolated_workspace: Path, capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        with patch(
+            "peerhub.telemetry.quota_polling.poll_claude_usage",
+            side_effect=RuntimeError("simulated rate limit"),
+        ):
+            exit_code = main(["diag", "--json", "--fresh", "--workspace", str(isolated_workspace)])
+
+        captured = capsys.readouterr()
+        assert "cc" in captured.err
+        assert "simulated rate limit" in captured.err
+        # AG's own telemetry (real, from the statusline log) must still
+        # come through -- one failed poller must not abort the others.
+        snap = json.loads(captured.out)
+        assert exit_code == 0
+        assert len(snap["peers"]["ag"]["pools"]) > 0

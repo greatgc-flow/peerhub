@@ -38,8 +38,9 @@ def store(tmp_path: Path) -> Iterator[SqliteStateStore]:
 
 @pytest.fixture
 def fake_peer_script() -> Path:
-    repo_root = Path(__file__).resolve().parents[3]
-    script_path = repo_root / "tools" / "fake_peer" / "pipe_executable.py"
+    import peerhub.builtins
+
+    script_path = Path(peerhub.builtins.__file__).resolve().parent / "_fake_peer_pipe_executable.py"
     assert script_path.exists(), f"fake_peer script not found at {script_path}"
     return script_path
 

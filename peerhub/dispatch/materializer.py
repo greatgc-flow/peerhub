@@ -388,19 +388,20 @@ class ArtifactMaterializer:
 
         # Step 8: Atomic rename staging → final target
         try:
-            os.replace(str(staging_path), str(abs_target))
+            self._replace_with_retry(staging_path, abs_target)
         except PermissionError as exc:
-            # Failure-mode table: Permission denied (rename) → HARD_FAILURE
+            # Failure-mode table: Permission denied (rename), retries exhausted
+            # → RETRYABLE_FAILURE (transient lock; a later attempt may succeed).
             self._safe_unlink(staging_path)
             return MaterializationResult(
                 artifact_id=manifest.artifact_id,
                 target_path=manifest.target_path,
-                status=MaterializationStatus.HARD_FAILURE,
+                status=MaterializationStatus.RETRYABLE_FAILURE,
                 manifest_digest=manifest_digest,
                 verified_digest=verified_digest,
                 verified_length=verified_length,
                 attempt_id=attempt_id,
-                error=f"atomic rename failed: {exc}",
+                error=f"atomic rename failed after retries: {exc}",
             )
 
         # ------------------------------------------------------------------
@@ -719,6 +720,28 @@ class ArtifactMaterializer:
             pass
         except OSError:
             logger.warning("Failed to unlink staging file: %s", path, exc_info=True)
+
+    @staticmethod
+    def _replace_with_retry(
+        src: pathlib.Path,
+        dst: pathlib.Path,
+        max_retries: int = 5,
+        initial_delay: float = 0.1,
+    ) -> None:
+        """os.replace with bounded backoff retry on PermissionError.
+
+        Transient Windows file locks (AV scanners, search indexers) can hold
+        the destination path just long enough to fail an otherwise-correct
+        atomic rename; retry a few times before surfacing the failure.
+        """
+        for attempt in range(max_retries):
+            try:
+                os.replace(str(src), str(dst))
+                return
+            except PermissionError:
+                if attempt == max_retries - 1:
+                    raise
+                time.sleep(initial_delay * (2**attempt))
 
     def materialize_manifest(
         self,
