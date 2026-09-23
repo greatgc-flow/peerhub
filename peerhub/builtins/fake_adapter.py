@@ -1,16 +1,14 @@
 """Fake reference adapter for Slice 5 TDD.
 
-Step 3 (this session, 2026-08-02) implements exactly the piece that has a
-concrete, testable oracle: ``interpret_chunk``/``finalize_decoded_output``,
+Step 3 (2026-08-02) implemented ``interpret_chunk``/``finalize_decoded_output``
 against DT-02's exact byte-in/lines-out expectations. ``prompt_policy``,
-``plan_invocation``, ``new_decoder``, and ``interpret_output`` remain
-``NotImplementedError`` stubs -- no test exercises them yet, and neither
-ARCHITECTURE.md nor SLICE5-KICKOFF-R1.md gives concrete parsing rules for
-the fake peer's *protocol* framing (CHUNK/EXIT/SPAWNED event vocabulary)
-the way DT-02's test gives concrete rules for raw-byte/CRLF/UTF-8 framing.
-Implementing those now would be inventing an unratified shape, the exact
-failure mode this project's discipline stops for (see Step 2's identical
-stop on the adapter boundary before this session's ratification round).
+``plan_invocation``, ``new_decoder``, and ``interpret_output`` are also fully
+implemented now (not stubs) -- ``plan_invocation`` spawns the deterministic
+fake-peer CLI at ``peerhub/builtins/_fake_peer_pipe_executable.py``, and
+``interpret_output`` does exit-code-based success classification. Registered
+in ``peerhub.adapters.registry`` under peer kind ``"fake"`` for test/dev use
+by peerhub itself and by downstream consumers writing their own tests
+against peerhub -- not a real peer identity end users dispatch to directly.
 """
 
 from __future__ import annotations
@@ -138,10 +136,8 @@ class FakePeerAdapter:
     """Deterministic, structurally-complete ``PeerAdapter`` for TDD.
 
     ``descriptor`` is real and populated so this genuinely satisfies the
-    ``PeerAdapter`` Protocol shape. ``interpret_chunk``/
-    ``finalize_decoded_output`` are real (Step 3); the remaining
-    parsing/planning methods stay ``NotImplementedError`` (see module
-    docstring).
+    ``PeerAdapter`` Protocol shape. All Protocol methods are fully
+    implemented (see module docstring) -- none are stubs.
 
     Channels are treated as one ordered stream: ``channel`` is recorded on
     each emitted event but STDOUT/STDERR/PTY chunks all feed the same
@@ -196,8 +192,12 @@ class FakePeerAdapter:
     ) -> InvocationPlan:
         import sys
         import pathlib
-        
-        script_path = str(pathlib.Path(__file__).resolve().parent.parent.parent / "tools" / "fake_peer" / "pipe_executable.py")
+
+        # Package-relative (ships in the wheel via peerhub/builtins/), not
+        # dev-tree-relative -- a prior version resolved into a sibling
+        # tools/fake_peer/ that setuptools never packages, so the "fake"
+        # adapter kind broke for any non-editable `pip install peerhub`.
+        script_path = str(pathlib.Path(__file__).resolve().parent / "_fake_peer_pipe_executable.py")
 
         argv: list[str] = [
             sys.executable,

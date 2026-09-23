@@ -3,7 +3,7 @@
 Exercising:
 ApplicationWorkflows.dispatch_and_execute() -> artifact materialization
 -> dispatch intent + reservation -> spawn via pipe.run_process()
-(using tools/fake_peer/pipe_executable.py as the spawned process) -> stream output
+(using peerhub/builtins/_fake_peer_pipe_executable.py as the spawned process) -> stream output
 -> exit -> assess_completion() -> consume artifacts + close lease.
 """
 
