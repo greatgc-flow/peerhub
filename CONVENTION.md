@@ -17,12 +17,17 @@ peerhub/
   dispatch/      command execution, materialization, retry/lease machinery
   application/   use-case orchestration (workflows) over the above
   governance/    consensus, proposals, quarantine, role assignment
+  routing/       capability matching and target-selection policy
   persistence/   SQLite state store, migrations, unit-of-work
+  state/         feature-independent transactional state-store ports
   telemetry/     usage/quota measurement and feedback
   events/        event contract (envelopes, log records, offsets)
   health/        health checks and fault-boundary reporting
   cli/commands/  one module per CLI subcommand
   builtins/      default configuration/data shipped with the package
+  config_data/   packaged TOML configuration defaults
+  client.py      root-level embedded-client facade
+  runtime.py     root-level production-composition facade
 ```
 
 New code belongs in the layer that owns its concern, not next to whatever
@@ -41,6 +46,11 @@ new top-level package.
   wiring (`tests/integration/persistence/`, `tests/integration/dispatch/`).
 - `tests/contract/` holds cross-version/compatibility contract tests
   (e.g. Phase-0 wire-shape compatibility).
+- `tests/e2e/` holds real external-peer tests. Every test in this tier uses
+  `@pytest.mark.e2e` so it is excluded from the default local suite unless
+  explicitly selected.
+- `tests/static/` holds source and architecture assertions that inspect the
+  repository's declared structure without exercising runtime integration.
 - `tests/fakes.py` is a shared root-level module (in-memory fakes for
   `UnitOfWork`, adapters, etc.) imported via `from tests.fakes import ...`
   across both `unit/` and `integration/`. It stays at `tests/` root

@@ -682,7 +682,7 @@ def test_package_dunder_version_is_single_sourced_from_version_module():
 
     assert peerhub.__version__ == version_module_version
 
-    pyproject = (Path(__file__).resolve().parents[2] / "pyproject.toml").read_text(encoding="utf-8")
+    pyproject = (Path(__file__).resolve().parents[3] / "pyproject.toml").read_text(encoding="utf-8")
     assert 'dynamic = ["version"]' in pyproject
     match = re.search(r'version\s*=\s*\{attr\s*=\s*"peerhub\._version\.__version__"\}', pyproject)
     assert match, "pyproject.toml must read its version from peerhub._version.__version__"
@@ -1199,7 +1199,7 @@ def test_cli_ask_real_agy_end_to_end(
     capsys,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    portable_root = Path(__file__).resolve().parents[3]
+    portable_root = Path(__file__).resolve().parents[4]
     agy_dir = portable_root / "_sys" / "tools" / "agy"
     agy_executable = agy_dir / "agy.exe"
     assert agy_executable.is_file()

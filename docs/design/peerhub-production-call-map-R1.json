@@ -52,7 +52,7 @@
       "output_contract": "stdout: one human-readable Workspace initialized/already initialized line; no JSON mode",
       "exit_contract": "0 on initialized or already initialized; argparse usage errors raise SystemExit(2); uncaught initialization errors propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_workspace_init_is_explicit_initialization_intent"
+        "tests/integration/cli/test_cli.py::test_cli_workspace_init_is_explicit_initialization_intent"
       ],
       "parser_contract": {
         "arguments": [
@@ -90,8 +90,8 @@
       "output_contract": "stdout: fixed human-readable Workspace/Database/Status lines and optional quota table; no JSON mode",
       "exit_contract": "0 for initialized and uninitialized workspaces; argparse usage errors raise SystemExit(2); uncaught read/probe errors propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_status_initialized",
-        "tests/unit/cli/test_quota_wiring_e2e.py::test_status_poll_on_demand_then_renders_persisted_quota"
+        "tests/integration/cli/test_cli.py::test_cli_status_initialized",
+        "tests/integration/telemetry/test_quota_wiring.py::test_status_poll_on_demand_then_renders_persisted_quota"
       ],
       "parser_contract": {
         "arguments": [
@@ -155,7 +155,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on success; validate returns 1 when any report is invalid; argparse usage errors raise SystemExit(2); migrate/init exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_config_paths_json_reports_every_family_and_source"
+        "tests/integration/cli/test_cli.py::test_cli_config_paths_json_reports_every_family_and_source"
       ],
       "parser_contract": {
         "arguments": [
@@ -206,7 +206,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on success; validate returns 1 when any report is invalid; argparse usage errors raise SystemExit(2); migrate/init exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_config_migrate_moves_valid_legacy_files_without_semantic_change"
+        "tests/integration/cli/test_cli.py::test_cli_config_migrate_moves_valid_legacy_files_without_semantic_change"
       ],
       "parser_contract": {
         "arguments": [
@@ -244,7 +244,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on success; validate returns 1 when any report is invalid; argparse usage errors raise SystemExit(2); migrate/init exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_config_validate_json_output"
+        "tests/integration/cli/test_cli.py::test_cli_config_validate_json_output"
       ],
       "parser_contract": {
         "arguments": [
@@ -295,7 +295,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on success; validate returns 1 when any report is invalid; argparse usage errors raise SystemExit(2); migrate/init exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_config_init_workspace_scope"
+        "tests/integration/cli/test_cli.py::test_cli_config_init_workspace_scope"
       ],
       "parser_contract": {
         "arguments": [
@@ -349,7 +349,7 @@
       "output_contract": "stdout: one human-readable backup-created or restored line; no JSON mode",
       "exit_contract": "0 on success; argparse usage errors raise SystemExit(2); validation/filesystem/restore exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_backup_workspace_include_transcripts_flag_reaches_the_manifest"
+        "tests/integration/cli/test_cli.py::test_cli_backup_workspace_include_transcripts_flag_reaches_the_manifest"
       ],
       "parser_contract": {
         "arguments": [
@@ -413,7 +413,7 @@
       "output_contract": "stdout: one human-readable backup-created or restored line; no JSON mode",
       "exit_contract": "0 on success; argparse usage errors raise SystemExit(2); validation/filesystem/restore exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_backup_workspace_then_restore_round_trip"
+        "tests/integration/cli/test_cli.py::test_cli_backup_workspace_then_restore_round_trip"
       ],
       "parser_contract": {
         "arguments": [
@@ -500,8 +500,8 @@
       "output_contract": "stdout: ANSI/plain dashboard or JSON snapshot; --domains adds consensus/task/lesson state",
       "exit_contract": "0 after non-live rendering; --live loops until keyboard input/interrupt; collector failures may be represented in output, while uncaught failures propagate",
       "integration_tests": [
-        "tests/integration/test_cli_diag.py::test_diag_domains_and_default_output",
-        "tests/unit/cli/test_quota_wiring_e2e.py::test_diag_fresh_bypasses_the_cache"
+        "tests/integration/cli/test_cli_diag.py::test_diag_domains_and_default_output",
+        "tests/integration/telemetry/test_quota_wiring.py::test_diag_fresh_bypasses_the_cache"
       ],
       "parser_contract": {
         "arguments": [
@@ -605,7 +605,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 only for disposition=all_completed; 1 for partial/none completion; argparse usage errors raise SystemExit(2); uncaught resolution/admission errors propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_short_flags"
+        "tests/integration/cli/test_cli.py::test_cli_short_flags"
       ],
       "parser_contract": {
         "arguments": [
@@ -1519,8 +1519,8 @@
       "output_contract": "stdout: verified response text or stable JSON shape; initialization notice may precede text; Ctrl-C writes cancellation status to stderr",
       "exit_contract": "0 verified non-empty success; 2 definitely not started/pre-dispatch failure; 3 completed but unverified/other terminal result; 4 may-have-started/interrupted/uncertain; 130 on keyboard interrupt",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_ask_json_output_has_stable_shape",
-        "tests/integration/test_cli.py::test_cli_ask_maps_returned_failure_states"
+        "tests/integration/cli/test_cli.py::test_cli_ask_json_output_has_stable_shape",
+        "tests/integration/cli/test_cli.py::test_cli_ask_maps_returned_failure_states"
       ],
       "parser_contract": {
         "arguments": [
@@ -1666,7 +1666,7 @@
       "output_contract": "stdout: one statusline string for --peer=ag; stderr error message for cc/cx; no JSON flag",
       "exit_contract": "0 after rendering for --peer=ag; 2 for --peer=cc/cx (no formatter implemented); argparse usage errors raise SystemExit(2); malformed input exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_statusline_writes_no_log_file"
+        "tests/integration/cli/test_cli.py::test_cli_statusline_writes_no_log_file"
       ],
       "parser_contract": {
         "arguments": [
@@ -1720,8 +1720,8 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status",
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_propose_routes_through_gateway_and_preserves_verified_required"
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status",
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_propose_routes_through_gateway_and_preserves_verified_required"
       ],
       "parser_contract": {
         "arguments": [
@@ -2156,7 +2156,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_list_returns_all_rounds"
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_list_returns_all_rounds"
       ],
       "parser_contract": {
         "arguments": [
@@ -2208,7 +2208,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_arbiter_review_routes_through_gateway"
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_arbiter_review_routes_through_gateway"
       ],
       "parser_contract": {
         "arguments": [
@@ -2273,10 +2273,10 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status",
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_vote_derives_actor_from_credential_when_omitted",
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_vote_rejects_invalid_credential_when_actor_omitted",
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_vote_requires_actor_or_credential"
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status",
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_vote_derives_actor_from_credential_when_omitted",
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_vote_rejects_invalid_credential_when_actor_omitted",
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_vote_requires_actor_or_credential"
       ],
       "parser_contract": {
         "arguments": [
@@ -2385,7 +2385,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status"
+        "tests/integration/cli/test_cli_consensus.py::test_cli_consensus_propose_vote_and_status"
       ],
       "parser_contract": {
         "arguments": [
@@ -3130,7 +3130,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_task.py::test_cli_task_lifecycle_and_json_status"
+        "tests/integration/cli/test_cli_task.py::test_cli_task_lifecycle_and_json_status"
       ],
       "parser_contract": {
         "arguments": [
@@ -3467,7 +3467,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_lesson.py::test_cli_lesson_propose_approve_activate_and_status"
+        "tests/integration/cli/test_cli_lesson.py::test_cli_lesson_propose_approve_activate_and_status"
       ],
       "parser_contract": {
         "arguments": [
@@ -3935,7 +3935,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_lesson.py::test_cli_lesson_status_missing_returns_two"
+        "tests/integration/cli/test_cli_lesson.py::test_cli_lesson_status_missing_returns_two"
       ],
       "parser_contract": {
         "arguments": [
@@ -4643,7 +4643,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_bind_profile_then_model_status_round_trip"
+        "tests/integration/cli/test_cli.py::test_cli_bind_profile_then_model_status_round_trip"
       ],
       "parser_contract": {
         "arguments": [
@@ -4775,7 +4775,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli.py::test_cli_bind_profile_then_model_status_round_trip"
+        "tests/integration/cli/test_cli.py::test_cli_bind_profile_then_model_status_round_trip"
       ],
       "parser_contract": {
         "arguments": [
@@ -6584,7 +6584,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_alert.py::test_cli_alert_raise_updates_slot_and_delivers_critical_mail"
+        "tests/integration/cli/test_cli_alert.py::test_cli_alert_raise_updates_slot_and_delivers_critical_mail"
       ],
       "parser_contract": {
         "arguments": [
@@ -6909,7 +6909,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_create_thread_append_and_clear_preserves_old"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_create_thread_append_and_clear_preserves_old"
       ],
       "parser_contract": {
         "arguments": [
@@ -7013,7 +7013,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_create_thread_append_and_clear_preserves_old"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_create_thread_append_and_clear_preserves_old"
       ],
       "parser_contract": {
         "arguments": [
@@ -7312,7 +7312,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_broadcast_and_required_arguments"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_broadcast_and_required_arguments"
       ],
       "parser_contract": {
         "arguments": [
@@ -7753,7 +7753,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_react_unreact_react_round_trip"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_react_unreact_react_round_trip"
       ],
       "parser_contract": {
         "arguments": [
@@ -7883,7 +7883,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_react_unreact_react_round_trip"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_react_unreact_react_round_trip"
       ],
       "parser_contract": {
         "arguments": [
@@ -8000,7 +8000,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_append_handoff_and_checkpoint_exports"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_append_handoff_and_checkpoint_exports"
       ],
       "parser_contract": {
         "arguments": [
@@ -8110,7 +8110,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_append_handoff_and_checkpoint_exports"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_append_handoff_and_checkpoint_exports"
       ],
       "parser_contract": {
         "arguments": [
@@ -8204,7 +8204,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_context_fill_emits_filtered_json_without_writes"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_context_fill_emits_filtered_json_without_writes"
       ],
       "parser_contract": {
         "arguments": [
@@ -8294,7 +8294,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_update_status_preserves_omitted_fields"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_update_status_preserves_omitted_fields"
       ],
       "parser_contract": {
         "arguments": [
@@ -8411,7 +8411,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_create_thread_append_and_clear_preserves_old"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_create_thread_append_and_clear_preserves_old"
       ],
       "parser_contract": {
         "arguments": [
@@ -8580,7 +8580,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_room.py::test_cli_room_status_includes_summary_and_room_wide_unread_count"
+        "tests/integration/cli/test_cli_room.py::test_cli_room_status_includes_summary_and_room_wide_unread_count"
       ],
       "parser_contract": {
         "arguments": [
@@ -8645,7 +8645,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_duty.py::test_cli_duty_claim_heartbeat_close_and_status"
+        "tests/integration/cli/test_cli_duty.py::test_cli_duty_claim_heartbeat_close_and_status"
       ],
       "parser_contract": {
         "arguments": [
@@ -8775,7 +8775,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_duty.py::test_cli_duty_claim_heartbeat_close_and_status"
+        "tests/integration/cli/test_cli_duty.py::test_cli_duty_claim_heartbeat_close_and_status"
       ],
       "parser_contract": {
         "arguments": [
@@ -8905,7 +8905,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_duty.py::test_cli_duty_close_can_also_end_room_session"
+        "tests/integration/cli/test_cli_duty.py::test_cli_duty_close_can_also_end_room_session"
       ],
       "parser_contract": {
         "arguments": [
@@ -9100,7 +9100,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_duty.py::test_cli_duty_sweep_only_expires_timed_out_leases"
+        "tests/integration/cli/test_cli_duty.py::test_cli_duty_sweep_only_expires_timed_out_leases"
       ],
       "parser_contract": {
         "arguments": [
@@ -9229,7 +9229,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_duty.py::test_cli_duty_claim_heartbeat_close_and_status"
+        "tests/integration/cli/test_cli_duty.py::test_cli_duty_claim_heartbeat_close_and_status"
       ],
       "parser_contract": {
         "arguments": [
@@ -9293,7 +9293,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_session.py::test_cli_session_open_heartbeat_and_close"
+        "tests/integration/cli/test_cli_session.py::test_cli_session_open_heartbeat_and_close"
       ],
       "parser_contract": {
         "arguments": [
@@ -9435,7 +9435,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_session.py::test_cli_session_open_heartbeat_and_close"
+        "tests/integration/cli/test_cli_session.py::test_cli_session_open_heartbeat_and_close"
       ],
       "parser_contract": {
         "arguments": [
@@ -9590,7 +9590,7 @@
       "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
       "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
       "integration_tests": [
-        "tests/integration/test_cli_session.py::test_cli_session_open_heartbeat_and_close"
+        "tests/integration/cli/test_cli_session.py::test_cli_session_open_heartbeat_and_close"
       ],
       "parser_contract": {
         "arguments": [

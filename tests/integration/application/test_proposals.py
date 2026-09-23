@@ -771,7 +771,7 @@ def test_cli_proposal_vote_routes_through_gateway_with_credential(
 def _seed_dctx_credential(workspace: Path, *, credential_id: str, peer_instance_id: str) -> None:
     """Seed a real dispatch_requests row + a real D-CTX credential directly
     against the workspace DB, mirroring
-    tests/integration/test_cli_consensus.py's helper of the same shape."""
+    tests/integration/cli/test_cli_consensus.py's helper of the same shape."""
 
     db_path = PathLayout.for_workspace(workspace).database_path
     with sqlite3.connect(db_path) as conn:
