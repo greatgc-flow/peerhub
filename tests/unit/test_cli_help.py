@@ -96,3 +96,73 @@ def test_setup_group_help_includes_usage_examples(
     assert "Examples:" in output
     for example in examples:
         assert example in output
+
+
+@pytest.mark.parametrize(
+    ("command", "examples"),
+    [
+        (
+            "health",
+            (
+                "peerhub health check --workspace ./peerhub-demo --peer cc",
+                "peerhub health sweep --workspace ./peerhub-demo --json",
+            ),
+        ),
+        (
+            "peer",
+            (
+                "peerhub peer status --workspace ./peerhub-demo --all",
+                "peerhub peer recover --workspace ./peerhub-demo --peer cc",
+            ),
+        ),
+        (
+            "lease",
+            (
+                "peerhub lease status --workspace ./peerhub-demo",
+                "peerhub lease sweep --workspace ./peerhub-demo --no-reap",
+            ),
+        ),
+        (
+            "gate",
+            ("peerhub gate check cc --workspace ./peerhub-demo",),
+        ),
+        (
+            "node",
+            (
+                "peerhub node list --workspace ./peerhub-demo",
+                "peerhub node register --workspace ./peerhub-demo --node-id reviewer --peer-kind cx --actor cc",
+            ),
+        ),
+        (
+            "routing",
+            (
+                "peerhub routing discover --workspace ./peerhub-demo --needs review",
+                "peerhub routing elect-leader --workspace ./peerhub-demo --needs review --reason \"Start review\"",
+            ),
+        ),
+        (
+            "leadership",
+            (
+                "peerhub leadership status --workspace ./peerhub-demo",
+                "peerhub leadership claim --workspace ./peerhub-demo --peer-node-id cx --actor cx",
+            ),
+        ),
+        (
+            "broker",
+            ("peerhub broker status --workspace ./peerhub-demo --json",),
+        ),
+    ],
+)
+def test_operations_group_help_includes_usage_examples(
+    command: str, examples: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Stage 3 operations groups always advertise concrete runnable workflows."""
+
+    with pytest.raises(SystemExit) as exit_info:
+        peerhub.cli.main([command, "--help"])
+
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    for example in examples:
+        assert example in output

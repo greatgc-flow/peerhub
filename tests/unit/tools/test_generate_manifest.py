@@ -48,12 +48,13 @@ def test_generator_runs_and_produces_valid_manifest(tmp_path: Path) -> None:
     assert len(action_vector["actions"]) == 90
     assert len(action_vector["action_vector_digest"]) == 64
 
-    # hub.py hash invariant, re-pinned after 2026-09-23's --project-dir +
-    # per-ask TEMP/project_dir fixes, including the dot-prefix sandbox fix
-    # (P: commits 778aa2c, 16ed284, fa815f8). This tracks a file outside
-    # this repo, so it must be re-pinned whenever legacy hub.py changes.
+    # hub.py hash invariant, re-pinned repeatedly during 2026-09-23's
+    # --project-dir feature work (P: commits 778aa2c..5ea84ac -- see
+    # [[project_hub_project_dir_feature_2026_09_23]] for the full chain).
+    # This tracks a file outside this repo, so it must be re-pinned
+    # whenever legacy hub.py changes.
     hub_info = manifest["source_files"]["hub_py"]
-    assert hub_info["sha256"].startswith("068871bc")
+    assert hub_info["sha256"].startswith("90d79132")
     assert hub_info["line_count"] > 10000
 
     # Dispatch table & Action details 1-to-1 match

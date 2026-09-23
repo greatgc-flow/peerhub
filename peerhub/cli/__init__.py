@@ -3227,7 +3227,16 @@ def main(args: list[str] | None = None) -> int:
         capability_tier_names=tuple(tier.name for tier in CapabilityTier),
     )
 
-    health_parser = subparsers.add_parser("health", help="Manage peer health")
+    health_parser = subparsers.add_parser(
+        "health",
+        help="Manage peer health",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub health check --workspace ./peerhub-demo --peer cc       inspect one peer's current health\n"
+            "  peerhub health sweep --workspace ./peerhub-demo --json          evaluate staleness across every peer"
+        ),
+    )
     health_subparsers = health_parser.add_subparsers(dest="health_action", required=True)
     revalidate_parser = health_subparsers.add_parser("revalidate", help="Trigger health revalidation for a peer")
     revalidate_parser.add_argument("--workspace", default=None, help="Path to workspace root")
@@ -3251,7 +3260,16 @@ def main(args: list[str] | None = None) -> int:
     health_sweep_parser.add_argument("--workspace", default=None, help="Path to workspace root")
     health_sweep_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
-    peer_parser = subparsers.add_parser("peer", help="Inspect and recover peer nodes")
+    peer_parser = subparsers.add_parser(
+        "peer",
+        help="Inspect and recover peer nodes",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub peer status --workspace ./peerhub-demo --all             inspect every registered and base peer node\n"
+            "  peerhub peer recover --workspace ./peerhub-demo --peer cc        recover a quarantined peer after investigation"
+        ),
+    )
     peer_subparsers = peer_parser.add_subparsers(dest="peer_action", required=True)
     peer_status_parser = peer_subparsers.add_parser("status", help="Show peer lifecycle, gate, health, and adapter versions")
     peer_status_parser.add_argument("--workspace", default=None, help="Path to workspace root")
@@ -3272,7 +3290,16 @@ def main(args: list[str] | None = None) -> int:
     peer_recover_parser.add_argument("--reason", default="manual", help="Recovery reason (default: manual)")
     peer_recover_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
-    lease_parser = subparsers.add_parser("lease", help="Inspect session leases")
+    lease_parser = subparsers.add_parser(
+        "lease",
+        help="Inspect session leases",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub lease status --workspace ./peerhub-demo                  inspect active process leases and PID liveness\n"
+            "  peerhub lease sweep --workspace ./peerhub-demo --no-reap         recover expired leases without reaping root PIDs"
+        ),
+    )
     lease_subparsers = lease_parser.add_subparsers(dest="lease_action", required=True)
     lease_status_parser = lease_subparsers.add_parser("status", help="Show active process leases and PID liveness")
     lease_status_parser.add_argument("--workspace", default=None, help="Path to workspace root")
@@ -3296,7 +3323,13 @@ def main(args: list[str] | None = None) -> int:
     lease_sweep_parser.add_argument("--json", action="store_true", help="Emit JSON output")
 
     broker_parser = subparsers.add_parser(
-        "broker", help="Inspect governance effect delivery status"
+        "broker",
+        help="Inspect governance effect delivery status",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub broker status --workspace ./peerhub-demo --json          inspect unfinished governance effect deliveries"
+        ),
     )
     broker_subparsers = broker_parser.add_subparsers(
         dest="broker_action", required=True
@@ -3317,7 +3350,15 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit JSON output"
     )
 
-    gate_parser = subparsers.add_parser("gate", help="Check dispatch gate condition for an agent")
+    gate_parser = subparsers.add_parser(
+        "gate",
+        help="Check dispatch gate condition for an agent",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub gate check cc --workspace ./peerhub-demo                 check whether dispatch is currently allowed for cc"
+        ),
+    )
     gate_subparsers = gate_parser.add_subparsers(dest="gate_action", required=True)
     gate_check_parser = gate_subparsers.add_parser("check", help="Check if gate is open for a named agent")
     gate_check_parser.add_argument("agent", help="Agent or peer node ID to check")
@@ -3606,7 +3647,16 @@ def main(args: list[str] | None = None) -> int:
             command_parser.add_argument(name, required=required, default="", help=directive_arg_help[name])
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
-    node_parser = subparsers.add_parser("node", help="Manage the peer node registry")
+    node_parser = subparsers.add_parser(
+        "node",
+        help="Manage the peer node registry",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub node list --workspace ./peerhub-demo                     list configured base and registered peer nodes\n"
+            "  peerhub node register --workspace ./peerhub-demo --node-id reviewer --peer-kind cx --actor cc  register a configured peer node"
+        ),
+    )
     node_subparsers = node_parser.add_subparsers(dest="node_action", required=True)
     node_register_parser = node_subparsers.add_parser("register", help="Register a peer node, binding it to an existing adapter kind + profile")
     node_register_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
@@ -3859,7 +3909,14 @@ def main(args: list[str] | None = None) -> int:
     )
 
     routing_parser = subparsers.add_parser(
-        "routing", help="Discover candidates and elect capability-fit leaders"
+        "routing",
+        help="Discover candidates and elect capability-fit leaders",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub routing discover --workspace ./peerhub-demo --needs review  rank peers that fit a review workload\n"
+            "  peerhub routing elect-leader --workspace ./peerhub-demo --needs review --reason \"Start review\"  elect the best available review leader"
+        ),
     )
     routing_subparsers = routing_parser.add_subparsers(
         dest="routing_action", required=True
@@ -3915,7 +3972,14 @@ def main(args: list[str] | None = None) -> int:
     )
 
     leadership_parser = subparsers.add_parser(
-        "leadership", help="Manage the workspace-global leadership slot"
+        "leadership",
+        help="Manage the workspace-global leadership slot",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub leadership status --workspace ./peerhub-demo              inspect the current workspace leader\n"
+            "  peerhub leadership claim --workspace ./peerhub-demo --peer-node-id cx --actor cx  claim leadership for a peer node"
+        ),
     )
     leadership_subparsers = leadership_parser.add_subparsers(
         dest="leadership_action", required=True
