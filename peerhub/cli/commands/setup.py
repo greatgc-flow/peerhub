@@ -16,7 +16,13 @@ def register_workspace_command(
     """Register the stable workspace command at its established order."""
 
     workspace_parser = subparsers.add_parser(
-        "workspace", help="Manage the peerhub workspace itself"
+        "workspace",
+        help="Manage the peerhub workspace itself",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub workspace init --workspace ./peerhub-demo  create an initialized workspace for peerhub state"
+        ),
     )
     workspace_subparsers = workspace_parser.add_subparsers(
         dest="workspace_action", required=True
@@ -38,7 +44,15 @@ def register_setup_commands(
     """Register the stable config, backup, and adapter command surface."""
 
     config_parser = subparsers.add_parser(
-        "config", help="Inspect peerhub's own resolved configuration"
+        "config",
+        help="Inspect peerhub's own resolved configuration",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub config paths --workspace ./peerhub-demo                       see each config path and where it came from\n"
+            "  peerhub config validate --workspace ./peerhub-demo --json             validate layers before using edited configuration\n"
+            "  peerhub config init --scope workspace --workspace ./peerhub-demo      create starter config files for this workspace"
+        ),
     )
     config_subparsers = config_parser.add_subparsers(
         dest="config_command", required=True
@@ -86,7 +100,13 @@ def register_setup_commands(
     )
 
     backup_parser = subparsers.add_parser(
-        "backup", help="Back up or restore one workspace"
+        "backup",
+        help="Back up or restore one workspace",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub backup workspace --workspace ./peerhub-demo --output ./backups  create a portable backup bundle"
+        ),
     )
     backup_subparsers = backup_parser.add_subparsers(
         dest="backup_command", required=True
@@ -117,7 +137,15 @@ def register_setup_commands(
         help="Path to the workspace root (default: current directory)",
     )
 
-    adapter_parser = subparsers.add_parser("adapter", help="Manage peerhub adapters")
+    adapter_parser = subparsers.add_parser(
+        "adapter",
+        help="Manage peerhub adapters",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  peerhub adapter discover --json  check which adapter executables and profiles are available"
+        ),
+    )
     adapter_subparsers = adapter_parser.add_subparsers(
         dest="adapter_command", required=True
     )

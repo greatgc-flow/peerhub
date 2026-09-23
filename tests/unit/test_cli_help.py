@@ -54,3 +54,45 @@ def test_tiered_help_and_subcommands(capsys):
             peerhub.cli.main([cmd, "--help"])
         except SystemExit as e:
             assert e.code == 0, f"Command '{cmd} --help' failed with code {e.code}"
+
+
+@pytest.mark.parametrize(
+    ("command", "examples"),
+    [
+        (
+            "workspace",
+            ("peerhub workspace init --workspace ./peerhub-demo",),
+        ),
+        (
+            "adapter",
+            ("peerhub adapter discover --json",),
+        ),
+        (
+            "config",
+            (
+                "peerhub config paths --workspace ./peerhub-demo",
+                "peerhub config validate --workspace ./peerhub-demo --json",
+                "peerhub config init --scope workspace --workspace ./peerhub-demo",
+            ),
+        ),
+        (
+            "backup",
+            (
+                "peerhub backup workspace --workspace ./peerhub-demo --output ./backups",
+            ),
+        ),
+    ],
+)
+def test_setup_group_help_includes_usage_examples(
+    command: str, examples: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Stage 2 setup groups always advertise concrete runnable workflows."""
+
+    with pytest.raises(SystemExit) as exit_info:
+        peerhub.cli.main([command, "--help"])
+
+    assert exit_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "Examples:" in output
+    for example in examples:
+        assert example in output
