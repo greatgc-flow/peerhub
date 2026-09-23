@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import pathlib
 import uuid
 from collections.abc import Iterator
@@ -312,6 +313,66 @@ class TestDigestMismatch:
             assert len(tmp_files) == 0, f"Staging tmp files should be cleaned up: {tmp_files}"
 
         # Verify state did NOT advance to VERIFIED
+        meta = fake_uow.get_artifact_metadata("attempt-01", "art-01")
+        assert meta is not None
+        assert meta.state != ArtifactState.VERIFIED
+
+
+class TestAtomicRenameTransientLock:
+    """Transient PermissionError on rename (AV/indexer) → retried, then succeeds."""
+
+    def test_transient_lock_recovers_after_retry(
+        self, workspace: Path, fake_uow: FakeUnitOfWork
+    ) -> None:
+        manifest = _make_manifest()
+        fake_uow.seed(_make_artifact_metadata())
+        m = _make_materializer(workspace, fake_uow)
+
+        real_replace = os.replace
+        call_count = {"n": 0}
+
+        def flaky_replace(src: str, dst: str) -> None:
+            call_count["n"] += 1
+            if call_count["n"] < 3:
+                raise PermissionError("transient lock")
+            real_replace(src, dst)
+
+        with patch(
+            "peerhub.dispatch.materializer.os.replace", side_effect=flaky_replace
+        ), patch("peerhub.dispatch.materializer.time.sleep"):
+            result = m.materialize(manifest, lambda: _CONTENT)
+
+        assert result.status == MaterializationStatus.SUCCESS
+        assert call_count["n"] == 3
+        abs_target = workspace / manifest.target_path
+        assert abs_target.read_bytes() == _CONTENT
+
+
+class TestAtomicRenamePersistentLock:
+    """PermissionError on rename that never clears → RETRYABLE_FAILURE, tmp cleaned up."""
+
+    def test_persistent_lock_returns_retryable_failure(
+        self, workspace: Path, fake_uow: FakeUnitOfWork
+    ) -> None:
+        manifest = _make_manifest()
+        fake_uow.seed(_make_artifact_metadata())
+        m = _make_materializer(workspace, fake_uow)
+
+        with patch(
+            "peerhub.dispatch.materializer.os.replace",
+            side_effect=PermissionError("locked by antivirus"),
+        ) as mock_replace, patch("peerhub.dispatch.materializer.time.sleep"):
+            result = m.materialize(manifest, lambda: _CONTENT)
+
+        assert result.status == MaterializationStatus.RETRYABLE_FAILURE
+        assert "atomic rename failed after retries" in (result.error or "")
+        assert mock_replace.call_count == 5  # max_retries in _replace_with_retry
+
+        staging_dir = workspace / "staging" / "out"
+        if staging_dir.exists():
+            tmp_files = [f for f in staging_dir.iterdir() if ".tmp." in f.name]
+            assert len(tmp_files) == 0, f"Staging tmp files should be cleaned up: {tmp_files}"
+
         meta = fake_uow.get_artifact_metadata("attempt-01", "art-01")
         assert meta is not None
         assert meta.state != ArtifactState.VERIFIED
