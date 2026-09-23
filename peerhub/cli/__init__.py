@@ -2413,6 +2413,7 @@ def _run_room(parsed: argparse.Namespace) -> int:
         with runtime_factory(context, adapter_peer_kind="fake") as runtime:
             service = RoomsService(runtime.governance_broker, clock=context.clock, ids=context.ids)
             action = parsed.room_action
+            remove_reaction = False
             if action == "create":
                 outcome = _submit_via_gateway(runtime, CreateRoomCommand(
                     submission=_cli_submission(
@@ -2795,10 +2796,11 @@ def _run_room(parsed: argparse.Namespace) -> int:
                     f"Mailbox message {parsed.message_id} promoted to "
                     f"thread {parsed.thread_id}"
                 )
-            elif action == "react" and not getattr(parsed, "remove", False):
-                print(f"Reaction {parsed.reaction_type} added to message {parsed.message_id}")
             elif action in ("react", "unreact"):
-                print(f"Reaction {parsed.reaction_type} removed from message {parsed.message_id}")
+                if remove_reaction:
+                    print(f"Reaction {parsed.reaction_type} removed from message {parsed.message_id}")
+                else:
+                    print(f"Reaction {parsed.reaction_type} added to message {parsed.message_id}")
             elif action == "append-handoff":
                 print(
                     f"Handoff note appended to {parsed.section} "
