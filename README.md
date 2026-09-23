@@ -123,4 +123,8 @@ pytest -q -m e2e           # + genuine end-to-end `peerhub ask` dispatch through
 pyright                    # static type check, should report 0 errors
 ```
 
+## Contributing / reporting issues
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to contribute, report a bug, or request a feature.
+
 This repo's own convention (see `docs/history/design/2026-08/FACT-REFRESH-PROCEDURE-R1.md`) is to never cite a specific "current passing count" in this file — it changes with nearly every commit. Run `pytest -q` yourself for the real, current number.
