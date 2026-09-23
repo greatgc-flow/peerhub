@@ -7,7 +7,7 @@ from pathlib import Path
 from types import ModuleType
 
 from peerhub.cli.context import resolve_workspace
-from peerhub.cli.parser import add_json_arg
+from peerhub.cli.parser import add_json_arg, help_epilog_kwargs
 
 
 def register_workspace_command(
@@ -18,9 +18,7 @@ def register_workspace_command(
     workspace_parser = subparsers.add_parser(
         "workspace",
         help="Manage the peerhub workspace itself",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub workspace init --workspace ./peerhub-demo  create an initialized workspace for peerhub state"
         ),
     )
@@ -46,9 +44,7 @@ def register_setup_commands(
     config_parser = subparsers.add_parser(
         "config",
         help="Inspect peerhub's own resolved configuration",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub config paths --workspace ./peerhub-demo                       see each config path and where it came from\n"
             "  peerhub config validate --workspace ./peerhub-demo --json             validate layers before using edited configuration\n"
             "  peerhub config init --scope workspace --workspace ./peerhub-demo      create starter config files for this workspace"
@@ -102,9 +98,7 @@ def register_setup_commands(
     backup_parser = subparsers.add_parser(
         "backup",
         help="Back up or restore one workspace",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub backup workspace --workspace ./peerhub-demo --output ./backups  create a portable backup bundle"
         ),
     )
@@ -140,9 +134,7 @@ def register_setup_commands(
     adapter_parser = subparsers.add_parser(
         "adapter",
         help="Manage peerhub adapters",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub adapter discover --json  check which adapter executables and profiles are available"
         ),
     )

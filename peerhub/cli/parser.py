@@ -4,6 +4,23 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Callable
+from typing import TypedDict
+
+
+class HelpEpilogKwargs(TypedDict):
+    """Keyword arguments shared by CLI parsers with example epilogs."""
+
+    formatter_class: type[argparse.HelpFormatter]
+    epilog: str
+
+
+def help_epilog_kwargs(*example_lines: str) -> HelpEpilogKwargs:
+    """Build the common raw-formatted ``Examples`` help epilog kwargs."""
+
+    return {
+        "formatter_class": argparse.RawDescriptionHelpFormatter,
+        "epilog": "Examples:\n" + "".join(example_lines),
+    }
 
 
 def create_root_parser(
