@@ -73,7 +73,8 @@ For the detailed development history — implementation status by feature, defer
 
 ```bash
 pytest -q                 # fast suite, no real CLI calls
-pytest -q -m slow          # + the real-adapter/real-dispatch integration tests (needs real CLIs installed & authenticated, real wall-clock time)
+pytest -q -m slow          # + the real-adapter integration tests (needs real CLIs installed & authenticated, real wall-clock time)
+pytest -q -m e2e           # + genuine end-to-end `peerhub ask` dispatch through a real peer CLI (separate marker from slow -- also needs real CLIs)
 pyright                    # static type check, should report 0 errors
 ```
 

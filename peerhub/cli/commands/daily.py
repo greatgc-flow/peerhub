@@ -254,7 +254,15 @@ def refresh_usage_projections(
                         else (workspace_root / "_sys")
                     )
                     observations.extend(poll(ids, instance_id, "standard", freshness_ttl=freshness_ttl, sys_dir=daily_sys_dir))
-                except Exception:
+                except Exception as poll_error:
+                    # Surface the failure rather than silently presenting it as
+                    # "no fresh telemetry" -- a rate-limited or network-failed
+                    # poll is a different condition than "nothing to report"
+                    # and callers (diag/status) should not mask that distinction.
+                    print(
+                        f"peerhub: usage poll for {instance_id!r} failed: {poll_error}",
+                        file=cli.sys.stderr,
+                    )
                     continue
             if observations:
                 with runtime.state_store.unit_of_work() as uow:
