@@ -9,7 +9,7 @@ from types import ModuleType
 from typing import Any, Mapping, cast
 
 from peerhub.cli.context import resolve_workspace
-from peerhub.cli.parser import add_json_arg, add_workspace_arg
+from peerhub.cli.parser import add_json_arg, add_workspace_arg, help_epilog_kwargs
 
 
 def register_status_command(
@@ -20,9 +20,7 @@ def register_status_command(
     status_parser = subparsers.add_parser(
         "status",
         help="Show the current workspace status",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub status --workspace ./peerhub-demo --all  inspect workspace health and quota data for every peer"
         ),
     )
@@ -45,9 +43,7 @@ def register_daily_commands(
     diag_parser = subparsers.add_parser(
         "diag",
         help="Show live peer diagnostics and quota telemetry",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub diag --workspace ./peerhub-demo --domains  inspect live telemetry alongside governed work"
         ),
     )
@@ -64,9 +60,7 @@ def register_daily_commands(
     broadcast_parser = subparsers.add_parser(
         "broadcast",
         help="Broadcast one prompt to multiple peers",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub broadcast \"List one risk.\" --peers cx,ag --workspace ./peerhub-demo  ask several configured peers"
         ),
     )
@@ -94,9 +88,7 @@ def register_ask_command(
     ask_parser = subparsers.add_parser(
         "ask",
         help="Send one prompt to a real peer CLI",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub ask cx \"Summarize this repository\" --workspace ./peerhub-demo  send one prompt to a configured peer"
         ),
     )

@@ -146,7 +146,7 @@ from peerhub.dispatch.room_session import (
 )
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, PeerHubError
 from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
-from peerhub.cli.parser import create_root_parser
+from peerhub.cli.parser import create_root_parser, help_epilog_kwargs
 
 class SystemClock(Clock):
     """Real system clock for production use."""
@@ -3239,9 +3239,7 @@ def main(args: list[str] | None = None) -> int:
     health_parser = subparsers.add_parser(
         "health",
         help="Manage peer health",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub health check --workspace ./peerhub-demo --peer cc       inspect one peer's current health\n"
             "  peerhub health sweep --workspace ./peerhub-demo --json          evaluate staleness across every peer"
         ),
@@ -3272,9 +3270,7 @@ def main(args: list[str] | None = None) -> int:
     peer_parser = subparsers.add_parser(
         "peer",
         help="Inspect and recover peer nodes",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub peer status --workspace ./peerhub-demo --all             inspect every registered and base peer node\n"
             "  peerhub peer recover --workspace ./peerhub-demo --peer cc        recover a quarantined peer after investigation"
         ),
@@ -3302,9 +3298,7 @@ def main(args: list[str] | None = None) -> int:
     lease_parser = subparsers.add_parser(
         "lease",
         help="Inspect session leases",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub lease status --workspace ./peerhub-demo                  inspect active process leases and PID liveness\n"
             "  peerhub lease sweep --workspace ./peerhub-demo --no-reap         recover expired leases without reaping root PIDs"
         ),
@@ -3334,9 +3328,7 @@ def main(args: list[str] | None = None) -> int:
     broker_parser = subparsers.add_parser(
         "broker",
         help="Inspect governance effect delivery status",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub broker status --workspace ./peerhub-demo --json          inspect unfinished governance effect deliveries"
         ),
     )
@@ -3362,9 +3354,7 @@ def main(args: list[str] | None = None) -> int:
     gate_parser = subparsers.add_parser(
         "gate",
         help="Check dispatch gate condition for an agent",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub gate check cc --workspace ./peerhub-demo                 check whether dispatch is currently allowed for cc"
         ),
     )
@@ -3384,9 +3374,7 @@ def main(args: list[str] | None = None) -> int:
     statusline_parser = subparsers.add_parser(
         "statusline",
         help="Format live statusline for an AI peer",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub statusline --peer ag --workspace ./peerhub-demo  render Antigravity's current workspace statusline"
         ),
     )
@@ -3405,9 +3393,7 @@ def main(args: list[str] | None = None) -> int:
     consensus_parser = subparsers.add_parser(
         "consensus",
         help="Manage consensus rounds",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub consensus list --workspace ./peerhub-demo  review active and resolved consensus rounds"
         ),
     )
@@ -3530,9 +3516,7 @@ def main(args: list[str] | None = None) -> int:
     task_parser = subparsers.add_parser(
         "task",
         help="Manage task lifecycles",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary \"Refresh docs\" --spec \"Add a usage example.\" --creator cx  create a governed task"
         ),
     )
@@ -3583,9 +3567,7 @@ def main(args: list[str] | None = None) -> int:
     lesson_parser = subparsers.add_parser(
         "lesson",
         help="Manage governance lessons",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub lesson sweep --workspace ./peerhub-demo  retire expired non-sticky governance lessons"
         ),
     )
@@ -3654,9 +3636,7 @@ def main(args: list[str] | None = None) -> int:
     directive_parser = subparsers.add_parser(
         "directive",
         help="Manage governance directives",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub directive list --workspace ./peerhub-demo  review active and retired governance directives"
         ),
     )
@@ -3696,9 +3676,7 @@ def main(args: list[str] | None = None) -> int:
     node_parser = subparsers.add_parser(
         "node",
         help="Manage the peer node registry",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub node list --workspace ./peerhub-demo                     list configured base and registered peer nodes\n"
             "  peerhub node register --workspace ./peerhub-demo --node-id reviewer --peer-kind cx --actor cc  register a configured peer node"
         ),
@@ -3786,9 +3764,7 @@ def main(args: list[str] | None = None) -> int:
     lock_parser = subparsers.add_parser(
         "lock",
         help="Manage durable file locks",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub lock status --workspace ./peerhub-demo  inspect active durable file locks"
         ),
     )
@@ -3841,9 +3817,7 @@ def main(args: list[str] | None = None) -> int:
     artifact_parser = subparsers.add_parser(
         "artifact",
         help="Manage durable named artifact records",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub artifact status --workspace ./peerhub-demo  inspect recorded artifact claims and drafts"
         ),
     )
@@ -3913,9 +3887,7 @@ def main(args: list[str] | None = None) -> int:
     role_parser = subparsers.add_parser(
         "role",
         help="Manage durable workspace role assignments",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub role status --workspace ./peerhub-demo  list active durable workspace roles"
         ),
     )
@@ -3975,9 +3947,7 @@ def main(args: list[str] | None = None) -> int:
     routing_parser = subparsers.add_parser(
         "routing",
         help="Discover candidates and elect capability-fit leaders",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub routing discover --workspace ./peerhub-demo --needs review  rank peers that fit a review workload\n"
             "  peerhub routing elect-leader --workspace ./peerhub-demo --needs review --reason \"Start review\"  elect the best available review leader"
         ),
@@ -4038,9 +4008,7 @@ def main(args: list[str] | None = None) -> int:
     leadership_parser = subparsers.add_parser(
         "leadership",
         help="Manage the workspace-global leadership slot",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub leadership status --workspace ./peerhub-demo              inspect the current workspace leader\n"
             "  peerhub leadership claim --workspace ./peerhub-demo --peer-node-id cx --actor cx  claim leadership for a peer node"
         ),
@@ -4104,9 +4072,7 @@ def main(args: list[str] | None = None) -> int:
     feedback_parser = subparsers.add_parser(
         "feedback",
         help="Manage the governance feedback journal",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub feedback list --workspace ./peerhub-demo  review recorded governance feedback"
         ),
     )
@@ -4186,9 +4152,7 @@ def main(args: list[str] | None = None) -> int:
     error_parser = subparsers.add_parser(
         "error",
         help="Record durable operational-error evidence",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub error review list --workspace ./peerhub-demo  inspect operational-error quarantine requests"
         ),
     )
@@ -4254,9 +4218,7 @@ def main(args: list[str] | None = None) -> int:
     alert_parser = subparsers.add_parser(
         "alert",
         help="Raise durable alerts for live room participants",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub alert raise --workspace ./peerhub-demo --room-id docs-room --raiser-instance-id cx-1 --raiser-profile-id standard --message \"Review blocked\"  notify live room participants"
         ),
     )
@@ -4301,9 +4263,7 @@ def main(args: list[str] | None = None) -> int:
     room_parser = subparsers.add_parser(
         "room",
         help="Manage rooms and messages",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub room create --workspace ./peerhub-demo --room-id docs-room --topic-id docs --title \"Docs review\" --creator cx --participants cx,ag  start a collaborative room"
         ),
     )
@@ -4466,9 +4426,7 @@ def main(args: list[str] | None = None) -> int:
     duty_parser = subparsers.add_parser(
         "duty",
         help="Manage terminal duty",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub duty status --workspace ./peerhub-demo --room-id docs-room  see who currently holds terminal duty"
         ),
     )
@@ -4557,9 +4515,7 @@ def main(args: list[str] | None = None) -> int:
     session_parser = subparsers.add_parser(
         "session",
         help="Manage room-participation sessions",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
+        **help_epilog_kwargs(
             "  peerhub session open --workspace ./peerhub-demo --workspace-scope-id demo --room-id docs-room --actor-principal-id cx --instance-id cx-1 --profile-id standard --session-fingerprint cx-1-demo  open or resume a room session"
         ),
     )
