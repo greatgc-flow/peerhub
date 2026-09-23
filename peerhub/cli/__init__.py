@@ -3153,7 +3153,7 @@ _COMMAND_TIERS: dict[str, list[str]] = {
 }
 
 
-class TieredHelpFormatter(argparse.HelpFormatter):
+class TieredHelpFormatter(argparse.RawDescriptionHelpFormatter):
     """Groups the top-level subcommand list into tiers for --help DISPLAY
     only (P3, ratified 2026-09-12) -- invocation paths are unchanged; this
     only changes what `peerhub --help` prints. argparse has no public API
@@ -3198,6 +3198,15 @@ def main(args: list[str] | None = None) -> int:
         formatter_class=TieredHelpFormatter,
         version_action=_LazyVersionAction,
         version_getter=get_cli_version,
+    )
+    parser.epilog = (
+        "Common workflows:\n"
+        "  peerhub workspace init --workspace ./peerhub-demo                         create a workspace before using its governed state\n"
+        "  peerhub ask cx \"Summarize this repository\" --workspace ./peerhub-demo      send one prompt to a configured real peer\n"
+        "  peerhub broadcast \"List one risk.\" --peers cx,ag --workspace ./peerhub-demo  ask several configured real peers at once\n"
+        "  peerhub status --workspace ./peerhub-demo                                  inspect workspace state and health\n"
+        "  peerhub diag --workspace ./peerhub-demo                                    inspect peer diagnostics and quota telemetry\n"
+        "  peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary \"Refresh docs\" --spec \"Add a usage example.\" --creator cx  create a governed task"
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     

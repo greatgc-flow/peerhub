@@ -32,6 +32,9 @@ def test_tiered_help_and_subcommands(capsys):
     assert "Operations (peer infrastructure):" in out
     assert "Governance (hub.py parity" in out
     assert "(Note: consensus propose/proposal-add/proposal-vote/vote overlap)" in out
+    assert "Common workflows:" in out
+    assert "peerhub workspace init --workspace ./peerhub-demo" in out
+    assert "peerhub task create" in out
     
     assert len(captured_subparsers) > 0, "No subparsers were registered"
     
