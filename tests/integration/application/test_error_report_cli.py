@@ -155,13 +155,13 @@ def test_cli_error_review_resolve_escalate_routes_through_gateway(
     # ESCALATE result without coupling to health-readiness setup.
     from peerhub.health.service import HealthService
 
-    def _authorize_administrative_recovery(*args: object, **kwargs: object) -> None:
+    def _open_manual_quarantine(*args: object, **kwargs: object) -> None:
         del args, kwargs
 
     monkeypatch.setattr(
         HealthService,
-        "authorize_administrative_recovery",
-        _authorize_administrative_recovery,
+        "open_manual_quarantine",
+        _open_manual_quarantine,
     )
 
     exit_code = main([

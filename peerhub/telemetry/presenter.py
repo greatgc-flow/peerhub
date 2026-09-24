@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import sys
+import time
 import unicodedata
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -31,8 +32,74 @@ class DisplayTier(Enum):
     BASIC = "basic"
     FULL = "full"
 
-def format_headroom_surface(*args, **kwargs):
-    raise NotImplementedError("TDD RED state")
+
+_HEADROOM_SENTINEL_KEYS = {
+    "error",
+    "dispatches",
+    "failures",
+    "data_points",
+    "window_changed",
+    "tracking_populated",
+}
+_HEADROOM_STALE_THRESHOLD_SECONDS = 60
+
+
+def format_headroom_surface(
+    data: "dict[str, Any] | None", *, tier: DisplayTier = DisplayTier.BASIC
+) -> str:
+    """Render the telemetry headroom surface (section 15: none/basic/full
+    tiers). Honestly reports absence/staleness/errors rather than ever
+    fabricating a number (DIR-004) -- "No telemetry data" is never shown
+    as "0%", a zero-dispatch window is never shown as "0%" fail rate, and
+    a single data point is never extrapolated into a trend.
+    """
+
+    if not isinstance(data, dict):
+        return "No telemetry data"
+
+    if data.get("tracking_populated") is False:
+        return "fail rate: telemetry tracking not populated"
+
+    if "error" in data:
+        return f"[error] vendor error: {data['error']}"
+
+    peers = {
+        peer_id: snapshot
+        for peer_id, snapshot in data.items()
+        if peer_id not in _HEADROOM_SENTINEL_KEYS
+        and isinstance(snapshot, UsageProjectionSnapshot)
+    }
+    if not peers:
+        return "No telemetry data"
+
+    now = int(time.time())
+    lines: list[str] = []
+    for peer_id in sorted(peers):
+        snapshot = peers[peer_id]
+        used_pct = snapshot.used_fraction * 100
+        remaining_pct = snapshot.remaining_fraction * 100
+        line = f"{peer_id}: used {used_pct:.0f}%, remaining {remaining_pct:.0f}%"
+        age_seconds = now - snapshot.updated_at
+        if age_seconds > _HEADROOM_STALE_THRESHOLD_SECONDS:
+            minutes_ago = int(age_seconds // 60)
+            line += f" [stale: {minutes_ago}m ago]"
+        lines.append(line)
+
+    result = "; ".join(lines)
+
+    if tier == DisplayTier.FULL:
+        extras: list[str] = []
+        if data.get("dispatches") == 0:
+            extras.append("fail rate: no dispatches")
+        data_points = data.get("data_points")
+        if data_points is not None and data_points < 2:
+            extras.append("trend: insufficient data")
+        if data.get("window_changed"):
+            extras.append("window changed")
+        if extras:
+            result += " | " + " | ".join(extras)
+
+    return result
 
 def _dw(s: str) -> int:
     """Compute terminal display width supporting East Asian Width & emojis."""
