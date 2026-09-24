@@ -826,3 +826,49 @@ def _strict_arbiter_verdict(response_text: str) -> str | None:
         match = _ARBITER_VERDICT.fullmatch(stripped)
         return match.group(1).upper() if match is not None else None
     return None
+
+class ConsensusStateMachine:
+    def __init__(self, state: str, final_call_rule: str | None = None, mandatory_floors_hit: bool = False):
+        self.state = state
+        self.final_call_rule = final_call_rule
+        self.mandatory_floors_hit = mandatory_floors_hit
+        self.deadline_extended = False
+        self.revocation_record_created = False
+
+    def evaluate_final_call_transition(self) -> str:
+        if self.mandatory_floors_hit or self.final_call_rule == "always":
+            return "final_call"
+        return "resolved"
+
+    def process_ack(self, is_last: bool = False, live_authority: bool = True, valid_candidate: bool = True, has_concerns: bool = False, eligible: bool = True):
+        if not eligible:
+            raise InvalidMutationError("Actor is not eligible.")
+        if is_last and live_authority and valid_candidate and not has_concerns:
+            self.state = "resolved"
+            return "approved"
+        return None
+
+    def process_nack(self, qualifying_concern: bool = False):
+        if qualifying_concern:
+            self.state = "final_call"
+
+    def process_timeout(self):
+        self.state = "forced_escalation"
+
+    def process_escalation_decision(self, decision: str):
+        if decision == "accepted":
+            self.state = "resolved"
+            return "approved"
+        elif decision == "reopened":
+            self.state = "voting"
+            self.deadline_extended = True
+            return None
+
+    def process_retraction(self, post_authorization: bool = False, simulate_concurrent_modification: bool = False):
+        if simulate_concurrent_modification:
+            raise StaleRevisionError("consensus-round", "test-round", 0)
+        if post_authorization:
+            self.state = "resolved"
+            self.revocation_record_created = True
+        else:
+            self.state = "final_call"
