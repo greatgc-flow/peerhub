@@ -54,12 +54,19 @@ class RetentionMode(Enum):
 class CleanupDebtRecord:
     staged_path: Path
     consumer_pid: int
+    retained_input_ttl_days: int | None = None
     
     def __post_init__(self):
         raise NotImplementedError("TDD RED state")
 
-def sweep_by_ownership(root: Path, relative_dir: str) -> int:
+def sweep_by_ownership(root: Path, relative_dir: str, active_owners: set[str] | None = None) -> int:
     raise NotImplementedError("TDD RED state")
+
+def should_stage_prompt(payload_utf8_bytes: int, max_inline_bytes: int) -> bool:
+    raise NotImplementedError("TDD RED state")
+
+def read_query_file_utf8(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
 
 @dataclass(frozen=True)
