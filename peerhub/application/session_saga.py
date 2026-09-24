@@ -24,11 +24,13 @@ from typing import Protocol
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.telemetry.contract import SessionContextProjectionSnapshot
+from peerhub.dispatch.policy import SessionPolicy
 
 
 class RotationDecision(enum.Enum):
     PROCEED_WITH_REUSE = "PROCEED_WITH_REUSE"
     CHECKPOINT_REQUIRED = "CHECKPOINT_REQUIRED"
+    CHECKPOINT_PENDING = "CHECKPOINT_PENDING"
     ROTATION_PENDING_PROCEED = "ROTATION_PENDING_PROCEED"
     ROTATION_CLAIMED = "ROTATION_CLAIMED"
     ROTATION_IN_PROGRESS_RETRY = "ROTATION_IN_PROGRESS_RETRY"
@@ -97,24 +99,27 @@ class SessionRotationSaga:
 
     def evaluate_and_claim(
         self,
-        policy: str,
+        session_policy: SessionPolicy,
         workspace_scope_id: str,
         instance_id: str,
         profile_id: str,
         conversation_scope: str,
         current_generation_id: int,
         rotation_safe: bool,
-        max_observation_age_ms: int = 30000,
+        retry_count: int | None = None,
+        max_retries: int | None = None,
     ) -> SessionSagaResult:
         """Evaluate session context and apply rotation policy."""
 
-        if policy == "fresh":
+        if session_policy.default_mode == "fresh":
             return self._attempt_claim(
                 workspace_scope_id,
                 instance_id,
                 profile_id,
                 conversation_scope,
                 current_generation_id,
+                retry_count,
+                max_retries,
             )
 
         projection = self._telemetry.get_session_context_projection(
@@ -125,21 +130,28 @@ class SessionRotationSaga:
             generation_id=current_generation_id,
         )
 
-        pressure_reached = False
+        pressure_level = "NONE"
         if projection is not None:
             is_exact = projection.source == "exact_attribution"
-            is_fresh = (self._clock.now() - projection.observed_at) <= max_observation_age_ms
+            is_fresh = (self._clock.now() - projection.observed_at) <= session_policy.max_observation_age_ms
             if is_exact and is_fresh:
-                threshold_ratio = 0.90 if instance_id == "cc" else 0.75
-                pressure_reached = projection.observed_tokens >= (projection.window_tokens * threshold_ratio)
+                percentage = (projection.observed_tokens / projection.window_tokens) * 100
+                if percentage < session_policy.soft_pressure_threshold:
+                    pressure_level = "NONE"
+                elif percentage < session_policy.hard_pressure_threshold:
+                    pressure_level = "PENDING"
+                else:
+                    pressure_level = "REACHED"
 
-        if not pressure_reached:
+        if pressure_level == "NONE":
             return SessionSagaResult(decision=RotationDecision.PROCEED_WITH_REUSE)
+        elif pressure_level == "PENDING":
+            return SessionSagaResult(decision=RotationDecision.CHECKPOINT_PENDING)
 
-        if policy == "reuse":
+        if session_policy.default_mode == "reuse":
             return SessionSagaResult(decision=RotationDecision.CHECKPOINT_REQUIRED)
 
-        if policy == "auto":
+        if session_policy.default_mode == "auto":
             if not rotation_safe:
                 return SessionSagaResult(decision=RotationDecision.ROTATION_PENDING_PROCEED)
             return self._attempt_claim(
@@ -148,9 +160,11 @@ class SessionRotationSaga:
                 profile_id,
                 conversation_scope,
                 current_generation_id,
+                retry_count,
+                max_retries,
             )
 
-        raise ValueError(f"Unknown session policy: {policy}")
+        raise ValueError(f"Unknown session policy: {session_policy.default_mode}")
 
     def _attempt_claim(
         self,
@@ -159,6 +173,8 @@ class SessionRotationSaga:
         profile_id: str,
         conversation_scope: str,
         current_generation_id: int,
+        retry_count: int | None = None,
+        max_retries: int | None = None,
     ) -> SessionSagaResult:
         now = self._clock.now()
         claim_token = self._ids.new_id("claim")
@@ -181,4 +197,6 @@ class SessionRotationSaga:
                 claim_token=claim_token,
             )
         else:
+            if retry_count is not None and max_retries is not None and retry_count >= max_retries:
+                raise RuntimeError("max retries exhausted")
             return SessionSagaResult(decision=RotationDecision.ROTATION_IN_PROGRESS_RETRY)

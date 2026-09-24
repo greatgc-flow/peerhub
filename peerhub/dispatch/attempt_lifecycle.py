@@ -741,6 +741,21 @@ class AttemptLifecycleCoordinator:
         return (updated_request, updated_attempt)
 
 
+from dataclasses import dataclass
+from peerhub.core.execution import ExecutionCertainty
+
+@dataclass
+class CancelResult:
+    certainty: ExecutionCertainty
+    status: str
+
 class AttemptLifecycleManager:
-    def cancel_attempt(self, state: dict):
-        raise NotImplementedError("TDD RED state")
+    def cancel_attempt(self, state: dict) -> CancelResult:
+        if state.get("certainty") == ExecutionCertainty.TERMINAL:
+            raise InvalidMutationError("Cannot overwrite completed history")
+        
+        claimed = state.get("claimed", False)
+        if not claimed:
+            return CancelResult(certainty=ExecutionCertainty.NOT_STARTED, status="cancelled")
+        else:
+            return CancelResult(certainty=state.get("certainty"), status="cancelled")

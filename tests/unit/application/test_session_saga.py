@@ -1,3 +1,4 @@
+from peerhub.dispatch.policy import SessionPolicy
 import pytest
 from peerhub.application.session_saga import (
     SessionRotationSaga,
@@ -56,7 +57,7 @@ def test_reuse_at_hard_limit_does_not_rotate_returns_checkpoint_required():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="reuse",
+        session_policy=SessionPolicy(default_mode="reuse", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
@@ -74,7 +75,7 @@ def test_auto_with_pressure_and_safe_signal_claims_rotation():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
@@ -93,7 +94,7 @@ def test_auto_with_pressure_no_safe_signal_does_not_rotate():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
@@ -111,7 +112,7 @@ def test_auto_with_stale_absent_evidence_fails_safe_does_not_rotate():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
@@ -129,7 +130,7 @@ def test_estimated_source_evidence_fails_safe_does_not_rotate():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
@@ -147,7 +148,7 @@ def test_auto_threshold_non_cc_at_75_percent_rotates():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
@@ -164,7 +165,7 @@ def test_auto_threshold_cc_at_75_percent_does_not_rotate():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=90, hard_pressure_threshold=90, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="cc",
         profile_id="prof",
@@ -181,7 +182,7 @@ def test_auto_threshold_cc_at_90_percent_rotates():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=90, hard_pressure_threshold=90, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="cc",
         profile_id="prof",
@@ -198,14 +199,14 @@ def test_stale_exact_attribution_evidence_fails_safe_does_not_rotate():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=300),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
         conversation_scope="conv-1",
         current_generation_id=1,
         rotation_safe=True,
-        max_observation_age_ms=300, # Clock is at 1000, diff is 500 > 300
+        # Clock is at 1000, diff is 500 > 300
     )
     
     assert result.decision == RotationDecision.PROCEED_WITH_REUSE
@@ -217,7 +218,7 @@ def test_concurrent_claim_attempt_fails():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="auto",
+        session_policy=SessionPolicy(default_mode="auto", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",
@@ -236,7 +237,7 @@ def test_fresh_always_claims_rotation():
     saga = SessionRotationSaga(dispatch, telemetry, FakeClock(), FakeIdSource())
 
     result = saga.evaluate_and_claim(
-        policy="fresh",
+        session_policy=SessionPolicy(default_mode="fresh", soft_pressure_threshold=75, hard_pressure_threshold=75, max_observation_age_ms=30000),
         workspace_scope_id="scope",
         instance_id="inst",
         profile_id="prof",

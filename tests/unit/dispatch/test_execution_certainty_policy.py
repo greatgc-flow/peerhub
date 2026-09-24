@@ -36,7 +36,7 @@ def test_ex_03_cancel_on_completed():
     manager = AttemptLifecycleManager()
     
     # State is already completed
-    current_state = {"claimed": True, "certainty": ExecutionCertainty.COMPLETED}
+    current_state = {"claimed": True, "certainty": ExecutionCertainty.TERMINAL}
     
     with pytest.raises(InvalidMutationError, match="Cannot overwrite completed history"):
         manager.cancel_attempt(current_state)

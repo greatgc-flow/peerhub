@@ -23,12 +23,12 @@ class FakeTelemetryRepo:
         return self.projection
 
 class FakeClock:
-    def time(self):
-        return 1.0
+    def now(self):
+        return 1000
 
 class FakeIdSource:
-    def __call__(self):
-        return "claim-123"
+    def new_id(self, prefix: str):
+        return f"{prefix}-123"
 
 class FakeProjection:
     def __init__(self, observed, window, source="exact_attribution", observed_at=1000):
@@ -66,7 +66,7 @@ def test_ss_02_auto_between_soft_and_hard():
         current_generation_id=1,
         rotation_safe=True
     )
-    assert result.decision == "CHECKPOINT_PENDING"  # Expecting the new RotationDecision.CHECKPOINT_PENDING enum
+    assert result.decision == RotationDecision.CHECKPOINT_PENDING
 
 def test_ss_03_auto_above_hard_and_safe():
     """SS-03: auto + exact-attribution + p >= hard + safe=true -> ROTATION_CLAIMED."""
