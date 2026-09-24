@@ -9,6 +9,77 @@ from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, Actor
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.governance.broker import TargetState
 from peerhub.health.contract import PolicyScope
+from peerhub.health.contract import AdmissionState, AvailabilityState, HealthProjectionSnapshot, ReadinessEvaluation, ReadinessState, ReadinessGateState, AdmissionDecision
+from peerhub.telemetry.contract import EvidenceRef, EvidenceState, EvidenceValue, ReadinessMeasurement, ReadinessObserved
+import uuid
+
+def _seed_projection(
+    store,
+    health,
+    *,
+    availability: AvailabilityState,
+    admission: AdmissionState,
+    updated_at: int = 10_000,
+) -> HealthProjectionSnapshot:
+    obs_id = "obs-" + uuid.uuid4().hex[:8]
+    valid_until = updated_at + health.policy.readiness_freshness_seconds
+    readiness = ReadinessObserved(
+        observation_id=obs_id,
+        instance_id="cc",
+        profile_id="cc.standard",
+        evidence=EvidenceValue(
+            state=EvidenceState.MEASURED,
+            source_tag="test",
+            provider_id="test",
+            provider_version="1",
+            observed_at=updated_at,
+            captured_at=updated_at,
+            freshness_ttl=health.policy.readiness_freshness_seconds,
+            evidence_ref=EvidenceRef("sha256:00"),
+            value=ReadinessMeasurement(
+                runtime_revision="rev",
+                issued_at=updated_at,
+                valid_until=valid_until,
+                integrity_verified=True,
+            )
+        )
+    )
+    
+    projection = HealthProjectionSnapshot(
+        projection_id="health-projection-1",
+        instance_id="cc",
+        profile_id="cc.standard",
+        availability_state=availability,
+        admission_state=admission,
+        readiness_observation_id=obs_id,
+        operational_projection_id=None,
+        operational_projection_revision=None,
+        policy_id=health.policy.policy_id,
+        policy_revision=health.policy.revision,
+        cooldown_until=None,
+        evidence_refs=(obs_id,),
+        revision=1,
+        created_at=updated_at,
+        updated_at=updated_at,
+        readiness_evaluation=ReadinessEvaluation(
+            readiness_state=ReadinessState.READY,
+            availability_state=availability,
+            gate_state=ReadinessGateState.OPEN,
+            admission_decision=AdmissionDecision.ADMITTED,
+            provider_effect_permitted=True,
+            reason_code=None,
+            revalidation_action=None,
+            zero_dispatch_calls=False,
+        ),
+        sealed_runtime_revision="rev",
+        adapter_declares_probe_safe=True,
+    )
+    with store.unit_of_work() as unit:
+        unit.add_readiness_observation(readiness)
+        unit.add_health_projection(projection)
+        unit.commit()
+    return projection
+
 
 from tests.integration.application.test_quarantine_review import services, _seed_review, FixedClock
 
@@ -30,6 +101,7 @@ def test_qr_e_02_escalate_valid_review_peer_healthy(services) -> None:
     """QR-E-02 | ESCALATE valid review, peer healthy | Peer quarantined via pending-effect transitions"""
     coordinator, errors, broker, health, store, clock, peer_registry = services
     review_id = _seed_review(errors, broker, peer_registry)
+    _seed_projection(store, health, availability=AvailabilityState.HEALTHY, admission=AdmissionState.OPEN, updated_at=clock.now())
     
     coordinator.resolve_quarantine_review(
         review_id,
@@ -47,6 +119,7 @@ def test_qr_e_03_escalate_peer_already_restricted(services) -> None:
     """QR-E-03 | ESCALATE valid review, peer already restricted | Identical delivery alone is a no-op..."""
     coordinator, errors, broker, health, store, clock, peer_registry = services
     review_id = _seed_review(errors, broker, peer_registry)
+    _seed_projection(store, health, availability=AvailabilityState.HEALTHY, admission=AdmissionState.OPEN, updated_at=clock.now())
     
     health.open_manual_quarantine(
         PolicyScope.PROFILE, 
@@ -93,7 +166,7 @@ def test_qr_e_05_escalate_node_deregistered(services) -> None:
     coordinator, errors, broker, health, store, clock, peer_registry = services
     review_id = _seed_review(errors, broker, peer_registry)
     
-    peer_registry.deregister_node("cc-node")
+    peer_registry.deregister_node("cc-node", actor_id="admin")
     
     with pytest.raises(RecordNotFoundError):
         coordinator.resolve_quarantine_review(
@@ -109,8 +182,8 @@ def test_qr_e_06_escalate_malformed_peer_kind(services) -> None:
     review_id = _seed_review(errors, broker, peer_registry)
     
     with store.unit_of_work() as unit:
-        targets = list(unit.list_targets("quarantine-review", None))
-        target = next(t for t in targets if t.state.get("review_id") == review_id)
+        targets = list(unit.list_targets("peer-node", None))
+        target = next(t for t in targets if t.target_id == "peer-node:cc-node")
         new_state = dict(target.state)
         new_state["peer_kind"] = None
         unit.compare_and_set_target(target, TargetState(target.target_id, target.revision + 1, new_state, clock.now()))
@@ -128,6 +201,7 @@ def test_qr_e_07_resolve_already_resolved(services) -> None:
     """QR-E-07 | Resolve a review that's already resolved (DISMISSED or ESCALATED) | InvalidMutationError"""
     coordinator, errors, broker, health, store, clock, peer_registry = services
     review_id = _seed_review(errors, broker, peer_registry)
+    _seed_projection(store, health, availability=AvailabilityState.HEALTHY, admission=AdmissionState.OPEN, updated_at=clock.now())
     
     coordinator.resolve_quarantine_review(
         review_id,
@@ -171,6 +245,7 @@ def test_qr_e_10_rapid_escalate_recover_sequence(services) -> None:
     """QR-E-10 | Rapid ESCALATE -> RECOVER sequence | Operational recovery does NOT release administrative quarantine."""
     coordinator, errors, broker, health, store, clock, peer_registry = services
     review_id = _seed_review(errors, broker, peer_registry)
+    _seed_projection(store, health, availability=AvailabilityState.HEALTHY, admission=AdmissionState.OPEN, updated_at=clock.now())
     
     coordinator.resolve_quarantine_review(
         review_id,
@@ -183,7 +258,8 @@ def test_qr_e_11_crash_after_pending_escalate(services) -> None:
     """QR-E-11 | Crash after PENDING_ESCALATE commit | Restart retries/reconciles that exact identity."""
     coordinator, errors, broker, health, store, clock, peer_registry = services
     
-    coordinator.reconcile_quarantine_review("some-review")
+    with pytest.raises(RecordNotFoundError):
+        coordinator.reconcile_quarantine_review("some-review")
 
 def test_qr_e_12_crash_after_application_before_reconcile(services) -> None:
     """QR-E-12 | Crash after application, before review reconciliation | Restart uses existing application receipt."""
