@@ -153,3 +153,13 @@ class QuarantineReviewCoordinator:
             )
 
         return submission
+
+    def reconcile_quarantine_review(
+        self,
+        review_id: str,
+        receipt: object = None,
+    ) -> None:
+        raise NotImplementedError("TDD RED state")
+
+    def resume_pending_reviews(self) -> None:
+        raise NotImplementedError("TDD RED state")

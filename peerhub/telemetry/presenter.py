@@ -25,6 +25,15 @@ from peerhub.telemetry.contract import (
 )
 
 
+from enum import Enum
+class DisplayTier(Enum):
+    NONE = "none"
+    BASIC = "basic"
+    FULL = "full"
+
+def format_headroom_surface(*args, **kwargs):
+    raise NotImplementedError("TDD RED state")
+
 def _dw(s: str) -> int:
     """Compute terminal display width supporting East Asian Width & emojis."""
     if not isinstance(s, str):  # pyright: ignore[reportUnnecessaryIsInstance] -- defends real callers passing non-str despite the hint

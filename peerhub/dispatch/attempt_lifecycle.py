@@ -739,3 +739,8 @@ class AttemptLifecycleCoordinator:
 
         self._faults.hit(FaultPoint.AFTER_COMMIT)
         return (updated_request, updated_attempt)
+
+
+class AttemptLifecycleManager:
+    def cancel_attempt(self, state: dict):
+        raise NotImplementedError("TDD RED state")

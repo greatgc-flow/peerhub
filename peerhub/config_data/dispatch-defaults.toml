@@ -1,0 +1,80 @@
+# dispatch-policy.toml — Governance/dispatch policy configuration
+# Every value has a built-in default; this file overrides selectively.
+
+[consultation]
+# Default consultation depth for governance actions.
+# Values: "none", "notify", "review", "quorum", "unanimous"
+# See Section 2.1 Purpose Table for minimum bounds and default overrides (e.g. contained child defaults to none).
+default_depth = "quorum"
+
+# Per-action overrides (action name → depth)
+[consultation.overrides]
+"consensus.propose" = "quorum"
+"task.create" = "quorum" # Aligned with actual intended defaults
+"lesson.inject" = "notify"
+# Actions not listed here use default_depth.
+
+[consensus]
+# Quorum formula: "majority" (>50%), "supermajority" (≥2/3), "unanimous", or "all_required"
+quorum_formula = "all_required"
+
+# Final Call rule: "always", "tier_0_or_high_risk_or_dissent", "never"
+final_call_rule = "tier_0_or_high_risk_or_dissent" # Explicit mandatory trigger union
+
+# Timeout in seconds before escalation
+timeout_seconds = 1800
+
+# Escalation target when timeout fires
+escalation_target = "human-tier-0"
+
+[session]
+# Default session policy: "reuse", "auto", "fresh"
+default_mode = "auto"
+
+# Pressure thresholds for "auto" mode (percentage, 0-100)
+soft_pressure_threshold = 75
+hard_pressure_threshold = 90
+
+# Maximum age of telemetry observation to trust (milliseconds)
+max_observation_age_ms = 30000
+
+[routing]
+# Whether to use effort-based profile routing when no --profile is given
+effort_routing = "advisory" # off | advisory | opt-in
+
+[routing.preference_map]
+# Maps hint strings to an ordered list of profile binding IDs
+"deep" = ["ag.deepthink", "cc.deepthink", "cx.deepthink"]
+"fast" = ["cx.flash", "cc.flash"]
+
+[transport]
+# Maximum inline prompt size (bytes) before staging to file
+max_inline_bytes = 65536
+
+# Staging directory (resolved under the private temp base)
+staging_dir = "prompt-staging"
+
+# Copies live until consumed or consumer death is confirmed.
+# Age alone is never sufficient for deletion.
+cleanup_rule = "on_consumption_or_death"
+
+# Retention mode for staged prompts: "ephemeral" (deleted when safe/consumer dead) or "retained" (durable replay opt-in)
+retention_mode = "ephemeral"
+
+# Time-To-Live for separately retained canonical input (days)
+retained_input_ttl_days = 30
+
+[health_consequence]
+# Default consequence for dispatch failures
+# "report_only": create quarantine-review target, no automatic action
+# "review_then_quarantine": on ESCALATE, actually quarantine the peer
+# "evidence_circuit_only": only auto-open circuit on typed evidence (existing behavior)
+default_consequence = "review_then_quarantine"
+recovery_authority = "MANUAL"
+
+[telemetry]
+# Whether to refresh quota telemetry before dispatch
+refresh_before_dispatch = false
+
+# Headroom surface: "none", "basic" (used/remaining), "full" (+ fail rate, + 24h trend)
+headroom_surface = "basic"

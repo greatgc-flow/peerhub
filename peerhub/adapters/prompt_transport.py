@@ -44,6 +44,23 @@ from peerhub.adapters.contract import AdapterRequest
 _STAGED_PROMPT_SUFFIX = ".prompt.txt"
 _STAGED_NAME_HEX_CHARS = 32
 
+from enum import Enum
+
+class RetentionMode(Enum):
+    EPHEMERAL = "ephemeral"
+    RETAINED = "retained"
+
+@dataclass
+class CleanupDebtRecord:
+    staged_path: Path
+    consumer_pid: int
+    
+    def __post_init__(self):
+        raise NotImplementedError("TDD RED state")
+
+def sweep_by_ownership(root: Path, relative_dir: str) -> int:
+    raise NotImplementedError("TDD RED state")
+
 
 @dataclass(frozen=True)
 class StagedPrompt:
@@ -103,6 +120,7 @@ def stage_prompt(
     root: Path,
     relative_dir: str,
     request_id: str,
+    retention_mode: RetentionMode = RetentionMode.EPHEMERAL,
 ) -> StagedPrompt:
     """Write ``prompt`` to the staging directory under ``root``, verbatim.
 
