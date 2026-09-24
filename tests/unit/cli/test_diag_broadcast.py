@@ -41,7 +41,6 @@ def test_cli_diag_live_uses_ansi_clear_on_windows_without_subprocess(
     subprocess_run = Mock()
 
     monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
-    monkeypatch.setattr(cli.os, "name", "nt")
     monkeypatch.setattr(cli.subprocess, "run", subprocess_run)
 
     assert main(["diag", "--live", "--workspace", ".", "--no-color"]) == 0
