@@ -618,6 +618,16 @@ class WorkspaceIdentityMismatchError(PeerHubError):
         )
 
 
+class ConfigurationError(PeerHubError):
+    """A configuration error (e.g. invalid TOML key, bad value)."""
+
+    error_code = ErrorCode.INVALID_PARAMS
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
+
 def error_code_for(error: PeerHubError) -> ErrorCode:
     """Return the stable protocol code for an expected error."""
 

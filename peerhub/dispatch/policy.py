@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
+from peerhub.health.contract import HealthConsequencePolicy, DefaultConsequence, RecoveryAuthority
 
 class ConsultationDepth(str, Enum):
     NONE = "none"
@@ -18,7 +19,7 @@ class ConsensusPolicy:
 
 @dataclass(frozen=True)
 class SessionPolicy:
-    mode: str
+    default_mode: str
     soft_pressure_threshold: int
     hard_pressure_threshold: int
     max_observation_age_ms: int
@@ -35,11 +36,6 @@ class TransportPolicy:
     cleanup_rule: str
     retention_mode: str
     retained_input_ttl_days: int
-
-@dataclass(frozen=True)
-class HealthConsequencePolicy:
-    default_consequence: str
-    recovery_authority: str
 
 @dataclass(frozen=True)
 class TelemetryPolicy:
