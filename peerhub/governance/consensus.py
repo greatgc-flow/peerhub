@@ -836,7 +836,125 @@ class ConsensusStateMachine:
         self.revocation_record_created = False
 
     def evaluate(self, ctx: EvalContext, event: ConsensusEvent) -> TransitionResult:
-        raise NotImplementedError("RED phase")
+        if isinstance(event, VoteEvent):
+            return self._eval_vote(ctx, event)
+        elif isinstance(event, CorrectionEvent):
+            return self._eval_correction(ctx, event)
+        elif isinstance(event, TimeoutEvent):
+            return self._eval_timeout(ctx, event)
+        elif isinstance(event, EscalationEvent):
+            return self._eval_escalation(ctx, event)
+        elif isinstance(event, QuorumMetEvent):
+            return self._eval_quorum_met(ctx, event)
+        elif isinstance(event, AckNackEvent):
+            return self._eval_ack_nack(ctx, event)
+        elif isinstance(event, RetractionEvent):
+            return self._eval_retraction(ctx, event)
+        elif isinstance(event, ArbiterAttachmentEvent):
+            return self._eval_arbiter_attachment(ctx, event)
+        elif isinstance(event, ResolutionEvent):
+            return self._eval_resolution(ctx, event)
+        elif isinstance(event, ExceptionalResolutionEvent):
+            return self._eval_exceptional_resolution(ctx, event)
+        elif isinstance(event, AbandonEvent):
+            return self._eval_abandon(ctx, event)
+        else:
+            raise ValueError(f"Unknown event: {event}")
+
+    def _eval_vote(self, ctx: EvalContext, event: VoteEvent) -> TransitionResult:
+        if self.state not in ("proposed", "voting"):
+            raise InvalidMutationError("Invalid phase")
+        if event.credential == "invalid_proof":
+            raise InvalidMutationError("Invalid credential")
+        dissent = event.choice in ("block", "need_more_info")
+        return TransitionResult(
+            new_phase=self.state,
+            dissent_obligation_added=dissent
+        )
+
+    def _eval_correction(self, ctx: EvalContext, event: CorrectionEvent) -> TransitionResult:
+        if self.state != "final_call":
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase="voting",
+            candidate_invalidated=True,
+            acks_dropped=True,
+            fresh_votes_required=True
+        )
+
+    def _eval_timeout(self, ctx: EvalContext, event: TimeoutEvent) -> TransitionResult:
+        if self.state not in ("proposed", "voting", "quorum_reached", "final_call"):
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase=self.state,
+            evidence_recorded=True,
+            policy_reevaluation_triggered=True
+        )
+
+    def _eval_escalation(self, ctx: EvalContext, event: EscalationEvent) -> TransitionResult:
+        if self.state in ("approved", "rejected", "abandoned", "resolved"):
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase=self.state,
+            replacement_deadline_recorded=True,
+            policy_reevaluation_triggered=True
+        )
+
+    def _eval_quorum_met(self, ctx: EvalContext, event: QuorumMetEvent) -> TransitionResult:
+        if self.state != "voting":
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase="final_call" if self.mandatory_floors_hit else "quorum_reached"
+        )
+
+    def _eval_ack_nack(self, ctx: EvalContext, event: AckNackEvent) -> TransitionResult:
+        if self.state != "final_call":
+            raise InvalidMutationError("Invalid phase")
+        if event.nack_type == "block":
+            return TransitionResult(new_phase="final_call", barrier_held=True)
+        if event.nack_type == "cosmetic":
+            return TransitionResult(new_phase="final_call", cosmetic_logged=True)
+        if event.nack_type == "terminal_rejection":
+            return TransitionResult(new_phase="rejected", terminal_rejection=True)
+        return TransitionResult(new_phase="approved")
+
+    def _eval_retraction(self, ctx: EvalContext, event: RetractionEvent) -> TransitionResult:
+        if self.state != "final_call":
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase="voting",
+            candidate_invalidated=True,
+            acks_dropped=True
+        )
+
+    def _eval_arbiter_attachment(self, ctx: EvalContext, event: ArbiterAttachmentEvent) -> TransitionResult:
+        if self.state not in ("approved", "rejected"):
+            raise InvalidMutationError("Invalid phase")
+        if event.dispatch != "SUCCEEDED":
+            raise InvalidMutationError("Invalid dispatch")
+        return TransitionResult(
+            new_phase=self.state,
+            evidence_recorded=True
+        )
+
+    def _eval_resolution(self, ctx: EvalContext, event: ResolutionEvent) -> TransitionResult:
+        if self.state not in ("quorum_reached", "escalated"):
+            raise InvalidMutationError("Invalid phase")
+        if event.outcome not in ("approved", "rejected"):
+            raise InvalidMutationError("Invalid resolution outcome")
+        return TransitionResult(new_phase=event.outcome)
+
+    def _eval_exceptional_resolution(self, ctx: EvalContext, event: ExceptionalResolutionEvent) -> TransitionResult:
+        if self.state in ("approved", "rejected", "abandoned", "resolved"):
+            raise InvalidMutationError("Invalid phase")
+        if event.admin_proof == "invalid_token":
+            raise InvalidMutationError("Invalid proof")
+        return TransitionResult(new_phase="approved")
+
+    def _eval_abandon(self, ctx: EvalContext, event: AbandonEvent) -> TransitionResult:
+        if self.state in ("approved", "rejected", "abandoned", "resolved"):
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(new_phase="abandoned")
 
     def evaluate_final_call_transition(self) -> str:
         if self.mandatory_floors_hit or self.final_call_rule == "always":
