@@ -1,7 +1,7 @@
 """Candidate binding and tracking (pure logic)."""
 
 from dataclasses import dataclass
-from typing import FrozenSet, Sequence
+from typing import FrozenSet, Sequence, Dict, Set
 
 
 @dataclass(frozen=True)
@@ -18,21 +18,38 @@ class RetractionOutcome:
 
 
 class AckLedger:
+    ALLOWED_INVALIDATE_REASONS = frozenset({
+        "correction/new dissent",
+        "health-or-expiry failure",
+        "authority revocation",
+        "eligible-membership change"
+    })
+
     def __init__(self) -> None:
-        raise NotImplementedError("RED phase")
+        self._acks: Dict[Candidate, Set[str]] = {}
 
     def bind_ack(self, candidate: Candidate, participant: str) -> None:
-        raise NotImplementedError("RED phase")
+        if candidate not in self._acks:
+            self._acks[candidate] = set()
+        self._acks[candidate].add(participant)
 
     def acks_for(self, candidate: Candidate) -> FrozenSet[str]:
-        raise NotImplementedError("RED phase")
+        return frozenset(self._acks.get(candidate, set()))
 
     def invalidate(self, reason: str) -> None:
-        raise NotImplementedError("RED phase")
+        if reason not in self.ALLOWED_INVALIDATE_REASONS:
+            raise ValueError(f"Unknown invalidate reason: {reason}")
+        self._acks.clear()
 
     def is_complete(self, candidate: Candidate, required_participants: Sequence[str]) -> bool:
-        raise NotImplementedError("RED phase")
+        if not required_participants:
+            return False
+        acks = self.acks_for(candidate)
+        return all(p in acks for p in required_participants)
 
 
 def apply_retraction(ledger: AckLedger, candidate: Candidate, authorized: bool) -> RetractionOutcome:
-    raise NotImplementedError("RED phase")
+    if not authorized:
+        ledger.invalidate("correction/new dissent")
+        return RetractionOutcome(state="voting", reason="unauthorized")
+    return RetractionOutcome(state="RevocationRecorded", reason="authorized")

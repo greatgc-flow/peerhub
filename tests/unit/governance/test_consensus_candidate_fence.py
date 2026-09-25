@@ -44,7 +44,7 @@ def test_ack_ledger_invalidate_drops_all_acks() -> None:
     ledger = AckLedger()
     c1 = Candidate(round_id="r1", expected_revision=1, target_state_hash="h1")
     ledger.bind_ack(c1, "p1")
-    ledger.invalidate("test")
+    ledger.invalidate("authority revocation")
     assert "p1" not in ledger.acks_for(c1)
 
 
@@ -106,7 +106,7 @@ def test_authority_fence_check_raises_when_mismatch() -> None:
 def test_authority_fence_bump_for_increments_version() -> None:
     store = FakeAuthorityVersionStore()
     fence = AuthorityFence(store)
-    fence.bump_for("test")
+    fence.bump_for("revocation")
     assert store.read_version() == 2
 
 
@@ -132,3 +132,59 @@ def test_authority_fence_claim_raises_for_stale_authority() -> None:
     store.increment()
     with pytest.raises(StaleAuthorityError):
         fence.claim(c1, "e1", 1)
+
+def test_ack_ledger_invalidate_rejects_unknown_reason() -> None:
+    ledger = AckLedger()
+    with pytest.raises(ValueError):
+        ledger.invalidate("unknown")
+
+
+def test_ack_ledger_invalidate_accepts_design_triggers() -> None:
+    ledger = AckLedger()
+    for reason in ["correction/new dissent", "health-or-expiry failure", "authority revocation", "eligible-membership change"]:
+        ledger.invalidate(reason)
+
+
+def test_ack_ledger_is_complete_empty_required_set() -> None:
+    ledger = AckLedger()
+    c1 = Candidate(round_id="r1", expected_revision=1, target_state_hash="h1")
+    assert ledger.is_complete(c1, []) is False
+
+
+def test_authority_fence_bump_for_rejects_unknown_reason() -> None:
+    store = FakeAuthorityVersionStore()
+    fence = AuthorityFence(store)
+    with pytest.raises(ValueError):
+        fence.bump_for("unknown")
+
+
+def test_authority_fence_bump_for_accepts_design_triggers() -> None:
+    store = FakeAuthorityVersionStore()
+    fence = AuthorityFence(store)
+    for reason in ["revocation", "rebinding", "health_transition"]:
+        fence.bump_for(reason)
+
+
+def test_authority_fence_claim_stale_claim_different_version() -> None:
+    store = FakeAuthorityVersionStore()
+    fence = AuthorityFence(store)
+    c1 = Candidate(round_id="r1", expected_revision=1, target_state_hash="h1")
+    fence.claim(c1, "e1", 1)
+    with pytest.raises(StaleAuthorityError):
+        fence.claim(c1, "e1", 2)
+
+
+class ErroringStore:
+    def read_version(self) -> int:
+        raise RuntimeError("Store failure")
+    def increment(self) -> int:
+        raise RuntimeError("Store failure")
+
+
+def test_authority_fence_store_errors_propagate_as_stale_authority() -> None:
+    store = ErroringStore()
+    fence = AuthorityFence(store)
+    with pytest.raises(StaleAuthorityError):
+        fence.check(1)
+    with pytest.raises(StaleAuthorityError):
+        fence.bump_for("revocation")
