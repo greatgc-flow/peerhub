@@ -135,28 +135,28 @@ def test_cd_q_11_quorum_only_proposer():
     assert result == "blocked_non_proposer_required"
 
 def test_cd_u_01_unanimous_all_agree():
-    """CD-U-01: All required explicitly agree -> Quorum reached."""
+    """CD-U-01: All required explicitly agree (including the proposer) -> Quorum reached."""
     orch = DispatchOrchestrator()
-    result = orch.process_quorum_round(votes={"agree": 3}, formula="unanimous", total_voters=3)
+    result = orch.process_quorum_round(votes={"agree": 3}, formula="unanimous", total_voters=2, proposer_voted=True)
     assert result == "check_final_call"
 
 def test_cd_u_02_unanimous_abstain():
-    """CD-U-02: All but one agree, one abstains -> Quorum NOT reached."""
+    """CD-U-02: Proposer abstains, both other required voters agree -> Quorum NOT reached (B3 correction: proposer's own agreement is unconditionally required)."""
     orch = DispatchOrchestrator()
-    result = orch.process_quorum_round(votes={"agree": 2, "abstain": 1}, formula="unanimous", total_voters=3)
+    result = orch.process_quorum_round(votes={"agree": 2}, formula="unanimous", total_voters=2, proposer_voted=False)
     assert result == "pending"
 
 def test_cd_u_03_unanimous_unreachable():
-    """CD-U-03: All but one agree, one unreachable -> Blocked until timeout, then escalation."""
+    """CD-U-03: Proposer unreachable, other required voters agree -> Blocked until timeout, then escalation."""
     orch = DispatchOrchestrator()
-    result = orch.process_quorum_round(votes={"agree": 2}, formula="unanimous", total_voters=3, timed_out=True)
+    result = orch.process_quorum_round(votes={"agree": 2}, formula="unanimous", total_voters=2, proposer_voted=False, timed_out=True)
     assert result == "escalation"
 
 def test_cd_u_04_unanimous_disagree_after_agree():
     """CD-U-04: All agree but one then disagrees after initial agree -> Vote immutable, reopens."""
     orch = DispatchOrchestrator()
     with pytest.raises(InvalidMutationError):
-        orch.process_quorum_round(votes={"agree": 3}, formula="unanimous", total_voters=3, changed_vote=True)
+        orch.process_quorum_round(votes={"agree": 3}, formula="unanimous", total_voters=2, proposer_voted=True, changed_vote=True)
 
 def test_cd_u_05_unanimous_1_person():
     """CD-U-05: Required voter set is 1 person (+ proposer) -> Both must agree (min floor 2)."""

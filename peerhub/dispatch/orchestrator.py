@@ -62,11 +62,13 @@ class DispatchOrchestrator:
         elif formula == "all_required":
             quorum_reached = agree_count == total_voters
         elif formula == "unanimous":
-            required_agrees = total_voters + (1 if proposer_voted else 0)
-            if required_agrees >= 2:
-                quorum_reached = agree_count == required_agrees
-            else:
-                quorum_reached = False
+            # total_voters always excludes the proposer; the proposer's own
+            # agreement is unconditionally required (design correction B3,
+            # docs/design/CONSENSUS-REPLACEMENT-R1-ag-deepthink-2026-09-25.md
+            # section 3.1.1 -- abstaining/unreachable/timed-out proposers must
+            # never silently lower the requirement).
+            required_agrees = max(total_voters + 1, 2)
+            quorum_reached = agree_count == required_agrees
         
         if quorum_reached:
             return "check_final_call"
