@@ -23,18 +23,45 @@ def migration_disposition(
     timeout_evidence: bool = False,
     target_state: Optional[str] = None
 ) -> MigrationDisposition:
-    """
-    Encode EVERY row of the 8.2 table:
-    - proposed/voting -> voting/core
-    - quorum_reached -> quorum_reached, or final_call if floor_requires_final_call
-    - final_call(partial) -> final_call, retain_unbound_acks=True, evaluator frozen_legacy
-    - resolved/timeout -> approved|rejected|escalated from generic_outcome and timeout_evidence
-      (legacy phase "resolved" is NOT "approved"; unknown outcome -> ambiguity hold, never guess)
-    - pending/target-unmaterialized -> preserve_approval_snapshot=True, recovery re-route to exclusive materializer
-    - claimed-with-no-target / target-materialized-without-result -> evaluate from immutable evidence, recovery_action must never be "force_execute" after a revocation
-    - Unknown phase -> SchemaError.
-    """
-    raise NotImplementedError("RED phase")
+    """Map a legacy phase to its V2 migration disposition (design 8.2)."""
+    _outcomes = ("approved", "rejected", "escalated")
+
+    def disp(target: str, **kw: object) -> MigrationDisposition:
+        return MigrationDisposition(
+            target_phase=target,
+            recovery_action=kw.get("recovery_action"),  # type: ignore[arg-type]
+            retain_unbound_acks=bool(kw.get("retain_unbound_acks", False)),
+            evaluator=kw.get("evaluator", "core"),  # type: ignore[arg-type]
+            preserve_approval_snapshot=bool(kw.get("preserve_approval_snapshot", False)),
+        )
+
+    if phase in ("proposed", "voting"):
+        return disp("voting")
+    if phase == "quorum_reached":
+        return disp("final_call" if floor_requires_final_call else "quorum_reached")
+    if phase == "final_call":
+        # Frozen legacy contract: new floors never apply retroactively.
+        return disp("final_call", retain_unbound_acks=True, evaluator="frozen_legacy")
+    if phase in ("resolved", "timeout"):
+        if generic_outcome in _outcomes:
+            return disp(generic_outcome)
+        if phase == "timeout" and timeout_evidence:
+            return disp("escalated")
+        return disp("ambiguity_hold")
+    if phase == "pending_unmaterialized":
+        return disp(
+            "approved",
+            recovery_action="reroute_exclusive_materializer",
+            preserve_approval_snapshot=True,
+        )
+    if phase in ("claimed_no_target", "target_materialized_no_result"):
+        # Never force execution: decide from immutable target/result evidence.
+        return disp(
+            "approved",
+            recovery_action="evaluate_from_evidence",
+            preserve_approval_snapshot=True,
+        )
+    raise SchemaError(f"Unknown legacy phase: {phase!r}")
 
 
 class FrozenLegacyEvaluator:
@@ -44,10 +71,11 @@ class FrozenLegacyEvaluator:
     retroactively apply (a floor flag passed in is ignored); unbound legacy ACKs retained.
     """
     def __init__(self, frozen_eligible_set: Set[str]):
-        raise NotImplementedError("RED phase")
+        self._frozen = frozenset(frozen_eligible_set)
 
     def is_complete(self, legacy_acks: Set[str], *, floor_flag: bool = False) -> bool:
-        raise NotImplementedError("RED phase")
+        # floor_flag is intentionally ignored: floors are not retroactive.
+        return bool(self._frozen) and self._frozen <= set(legacy_acks)
 
 
 def classify_activation_state(
@@ -64,4 +92,18 @@ def classify_activation_state(
     v1_intact when nothing changed.
     every partial combination -> "inconsistent" (fail closed, caller must not proceed).
     """
-    raise NotImplementedError("RED phase")
+    if (
+        not has_governed_targets
+        and has_governed_targets_v1
+        and epoch_now > epoch_before
+        and metadata_written
+    ):
+        return "v2_active"
+    if (
+        has_governed_targets
+        and not has_governed_targets_v1
+        and epoch_now == epoch_before
+        and not metadata_written
+    ):
+        return "v1_intact"
+    return "inconsistent"
