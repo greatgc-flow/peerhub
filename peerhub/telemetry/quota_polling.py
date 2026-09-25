@@ -498,22 +498,34 @@ def poll_codex_usage(
         # found neither key and silently returned ERROR (confirmed against
         # a live response: correct rate-limit data was present, just nested).
         rate_limits_raw = rate_limits_envelope.get("rateLimits")
-        if not isinstance(rate_limits_raw, dict):
+        rate_limits_by_id_raw = rate_limits_envelope.get("rateLimitsByLimitId")
+
+        if isinstance(rate_limits_raw, dict):
+            # Extract from primary/secondary
+            rate_limits = cast(dict[str, Any], rate_limits_raw)
+            limits_to_process = []
+            for key in ("primary", "secondary"):
+                q_limit_raw = rate_limits.get(key)
+                if isinstance(q_limit_raw, dict):
+                    limits_to_process.append((key, q_limit_raw))
+        elif isinstance(rate_limits_by_id_raw, dict):
+            # Fall back to rateLimitsByLimitId
+            rate_limits_by_id = cast(dict[str, Any], rate_limits_by_id_raw)
+            limits_to_process = []
+            for limit_id, q_limit_raw in rate_limits_by_id.items():
+                if isinstance(q_limit_raw, dict):
+                    limits_to_process.append((limit_id, q_limit_raw))
+        else:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
-        rate_limits = cast(dict[str, Any], rate_limits_raw)
 
         results: list[UsageObserved] = []
         legacy_windows = {
             "primary": ("X-5H", 5.0),
             "secondary": ("X-7D", 168.0),
         }
-        for key in ("primary", "secondary"):
-            q_limit_raw = rate_limits.get(key)
-            if not isinstance(q_limit_raw, dict):
-                continue
-            
+        for key, q_limit_raw in limits_to_process:
             q_limit = cast(dict[str, Any], q_limit_raw)
-            label, window_hours = legacy_windows[key]
+            label, window_hours = legacy_windows.get(key, ("X-UNK", 0.0))
             duration_mins: object | None = q_limit.get("windowDurationMins")
             if duration_mins is not None:
                 try:
