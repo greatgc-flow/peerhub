@@ -916,7 +916,12 @@ class ConsensusStateMachine:
             return TransitionResult(new_phase="final_call", cosmetic_logged=True)
         if event.nack_type == "terminal_rejection":
             return TransitionResult(new_phase="rejected", terminal_rejection=True)
-        return TransitionResult(new_phase="approved")
+        # ACK: approve only once every required participant has a bound ACK
+        # for the current candidate (empty required set fails closed).
+        acked = ctx.bound_ack_participants | {event.actor}
+        if ctx.required_participants and ctx.required_participants <= acked:
+            return TransitionResult(new_phase="approved", ack_recorded=True)
+        return TransitionResult(new_phase="final_call", ack_recorded=True)
 
     def _eval_retraction(self, ctx: EvalContext, event: RetractionEvent) -> TransitionResult:
         if self.state != "final_call":
@@ -930,6 +935,8 @@ class ConsensusStateMachine:
     def _eval_arbiter_attachment(self, ctx: EvalContext, event: ArbiterAttachmentEvent) -> TransitionResult:
         if self.state not in ("approved", "rejected"):
             raise InvalidMutationError("Invalid phase")
+        if ctx.arbiter_attachment_recorded:
+            raise InvalidMutationError("Arbiter attachment already recorded")
         if event.dispatch != "SUCCEEDED":
             raise InvalidMutationError("Invalid dispatch")
         return TransitionResult(
@@ -949,7 +956,9 @@ class ConsensusStateMachine:
             raise InvalidMutationError("Invalid phase")
         if event.admin_proof == "invalid_token":
             raise InvalidMutationError("Invalid proof")
-        return TransitionResult(new_phase="approved")
+        if event.outcome not in ("approved", "rejected"):
+            raise InvalidMutationError("Invalid resolution outcome")
+        return TransitionResult(new_phase=event.outcome)
 
     def _eval_abandon(self, ctx: EvalContext, event: AbandonEvent) -> TransitionResult:
         if self.state in ("approved", "rejected", "abandoned", "resolved"):
@@ -1002,6 +1011,10 @@ class EvalContext:
     current_timestamp: float
     caller_identity: str
     frozen_authority_set: frozenset[str]
+    current_candidate: typing.Optional[typing.Any] = None
+    bound_ack_participants: frozenset[str] = dataclasses.field(default_factory=frozenset)
+    required_participants: frozenset[str] = dataclasses.field(default_factory=frozenset)
+    arbiter_attachment_recorded: bool = False
 
 @dataclasses.dataclass(frozen=True)
 class TransitionResult:
@@ -1016,6 +1029,7 @@ class TransitionResult:
     replacement_deadline_recorded: bool = False
     terminal_rejection: bool = False
     cosmetic_logged: bool = False
+    ack_recorded: bool = False
 
 @dataclasses.dataclass(frozen=True)
 class VoteEvent:
@@ -1069,6 +1083,7 @@ class ResolutionEvent:
 class ExceptionalResolutionEvent:
     admin_proof: str
     bypass_reason: str
+    outcome: str = "approved"
 
 @dataclasses.dataclass(frozen=True)
 class AbandonEvent:

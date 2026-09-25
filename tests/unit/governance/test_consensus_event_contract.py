@@ -1,3 +1,4 @@
+import dataclasses
 """TDD RED-state spec writing for B1 of the ratified consensus-engine-replacement design."""
 import pytest
 
@@ -151,7 +152,9 @@ def test_quorum_met_invalid_phase(base_context):
 def test_ack_completing(base_context):
     sm = ConsensusStateMachine(state="final_call")
     event = AckNackEvent(candidate_id="c1", actor="actor_1", proof="valid", nack_type=None)
-    result = sm.evaluate(base_context, event)
+    # ACK completes only when all required participants are acked (W1).
+    ctx = dataclasses.replace(base_context, required_participants=frozenset(["actor_1"]))
+    result = sm.evaluate(ctx, event)
     assert result.new_phase == "approved"
 
 def test_nack_qualifying_concern_holds_barrier(base_context):
