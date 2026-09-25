@@ -164,7 +164,7 @@ def test_health_service_error_fails_closed():
     gate = AuthorizationGate(None, FakeHealthPort({"actor1"}, error_actors={"actor1"}), spy)
     ctx = make_ctx("actor1", {"actor1"})
     event = VoteEvent(actor="actor1", choice="agree")
-    with pytest.raises(RuntimeError, match="health service error"):
+    with pytest.raises(AuthorizationError, match="health service error"):
         gate.authorize_and_evaluate(ctx, event, None, False)
     assert len(spy.calls) == 0
 
@@ -178,7 +178,7 @@ def test_final_call_revalidation_one_unhealthy():
 
 def test_final_call_revalidation_service_error_fails_closed():
     gate = AuthorizationGate(None, FakeHealthPort({"actor1", "actor2"}, error_actors={"actor2"}), SpyStateMachine())
-    with pytest.raises(RuntimeError, match="health service error"):
+    with pytest.raises(AuthorizationError, match="health service error"):
         gate.authorize_final_call_electorate(["actor1", "actor2"], 100)
         
 def test_returns_state_machine_result():
