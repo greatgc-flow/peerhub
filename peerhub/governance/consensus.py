@@ -835,6 +835,9 @@ class ConsensusStateMachine:
         self.deadline_extended = False
         self.revocation_record_created = False
 
+    def evaluate(self, ctx: EvalContext, event: ConsensusEvent) -> TransitionResult:
+        raise NotImplementedError("RED phase")
+
     def evaluate_final_call_transition(self) -> str:
         if self.mandatory_floors_hit or self.final_call_rule == "always":
             return "final_call"
@@ -872,3 +875,98 @@ class ConsensusStateMachine:
             self.revocation_record_created = True
         else:
             self.state = "final_call"
+
+import dataclasses
+import typing
+
+@dataclasses.dataclass(frozen=True)
+class EvalContext:
+    current_timestamp: float
+    caller_identity: str
+    frozen_authority_set: frozenset[str]
+
+@dataclasses.dataclass(frozen=True)
+class TransitionResult:
+    new_phase: str
+    dissent_obligation_added: bool = False
+    barrier_held: bool = False
+    evidence_recorded: bool = False
+    policy_reevaluation_triggered: bool = False
+    candidate_invalidated: bool = False
+    acks_dropped: bool = False
+    fresh_votes_required: bool = False
+    replacement_deadline_recorded: bool = False
+    terminal_rejection: bool = False
+    cosmetic_logged: bool = False
+
+@dataclasses.dataclass(frozen=True)
+class VoteEvent:
+    actor: str
+    choice: str
+    credential: str | None = None
+
+@dataclasses.dataclass(frozen=True)
+class CorrectionEvent:
+    actor: str
+    choice: str = "block"
+
+@dataclasses.dataclass(frozen=True)
+class TimeoutEvent:
+    requester: str
+    deadline: float
+
+@dataclasses.dataclass(frozen=True)
+class EscalationEvent:
+    source_phases: list[str]
+    replacement_deadline: float
+
+@dataclasses.dataclass(frozen=True)
+class QuorumMetEvent:
+    agreement_count: int
+
+@dataclasses.dataclass(frozen=True)
+class AckNackEvent:
+    candidate_id: str
+    actor: str
+    proof: str
+    nack_type: str | None = None
+
+@dataclasses.dataclass(frozen=True)
+class RetractionEvent:
+    candidate_id: str
+    actor: str
+    proof: str
+
+@dataclasses.dataclass(frozen=True)
+class ArbiterAttachmentEvent:
+    verdict: str
+    profile: str
+    dispatch: str
+
+@dataclasses.dataclass(frozen=True)
+class ResolutionEvent:
+    outcome: str
+
+@dataclasses.dataclass(frozen=True)
+class ExceptionalResolutionEvent:
+    admin_proof: str
+    bypass_reason: str
+
+@dataclasses.dataclass(frozen=True)
+class AbandonEvent:
+    reason: str
+    requesting_actor: str
+
+ConsensusEvent = typing.Union[
+    VoteEvent,
+    CorrectionEvent,
+    TimeoutEvent,
+    EscalationEvent,
+    QuorumMetEvent,
+    AckNackEvent,
+    RetractionEvent,
+    ArbiterAttachmentEvent,
+    ResolutionEvent,
+    ExceptionalResolutionEvent,
+    AbandonEvent,
+]
