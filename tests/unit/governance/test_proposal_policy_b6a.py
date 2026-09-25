@@ -269,3 +269,25 @@ def test_b6a_build_approval_submission_binds_single_object():
     
     submission = build_approval_submission(approved_snapshot, effect_intent)
     assert isinstance(submission, ApprovalSubmission)
+
+
+def test_b6a_generic_materializer_claims_generic_kinds():
+    from peerhub.governance.proposal_policy import route_effect_kind
+    for kind in ("consensus.resolved", "consensus.abandoned", "consensus.noop"):
+        route_effect_kind(kind, "generic")
+
+
+def test_b6a_submission_rejects_missing_hash_on_both_sides():
+    from peerhub.governance.proposal_policy import build_approval_submission
+    with pytest.raises(ValueError):
+        build_approval_submission({}, {})
+
+
+def test_b6a_submission_binds_state_receipt_and_effect_together():
+    from peerhub.governance.proposal_policy import build_approval_submission
+    sub = build_approval_submission(
+        {"hash": "h1", "round_id": "r1"}, {"snapshot_hash": "h1", "kind": "k"}
+    )
+    assert sub.state_transition["to"] == "approved"
+    assert "r1" in sub.receipt_key and "h1" in sub.receipt_key
+    assert sub.effect_outbox_entry["kind"] == "k"

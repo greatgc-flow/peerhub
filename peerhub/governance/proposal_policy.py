@@ -60,20 +60,62 @@ def decide_proposal_disposition(inputs: ProposalInputs) -> ProposalDisposition:
     6. All required agree + independent agreement -> final_call when high_risk else approve
     7. Proposer-only self-finalization -> escalate
     """
-    raise NotImplementedError("RED phase")
+    if inputs.resolved_recovery:
+        return ProposalDisposition.APPROVED
+    if inputs.existing_escalation:
+        return ProposalDisposition.ESCALATED
+    if inputs.eligible_count < 2:
+        return ProposalDisposition.ESCALATED
+    if inputs.gate_closed_any_eligible:
+        return ProposalDisposition.HOLD
+    if inputs.eligible_dissent:
+        return ProposalDisposition.REJECTED
+    
+    if inputs.all_required_agree and inputs.independent_agreement:
+        if inputs.high_risk:
+            return ProposalDisposition.FINAL_CALL
+        return ProposalDisposition.APPROVED
+
+    if inputs.proposer_only:
+        return ProposalDisposition.ESCALATED
+    
+    return ProposalDisposition.HOLD
+
+
+GENERIC_EFFECT_KINDS = frozenset(
+    {"consensus.resolved", "consensus.abandoned", "consensus.noop"}
+)
 
 
 def route_effect_kind(effect_kind: str, materializer: str) -> None:
     """
     Route effect kind to the appropriate materializer.
-    Raises EffectRoutingError for unauthorized claims or unknown kinds.
+    Raises EffectRoutingError for unauthorized claims, unknown kinds or
+    unknown materializers (hold-and-error, fail closed).
     """
-    raise NotImplementedError("RED phase")
+    if effect_kind == RATIFIED_INVARIANT_EFFECT_KIND:
+        if materializer == "invariant":
+            return
+        raise EffectRoutingError(f"Materializer {materializer} cannot handle {effect_kind}", hold=True)
+    if effect_kind in GENERIC_EFFECT_KINDS and materializer == "generic":
+        return
+    raise EffectRoutingError(
+        f"Effect kind {effect_kind!r} cannot be claimed by materializer {materializer!r}", hold=True
+    )
 
 
 def build_approval_submission(approved_snapshot: Dict[str, Any], effect_intent: Dict[str, Any]) -> ApprovalSubmission:
     """
     Build a single atomic submission for an approved proposal.
-    Rejects if effect_intent's snapshot hash does not match the approved snapshot hash.
+    State transition, receipt key and effect outbox entry are bound in one
+    object so they commit together. Rejects a missing or mismatching hash.
     """
-    raise NotImplementedError("RED phase")
+    snapshot_hash = approved_snapshot.get("hash")
+    if not snapshot_hash or snapshot_hash != effect_intent.get("snapshot_hash"):
+        raise ValueError("snapshot hash mismatch")
+    round_id = approved_snapshot.get("round_id", "")
+    return ApprovalSubmission(
+        state_transition={"round_id": round_id, "to": "approved", "snapshot_hash": snapshot_hash},
+        receipt_key=f"approval:{round_id}:{snapshot_hash}",
+        effect_outbox_entry=dict(effect_intent),
+    )
