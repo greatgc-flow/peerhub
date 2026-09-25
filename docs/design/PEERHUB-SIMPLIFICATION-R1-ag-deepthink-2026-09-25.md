@@ -1,6 +1,6 @@
-# PEERHUB-SIMPLIFICATION-R5-ag-deepthink-2026-09-25
+# PEERHUB-SIMPLIFICATION-R6-ag-deepthink-2026-09-25
 
-**Status**: **PROPOSED** (Round 5)
+**Status**: **PROPOSED** (Round 6)
 **Guiding Principle**: "매우 단순함이 최선" (very simple is the best). Default to cutting functionality/ceremony unless load-bearing.
 
 This document proposes a comprehensive architecture and CLI simplification plan for `peerhub`. It evaluates findings from prior reviews against the current codebase and provides concrete KEEP/SIMPLIFY/DELETE verdicts, incorporating corrections and protecting actively ratified consensus/quarantine work.
@@ -9,23 +9,53 @@ This document proposes a comprehensive architecture and CLI simplification plan 
 
 ## 1. CLI Surface Simplification
 
-The `peerhub` CLI currently exposes exactly 30 root commands via `peerhub/cli/__init__.py` (4,974 lines / 236,007 bytes). The current `argparse` structure contains significant boilerplate but successfully powers all current workflows.
+The `peerhub` CLI currently exposes exactly 30 root commands via `peerhub/cli/__init__.py` and `peerhub/cli/commands/daily.py`. The current `argparse` structure contains significant boilerplate but successfully powers all current workflows.
 
-### 1.1 Findings & Verdicts
+### 1.1 Root Command Inventory (Exactly 30 Roots)
+
+The table below provides an explicit disposition for all 30 root commands.
+
+| Root Command | Verdict | Reason |
+|---|---|---|
+| `adapter` | **SIMPLIFY** | Move `adapter discover` to `peer discover`; consolidate adapter group. |
+| `alert` | **SIMPLIFY** | Inherently room-scoped. Move to `room alert` to enforce context. |
+| `artifact` | **KEEP** | GOVERNANCE root command for artifact records. Distinct from dispatch artifact MATERIALIZATION. |
+| `ask` | **KEEP** | Core load-bearing command for dispatching single prompts to peers. |
+| `backup` | **KEEP** | Out of scope for this round; required for workspace state preservation. |
+| `broadcast` | **KEEP** | Core load-bearing command for dispatching prompts to multiple peers. |
+| `broker` | **SIMPLIFY** | Exposes real effect data; move to `diag broker` under diagnostics. |
+| `config` | **KEEP** | Out of scope for this round; required for configuration inspection. |
+| `consensus` | **KEEP** | Core load-bearing command for managing active governance consensus rounds. |
+| `diag` | **KEEP** | Core diagnostic command; some subcommands already simplified. |
+| `directive` | **KEEP** | Core load-bearing governance command for managing directives. |
+| `duty` | **SIMPLIFY** | Nest under `room duty`. Preserve `duty sweep` cross-room semantics. |
+| `error` | **KEEP** | Operational-error tracking. Important for `REQUESTED` review producer workflow. |
+| `feedback` | **DELETE** | Remove entirely along with feedback journal subsystem. |
+| `gate` | **SIMPLIFY** | Predicate check (exit 0/1); consolidate under `health precheck` or retire shell contract. |
+| `health` | **KEEP** | Core command for managing peer health status and quarantine workflows. |
+| `leadership` | **KEEP** | Load-bearing command for managing the workspace-global leadership slot. |
+| `lease` | **KEEP** | Out of scope for this round; required for inspecting session leases. |
+| `lesson` | **KEEP** | Core load-bearing governance command for managing lessons. |
+| `lock` | **KEEP** | Load-bearing command for managing durable file locks. |
+| `node` | **KEEP** | Load-bearing command for managing the peer node registry. |
+| `peer` | **KEEP** | Core command for inspecting and recovering peer nodes. |
+| `role` | **KEEP** | Load-bearing command for managing durable workspace role assignments. |
+| `room` | **KEEP** | Core command for room operations. Subcommands `thread-new` and `unreact` are deleted. |
+| `routing` | **KEEP** | Out of scope for this round; required for discovering capability-fit leaders. |
+| `session` | **SIMPLIFY** | Nest under `room session` to align with room operations. |
+| `status` | **KEEP** | Core command for displaying workspace status. |
+| `statusline` | **DELETE** | No current hook consumer; removing formatter, registration, and docs. |
+| `task` | **KEEP** | Core load-bearing command for managing governed tasks. |
+| `workspace` | **KEEP** | Out of scope for this round; required for managing the peerhub workspace. |
+
+### 1.2 Subcommands & Framework Findings
 
 | Area / Command | Finding | Verdict | Reason |
 |---|---|---|---|
-| `cli/__init__.py` | Large manual `argparse` file. | **SIMPLIFY (Optional/Deferred)** | Continue extracting commands to distinct files (like `daily.py`) using `argparse`. A mandatory migration to `typer` is deferred until a concrete type-safety/reduction case justifies the framework swap. |
-| `duty` / `session` | Related to room operations. | **SIMPLIFY** | Nest under `room`: `peerhub room duty` and `peerhub room session`. **Must preserve** `duty sweep`'s cross-room semantics without imposing a mandatory `--room-id` filter. |
-| `gate` | Checks open/closed peer status. | **SIMPLIFY** | Consolidate under `health precheck` or explicitly retire the shell contract after checking callers. It is a predicate (exit 0/1), not just a status display. |
-| `adapter discover` | Grouped under root. | **SIMPLIFY** | Move to `peer adapter-discover` or `peer discover`. Ensure `cli/commands/setup.py`, README, and parser tests are updated. |
-| `broker` | Exposes unfinished-effect data. | **SIMPLIFY** | Move to `diag broker`. This is real effect data, not an obsolete class leak, so it should be visible under diagnostics. |
-| `alert` | Inherently room-scoped. | **SIMPLIFY** | Move to `room alert` to enforce context, preserving existing dispatch/audit behavior. |
-| `room thread-new` | Compatibility alias for `create-thread` with legacy semantics (slug/default-creator). | **DELETE** | Retire compatibility adapter entirely. It drops distinct legacy semantics rather than a literal alias. |
+| `cli/__init__.py` | Large manual `argparse` file. | **SIMPLIFY (Optional/Deferred)** | Continue extracting commands to distinct files (like `daily.py`). Typer migration is deferred. |
+| `room thread-new` | Compatibility alias for `create-thread`. | **DELETE** | Retire compatibility adapter entirely. |
 | `room unreact` | Redundant alias. | **DELETE** | `react --remove` already exists; only the `unreact` alias is removed. |
-| `statusline` | PeerHub command formatting. | **DELETE** | No current hook consumer of this PeerHub command was found. Remove formatter, registration, and docs together. **Note:** Must NOT delete the separate `_sys/ai/common/statusline/statusline-unified.sh` telemetry hook. |
-| `diag --live` | Replace `cls` with ANSI codes. | **DONE** | Item already implemented in `cli/commands/daily.py`. Removed from backlog. |
-| `workspace`, `config`, `backup`, `lease`, `routing` | Root commands out of scope for this simplification round. | **KEEP** | Genuinely out of scope for this round; retain as-is to ensure table is MECE for all 30 root commands. |
+| `diag --live` | Replace `cls` with ANSI codes. | **DONE** | Item already implemented in `cli/commands/daily.py`. |
 
 ---
 
@@ -62,7 +92,7 @@ The original architecture introduced distributed-systems patterns (CQRS, Event S
 
 To ensure this simplification does not undo real work committed during recent sessions, the following guardrails apply:
 
-1. **Consensus Replacement**: The implementation of `CONSENSUS-REPLACEMENT-R1-ag-deepthink-2026-09-25.md` (B1, B5, B6, B8 specs) is active. The consensus contracts require atomic approval/receipt/outbox commits, authority-version checks in the broker, public command-to-receipt binding, and arbiter evidence attachment. **Simplifications touching gateway authorization (Items 15/16) and Broker (Item 17) are sequenced strictly AFTER consensus completion.** *Acceptance Criterion:* Any gateway-bypass or broker-replacement work must explicitly demonstrate it preserves ALL B1-B8 contract semantics (commit/claim authority and freshness checks, pre-invocation revalidation, atomic approval/receipt/effect intent, command replay binding, exclusive effect recovery, cutover fencing). Waiting for a timing gate alone does not authorize removing these semantics; they must be verified as preserved.
+1. **Consensus Replacement**: The implementation of `CONSENSUS-REPLACEMENT-R1-ag-deepthink-2026-09-25.md` (B1, B5, B6, B8 specs) is active. The consensus contracts require atomic approval/receipt/outbox commits, authority-version checks in the broker, public command-to-receipt binding, and arbiter evidence attachment. **Code-extraction simplifications touching gateway authorization (Items 16/16a) and Broker (Item 17) are sequenced strictly AFTER consensus completion; the read-only inventory items 15/15a are explicitly exempt and may proceed now.** *Acceptance Criterion:* Any gateway-bypass or broker-replacement work must explicitly demonstrate it preserves ALL B1-B8 contract semantics (commit/claim authority and freshness checks, pre-invocation revalidation, atomic approval/receipt/effect intent, command replay binding, exclusive effect recovery, cutover fencing). Waiting for a timing gate alone does not authorize removing these semantics; they must be verified as preserved.
 2. **Quarantine Escalate Pipeline**: `OperationalErrorService` produces `REQUESTED` reviews that `QuarantineReviewCoordinator` consumes. This exact pipeline was just fixed. Simplifications to error tracking must preserve the producer/consumer relationship and the creation of review identities.
 
 ---
@@ -85,7 +115,7 @@ The work breakdown separates technical dependencies (must happen before) from sc
 | 07 | Move `broker` to `diag broker`. | `cli/__init__.py` | None |
 | 08 | Remove `room unreact` redundant alias. | `cli/__init__.py` | None |
 | 09 | Extract modules using `argparse`. *Typer migration is deferred.* | `cli/__init__.py`, `cli/*.py` | None |
-| 09a | Explicitly retain `workspace`, `config`, `backup`, `lease`, `routing`. | CLI root | None |
+| 09a | Explicitly retain all other 22 root commands as KEEP (workspace, status, config, backup, diag, broadcast, health, peer, lease, ask, consensus, task, lesson, directive, node, lock, artifact, role, routing, leadership, error, room). | CLI root | None |
 
 ### 5.2 Domain & Architecture Simplification
 *Scheduling Preference: Staged (Medium/High Risk)*
