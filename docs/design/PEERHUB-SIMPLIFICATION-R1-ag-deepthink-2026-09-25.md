@@ -1,6 +1,6 @@
 # PEERHUB-SIMPLIFICATION-R6-ag-deepthink-2026-09-25
 
-**Status**: **PROPOSED** (Round 6)
+**Status**: **RATIFIED** (2026-09-26, by cx.astra, Round 8 -- verified 30/30 root commands against the live parser; 22 KEEP / 6 SIMPLIFY / 2 DELETE; items 15/15a may proceed now, 16/16a/17 wait for consensus-replacement completion)
 **Guiding Principle**: "매우 단순함이 최선" (very simple is the best). Default to cutting functionality/ceremony unless load-bearing.
 
 This document proposes a comprehensive architecture and CLI simplification plan for `peerhub`. It evaluates findings from prior reviews against the current codebase and provides concrete KEEP/SIMPLIFY/DELETE verdicts, incorporating corrections and protecting actively ratified consensus/quarantine work.
