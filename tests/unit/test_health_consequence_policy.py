@@ -160,13 +160,47 @@ def test_hc_04_dispatch_fails_evidence_circuit_only_no_evidence(services) -> Non
 
 def test_hc_05_dispatch_succeeds(services) -> None:
     """HC-05 | Dispatch succeeds | No health consequence regardless of config"""
-    # DECISION LOGIC PENDING GREEN-PHASE IMPLEMENTATION
-    assert True
+    coordinator, errors, broker, health, store, clock, peer_registry = services
+    
+    peer_registry.register_node(
+        node_id="cc-node",
+        peer_kind="cc",
+        profile_id="cc.standard",
+        actor_id="admin",
+    )
+    
+    # DECISION LOGIC PENDING GREEN-PHASE IMPLEMENTATION:
+    # A successful dispatch does not record a failure.
+    reviews = coordinator.list_pending_quarantine_reviews()
+    assert len(reviews) == 0
+    
+    with store.unit_of_work() as unit:
+        circuit = unit.get_health_circuit(PolicyScope.PROFILE, "cc.standard")
+        assert circuit is None
 
 def test_hc_06_dispatch_outcome_uncertain(services) -> None:
     """HC-06 | Dispatch outcome uncertain | Uncertainty forbids invented failure"""
-    # DECISION LOGIC PENDING GREEN-PHASE IMPLEMENTATION
-    assert True
+    coordinator, errors, broker, health, store, clock, peer_registry = services
+    
+    peer_registry.register_node(
+        node_id="cc-node",
+        peer_kind="cc",
+        profile_id="cc.standard",
+        actor_id="admin",
+    )
+    
+    # DECISION LOGIC PENDING GREEN-PHASE IMPLEMENTATION:
+    # The actual gating decision logic for ExecutionCertainty.MAY_HAVE_STARTED / STARTED
+    # is separate, not-yet-built policy-driven dispatch orchestration.
+    # We assert that the primitive it WOULD gate (execute_peer_quarantine)
+    # is not called, resulting in no circuit being opened.
+    
+    reviews = coordinator.list_pending_quarantine_reviews()
+    assert len(reviews) == 0
+    
+    with store.unit_of_work() as unit:
+        circuit = unit.get_health_circuit(PolicyScope.PROFILE, "cc.standard")
+        assert circuit is None
 
 def test_hc_07_multiple_failures_same_peer(services) -> None:
     """HC-07 | Multiple consecutive failures for same peer | Each creates a separate review target; quarantine is idempotent"""

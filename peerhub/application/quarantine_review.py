@@ -21,7 +21,8 @@ from peerhub.governance.contract import (
     resolve_local_os_write_provenance,
     TargetState,
 )
-from peerhub.health.contract import PolicyScope
+from peerhub.health.contract import PolicyReceipt, PolicyScope, QuarantineAuthorityClass
+from peerhub.health.model import dominates
 from peerhub.health.service import HealthService
 
 
@@ -110,8 +111,10 @@ class QuarantineReviewCoordinator:
         if current is None:
             raise RecordNotFoundError("quarantine-review", normalized_review_id)
 
-        if current.state.get("status") in ("DISMISSED", "ESCALATED"):
-            raise InvalidMutationError(f"quarantine-review target is already {current.state.get('status')}")
+        if current.state.get("status") in ("DISMISSED", "ESCALATED", "PENDING_ESCALATE"):
+            raise InvalidMutationError(
+                f"quarantine-review target is already {current.state.get('status')}"
+            )
 
         now = self._clock.now()
         desired_state: dict[str, JsonValue] = dict(current.state)
@@ -144,15 +147,19 @@ class QuarantineReviewCoordinator:
                 desired_state=desired_state,
             )
 
-            receipt = self._health.open_manual_quarantine(
-                PolicyScope.PROFILE,
-                profile_id,
-                reason=normalized_reason,
-                actor_id=authenticated.principal_id,
-                requested_at=now,
-            )
+            existing = self._health.get_circuit(PolicyScope.PROFILE, profile_id)
+            if existing is not None and dominates(existing.quarantine_authority_class, QuarantineAuthorityClass.MANUAL):
+                circuit = existing
+            else:
+                circuit = self._health.open_manual_quarantine(
+                    PolicyScope.PROFILE,
+                    profile_id,
+                    reason=normalized_reason,
+                    actor_id=authenticated.principal_id,
+                    requested_at=now,
+                )
 
-            return self.reconcile_quarantine_review(normalized_review_id, receipt=receipt)
+            return self.reconcile_quarantine_review(normalized_review_id, receipt=circuit.receipt)
 
         desired_state["status"] = "DISMISSED"
         return self._submit(
@@ -166,7 +173,7 @@ class QuarantineReviewCoordinator:
     def reconcile_quarantine_review(
         self,
         review_id: str,
-        receipt: object = None,
+        receipt: PolicyReceipt | None = None,
     ) -> MutationSubmission:
         normalized_review_id = require_text(review_id, "review_id")
         target_id = f"quarantine-review:{normalized_review_id}"
@@ -182,6 +189,13 @@ class QuarantineReviewCoordinator:
         desired_state = dict(current.state)
         desired_state["status"] = "ESCALATED"
         desired_state["updated_at"] = now
+        if receipt is not None:
+            desired_state["quarantine_receipt"] = {
+                "incident": receipt.incident,
+                "gate_generation": receipt.gate_generation,
+                "timestamp": receipt.timestamp,
+                "fingerprint": receipt.fingerprint,
+            }
         
         return self._submit(
             target_id=current.target_id,
@@ -196,6 +210,31 @@ class QuarantineReviewCoordinator:
             if target.state.get("status") == "PENDING_ESCALATE":
                 review_id = target.state.get("review_id")
                 if isinstance(review_id, str):
-                    self.reconcile_quarantine_review(review_id)
+                    peer_key = target.state.get("peer_key")
+                    if not isinstance(peer_key, str) or not peer_key:
+                        continue
+                    
+                    try:
+                        peer_node = self._peer_registry.get_node(peer_key)
+                    except RecordNotFoundError:
+                        continue
+                        
+                    profile_id = peer_node.state.get("profile_id")
+                    if not isinstance(profile_id, str) or not profile_id:
+                        continue
+                        
+                    existing = self._health.get_circuit(PolicyScope.PROFILE, profile_id)
+                    if existing is not None and dominates(existing.quarantine_authority_class, QuarantineAuthorityClass.MANUAL):
+                        circuit = existing
+                    else:
+                        circuit = self._health.open_manual_quarantine(
+                            PolicyScope.PROFILE,
+                            profile_id,
+                            reason=target.state.get("reason", "resumed-escalation"),
+                            actor_id=target.state.get("resolved_by", "system"),
+                            requested_at=self._clock.now(),
+                        )
+                        
+                    self.reconcile_quarantine_review(review_id, receipt=circuit.receipt)
 
 

@@ -1,3 +1,4 @@
+import copy
 import os
 import time
 import tomllib
@@ -73,6 +74,15 @@ class PolicyResolver:
         merged = _merge_dicts(merged, workspace_cfg)
         if cli_overrides:
             merged = _merge_dicts(merged, cli_overrides)
+
+        # Each resolved DispatchPolicy must be fully independent of every
+        # other one this resolver ever returns -- _merge_dicts only does a
+        # shallow per-layer merge, so nested containers (e.g.
+        # routing.preference_map's lists) would otherwise still be the same
+        # objects shared from self.default_config across every call,
+        # breaking the "immutable for the action's lifetime" contract the
+        # moment a caller mutates one resolved policy's nested value.
+        merged = copy.deepcopy(merged)
 
         # Build individual policies with validation
         consultation = merged.get("consultation", {})

@@ -265,3 +265,36 @@ def test_qr_e_12_crash_after_application_before_reconcile(services) -> None:
     """QR-E-12 | Crash after application, before review reconciliation | Restart uses existing application receipt."""
     coordinator, errors, broker, health, store, clock, peer_registry = services
     coordinator.resume_pending_reviews()
+
+def test_qr_e_13_escalate_preserves_security_authority(services) -> None:
+    """QR-E-13 | ESCALATE valid review, peer already restricted by SECURITY | Must not downgrade to MANUAL."""
+    from peerhub.health.contract import QuarantineAuthorityClass
+    
+    coordinator, errors, broker, health, store, clock, peer_registry = services
+    review_id = _seed_review(errors, broker, peer_registry)
+    _seed_projection(store, health, availability=AvailabilityState.HEALTHY, admission=AdmissionState.OPEN, updated_at=clock.now())
+    
+    health.open_manual_quarantine(
+        PolicyScope.PROFILE, 
+        "cc.standard", 
+        reason="security restriction", 
+        actor_id="security-admin", 
+        requested_at=clock.now(),
+        authority_class=QuarantineAuthorityClass.SECURITY
+    )
+    
+    submission = coordinator.resolve_quarantine_review(
+        review_id,
+        decision="ESCALATE",
+        actor=AuthenticatedSubject("admin-1", "test"),
+        reason="escalate restricted peer",
+    )
+    
+    with store.unit_of_work() as unit:
+        circuit = unit.get_health_circuit(PolicyScope.PROFILE, "cc.standard")
+        assert circuit is not None
+        assert circuit.quarantine_authority_class == QuarantineAuthorityClass.SECURITY
+
+    target = broker.get_target(submission.receipt.target_id)
+    assert target is not None
+    assert target.state.get("status") == "ESCALATED"
