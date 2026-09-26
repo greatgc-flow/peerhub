@@ -212,3 +212,18 @@ def test_acks_bound_to_a_different_candidate_hash_do_not_count(test_env):
     ))
     shell.final_call_ack("round-stalecand", "peer-2")
     assert broker.get_target("round-stalecand").state["phase"] == "final_call"
+
+
+def test_propose_v2_state_is_listable_as_consensus_round_with_provenance(test_env):
+    shell, broker, _, _ = test_env
+    shell.propose_v2(
+        round_id="round-list", title="T", question="Q", body="B", proposer_id="peer-1",
+        required_participants=["peer-1", "peer-2"], eligible_participants=["peer-1", "peer-2"],
+        risk="normal", source_hash="sha256:x",
+        config={"formula": "max(2, N)", "required_votes": 2, "final_call_rule": "never",
+                "deadlines": {}, "escalation_paths": []},
+    )
+    state = broker.get_target("round-list").state
+    assert state["kind"] == "consensus-round" and state["round_id"] == "round-list"
+    assert (state["origin"], state["action"]) == ("direct", "consensus.round.propose")
+    assert "round-list" in [t.target_id for t in broker.list_targets("consensus-round", None)]

@@ -106,6 +106,10 @@ class ConsensusShell:
         
         state = {
             "schema": "peerhub.consensus-round.v2",
+            "kind": "consensus-round",
+            "round_id": round_id,
+            "origin": prov_origin,
+            "action": prov_action,
             "phase": "voting",
             "policy_snapshot": dataclasses.asdict(policy_snapshot),
             "participants": list(eligible_participants),

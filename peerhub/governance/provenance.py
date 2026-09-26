@@ -1,6 +1,7 @@
 """Provenance and V2 schema adapter for governance records."""
 
-import copy
+from collections.abc import Mapping
+import re
 from typing import Any, Optional, Tuple, Set
 from dataclasses import dataclass
 
@@ -24,6 +25,37 @@ def action_name(origin: str, action: str) -> str:
     """Builds the policy resolver key deterministically."""
     return f"{origin}:{action}"
 
+_V1_SCHEMA_SUFFIX = re.compile(r"\.v1$")
+_SCHEMA_VERSION = re.compile(r"\.v(\d+)$")
+
+
+def _schema_version(record: dict[str, Any]) -> Any:
+    """Numeric ``schema_version`` if present, else the ``.vN`` suffix of ``schema``.
+
+    Real persisted consensus rounds carry a schema string such as
+    ``peerhub.consensus-round.v1``; synthetic records may carry a number.
+    """
+    if "schema_version" in record:
+        return record["schema_version"]
+    schema = record.get("schema")
+    if isinstance(schema, str):
+        match = _SCHEMA_VERSION.search(schema)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _thaw(value: Any) -> Any:
+    """Deep, mutable copy of persisted state (broker state holds frozen mappings)."""
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return tuple(_thaw(item) for item in value)
+    if isinstance(value, list):
+        return [_thaw(item) for item in value]
+    return value
+
+
 def upcast_v1_round(record: dict[str, Any], evidence_map: dict[str, Any]) -> UpcastResult:
     """Upcast a V1 record to V2 in memory (pure; input is never mutated).
 
@@ -31,11 +63,11 @@ def upcast_v1_round(record: dict[str, Any], evidence_map: dict[str, Any]) -> Upc
     ``evidence_map`` resolves it. Without one the record is returned
     unchanged (still V1) with status ``ambiguity_hold``.
     """
-    schema_version = record.get("schema_version")
+    schema_version = _schema_version(record)
     if schema_version not in (1, 2):
         raise SchemaError(f"Unknown schema_version: {schema_version}")
 
-    new_record = copy.deepcopy(record)
+    new_record = _thaw(record)
     if schema_version == 2:
         if not new_record.get("origin") or not new_record.get("action"):
             raise SchemaError("Inconsistent V2 record: missing origin/action")
@@ -45,7 +77,10 @@ def upcast_v1_round(record: dict[str, Any], evidence_map: dict[str, Any]) -> Upc
     if not evidence or not evidence.get("origin") or not evidence.get("action"):
         return UpcastResult(status="ambiguity_hold", record=new_record)
 
-    new_record["schema_version"] = 2
+    if "schema_version" in new_record:
+        new_record["schema_version"] = 2
+    if isinstance(new_record.get("schema"), str):
+        new_record["schema"] = _V1_SCHEMA_SUFFIX.sub(".v2", new_record["schema"])
     new_record["origin"] = evidence["origin"]
     new_record["action"] = evidence["action"]
     return UpcastResult(status="upcasted", record=new_record)
