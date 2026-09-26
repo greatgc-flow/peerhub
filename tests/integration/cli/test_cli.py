@@ -257,7 +257,7 @@ def test_cli_read_rejects_old_schema_without_migrating(
     with sqlite3.connect(paths.database_path) as connection:
         assert connection.execute(
             "SELECT MAX(version) FROM schema_migrations"
-        ).fetchone() == (34,)
+        ).fetchone() == (35,)
 
     before = paths.database_path.read_bytes()
     exit_code = main(
@@ -279,13 +279,13 @@ def test_cli_read_rejects_old_schema_without_migrating(
     with sqlite3.connect(paths.database_path) as connection:
         assert connection.execute(
             "SELECT MAX(version) FROM schema_migrations"
-        ).fetchone() == (34,)
+        ).fetchone() == (35,)
 
     assert main(["workspace", "init", "--workspace", str(tmp_path)]) == 0
     with sqlite3.connect(paths.database_path) as connection:
         assert connection.execute(
             "SELECT MAX(version) FROM schema_migrations"
-        ).fetchone() == (35,)
+        ).fetchone() == (36,)
 
 def test_cli_config_paths_json_reports_every_family_and_source(
     tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch
