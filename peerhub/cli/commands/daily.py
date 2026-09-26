@@ -111,11 +111,98 @@ def register_ask_command(
         ask_parser,
         help="Path to the workspace root (default: current directory)",
     )
-    ask_parser.add_argument("-p", "--profile", default=None, help="Explicit profile ID")
+    ask_parser.add_argument("-p", "--profile", default=None, help="Explicit profile ID (a pin: never substituted)")
+    ask_parser.add_argument(
+        "--effort-hint", default=None,
+        help="Declared work shape (a key of routing.preference_map); a declaration, not a measurement",
+    )
+    ask_parser.add_argument(
+        "--effort-routing", default=None, choices=("off", "advisory", "opt-in"),
+        help="Override routing.effort_routing for this call (default from policy: advisory)",
+    )
     ask_parser.add_argument("--timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     add_json_arg(ask_parser, help="Emit JSON")
+
+
+def route_ask_profile(
+    parsed: argparse.Namespace, cli: ModuleType, workspace_root: Path, paths: Any
+) -> str | None:
+    """Apply the declared ``--effort-hint`` (R4 2.8); returns the profile id to dispatch with."""
+
+    hint = getattr(parsed, "effort_hint", None)
+    override = getattr(parsed, "effort_routing", None)
+    if hint is None and override is None:
+        return cast("str | None", parsed.profile)
+
+    from peerhub.adapters.registry import _CLI_ALIASES, resolve_peer_adapter  # pyright: ignore[reportPrivateUsage]
+    from peerhub.application.config_paths import (
+        resolve_global_config_home,
+        resolve_workspace_config_home,
+    )
+    from peerhub.application.effort_routing import EffortRoutingError, decide_profile
+    from peerhub.dispatch.policy_resolver import PolicyResolver
+    from peerhub.health.contract import AdmissionState, AvailabilityState
+
+    peer_key = str(parsed.peer).strip()
+    if peer_key not in _CLI_ALIASES:
+        return cast("str | None", parsed.profile)  # the ask path reports the unsupported peer itself
+    peer_kind = _CLI_ALIASES[peer_key]
+    resolver = PolicyResolver(
+        resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
+        resolve_global_config_home().path / "dispatch-policy.toml",
+    )
+    overrides = {"routing": {"effort_routing": override}} if override is not None else None
+    routing = resolver.resolve("ask", cli_overrides=overrides).routing
+    registered = {p.profile_id for p in resolve_peer_adapter(peer_kind).descriptor.profiles}
+
+    runtime_cm: Any = None
+    health: Any = None
+    if paths.database_path.exists():
+        try:
+            context = cli.RuntimeContext(
+                workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+                paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+            )
+            runtime_cm = cli.create_read_runtime(context, adapter_peer_kind="fake")
+            health = runtime_cm.__enter__().health_service
+        except Exception:  # health is a best-effort filter; dispatch admission stays authoritative
+            runtime_cm, health = None, None
+
+    def is_eligible(binding: str) -> bool:
+        if binding not in registered:
+            return False
+        if health is None:
+            return True
+        try:
+            projection = health.read_health_projection(peer_kind, binding)
+        except Exception:
+            return True
+        if projection is None:
+            return True
+        return (
+            projection.effective_admission_state is AdmissionState.OPEN
+            and projection.effective_availability_state is not AvailabilityState.UNAVAILABLE
+        )
+
+    try:
+        decision = decide_profile(
+            peer_kind=peer_kind,
+            explicit_profile=parsed.profile,
+            hint=hint,
+            mode=routing.effort_routing,
+            preference_map=routing.preference_map,
+            is_eligible=is_eligible,
+        )
+    except EffortRoutingError as error:
+        raise ValueError(str(error)) from error
+    finally:
+        if runtime_cm is not None:
+            runtime_cm.__exit__(None, None, None)
+    if decision.note:
+        print(f"peerhub ask: {decision.note}", file=cli.sys.stderr)
+    return decision.profile_id
 
 
 def run_ask(
@@ -150,12 +237,13 @@ def run_ask(
             return guard_code
         is_first_init = not paths.database_path.exists()
         prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
+        routed_profile = route_ask_profile(parsed, cli, workspace_root, paths)
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
             peer_name=parsed.peer,
             prompt=prompt_text,
             required_capability_tier=cli.CapabilityTier[parsed.capability_tier],
-            profile_id=parsed.profile,
+            profile_id=routed_profile,
             limits=cli.TransportLimits(
                 process_timeout_ms=parsed.timeout_seconds * 1000,
                 silence_timeout_ms=parsed.silence_timeout_seconds * 1000,

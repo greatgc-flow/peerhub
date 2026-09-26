@@ -1611,11 +1611,41 @@
             "choices": null,
             "default": null,
             "dest": "profile",
-            "help": "Explicit profile ID",
+            "help": "Explicit profile ID (a pin: never substituted)",
             "nargs": null,
             "option_strings": [
               "-p",
               "--profile"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "effort_hint",
+            "help": "Declared work shape (a key of routing.preference_map); a declaration, not a measurement",
+            "nargs": null,
+            "option_strings": [
+              "--effort-hint"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": [
+              "off",
+              "advisory",
+              "opt-in"
+            ],
+            "default": null,
+            "dest": "effort_routing",
+            "help": "Override routing.effort_routing for this call (default from policy: advisory)",
+            "nargs": null,
+            "option_strings": [
+              "--effort-routing"
             ],
             "required": false,
             "type": null
