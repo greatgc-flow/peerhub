@@ -87,7 +87,11 @@ from peerhub.application.commands.tasks import (
 )
 from peerhub.application.commands.consensus import (
     ArbiterReviewCommand,
+    ConsensusAckCommand,
+    ConsensusCorrectCommand,
+    ConsensusNackCommand,
     ConsensusProposeCommand,
+    ConsensusRetractCommand,
     ConsensusVoteCommand,
     ProposalAddCommand,
     ProposalVoteCommand,
@@ -750,6 +754,47 @@ def _run_consensus(parsed: argparse.Namespace) -> int:
                 else:
                     quorum = payload["quorum"]
                     print(f"Consensus vote recorded for {parsed.round_id} (phase={payload['phase']}, votes={quorum['counted_votes']}/{quorum['required_votes']}, quorum reached={quorum['reached']})")
+                return 0
+            if parsed.consensus_action in ("ack", "nack", "correct", "retract"):
+                # V2 Final Call ingress (no new root command): same gateway path as
+                # `vote`, credential threaded onto the envelope so the gateway
+                # verifies it before the shell's own AuthorizationGate runs.
+                actor_id = _require_actor_id(parsed.actor, parsed.credential_id)
+                submission = _cli_submission(
+                    context, actor_id=actor_id, request_kind=f"consensus-{parsed.consensus_action}"
+                )
+                if parsed.consensus_action == "ack":
+                    command: Any = ConsensusAckCommand(
+                        submission=submission, round_id=parsed.round_id, actor_id=actor_id,
+                        credential_id=parsed.credential_id,
+                    )
+                elif parsed.consensus_action == "nack":
+                    command = ConsensusNackCommand(
+                        submission=submission, round_id=parsed.round_id, actor_id=actor_id,
+                        nack_type=parsed.nack_type, credential_id=parsed.credential_id,
+                    )
+                elif parsed.consensus_action == "correct":
+                    command = ConsensusCorrectCommand(
+                        submission=submission, round_id=parsed.round_id, actor_id=actor_id,
+                        credential_id=parsed.credential_id,
+                    )
+                else:
+                    command = ConsensusRetractCommand(
+                        submission=submission, round_id=parsed.round_id, actor_id=actor_id,
+                        credential_id=parsed.credential_id,
+                    )
+                outcome = _submit_via_gateway(runtime, command, credential_id=parsed.credential_id)
+                if not outcome.ok:
+                    print(f"peerhub consensus: {outcome.error.message}", file=sys.stderr)  # pyright: ignore[reportAttributeAccessIssue, reportUnknownMemberType]
+                    return 2
+                target = runtime.governance_broker.get_target(parsed.round_id)
+                assert target is not None
+                state = cast(dict[str, Any], target.state)
+                payload = {"round_id": parsed.round_id, "phase": state["phase"], "action": parsed.consensus_action}
+                if parsed.json:
+                    print(json.dumps(_json_safe(payload)))
+                else:
+                    print(f"Consensus {parsed.consensus_action} recorded for {parsed.round_id} (phase={state['phase']})")
                 return 0
             if parsed.consensus_action == "list":
                 targets = runtime.governance_broker.list_targets(
@@ -3494,11 +3539,33 @@ def main(args: list[str] | None = None) -> int:
         action="store_true",
         help="Emit machine-readable JSON",
     )
-    for action in ("vote", "status"):
-        command_parser = consensus_subparsers.add_parser(action, help="Cast a vote" if action == "vote" else "Read a consensus round")
+    _round_action_help = {
+        "vote": "Cast a vote",
+        "status": "Read a consensus round",
+        "ack": "ACK the current Final Call candidate",
+        "nack": "NACK the current Final Call candidate",
+        "correct": "Correct a Final Call candidate (voids votes, ACKs and concerns)",
+        "retract": "Retract an ACK or revoke an approval",
+    }
+    for action in ("vote", "status", "ack", "nack", "correct", "retract"):
+        command_parser = consensus_subparsers.add_parser(action, help=_round_action_help[action])
         command_parser.add_argument("--workspace", default=None, help="Path to the workspace root")
         command_parser.add_argument("--round-id", required=True, help="Consensus round identifier")
         command_parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+        if action in ("ack", "nack", "correct", "retract"):
+            command_parser.add_argument(
+                "--actor", required=False, default=None,
+                help="Acting peer ID (omit when presenting a valid --credential-id instead)",
+            )
+            command_parser.add_argument(
+                "--credential-id", default=None,
+                help="D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            )
+            if action == "nack":
+                command_parser.add_argument(
+                    "--nack-type", default="block", choices=("block", "cosmetic", "terminal_rejection"),
+                    help="Kind of concern raised against the candidate",
+                )
         if action == "vote":
             command_parser.add_argument(
                 "--actor",

@@ -7,8 +7,12 @@ from typing import Any, cast
 
 from peerhub.application.arbiter_review import ArbiterReviewCoordinator
 from peerhub.application.commands.consensus import (
+    ConsensusAckCommand,
     ConsensusCheckCommand,
+    ConsensusCorrectCommand,
+    ConsensusNackCommand,
     ConsensusProposeCommand,
+    ConsensusRetractCommand,
     ConsensusSweepCommand,
     ConsensusVoteCommand,
 )
@@ -129,6 +133,7 @@ def register_consensus_handlers(
             actor_id=command.actor_id,
             choice=command.choice,
             credential_id=command.credential_id,
+            idempotency_key=command.submission.idempotency_key,
         ),
         receipt,
         available,
@@ -168,9 +173,84 @@ def register_consensus_handlers(
             command.round_id,
             command.reason,
             command.expected_revision,
+            idempotency_key=command.submission.idempotency_key,
         ),
         receipt,
         available,
+    ))
+
+    def _decode_revision(params: Mapping[str, Any]) -> int | None:
+        revision = params.get("expected_revision")
+        if revision is not None and (
+            not isinstance(revision, int) or isinstance(revision, bool)
+        ):
+            raise ValueError("expected_revision must be an integer or null")
+        return revision
+
+    def decode_ack(envelope: CommandEnvelope) -> ConsensusAckCommand:
+        params = envelope.params
+        return ConsensusAckCommand(
+            submission(envelope), str(params["round_id"]), str(params["actor_id"]),
+            _decode_revision(params), credential_id=envelope.credential_id,
+        )
+
+    def decode_nack(envelope: CommandEnvelope) -> ConsensusNackCommand:
+        params = envelope.params
+        return ConsensusNackCommand(
+            submission(envelope), str(params["round_id"]), str(params["actor_id"]),
+            str(params.get("nack_type", "block")), _decode_revision(params),
+            credential_id=envelope.credential_id,
+        )
+
+    def decode_correct(envelope: CommandEnvelope) -> ConsensusCorrectCommand:
+        params = envelope.params
+        return ConsensusCorrectCommand(
+            submission(envelope), str(params["round_id"]), str(params["actor_id"]),
+            _decode_revision(params), credential_id=envelope.credential_id,
+        )
+
+    def decode_retract(envelope: CommandEnvelope) -> ConsensusRetractCommand:
+        params = envelope.params
+        return ConsensusRetractCommand(
+            submission(envelope), str(params["round_id"]), str(params["actor_id"]),
+            _decode_revision(params), credential_id=envelope.credential_id,
+        )
+
+    register(descriptor(
+        "consensus.final_call.ack", mutating, any_scope, domain_atomic_required, decode_ack,
+        lambda command, _: service.final_call_ack(
+            command.round_id, actor_id=command.actor_id, ack=True,
+            expected_revision=command.expected_revision, credential_id=command.credential_id,
+            idempotency_key=command.submission.idempotency_key,
+        ),
+        receipt, available,
+    ))
+    register(descriptor(
+        "consensus.final_call.nack", mutating, any_scope, domain_atomic_required, decode_nack,
+        lambda command, _: service.final_call_ack(
+            command.round_id, actor_id=command.actor_id, ack=False,
+            expected_revision=command.expected_revision, credential_id=command.credential_id,
+            idempotency_key=command.submission.idempotency_key, nack_type=command.nack_type,
+        ),
+        receipt, available,
+    ))
+    register(descriptor(
+        "consensus.round.correct", mutating, any_scope, domain_atomic_required, decode_correct,
+        lambda command, _: service.correction(
+            command.round_id, actor_id=command.actor_id,
+            expected_revision=command.expected_revision, credential_id=command.credential_id,
+            idempotency_key=command.submission.idempotency_key,
+        ),
+        receipt, available,
+    ))
+    register(descriptor(
+        "consensus.round.retract", mutating, any_scope, domain_atomic_required, decode_retract,
+        lambda command, _: service.retraction(
+            command.round_id, actor_id=command.actor_id,
+            expected_revision=command.expected_revision, credential_id=command.credential_id,
+            idempotency_key=command.submission.idempotency_key,
+        ),
+        receipt, available,
     ))
 
     if broker is not None:

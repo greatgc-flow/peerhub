@@ -70,6 +70,100 @@ class ConsensusVoteCommand(Command[Any]):
 
 
 @dataclass(frozen=True, slots=True)
+class ConsensusAckCommand(Command[Any]):
+    """ACK the current Final Call candidate."""
+
+    method: ClassVar[str] = "consensus.final_call.ack"
+    submission: SubmissionMetadata
+    round_id: str
+    actor_id: str
+    expected_revision: int | None = None
+    credential_id: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "round_id": self.round_id,
+            "actor_id": self.actor_id,
+            "expected_revision": self.expected_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ConsensusNackCommand(Command[Any]):
+    """NACK the current Final Call candidate (block | cosmetic | terminal_rejection)."""
+
+    method: ClassVar[str] = "consensus.final_call.nack"
+    submission: SubmissionMetadata
+    round_id: str
+    actor_id: str
+    nack_type: str = "block"
+    expected_revision: int | None = None
+    credential_id: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "round_id": self.round_id,
+            "actor_id": self.actor_id,
+            "nack_type": self.nack_type,
+            "expected_revision": self.expected_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ConsensusCorrectCommand(Command[Any]):
+    """Correct a Final Call candidate: every vote/ACK/concern is voided."""
+
+    method: ClassVar[str] = "consensus.round.correct"
+    submission: SubmissionMetadata
+    round_id: str
+    actor_id: str
+    expected_revision: int | None = None
+    credential_id: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "round_id": self.round_id,
+            "actor_id": self.actor_id,
+            "expected_revision": self.expected_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
+class ConsensusRetractCommand(Command[Any]):
+    """Retract an ACK (pre-authorization) or revoke an approval (post-authorization)."""
+
+    method: ClassVar[str] = "consensus.round.retract"
+    submission: SubmissionMetadata
+    round_id: str
+    actor_id: str
+    expected_revision: int | None = None
+    credential_id: str | None = None
+
+    def encode_params(self) -> Mapping[str, JsonValue]:
+        return {
+            "round_id": self.round_id,
+            "actor_id": self.actor_id,
+            "expected_revision": self.expected_revision,
+        }
+
+    @classmethod
+    def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
+        return value
+
+
+@dataclass(frozen=True, slots=True)
 class ConsensusCheckCommand(Command[Any]):
     method: ClassVar[str] = "consensus.round.read"
     submission: SubmissionMetadata

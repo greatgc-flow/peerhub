@@ -20,6 +20,7 @@ from .core.context import RuntimeContext
 from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
 from .application.consensus_facade import ConsensusFacade
+from .application.consensus_policy import ConsensusPolicyProvider
 from .application.health_gate_port import PeerHealthGatePort
 from .application.proposals import PROPOSAL_CREATE_ACTION, PROPOSAL_SYSTEM_PRINCIPALS, make_v2_ratified_effect_factory
 from .governance.consensus import ConsensusService
@@ -374,6 +375,9 @@ def _compose_runtime(
         consensus_service,
         consensus_shell,
         is_v2_active=state_store.is_consensus_v2_active,
+        policy_provider=ConsensusPolicyProvider.for_workspace(
+            context.paths.database_path.parent.parent
+        ),
     )
 
     arbiter_coordinator = ArbiterReviewCoordinator(

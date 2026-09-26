@@ -677,7 +677,7 @@ class ConsensusShell:
 
         def event_factory(state, state_hash):
             deadlines = (state.get("policy_snapshot") or {}).get("deadlines") or {}
-            window = deadlines.get(state.get("phase", "voting"))
+            window = deadlines.get(state.get("phase", "voting"), deadlines.get("voting"))
             deadline = None
             if window is not None:
                 deadline = int(state.get("created_at", 0)) + int(window)

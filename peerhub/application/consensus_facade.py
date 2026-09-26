@@ -18,6 +18,7 @@ from peerhub.governance.consensus_shell import ConsensusShell
 
 V2_SCHEMA = "peerhub.consensus-round.v2"
 PROPOSAL_ACTION = "governance.proposal.create"
+TIMEOUT_SWEEP_PRINCIPAL = "system:consensus-sweep"
 
 
 class UnsupportedV2Operation(InvalidMutationError):
@@ -31,10 +32,14 @@ class ConsensusFacade:
         shell: ConsensusShell,
         *,
         is_v2_active: Callable[[], bool],
+        policy_provider: Any,
     ) -> None:
         self._legacy = legacy
         self._shell = shell
         self._is_v2_active = is_v2_active
+        # ConsensusPolicyProvider (or any object with round_config(...)): the
+        # frozen round policy comes from resolved configuration, never literals.
+        self._policy_provider = policy_provider
 
     # -- reads / pure helpers -------------------------------------------------
     def get_target(self, round_id: str):
@@ -86,19 +91,10 @@ class ConsensusFacade:
                 eligible_participants=eligible_participants, risk=risk,
                 source_hash=source_hash, verified_required=verified_required,
             )
-        strict = action == PROPOSAL_ACTION  # proposals: unanimous of the electorate
-        required_votes = (
-            max(len(tuple(eligible_participants)), 2)  # fixed-count floor (design 7.2)
-            if strict
-            else self._legacy._quorum_required(len(tuple(required_participants)), risk)  # noqa: SLF001 (pure helper)
+        resolved_action = action or "consensus.round.propose"
+        config = self._policy_provider.round_config(
+            resolved_action, risk, len(tuple(required_participants)), len(tuple(eligible_participants))
         )
-        config = {
-            "formula": "unanimous" if strict else "max(2, f(N, risk))",
-            "required_votes": required_votes,
-            "final_call_rule": "never",
-            "deadlines": {},
-            "escalation_paths": ["human-tier-0"],
-        }
         return self._shell.propose_v2(
             round_id, title, question, body, proposer_id, required_participants,
             eligible_participants, risk, source_hash, config,
@@ -107,57 +103,105 @@ class ConsensusFacade:
 
     # -- routed mutations ---------------------------------------------------------
     def cast_vote(self, round_id: str, *, actor_id: str, choice: str, reason: str | None = None,
-                  expected_revision: int | None = None, credential_id: str | None = None):
+                  expected_revision: int | None = None, credential_id: str | None = None,
+                  idempotency_key: str | None = None):
         if self._is_v2_round(round_id):
             return self._shell.cast_vote(
-                round_id, actor_id, choice, expected_revision, credential_id, reason=reason
+                round_id, actor_id, choice, expected_revision, credential_id,
+                idempotency_key, reason=reason,
             )
         return self._legacy.cast_vote(round_id, actor_id=actor_id, choice=choice, reason=reason,
                                       expected_revision=expected_revision, credential_id=credential_id)
 
     def final_call_ack(self, round_id: str, *, actor_id: str, ack: bool,
-                       expected_revision: int | None = None, credential_id: str | None = None):
+                       expected_revision: int | None = None, credential_id: str | None = None,
+                       idempotency_key: str | None = None, nack_type: str = "block"):
         if self._is_v2_round(round_id):
             if ack:
-                return self._shell.final_call_ack(round_id, actor_id, expected_revision, credential_id)
-            return self._shell.final_call_nack(round_id, actor_id, "block", credential_id)
+                return self._shell.final_call_ack(
+                    round_id, actor_id, expected_revision, credential_id, idempotency_key
+                )
+            return self._shell.final_call_nack(
+                round_id, actor_id, nack_type, credential_id, idempotency_key,
+                expected_revision=expected_revision,
+            )
         return self._legacy.final_call_ack(round_id, actor_id=actor_id, ack=ack,
                                            expected_revision=expected_revision, credential_id=credential_id)
 
     def request_escalation(self, round_id: str, reason: str, requester_id: str, tier: int,
-                           required_authority: str, expected_revision: int | None = None):
+                           required_authority: str, expected_revision: int | None = None,
+                           credential_id: str | None = None, idempotency_key: str | None = None):
         if self._is_v2_round(round_id):
-            return self._shell.request_escalation(round_id, reason, requester_id, tier, required_authority)
+            return self._shell.request_escalation(
+                round_id, reason, requester_id, tier, required_authority,
+                idempotency_key=idempotency_key, credential_id=credential_id,
+                expected_revision=expected_revision,
+            )
         return self._legacy.request_escalation(round_id, reason, requester_id, tier,
                                                required_authority, expected_revision)
 
     def reject_on_dissent(self, round_id: str, *, rejected_by: str, basis: str,
-                          expected_revision: int | None = None):
+                          expected_revision: int | None = None, credential_id: str | None = None,
+                          idempotency_key: str | None = None):
         if self._is_v2_round(round_id):
-            return self._shell.reject_on_dissent(round_id, rejected_by, basis)
+            return self._shell.reject_on_dissent(
+                round_id, rejected_by, basis, idempotency_key=idempotency_key,
+                credential_id=credential_id, expected_revision=expected_revision,
+            )
         return self._legacy.reject_on_dissent(round_id, rejected_by=rejected_by, basis=basis,
                                               expected_revision=expected_revision)
 
     def resolve(self, round_id: str, outcome: str, resolved_by: str, basis: str,
-                expected_revision: int | None = None, effect_intent: Any = None):
+                expected_revision: int | None = None, effect_intent: Any = None,
+                credential_id: str | None = None, idempotency_key: str | None = None):
         if self._is_v2_round(round_id):
             if effect_intent is not None:
                 raise UnsupportedV2Operation(
                     "V2 rounds build their own approval effect; effect_intent must be None"
                 )
-            return self._shell.resolve(round_id, outcome, resolved_by, basis)
+            return self._shell.resolve(
+                round_id, outcome, resolved_by, basis, idempotency_key=idempotency_key,
+                credential_id=credential_id, expected_revision=expected_revision,
+            )
         return self._legacy.resolve(round_id, outcome, resolved_by, basis, expected_revision, effect_intent)
 
     def abandon(self, round_id: str, reason_code: str, reason: str, abandoned_by: str,
-                expected_revision: int | None = None):
+                expected_revision: int | None = None, credential_id: str | None = None,
+                idempotency_key: str | None = None):
         if self._is_v2_round(round_id):
-            return self._shell.abandon(round_id, abandoned_by)
+            return self._shell.abandon(
+                round_id, abandoned_by, idempotency_key=idempotency_key,
+                credential_id=credential_id, expected_revision=expected_revision,
+            )
         return self._legacy.abandon(round_id, reason_code, reason, abandoned_by, expected_revision)
 
-    def mark_timeout(self, round_id: str, reason: str, expected_revision: int | None = None):
+    def mark_timeout(self, round_id: str, reason: str, expected_revision: int | None = None,
+                     idempotency_key: str | None = None):
         if self._is_v2_round(round_id):
-            raise UnsupportedV2Operation("mark_timeout is not implemented for V2 rounds yet")
+            # Timeouts are system-driven (sweep); the sweep principal is allowlisted.
+            return self._shell.mark_timeout(
+                round_id, TIMEOUT_SWEEP_PRINCIPAL, idempotency_key=idempotency_key,
+                expected_revision=expected_revision,
+            )
         return self._legacy.mark_timeout(round_id, reason, expected_revision)
+
+    def correction(self, round_id: str, *, actor_id: str, expected_revision: int | None = None,
+                   credential_id: str | None = None, idempotency_key: str | None = None):
+        if self._is_v2_round(round_id):
+            return self._shell.correction(
+                round_id, actor_id, idempotency_key=idempotency_key,
+                credential_id=credential_id, expected_revision=expected_revision,
+            )
+        raise UnsupportedV2Operation("correction exists only for V2 rounds")
+
+    def retraction(self, round_id: str, *, actor_id: str, expected_revision: int | None = None,
+                   credential_id: str | None = None, idempotency_key: str | None = None):
+        if self._is_v2_round(round_id):
+            return self._shell.retraction(
+                round_id, actor_id, idempotency_key=idempotency_key,
+                credential_id=credential_id, expected_revision=expected_revision,
+            )
+        raise UnsupportedV2Operation("retraction exists only for V2 rounds")
 
     def record_arbiter_opinion(self, round_id: str, **kwargs: Any):
         if self._is_v2_round(round_id):

@@ -125,7 +125,7 @@ def load_proposal_voters(workspace_root: Path) -> tuple[str, ...]:
 PROPOSAL_CREATE_ACTION = "governance.proposal.create"
 # The only internal principals allowed to escalate/reject/time out V2 proposal rounds.
 PROPOSAL_SYSTEM_PRINCIPALS = frozenset(
-    {"system:proposal-recovery", "system:proposal-reconcile"}
+    {"system:proposal-recovery", "system:proposal-reconcile", "system:consensus-sweep"}
 )
 
 
