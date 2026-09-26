@@ -6,9 +6,9 @@ from peerhub.core.context import Clock, IdSource
 from peerhub.governance.authorization import HealthIdentityPort, CredentialVerifier, AuthorizationGate, AuthorizationError
 from peerhub.governance.authority_fence import AuthorityVersionStore, AuthorityFence, StaleAuthorityError
 from peerhub.governance.contract import build_mutation_request, EffectIntent
-from peerhub.core.errors import StaleRevisionError
+from peerhub.core.errors import StaleRevisionError, InvalidMutationError
 from peerhub.core.protocol import canonical_json_bytes
-from peerhub.governance.policy_snapshot import freeze_policy_snapshot
+from peerhub.governance.policy_snapshot import ConfigurationError, freeze_policy_snapshot
 from peerhub.governance.provenance import resolve_provenance
 from peerhub.governance.candidate import Candidate, AckLedger
 from peerhub.governance.consensus import ConsensusStateMachine, EvalContext, AckNackEvent
@@ -135,10 +135,13 @@ class ConsensusShell:
         )
         return self._broker.submit(req)
 
-    def final_call_ack(
+    def _process_event(
         self,
         round_id: str,
         actor_id: str,
+        operation: str,
+        event_factory,
+        state_updater,
         expected_revision: Optional[int] = None,
         credential_id: Optional[str] = None
     ) -> Any:
@@ -149,8 +152,13 @@ class ConsensusShell:
         state = dict(target.state)
         phase = state.get("phase", "voting")
         
-        # 1. AuthorizationGate
-        sm = ConsensusStateMachine(state=phase)
+        snapshot = state.get("policy_snapshot") or {}
+        final_call_rule = snapshot.get("final_call_rule")
+        mandatory_final_call = bool(snapshot.get("mandatory_final_call", False))
+        if final_call_rule == "always":
+            mandatory_final_call = True
+            
+        sm = ConsensusStateMachine(state=phase, final_call_rule=final_call_rule, mandatory_floors_hit=mandatory_final_call)
         gate = AuthorizationGate(
             verifier=self._verifier,
             health_port=self._health_port,
@@ -160,7 +168,6 @@ class ConsensusShell:
         frozen_auth_set = frozenset(state.get("frozen_authority_set", []))
         required_participants = frozenset(state.get("participants", []))
         
-        # Hydrate AckLedger
         ledger = AckLedger()
         ack_ledger_state = state.get("ack_ledger", {})
         state_hash = candidate_state_hash(state)
@@ -180,69 +187,84 @@ class ConsensusShell:
             required_participants=required_participants,
         )
         
-        event = AckNackEvent(
-            candidate_id=state_hash,
-            actor=actor_id,
-            proof=credential_id or "",
-            nack_type=None,
-        )
+        event = event_factory(state, state_hash)
         
-        res = gate.authorize_and_evaluate(
-            ctx=ctx,
-            event=event,
-            credential_id=credential_id,
-            verified_required=bool(state.get("verified_required", False)),
-        )
+        try:
+            res = gate.authorize_and_evaluate(
+                ctx=ctx,
+                event=event,
+                credential_id=credential_id,
+                verified_required=bool(state.get("verified_required", False)),
+            )
+        except AuthorizationError:
+            raise
+        except InvalidMutationError as e:
+            if operation == "retraction" and phase == "approved":
+                from peerhub.governance.consensus import TransitionResult
+                res = TransitionResult(new_phase="approved")
+            else:
+                raise
         
-        # 2. AuthorityFence check
         fence = AuthorityFence(self._authority_store)
         fence.check(expected_auth_ver)
-
         
-        if res.ack_recorded:
-            ledger.bind_ack(c, actor_id)
-            
         state["phase"] = res.new_phase
-        state["ack_ledger"] = {state_hash: list(ledger.acks_for(c))}
         
-        if res.new_phase == "approved":
-            approved_snapshot = {"round_id": round_id, "hash": state_hash}
-            effect_intent_dict = {
-                "snapshot_hash": state_hash,
-                "round_id": round_id,
-                "outcome": "approved",
-                "resolved_by": actor_id,
-                "final_call_complete": True,
-            }
-
-            sub = build_approval_submission(approved_snapshot, effect_intent_dict)
-            effect = EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
+        effect = state_updater(state, res, ctx, sm, ledger, c, fence)
+        if effect is None:
+            effect = EffectIntent(kind="consensus.noop", payload={})
             
-            req = build_mutation_request(
-                self._ids,
-                id_prefix="ack",
-                client_id="consensus_shell",
-                target_id=round_id,
-                expected_revision=target.revision if expected_revision is None else expected_revision,
-                actor_id=actor_id,
-                operation="final_call_ack",
-                desired_state=state,
-                effect_intent=effect
+        req = build_mutation_request(
+            self._ids,
+            id_prefix=operation[:3],
+            client_id="consensus_shell",
+            target_id=round_id,
+            expected_revision=target.revision if expected_revision is None else expected_revision,
+            actor_id=actor_id,
+            operation=operation,
+            desired_state=state,
+            effect_intent=effect
+        )
+        return self._broker.submit(req)
+
+    def final_call_ack(
+        self,
+        round_id: str,
+        actor_id: str,
+        expected_revision: Optional[int] = None,
+        credential_id: Optional[str] = None
+    ) -> Any:
+        from peerhub.governance.consensus import AckNackEvent
+        
+        def event_factory(state, state_hash):
+            return AckNackEvent(
+                candidate_id=state_hash,
+                actor=actor_id,
+                proof=credential_id or "",
+                nack_type=None,
             )
-            return self._broker.submit(req)
-        else:
-            req = build_mutation_request(
-                self._ids,
-                id_prefix="ack",
-                client_id="consensus_shell",
-                target_id=round_id,
-                expected_revision=target.revision if expected_revision is None else expected_revision,
-                actor_id=actor_id,
-                operation="final_call_ack",
-                desired_state=state,
-                effect_intent=EffectIntent(kind="consensus.noop", payload={})
-            )
-            return self._broker.submit(req)
+            
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            if res.ack_recorded:
+                ledger.bind_ack(c, actor_id)
+                
+            state["ack_ledger"] = {c.target_state_hash: list(ledger.acks_for(c))}
+            
+            if res.new_phase == "approved":
+                approved_snapshot = {"round_id": round_id, "hash": c.target_state_hash}
+                effect_intent_dict = {
+                    "snapshot_hash": c.target_state_hash,
+                    "round_id": round_id,
+                    "outcome": "approved",
+                    "resolved_by": actor_id,
+                    "final_call_complete": True,
+                }
+                sub = build_approval_submission(approved_snapshot, effect_intent_dict)
+                return EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
+
+        return self._process_event(
+            round_id, actor_id, "final_call_ack", event_factory, updater, expected_revision, credential_id
+        )
 
     def cast_vote(
         self,
@@ -252,16 +274,86 @@ class ConsensusShell:
         expected_revision: Optional[int] = None,
         credential_id: Optional[str] = None
     ) -> Any:
-        raise NotImplementedError("RED phase")
+        from peerhub.governance.consensus import VoteEvent, QuorumMetEvent
+        
+        def event_factory(state, state_hash):
+            return VoteEvent(actor=actor_id, choice=choice, credential=credential_id)
+            
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            votes = dict(state.get("votes", {}))
+            vote_record = {"choice": choice}
+            if res.dissent_obligation_added:
+                vote_record["dissent_obligation"] = True
+            votes[actor_id] = vote_record
+            state["votes"] = votes
+            
+            required_votes = (state.get("policy_snapshot") or {}).get("required_votes")
+            if type(required_votes) is not int or required_votes < 1:
+                raise ConfigurationError("policy snapshot has no valid required_votes")
+
+            agreements = sum(1 for v in votes.values() if v.get("choice") == "agree")
+            if agreements >= required_votes:
+                q_res = sm.evaluate(ctx, QuorumMetEvent(agreement_count=agreements))
+                state["phase"] = q_res.new_phase
+
+        return self._process_event(
+            round_id, actor_id, "cast_vote", event_factory, updater, expected_revision, credential_id
+        )
 
     def correction(self, round_id: str, actor_id: str) -> Any:
-        raise NotImplementedError("RED phase")
+        from peerhub.governance.consensus import CorrectionEvent
+        
+        def event_factory(state, state_hash):
+            return CorrectionEvent(actor=actor_id)
+            
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            if res.acks_dropped:
+                state["ack_ledger"] = {}
+
+        return self._process_event(
+            round_id, actor_id, "correction", event_factory, updater
+        )
 
     def retraction(self, round_id: str, actor_id: str) -> Any:
-        raise NotImplementedError("RED phase")
+        from peerhub.governance.consensus import RetractionEvent
+        
+        def event_factory(state, state_hash):
+            return RetractionEvent(candidate_id=state_hash, actor=actor_id, proof="")
+            
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            if state["phase"] == "approved":
+                fence.bump_for("revocation")
+                state["revocations"] = list(state.get("revocations", [])) + ["RevocationRecorded"]
+            elif res.acks_dropped:
+                state["ack_ledger"] = {}
+
+        return self._process_event(
+            round_id, actor_id, "retraction", event_factory, updater
+        )
 
     def mark_timeout(self, round_id: str, actor_id: str) -> Any:
-        raise NotImplementedError("RED phase")
+        from peerhub.governance.consensus import TimeoutEvent
+        
+        def event_factory(state, state_hash):
+            return TimeoutEvent(requester=actor_id, deadline=self._clock.now() + 1800)
+            
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            if res.evidence_recorded:
+                state["timeout_evidence"] = {"actor_id": actor_id, "recorded_at": self._clock.now()}
+
+        return self._process_event(
+            round_id, actor_id, "mark_timeout", event_factory, updater
+        )
 
     def abandon(self, round_id: str, actor_id: str) -> Any:
-        raise NotImplementedError("RED phase")
+        from peerhub.governance.consensus import AbandonEvent
+        
+        def event_factory(state, state_hash):
+            return AbandonEvent(reason="abandoned", requesting_actor=actor_id)
+            
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            pass
+
+        return self._process_event(
+            round_id, actor_id, "abandon", event_factory, updater
+        )

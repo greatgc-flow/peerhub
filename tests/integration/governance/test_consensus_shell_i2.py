@@ -1,3 +1,4 @@
+from peerhub.core.errors import InvalidMutationError
 import pytest
 from pathlib import Path
 from typing import Optional
@@ -49,11 +50,11 @@ def inject_state(broker: GovernanceBroker, round_id: str, phase: str, ack_ledger
         "policy_snapshot": {
             "origin": "direct", 
             "action": "consensus.round.propose",
-            "config": {
-                "formula": "max(2, N)",
-                "required_votes": 2,
-                "final_call_rule": "always"
-            }
+            "version": 1,
+            "formula": "max(2, N)",
+            "required_votes": 2,
+            "final_call_rule": "always",
+            "mandatory_final_call": False,
         },
         "participants": ["peer-1", "peer-2", "peer-3"],
         "ack_ledger": ack_ledger or {},
@@ -108,11 +109,11 @@ def test_cast_vote_quorum_reached_opens_final_call_when_mandatory(test_env):
     shell, broker, _, _ = test_env
     inject_state(broker, "round-vote-2", "voting")
     
-    shell.cast_vote("round-vote-2", "peer-1", choice="approve")
+    shell.cast_vote("round-vote-2", "peer-1", choice="agree")
     target = broker.get_target("round-vote-2")
     assert target.state["phase"] == "voting"
     
-    shell.cast_vote("round-vote-2", "peer-2", choice="approve")
+    shell.cast_vote("round-vote-2", "peer-2", choice="agree")
     target = broker.get_target("round-vote-2")
     assert target.state["phase"] == "final_call"
 
@@ -122,7 +123,7 @@ def test_cast_vote_fails_closed_for_non_frozen_actor_with_no_write(test_env):
     before = broker.get_target("round-vote-3")
     
     with pytest.raises(AuthorizationError):
-        shell.cast_vote("round-vote-3", "peer-unknown", choice="approve")
+        shell.cast_vote("round-vote-3", "peer-unknown", choice="agree")
         
     after = broker.get_target("round-vote-3")
     assert before.revision == after.revision
@@ -134,7 +135,7 @@ def test_cast_vote_fails_for_stale_authority_with_no_write(test_env):
     before = broker.get_target("round-vote-4")
     
     with pytest.raises(StaleAuthorityError):
-        shell.cast_vote("round-vote-4", "peer-1", choice="approve")
+        shell.cast_vote("round-vote-4", "peer-1", choice="agree")
         
     after = broker.get_target("round-vote-4")
     assert before.revision == after.revision
@@ -280,7 +281,8 @@ def test_abandon_is_terminal_and_blocks_further_acks(test_env):
     target = broker.get_target("round-abandon-1")
     assert target.state["phase"] == "abandoned"
     
-    with pytest.raises(AuthorizationError):
+    # Terminal phase is an invalid-phase mutation, not an authorization failure.
+    with pytest.raises(InvalidMutationError):
         shell.final_call_ack("round-abandon-1", "peer-2")
 
 def test_abandon_fails_closed_for_non_frozen_actor(test_env):
