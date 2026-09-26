@@ -616,9 +616,22 @@
             "default": null,
             "dest": "prompt",
             "help": "Prompt text to broadcast",
-            "nargs": null,
+            "nargs": "?",
             "option_strings": [],
-            "required": true,
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "query_file",
+            "help": "Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+            "nargs": null,
+            "option_strings": [
+              "--query-file"
+            ],
+            "required": false,
             "type": null
           },
           {
@@ -1542,9 +1555,22 @@
             "default": null,
             "dest": "prompt",
             "help": "Prompt text to send",
-            "nargs": null,
+            "nargs": "?",
             "option_strings": [],
-            "required": true,
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "query_file",
+            "help": "Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+            "nargs": null,
+            "option_strings": [
+              "--query-file"
+            ],
+            "required": false,
             "type": null
           },
           {

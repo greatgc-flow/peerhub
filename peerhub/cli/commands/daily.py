@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, cast
 
+from peerhub.application.ingress import InputContractError, resolve_prompt_input
 from peerhub.cli.context import resolve_workspace
 from peerhub.cli.parser import add_json_arg, add_workspace_arg, help_epilog_kwargs
 
@@ -64,7 +65,11 @@ def register_daily_commands(
             "  peerhub broadcast \"List one risk.\" --peers cx,ag --workspace ./peerhub-demo  ask several configured peers"
         ),
     )
-    broadcast_parser.add_argument("prompt", help="Prompt text to broadcast")
+    broadcast_parser.add_argument("prompt", nargs="?", default=None, help="Prompt text to broadcast")
+    broadcast_parser.add_argument(
+        "--query-file", default=None,
+        help="Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+    )
     broadcast_parser.add_argument(
         "--peers", default="ag,cx", help="Comma-separated list of peers (default: ag,cx)"
     )
@@ -93,7 +98,11 @@ def register_ask_command(
         ),
     )
     ask_parser.add_argument("peer", help="Peer name (ag/agy, cc/claude, cx/codex)")
-    ask_parser.add_argument("prompt", help="Prompt text to send")
+    ask_parser.add_argument("prompt", nargs="?", default=None, help="Prompt text to send")
+    ask_parser.add_argument(
+        "--query-file", default=None,
+        help="Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+    )
     ask_parser.add_argument(
         "-t", "--capability-tier", default="READ_ONLY", choices=capability_tier_names,
         help="Required downstream capability tier",
@@ -140,10 +149,11 @@ def run_ask(
         if guard_code is not None:
             return guard_code
         is_first_init = not paths.database_path.exists()
+        prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
             peer_name=parsed.peer,
-            prompt=parsed.prompt,
+            prompt=prompt_text,
             required_capability_tier=cli.CapabilityTier[parsed.capability_tier],
             profile_id=parsed.profile,
             limits=cli.TransportLimits(
@@ -447,6 +457,12 @@ def run_status(parsed: argparse.Namespace, cli: ModuleType) -> int:
 def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
 
+    try:
+        prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
+    except InputContractError as error:
+        print(f"peerhub broadcast: {error}", file=cli.sys.stderr)
+        return 2
+
     resolution = resolve_workspace(parsed.workspace)
     workspace_root = resolution.root
     paths = cli.PathLayout.for_workspace(workspace_root)
@@ -473,7 +489,7 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
         coordinator = BroadcastCoordinator(runtime=runtime, clock=context.clock, ids=context.ids)
         request = FanOutRequest(
             workspace_root=workspace_root,
-            prompt=parsed.prompt,
+            prompt=prompt_text,
             targets=targets,
             required_capability_tier=cli.CapabilityTier[parsed.capability_tier],
             limits=cli.TransportLimits(
