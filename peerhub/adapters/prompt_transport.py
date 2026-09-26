@@ -34,10 +34,12 @@ them.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from peerhub.adapters.contract import AdapterRequest
 
@@ -62,6 +64,38 @@ class CleanupDebtRecord:
 
 
 _DIGEST_SIDECAR_SUFFIX = ".digest"
+_OWNER_SIDECAR_SUFFIX = ".owner"
+
+
+def process_is_alive(pid: int) -> bool:
+    """Best-effort liveness of a process id (portable; a lookup failure means "alive")."""
+
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        # NEVER os.kill here: on Windows any signal other than CTRL_* terminates the process.
+        import ctypes
+
+        kernel32: Any = getattr(ctypes, "windll").kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return bool(kernel32.GetLastError() == 5)  # ERROR_ACCESS_DENIED => exists
+        try:
+            code = ctypes.c_ulong()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True
+            return bool(code.value == 259)  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
 
 
 def sweep_by_ownership(
@@ -216,9 +250,15 @@ def stage_prompt(
         ):
             raise OSError("staged prompt failed its UTF-8 digest round-trip")
         sidecar_path.write_text(digest, encoding="ascii")
+        # Managed ownership (R4 6.2): the sweep may only reclaim this scratch copy once the
+        # owning process is confirmed dead; age alone never authorizes deletion.
+        staged_path.with_name(staged_path.name + _OWNER_SIDECAR_SUFFIX).write_text(
+            json.dumps({"pid": os.getpid(), "request_id": request_id}), encoding="utf-8"
+        )
     except BaseException:
         staged_path.unlink(missing_ok=True)
         sidecar_path.unlink(missing_ok=True)
+        staged_path.with_name(staged_path.name + _OWNER_SIDECAR_SUFFIX).unlink(missing_ok=True)
         raise
 
     return StagedPrompt(
@@ -244,6 +284,7 @@ def remove_staged_prompt(reference: str) -> None:
     path = Path(reference)
     path.unlink(missing_ok=True)
     path.with_name(path.name + _DIGEST_SIDECAR_SUFFIX).unlink(missing_ok=True)
+    path.with_name(path.name + _OWNER_SIDECAR_SUFFIX).unlink(missing_ok=True)
 
 
 def sweep_stale_staged_prompts(root: Path, relative_dir: str, *, max_age_seconds: float) -> int:
@@ -255,8 +296,9 @@ def sweep_stale_staged_prompts(root: Path, relative_dir: str, *, max_age_seconds
     later dispatch, not a background daemon/thread (matching this
     codebase's existing one-shot-sweep idiom, e.g.
     ``LessonService.sweep_expired()``). Only files older than
-    ``max_age_seconds`` are removed, so a file from a dispatch that is
-    merely slow (not actually abandoned) is left alone. Returns the count
+    ``max_age_seconds`` are CANDIDATES; deletion additionally requires the recorded owner
+    process to be confirmed dead (R4 6.2: "age can select candidates, not authorize deletion").
+    Old-but-live and unknown-owner scratch (no ``.owner`` record) survive. Returns the count
     removed.
     """
 
@@ -272,10 +314,20 @@ def sweep_stale_staged_prompts(root: Path, relative_dir: str, *, max_age_seconds
             age = now - entry.stat().st_mtime
         except OSError:
             continue
-        if age >= max_age_seconds:
-            entry.unlink(missing_ok=True)
-            entry.with_name(entry.name + _DIGEST_SIDECAR_SUFFIX).unlink(missing_ok=True)
-            removed += 1
+        if age < max_age_seconds:
+            continue
+        owner_path = entry.with_name(entry.name + _OWNER_SIDECAR_SUFFIX)
+        try:
+            owner = json.loads(owner_path.read_text(encoding="utf-8"))
+            owner_pid = owner["pid"]
+        except (OSError, ValueError, KeyError, TypeError):
+            continue  # unknown consumer: never delete on age alone
+        if type(owner_pid) is not int or process_is_alive(owner_pid):
+            continue  # consumer may still be using it
+        entry.unlink(missing_ok=True)
+        entry.with_name(entry.name + _DIGEST_SIDECAR_SUFFIX).unlink(missing_ok=True)
+        owner_path.unlink(missing_ok=True)
+        removed += 1
     return removed
 
 
