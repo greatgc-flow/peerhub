@@ -243,3 +243,25 @@ class ConsensusShell:
                 effect_intent=EffectIntent(kind="consensus.noop", payload={})
             )
             return self._broker.submit(req)
+
+    def cast_vote(
+        self,
+        round_id: str,
+        actor_id: str,
+        choice: str,
+        expected_revision: Optional[int] = None,
+        credential_id: Optional[str] = None
+    ) -> Any:
+        raise NotImplementedError("RED phase")
+
+    def correction(self, round_id: str, actor_id: str) -> Any:
+        raise NotImplementedError("RED phase")
+
+    def retraction(self, round_id: str, actor_id: str) -> Any:
+        raise NotImplementedError("RED phase")
+
+    def mark_timeout(self, round_id: str, actor_id: str) -> Any:
+        raise NotImplementedError("RED phase")
+
+    def abandon(self, round_id: str, actor_id: str) -> Any:
+        raise NotImplementedError("RED phase")
