@@ -68,7 +68,7 @@ def _v2_resolved_round(consensus, round_id, *, choices):
     assert target is not None
     if target.state["phase"] != "approved":
         consensus.request_escalation(round_id, "missing required vote", "peer-a", 0, "human-tier-0")
-        consensus.resolve(round_id, "approved", "peer-a", "manual resolution")
+        consensus.resolve(round_id, "approved", "peer-b", "manual resolution")
 
 
 @pytest.fixture(autouse=True)

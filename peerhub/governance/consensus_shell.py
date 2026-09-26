@@ -64,7 +64,7 @@ SYSTEM_OPERATIONS = frozenset({"request_escalation", "reject_on_dissent", "mark_
 # health revalidation that every other mutation needs (an unhealthy electorate is exactly
 # why they are being invoked).
 REAUTH_EXEMPT_OPERATIONS = frozenset(
-    {"request_escalation", "reject_on_dissent", "mark_timeout", "resolve", "abandon"}
+    {"request_escalation", "reject_on_dissent", "mark_timeout", "resolve", "abandon", "retraction"}
 )
 NACK_TYPES = ("block", "cosmetic", "terminal_rejection")
 
@@ -308,9 +308,11 @@ class ConsensusShell:
         verified_required: bool = False,
         idempotency_key: Optional[str] = None,
     ) -> Any:
+        # Identity of the CALLER's request only: the derived policy config is frozen into the
+        # first creation and must not turn an identical retry into a false mismatch.
         creation_digest = _digest([
             round_id, title, question, body, proposer_id, list(required_participants),
-            list(eligible_participants), risk, source_hash, config, origin, action,
+            list(eligible_participants), risk, source_hash, origin, action,
             bool(verified_required),
         ])
         scoped_key = None
@@ -383,9 +385,24 @@ class ConsensusShell:
         )
         if scoped_key is not None:
             req = dataclasses.replace(req, idempotency_key=scoped_key)
-        return self._broker.submit(
-            req, precondition=self._authority_precondition(expected_authority_version)
-        )
+        try:
+            return self._broker.submit(
+                req, precondition=self._authority_precondition(expected_authority_version)
+            )
+        except IdempotencyPayloadMismatchError:
+            # A concurrent identical creation committed between our check and submit: its
+            # generated fields differ, but the caller's request is the same -> replay it.
+            existing = self._broker.get_target(round_id)
+            if (
+                scoped_key is not None
+                and existing is not None
+                and existing.state.get("creation_key") == scoped_key
+                and existing.state.get("creation_digest") == creation_digest
+            ):
+                replay = self._broker.lookup_replay("consensus_shell", "propose_v2", scoped_key)
+                if replay is not None:
+                    return replay
+            raise
 
     # ---------------------------------------------------------------- pipeline
     def _process_event(
@@ -467,7 +484,10 @@ class ConsensusShell:
             # the health revalidation because they exist to handle unhealthy peers.
             if operation not in REAUTH_EXEMPT_OPERATIONS:
                 self._revalidate_electorate(state)
-            state["expected_authority_version"] = live_version
+                # Only a command that really revalidated the whole electorate may
+                # persist the refreshed version; exempt ones commit against the live
+                # version without recording that re-authorization happened.
+                state["expected_authority_version"] = live_version
             expected_auth_ver = live_version
         state_hash = candidate_state_hash(state)
         candidate = Candidate(round_id, int(state.get("candidate_revision", 0)), state_hash)
@@ -575,9 +595,12 @@ class ConsensusShell:
             holders = sorted(set(state.get("barrier_holders") or []) - {actor_id})
             dissent = sorted(set(state.get("dissent_obligations") or []) - {actor_id})
             state["barrier_holders"], state["dissent_obligations"] = holders, dissent
-            if res.ack_recorded and credential_id is not None:
+            if res.ack_recorded:
                 creds = dict(_d(state.get("ack_credentials")))
-                creds[actor_id] = credential_id
+                if credential_id is not None:
+                    creds[actor_id] = credential_id
+                else:
+                    creds.pop(actor_id, None)  # a fresh credential-free ACK replaces a stale one
                 state["ack_credentials"] = creds
             if res.new_phase == "approved":
                 if holders or dissent:
@@ -722,6 +745,7 @@ class ConsensusShell:
             if res.acks_dropped:
                 ledger.invalidate("correction/new dissent")
                 state["ack_ledger"] = {}
+                state["ack_credentials"] = {}
             if res.fresh_votes_required:
                 # A correction invalidates the candidate: every vote and concern is void.
                 state["votes"] = {}
@@ -757,6 +781,7 @@ class ConsensusShell:
             elif res.acks_dropped:
                 apply_retraction(ledger, c, authorized=False)  # drops every bound ACK
                 state["ack_ledger"] = {}
+                state["ack_credentials"] = {}
             return None
 
         return self._process_event(
@@ -890,12 +915,27 @@ class ConsensusShell:
             return ResolutionEvent(outcome=outcome)
 
         def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
-            if outcome == "approved" and (
-                state.get("barrier_holders") or state.get("dissent_obligations")
-            ):
-                raise InvalidMutationError(
-                    "cannot approve while a blocking concern or unresolved dissent is held"
-                )
+            if outcome == "approved":
+                if state.get("barrier_holders") or state.get("dissent_obligations"):
+                    raise InvalidMutationError(
+                        "cannot approve while a blocking concern or unresolved dissent is held"
+                    )
+                escalation = _d(state.get("escalation"))
+                proposer = _d(state.get("proposal")).get("proposer_id")
+                # Separation of duties: nobody resolves an escalation they raised or a
+                # round they proposed into approval.
+                if resolved_by in (escalation.get("requested_by"), proposer):
+                    raise AuthorizationError(
+                        "the escalation requester or proposer cannot approve the round themselves"
+                    )
+                snapshot = _d(state.get("policy_snapshot"))
+                if snapshot.get("mandatory_final_call") or snapshot.get("final_call_rule") == "always":
+                    # A mandatory Final Call cannot be skipped by an administrative resolve.
+                    if not ledger.is_complete(c, eligible_of(state)):
+                        raise InvalidMutationError(
+                            "mandatory Final Call ACKs are incomplete; only rejection can resolve this round"
+                        )
+                self._revalidate_electorate(state)
             state["resolution"] = {"outcome": outcome, "basis": basis, "resolved_by": resolved_by}
             if outcome == "approved":
                 state["phase_before_approval"] = "escalated"

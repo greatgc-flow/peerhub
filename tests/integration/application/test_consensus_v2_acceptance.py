@@ -132,6 +132,8 @@ def test_retracting_an_approval_through_the_cli_fences_authority(activated_works
         assert tuple(state["revocations"]) == ("RevocationRecorded",)
         from peerhub.governance.consensus_shell import BrokerAuthorityVersionStore
         assert BrokerAuthorityVersionStore(runtime.governance_broker).read_version() == 2
+        revoked = runtime.proposal_coordinator.reconcile_outcome(round_id)
+        assert revoked.outcome == "REVOKED" and revoked.invariant_request_target_id is None
 
 
 def test_ack_by_a_stranger_is_refused_by_the_cli(activated_workspace, capsys):

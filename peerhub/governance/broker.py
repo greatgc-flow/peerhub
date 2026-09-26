@@ -319,7 +319,7 @@ class GovernanceBroker:
         limit = 100
         while True:
             found = self.recover_pending_effects(limit=limit)
-            if len(found) < limit or limit >= 1_000_000:
+            if len(found) < limit:
                 return found
             limit *= 4
 

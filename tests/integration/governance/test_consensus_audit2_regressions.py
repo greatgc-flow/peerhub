@@ -240,3 +240,135 @@ def test_earlier_ack_holders_credentials_are_reverified_by_the_completing_ack(tm
     with pytest.raises(AuthorizationError):
         shell.final_call_ack("r1", "p2", credential_id="cred-p2")
     assert state(broker)["phase"] == "final_call"
+
+
+# ======================= third re-audit (a1efafa) =======================
+def _approved_round(shell, rid="r1", elig=("p1", "p2")):
+    propose(shell, rid=rid, elig=elig)
+    shell.cast_vote(rid, elig[0], "agree")
+    shell.cast_vote(rid, elig[1], "agree")
+    shell.final_call_ack(rid, elig[0])
+    shell.final_call_ack(rid, elig[1])
+
+
+def test_resolve_cannot_approve_a_mandatory_final_call_round_without_acks(tmp_path):
+    shell, broker, _ = env(tmp_path)
+    propose(shell, elig=("p1", "p2", "p3"))
+    shell.cast_vote("r1", "p1", "agree")
+    shell.cast_vote("r1", "p2", "agree")  # -> final_call, zero ACKs
+    shell.request_escalation("r1", "x", "p3", 0, "human-tier-0")
+    with pytest.raises(InvalidMutationError):
+        shell.resolve("r1", "approved", "p2", "skip the final call")
+    assert state(broker)["phase"] == "final_call"
+
+
+def test_the_proposer_or_requester_cannot_approve_their_own_escalation(tmp_path):
+    shell, broker, _ = env(tmp_path)
+    propose(shell, rule="never", elig=("p1", "p2", "p3"), risk="normal")
+    shell.request_escalation("r1", "x", "p2", 0, "human-tier-0")
+    with pytest.raises(AuthorizationError):
+        shell.resolve("r1", "approved", "p1", "proposer resolves own round")
+    with pytest.raises(AuthorizationError):
+        shell.resolve("r1", "approved", "p2", "requester resolves own escalation")
+    shell.resolve("r1", "approved", "p3", "independent administrator")
+    assert state(broker)["phase"] == "approved"
+
+
+def test_resolve_approval_revalidates_the_electorate(tmp_path):
+    shell, broker, health = env(tmp_path)
+    propose(shell, rule="never", elig=("p1", "p2", "p3"), risk="normal")
+    shell.request_escalation("r1", "x", "p2", 0, "human-tier-0")
+    health.down.add("p1")
+    with pytest.raises(AuthorizationError):
+        shell.resolve("r1", "approved", "p3", "unhealthy electorate")
+
+
+def test_projector_revocation_race_is_rejected_inside_the_creating_transaction(tmp_path):
+    from peerhub.governance.invariant_requests import RatifiedInvariantRequestProjector
+    from fakes import FakeClock, FakeIdSource
+
+    def factory(st, round_id, actor):
+        return EffectIntent(kind=RATIFIED_INVARIANT_EFFECT_KIND, payload={
+            "request_id": f"ratified-invariant-write-request:{round_id}:h", "round_id": round_id,
+            "approved_revision": int(st["_rev"]) + 1, "decision_hash": "h", "proposer_id": "p1",
+            "title": "t", "question": "q", "body": "b\n\nChanges:\nx", "source_hash": "sha256:x",
+            "participants": st["participants"], "votes": st["votes"],
+            "proposed_invariant_text": "x", "target_doc_hint": "10-invariants.md", "requested_at": 1,
+        })
+
+    shell, broker, _ = env(tmp_path, effect_factories={"consensus.round.propose": factory})
+    _approved_round(shell)
+    projector = RatifiedInvariantRequestProjector(
+        broker, clock=FakeClock(range(1, 90_000)), ids=FakeIdSource([f"pj-{i}" for i in range(500)])
+    )
+    event = next(p.event for p in broker.recover_pending_effects()
+                 if p.event.payload.get("effect_kind") == RATIFIED_INVARIANT_EFFECT_KIND)
+    real_submit = broker.submit
+    fired = {"done": False}
+
+    def revoke_then_create(req, **kw):
+        if not fired["done"] and req.command_type == "ratified-invariant-write-request.create":
+            fired["done"] = True
+            shell.retraction("r1", "p1")  # commits AFTER the projector's earlier reads
+        return real_submit(req, **kw)
+
+    broker.submit = revoke_then_create
+    with pytest.raises(InvalidMutationError):
+        projector.project_event(event.event_id)
+    broker.submit = real_submit
+    assert broker.get_target("ratified-invariant-write-request:r1:h") is None
+    assert broker.get_effect_receipt(event.event_id).outcome is EffectOutcome.EFFECT_FAILED
+
+
+def test_an_exempt_operation_does_not_persist_a_reauthorization(tmp_path):
+    shell, broker, health = env(tmp_path)
+    propose(shell, rule="never", elig=("p1", "p2", "p3"))
+    BrokerAuthorityVersionStore(broker).increment()
+    health.down.add("p3")
+    with pytest.raises(AuthorizationError):
+        shell.cast_vote("r1", "p1", "agree")
+    shell.mark_timeout("r1", "p1")  # remedial op: allowed, must NOT bless the stale version
+    with pytest.raises(AuthorizationError):
+        shell.cast_vote("r1", "p1", "agree")
+    assert state(broker)["expected_authority_version"] == 1
+
+
+def test_retraction_stays_possible_after_an_authority_change_and_an_unhealthy_peer(tmp_path):
+    shell, broker, health = env(tmp_path)
+    _approved_round(shell, elig=("p1", "p2", "p3")) if False else None
+    propose(shell, elig=("p1", "p2", "p3"))
+    for a in ("p1", "p2"):
+        shell.cast_vote("r1", a, "agree")
+    for a in ("p1", "p2", "p3"):
+        shell.final_call_ack("r1", a)
+    assert state(broker)["phase"] == "approved"
+    BrokerAuthorityVersionStore(broker).increment()
+    health.down.add("p3")
+    shell.retraction("r1", "p1")
+    assert tuple(state(broker)["revocations"]) == ("RevocationRecorded",)
+
+
+def test_correction_clears_stale_ack_credentials(tmp_path):
+    shell, broker, _ = env(tmp_path)
+    propose(shell, verified=True)
+    shell.cast_vote("r1", "p1", "agree", credential_id="cred-p1")
+    shell.cast_vote("r1", "p2", "agree", credential_id="cred-p2")
+    shell.final_call_ack("r1", "p1", credential_id="cred-p1")
+    shell.correction("r1", "p1", credential_id="cred-p1")
+    assert dict(state(broker)["ack_credentials"]) == {}
+
+
+def test_identical_creation_retry_survives_a_policy_change(tmp_path):
+    shell, broker, _ = env(tmp_path)
+    args = ("r9", "T", "Q", "B", "p1", ["p1", "p2"], ["p1", "p2"], "high", "sha256:x")
+    first = shell.propose_v2(*args, cfg("always"), idempotency_key="c1")
+    again = shell.propose_v2(*args, cfg("never", votes=2), idempotency_key="c1")  # policy changed since
+    assert again.disposition is MutationDisposition.IDEMPOTENCY_HIT
+    assert again.receipt.receipt_id == first.receipt.receipt_id
+
+
+def test_broker_paging_has_no_artificial_cap(tmp_path):
+    shell, broker, _ = env(tmp_path)
+    for i in range(101):
+        propose(shell, rid=f"cap-{i}")
+    assert len(broker.recover_all_pending_effects()) >= 101

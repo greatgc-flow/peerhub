@@ -7,6 +7,7 @@ opens, parses, or writes the hinted architecture document.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -31,6 +32,10 @@ from .contract import (
 RATIFIED_INVARIANT_EFFECT_KIND = (
     "governance.ratified-invariant-write-request"
 )
+
+
+class ApprovalRevokedError(InvalidMutationError):
+    """The approval behind an effect was revoked; nothing may be materialized."""
 
 
 class RatifiedInvariantRequestProjector:
@@ -85,8 +90,21 @@ class RatifiedInvariantRequestProjector:
         self,
         target_id: str,
         state: dict[str, JsonValue],
+        round_id: str | None = None,
     ) -> TargetState:
         mutation_request_id = f"{target_id}:create"
+
+        def approval_still_valid(unit: Any) -> None:  # unit: the broker's open UnitOfWork
+            # Runs inside the creating transaction: a revocation that commits after any
+            # earlier read can no longer slip a request through.
+            if round_id is None:
+                return
+            round_target: Any = unit.get_target(round_id)
+            if round_target is not None and round_target.state.get("revocations"):
+                raise ApprovalRevokedError(
+                    "approval was revoked; the ratified invariant request was not materialized"
+                )
+
         try:
             self._broker.submit(
                 MutationRequest(
@@ -107,7 +125,8 @@ class RatifiedInvariantRequestProjector:
                         payload={},
                     ),
                     write_provenance=resolve_local_os_write_provenance(),
-                )
+                ),
+                precondition=approval_still_valid,
             )
         except StaleRevisionError as exc:
             existing = self._broker.get_target(target_id)
@@ -156,10 +175,11 @@ class RatifiedInvariantRequestProjector:
             attempt_id=attempt_id,
         )
         round_id = payload.get("round_id")
-        round_target = (
-            self._broker.get_target(round_id) if isinstance(round_id, str) else None
-        )
-        if round_target is not None and round_target.state.get("revocations"):
+        try:
+            created = self._create_immutable(
+                target_id, state, round_id if isinstance(round_id, str) else None
+            )
+        except ApprovalRevokedError:
             # The approval was revoked after it committed: record the effect as failed
             # (immutable evidence) instead of creating the write request.
             self._broker.record_effect_result(
@@ -169,10 +189,7 @@ class RatifiedInvariantRequestProjector:
                 outcome=EffectOutcome.EFFECT_FAILED,
                 evidence_refs=(f"revoked:{round_id}",),
             )
-            raise InvalidMutationError(
-                "approval was revoked; the ratified invariant request was not materialized"
-            )
-        created = self._create_immutable(target_id, state)
+            raise
         self._broker.record_effect_result(
             event_id,
             owner_id=owner_id,

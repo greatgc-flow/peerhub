@@ -586,7 +586,9 @@ class ProposalCoordinator:
         escalation_reason: str | None = None
         if isinstance(resolution_raw, Mapping):
             native_outcome = resolution_raw.get("outcome")
-            if native_outcome == "approved":
+            if native_outcome == "approved" and target.state.get("revocations"):
+                outcome = "REVOKED"  # an approval that was revoked is not a success
+            elif native_outcome == "approved":
                 outcome = "CONSENSUS_OK"
             elif native_outcome == "rejected":
                 outcome = "NACK"

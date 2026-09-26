@@ -44,8 +44,8 @@ def env(tmp_path: Path, tag="a", db="w.sqlite3", **kw):
     return shell, broker, health
 
 
-def propose(shell, rid="r1", rule="always", verified=False, elig=("p1", "p2")):
-    shell.propose_v2(rid, "T", "Q", "B", elig[0], list(elig), list(elig), "high", "sha256:x",
+def propose(shell, rid="r1", rule="always", verified=False, elig=("p1", "p2"), risk="high"):
+    shell.propose_v2(rid, "T", "Q", "B", elig[0], list(elig), list(elig), risk, "sha256:x",
                      cfg(rule), verified_required=verified)
 
 
@@ -74,7 +74,7 @@ def test_allowlisted_system_principal_may_escalate_but_not_resolve(tmp_path):
 
 def test_terminal_decisions_are_immutable(tmp_path):
     shell, broker, _ = env(tmp_path)
-    propose(shell)
+    propose(shell, rule="never", risk="normal")
     shell.request_escalation("r1", "self_finalization", "p1", 0, "human-tier-0")
     shell.resolve("r1", "approved", "p2", "administrator decision")
     assert state(broker)["phase"] == "approved"

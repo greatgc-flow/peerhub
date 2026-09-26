@@ -101,6 +101,20 @@ invalid layer is a `ConfigurationError`. Proposals are always strict unanimous o
   `process_consensus_effects` have no consumer/worker in V1 either; wiring a scheduler is a separate
   operational task.
 
+## A8. Third re-audit fixes (HEAD a1efafa -> batch E)
+* `resolve(approved)` is an approval like any other: refused for the escalation requester or the
+  proposer (separation of duties), refused on a mandatory-Final-Call round unless every ACK is in
+  (otherwise only rejection can resolve it), and it revalidates the whole electorate.
+* The invariant projector checks for a revocation **inside the transaction that creates the request**
+  (`ApprovalRevokedError` -> effect recorded `EFFECT_FAILED`), closing the read-then-create race.
+* Remedial operations (escalation, dissent rejection, timeout, resolve, abandon, **retraction**) commit
+  against the live authority version but never persist a refreshed version, so they cannot bless a
+  later ordinary command; retraction stays possible after an authority change.
+* Correction/retraction clear the ACK credentials of the voided candidate; a fresh credential-free ACK
+  replaces a stale credential.
+* Creation identity is the caller's request only (derived policy excluded); a concurrent identical
+  creation replays. A revoked approval reports `REVOKED`, not `CONSENSUS_OK`. Effect paging has no cap.
+
 ## Still open (not implemented)
 Real-DB inventory/rehearsal runbook;
 migration tool for held V1 rounds; the unused pure helpers listed in the audit
