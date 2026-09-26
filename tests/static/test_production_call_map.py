@@ -153,9 +153,9 @@ def test_production_call_map_matches_all_live_cli_paths(
     commands = artifact["commands"]
 
     assert artifact["schema_version"] == 1
-    assert artifact["measurement"]["leaf_command_count"] == 103
-    assert len(commands) == 103
-    assert len({command["path"] for command in commands}) == 103
+    assert artifact["measurement"]["leaf_command_count"] == 107
+    assert len(commands) == 107
+    assert len({command["path"] for command in commands}) == 107
     assert [command["path"] for command in commands] == list(live)
     assert {
         command["path"]: command["parser_contract"] for command in commands

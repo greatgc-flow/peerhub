@@ -8,8 +8,8 @@
     "captured_on": "2026-09-13",
     "method": "Monkeypatch argparse.ArgumentParser.parse_args while calling peerhub.cli:main, capture the constructed root parser, recursively traverse each actual _SubParsersAction choice, and select parsers with no child subparser.",
     "top_level_command_count": 30,
-    "leaf_command_count": 103,
-    "mutating_or_conditional_count": 77,
+    "leaf_command_count": 107,
+    "mutating_or_conditional_count": 81,
     "parser_contract_fields": [
       "action",
       "choices",
@@ -21,7 +21,8 @@
       "required",
       "type"
     ],
-    "parser_test": "tests/static/test_production_call_map.py::test_production_call_map_matches_all_live_cli_paths"
+    "parser_test": "tests/static/test_production_call_map.py::test_production_call_map_matches_all_live_cli_paths",
+    "note_2026_09_26": "Four leaf commands (consensus ack/nack/correct/retract) added with the V2 consensus shell."
   },
   "classifications": {
     "READ_ONLY": "Local state/config read with no intended write.",
@@ -2266,7 +2267,7 @@
       "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
       "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- the FIRST domain to actually use the verified path: when --credential-id is presented, the gateway verifies it against the envelope's actor_id via verify_credential_for_actor BEFORE ConsensusService.cast_vote is ever invoked. ConsensusService's own domain-level CredentialVerifier check (D-CTX Increment 1) is deliberately KEPT, not retired, as defense-in-depth for direct/internal callers that bypass the gateway, and because it alone enforces verified_required (a per-round policy field invisible to the generic gateway).",
       "gateway": "APPLICATION_API_GATEWAY",
-      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusVoteCommand, credential_id=...) -> ApplicationAPI.submit() -> ConsensusService.cast_vote",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusVoteCommand, credential_id=...) -> ApplicationAPI.submit() -> ConsensusFacade.cast_vote (legacy ConsensusService before V2 activation, ConsensusShell after)",
       "transactional_owner": "ConsensusService or ProposalCoordinator over GovernanceBroker and SqliteStateStore UoW",
       "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
       "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
@@ -2434,6 +2435,388 @@
           "Read a consensus round"
         ]
       }
+    },
+    {
+      "path": "consensus ack",
+      "effect": "MUTATING",
+      "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
+      "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- the FIRST domain to actually use the verified path: when --credential-id is presented, the gateway verifies it against the envelope's actor_id via verify_credential_for_actor BEFORE ConsensusService.cast_vote is ever invoked. ConsensusService's own domain-level CredentialVerifier check (D-CTX Increment 1) is deliberately KEPT, not retired, as defense-in-depth for direct/internal callers that bypass the gateway, and because it alone enforces verified_required (a per-round policy field invisible to the generic gateway).",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusAckCommand, credential_id=...) -> ApplicationAPI.submit() -> ConsensusFacade -> ConsensusShell (V2 rounds only; legacy rounds fail closed)",
+      "transactional_owner": "ConsensusShell over GovernanceBroker.submit / submit_atomic (state + receipt + effect [+ authority bump] in one transaction)",
+      "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
+      "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
+      "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
+      "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
+      "integration_tests": [
+        "tests/integration/application/test_consensus_v2_acceptance.py::test_high_risk_proposal_needs_final_call_acks_then_approves_and_projects_the_request",
+        "tests/integration/application/test_consensus_v2_acceptance.py::test_ack_by_a_stranger_is_refused_by_the_cli"
+      ],
+      "parser_contract": {
+        "arguments": [
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "workspace",
+            "help": "Path to the workspace root",
+            "nargs": null,
+            "option_strings": [
+              "--workspace"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "round_id",
+            "help": "Consensus round identifier",
+            "nargs": null,
+            "option_strings": [
+              "--round-id"
+            ],
+            "required": true,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
+            "dest": "json",
+            "help": "Emit machine-readable JSON",
+            "nargs": 0,
+            "option_strings": [
+              "--json"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "actor",
+            "help": "Acting peer ID (omit when presenting a valid --credential-id instead)",
+            "nargs": null,
+            "option_strings": [
+              "--actor"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "credential_id",
+            "help": "D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            "nargs": null,
+            "option_strings": [
+              "--credential-id"
+            ],
+            "required": false,
+            "type": null
+          }
+        ],
+        "command_help": [
+          "Manage consensus rounds",
+          "ACK the current Final Call candidate"
+        ]
+      },
+      "authorizer_behavior": "VERIFIED_WHEN_PRESENTED"
+    },
+    {
+      "path": "consensus nack",
+      "effect": "MUTATING",
+      "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
+      "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- the FIRST domain to actually use the verified path: when --credential-id is presented, the gateway verifies it against the envelope's actor_id via verify_credential_for_actor BEFORE ConsensusService.cast_vote is ever invoked. ConsensusService's own domain-level CredentialVerifier check (D-CTX Increment 1) is deliberately KEPT, not retired, as defense-in-depth for direct/internal callers that bypass the gateway, and because it alone enforces verified_required (a per-round policy field invisible to the generic gateway).",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusNackCommand, credential_id=...) -> ApplicationAPI.submit() -> ConsensusFacade -> ConsensusShell (V2 rounds only; legacy rounds fail closed)",
+      "transactional_owner": "ConsensusShell over GovernanceBroker.submit / submit_atomic (state + receipt + effect [+ authority bump] in one transaction)",
+      "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
+      "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
+      "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
+      "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
+      "integration_tests": [
+        "tests/integration/application/test_consensus_v2_acceptance.py::test_blocking_nack_through_the_cli_holds_the_barrier"
+      ],
+      "parser_contract": {
+        "arguments": [
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "workspace",
+            "help": "Path to the workspace root",
+            "nargs": null,
+            "option_strings": [
+              "--workspace"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "round_id",
+            "help": "Consensus round identifier",
+            "nargs": null,
+            "option_strings": [
+              "--round-id"
+            ],
+            "required": true,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
+            "dest": "json",
+            "help": "Emit machine-readable JSON",
+            "nargs": 0,
+            "option_strings": [
+              "--json"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "actor",
+            "help": "Acting peer ID (omit when presenting a valid --credential-id instead)",
+            "nargs": null,
+            "option_strings": [
+              "--actor"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "credential_id",
+            "help": "D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            "nargs": null,
+            "option_strings": [
+              "--credential-id"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": [
+              "block",
+              "cosmetic",
+              "terminal_rejection"
+            ],
+            "default": "block",
+            "dest": "nack_type",
+            "help": "Kind of concern raised against the candidate",
+            "nargs": null,
+            "option_strings": [
+              "--nack-type"
+            ],
+            "required": false,
+            "type": null
+          }
+        ],
+        "command_help": [
+          "Manage consensus rounds",
+          "NACK the current Final Call candidate"
+        ]
+      },
+      "authorizer_behavior": "VERIFIED_WHEN_PRESENTED"
+    },
+    {
+      "path": "consensus correct",
+      "effect": "MUTATING",
+      "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
+      "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- the FIRST domain to actually use the verified path: when --credential-id is presented, the gateway verifies it against the envelope's actor_id via verify_credential_for_actor BEFORE ConsensusService.cast_vote is ever invoked. ConsensusService's own domain-level CredentialVerifier check (D-CTX Increment 1) is deliberately KEPT, not retired, as defense-in-depth for direct/internal callers that bypass the gateway, and because it alone enforces verified_required (a per-round policy field invisible to the generic gateway).",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusCorrectCommand, credential_id=...) -> ApplicationAPI.submit() -> ConsensusFacade -> ConsensusShell (V2 rounds only; legacy rounds fail closed)",
+      "transactional_owner": "ConsensusShell over GovernanceBroker.submit / submit_atomic (state + receipt + effect [+ authority bump] in one transaction)",
+      "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
+      "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
+      "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
+      "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
+      "integration_tests": [
+        "tests/integration/governance/test_consensus_audit_regressions.py::test_correction_requires_fresh_votes_and_clears_concerns"
+      ],
+      "parser_contract": {
+        "arguments": [
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "workspace",
+            "help": "Path to the workspace root",
+            "nargs": null,
+            "option_strings": [
+              "--workspace"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "round_id",
+            "help": "Consensus round identifier",
+            "nargs": null,
+            "option_strings": [
+              "--round-id"
+            ],
+            "required": true,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
+            "dest": "json",
+            "help": "Emit machine-readable JSON",
+            "nargs": 0,
+            "option_strings": [
+              "--json"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "actor",
+            "help": "Acting peer ID (omit when presenting a valid --credential-id instead)",
+            "nargs": null,
+            "option_strings": [
+              "--actor"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "credential_id",
+            "help": "D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            "nargs": null,
+            "option_strings": [
+              "--credential-id"
+            ],
+            "required": false,
+            "type": null
+          }
+        ],
+        "command_help": [
+          "Manage consensus rounds",
+          "Correct a Final Call candidate (voids votes, ACKs and concerns)"
+        ]
+      },
+      "authorizer_behavior": "VERIFIED_WHEN_PRESENTED"
+    },
+    {
+      "path": "consensus retract",
+      "effect": "MUTATING",
+      "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
+      "resolver": "Path(parsed.workspace).resolve() -> PathLayout.for_workspace -> _detect_workspace_home_id -> RuntimeContext -> create_runtime",
+      "authorizer": "GovernanceAuthorizer via peerhub.application.governance_authorizer (R4/P4b, ratified 2026-09-19) -- the FIRST domain to actually use the verified path: when --credential-id is presented, the gateway verifies it against the envelope's actor_id via verify_credential_for_actor BEFORE ConsensusService.cast_vote is ever invoked. ConsensusService's own domain-level CredentialVerifier check (D-CTX Increment 1) is deliberately KEPT, not retired, as defense-in-depth for direct/internal callers that bypass the gateway, and because it alone enforces verified_required (a per-round policy field invisible to the generic gateway).",
+      "gateway": "APPLICATION_API_GATEWAY",
+      "handler": "peerhub.cli:_run_consensus -> peerhub.client:Client.submit(ConsensusRetractCommand, credential_id=...) -> ApplicationAPI.submit() -> ConsensusFacade -> ConsensusShell (V2 rounds only; legacy rounds fail closed)",
+      "transactional_owner": "ConsensusShell over GovernanceBroker.submit / submit_atomic (state + receipt + effect [+ authority bump] in one transaction)",
+      "receipt": "Mutation receipt/target state/proposal result rendered as JSON or existing compatibility text",
+      "external_effects": "Persists consensus/proposal targets and outbox records; arbiter-review may dispatch a configured external arbiter",
+      "output_contract": "stdout: machine-readable JSON when --json is present, otherwise the existing human-readable summary; caught domain errors go to stderr",
+      "exit_contract": "0 on handled success; 2 on caught validation/not-found/domain errors; argparse usage errors raise SystemExit(2); uncaught exceptions propagate",
+      "integration_tests": [
+        "tests/integration/application/test_consensus_v2_acceptance.py::test_retracting_an_approval_through_the_cli_fences_authority"
+      ],
+      "parser_contract": {
+        "arguments": [
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "workspace",
+            "help": "Path to the workspace root",
+            "nargs": null,
+            "option_strings": [
+              "--workspace"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "round_id",
+            "help": "Consensus round identifier",
+            "nargs": null,
+            "option_strings": [
+              "--round-id"
+            ],
+            "required": true,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
+            "dest": "json",
+            "help": "Emit machine-readable JSON",
+            "nargs": 0,
+            "option_strings": [
+              "--json"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "actor",
+            "help": "Acting peer ID (omit when presenting a valid --credential-id instead)",
+            "nargs": null,
+            "option_strings": [
+              "--actor"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "credential_id",
+            "help": "D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
+            "nargs": null,
+            "option_strings": [
+              "--credential-id"
+            ],
+            "required": false,
+            "type": null
+          }
+        ],
+        "command_help": [
+          "Manage consensus rounds",
+          "Retract an ACK or revoke an approval"
+        ]
+      },
+      "authorizer_behavior": "VERIFIED_WHEN_PRESENTED"
     },
     {
       "path": "task create",
