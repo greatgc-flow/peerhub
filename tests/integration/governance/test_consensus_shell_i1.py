@@ -93,7 +93,11 @@ def inject_final_call_state(broker: GovernanceBroker, round_id: str):
         "phase": "final_call",
         "expected_authority_version": 1,
         "frozen_authority_set": ["peer-1", "peer-2"],
-        "policy_snapshot": {"origin": "direct", "action": "consensus.round.propose"},
+        "policy_snapshot": {
+            "version": 1, "formula": "max(2, N)", "required_votes": 2, "final_call_rule": "always",
+            "deadlines": {}, "escalation_paths": [], "risk": "high", "origin": "direct",
+            "action": "consensus.round.propose", "mandatory_final_call": True,
+        },
         "participants": ["peer-1", "peer-2"],
         "ack_ledger": {}
     }

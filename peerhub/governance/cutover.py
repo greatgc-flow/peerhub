@@ -1,5 +1,12 @@
 """
-Cutover protocol for B8a phase replacement.
+Pure specifications for migrating legacy (V1) rounds after the V2 activation.
+
+NOTE: these are specs with tests but NO production caller yet -- after
+activation V1 rounds are HELD (facade fails closed, storage fences V1 writes)
+until an explicit administrator migration is built on top of them. The
+activation-state classifier that used to live here modelled a table rename and
+was superseded by ``persistence.consensus_activation.read_activation_state``
+(option C, see docs/design/CONSENSUS-REPLACEMENT-ADDENDUM-2026-09-26.md).
 """
 from dataclasses import dataclass
 from typing import Optional, Set, Literal
@@ -76,34 +83,3 @@ class FrozenLegacyEvaluator:
     def is_complete(self, legacy_acks: Set[str], *, floor_flag: bool = False) -> bool:
         # floor_flag is intentionally ignored: floors are not retroactive.
         return bool(self._frozen) and self._frozen <= set(legacy_acks)
-
-
-def classify_activation_state(
-    has_governed_targets: bool,
-    has_governed_targets_v1: bool,
-    epoch_before: int,
-    epoch_now: int,
-    metadata_written: bool
-) -> Literal["v1_intact", "v2_active", "inconsistent"]:
-    """
-    Classify activation state of the V2 cutover atomic transaction.
-    v2_active only when v1-renamed table present, governed_targets absent,
-    epoch incremented and metadata written ALL together (atomic all-or-nothing).
-    v1_intact when nothing changed.
-    every partial combination -> "inconsistent" (fail closed, caller must not proceed).
-    """
-    if (
-        not has_governed_targets
-        and has_governed_targets_v1
-        and epoch_now > epoch_before
-        and metadata_written
-    ):
-        return "v2_active"
-    if (
-        has_governed_targets
-        and not has_governed_targets_v1
-        and epoch_now == epoch_before
-        and not metadata_written
-    ):
-        return "v1_intact"
-    return "inconsistent"

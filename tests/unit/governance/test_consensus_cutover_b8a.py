@@ -1,12 +1,9 @@
 """B8a specs: phase-to-disposition table, frozen legacy contract, activation classification."""
-import itertools
-
 import pytest
 
 from peerhub.core.errors import SchemaError
 from peerhub.governance.cutover import (
     FrozenLegacyEvaluator,
-    classify_activation_state,
     migration_disposition,
 )
 
@@ -104,23 +101,3 @@ def test_frozen_evaluator_ignores_new_floor_flag():
 
 def test_frozen_evaluator_empty_frozen_set_fails_closed():
     assert FrozenLegacyEvaluator(set()).is_complete({"a"}) is False
-
-
-def _expected_activation(ht, htv1, eb, en, mw):
-    if (not ht) and htv1 and en > eb and mw:
-        return "v2_active"
-    if ht and (not htv1) and en == eb and (not mw):
-        return "v1_intact"
-    return "inconsistent"
-
-
-@pytest.mark.parametrize(
-    "ht,htv1,eb,en,mw",
-    list(itertools.product([True, False], [True, False], [1], [1, 2], [True, False])),
-)
-def test_activation_state_all_combinations(ht, htv1, eb, en, mw):
-    assert classify_activation_state(ht, htv1, eb, en, mw) == _expected_activation(ht, htv1, eb, en, mw)
-
-
-def test_activation_epoch_decrease_is_inconsistent():
-    assert classify_activation_state(False, True, 2, 1, True) == "inconsistent"

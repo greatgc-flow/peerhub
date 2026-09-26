@@ -30,7 +30,7 @@ from peerhub.governance.authorization import (
     HealthIdentityPort,
 )
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.candidate import AckLedger, Candidate
+from peerhub.governance.candidate import AckLedger, Candidate, apply_retraction
 from peerhub.governance.consensus import ConsensusStateMachine, EvalContext
 from peerhub.governance.contract import (
     EffectIntent,
@@ -38,7 +38,11 @@ from peerhub.governance.contract import (
     build_mutation_request,
 )
 from peerhub.governance.invariant_requests import RATIFIED_INVARIANT_EFFECT_KIND
-from peerhub.governance.policy_snapshot import ConfigurationError, freeze_policy_snapshot
+from peerhub.governance.policy_snapshot import (
+    ConfigurationError,
+    decode_policy_snapshot,
+    freeze_policy_snapshot,
+)
 from peerhub.governance.proposal_policy import build_approval_submission, route_effect_kind
 from peerhub.governance.provenance import resolve_provenance
 
@@ -222,16 +226,13 @@ class ConsensusShell:
 
     def _revalidate_electorate(self, state: Dict[str, Any]) -> None:
         """Whole-electorate health revalidation before an approval (design 5.2)."""
-        now = self._clock.now()
-        for participant in eligible_of(state):
-            try:
-                healthy = self._health_port.check_health_gate(participant, now)
-            except Exception as e:  # collaborator failure fails closed
-                raise AuthorizationError(f"health service error: {e}") from e
-            if not healthy:
-                raise AuthorizationError(
-                    f"Final Call electorate revalidation failed for {participant}"
-                )
+        gate = AuthorizationGate(
+            verifier=self._verifier,
+            health_port=self._health_port,
+            state_machine=ConsensusStateMachine(state="final_call"),
+        )
+        if not gate.authorize_final_call_electorate(eligible_of(state), self._clock.now()):
+            raise AuthorizationError("Final Call electorate revalidation failed")
 
     def _authorize_replay(self, state: Dict[str, Any], actor_id: str, credential_id: Optional[str]) -> None:
         """A replay needs the same authentication as the original command."""
@@ -355,6 +356,10 @@ class ConsensusShell:
                 replay = self._broker.lookup_replay("consensus_shell", operation, scoped_key)
                 if replay is not None:
                     return replay
+
+        # Restart consistency (design 4.1): an inconsistent or unversioned frozen
+        # snapshot fails closed before anything is evaluated.
+        decode_policy_snapshot(dict(state.get("policy_snapshot") or {}))
 
         phase = state.get("phase", "voting")
         if phase in TERMINAL_PHASES and not (operation == "retraction" and phase == "approved"):
@@ -495,6 +500,8 @@ class ConsensusShell:
                 if holders or dissent:
                     state["phase"] = "final_call"  # barrier / unresolved dissent still hold
                     return None
+                if not ledger.is_complete(c, eligible_of(state)):
+                    raise InvalidMutationError("Final Call ACKs are not complete for the current candidate")
                 self._revalidate_electorate(state)
                 state["phase_before_approval"] = "final_call"
                 return self._approval_effect(state, round_id, actor_id)
@@ -626,6 +633,7 @@ class ConsensusShell:
 
         def updater(state, res, ctx, sm, ledger, c, fence):
             if res.acks_dropped:
+                ledger.invalidate("correction/new dissent")
                 state["ack_ledger"] = {}
             if res.fresh_votes_required:
                 # A correction invalidates the candidate: every vote and concern is void.
@@ -660,6 +668,7 @@ class ConsensusShell:
             if state["phase"] == "approved":
                 state["revocations"] = list(state.get("revocations", [])) + ["RevocationRecorded"]
             elif res.acks_dropped:
+                apply_retraction(ledger, c, authorized=False)  # drops every bound ACK
                 state["ack_ledger"] = {}
             return None
 
