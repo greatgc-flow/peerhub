@@ -59,12 +59,14 @@ class ConsensusVoteCommand(Command[Any]):
     envelope, not from params, for the same reason."""
 
     def encode_params(self) -> Mapping[str, JsonValue]:
-        return {
+        params: dict[str, JsonValue] = {
             "round_id": self.round_id,
             "actor_id": self.actor_id,
             "choice": self.choice,
-            "expected_revision": self.expected_revision,
         }
+        if self.expected_revision is not None:  # wire shape unchanged unless supplied
+            params["expected_revision"] = self.expected_revision
+        return params
 
     @classmethod
     def decode_result(cls, value: Mapping[str, JsonValue]) -> Any:
