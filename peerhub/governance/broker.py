@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Protocol
+from collections.abc import Callable, Sequence
+from typing import Any, Protocol
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -313,11 +313,45 @@ class GovernanceBroker:
                 "governance-linked outbox event"
             )
 
+    def lookup_replay(
+        self,
+        client_id: str,
+        command_type: str,
+        idempotency_key: str,
+    ) -> MutationSubmission | None:
+        """Return the stored receipt of an already committed public command."""
+
+        # The read-only unit has no command-binding lookup; a write unit that
+        # is never committed is rolled back on exit and changes nothing.
+        with self._store.unit_of_work() as unit:
+            binding = unit.get_command_binding(
+                client_id, command_type, idempotency_key
+            )
+            if binding is None:
+                return None
+            receipt = unit.get_transition_receipt(binding.receipt_id)
+            if receipt is None:
+                raise RuntimeError(
+                    "idempotency binding references a missing transition receipt"
+                )
+            return MutationSubmission(
+                disposition=MutationDisposition.IDEMPOTENCY_HIT,
+                receipt=receipt,
+            )
+
     def submit(
         self,
         request: MutationRequest,
+        *,
+        precondition: Callable[[Any], None] | None = None,
     ) -> MutationSubmission:
-        """Commit a mutation or return its stored idempotent receipt."""
+        """Commit a mutation or return its stored idempotent receipt.
+
+        ``precondition(unit)`` runs inside the committing transaction (after
+        the idempotency check, before the target CAS) so callers can validate
+        state that must not change between their read and the commit; any
+        exception it raises aborts the submission with nothing written.
+        """
 
         payload_digest = mutation_payload_digest(request)
 
@@ -348,6 +382,9 @@ class GovernanceBroker:
                     ),
                     receipt=receipt,
                 )
+
+            if precondition is not None:
+                precondition(unit)
 
             current = unit.get_target(request.target_id)
             validate_expected_revision(request, current)

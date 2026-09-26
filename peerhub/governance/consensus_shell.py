@@ -1,3 +1,4 @@
+import dataclasses
 import hashlib
 from typing import Optional, Sequence, Dict, Any
 
@@ -25,12 +26,22 @@ def candidate_state_hash(state: Dict[str, Any]) -> str:
     return "sha256:" + hashlib.sha256(canonical_json_bytes(basis)).hexdigest()
 
 
+AUTHORITY_TARGET_ID = "system:authority-version"
+
+
 class BrokerAuthorityVersionStore(AuthorityVersionStore):
     def __init__(self, broker: GovernanceBroker) -> None:
         self._broker = broker
 
     def read_version(self) -> int:
         target = self._broker.get_target("system:authority-version")
+        if target is None:
+            return 1
+        return int(target.state.get("version", target.revision + 1))
+
+    def read_version_in(self, unit: Any) -> int:
+        """Read the live version inside the caller's (committing) transaction."""
+        target = unit.get_target(AUTHORITY_TARGET_ID)
         if target is None:
             return 1
         return int(target.state.get("version", target.revision + 1))
@@ -149,8 +160,18 @@ class ConsensusShell:
         event_factory,
         state_updater,
         expected_revision: Optional[int] = None,
-        credential_id: Optional[str] = None
+        credential_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Any:
+        # A public command is identified by (operation, round, actor, client key):
+        # a durable replay returns the stored receipt without re-evaluating.
+        scoped_key = None
+        if idempotency_key is not None:
+            scoped_key = f"{round_id}:{actor_id}:{idempotency_key}"
+            replay = self._broker.lookup_replay("consensus_shell", operation, scoped_key)
+            if replay is not None:
+                return replay
+
         target = self._broker.get_target(round_id)
         if not target:
             raise ValueError(f"Round not found: {round_id}")
@@ -212,8 +233,8 @@ class ConsensusShell:
                 raise
         
         fence = AuthorityFence(self._authority_store)
-        fence.check(expected_auth_ver)
-        
+        fence.check(expected_auth_ver)  # fast fail; the committing txn re-validates below
+
         state["phase"] = res.new_phase
         
         effect = state_updater(state, res, ctx, sm, ledger, c, fence)
@@ -231,14 +252,36 @@ class ConsensusShell:
             desired_state=state,
             effect_intent=effect
         )
-        return self._broker.submit(req)
+        if scoped_key is not None:
+            req = dataclasses.replace(req, idempotency_key=scoped_key)
+        submission = self._broker.submit(
+            req, precondition=self._authority_precondition(expected_auth_ver)
+        )
+        if operation == "retraction" and state["phase"] == "approved":
+            # Post-authorization retraction: recorded, and future work is fenced.
+            fence.bump_for("revocation")
+        return submission
+
+    def _authority_precondition(self, expected_version: int):
+        """Authority validation that runs inside the committing broker txn."""
+        reader = getattr(self._authority_store, "read_version_in", None)
+        if reader is None:
+            return None
+
+        def check(unit: Any) -> None:
+            live = reader(unit)
+            if live != expected_version:
+                raise StaleAuthorityError(f"Expected {expected_version}, got {live}")
+
+        return check
 
     def final_call_ack(
         self,
         round_id: str,
         actor_id: str,
         expected_revision: Optional[int] = None,
-        credential_id: Optional[str] = None
+        credential_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Any:
         from peerhub.governance.consensus import AckNackEvent
         
@@ -269,7 +312,8 @@ class ConsensusShell:
                 return EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
 
         return self._process_event(
-            round_id, actor_id, "final_call_ack", event_factory, updater, expected_revision, credential_id
+            round_id, actor_id, "final_call_ack", event_factory, updater, expected_revision, credential_id,
+            idempotency_key,
         )
 
     def cast_vote(
@@ -278,7 +322,8 @@ class ConsensusShell:
         actor_id: str,
         choice: str,
         expected_revision: Optional[int] = None,
-        credential_id: Optional[str] = None
+        credential_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
     ) -> Any:
         from peerhub.governance.consensus import VoteEvent, QuorumMetEvent
         
@@ -303,10 +348,11 @@ class ConsensusShell:
                 state["phase"] = q_res.new_phase
 
         return self._process_event(
-            round_id, actor_id, "cast_vote", event_factory, updater, expected_revision, credential_id
+            round_id, actor_id, "cast_vote", event_factory, updater, expected_revision, credential_id,
+            idempotency_key,
         )
 
-    def correction(self, round_id: str, actor_id: str) -> Any:
+    def correction(self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None) -> Any:
         from peerhub.governance.consensus import CorrectionEvent
         
         def event_factory(state, state_hash):
@@ -317,10 +363,11 @@ class ConsensusShell:
                 state["ack_ledger"] = {}
 
         return self._process_event(
-            round_id, actor_id, "correction", event_factory, updater
+            round_id, actor_id, "correction", event_factory, updater,
+            idempotency_key=idempotency_key,
         )
 
-    def retraction(self, round_id: str, actor_id: str) -> Any:
+    def retraction(self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None) -> Any:
         from peerhub.governance.consensus import RetractionEvent
         
         def event_factory(state, state_hash):
@@ -328,16 +375,18 @@ class ConsensusShell:
             
         def updater(state, res, ctx, sm, ledger, c, fence):
             if state["phase"] == "approved":
-                fence.bump_for("revocation")
+                # The fence bump happens right after the commit (see _process_event)
+                # so this command's own version check is not invalidated by it.
                 state["revocations"] = list(state.get("revocations", [])) + ["RevocationRecorded"]
             elif res.acks_dropped:
                 state["ack_ledger"] = {}
 
         return self._process_event(
-            round_id, actor_id, "retraction", event_factory, updater
+            round_id, actor_id, "retraction", event_factory, updater,
+            idempotency_key=idempotency_key,
         )
 
-    def mark_timeout(self, round_id: str, actor_id: str) -> Any:
+    def mark_timeout(self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None) -> Any:
         from peerhub.governance.consensus import TimeoutEvent
         
         def event_factory(state, state_hash):
@@ -348,10 +397,11 @@ class ConsensusShell:
                 state["timeout_evidence"] = {"actor_id": actor_id, "recorded_at": self._clock.now()}
 
         return self._process_event(
-            round_id, actor_id, "mark_timeout", event_factory, updater
+            round_id, actor_id, "mark_timeout", event_factory, updater,
+            idempotency_key=idempotency_key,
         )
 
-    def abandon(self, round_id: str, actor_id: str) -> Any:
+    def abandon(self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None) -> Any:
         from peerhub.governance.consensus import AbandonEvent
         
         def event_factory(state, state_hash):
@@ -361,7 +411,8 @@ class ConsensusShell:
             pass
 
         return self._process_event(
-            round_id, actor_id, "abandon", event_factory, updater
+            round_id, actor_id, "abandon", event_factory, updater,
+            idempotency_key=idempotency_key,
         )
 
     def process_consensus_effects(self, round_id: str, *, owner_id: Optional[str] = None) -> tuple:
