@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, cast
 
+from peerhub.application.consultation_gate import evaluate_consultation
 from peerhub.application.ingress import InputContractError, resolve_prompt_input
 from peerhub.cli.context import resolve_workspace
 from peerhub.cli.parser import add_json_arg, add_workspace_arg, help_epilog_kwargs
@@ -82,6 +83,14 @@ def register_daily_commands(
         "--peers", default="ag,cx", help="Comma-separated list of peers (default: ag,cx)"
     )
     broadcast_parser.add_argument(
+        "--effort-hint", default=None,
+        help="Declared work shape (a key of routing.preference_map), applied per target peer",
+    )
+    broadcast_parser.add_argument(
+        "--effort-routing", default=None, choices=("off", "advisory", "opt-in"),
+        help="Override routing.effort_routing for this call (default from policy: advisory)",
+    )
+    broadcast_parser.add_argument(
         "-t", "--capability-tier", default="READ_ONLY", choices=capability_tier_names,
         help="Required downstream capability tier",
     )
@@ -137,12 +146,32 @@ def register_ask_command(
 def route_ask_profile(
     parsed: argparse.Namespace, cli: ModuleType, workspace_root: Path, paths: Any
 ) -> str | None:
-    """Apply the declared ``--effort-hint`` (R4 2.8); returns the profile id to dispatch with."""
+    """Apply the declared ``--effort-hint`` (R4 2.8) for ``ask``."""
 
-    hint = getattr(parsed, "effort_hint", None)
-    override = getattr(parsed, "effort_routing", None)
+    return route_profile(
+        peer=str(parsed.peer),
+        explicit_profile=cast("str | None", parsed.profile),
+        hint=getattr(parsed, "effort_hint", None),
+        override=getattr(parsed, "effort_routing", None),
+        cli=cli, workspace_root=workspace_root, paths=paths, action="ask",
+    )
+
+
+def route_profile(
+    *,
+    peer: str,
+    explicit_profile: str | None,
+    hint: str | None,
+    override: str | None,
+    cli: ModuleType,
+    workspace_root: Path,
+    paths: Any,
+    action: str,
+) -> str | None:
+    """Apply the declared hint for one dispatch target; returns the profile id to dispatch with."""
+
     if hint is None and override is None:
-        return cast("str | None", parsed.profile)
+        return explicit_profile
 
     from peerhub.adapters.registry import _CLI_ALIASES, resolve_peer_adapter  # pyright: ignore[reportPrivateUsage]
     from peerhub.application.config_paths import (
@@ -150,19 +179,23 @@ def route_ask_profile(
         resolve_workspace_config_home,
     )
     from peerhub.application.effort_routing import EffortRoutingError, decide_profile
+    from peerhub.core.errors import ConfigurationError
     from peerhub.dispatch.policy_resolver import PolicyResolver
     from peerhub.health.contract import AdmissionState, AvailabilityState
 
-    peer_key = str(parsed.peer).strip()
+    peer_key = peer.strip()
     if peer_key not in _CLI_ALIASES:
-        return cast("str | None", parsed.profile)  # the ask path reports the unsupported peer itself
+        return explicit_profile  # the dispatch path reports the unsupported peer itself
     peer_kind = _CLI_ALIASES[peer_key]
     resolver = PolicyResolver(
         resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
         resolve_global_config_home().path / "dispatch-policy.toml",
     )
     overrides = {"routing": {"effort_routing": override}} if override is not None else None
-    routing = resolver.resolve("ask", cli_overrides=overrides).routing
+    try:
+        routing = resolver.resolve(action, cli_overrides=overrides).routing
+    except ConfigurationError as error:
+        raise ValueError(f"invalid dispatch policy: {error}") from error
     registered = {p.profile_id for p in resolve_peer_adapter(peer_kind).descriptor.profiles}
 
     runtime_cm: Any = None
@@ -197,7 +230,7 @@ def route_ask_profile(
     try:
         decision = decide_profile(
             peer_kind=peer_kind,
-            explicit_profile=parsed.profile,
+            explicit_profile=explicit_profile,
             hint=hint,
             mode=routing.effort_routing,
             preference_map=routing.preference_map,
@@ -209,7 +242,7 @@ def route_ask_profile(
         if runtime_cm is not None:
             runtime_cm.__exit__(None, None, None)
     if decision.note:
-        print(f"peerhub ask: {decision.note}", file=cli.sys.stderr)
+        print(f"peerhub {action}: {decision.note}", file=cli.sys.stderr)
     return decision.profile_id
 
 
@@ -245,6 +278,9 @@ def run_ask(
             return guard_code
         is_first_init = not paths.database_path.exists()
         prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
+        gate = evaluate_consultation(workspace_root, "ask")
+        if gate.note:
+            print(f"peerhub ask: {gate.note}", file=cli.sys.stderr)
         routed_profile = route_ask_profile(parsed, cli, workspace_root, paths)
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
@@ -642,11 +678,26 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
         clock=cli.SystemClock(),
         ids=cli.UuidSource(),
     )
-    targets: list[tuple[str, str | None]] = [
-        (str(peer.strip()), None)
-        for peer in parsed.peers.split(",")
-        if peer.strip()
-    ]
+    try:
+        gate = evaluate_consultation(workspace_root, "broadcast")
+        if gate.note:
+            print(f"peerhub broadcast: {gate.note}", file=cli.sys.stderr)
+        targets: list[tuple[str, str | None]] = [
+            (
+                str(peer.strip()),
+                route_profile(
+                    peer=str(peer.strip()), explicit_profile=None,
+                    hint=getattr(parsed, "effort_hint", None),
+                    override=getattr(parsed, "effort_routing", None),
+                    cli=cli, workspace_root=workspace_root, paths=paths, action="broadcast",
+                ),
+            )
+            for peer in parsed.peers.split(",")
+            if peer.strip()
+        ]
+    except ValueError as error:
+        print(f"peerhub broadcast: {error}", file=cli.sys.stderr)
+        return 2
     resolved_targets = tuple(cli.resolve_peer_target(peer, profile_id=profile) for peer, profile in targets)
     admission_config = cli.build_broadcast_admission_config(
         resolved_targets, clock=context.clock, ids=context.ids

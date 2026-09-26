@@ -12,6 +12,10 @@ default_depth = "quorum"
 "consensus.propose" = "quorum"
 "task.create" = "quorum" # Aligned with actual intended defaults
 "lesson.inject" = "notify"
+# Ordinary ask/broadcast: "Configured, minimum none" (R4 2.1 purposes table); everyday queries
+# must not block on a quorum round.
+"ask" = "none"
+"broadcast" = "none"
 # Actions not listed here use default_depth.
 
 [consensus]
@@ -45,7 +49,8 @@ effort_routing = "advisory" # off | advisory | opt-in
 [routing.preference_map]
 # Maps hint strings to an ordered list of profile binding IDs
 "deep" = ["ag.deepthink", "cc.deepthink", "cx.deepthink"]
-"fast" = ["cx.flash", "cc.flash"]
+"standard" = ["cx.standard", "cc.standard", "ag.standard"]
+"effort" = ["cx.effort", "cc.effort", "ag.effort"]
 
 [transport]
 # Maximum inline prompt size (bytes) before staging to file
