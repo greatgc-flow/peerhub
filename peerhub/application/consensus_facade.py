@@ -83,6 +83,7 @@ class ConsensusFacade:
         verified_required: bool = False,
         origin: str | None = None,
         action: str | None = None,
+        idempotency_key: str | None = None,
     ):
         if not self._is_v2_active():
             return self._legacy.propose(
@@ -99,6 +100,7 @@ class ConsensusFacade:
             round_id, title, question, body, proposer_id, required_participants,
             eligible_participants, risk, source_hash, config,
             origin=origin, action=action, verified_required=verified_required,
+            idempotency_key=idempotency_key,
         )
 
     # -- routed mutations ---------------------------------------------------------

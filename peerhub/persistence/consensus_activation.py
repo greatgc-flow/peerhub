@@ -113,6 +113,16 @@ def activate_consensus_v2(
 
 
 def read_activation_state(connection: sqlite3.Connection) -> str:
+    tables = {
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name IN ('consensus_targets', 'consensus_activation')"
+        ).fetchall()
+    }
+    if tables != {"consensus_targets", "consensus_activation"}:
+        return "inconsistent"
+
     triggers_query = connection.execute(
         "SELECT name FROM sqlite_master WHERE type='trigger' AND name IN ('consensus_v2_guard_insert', 'consensus_v2_guard_update', 'consensus_v2_guard_delete', 'consensus_v2_guard_effect_claim')"
     ).fetchall()
@@ -134,7 +144,13 @@ def read_activation_state(connection: sqlite3.Connection) -> str:
         current_epoch = identity[0] if type(identity) is tuple else identity["activation_epoch"]
 
     if activated == 1:
-        if has_all_triggers and meta_epoch is not None and meta_epoch == current_epoch:
+        # A later restore/clone legitimately advances the epoch; it can never go back.
+        if (
+            has_all_triggers
+            and meta_epoch is not None
+            and current_epoch is not None
+            and current_epoch >= meta_epoch
+        ):
             return "activated"
         return "inconsistent"
     elif activated == 0:

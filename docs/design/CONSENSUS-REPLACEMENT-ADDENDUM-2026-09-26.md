@@ -76,6 +76,31 @@ The frozen round snapshot comes from the layered dispatch policy
 (`ConsensusPolicyProvider`: defaults < global < workspace `dispatch-policy.toml`); an unreadable or
 invalid layer is a `ConfigurationError`. Proposals are always strict unanimous of the electorate.
 
+## A7. Re-audit fixes (cx.astra, HEAD 344dd1e -> batch D)
+* **Authority change = re-authorization, not a dead end.** The global authority version still fences
+  every commit inside its transaction, but a round whose stored version is stale is re-authorized:
+  the whole electorate is revalidated (fail closed) and the version refreshed before the command
+  commits against the live value. Remedial operations (escalation, dissent rejection, timeout,
+  resolve, abandon) skip only the health revalidation. A version bump *between* the shell's read and
+  its commit is still rejected by the transaction precondition. One unrelated revocation therefore no
+  longer strands every open round.
+* Approval via `resolve` is refused while a blocking NACK or unresolved dissent is held; earlier ACK
+  holders' credentials are re-verified by the completing ACK; unknown NACK types are rejected by the
+  core (they previously fell through to "approve") and by the shell.
+* A revoked approval's invariant effect is recorded `EFFECT_FAILED` (evidence `revoked:<round>`) and
+  never materializes; proposal reconciliation does not project a revoked approval.
+* `submit_atomic` replay compares the primary request's payload digest; creation is idempotent
+  (`propose_v2(idempotency_key=...)`, digest stored in the round); the command log is no longer
+  capped (eviction broke replay); the public vote command carries `expected_revision`.
+* The policy loader raises `ConfigurationError` on an unreadable layer (only a missing file is
+  "absent"); the activation probe requires both V2 tables and accepts a *later* epoch (restore/clone
+  advance it) but never an earlier one; effect discovery pages past the bounded window
+  (`broker.recover_all_pending_effects`), including proposal reconciliation; a fresh V2 round carries
+  the `quorum` block the CLI prints.
+* Unchanged legacy parity: timeout evidence's policy-reevaluation flag and generic
+  `process_consensus_effects` have no consumer/worker in V1 either; wiring a scheduler is a separate
+  operational task.
+
 ## Still open (not implemented)
 Real-DB inventory/rehearsal runbook;
 migration tool for held V1 rounds; the unused pure helpers listed in the audit

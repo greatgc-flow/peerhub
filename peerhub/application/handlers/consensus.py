@@ -63,6 +63,14 @@ def register_consensus_handlers(
     idempotency_read_only = IdempotencyPolicy.READ_ONLY
     available = CommandAvailability.AVAILABLE
 
+    def _optional_revision(params: Mapping[str, Any]) -> int | None:
+        revision = params.get("expected_revision")
+        if revision is not None and (
+            not isinstance(revision, int) or isinstance(revision, bool)
+        ):
+            raise ValueError("expected_revision must be an integer or null")
+        return revision
+
     def decode_propose(envelope: CommandEnvelope) -> ConsensusProposeCommand:
         params = envelope.params
         return ConsensusProposeCommand(
@@ -87,6 +95,7 @@ def register_consensus_handlers(
             str(params["actor_id"]),
             str(params["choice"]),
             credential_id=envelope.credential_id,
+            expected_revision=_optional_revision(params),
         )
 
     def decode_check(envelope: CommandEnvelope) -> ConsensusCheckCommand:
@@ -118,6 +127,7 @@ def register_consensus_handlers(
             risk=command.risk,
             source_hash=command.source_hash,
             verified_required=command.verified_required,
+            idempotency_key=command.submission.idempotency_key,
         ),
         receipt,
         available,
@@ -133,6 +143,7 @@ def register_consensus_handlers(
             actor_id=command.actor_id,
             choice=command.choice,
             credential_id=command.credential_id,
+            expected_revision=command.expected_revision,
             idempotency_key=command.submission.idempotency_key,
         ),
         receipt,

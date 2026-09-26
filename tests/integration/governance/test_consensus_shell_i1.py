@@ -19,6 +19,26 @@ class FakeHealthPort(HealthIdentityPort):
 def fake_verifier(credential_id: str, claimed_actor_id: str) -> bool:
     return credential_id.startswith("valid")
 
+
+def arm_authority_race(broker, authority_store):
+    """Authority changes AFTER the shell's own checks, exactly once, just before its commit.
+
+    The committing transaction's precondition (not any earlier check) must reject it and
+    nothing may be written. A bump that happened BEFORE the command is a re-authorization
+    (revalidate the electorate, refresh the version) -- see test_consensus_audit2_regressions.
+    """
+    real_submit = broker.submit
+    fired = {"done": False}
+
+    def submit(req, **kw):
+        if not fired["done"]:
+            fired["done"] = True
+            broker.submit = real_submit
+            authority_store.increment()
+        return real_submit(req, **kw)
+
+    broker.submit = submit
+
 @pytest.fixture
 def test_env(tmp_path: Path):
     store = SqliteStateStore(tmp_path / "shell.sqlite3", workspace_home_id="test-shell")
@@ -137,7 +157,7 @@ def test_final_call_ack_raises_stale_authority_error_on_increment(test_env):
     shell, broker, authority_store, _ = test_env
     inject_final_call_state(broker, "round-stale")
     
-    authority_store.increment()
+    arm_authority_race(broker, authority_store)
     
     with pytest.raises(StaleAuthorityError):
         shell.final_call_ack("round-stale", "peer-1")
@@ -163,7 +183,7 @@ def test_failed_ack_writes_nothing(test_env):
     shell, broker, authority_store, _ = test_env
     inject_final_call_state(broker, "round-nowrite")
     before = broker.get_target("round-nowrite")
-    authority_store.increment()
+    arm_authority_race(broker, authority_store)
     with pytest.raises(StaleAuthorityError):
         shell.final_call_ack("round-nowrite", "peer-1")
     with pytest.raises(AuthorizationError):

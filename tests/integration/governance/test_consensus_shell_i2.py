@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Optional
 
 from peerhub.persistence.sqlite import SqliteStateStore
+from tests.integration.governance.test_consensus_shell_i1 import arm_authority_race
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.consensus_shell import ConsensusShell, BrokerAuthorityVersionStore
 from fakes import FakeClock, FakeIdSource
@@ -134,7 +135,7 @@ def test_cast_vote_fails_closed_for_non_frozen_actor_with_no_write(test_env):
 def test_cast_vote_fails_for_stale_authority_with_no_write(test_env):
     shell, broker, authority_store, _ = test_env
     inject_state(broker, "round-vote-4", "voting")
-    authority_store.increment()
+    arm_authority_race(broker, authority_store)
     before = broker.get_target("round-vote-4")
     
     with pytest.raises(StaleAuthorityError):
@@ -171,7 +172,7 @@ def test_correction_fails_closed_for_non_frozen_actor(test_env):
 def test_correction_fails_for_stale_authority(test_env):
     shell, broker, authority_store, _ = test_env
     inject_state(broker, "round-corr-3", "final_call")
-    authority_store.increment()
+    arm_authority_race(broker, authority_store)
     before = broker.get_target("round-corr-3")
     
     with pytest.raises(StaleAuthorityError):
@@ -223,7 +224,7 @@ def test_retraction_fails_closed_for_non_frozen_actor(test_env):
 def test_retraction_fails_for_stale_authority(test_env):
     shell, broker, authority_store, _ = test_env
     inject_state(broker, "round-ret-4", "final_call")
-    authority_store.increment()
+    arm_authority_race(broker, authority_store)
     before = broker.get_target("round-ret-4")
     
     with pytest.raises(StaleAuthorityError):
@@ -261,7 +262,7 @@ def test_mark_timeout_fails_closed_for_non_frozen_actor(test_env):
 def test_mark_timeout_fails_for_stale_authority(test_env):
     shell, broker, authority_store, _ = test_env
     inject_state(broker, "round-timeout-3", "voting")
-    authority_store.increment()
+    arm_authority_race(broker, authority_store)
     before = broker.get_target("round-timeout-3")
     
     with pytest.raises(StaleAuthorityError):
@@ -302,7 +303,7 @@ def test_abandon_fails_closed_for_non_frozen_actor(test_env):
 def test_abandon_fails_for_stale_authority(test_env):
     shell, broker, authority_store, _ = test_env
     inject_state(broker, "round-abandon-3", "voting")
-    authority_store.increment()
+    arm_authority_race(broker, authority_store)
     before = broker.get_target("round-abandon-3")
     
     with pytest.raises(StaleAuthorityError):

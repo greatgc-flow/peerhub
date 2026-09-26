@@ -52,6 +52,7 @@ class ConsensusVoteCommand(Command[Any]):
     actor_id: str
     choice: str
     credential_id: str | None = None
+    expected_revision: int | None = None
     """Not encoded into wire params -- carried on CommandEnvelope.credential_id
     instead (R4/P4b gateway verification), matching how the gateway's
     GovernanceAuthorizer reads it. decode_vote reads it back from the
@@ -62,6 +63,7 @@ class ConsensusVoteCommand(Command[Any]):
             "round_id": self.round_id,
             "actor_id": self.actor_id,
             "choice": self.choice,
+            "expected_revision": self.expected_revision,
         }
 
     @classmethod

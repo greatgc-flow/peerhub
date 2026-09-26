@@ -23,8 +23,10 @@ def _load_toml(path: Path) -> Dict[str, Any]:
         return {}
     try:
         raw_bytes = path.read_bytes()
-    except OSError:
+    except FileNotFoundError:
         return {}
+    except OSError as e:  # unreadable is NOT absent: never silently fall back to defaults
+        raise ConfigurationError(f"Config file {path} could not be read: {e}") from e
 
     try:
         text = raw_bytes.decode("utf-8")

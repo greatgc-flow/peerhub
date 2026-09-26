@@ -313,6 +313,16 @@ class GovernanceBroker:
                 "governance-linked outbox event"
             )
 
+    def recover_all_pending_effects(self) -> tuple[PendingEffect, ...]:
+        """Every unfinished governance effect (pages through the bounded discovery)."""
+
+        limit = 100
+        while True:
+            found = self.recover_pending_effects(limit=limit)
+            if len(found) < limit or limit >= 1_000_000:
+                return found
+            limit *= 4
+
     def _stage_mutation(
         self,
         unit: Any,
@@ -413,6 +423,12 @@ class GovernanceBroker:
                 first.client_id, first.command_type, first.idempotency_key
             )
             if binding is not None:
+                # Replay identity is the PRIMARY (first) request's semantics; companion
+                # requests (e.g. an authority bump derived from live state) are excluded.
+                if binding.payload_digest != mutation_payload_digest(first):
+                    raise IdempotencyPayloadMismatchError(
+                        first.client_id, first.command_type, first.idempotency_key
+                    )
                 receipt = unit.get_transition_receipt(binding.receipt_id)
                 if receipt is None:
                     raise RuntimeError(

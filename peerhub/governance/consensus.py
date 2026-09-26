@@ -934,6 +934,8 @@ class ConsensusStateMachine:
             return TransitionResult(new_phase="final_call", cosmetic_logged=True)
         if event.nack_type == "terminal_rejection":
             return TransitionResult(new_phase="rejected", terminal_rejection=True)
+        if event.nack_type is not None:
+            raise InvalidMutationError(f"Unknown NACK type: {event.nack_type!r}")
         # ACK: approve only once every required participant has a bound ACK
         # for the current candidate (empty required set fails closed).
         acked = ctx.bound_ack_participants | {event.actor}

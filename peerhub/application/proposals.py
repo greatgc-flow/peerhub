@@ -477,7 +477,7 @@ class ProposalCoordinator:
         event_ids: list[str] = []
         if preferred_event_id is not None:
             event_ids.append(preferred_event_id)
-        for pending in self._broker.recover_pending_effects(limit=1000):
+        for pending in self._broker.recover_all_pending_effects():
             event = pending.event
             if (
                 event.event_id not in event_ids
@@ -622,6 +622,9 @@ class ProposalCoordinator:
             if target.state.get("status") == "resolved":
                 resolution = self._mapping(target.state, "resolution")
                 request_target_id = None
+                if target.state.get("revocations"):
+                    # A revoked approval never projects its invariant request.
+                    return self._result(target, voter=voter, choice=choice)
                 if resolution.get("outcome") == "approved":
                     request_target_id = self._project_approved_request(target)
                 return self._result(
