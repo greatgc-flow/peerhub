@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Optional, Set, Literal
 
 from peerhub.core.errors import SchemaError
-from peerhub.governance.policy_snapshot import ConfigurationError
 
 @dataclass(frozen=True)
 class MigrationDisposition:

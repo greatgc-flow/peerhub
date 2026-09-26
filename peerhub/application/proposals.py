@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
 import re
-from typing import cast
+from typing import Any, cast
 
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.config_layers import load_json_layer, merge_layers
@@ -27,7 +27,7 @@ from peerhub.core.errors import (
 )
 from peerhub.core.protocol import JsonValue, require_text
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.consensus import ConsensusService
+from peerhub.governance.consensus_port import ConsensusPort
 from peerhub.governance.contract import EffectIntent, TargetState
 from peerhub.governance.invariant_requests import (
     RATIFIED_INVARIANT_EFFECT_KIND,
@@ -129,16 +129,18 @@ PROPOSAL_SYSTEM_PRINCIPALS = frozenset(
 )
 
 
-def make_v2_ratified_effect_factory(clock: Clock):
+def make_v2_ratified_effect_factory(
+    clock: Clock,
+) -> Callable[[dict[str, Any], str, str], EffectIntent]:
     """Approval effect for V2 proposal rounds (mirrors ProposalCoordinator._approval_effect).
 
     Called by ConsensusShell inside the approving submission; ``state["_rev"]``
     is the revision being replaced, so the request records revision + 1.
     """
 
-    def factory(state, round_id: str, actor_id: str) -> EffectIntent:
-        proposal = state["proposal"]
-        body = require_text(proposal.get("body"), "proposal.body")
+    def factory(state: dict[str, Any], round_id: str, actor_id: str) -> EffectIntent:
+        proposal = cast(dict[str, Any], state["proposal"])
+        body = require_text(cast(str, proposal.get("body")), "proposal.body")
         marker_index = body.find(_CHANGES_MARKER)
         if marker_index < 0:
             raise InvalidMutationError("proposal body lacks the canonical Changes section")
@@ -149,11 +151,11 @@ def make_v2_ratified_effect_factory(clock: Clock):
             "round_id": round_id,
             "approved_revision": int(state["_rev"]) + 1,
             "decision_hash": decision_hash,
-            "proposer_id": require_text(proposal.get("proposer_id"), "proposal.proposer_id"),
-            "title": require_text(proposal.get("title"), "proposal.title"),
-            "question": require_text(proposal.get("question"), "proposal.question"),
+            "proposer_id": require_text(cast(str, proposal.get("proposer_id")), "proposal.proposer_id"),
+            "title": require_text(cast(str, proposal.get("title")), "proposal.title"),
+            "question": require_text(cast(str, proposal.get("question")), "proposal.question"),
             "body": body,
-            "source_hash": require_text(proposal.get("source_hash"), "proposal.source_hash"),
+            "source_hash": require_text(cast(str, proposal.get("source_hash")), "proposal.source_hash"),
             "participants": state["participants"],
             "votes": state["votes"],
             "proposed_invariant_text": body[marker_index + len(_CHANGES_MARKER):],
@@ -190,7 +192,7 @@ class ProposalCoordinator:
     def __init__(
         self,
         broker: GovernanceBroker,
-        consensus: ConsensusService,
+        consensus: ConsensusPort,
         *,
         peer_registry: PeerRegistryService,
         health: HealthService,

@@ -8,7 +8,8 @@ precondition re-validates the authority version inside the committing txn.
 
 import dataclasses
 import hashlib
-from typing import Any, Callable, Dict, Optional, Sequence
+from collections.abc import Mapping
+from typing import Any, Callable, Dict, Optional, Sequence, cast
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -29,7 +30,7 @@ from peerhub.governance.authorization import (
     CredentialVerifier,
     HealthIdentityPort,
 )
-from peerhub.governance.broker import GovernanceBroker
+from peerhub.governance.broker import GovernanceBroker, PendingEffect
 from peerhub.governance.candidate import AckLedger, Candidate, apply_retraction
 from peerhub.governance.consensus import (
     ConsensusStateMachine,
@@ -50,6 +51,8 @@ from peerhub.governance.policy_snapshot import (
 from peerhub.governance.proposal_policy import build_approval_submission, route_effect_kind
 from peerhub.governance.provenance import resolve_provenance
 
+State = Dict[str, Any]
+
 AUTHORITY_TARGET_ID = "system:authority-version"
 TERMINAL_PHASES = ("approved", "rejected", "abandoned")
 
@@ -66,12 +69,12 @@ REAUTH_EXEMPT_OPERATIONS = frozenset(
 NACK_TYPES = ("block", "cosmetic", "terminal_rejection")
 
 
-def eligible_of(state: Dict[str, Any]) -> list:
+def eligible_of(state: Dict[str, Any]) -> list[Any]:
     """Eligible electorate of a round: V1-style participants mapping or a plain list."""
-    participants = state.get("participants", [])
-    if isinstance(participants, dict) or hasattr(participants, "get"):
-        return list(participants.get("eligible", []))
-    return list(participants)
+    participants: Any = state.get("participants", [])
+    if hasattr(participants, "get"):
+        return list(cast(Dict[str, Any], participants).get("eligible", []))
+    return list(cast(list[Any], participants))
 
 
 def candidate_state_hash(state: Dict[str, Any]) -> str:
@@ -81,6 +84,11 @@ def candidate_state_hash(state: Dict[str, Any]) -> str:
         for key in ("policy_snapshot", "proposal", "participants", "frozen_authority_set")
     }
     return "sha256:" + hashlib.sha256(canonical_json_bytes(basis)).hexdigest()
+
+
+def _d(value: Any) -> Dict[str, Any]:
+    """A JSON object field as a typed dict (missing/None -> empty)."""
+    return cast(Dict[str, Any], value or {})
 
 
 def _digest(value: Any) -> str:
@@ -98,6 +106,10 @@ class _SystemAwareHealth:
         if actor_id == self._system_actor:
             return True
         return self._inner.check_health_gate(actor_id, evaluated_at)
+
+
+def _no_state_change(*_args: Any) -> None:
+    return None
 
 
 class BrokerAuthorityVersionStore(AuthorityVersionStore):
@@ -164,7 +176,7 @@ class ConsensusShell:
         health_port: HealthIdentityPort,
         authority_store: AuthorityVersionStore,
         effect_factories: Optional[Dict[str, Any]] = None,
-        system_principals: frozenset = frozenset(),
+        system_principals: frozenset[str] = frozenset(),
     ) -> None:
         # action -> callable(state, round_id, actor_id) -> EffectIntent (approval effect)
         self._effect_factories = dict(effect_factories or {})
@@ -192,8 +204,8 @@ class ConsensusShell:
 
     def _approval_effect(self, state: Dict[str, Any], round_id: str, actor_id: str) -> EffectIntent:
         """Approval effect for this round's action (default: consensus.resolved)."""
-        action = (state.get("policy_snapshot") or {}).get("action") or state.get("action")
-        factory = self._effect_factories.get(action)
+        action: Any = _d(state.get("policy_snapshot")).get("action") or state.get("action")
+        factory = self._effect_factories.get(str(action)) if action else None
         if factory is not None:
             return factory(state, round_id, actor_id)
         candidate = candidate_state_hash(state)
@@ -227,7 +239,7 @@ class ConsensusShell:
         """Terminal bookkeeping in the V1-readable shape: status + resolution incl. decision hash."""
         state["status"] = "resolved" if state["phase"] in ("approved", "rejected") else "abandoned"
         if state["phase"] in ("approved", "rejected"):
-            resolution = dict(state.get("resolution") or {})
+            resolution = dict(_d(state.get("resolution")))
             resolution.setdefault("resolved_by", actor_id)
             resolution["outcome"] = state["phase"]
             resolution["decision_hash"] = candidate_state_hash(state)
@@ -246,7 +258,7 @@ class ConsensusShell:
 
     def _reverify_ack_credentials(self, state: Dict[str, Any], completing_actor: str) -> None:
         """Earlier ACK holders' credentials must still verify when the round is approved."""
-        creds = dict(state.get("ack_credentials") or {})
+        creds = dict(_d(state.get("ack_credentials")))
         for participant in eligible_of(state):
             if participant == completing_actor:
                 continue  # verified by the gate for this very command
@@ -319,7 +331,7 @@ class ConsensusShell:
         )
         expected_authority_version = self._authority_store.read_version()
 
-        state = {
+        state: State = {
             "schema": "peerhub.consensus-round.v2",
             "kind": "consensus-round",
             "round_id": round_id,
@@ -381,8 +393,8 @@ class ConsensusShell:
         round_id: str,
         actor_id: str,
         operation: str,
-        event_factory,
-        state_updater,
+        event_factory: Callable[[State, str], Any],
+        state_updater: Callable[..., Optional[EffectIntent]],
         *,
         expected_revision: Optional[int] = None,
         credential_id: Optional[str] = None,
@@ -393,7 +405,7 @@ class ConsensusShell:
         target = self._broker.get_target(round_id)
         if not target:
             raise RecordNotFoundError("consensus-round", round_id)
-        state = dict(target.state)
+        state: State = dict(cast(Dict[str, Any], target.state))
 
         # Public-command identity: canonical (operation, round, actor, client key).
         scoped_key = None
@@ -403,7 +415,7 @@ class ConsensusShell:
             args_digest = _digest(
                 {"args": command_args or {}, "expected_revision": expected_revision}
             )
-            logged = dict(state.get("command_log") or {})
+            logged = dict(_d(state.get("command_log")))
             if scoped_key in logged:
                 if logged[scoped_key] != args_digest:
                     raise IdempotencyPayloadMismatchError(
@@ -416,14 +428,14 @@ class ConsensusShell:
 
         # Restart consistency (design 4.1): an inconsistent or unversioned frozen
         # snapshot fails closed before anything is evaluated.
-        decode_policy_snapshot(dict(state.get("policy_snapshot") or {}))
+        decode_policy_snapshot(dict(_d(state.get("policy_snapshot"))))
 
         phase = state.get("phase", "voting")
         if phase in TERMINAL_PHASES and not (operation == "retraction" and phase == "approved"):
             raise InvalidMutationError("round is terminal")
         eval_phase = phase_for_eval(state) if phase_for_eval is not None else phase
 
-        snapshot = state.get("policy_snapshot") or {}
+        snapshot = _d(state.get("policy_snapshot"))
         final_call_rule = snapshot.get("final_call_rule")
         mandatory_final_call = bool(snapshot.get("mandatory_final_call", False)) or (
             final_call_rule == "always"
@@ -460,7 +472,7 @@ class ConsensusShell:
         state_hash = candidate_state_hash(state)
         candidate = Candidate(round_id, int(state.get("candidate_revision", 0)), state_hash)
         ledger = AckLedger()
-        for participant in (state.get("ack_ledger") or {}).get(state_hash, []):
+        for participant in _d(state.get("ack_ledger")).get(state_hash, []):
             ledger.bind_ack(candidate, participant)
 
         ctx = EvalContext(
@@ -505,7 +517,7 @@ class ConsensusShell:
             effect = EffectIntent(kind="consensus.noop", payload={})
 
         if scoped_key is not None:
-            log = dict(state.get("command_log") or {})
+            log = dict(_d(state.get("command_log")))
             log[scoped_key] = args_digest
             state["command_log"] = log
 
@@ -550,12 +562,12 @@ class ConsensusShell:
     ) -> Any:
         from peerhub.governance.consensus import AckNackEvent
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return AckNackEvent(
                 candidate_id=state_hash, actor=actor_id, proof=credential_id or "", nack_type=None
             )
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             if res.ack_recorded:
                 ledger.bind_ack(c, actor_id)
             state["ack_ledger"] = {c.target_state_hash: sorted(ledger.acks_for(c))}
@@ -564,7 +576,7 @@ class ConsensusShell:
             dissent = sorted(set(state.get("dissent_obligations") or []) - {actor_id})
             state["barrier_holders"], state["dissent_obligations"] = holders, dissent
             if res.ack_recorded and credential_id is not None:
-                creds = dict(state.get("ack_credentials") or {})
+                creds = dict(_d(state.get("ack_credentials")))
                 creds[actor_id] = credential_id
                 state["ack_credentials"] = creds
             if res.new_phase == "approved":
@@ -600,12 +612,12 @@ class ConsensusShell:
         if nack_type not in NACK_TYPES:
             raise InvalidMutationError(f"nack_type must be one of {NACK_TYPES}")
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return AckNackEvent(
                 candidate_id=state_hash, actor=actor_id, proof=credential_id or "", nack_type=nack_type
             )
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             if res.barrier_held:
                 state["barrier_holders"] = sorted(set(state.get("barrier_holders") or []) | {actor_id})
                 state["barrier_held"] = True
@@ -640,13 +652,13 @@ class ConsensusShell:
             raise InvalidMutationError(
                 "choice must be agree, disagree, abstain, need_more_info or block"
             )
-        if reason is not None and not isinstance(reason, str):
+        if reason is not None and not isinstance(reason, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise InvalidMutationError("reason must be a string or null")
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return VoteEvent(actor=actor_id, choice=choice, credential=credential_id)
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             votes = dict(state.get("votes", {}))
             vote_record = {
                 "choice": choice, "actor_id": actor_id,
@@ -660,7 +672,7 @@ class ConsensusShell:
             votes[actor_id] = vote_record
             state["votes"] = votes
 
-            required_votes = (state.get("policy_snapshot") or {}).get("required_votes")
+            required_votes = _d(state.get("policy_snapshot")).get("required_votes")
             if type(required_votes) is not int or required_votes < 1:
                 raise ConfigurationError("policy snapshot has no valid required_votes")
 
@@ -703,10 +715,10 @@ class ConsensusShell:
     ) -> Any:
         from peerhub.governance.consensus import CorrectionEvent
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return CorrectionEvent(actor=actor_id)
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             if res.acks_dropped:
                 ledger.invalidate("correction/new dissent")
                 state["ack_ledger"] = {}
@@ -716,7 +728,7 @@ class ConsensusShell:
                 state["dissent_obligations"] = []
                 state["barrier_holders"] = []
                 state.pop("barrier_held", None)
-                required = (state.get("policy_snapshot") or {}).get("required_votes")
+                required = _d(state.get("policy_snapshot")).get("required_votes")
                 state["quorum"] = {
                     "reached": False, "counted_votes": 0, "recorded_votes": 0,
                     "decisive_votes": 0, "required_votes": required,
@@ -736,10 +748,10 @@ class ConsensusShell:
     ) -> Any:
         from peerhub.governance.consensus import RetractionEvent
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return RetractionEvent(candidate_id=state_hash, actor=actor_id, proof="")
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             if state["phase"] == "approved":
                 state["revocations"] = list(state.get("revocations", [])) + ["RevocationRecorded"]
             elif res.acks_dropped:
@@ -759,8 +771,8 @@ class ConsensusShell:
     ) -> Any:
         from peerhub.governance.consensus import TimeoutEvent
 
-        def event_factory(state, state_hash):
-            deadlines = (state.get("policy_snapshot") or {}).get("deadlines") or {}
+        def event_factory(state: State, state_hash: str) -> Any:
+            deadlines = _d(_d(state.get("policy_snapshot")).get("deadlines"))
             window = deadlines.get(state.get("phase", "voting"), deadlines.get("voting"))
             deadline = None
             if window is not None:
@@ -771,7 +783,7 @@ class ConsensusShell:
                 requester=actor_id, deadline=float(deadline if deadline is not None else self._clock.now())
             )
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             if res.evidence_recorded:
                 state["timeout_evidence"] = {
                     "actor_id": actor_id,
@@ -792,11 +804,11 @@ class ConsensusShell:
     ) -> Any:
         from peerhub.governance.consensus import AbandonEvent
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return AbandonEvent(reason="abandoned", requesting_actor=actor_id)
 
         return self._process_event(
-            round_id, actor_id, "abandon", event_factory, lambda *a: None,
+            round_id, actor_id, "abandon", event_factory, _no_state_change,
             expected_revision=expected_revision, credential_id=credential_id,
             idempotency_key=idempotency_key, command_args={},
         )
@@ -808,17 +820,17 @@ class ConsensusShell:
         """Reject an open round after verifying a stored eligible dissent (design 6.1 rule 5)."""
         from peerhub.governance.consensus import ResolutionEvent
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             eligible = set(eligible_of(state))
-            votes = state.get("votes", {}) or {}
+            votes = _d(state.get("votes"))
             if not any(
-                voter in eligible and (vote or {}).get("choice") in ("disagree", "block")
+                voter in eligible and _d(vote).get("choice") in ("disagree", "block")
                 for voter, vote in votes.items()
             ):
                 raise InvalidMutationError("no stored eligible dissent to reject on")
             return ResolutionEvent(outcome="rejected", basis="eligible_dissent")
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             state["resolution"] = {"outcome": "rejected", "basis": basis, "resolved_by": actor_id}
             return self._resolution_effect(state, round_id, actor_id, "rejected", basis)
 
@@ -835,17 +847,17 @@ class ConsensusShell:
     ) -> Any:
         from peerhub.governance.consensus import EscalationEvent
 
-        def replacement_deadline(state) -> int:
-            deadlines = (state.get("policy_snapshot") or {}).get("deadlines") or {}
+        def replacement_deadline(state: State) -> int:
+            deadlines = _d(_d(state.get("policy_snapshot")).get("deadlines"))
             return self._clock.now() + int(deadlines.get("escalation", 1800))
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return EscalationEvent(
                 source_phases=[state.get("phase", "voting")],
                 replacement_deadline=float(replacement_deadline(state)),
             )
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             state["escalation"] = {
                 "reason": reason,
                 "requested_by": requester_id,
@@ -874,10 +886,10 @@ class ConsensusShell:
         """
         from peerhub.governance.consensus import ResolutionEvent
 
-        def event_factory(state, state_hash):
+        def event_factory(state: State, state_hash: str) -> Any:
             return ResolutionEvent(outcome=outcome)
 
-        def updater(state, res, ctx, sm, ledger, c, fence):
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
             if outcome == "approved" and (
                 state.get("barrier_holders") or state.get("dissent_obligations")
             ):
@@ -918,7 +930,7 @@ class ConsensusShell:
         target = self._broker.get_target(round_id)
         if not target:
             raise RecordNotFoundError("consensus-round", round_id)
-        state = dict(target.state)
+        state: State = dict(cast(Dict[str, Any], target.state))
         if state.get("status") != "resolved":
             raise InvalidMutationError("arbiter opinions require a resolved consensus round")
         if state.get("arbiter_opinion") is not None:
@@ -948,10 +960,10 @@ class ConsensusShell:
         )
 
     # ------------------------------------------------------------------ effects
-    def _all_unfinished_effects(self) -> list:
+    def _all_unfinished_effects(self) -> list[PendingEffect]:
         return list(self._broker.recover_all_pending_effects())
 
-    def process_consensus_effects(self, round_id: str, *, owner_id: Optional[str] = None) -> tuple:
+    def process_consensus_effects(self, round_id: str, *, owner_id: Optional[str] = None) -> tuple[Any, ...]:
         """Claim and receipt this round's pending consensus effects as the V2 worker.
 
         Only the ``consensus-v2:`` owner prefix passes the activation fence. The
@@ -964,16 +976,19 @@ class ConsensusShell:
         owner = owner_id or f"consensus-v2:{round_id}"
         if not owner.startswith("consensus-v2:"):
             raise ValueError("V2 consensus worker owner must start with 'consensus-v2:'")
-        matching = []
+        matching: list[PendingEffect] = []
         for pending in self._all_unfinished_effects():
             payload = pending.event.payload
             effect_payload = payload.get("effect_payload")
             if not (
                 payload.get("target_id") == round_id
-                or (isinstance(effect_payload, dict) and effect_payload.get("round_id") == round_id)
+                or (
+                    isinstance(effect_payload, Mapping)
+                    and cast(Mapping[str, Any], effect_payload).get("round_id") == round_id
+                )
             ):
                 continue
-            kind = payload.get("effect_kind")
+            kind = str(payload.get("effect_kind"))
             if kind == RATIFIED_INVARIANT_EFFECT_KIND:
                 continue
             if kind != "consensus.noop":
@@ -982,7 +997,7 @@ class ConsensusShell:
             if claimed_by is not None and claimed_by != owner:
                 continue  # owned by another worker
             matching.append(pending)
-        receipts = []
+        receipts: list[Any] = []
         for pending in matching:
             event = pending.event
             attempt_id = (

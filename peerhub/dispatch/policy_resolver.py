@@ -1,9 +1,8 @@
 import copy
-import os
 import time
 import tomllib
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, cast
 
 from peerhub.core.errors import ConfigurationError
 from peerhub.dispatch.policy import (
@@ -42,7 +41,7 @@ def _merge_dicts(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, An
     merged = dict(base)
     for k, v in override.items():
         if isinstance(v, dict) and isinstance(merged.get(k), dict):
-            merged[k] = _merge_dicts(merged[k], v)
+            merged[k] = _merge_dicts(merged[k], cast(Dict[str, Any], v))
         else:
             merged[k] = v
     return merged
@@ -96,12 +95,12 @@ class PolicyResolver:
         telemetry = merged.get("telemetry", {})
 
         # Validation helper
-        def _check_keys(section_dict: Dict[str, Any], expected_keys: set, section_name: str):
+        def _check_keys(section_dict: Dict[str, Any], expected_keys: set[str], section_name: str) -> None:
             for k in section_dict.keys():
                 if k not in expected_keys:
                     raise ConfigurationError(f"Unknown key {k!r} in [{section_name}]")
 
-        def _get(d: dict, k: str, exp_type: type, section_name: str, allow_none: bool = False):
+        def _get(d: Dict[str, Any], k: str, exp_type: type[Any], section_name: str, allow_none: bool = False) -> Any:
             if k not in d:
                 if allow_none:
                     return None
@@ -113,10 +112,11 @@ class PolicyResolver:
 
         # Validate consultation
         _check_keys(consultation, {"default_depth", "overrides"}, "consultation")
-        depth_str = consultation.get("default_depth", "quorum")
-        overrides = consultation.get("overrides", {})
-        if not isinstance(overrides, dict):
+        depth_str: Any = consultation.get("default_depth", "quorum")
+        overrides_raw = consultation.get("overrides", {})
+        if not isinstance(overrides_raw, dict):
             raise ConfigurationError("consultation.overrides must be a dict")
+        overrides = cast(Dict[str, Any], overrides_raw)
         
         if action_name in overrides:
             depth_str = overrides[action_name]

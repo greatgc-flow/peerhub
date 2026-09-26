@@ -91,7 +91,7 @@ def activate_consensus_v2(
         """)
         
         epoch_row = connection.execute("SELECT activation_epoch FROM workspace_identity").fetchone()
-        epoch = epoch_row[0] if type(epoch_row) is tuple else epoch_row["activation_epoch"]
+        epoch: int = epoch_row[0]
         
         if fault_hook: fault_hook("before_metadata")
         
@@ -113,8 +113,8 @@ def activate_consensus_v2(
 
 
 def read_activation_state(connection: sqlite3.Connection) -> str:
-    tables = {
-        row[0]
+    tables: set[str] = {
+        str(row[0])
         for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name IN ('consensus_targets', 'consensus_activation')"
@@ -126,7 +126,7 @@ def read_activation_state(connection: sqlite3.Connection) -> str:
     triggers_query = connection.execute(
         "SELECT name FROM sqlite_master WHERE type='trigger' AND name IN ('consensus_v2_guard_insert', 'consensus_v2_guard_update', 'consensus_v2_guard_delete', 'consensus_v2_guard_effect_claim')"
     ).fetchall()
-    trigger_names = {t[0] if type(t) is tuple else t["name"] for t in triggers_query}
+    trigger_names: set[str] = {str(t[0]) for t in triggers_query}
     has_all_triggers = len(trigger_names) == 4
     has_no_triggers = len(trigger_names) == 0
 
@@ -134,14 +134,11 @@ def read_activation_state(connection: sqlite3.Connection) -> str:
     if not meta:
         return "inconsistent"
     
-    activated = meta[0] if type(meta) is tuple else meta["activated"]
-    meta_epoch = meta[1] if type(meta) is tuple else meta["activation_epoch"]
+    activated: int = meta[0]
+    meta_epoch: int | None = meta[1]
 
     identity = connection.execute("SELECT activation_epoch FROM workspace_identity").fetchone()
-    if not identity:
-        current_epoch = None
-    else:
-        current_epoch = identity[0] if type(identity) is tuple else identity["activation_epoch"]
+    current_epoch: int | None = identity[0] if identity else None
 
     if activated == 1:
         # A later restore/clone legitimately advances the epoch; it can never go back.

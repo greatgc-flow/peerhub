@@ -200,7 +200,7 @@ class QuarantineReviewCoordinator:
         return self._submit(
             target_id=current.target_id,
             expected_revision=current.revision,
-            actor_id=current.state.get("resolved_by", "system"),
+            actor_id=str(current.state.get("resolved_by", "system")),
             operation="quarantine-review.reconcile",
             desired_state=desired_state,
         )
@@ -230,8 +230,8 @@ class QuarantineReviewCoordinator:
                         circuit = self._health.open_manual_quarantine(
                             PolicyScope.PROFILE,
                             profile_id,
-                            reason=target.state.get("reason", "resumed-escalation"),
-                            actor_id=target.state.get("resolved_by", "system"),
+                            reason=str(target.state.get("reason", "resumed-escalation")),
+                            actor_id=str(target.state.get("resolved_by", "system")),
                             requested_at=self._clock.now(),
                         )
                         

@@ -6,7 +6,7 @@ class DispatchOrchestrator:
     def __init__(self):
         pass
 
-    def evaluate(self, policy: DispatchPolicy, action_name: str, risk: str, depth=None, min_depth=None) -> str:
+    def evaluate(self, policy: DispatchPolicy, action_name: str, risk: str, depth: ConsultationDepth | None = None, min_depth: ConsultationDepth | None = None) -> str:
         ranks = {
             ConsultationDepth.NONE: 0,
             ConsultationDepth.NOTIFY: 1,
@@ -16,7 +16,7 @@ class DispatchOrchestrator:
         }
         
         effective_depth = depth
-        if min_depth is not None and ranks.get(min_depth, -1) > ranks.get(depth, -1):
+        if min_depth is not None and ranks.get(min_depth, -1) > (ranks.get(depth, -1) if depth is not None else -1):
             effective_depth = min_depth
 
         if effective_depth == ConsultationDepth.NONE:
@@ -45,7 +45,7 @@ class DispatchOrchestrator:
             
         return "pending"
 
-    def process_quorum_round(self, votes: dict, formula: str, total_voters: int, timed_out: bool = False, proposer_voted: bool = False, non_proposer_voted: bool = True, changed_vote: bool = False) -> str:
+    def process_quorum_round(self, votes: dict[str, int], formula: str, total_voters: int, timed_out: bool = False, proposer_voted: bool = False, non_proposer_voted: bool = True, changed_vote: bool = False) -> str:
         if changed_vote:
             raise InvalidMutationError("Vote cannot be changed at this layer.")
         

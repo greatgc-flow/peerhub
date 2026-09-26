@@ -876,7 +876,7 @@ class ConsensusStateMachine:
             return self._eval_resolution(ctx, event)
         elif isinstance(event, ExceptionalResolutionEvent):
             return self._eval_exceptional_resolution(ctx, event)
-        elif isinstance(event, AbandonEvent):
+        elif isinstance(event, AbandonEvent):  # pyright: ignore[reportUnnecessaryIsInstance]
             return self._eval_abandon(ctx, event)
         else:
             raise ValueError(f"Unknown event: {event}")
@@ -1033,8 +1033,8 @@ class EvalContext:
     caller_identity: str
     frozen_authority_set: frozenset[str]
     current_candidate: typing.Optional[typing.Any] = None
-    bound_ack_participants: frozenset[str] = dataclasses.field(default_factory=frozenset)
-    required_participants: frozenset[str] = dataclasses.field(default_factory=frozenset)
+    bound_ack_participants: frozenset[str] = dataclasses.field(default_factory=frozenset[str])
+    required_participants: frozenset[str] = dataclasses.field(default_factory=frozenset[str])
     arbiter_attachment_recorded: bool = False
 
 @dataclasses.dataclass(frozen=True)

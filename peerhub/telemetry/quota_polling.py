@@ -500,6 +500,7 @@ def poll_codex_usage(
         rate_limits_raw = rate_limits_envelope.get("rateLimits")
         rate_limits_by_id_raw = rate_limits_envelope.get("rateLimitsByLimitId")
 
+        limits_to_process: list[tuple[str, Any]]
         if isinstance(rate_limits_raw, dict):
             # Extract from primary/secondary
             rate_limits = cast(dict[str, Any], rate_limits_raw)
@@ -507,14 +508,14 @@ def poll_codex_usage(
             for key in ("primary", "secondary"):
                 q_limit_raw = rate_limits.get(key)
                 if isinstance(q_limit_raw, dict):
-                    limits_to_process.append((key, q_limit_raw))
+                    limits_to_process.append((key, cast(dict[str, Any], q_limit_raw)))
         elif isinstance(rate_limits_by_id_raw, dict):
             # Fall back to rateLimitsByLimitId
             rate_limits_by_id = cast(dict[str, Any], rate_limits_by_id_raw)
             limits_to_process = []
             for limit_id, q_limit_raw in rate_limits_by_id.items():
                 if isinstance(q_limit_raw, dict):
-                    limits_to_process.append((limit_id, q_limit_raw))
+                    limits_to_process.append((limit_id, cast(dict[str, Any], q_limit_raw)))
         else:
             return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, observed_at, freshness_ttl, peer="cx"),)
 

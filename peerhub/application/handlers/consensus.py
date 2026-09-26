@@ -31,13 +31,13 @@ from peerhub.application.handlers._params import required_text as proposal_text
 from peerhub.application.handlers._params import string_tuple
 from peerhub.core.protocol import CommandEnvelope, JsonValue
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.consensus import ConsensusService
+from peerhub.application.consensus_facade import ConsensusFacade
 
 
 def register_consensus_handlers(
     *,
     api: Any,
-    service: ConsensusService,
+    service: ConsensusFacade,
     broker: GovernanceBroker | None,
     arbiter: ArbiterReviewCoordinator | None,
     proposals: ProposalCoordinator | None,

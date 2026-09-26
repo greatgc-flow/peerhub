@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any, cast
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -750,7 +751,7 @@ class CancelResult:
     status: str
 
 class AttemptLifecycleManager:
-    def cancel_attempt(self, state: dict) -> CancelResult:
+    def cancel_attempt(self, state: dict[str, Any]) -> CancelResult:
         if state.get("certainty") == ExecutionCertainty.TERMINAL:
             raise InvalidMutationError("Cannot overwrite completed history")
         
@@ -758,4 +759,4 @@ class AttemptLifecycleManager:
         if not claimed:
             return CancelResult(certainty=ExecutionCertainty.NOT_STARTED, status="cancelled")
         else:
-            return CancelResult(certainty=state.get("certainty"), status="cancelled")
+            return CancelResult(certainty=cast(ExecutionCertainty, state.get("certainty")), status="cancelled")

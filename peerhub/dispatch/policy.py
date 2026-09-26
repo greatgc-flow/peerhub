@@ -1,7 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
-from peerhub.health.contract import HealthConsequencePolicy, DefaultConsequence, RecoveryAuthority
+from typing import Dict, List
+from peerhub.health.contract import HealthConsequencePolicy
 
 class ConsultationDepth(str, Enum):
     NONE = "none"

@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 import re
-from typing import Any, Optional, Tuple, Set
+from typing import Any, cast, Optional, Tuple, Set
 from dataclasses import dataclass
 
 from peerhub.governance.policy_snapshot import ConfigurationError
@@ -48,11 +48,12 @@ def _schema_version(record: dict[str, Any]) -> Any:
 def _thaw(value: Any) -> Any:
     """Deep, mutable copy of persisted state (broker state holds frozen mappings)."""
     if isinstance(value, Mapping):
-        return {key: _thaw(item) for key, item in value.items()}
+        mapping = cast(Mapping[Any, Any], value)
+        return {key: _thaw(item) for key, item in mapping.items()}
     if isinstance(value, tuple):
-        return tuple(_thaw(item) for item in value)
+        return tuple(_thaw(item) for item in cast(tuple[Any, ...], value))
     if isinstance(value, list):
-        return [_thaw(item) for item in value]
+        return [_thaw(item) for item in cast(list[Any], value)]
     return value
 
 

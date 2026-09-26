@@ -119,7 +119,7 @@ class SqliteGovernanceRepository:
                     (kind, scope),
                 ).fetchall()
 
-            targets_dict = {}
+            targets_dict: dict[str, TargetState] = {}
             for row in v1_rows:
                 targets_dict[row["target_id"]] = TargetState(
                     target_id=row["target_id"],
@@ -135,8 +135,7 @@ class SqliteGovernanceRepository:
                     updated_at=row["updated_at"],
                 )
 
-            sorted_keys = sorted(targets_dict.keys())
-            return tuple(targets_dict[tid] for tid in sorted_keys)
+            return tuple(targets_dict[tid] for tid in sorted(targets_dict))
 
     def compare_and_set_target(
             self,
@@ -201,7 +200,7 @@ class SqliteGovernanceRepository:
                 
                 if v2_current is None:
                     legacy_current = connection.execute("SELECT revision FROM governed_targets WHERE target_id = ?", (current.target_id,)).fetchone()
-                    legacy_rev = legacy_current[0] if type(legacy_current) is tuple else legacy_current["revision"] if legacy_current else None
+                    legacy_rev: int | None = legacy_current[0] if legacy_current is not None else None
                     if legacy_rev != current.revision:
                         return False
                         

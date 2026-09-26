@@ -1,6 +1,6 @@
 import tomllib
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 class ConfigurationError(Exception):
     """Raised when policy configuration is invalid, unreadable, or inconsistent."""

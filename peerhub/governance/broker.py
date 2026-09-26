@@ -440,7 +440,7 @@ class GovernanceBroker:
                         receipt=receipt,
                     ),
                 )
-            results = []
+            results: list[MutationSubmission] = []
             for request in requests:
                 receipt = self._stage_mutation(
                     unit, request, mutation_payload_digest(request)

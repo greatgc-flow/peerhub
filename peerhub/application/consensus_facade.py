@@ -10,10 +10,13 @@ closed with ``UnsupportedV2Operation`` instead of touching fenced storage.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Callable, Sequence
 
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError
+from peerhub.core.protocol import JsonValue
 from peerhub.governance.consensus import ConsensusService
+from peerhub.governance.contract import EffectIntent, EffectReceipt, MutationSubmission, TargetState
 from peerhub.governance.consensus_shell import ConsensusShell
 
 V2_SCHEMA = "peerhub.consensus-round.v2"
@@ -42,10 +45,10 @@ class ConsensusFacade:
         self._policy_provider = policy_provider
 
     # -- reads / pure helpers -------------------------------------------------
-    def get_target(self, round_id: str):
+    def get_target(self, round_id: str) -> TargetState | None:
         return self._legacy.get_target(round_id)
 
-    def resolution_decision_hash(self, state, outcome):
+    def resolution_decision_hash(self, state: Mapping[str, JsonValue], outcome: str) -> str:
         return self._legacy.resolution_decision_hash(state, outcome)
 
     def _is_v2_round(self, round_id: str) -> bool:
@@ -84,7 +87,7 @@ class ConsensusFacade:
         origin: str | None = None,
         action: str | None = None,
         idempotency_key: str | None = None,
-    ):
+    ) -> MutationSubmission:
         if not self._is_v2_active():
             return self._legacy.propose(
                 round_id=round_id, title=title, question=question, body=body,
@@ -106,7 +109,7 @@ class ConsensusFacade:
     # -- routed mutations ---------------------------------------------------------
     def cast_vote(self, round_id: str, *, actor_id: str, choice: str, reason: str | None = None,
                   expected_revision: int | None = None, credential_id: str | None = None,
-                  idempotency_key: str | None = None):
+                  idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             return self._shell.cast_vote(
                 round_id, actor_id, choice, expected_revision, credential_id,
@@ -117,7 +120,7 @@ class ConsensusFacade:
 
     def final_call_ack(self, round_id: str, *, actor_id: str, ack: bool,
                        expected_revision: int | None = None, credential_id: str | None = None,
-                       idempotency_key: str | None = None, nack_type: str = "block"):
+                       idempotency_key: str | None = None, nack_type: str = "block") -> MutationSubmission:
         if self._is_v2_round(round_id):
             if ack:
                 return self._shell.final_call_ack(
@@ -132,7 +135,7 @@ class ConsensusFacade:
 
     def request_escalation(self, round_id: str, reason: str, requester_id: str, tier: int,
                            required_authority: str, expected_revision: int | None = None,
-                           credential_id: str | None = None, idempotency_key: str | None = None):
+                           credential_id: str | None = None, idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             return self._shell.request_escalation(
                 round_id, reason, requester_id, tier, required_authority,
@@ -144,7 +147,7 @@ class ConsensusFacade:
 
     def reject_on_dissent(self, round_id: str, *, rejected_by: str, basis: str,
                           expected_revision: int | None = None, credential_id: str | None = None,
-                          idempotency_key: str | None = None):
+                          idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             return self._shell.reject_on_dissent(
                 round_id, rejected_by, basis, idempotency_key=idempotency_key,
@@ -154,8 +157,8 @@ class ConsensusFacade:
                                               expected_revision=expected_revision)
 
     def resolve(self, round_id: str, outcome: str, resolved_by: str, basis: str,
-                expected_revision: int | None = None, effect_intent: Any = None,
-                credential_id: str | None = None, idempotency_key: str | None = None):
+                expected_revision: int | None = None, effect_intent: EffectIntent | None = None,
+                credential_id: str | None = None, idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             if effect_intent is not None:
                 raise UnsupportedV2Operation(
@@ -169,7 +172,7 @@ class ConsensusFacade:
 
     def abandon(self, round_id: str, reason_code: str, reason: str, abandoned_by: str,
                 expected_revision: int | None = None, credential_id: str | None = None,
-                idempotency_key: str | None = None):
+                idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             return self._shell.abandon(
                 round_id, abandoned_by, idempotency_key=idempotency_key,
@@ -178,7 +181,7 @@ class ConsensusFacade:
         return self._legacy.abandon(round_id, reason_code, reason, abandoned_by, expected_revision)
 
     def mark_timeout(self, round_id: str, reason: str, expected_revision: int | None = None,
-                     idempotency_key: str | None = None):
+                     idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             # Timeouts are system-driven (sweep); the sweep principal is allowlisted.
             return self._shell.mark_timeout(
@@ -188,7 +191,7 @@ class ConsensusFacade:
         return self._legacy.mark_timeout(round_id, reason, expected_revision)
 
     def correction(self, round_id: str, *, actor_id: str, expected_revision: int | None = None,
-                   credential_id: str | None = None, idempotency_key: str | None = None):
+                   credential_id: str | None = None, idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             return self._shell.correction(
                 round_id, actor_id, idempotency_key=idempotency_key,
@@ -197,7 +200,7 @@ class ConsensusFacade:
         raise UnsupportedV2Operation("correction exists only for V2 rounds")
 
     def retraction(self, round_id: str, *, actor_id: str, expected_revision: int | None = None,
-                   credential_id: str | None = None, idempotency_key: str | None = None):
+                   credential_id: str | None = None, idempotency_key: str | None = None) -> MutationSubmission:
         if self._is_v2_round(round_id):
             return self._shell.retraction(
                 round_id, actor_id, idempotency_key=idempotency_key,
@@ -207,7 +210,7 @@ class ConsensusFacade:
 
     def record_arbiter_opinion(self, round_id: str, *, request_target_id: str,
                                opinion_target_id: str, actor_id: str,
-                               idempotency_key: str | None = None):
+                               idempotency_key: str | None = None) -> MutationSubmission | None:
         if self._is_v2_round(round_id):
             return self._shell.record_arbiter_opinion(
                 round_id, request_target_id=request_target_id,
@@ -219,7 +222,7 @@ class ConsensusFacade:
             opinion_target_id=opinion_target_id, actor_id=actor_id,
         )
 
-    def process_consensus_effects(self, round_id: str, *, owner_id: str | None = None):
+    def process_consensus_effects(self, round_id: str, *, owner_id: str | None = None) -> Sequence[EffectReceipt]:
         if self._is_v2_round(round_id):
             return self._shell.process_consensus_effects(round_id, owner_id=owner_id)
         return self._legacy.process_consensus_effects(round_id, owner_id=owner_id)
