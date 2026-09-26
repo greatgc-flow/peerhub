@@ -74,7 +74,12 @@ class ConsensusService:
         risk: str,
         source_hash: str,
         verified_required: bool = False,
+        origin: str | None = None,
+        action: str | None = None,
     ) -> MutationSubmission:
+        # origin/action are accepted for interface parity with the V2 shell but
+        # V1 rounds carry no provenance (design 7.2: never guessed for V1).
+        del origin, action
         timestamp = self._clock.now()
         required = tuple(required_participants)
         eligible = tuple(eligible_participants)

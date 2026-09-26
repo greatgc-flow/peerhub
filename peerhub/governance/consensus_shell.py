@@ -17,6 +17,14 @@ from peerhub.governance.proposal_policy import build_approval_submission, route_
 from peerhub.governance.contract import EffectOutcome
 from peerhub.governance.invariant_requests import RATIFIED_INVARIANT_EFFECT_KIND
 
+def eligible_of(state: Dict[str, Any]) -> list:
+    """Eligible electorate of a round: V1-style participants mapping or a plain list."""
+    participants = state.get("participants", [])
+    if isinstance(participants, dict) or hasattr(participants, "get"):
+        return list(participants.get("eligible", []))
+    return list(participants)
+
+
 def candidate_state_hash(state: Dict[str, Any]) -> str:
     """Hash the immutable content being approved (never the mutable ACK ledger/phase)."""
     basis = {
@@ -27,6 +35,22 @@ def candidate_state_hash(state: Dict[str, Any]) -> str:
 
 
 AUTHORITY_TARGET_ID = "system:authority-version"
+
+# Internal (non-voter) callers such as proposal recovery act as ``system:*``
+# principals for these operations only; they are never electorate members and
+# can never vote, ACK or NACK. The trust boundary is the facade/API caller.
+SYSTEM_PRINCIPAL_PREFIX = "system:"
+SYSTEM_OPERATIONS = frozenset({"request_escalation", "reject_on_dissent", "mark_timeout", "resolve"})
+
+
+class _SystemAwareHealth:
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def check_health_gate(self, actor_id: str, evaluated_at: int) -> bool:
+        if actor_id.startswith(SYSTEM_PRINCIPAL_PREFIX):
+            return True
+        return self._inner.check_health_gate(actor_id, evaluated_at)
 
 
 class BrokerAuthorityVersionStore(AuthorityVersionStore):
@@ -107,7 +131,8 @@ class ConsensusShell:
         source_hash: str,
         config: Dict[str, Any],
         origin: Optional[str] = None,
-        action: Optional[str] = None
+        action: Optional[str] = None,
+        verified_required: bool = False,
     ) -> Any:
         import dataclasses
         prov_origin, prov_action = resolve_provenance(origin, action)
@@ -128,7 +153,14 @@ class ConsensusShell:
             "action": prov_action,
             "phase": "voting",
             "policy_snapshot": dataclasses.asdict(policy_snapshot),
-            "participants": list(eligible_participants),
+            # V1-compatible shape so proposal/arbiter code can read V2 rounds unchanged.
+            "participants": {
+                "required": list(required_participants),
+                "eligible": list(eligible_participants),
+            },
+            "status": "open",
+            "verified_required": verified_required,
+            "votes": {},
             "frozen_authority_set": list(eligible_participants),
             "expected_authority_version": expected_authority_version,
             "ack_ledger": {},
@@ -192,14 +224,17 @@ class ConsensusShell:
             mandatory_final_call = True
             
         sm = ConsensusStateMachine(state=phase, final_call_rule=final_call_rule, mandatory_floors_hit=mandatory_final_call)
+        system_actor = operation in SYSTEM_OPERATIONS and actor_id.startswith(SYSTEM_PRINCIPAL_PREFIX)
         gate = AuthorizationGate(
             verifier=self._verifier,
-            health_port=self._health_port,
+            health_port=_SystemAwareHealth(self._health_port) if system_actor else self._health_port,
             state_machine=sm
         )
-        
+
         frozen_auth_set = frozenset(state.get("frozen_authority_set", []))
-        required_participants = frozenset(state.get("participants", []))
+        if system_actor:
+            frozen_auth_set = frozen_auth_set | {actor_id}
+        required_participants = frozenset(eligible_of(state))
         
         ledger = AckLedger()
         ack_ledger_state = state.get("ack_ledger", {})
@@ -243,7 +278,13 @@ class ConsensusShell:
 
         state["phase"] = res.new_phase
         
-        effect = state_updater(state, res, ctx, sm, ledger, c, fence)
+        state["_rev"] = target.revision  # transient: read by effect factories, never persisted
+        try:
+            effect = state_updater(state, res, ctx, sm, ledger, c, fence)
+        finally:
+            state.pop("_rev", None)
+        if state.get("phase") in ("approved", "rejected", "abandoned"):
+            self._finalize(state, actor_id)
         if effect is None:
             effect = EffectIntent(kind="consensus.noop", payload={})
             
@@ -286,6 +327,17 @@ class ConsensusShell:
         sub = build_approval_submission(approved_snapshot, intent)
         return EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
 
+    def _finalize(self, state: Dict[str, Any], actor_id: str) -> None:
+        """Terminal bookkeeping in the V1-readable shape: status + resolution incl. decision hash."""
+        state["status"] = "resolved" if state["phase"] in ("approved", "rejected") else "abandoned"
+        if state["phase"] in ("approved", "rejected"):
+            resolution = dict(state.get("resolution") or {})
+            resolution.setdefault("resolved_by", actor_id)
+            resolution["outcome"] = state["phase"]
+            resolution["decision_hash"] = candidate_state_hash(state)
+            resolution.setdefault("resolved_at", self._clock.now())
+            state["resolution"] = resolution
+
     def _resolution_effect(
         self, state: Dict[str, Any], round_id: str, actor_id: str, outcome: str, basis: str
     ) -> EffectIntent:
@@ -309,7 +361,7 @@ class ConsensusShell:
         from peerhub.governance.consensus import ResolutionEvent
 
         def event_factory(state, state_hash):
-            eligible = set(state.get("participants", []))
+            eligible = set(eligible_of(state))
             votes = state.get("votes", {}) or {}
             if not any(
                 voter in eligible and (vote or {}).get("choice") in ("disagree", "block")
@@ -455,15 +507,28 @@ class ConsensusShell:
         expected_revision: Optional[int] = None,
         credential_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        reason: Optional[str] = None,
     ) -> Any:
         from peerhub.governance.consensus import VoteEvent, QuorumMetEvent, ResolutionEvent
+
+        if choice not in ("agree", "disagree", "abstain", "need_more_info", "block"):
+            raise InvalidMutationError(
+                "choice must be agree, disagree, abstain, need_more_info or block"
+            )
+        if reason is not None and not isinstance(reason, str):
+            raise InvalidMutationError("reason must be a string or null")
         
         def event_factory(state, state_hash):
             return VoteEvent(actor=actor_id, choice=choice, credential=credential_id)
             
         def updater(state, res, ctx, sm, ledger, c, fence):
             votes = dict(state.get("votes", {}))
-            vote_record = {"choice": choice}
+            vote_record = {
+                "choice": choice,
+                "actor_id": actor_id,
+                "cast_at": self._clock.now(),
+                "reason": reason,
+            }
             if res.dissent_obligation_added:
                 vote_record["dissent_obligation"] = True
             votes[actor_id] = vote_record
@@ -474,6 +539,14 @@ class ConsensusShell:
                 raise ConfigurationError("policy snapshot has no valid required_votes")
 
             agreements = sum(1 for v in votes.values() if v.get("choice") == "agree")
+            decisive = sum(1 for v in votes.values() if v.get("choice") in ("agree", "disagree"))
+            state["quorum"] = {
+                "reached": agreements >= required_votes,
+                "counted_votes": agreements,
+                "recorded_votes": len(votes),
+                "decisive_votes": decisive,
+                "required_votes": required_votes,
+            }
             if agreements >= required_votes:
                 q_res = sm.evaluate(ctx, QuorumMetEvent(agreement_count=agreements))
                 state["phase"] = q_res.new_phase

@@ -19,6 +19,7 @@ from peerhub.governance.proposal_policy import (
     ProposalRule,
     decide_proposal_rule,
 )
+from peerhub.governance.authorization import AuthorizationError
 from peerhub.core.errors import (
     InvalidMutationError,
     RecordNotFoundError,
@@ -34,6 +35,7 @@ from peerhub.governance.invariant_requests import (
 )
 from peerhub.health.contract import AdmissionState, AvailabilityState
 from peerhub.health.service import HealthService
+from peerhub.governance.consensus_shell import candidate_state_hash
 
 
 ESCALATION_TOO_FEW_VOTERS = "N < 2 (human_gate)"
@@ -118,6 +120,45 @@ def load_proposal_voters(workspace_root: Path) -> tuple[str, ...]:
         raise ValueError("proposals.json voters must be an array")
     voter_values = cast(list[object] | tuple[object, ...], voters)
     return _validate_voter_policy(tuple(voter_values))
+
+
+PROPOSAL_CREATE_ACTION = "governance.proposal.create"
+
+
+def make_v2_ratified_effect_factory(clock: Clock):
+    """Approval effect for V2 proposal rounds (mirrors ProposalCoordinator._approval_effect).
+
+    Called by ConsensusShell inside the approving submission; ``state["_rev"]``
+    is the revision being replaced, so the request records revision + 1.
+    """
+
+    def factory(state, round_id: str, actor_id: str) -> EffectIntent:
+        proposal = state["proposal"]
+        body = require_text(proposal.get("body"), "proposal.body")
+        marker_index = body.find(_CHANGES_MARKER)
+        if marker_index < 0:
+            raise InvalidMutationError("proposal body lacks the canonical Changes section")
+        decision_hash = candidate_state_hash(state)
+        request_id = f"ratified-invariant-write-request:{round_id}:{decision_hash}"
+        payload: dict[str, JsonValue] = {
+            "request_id": request_id,
+            "round_id": round_id,
+            "approved_revision": int(state["_rev"]) + 1,
+            "decision_hash": decision_hash,
+            "proposer_id": require_text(proposal.get("proposer_id"), "proposal.proposer_id"),
+            "title": require_text(proposal.get("title"), "proposal.title"),
+            "question": require_text(proposal.get("question"), "proposal.question"),
+            "body": body,
+            "source_hash": require_text(proposal.get("source_hash"), "proposal.source_hash"),
+            "participants": state["participants"],
+            "votes": state["votes"],
+            "proposed_invariant_text": body[marker_index + len(_CHANGES_MARKER):],
+            "target_doc_hint": "10-invariants.md",
+            "requested_at": clock.now(),
+        }
+        return EffectIntent(kind=RATIFIED_INVARIANT_EFFECT_KIND, payload=payload)
+
+    return factory
 
 
 def _validate_voter_policy(values: tuple[object, ...]) -> tuple[str, ...]:
@@ -296,6 +337,8 @@ class ProposalCoordinator:
                     risk=self._risk(impact),
                     source_hash=source_hash,
                     verified_required=verified_required,
+                    origin="proposals",
+                    action="governance.proposal.create",
                 )
             except StaleRevisionError:
                 sequence_floor = sequence + 1
@@ -587,6 +630,14 @@ class ProposalCoordinator:
             if target.state.get("escalation") is not None:
                 return self._result(target, voter=voter, choice=choice)
 
+            if (
+                target.state.get("schema") == "peerhub.consensus-round.v2"
+                and target.state.get("phase") == "final_call"
+            ):
+                # Mandatory Final Call (design 4.2/6.2): approval happens on the
+                # last ACK, not by reconciliation.
+                return self._result(target, voter=voter, choice=choice)
+
             participants = self._mapping(target.state, "participants")
             required = self._participant_tuple(participants, "required")
             eligible = self._participant_tuple(participants, "eligible")
@@ -742,16 +793,35 @@ class ProposalCoordinator:
         normalized_choice = require_text(vote, "vote").lower()
         if not isinstance(reason, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("reason must be a string")
-        self._consensus.cast_vote(
-            normalized_round_id,
-            actor_id=normalized_voter,
-            choice=normalized_choice,
-            reason=reason,
-            credential_id=credential_id,
+        target = self._consensus.get_target(normalized_round_id)
+        is_v2 = (
+            target is not None
+            and target.state.get("schema") == "peerhub.consensus-round.v2"
         )
+        try:
+            self._consensus.cast_vote(
+                normalized_round_id,
+                actor_id=normalized_voter,
+                choice=normalized_choice,
+                reason=reason,
+                credential_id=credential_id,
+            )
+        except AuthorizationError:
+            # V2 refuses a vote from a voter whose health gate is closed (fail
+            # closed). Legacy recorded it and then escalated; keep the observable
+            # outcome by reconciling -- but ONLY when the gate is confirmed closed
+            # right now, otherwise the refusal is genuine and must surface.
+            if not is_v2 or self._voter_gate_is_open(
+                normalized_voter, self._clock.now()
+            ):
+                raise
         return self.reconcile_outcome(
             normalized_round_id,
-            requester_id=normalized_voter,
+            # V2 escalations/rejections are system-driven (a closed-gate voter
+            # cannot act as a health-checked electorate member).
+            requester_id=(
+                "system:proposal-reconcile" if is_v2 else normalized_voter
+            ),
             voter=normalized_voter,
             choice=normalized_choice,
         )

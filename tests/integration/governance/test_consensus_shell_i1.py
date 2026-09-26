@@ -80,7 +80,9 @@ def test_propose_v2_persists_schema_and_frozen_policy(test_env):
     assert "policy_snapshot" in target.state
     assert target.state["policy_snapshot"]["origin"] == "direct"
     assert target.state["policy_snapshot"]["action"] == "consensus.round.propose"
-    assert tuple(target.state["participants"]) == ("peer-1", "peer-2", "peer-3")
+    assert tuple(target.state["participants"]["eligible"]) == ("peer-1", "peer-2", "peer-3")
+    assert tuple(target.state["participants"]["required"]) == ("peer-1", "peer-2")
+    assert target.state["status"] == "open"
     assert set(target.state["frozen_authority_set"]) == {"peer-1", "peer-2", "peer-3"}
     assert target.state["expected_authority_version"] == 1
     assert target.state["ack_ledger"] == {}
