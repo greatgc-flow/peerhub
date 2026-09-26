@@ -945,7 +945,12 @@ class ConsensusStateMachine:
         )
 
     def _eval_resolution(self, ctx: EvalContext, event: ResolutionEvent) -> TransitionResult:
-        if self.state not in ("quorum_reached", "escalated"):
+        dissent_rejection = (
+            event.basis == "eligible_dissent"
+            and event.outcome == "rejected"
+            and self.state in ("proposed", "voting", "quorum_reached", "final_call", "escalated")
+        )
+        if self.state not in ("quorum_reached", "escalated") and not dissent_rejection:
             raise InvalidMutationError("Invalid phase")
         if event.outcome not in ("approved", "rejected"):
             raise InvalidMutationError("Invalid resolution outcome")
@@ -1078,6 +1083,9 @@ class ArbiterAttachmentEvent:
 @dataclasses.dataclass(frozen=True)
 class ResolutionEvent:
     outcome: str
+    # "eligible_dissent" lets an open round be rejected from voting/final_call
+    # (design 6.1 rule 5); any other basis keeps the quorum_reached/escalated rule.
+    basis: str = ""
 
 @dataclasses.dataclass(frozen=True)
 class ExceptionalResolutionEvent:

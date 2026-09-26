@@ -83,3 +83,35 @@ def test_ack_with_empty_required_set_fails_closed():
     event = AckNackEvent(candidate_id="c1", actor="actor_1", proof="valid", nack_type=None)
     result = sm.evaluate(ctx, event)
     assert result.new_phase == "final_call"
+
+
+from peerhub.governance.consensus import ResolutionEvent
+
+
+@pytest.mark.parametrize("phase", ["proposed", "voting", "quorum_reached", "final_call", "escalated"])
+def test_dissent_basis_rejects_an_open_round_from_any_open_phase(phase, base_context):
+    result = ConsensusStateMachine(state=phase).evaluate(
+        base_context, ResolutionEvent(outcome="rejected", basis="eligible_dissent")
+    )
+    assert result.new_phase == "rejected"
+
+
+@pytest.mark.parametrize("phase", ["voting", "proposed", "final_call"])
+def test_plain_resolution_is_still_refused_from_voting_phases(phase, base_context):
+    with pytest.raises(InvalidMutationError):
+        ConsensusStateMachine(state=phase).evaluate(base_context, ResolutionEvent(outcome="rejected"))
+
+
+def test_dissent_basis_cannot_approve(base_context):
+    with pytest.raises(InvalidMutationError):
+        ConsensusStateMachine(state="voting").evaluate(
+            base_context, ResolutionEvent(outcome="approved", basis="eligible_dissent")
+        )
+
+
+@pytest.mark.parametrize("phase", ["approved", "rejected", "abandoned", "resolved"])
+def test_dissent_basis_is_refused_from_terminal_phases(phase, base_context):
+    with pytest.raises(InvalidMutationError):
+        ConsensusStateMachine(state=phase).evaluate(
+            base_context, ResolutionEvent(outcome="rejected", basis="eligible_dissent")
+        )

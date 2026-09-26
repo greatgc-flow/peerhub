@@ -165,6 +165,7 @@ class ConsensusShell:
         expected_revision: Optional[int] = None,
         credential_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
+        phase_for_eval: Optional[Any] = None,
     ) -> Any:
         # A public command is identified by (operation, round, actor, client key):
         # a durable replay returns the stored receipt without re-evaluating.
@@ -181,6 +182,8 @@ class ConsensusShell:
             
         state = dict(target.state)
         phase = state.get("phase", "voting")
+        if phase_for_eval is not None:
+            phase = phase_for_eval(state)
         
         snapshot = state.get("policy_snapshot") or {}
         final_call_rule = snapshot.get("final_call_rule")
@@ -282,6 +285,121 @@ class ConsensusShell:
         }
         sub = build_approval_submission(approved_snapshot, intent)
         return EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
+
+    def _resolution_effect(
+        self, state: Dict[str, Any], round_id: str, actor_id: str, outcome: str, basis: str
+    ) -> EffectIntent:
+        if outcome == "approved":
+            return self._approval_effect(state, round_id, actor_id)
+        return EffectIntent(
+            kind="consensus.resolved",
+            payload={
+                "round_id": round_id,
+                "outcome": outcome,
+                "basis": basis,
+                "resolved_by": actor_id,
+                "snapshot_hash": candidate_state_hash(state),
+            },
+        )
+
+    def reject_on_dissent(
+        self, round_id: str, actor_id: str, basis: str, idempotency_key: Optional[str] = None
+    ) -> Any:
+        """Reject an open round after verifying a stored eligible dissent (design 6.1 rule 5)."""
+        from peerhub.governance.consensus import ResolutionEvent
+
+        def event_factory(state, state_hash):
+            eligible = set(state.get("participants", []))
+            votes = state.get("votes", {}) or {}
+            if not any(
+                voter in eligible and (vote or {}).get("choice") in ("disagree", "block")
+                for voter, vote in votes.items()
+            ):
+                raise InvalidMutationError("no stored eligible dissent to reject on")
+            return ResolutionEvent(outcome="rejected", basis="eligible_dissent")
+
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            state["resolution"] = {"outcome": "rejected", "basis": basis, "resolved_by": actor_id}
+            return self._resolution_effect(state, round_id, actor_id, "rejected", basis)
+
+        return self._process_event(
+            round_id, actor_id, "reject_on_dissent", event_factory, updater,
+            idempotency_key=idempotency_key,
+        )
+
+    def request_escalation(
+        self, round_id: str, reason: str, requester_id: str, tier: int, required_authority: str,
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import EscalationEvent
+
+        def event_factory(state, state_hash):
+            return EscalationEvent(
+                source_phases=[state.get("phase", "voting")],
+                replacement_deadline=self._clock.now() + 1800,
+            )
+
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            state["escalation"] = {
+                "reason": reason,
+                "requested_by": requester_id,
+                "tier": tier,
+                "required_authority": required_authority,
+                "requested_at": self._clock.now(),
+            }
+
+        return self._process_event(
+            round_id, requester_id, "request_escalation", event_factory, updater,
+            idempotency_key=idempotency_key,
+        )
+
+    def resolve(
+        self, round_id: str, outcome: str, resolved_by: str, basis: str,
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
+        """Resolve an escalated (or quorum_reached) round to approved/rejected."""
+        from peerhub.governance.consensus import ResolutionEvent
+
+        def event_factory(state, state_hash):
+            return ResolutionEvent(outcome=outcome)
+
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            state["resolution"] = {"outcome": outcome, "basis": basis, "resolved_by": resolved_by}
+            if outcome == "approved":
+                state["phase_before_approval"] = "escalated"
+            return self._resolution_effect(state, round_id, resolved_by, outcome, basis)
+
+        return self._process_event(
+            round_id, resolved_by, "resolve", event_factory, updater,
+            idempotency_key=idempotency_key,
+            phase_for_eval=lambda st: "escalated" if st.get("escalation") else st.get("phase", "voting"),
+        )
+
+    def final_call_nack(
+        self, round_id: str, actor_id: str, nack_type: str = "block",
+        credential_id: Optional[str] = None, idempotency_key: Optional[str] = None,
+    ) -> Any:
+        """NACK during Final Call: block (holds the barrier), cosmetic (logged) or terminal_rejection."""
+        from peerhub.governance.consensus import AckNackEvent
+
+        def event_factory(state, state_hash):
+            return AckNackEvent(
+                candidate_id=state_hash, actor=actor_id, proof=credential_id or "", nack_type=nack_type
+            )
+
+        def updater(state, res, ctx, sm, ledger, c, fence):
+            if res.barrier_held:
+                state["barrier_held"] = True
+            if res.cosmetic_logged:
+                state["cosmetic_nacks"] = list(state.get("cosmetic_nacks", [])) + [actor_id]
+            if res.terminal_rejection:
+                state["resolution"] = {"outcome": "rejected", "basis": "terminal_rejection", "resolved_by": actor_id}
+                return self._resolution_effect(state, round_id, actor_id, "rejected", "terminal_rejection")
+
+        return self._process_event(
+            round_id, actor_id, "final_call_nack", event_factory, updater,
+            credential_id=credential_id, idempotency_key=idempotency_key,
+        )
 
     def _authority_precondition(self, expected_version: int):
         """Authority validation that runs inside the committing broker txn."""
