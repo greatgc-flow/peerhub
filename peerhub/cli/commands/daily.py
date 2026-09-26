@@ -143,6 +143,58 @@ def register_ask_command(
     add_json_arg(ask_parser, help="Emit JSON")
 
 
+def apply_health_consequence(
+    result: Any, cli: ModuleType, workspace_root: Path, paths: Any, subject: Any
+) -> None:
+    """R4 7.1: a definitive dispatch failure may create a quarantine-review target.
+
+    Best effort by design: the operator-visible ask outcome and exit code never depend on it.
+    """
+
+    from peerhub.application.config_paths import (
+        resolve_global_config_home,
+        resolve_workspace_config_home,
+    )
+    from peerhub.application.health_consequence import needs_review, record_dispatch_failure
+    from peerhub.dispatch.policy_resolver import PolicyResolver
+
+    try:
+        resolver = PolicyResolver(
+            resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
+            resolve_global_config_home().path / "dispatch-policy.toml",
+        )
+        mode = str(resolver.resolve("ask").health_consequence.default_consequence.value)
+        if not needs_review(
+            mode,
+            request_state=result.request_state,
+            execution_certainty=result.execution_certainty,
+            error_code=result.error_code,
+        ):
+            return
+        if not paths.database_path.exists():
+            return
+        context = cli.RuntimeContext(
+            workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+            paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+        )
+        with cli.create_runtime(context) as runtime:
+            record_dispatch_failure(
+                runtime.operational_error_service,
+                peer_key=str(result.peer_kind),
+                profile_id=str(result.profile_id),
+                request_state=result.request_state,
+                error_code=result.error_code,
+                actor_id=str(getattr(subject, "principal_id", "system:ask")),
+            )
+        print(
+            f"peerhub ask: quarantine-review requested for {result.peer_kind} "
+            f"(health_consequence={mode})",
+            file=cli.sys.stderr,
+        )
+    except Exception as error:  # never let bookkeeping change the ask outcome
+        print(f"peerhub ask: health consequence not recorded: {error}", file=cli.sys.stderr)
+
+
 def route_ask_profile(
     parsed: argparse.Namespace, cli: ModuleType, workspace_root: Path, paths: Any
 ) -> str | None:
@@ -348,6 +400,8 @@ def run_ask(
         return 2
 
     exit_code = cli._ask_exit_code(result)
+    if exit_code != 0:
+        apply_health_consequence(result, cli, workspace_root, paths, authenticated_subject)
     if parsed.json:
         cli._print_ask_json(result)
     elif exit_code == 0:
