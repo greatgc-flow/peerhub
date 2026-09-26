@@ -869,8 +869,6 @@ class ConsensusStateMachine:
     def _eval_vote(self, ctx: EvalContext, event: VoteEvent) -> TransitionResult:
         if self.state not in ("proposed", "voting"):
             raise InvalidMutationError("Invalid phase")
-        if event.credential == "invalid_proof":
-            raise InvalidMutationError("Invalid credential")
         dissent = event.choice in ("block", "need_more_info")
         return TransitionResult(
             new_phase=self.state,
@@ -964,8 +962,6 @@ class ConsensusStateMachine:
     def _eval_exceptional_resolution(self, ctx: EvalContext, event: ExceptionalResolutionEvent) -> TransitionResult:
         if self.state in ("approved", "rejected", "abandoned", "resolved"):
             raise InvalidMutationError("Invalid phase")
-        if event.admin_proof == "invalid_token":
-            raise InvalidMutationError("Invalid proof")
         if event.outcome not in ("approved", "rejected"):
             raise InvalidMutationError("Invalid resolution outcome")
         return TransitionResult(new_phase=event.outcome)
@@ -1004,9 +1000,7 @@ class ConsensusStateMachine:
             self.deadline_extended = True
             return None
 
-    def process_retraction(self, post_authorization: bool = False, simulate_concurrent_modification: bool = False):
-        if simulate_concurrent_modification:
-            raise StaleRevisionError("consensus-round", "test-round", 0)
+    def process_retraction(self, post_authorization: bool = False):
         if post_authorization:
             self.state = "resolved"
             self.revocation_record_created = True

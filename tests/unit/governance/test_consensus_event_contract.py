@@ -58,11 +58,8 @@ def test_vote_dissent_ordinary_disagree_does_not_block(base_context):
     assert result.new_phase == "voting"
     assert result.dissent_obligation_added is False
 
-def test_vote_dissent_invalid_credential(base_context):
-    sm = ConsensusStateMachine(state="voting")
-    event = VoteEvent(actor="actor_1", choice="agree", credential="invalid_proof")
-    with pytest.raises(InvalidMutationError):
-        sm.evaluate(base_context, event)
+# Credential/proof verification is the AuthorizationGate's job (see
+# test_consensus_authorization.py): the pure core never inspects credential strings.
 
 def test_vote_dissent_invalid_phase(base_context):
     sm = ConsensusStateMachine(state="quorum_reached")
@@ -252,12 +249,6 @@ def test_exceptional_resolution_valid_phase(base_context):
 def test_exceptional_resolution_invalid_phase(base_context):
     sm = ConsensusStateMachine(state="approved")
     event = ExceptionalResolutionEvent(admin_proof="admin_token", bypass_reason="emergency")
-    with pytest.raises(InvalidMutationError):
-        sm.evaluate(base_context, event)
-
-def test_exceptional_resolution_invalid_proof(base_context):
-    sm = ConsensusStateMachine(state="voting")
-    event = ExceptionalResolutionEvent(admin_proof="invalid_token", bypass_reason="emergency")
     with pytest.raises(InvalidMutationError):
         sm.evaluate(base_context, event)
 

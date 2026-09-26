@@ -101,8 +101,5 @@ def test_sm_30_resolved_post_auth_retraction():
     assert sm.state == "resolved"
     assert sm.revocation_record_created is True
 
-def test_sm_31_final_call_concurrent_ack_retraction():
-    """SM-31: final_call -> Concurrent ACK and retraction race -> serialized."""
-    sm = ConsensusStateMachine(state="final_call")
-    with pytest.raises(StaleRevisionError):
-        sm.process_retraction(simulate_concurrent_modification=True)
+# SM-31 (concurrent ACK/retraction) is enforced by the broker CAS + authority precondition:
+# see test_consensus_txn_contracts_t1.py and test_consensus_audit_regressions.py.
