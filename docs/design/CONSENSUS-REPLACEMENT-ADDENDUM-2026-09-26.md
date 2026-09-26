@@ -64,13 +64,20 @@ is approved atomically with its ratified-invariant effect by the last ACK. This 
 deliberate behavioural difference from V1; `test_proposals_v2.py` replays the entire V1 proposal
 suite against activated V2 storage with only that test rewritten.
 
+## A5b. Arbiter opinions on V2 rounds
+`ConsensusShell.record_arbiter_opinion` attaches the first valid opinion to a RESOLVED V2 round using
+the same `validated_arbiter_reference` (extracted from the legacy service) as V1: identity, peer/profile
+match, SUCCEEDED_VERIFIED dispatch and strict verdict syntax. Authority is the immutable request/opinion
+pair, not electorate membership (the opinion never changes the resolution). `test_arbiter_review_v2.py`
+re-runs the whole arbiter suite on activated V2 rounds.
+
 ## A6. Policy
 The frozen round snapshot comes from the layered dispatch policy
 (`ConsensusPolicyProvider`: defaults < global < workspace `dispatch-policy.toml`); an unreadable or
 invalid layer is a `ConfigurationError`. Proposals are always strict unanimous of the electorate.
 
 ## Still open (not implemented)
-Arbiter opinion recording on V2 rounds (facade fails closed); real-DB inventory/rehearsal runbook;
+Real-DB inventory/rehearsal runbook;
 migration tool for held V1 rounds; the unused pure helpers listed in the audit
 (`AuthorityFence.claim`, `policy_snapshot.select_policy/effective_depth/load_config`,
 `provenance.action_name/validate_required_votes/count_fixed_agrees`).

@@ -203,10 +203,19 @@ class ConsensusFacade:
             )
         raise UnsupportedV2Operation("retraction exists only for V2 rounds")
 
-    def record_arbiter_opinion(self, round_id: str, **kwargs: Any):
+    def record_arbiter_opinion(self, round_id: str, *, request_target_id: str,
+                               opinion_target_id: str, actor_id: str,
+                               idempotency_key: str | None = None):
         if self._is_v2_round(round_id):
-            raise UnsupportedV2Operation("arbiter opinions are not implemented for V2 rounds yet")
-        return self._legacy.record_arbiter_opinion(round_id, **kwargs)
+            return self._shell.record_arbiter_opinion(
+                round_id, request_target_id=request_target_id,
+                opinion_target_id=opinion_target_id, actor_id=actor_id,
+                idempotency_key=idempotency_key,
+            )
+        return self._legacy.record_arbiter_opinion(
+            round_id, request_target_id=request_target_id,
+            opinion_target_id=opinion_target_id, actor_id=actor_id,
+        )
 
     def process_consensus_effects(self, round_id: str, *, owner_id: str | None = None):
         if self._is_v2_round(round_id):

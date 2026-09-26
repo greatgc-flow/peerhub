@@ -31,7 +31,11 @@ from peerhub.governance.authorization import (
 )
 from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.candidate import AckLedger, Candidate, apply_retraction
-from peerhub.governance.consensus import ConsensusStateMachine, EvalContext
+from peerhub.governance.consensus import (
+    ConsensusStateMachine,
+    EvalContext,
+    validated_arbiter_reference,
+)
 from peerhub.governance.contract import (
     EffectIntent,
     EffectOutcome,
@@ -813,6 +817,57 @@ class ConsensusShell:
             expected_revision=expected_revision, credential_id=credential_id,
             idempotency_key=idempotency_key, command_args={"outcome": outcome, "basis": basis},
             phase_for_eval=lambda st: "escalated" if st.get("escalation") else st.get("phase", "voting"),
+        )
+
+
+    def record_arbiter_opinion(
+        self,
+        round_id: str,
+        *,
+        request_target_id: str,
+        opinion_target_id: str,
+        actor_id: str,
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
+        """Attach the first valid arbiter opinion to a RESOLVED V2 round (evidence only).
+
+        Authority comes from the immutable, identity- and peer-matched request/opinion
+        records (validated exactly like V1), not from electorate membership: the opinion
+        never changes the resolution. First valid opinion wins; a later one is a no-op.
+        """
+        reference = validated_arbiter_reference(
+            self._broker, round_id, request_target_id, opinion_target_id
+        )
+        target = self._broker.get_target(round_id)
+        if not target:
+            raise RecordNotFoundError("consensus-round", round_id)
+        state = dict(target.state)
+        if state.get("status") != "resolved":
+            raise InvalidMutationError("arbiter opinions require a resolved consensus round")
+        if state.get("arbiter_opinion") is not None:
+            return None  # first valid canonical opinion wins
+        state["arbiter_opinion"] = dict(reference)
+        req = build_mutation_request(
+            self._ids,
+            id_prefix="arb",
+            client_id="consensus_shell",
+            target_id=round_id,
+            expected_revision=target.revision,
+            actor_id=actor_id,
+            operation="record_arbiter_opinion",
+            desired_state=state,
+            effect_intent=EffectIntent(kind="consensus.noop", payload={}),
+        )
+        if idempotency_key is not None:
+            req = dataclasses.replace(
+                req,
+                idempotency_key=_digest(
+                    ["record_arbiter_opinion", round_id, request_target_id, opinion_target_id, idempotency_key]
+                ),
+            )
+        return self._broker.submit(
+            req,
+            precondition=self._authority_precondition(state.get("expected_authority_version", 1)),
         )
 
     # ------------------------------------------------------------------ effects

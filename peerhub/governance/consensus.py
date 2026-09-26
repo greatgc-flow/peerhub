@@ -660,61 +660,9 @@ class ConsensusService:
         first one.
         """
 
-        request_target = self._broker.get_target(request_target_id)
-        if request_target is None:
-            raise RecordNotFoundError("arbiter-review", request_target_id)
-        opinion_target = self._broker.get_target(opinion_target_id)
-        if opinion_target is None:
-            raise RecordNotFoundError("arbiter-opinion", opinion_target_id)
-
-        request_state = request_target.state
-        opinion_state = opinion_target.state
-        review_id = require_text_field(request_state, "review_id")
-        expected_request_id = f"arbiter-review:{round_id}:{review_id}"
-        expected_opinion_id = f"arbiter-opinion:{round_id}:{review_id}"
-        if (
-            request_target_id != expected_request_id
-            or opinion_target_id != expected_opinion_id
-            or request_state.get("kind") != "arbiter-review"
-            or opinion_state.get("kind") != "arbiter-opinion"
-            or request_state.get("round_id") != round_id
-            or opinion_state.get("round_id") != round_id
-            or opinion_state.get("review_id") != review_id
-            or opinion_state.get("request_target_id") != request_target_id
-        ):
-            raise InvalidMutationError(
-                "arbiter request and opinion target identities do not match"
-            )
-
-        candidate = _required_mapping(request_state, "candidate")
-        returned_by = _required_mapping(opinion_state, "returned_by")
-        candidate_peer = require_text_field(candidate, "peer_name")
-        candidate_profile = require_text_field(candidate, "profile_id")
-        if (
-            require_text_field(returned_by, "peer_name") != candidate_peer
-            or require_text_field(returned_by, "profile_id")
-            != candidate_profile
-        ):
-            raise InvalidMutationError(
-                "arbiter opinion peer/profile does not match the frozen request"
-            )
-
-        dispatch = _required_mapping(opinion_state, "dispatch")
-        if dispatch.get("state") != "SUCCEEDED_VERIFIED":
-            raise InvalidMutationError(
-                "arbiter opinion dispatch is not SUCCEEDED_VERIFIED"
-            )
-        response_text = opinion_state.get("response_text")
-        if not isinstance(response_text, str):
-            raise InvalidMutationError("arbiter opinion response_text is invalid")
-        parsed_verdict = _strict_arbiter_verdict(response_text)
-        if (
-            parsed_verdict is None
-            or opinion_state.get("parsed_verdict") != parsed_verdict
-        ):
-            raise InvalidMutationError(
-                "arbiter opinion does not contain a syntactically valid verdict"
-            )
+        reference = validated_arbiter_reference(
+            self._broker, round_id, request_target_id, opinion_target_id
+        )
 
         for _ in range(8):
             target = self._broker.get_target(round_id)
@@ -736,18 +684,7 @@ class ConsensusService:
                 return None
 
             audit = dict(_required_mapping(state, "audit"))
-            state["arbiter_opinion"] = {
-                "request_target_id": request_target_id,
-                "opinion_target_id": opinion_target_id,
-                "review_id": review_id,
-                "verdict": parsed_verdict,
-                "peer_name": candidate_peer,
-                "profile_id": candidate_profile,
-                "recorded_at": _required_nonnegative_int(
-                    opinion_state,
-                    "recorded_at",
-                ),
-            }
+            state["arbiter_opinion"] = dict(reference)
             self._finish(
                 state,
                 audit,
@@ -831,6 +768,84 @@ def _strict_arbiter_verdict(response_text: str) -> str | None:
         match = _ARBITER_VERDICT.fullmatch(stripped)
         return match.group(1).upper() if match is not None else None
     return None
+
+def validated_arbiter_reference(
+    broker: "GovernanceBroker",
+    round_id: str,
+    request_target_id: str,
+    opinion_target_id: str,
+) -> dict[str, JsonValue]:
+    """Validate an immutable arbiter request/opinion pair and return the canonical reference.
+
+    Shared by the legacy ConsensusService and the V2 shell so both attach exactly
+    the same evidence under exactly the same identity/peer/dispatch/verdict rules.
+    """
+
+    request_target = broker.get_target(request_target_id)
+    if request_target is None:
+        raise RecordNotFoundError("arbiter-review", request_target_id)
+    opinion_target = broker.get_target(opinion_target_id)
+    if opinion_target is None:
+        raise RecordNotFoundError("arbiter-opinion", opinion_target_id)
+
+    request_state = request_target.state
+    opinion_state = opinion_target.state
+    review_id = require_text_field(request_state, "review_id")
+    expected_request_id = f"arbiter-review:{round_id}:{review_id}"
+    expected_opinion_id = f"arbiter-opinion:{round_id}:{review_id}"
+    if (
+        request_target_id != expected_request_id
+        or opinion_target_id != expected_opinion_id
+        or request_state.get("kind") != "arbiter-review"
+        or opinion_state.get("kind") != "arbiter-opinion"
+        or request_state.get("round_id") != round_id
+        or opinion_state.get("round_id") != round_id
+        or opinion_state.get("review_id") != review_id
+        or opinion_state.get("request_target_id") != request_target_id
+    ):
+        raise InvalidMutationError(
+            "arbiter request and opinion target identities do not match"
+        )
+
+    candidate = _required_mapping(request_state, "candidate")
+    returned_by = _required_mapping(opinion_state, "returned_by")
+    candidate_peer = require_text_field(candidate, "peer_name")
+    candidate_profile = require_text_field(candidate, "profile_id")
+    if (
+        require_text_field(returned_by, "peer_name") != candidate_peer
+        or require_text_field(returned_by, "profile_id")
+        != candidate_profile
+    ):
+        raise InvalidMutationError(
+            "arbiter opinion peer/profile does not match the frozen request"
+        )
+
+    dispatch = _required_mapping(opinion_state, "dispatch")
+    if dispatch.get("state") != "SUCCEEDED_VERIFIED":
+        raise InvalidMutationError(
+            "arbiter opinion dispatch is not SUCCEEDED_VERIFIED"
+        )
+    response_text = opinion_state.get("response_text")
+    if not isinstance(response_text, str):
+        raise InvalidMutationError("arbiter opinion response_text is invalid")
+    parsed_verdict = _strict_arbiter_verdict(response_text)
+    if (
+        parsed_verdict is None
+        or opinion_state.get("parsed_verdict") != parsed_verdict
+    ):
+        raise InvalidMutationError(
+            "arbiter opinion does not contain a syntactically valid verdict"
+        )
+    return {
+        "request_target_id": request_target_id,
+        "opinion_target_id": opinion_target_id,
+        "review_id": review_id,
+        "verdict": parsed_verdict,
+        "peer_name": candidate_peer,
+        "profile_id": candidate_profile,
+        "recorded_at": _required_nonnegative_int(opinion_state, "recorded_at"),
+    }
+
 
 class ConsensusStateMachine:
     def __init__(self, state: str, final_call_rule: str | None = None, mandatory_floors_hit: bool = False):
