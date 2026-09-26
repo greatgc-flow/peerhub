@@ -54,6 +54,14 @@ def register_daily_commands(
     diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
     add_json_arg(diag_parser)
     diag_parser.add_argument(
+        "--headroom", action="store_true",
+        help="Show the policy-tiered headroom surface (quota + 24h dispatch reliability) instead of the full monitor",
+    )
+    diag_parser.add_argument(
+        "--headroom-surface", default=None, choices=("none", "basic", "full"),
+        help="Override telemetry.headroom_surface for this call (default from policy: basic)",
+    )
+    diag_parser.add_argument(
         "--domains", action="store_true",
         help="Include a governed-domain state section (consensus/task/lesson) alongside peer-CLI telemetry",
     )
@@ -406,6 +414,74 @@ def render_domain_section(domains: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def run_headroom(
+    parsed: argparse.Namespace, cli: ModuleType, workspace_root: Path, projections: Any
+) -> int:
+    """``diag --headroom``: the policy-tiered headroom surface (R4 2.9 / B8)."""
+
+    from peerhub.adapters.registry import _CLI_ALIASES, resolve_peer_adapter  # pyright: ignore[reportPrivateUsage]
+    from peerhub.application.config_paths import (
+        resolve_global_config_home,
+        resolve_workspace_config_home,
+    )
+    from peerhub.dispatch.policy_resolver import PolicyResolver
+    from peerhub.telemetry.presenter import DisplayTier, render_headroom
+    from peerhub.telemetry.reliability import compute_reliability
+
+    override = getattr(parsed, "headroom_surface", None)
+    overrides = {"telemetry": {"headroom_surface": override}} if override is not None else None
+    resolver = PolicyResolver(
+        resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
+        resolve_global_config_home().path / "dispatch-policy.toml",
+    )
+    surface = resolver.resolve("diag", cli_overrides=overrides).telemetry.headroom_surface
+    try:
+        tier = DisplayTier(surface)
+    except ValueError:
+        print(f"peerhub diag: invalid headroom_surface {surface!r}", file=cli.sys.stderr)
+        return 2
+
+    reliability: dict[tuple[str, str], Any] = {}
+    paths = cli.PathLayout.for_workspace(workspace_root)
+    if tier is DisplayTier.FULL and paths.database_path.exists():
+        as_of = int(cli.time.time())
+        context = cli.RuntimeContext(
+            workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+            paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+        )
+        try:
+            with cli.create_read_runtime(context, adapter_peer_kind="fake") as runtime:
+                conn = runtime.state_store._connect_read()  # pyright: ignore[reportPrivateUsage]
+                try:
+                    for kind in sorted(set(_CLI_ALIASES.values())):
+                        for profile in resolve_peer_adapter(kind).descriptor.profiles:
+                            reliability[(kind, profile.profile_id)] = compute_reliability(
+                                conn, instance_id=kind, profile_id=profile.profile_id, as_of=as_of
+                            )
+                finally:
+                    conn.close()
+        except (RuntimeError, cli.sqlite3.Error) as error:
+            print(f"peerhub diag: reliability unavailable: {error}", file=cli.sys.stderr)
+    if parsed.json:
+        print(cli.json.dumps({
+            "tier": tier.value,
+            "reliability": {
+                f"{inst}/{prof}": {
+                    "succeeded": r.succeeded, "failed": r.failed, "fail_rate": r.rate,
+                    "excluded_cancelled": r.excluded_cancelled, "excluded_unknown": r.excluded_unknown,
+                    "excluded_pre_admission": r.excluded_pre_admission,
+                    "partial_coverage": r.partial_coverage,
+                } for (inst, prof), r in sorted(reliability.items())
+            },
+            "text": render_headroom(projections, reliability, tier=tier),
+        }, indent=2))
+    else:
+        text = render_headroom(projections, reliability, tier=tier)
+        if text:
+            print(text)
+    return 0
+
+
 def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.telemetry.presenter import TelemetryPresenter
 
@@ -413,6 +489,8 @@ def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
     projections = cli._refresh_usage_projections(
         workspace_root, force=bool(getattr(parsed, "fresh", False))
     )
+    if getattr(parsed, "headroom", False):
+        return run_headroom(parsed, cli, workspace_root, projections)
     presenter = TelemetryPresenter(
         use_color=False if parsed.no_color else None,
         workspace_root=workspace_root,

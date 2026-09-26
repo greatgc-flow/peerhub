@@ -67,3 +67,27 @@ def test_th_09_malformed_input():
     result = format_headroom_surface(input_data, tier=DisplayTier.BASIC)
     assert result == "No telemetry data"
 
+
+
+# ---- render_headroom (policy-tiered surface with 24h reliability) ----
+from peerhub.telemetry.presenter import render_headroom  # noqa: E402
+from peerhub.telemetry.reliability import Reliability24h  # noqa: E402
+
+
+def test_none_tier_renders_nothing_and_absence_is_stated_not_zero():
+    assert render_headroom([], {}, tier=DisplayTier.NONE) == ""
+    assert render_headroom([], {}, tier=DisplayTier.BASIC) == "No telemetry data"
+
+
+def test_full_tier_reports_reliability_counts_exclusions_and_no_dispatch_honestly():
+    reliability = {
+        ("cx", "cx.standard"): Reliability24h(8, 2, 1, 1, 0, 1000),
+        ("cx", "cx.effort"): Reliability24h(0, 0, 0, 0, 0, 1000),
+    }
+    out = render_headroom([], reliability, tier=DisplayTier.FULL, now=1000)
+    assert "cx.standard: 8 ok / 2 failed, fail rate 20%" in out
+    assert "1 cancelled, 1 unknown, 0 pre-admission" in out and "[partial coverage]" in out
+    assert "cx.effort: fail rate: no definitive attempts" in out
+    effort_line = next(l for l in out.splitlines() if "cx.effort" in l)
+    assert "0%" not in effort_line
+    assert "24h reliability" not in render_headroom([], reliability, tier=DisplayTier.BASIC, now=1000)

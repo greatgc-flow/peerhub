@@ -15,6 +15,7 @@ import time
 import unicodedata
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 from peerhub.telemetry.contract import (
@@ -27,6 +28,8 @@ from peerhub.telemetry.contract import (
 
 
 from enum import Enum
+
+from peerhub.telemetry.reliability import Reliability24h
 class DisplayTier(Enum):
     NONE = "none"
     BASIC = "basic"
@@ -100,6 +103,49 @@ def format_headroom_surface(
             result += " | " + " | ".join(extras)
 
     return result
+
+def render_headroom(
+    projections: "Sequence[UsageProjectionSnapshot]",
+    reliability: "Mapping[tuple[str, str], Reliability24h]",
+    *,
+    tier: DisplayTier,
+    now: int | None = None,
+) -> str:
+    """Policy-tiered headroom surface (telemetry.headroom_surface: none/basic/full).
+
+    basic = per-pool used/remaining with staleness; full adds the 24h reliability per profile
+    (counts + excluded categories + partial coverage). Absence is stated, never shown as 0%.
+    """
+    if tier is DisplayTier.NONE:
+        return ""
+    now = int(time.time()) if now is None else now
+    lines: list[str] = []
+    if not projections:
+        lines.append("No telemetry data")
+    for snapshot in sorted(projections, key=lambda p: (p.instance_id, p.quota_pool_scope)):
+        line = (
+            f"{snapshot.instance_id} {snapshot.quota_pool_scope}: "
+            f"used {snapshot.used_fraction * 100:.0f}%, remaining {snapshot.remaining_fraction * 100:.0f}%"
+        )
+        age = now - snapshot.updated_at
+        if age > _HEADROOM_STALE_THRESHOLD_SECONDS:
+            line += f" [stale: {int(age // 60)}m ago]"
+        lines.append(line)
+    if tier is DisplayTier.FULL:
+        lines.append("24h reliability (definitive attempts only):")
+        for (_instance_id, profile_id), r in sorted(reliability.items()):
+            if r.rate is None:
+                detail = "fail rate: no definitive attempts"
+            else:
+                detail = f"{r.succeeded} ok / {r.failed} failed, fail rate {r.rate * 100:.0f}%"
+            excluded = (
+                f"excluded: {r.excluded_cancelled} cancelled, {r.excluded_unknown} unknown, "
+                f"{r.excluded_pre_admission} pre-admission"
+            )
+            partial = " [partial coverage]" if r.partial_coverage else ""
+            lines.append(f"  {profile_id}: {detail} ({excluded}){partial}")
+    return "\n".join(lines)
+
 
 def _dw(s: str) -> int:
     """Compute terminal display width supporting East Asian Width & emojis."""
