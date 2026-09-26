@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, cast
 
+from peerhub.application.ingress import InputContractError, resolve_prompt_input
 from peerhub.cli.context import resolve_workspace
 from peerhub.cli.parser import add_json_arg, add_workspace_arg, help_epilog_kwargs
 
@@ -53,6 +54,14 @@ def register_daily_commands(
     diag_parser.add_argument("--no-color", action="store_true", help="Disable terminal colors")
     add_json_arg(diag_parser)
     diag_parser.add_argument(
+        "--headroom", action="store_true",
+        help="Show the policy-tiered headroom surface (quota + 24h dispatch reliability) instead of the full monitor",
+    )
+    diag_parser.add_argument(
+        "--headroom-surface", default=None, choices=("none", "basic", "full"),
+        help="Override telemetry.headroom_surface for this call (default from policy: basic)",
+    )
+    diag_parser.add_argument(
         "--domains", action="store_true",
         help="Include a governed-domain state section (consensus/task/lesson) alongside peer-CLI telemetry",
     )
@@ -64,7 +73,11 @@ def register_daily_commands(
             "  peerhub broadcast \"List one risk.\" --peers cx,ag --workspace ./peerhub-demo  ask several configured peers"
         ),
     )
-    broadcast_parser.add_argument("prompt", help="Prompt text to broadcast")
+    broadcast_parser.add_argument("prompt", nargs="?", default=None, help="Prompt text to broadcast")
+    broadcast_parser.add_argument(
+        "--query-file", default=None,
+        help="Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+    )
     broadcast_parser.add_argument(
         "--peers", default="ag,cx", help="Comma-separated list of peers (default: ag,cx)"
     )
@@ -93,7 +106,11 @@ def register_ask_command(
         ),
     )
     ask_parser.add_argument("peer", help="Peer name (ag/agy, cc/claude, cx/codex)")
-    ask_parser.add_argument("prompt", help="Prompt text to send")
+    ask_parser.add_argument("prompt", nargs="?", default=None, help="Prompt text to send")
+    ask_parser.add_argument(
+        "--query-file", default=None,
+        help="Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+    )
     ask_parser.add_argument(
         "-t", "--capability-tier", default="READ_ONLY", choices=capability_tier_names,
         help="Required downstream capability tier",
@@ -102,11 +119,98 @@ def register_ask_command(
         ask_parser,
         help="Path to the workspace root (default: current directory)",
     )
-    ask_parser.add_argument("-p", "--profile", default=None, help="Explicit profile ID")
+    ask_parser.add_argument("-p", "--profile", default=None, help="Explicit profile ID (a pin: never substituted)")
+    ask_parser.add_argument(
+        "--effort-hint", default=None,
+        help="Declared work shape (a key of routing.preference_map); a declaration, not a measurement",
+    )
+    ask_parser.add_argument(
+        "--effort-routing", default=None, choices=("off", "advisory", "opt-in"),
+        help="Override routing.effort_routing for this call (default from policy: advisory)",
+    )
     ask_parser.add_argument("--timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     add_json_arg(ask_parser, help="Emit JSON")
+
+
+def route_ask_profile(
+    parsed: argparse.Namespace, cli: ModuleType, workspace_root: Path, paths: Any
+) -> str | None:
+    """Apply the declared ``--effort-hint`` (R4 2.8); returns the profile id to dispatch with."""
+
+    hint = getattr(parsed, "effort_hint", None)
+    override = getattr(parsed, "effort_routing", None)
+    if hint is None and override is None:
+        return cast("str | None", parsed.profile)
+
+    from peerhub.adapters.registry import _CLI_ALIASES, resolve_peer_adapter  # pyright: ignore[reportPrivateUsage]
+    from peerhub.application.config_paths import (
+        resolve_global_config_home,
+        resolve_workspace_config_home,
+    )
+    from peerhub.application.effort_routing import EffortRoutingError, decide_profile
+    from peerhub.dispatch.policy_resolver import PolicyResolver
+    from peerhub.health.contract import AdmissionState, AvailabilityState
+
+    peer_key = str(parsed.peer).strip()
+    if peer_key not in _CLI_ALIASES:
+        return cast("str | None", parsed.profile)  # the ask path reports the unsupported peer itself
+    peer_kind = _CLI_ALIASES[peer_key]
+    resolver = PolicyResolver(
+        resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
+        resolve_global_config_home().path / "dispatch-policy.toml",
+    )
+    overrides = {"routing": {"effort_routing": override}} if override is not None else None
+    routing = resolver.resolve("ask", cli_overrides=overrides).routing
+    registered = {p.profile_id for p in resolve_peer_adapter(peer_kind).descriptor.profiles}
+
+    runtime_cm: Any = None
+    health: Any = None
+    if paths.database_path.exists():
+        try:
+            context = cli.RuntimeContext(
+                workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+                paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+            )
+            runtime_cm = cli.create_read_runtime(context, adapter_peer_kind="fake")
+            health = runtime_cm.__enter__().health_service
+        except Exception:  # health is a best-effort filter; dispatch admission stays authoritative
+            runtime_cm, health = None, None
+
+    def is_eligible(binding: str) -> bool:
+        if binding not in registered:
+            return False
+        if health is None:
+            return True
+        try:
+            projection = health.read_health_projection(peer_kind, binding)
+        except Exception:
+            return True
+        if projection is None:
+            return True
+        return (
+            projection.effective_admission_state is AdmissionState.OPEN
+            and projection.effective_availability_state is not AvailabilityState.UNAVAILABLE
+        )
+
+    try:
+        decision = decide_profile(
+            peer_kind=peer_kind,
+            explicit_profile=parsed.profile,
+            hint=hint,
+            mode=routing.effort_routing,
+            preference_map=routing.preference_map,
+            is_eligible=is_eligible,
+        )
+    except EffortRoutingError as error:
+        raise ValueError(str(error)) from error
+    finally:
+        if runtime_cm is not None:
+            runtime_cm.__exit__(None, None, None)
+    if decision.note:
+        print(f"peerhub ask: {decision.note}", file=cli.sys.stderr)
+    return decision.profile_id
 
 
 def run_ask(
@@ -140,12 +244,14 @@ def run_ask(
         if guard_code is not None:
             return guard_code
         is_first_init = not paths.database_path.exists()
+        prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
+        routed_profile = route_ask_profile(parsed, cli, workspace_root, paths)
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
             peer_name=parsed.peer,
-            prompt=parsed.prompt,
+            prompt=prompt_text,
             required_capability_tier=cli.CapabilityTier[parsed.capability_tier],
-            profile_id=parsed.profile,
+            profile_id=routed_profile,
             limits=cli.TransportLimits(
                 process_timeout_ms=parsed.timeout_seconds * 1000,
                 silence_timeout_ms=parsed.silence_timeout_seconds * 1000,
@@ -308,6 +414,74 @@ def render_domain_section(domains: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def run_headroom(
+    parsed: argparse.Namespace, cli: ModuleType, workspace_root: Path, projections: Any
+) -> int:
+    """``diag --headroom``: the policy-tiered headroom surface (R4 2.9 / B8)."""
+
+    from peerhub.adapters.registry import _CLI_ALIASES, resolve_peer_adapter  # pyright: ignore[reportPrivateUsage]
+    from peerhub.application.config_paths import (
+        resolve_global_config_home,
+        resolve_workspace_config_home,
+    )
+    from peerhub.dispatch.policy_resolver import PolicyResolver
+    from peerhub.telemetry.presenter import DisplayTier, render_headroom
+    from peerhub.telemetry.reliability import compute_reliability
+
+    override = getattr(parsed, "headroom_surface", None)
+    overrides = {"telemetry": {"headroom_surface": override}} if override is not None else None
+    resolver = PolicyResolver(
+        resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
+        resolve_global_config_home().path / "dispatch-policy.toml",
+    )
+    surface = resolver.resolve("diag", cli_overrides=overrides).telemetry.headroom_surface
+    try:
+        tier = DisplayTier(surface)
+    except ValueError:
+        print(f"peerhub diag: invalid headroom_surface {surface!r}", file=cli.sys.stderr)
+        return 2
+
+    reliability: dict[tuple[str, str], Any] = {}
+    paths = cli.PathLayout.for_workspace(workspace_root)
+    if tier is DisplayTier.FULL and paths.database_path.exists():
+        as_of = int(cli.time.time())
+        context = cli.RuntimeContext(
+            workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+            paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+        )
+        try:
+            with cli.create_read_runtime(context, adapter_peer_kind="fake") as runtime:
+                conn = runtime.state_store._connect_read()  # pyright: ignore[reportPrivateUsage]
+                try:
+                    for kind in sorted(set(_CLI_ALIASES.values())):
+                        for profile in resolve_peer_adapter(kind).descriptor.profiles:
+                            reliability[(kind, profile.profile_id)] = compute_reliability(
+                                conn, instance_id=kind, profile_id=profile.profile_id, as_of=as_of
+                            )
+                finally:
+                    conn.close()
+        except (RuntimeError, cli.sqlite3.Error) as error:
+            print(f"peerhub diag: reliability unavailable: {error}", file=cli.sys.stderr)
+    if parsed.json:
+        print(cli.json.dumps({
+            "tier": tier.value,
+            "reliability": {
+                f"{inst}/{prof}": {
+                    "succeeded": r.succeeded, "failed": r.failed, "fail_rate": r.rate,
+                    "excluded_cancelled": r.excluded_cancelled, "excluded_unknown": r.excluded_unknown,
+                    "excluded_pre_admission": r.excluded_pre_admission,
+                    "partial_coverage": r.partial_coverage,
+                } for (inst, prof), r in sorted(reliability.items())
+            },
+            "text": render_headroom(projections, reliability, tier=tier),
+        }, indent=2))
+    else:
+        text = render_headroom(projections, reliability, tier=tier)
+        if text:
+            print(text)
+    return 0
+
+
 def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.telemetry.presenter import TelemetryPresenter
 
@@ -315,6 +489,8 @@ def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
     projections = cli._refresh_usage_projections(
         workspace_root, force=bool(getattr(parsed, "fresh", False))
     )
+    if getattr(parsed, "headroom", False):
+        return run_headroom(parsed, cli, workspace_root, projections)
     presenter = TelemetryPresenter(
         use_color=False if parsed.no_color else None,
         workspace_root=workspace_root,
@@ -447,6 +623,12 @@ def run_status(parsed: argparse.Namespace, cli: ModuleType) -> int:
 def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.broadcast import BroadcastCoordinator, FanOutRequest
 
+    try:
+        prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
+    except InputContractError as error:
+        print(f"peerhub broadcast: {error}", file=cli.sys.stderr)
+        return 2
+
     resolution = resolve_workspace(parsed.workspace)
     workspace_root = resolution.root
     paths = cli.PathLayout.for_workspace(workspace_root)
@@ -473,7 +655,7 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
         coordinator = BroadcastCoordinator(runtime=runtime, clock=context.clock, ids=context.ids)
         request = FanOutRequest(
             workspace_root=workspace_root,
-            prompt=parsed.prompt,
+            prompt=prompt_text,
             targets=targets,
             required_capability_tier=cli.CapabilityTier[parsed.capability_tier],
             limits=cli.TransportLimits(

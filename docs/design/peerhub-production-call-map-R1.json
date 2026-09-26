@@ -577,6 +577,36 @@
             "action": "_StoreTrueAction",
             "choices": null,
             "default": false,
+            "dest": "headroom",
+            "help": "Show the policy-tiered headroom surface (quota + 24h dispatch reliability) instead of the full monitor",
+            "nargs": 0,
+            "option_strings": [
+              "--headroom"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": [
+              "none",
+              "basic",
+              "full"
+            ],
+            "default": null,
+            "dest": "headroom_surface",
+            "help": "Override telemetry.headroom_surface for this call (default from policy: basic)",
+            "nargs": null,
+            "option_strings": [
+              "--headroom-surface"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
             "dest": "domains",
             "help": "Include a governed-domain state section (consensus/task/lesson) alongside peer-CLI telemetry",
             "nargs": 0,
@@ -616,9 +646,22 @@
             "default": null,
             "dest": "prompt",
             "help": "Prompt text to broadcast",
-            "nargs": null,
+            "nargs": "?",
             "option_strings": [],
-            "required": true,
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "query_file",
+            "help": "Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+            "nargs": null,
+            "option_strings": [
+              "--query-file"
+            ],
+            "required": false,
             "type": null
           },
           {
@@ -1542,9 +1585,22 @@
             "default": null,
             "dest": "prompt",
             "help": "Prompt text to send",
-            "nargs": null,
+            "nargs": "?",
             "option_strings": [],
-            "required": true,
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "query_file",
+            "help": "Read the prompt from a UTF-8 file instead (exactly one of prompt / --query-file)",
+            "nargs": null,
+            "option_strings": [
+              "--query-file"
+            ],
+            "required": false,
             "type": null
           },
           {
@@ -1585,11 +1641,41 @@
             "choices": null,
             "default": null,
             "dest": "profile",
-            "help": "Explicit profile ID",
+            "help": "Explicit profile ID (a pin: never substituted)",
             "nargs": null,
             "option_strings": [
               "-p",
               "--profile"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "effort_hint",
+            "help": "Declared work shape (a key of routing.preference_map); a declaration, not a measurement",
+            "nargs": null,
+            "option_strings": [
+              "--effort-hint"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": [
+              "off",
+              "advisory",
+              "opt-in"
+            ],
+            "default": null,
+            "dest": "effort_routing",
+            "help": "Override routing.effort_routing for this call (default from policy: advisory)",
+            "nargs": null,
+            "option_strings": [
+              "--effort-routing"
             ],
             "required": false,
             "type": null
