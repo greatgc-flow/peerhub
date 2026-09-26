@@ -40,6 +40,7 @@ def test_pre_activation_unchanged(fresh_conn, store):
     with uow:
         repo = uow.governance
         repo.compare_and_set_target(None, _target("T1", 1, "consensus-round"))
+        uow.commit()
     
     # Assert row is in governed_targets, not consensus_targets
     row = fresh_conn.execute("SELECT * FROM governed_targets WHERE target_id='T1'").fetchone()
@@ -99,7 +100,7 @@ def test_fault_injected_at_every_step_boundary(fresh_conn, step_name):
     assert epoch == 1
     meta = fresh_conn.execute("SELECT * FROM consensus_activation WHERE singleton=1").fetchone()
     assert meta["activated"] == 0
-    triggers = fresh_conn.execute("SELECT name FROM sqlite_master WHERE type='trigger'").fetchall()
+    triggers = fresh_conn.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'consensus_v2_guard%'").fetchall()
     assert len(triggers) == 0
 
 def test_raw_legacy_style_mutation_fails_after_activation(fresh_conn):
@@ -134,7 +135,8 @@ def test_raw_legacy_style_mutation_fails_after_activation(fresh_conn):
 
     # To test OLD.target_kind, we need an existing consensus-round row.
     # But wait, we can't insert one after activation! We must insert it before activation.
-    fresh_conn.execute("UPDATE consensus_activation SET activated=0") # force revert for test setup
+    fresh_conn.execute("UPDATE consensus_activation SET activated=0, activation_epoch=NULL, activated_at=NULL") # force revert for test setup
+    fresh_conn.execute("UPDATE workspace_identity SET activation_epoch = activation_epoch - 1")
     fresh_conn.execute("DROP TRIGGER IF EXISTS consensus_v2_guard_insert")
     fresh_conn.execute("DROP TRIGGER IF EXISTS consensus_v2_guard_update")
     fresh_conn.execute("DROP TRIGGER IF EXISTS consensus_v2_guard_delete")
@@ -177,6 +179,7 @@ def test_non_consensus_kinds_unaffected(fresh_conn):
 def test_v2_get_list_cas(fresh_conn, store):
     """MECE: V2 get/list/CAS"""
     activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
     
     uow = store.unit_of_work()
     with uow:
@@ -198,6 +201,7 @@ def test_v2_get_list_cas(fresh_conn, store):
         targets = repo.list_targets("consensus-round")
         assert len(targets) == 1
         assert targets[0].revision == 2
+        uow.commit()
         
     # Assert row is in consensus_targets NOT governed_targets
     assert fresh_conn.execute("SELECT * FROM governed_targets WHERE target_id='T_V2'").fetchone() is None
@@ -211,6 +215,7 @@ def test_legacy_fallback_read(fresh_conn, store):
     )
     
     activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
     
     uow = store.read_unit_of_work()
     with uow:
@@ -226,6 +231,7 @@ def test_dedup_listing(fresh_conn, store):
     )
     
     activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
     
     uow = store.unit_of_work()
     with uow:
@@ -238,6 +244,7 @@ def test_dedup_listing(fresh_conn, store):
         targets = repo.list_targets("consensus-round")
         assert len(targets) == 1
         assert targets[0].revision == 6
+        uow.commit()
 
 def test_promotion(fresh_conn, store):
     """MECE: promotion at original revision+1 and second promoter loses"""
@@ -247,6 +254,7 @@ def test_promotion(fresh_conn, store):
     )
     
     activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
     
     uow1 = store.unit_of_work()
     with uow1:
@@ -257,6 +265,7 @@ def test_promotion(fresh_conn, store):
         # Promoter 1 wins
         promoted = repo1.compare_and_set_target(t1, _target("T_PROMOTE", 6, "consensus-round"))
         assert promoted is True
+        uow1.commit()
 
     uow2 = store.unit_of_work()
     with uow2:
@@ -280,6 +289,7 @@ def test_v2_id_collision_refused(fresh_conn, store):
     )
     
     activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
     
     uow = store.unit_of_work()
     with uow:
@@ -287,14 +297,32 @@ def test_v2_id_collision_refused(fresh_conn, store):
         # insert when current is None (target_id must not exist in legacy either -> return False on collision)
         inserted = repo.compare_and_set_target(None, _target("T_COLLIDE", 1, "consensus-round"))
         assert inserted is False
+        uow.commit()
 
 def test_workspace_epoch_asserted(fresh_conn, store):
     """MECE: workspace epoch value asserted"""
     epoch_before = fresh_conn.execute("SELECT activation_epoch FROM workspace_identity").fetchone()[0]
     activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
+    with store.read_unit_of_work():
+        pass
     epoch_after = fresh_conn.execute("SELECT activation_epoch FROM workspace_identity").fetchone()[0]
     
     # Check that repo.compare_and_set_target uses the correct epoch? Or just the epoch is correct?
     assert epoch_after == epoch_before + 1
     # Check property
     assert store._generation[1] == epoch_after
+
+
+def test_activation_refused_on_inconsistent_partial_state_with_zero_mutation(fresh_conn):
+    fresh_conn.execute(
+        "CREATE TRIGGER consensus_v2_guard_insert BEFORE INSERT ON governed_targets "
+        "BEGIN SELECT RAISE(ABORT, 'ABORT'); END"
+    )
+    assert read_activation_state(fresh_conn) == "inconsistent"
+    epoch_before = fresh_conn.execute("SELECT activation_epoch FROM workspace_identity").fetchone()[0]
+    with pytest.raises(ActivationError):
+        activate_consensus_v2(fresh_conn, now=2000)
+    assert fresh_conn.execute("SELECT activation_epoch FROM workspace_identity").fetchone()[0] == epoch_before
+    assert fresh_conn.execute("SELECT activated FROM consensus_activation").fetchone()[0] == 0
+    assert not fresh_conn.in_transaction
