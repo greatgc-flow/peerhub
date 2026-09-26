@@ -12,7 +12,9 @@ from peerhub.governance.policy_snapshot import ConfigurationError, freeze_policy
 from peerhub.governance.provenance import resolve_provenance
 from peerhub.governance.candidate import Candidate, AckLedger
 from peerhub.governance.consensus import ConsensusStateMachine, EvalContext, AckNackEvent
-from peerhub.governance.proposal_policy import build_approval_submission
+from peerhub.governance.proposal_policy import build_approval_submission, route_effect_kind
+from peerhub.governance.contract import EffectOutcome
+from peerhub.governance.invariant_requests import RATIFIED_INVARIANT_EFFECT_KIND
 
 def candidate_state_hash(state: Dict[str, Any]) -> str:
     """Hash the immutable content being approved (never the mutable ACK ledger/phase)."""
@@ -361,3 +363,45 @@ class ConsensusShell:
         return self._process_event(
             round_id, actor_id, "abandon", event_factory, updater
         )
+
+    def process_consensus_effects(self, round_id: str, *, owner_id: Optional[str] = None) -> tuple:
+        """Claim and receipt this round's pending consensus effects as the V2 worker.
+
+        Only the ``consensus-v2:`` owner prefix passes the activation fence.
+        The ratified-invariant effect is left for its exclusive materializer;
+        an unknown effect kind holds (EffectRoutingError) before anything is
+        claimed.
+        """
+        owner = owner_id or f"consensus-v2:{round_id}"
+        if not owner.startswith("consensus-v2:"):
+            raise ValueError("V2 consensus worker owner must start with 'consensus-v2:'")
+        matching = []
+        for pending in self._broker.recover_pending_effects():
+            payload = pending.event.payload
+            effect_payload = payload.get("effect_payload")
+            if not (
+                payload.get("target_id") == round_id
+                or (isinstance(effect_payload, dict) and effect_payload.get("round_id") == round_id)
+            ):
+                continue
+            kind = payload.get("effect_kind")
+            if kind == "consensus.noop" or kind == RATIFIED_INVARIANT_EFFECT_KIND:
+                continue
+            route_effect_kind(kind, "generic")  # raises EffectRoutingError (hold) if unknown
+            matching.append(pending)
+        receipts = []
+        for pending in matching:
+            attempt_id = self._ids.new_id("effect-attempt")
+            claimed = self._broker.claim_effect(
+                pending.event.event_id, owner_id=owner, attempt_id=attempt_id
+            )
+            receipts.append(
+                self._broker.record_effect_result(
+                    claimed.event_id,
+                    owner_id=owner,
+                    attempt_id=attempt_id,
+                    outcome=EffectOutcome.EFFECT_SUCCEEDED,
+                    evidence_refs=(f"consensus-round:{round_id}",),
+                )
+            )
+        return tuple(receipts)

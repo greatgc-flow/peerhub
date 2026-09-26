@@ -140,6 +140,7 @@ def test_raw_legacy_style_mutation_fails_after_activation(fresh_conn):
     fresh_conn.execute("DROP TRIGGER IF EXISTS consensus_v2_guard_insert")
     fresh_conn.execute("DROP TRIGGER IF EXISTS consensus_v2_guard_update")
     fresh_conn.execute("DROP TRIGGER IF EXISTS consensus_v2_guard_delete")
+    fresh_conn.execute("DROP TRIGGER IF EXISTS consensus_v2_guard_effect_claim")
     fresh_conn.execute(
         "INSERT INTO governed_targets(target_id, revision, state_json, updated_at, target_kind, target_scope) "
         "VALUES('T4', 1, '{\"kind\": \"consensus-round\"}', 1000, 'consensus-round', 'scope')"
@@ -326,3 +327,9 @@ def test_activation_refused_on_inconsistent_partial_state_with_zero_mutation(fre
     assert fresh_conn.execute("SELECT activation_epoch FROM workspace_identity").fetchone()[0] == epoch_before
     assert fresh_conn.execute("SELECT activated FROM consensus_activation").fetchone()[0] == 0
     assert not fresh_conn.in_transaction
+
+
+def test_activation_invariant_kind_constant_matches_the_real_effect_kind():
+    from peerhub.governance.invariant_requests import RATIFIED_INVARIANT_EFFECT_KIND
+    from peerhub.persistence.consensus_activation import _INVARIANT_KIND
+    assert _INVARIANT_KIND == RATIFIED_INVARIANT_EFFECT_KIND
