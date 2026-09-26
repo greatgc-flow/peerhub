@@ -294,6 +294,11 @@ class GovernanceBroker:
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
 
+    @property
+    def ids(self) -> IdSource:
+        """Id source shared with governance services built on this broker."""
+        return self._ids
+
     @staticmethod
     def _require_governance_event(
         event: OutboxEvent,

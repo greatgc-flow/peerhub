@@ -80,7 +80,7 @@ def test_propose_v2_persists_schema_and_frozen_policy(test_env):
     assert "policy_snapshot" in target.state
     assert target.state["policy_snapshot"]["origin"] == "direct"
     assert target.state["policy_snapshot"]["action"] == "consensus.round.propose"
-    assert target.state["participants"] == ["peer-1", "peer-2", "peer-3"]
+    assert tuple(target.state["participants"]) == ("peer-1", "peer-2", "peer-3")
     assert set(target.state["frozen_authority_set"]) == {"peer-1", "peer-2", "peer-3"}
     assert target.state["expected_authority_version"] == 1
     assert target.state["ack_ledger"] == {}
@@ -194,3 +194,21 @@ def test_ack_with_invalid_credential_fails_closed_and_valid_one_passes(test_env)
         shell.final_call_ack("round-cred", "peer-1", credential_id="bogus")
     shell.final_call_ack("round-cred", "peer-1", credential_id="valid-1")
     assert broker.get_target("round-cred").state["phase"] == "final_call"
+
+
+def test_acks_bound_to_a_different_candidate_hash_do_not_count(test_env):
+    shell, broker, authority_store, _ = test_env
+    inject_final_call_state(broker, "round-stalecand")
+    target = broker.get_target("round-stalecand")
+    state = dict(target.state)
+    state["ack_ledger"] = {"sha256:some-older-candidate": ["peer-1"]}
+    broker.submit(MutationRequest(
+        request_id="inject-stalecand-2", command_id=CommandID("cmd-2"), correlation_id="corr",
+        client_id="test", command_type="test", idempotency_key="idem-stalecand-2",
+        actor_id="tester", policy_revision="1", target_id="round-stalecand",
+        expected_revision=target.revision, operation="inject", desired_state=state,
+        effect_intent=EffectIntent(kind="consensus.noop", payload={}),
+        write_provenance=resolve_local_os_write_provenance(),
+    ))
+    shell.final_call_ack("round-stalecand", "peer-2")
+    assert broker.get_target("round-stalecand").state["phase"] == "final_call"
