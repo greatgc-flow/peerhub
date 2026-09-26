@@ -44,10 +44,23 @@ class ConsensusFacade:
         return self._legacy.resolution_decision_hash(state, outcome)
 
     def _is_v2_round(self, round_id: str) -> bool:
+        """True for V2 rounds; a legacy round mutated after activation is held.
+
+        After activation legacy consensus state is fenced at the storage layer
+        (design 7.2: a V1 round is never guessed/upcast implicitly), so a
+        mutation on one fails closed here with an operator-facing message.
+        """
         target = self._legacy.get_target(round_id)
         if target is None:
             raise RecordNotFoundError("consensus-round", round_id)
-        return target.state.get("schema") == V2_SCHEMA
+        if target.state.get("schema") == V2_SCHEMA:
+            return True
+        if self._is_v2_active():
+            raise UnsupportedV2Operation(
+                f"consensus round {round_id!r} is a legacy V1 round held after V2 "
+                "activation; it needs an explicit administrator migration"
+            )
+        return False
 
     # -- creation ---------------------------------------------------------------
     def propose(

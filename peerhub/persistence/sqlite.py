@@ -284,14 +284,20 @@ class SqliteStateStore:
 
     def is_consensus_v2_active(self) -> bool:
         """True once the atomic consensus V2 activation has committed (never cached)."""
+        from peerhub.persistence.consensus_activation import (
+            ActivationError,
+            read_activation_state,
+        )
+
         connection = self._connect_read()
         try:
-            row = connection.execute(
-                "SELECT activated FROM consensus_activation WHERE singleton = 1"
-            ).fetchone()
-            return row is not None and row[0] == 1
+            state = read_activation_state(connection)
         finally:
             connection.close()
+        if state == "inconsistent":
+            # Partial activation must never be routed as either world (fail closed).
+            raise ActivationError("consensus V2 activation state is inconsistent")
+        return state == "activated"
 
     def mint_new_epoch(self, *, minimum_epoch: int = 0) -> None:
         """Increment the activation epoch. Used during restore to invalidate prior authority."""

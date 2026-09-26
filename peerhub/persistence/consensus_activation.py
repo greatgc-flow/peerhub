@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Callable
 
+_INVARIANT_OWNER = "peerhub.invariant-request-projector"  # == RatifiedInvariantRequestProjector owner
 _INVARIANT_KIND = "governance.ratified-invariant-write-request"  # == invariant_requests.RATIFIED_INVARIANT_EFFECT_KIND
 
 
@@ -58,7 +59,7 @@ def activate_consensus_v2(
 
         # Effect-claim fence (cx criterion 3): after activation only the V2
         # worker (owner prefix 'consensus-v2:') may claim consensus.* effects,
-        # and the legacy worker prefix may never claim the ratified-invariant
+        # and only the exclusive invariant materializer may claim the ratified-invariant
         # effect (reserved for its exclusive materializer). Unclaimed rows
         # only: work already claimed before activation may still complete.
         connection.execute(f"""
@@ -74,7 +75,7 @@ def activate_consensus_v2(
                      AND NEW.claimed_by NOT LIKE 'consensus-v2:%')
                     OR
                     (json_extract(e.payload_json, '$.effect_kind') = '{_INVARIANT_KIND}'
-                     AND NEW.claimed_by LIKE 'consensus-worker:%')
+                     AND NEW.claimed_by != '{_INVARIANT_OWNER}')
                   )
               )
             BEGIN

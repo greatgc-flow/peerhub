@@ -1,4 +1,6 @@
 import sqlite3
+
+from peerhub.core.errors import InvalidMutationError
 from collections.abc import Sequence
 from typing import Callable
 from .sqlite_helpers import (
@@ -159,6 +161,12 @@ class SqliteGovernanceRepository:
                 is_activated = activation_row is not None and activation_row[0] == 1
 
             if is_activated and target_kind == "consensus-round":
+                if updated.state.get("schema") != "peerhub.consensus-round.v2":
+                    # V1-shaped consensus state is fenced after activation: legacy
+                    # rounds must be upcast (design 7.2) before any V2 mutation.
+                    raise InvalidMutationError(
+                        "legacy consensus state cannot be written after V2 activation"
+                    )
                 if current is None:
                     legacy_collision = connection.execute("SELECT 1 FROM governed_targets WHERE target_id = ?", (updated.target_id,)).fetchone()
                     if legacy_collision is not None:

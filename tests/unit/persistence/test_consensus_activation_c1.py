@@ -28,7 +28,8 @@ def _target(target_id: str, revision: int, kind: str, scope: str = "default"):
     return TargetState(
         target_id=target_id,
         revision=revision,
-        state={"kind": kind, "scope": scope, "data": "val"},
+        state={"kind": kind, "scope": scope, "data": "val",
+               "schema": "peerhub.consensus-round.v2" if kind == "consensus-round" else "other"},
         updated_at=1000,
     )
 
@@ -333,3 +334,24 @@ def test_activation_invariant_kind_constant_matches_the_real_effect_kind():
     from peerhub.governance.invariant_requests import RATIFIED_INVARIANT_EFFECT_KIND
     from peerhub.persistence.consensus_activation import _INVARIANT_KIND
     assert _INVARIANT_KIND == RATIFIED_INVARIANT_EFFECT_KIND
+
+
+def test_v1_shaped_consensus_state_is_refused_after_activation(fresh_conn, store):
+    activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
+    from peerhub.core.errors import InvalidMutationError
+    v1 = TargetState(target_id="T_V1", revision=1, updated_at=1000,
+                     state={"kind": "consensus-round", "schema": "peerhub.consensus-round.v1"})
+    uow = store.unit_of_work()
+    with uow:
+        with pytest.raises(InvalidMutationError):
+            uow.governance.compare_and_set_target(None, v1)
+
+
+def test_runtime_probe_fails_closed_on_inconsistent_activation(fresh_conn, store):
+    from peerhub.persistence.consensus_activation import ActivationError
+    activate_consensus_v2(fresh_conn, now=2000)
+    store._generation = None
+    fresh_conn.execute("DROP TRIGGER consensus_v2_guard_insert")
+    with pytest.raises(ActivationError):
+        store.is_consensus_v2_active()

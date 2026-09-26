@@ -136,3 +136,19 @@ def test_non_consensus_effects_keep_working_for_any_owner_after_activation(db):
     event_id = post.broker.recover_pending_effects()[0].event.event_id
     claimed = post.broker.claim_effect(event_id, owner_id="task-worker", attempt_id="a1")
     assert claimed.claimed_by == "task-worker"
+
+
+def test_only_the_exclusive_projector_may_claim_the_invariant_effect(db):
+    pre = Env(db, "pre")
+    pre.emit("r-inv2", RATIFIED_INVARIANT_EFFECT_KIND, {"round_id": "r-inv2"})
+    _activate(db)
+    post = Env(db, "post")
+    event_id = post.broker.recover_pending_effects()[0].event.event_id
+    with pytest.raises(sqlite3.IntegrityError):
+        post.broker.claim_effect(event_id, owner_id="anything-else", attempt_id="a1")
+    with pytest.raises(sqlite3.IntegrityError):
+        post.broker.claim_effect(event_id, owner_id="consensus-v2:r-inv2", attempt_id="a2")
+    claimed = post.broker.claim_effect(
+        event_id, owner_id="peerhub.invariant-request-projector", attempt_id="a3"
+    )
+    assert claimed.claimed_by == "peerhub.invariant-request-projector"
