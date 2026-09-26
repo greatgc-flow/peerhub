@@ -82,8 +82,11 @@ class ConsensusShell:
         ids: IdSource,
         verifier: Optional[CredentialVerifier],
         health_port: HealthIdentityPort,
-        authority_store: AuthorityVersionStore
+        authority_store: AuthorityVersionStore,
+        effect_factories: Optional[Dict[str, Any]] = None,
     ) -> None:
+        # action -> callable(state, round_id, actor_id) -> EffectIntent (approval effect)
+        self._effect_factories = dict(effect_factories or {})
         self._broker = broker
         self._clock = clock
         self._ids = ids
@@ -262,6 +265,24 @@ class ConsensusShell:
             fence.bump_for("revocation")
         return submission
 
+    def _approval_effect(self, state: Dict[str, Any], round_id: str, actor_id: str) -> EffectIntent:
+        """Approval effect for this round's action (default: consensus.resolved)."""
+        action = (state.get("policy_snapshot") or {}).get("action") or state.get("action")
+        factory = self._effect_factories.get(action)
+        if factory is not None:
+            return factory(state, round_id, actor_id)
+        candidate = candidate_state_hash(state)
+        approved_snapshot = {"round_id": round_id, "hash": candidate}
+        intent = {
+            "snapshot_hash": candidate,
+            "round_id": round_id,
+            "outcome": "approved",
+            "resolved_by": actor_id,
+            "final_call_complete": state.get("phase_before_approval") == "final_call",
+        }
+        sub = build_approval_submission(approved_snapshot, intent)
+        return EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
+
     def _authority_precondition(self, expected_version: int):
         """Authority validation that runs inside the committing broker txn."""
         reader = getattr(self._authority_store, "read_version_in", None)
@@ -300,16 +321,8 @@ class ConsensusShell:
             state["ack_ledger"] = {c.target_state_hash: list(ledger.acks_for(c))}
             
             if res.new_phase == "approved":
-                approved_snapshot = {"round_id": round_id, "hash": c.target_state_hash}
-                effect_intent_dict = {
-                    "snapshot_hash": c.target_state_hash,
-                    "round_id": round_id,
-                    "outcome": "approved",
-                    "resolved_by": actor_id,
-                    "final_call_complete": True,
-                }
-                sub = build_approval_submission(approved_snapshot, effect_intent_dict)
-                return EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
+                state["phase_before_approval"] = "final_call"
+                return self._approval_effect(state, round_id, actor_id)
 
         return self._process_event(
             round_id, actor_id, "final_call_ack", event_factory, updater, expected_revision, credential_id,
@@ -325,7 +338,7 @@ class ConsensusShell:
         credential_id: Optional[str] = None,
         idempotency_key: Optional[str] = None,
     ) -> Any:
-        from peerhub.governance.consensus import VoteEvent, QuorumMetEvent
+        from peerhub.governance.consensus import VoteEvent, QuorumMetEvent, ResolutionEvent
         
         def event_factory(state, state_hash):
             return VoteEvent(actor=actor_id, choice=choice, credential=credential_id)
@@ -346,6 +359,15 @@ class ConsensusShell:
             if agreements >= required_votes:
                 q_res = sm.evaluate(ctx, QuorumMetEvent(agreement_count=agreements))
                 state["phase"] = q_res.new_phase
+                if q_res.new_phase == "quorum_reached":
+                    # No mandatory Final Call: resolve immediately through the core so
+                    # the approval and its effect commit in this one submission.
+                    resolver = ConsensusStateMachine(state="quorum_reached")
+                    r_res = resolver.evaluate(ctx, ResolutionEvent(outcome="approved"))
+                    state["phase"] = r_res.new_phase
+                    if r_res.new_phase == "approved":
+                        state["phase_before_approval"] = "quorum_reached"
+                        return self._approval_effect(state, round_id, actor_id)
 
         return self._process_event(
             round_id, actor_id, "cast_vote", event_factory, updater, expected_revision, credential_id,
