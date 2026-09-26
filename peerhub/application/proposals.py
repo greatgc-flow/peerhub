@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 from pathlib import Path
 import re
-from typing import cast
+from typing import Any, cast
 
 from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.config_layers import load_json_layer, merge_layers
 from peerhub.application.config_paths import resolve_compat_config_path, resolve_config_paths
 from peerhub.core.context import Clock, IdSource
+from peerhub.governance.proposal_policy import (
+    ProposalInputs,
+    ProposalRule,
+    decide_proposal_rule,
+)
+from peerhub.governance.authorization import AuthorizationError
 from peerhub.core.errors import (
     InvalidMutationError,
     RecordNotFoundError,
@@ -21,7 +27,7 @@ from peerhub.core.errors import (
 )
 from peerhub.core.protocol import JsonValue, require_text
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.consensus import ConsensusService
+from peerhub.governance.consensus_port import ConsensusPort
 from peerhub.governance.contract import EffectIntent, TargetState
 from peerhub.governance.invariant_requests import (
     RATIFIED_INVARIANT_EFFECT_KIND,
@@ -29,6 +35,7 @@ from peerhub.governance.invariant_requests import (
 )
 from peerhub.health.contract import AdmissionState, AvailabilityState
 from peerhub.health.service import HealthService
+from peerhub.governance.consensus_shell import candidate_state_hash
 
 
 ESCALATION_TOO_FEW_VOTERS = "N < 2 (human_gate)"
@@ -115,6 +122,51 @@ def load_proposal_voters(workspace_root: Path) -> tuple[str, ...]:
     return _validate_voter_policy(tuple(voter_values))
 
 
+PROPOSAL_CREATE_ACTION = "governance.proposal.create"
+# The only internal principals allowed to escalate/reject/time out V2 proposal rounds.
+PROPOSAL_SYSTEM_PRINCIPALS = frozenset(
+    {"system:proposal-recovery", "system:proposal-reconcile", "system:consensus-sweep"}
+)
+
+
+def make_v2_ratified_effect_factory(
+    clock: Clock,
+) -> Callable[[dict[str, Any], str, str], EffectIntent]:
+    """Approval effect for V2 proposal rounds (mirrors ProposalCoordinator._approval_effect).
+
+    Called by ConsensusShell inside the approving submission; ``state["_rev"]``
+    is the revision being replaced, so the request records revision + 1.
+    """
+
+    def factory(state: dict[str, Any], round_id: str, actor_id: str) -> EffectIntent:
+        proposal = cast(dict[str, Any], state["proposal"])
+        body = require_text(cast(str, proposal.get("body")), "proposal.body")
+        marker_index = body.find(_CHANGES_MARKER)
+        if marker_index < 0:
+            raise InvalidMutationError("proposal body lacks the canonical Changes section")
+        decision_hash = candidate_state_hash(state)
+        request_id = f"ratified-invariant-write-request:{round_id}:{decision_hash}"
+        payload: dict[str, JsonValue] = {
+            "request_id": request_id,
+            "round_id": round_id,
+            "approved_revision": int(state["_rev"]) + 1,
+            "decision_hash": decision_hash,
+            "proposer_id": require_text(cast(str, proposal.get("proposer_id")), "proposal.proposer_id"),
+            "title": require_text(cast(str, proposal.get("title")), "proposal.title"),
+            "question": require_text(cast(str, proposal.get("question")), "proposal.question"),
+            "body": body,
+            "source_hash": require_text(cast(str, proposal.get("source_hash")), "proposal.source_hash"),
+            "participants": state["participants"],
+            "votes": state["votes"],
+            "proposed_invariant_text": body[marker_index + len(_CHANGES_MARKER):],
+            "target_doc_hint": "10-invariants.md",
+            "requested_at": clock.now(),
+        }
+        return EffectIntent(kind=RATIFIED_INVARIANT_EFFECT_KIND, payload=payload)
+
+    return factory
+
+
 def _validate_voter_policy(values: tuple[object, ...]) -> tuple[str, ...]:
     voters: list[str] = []
     seen: set[str] = set()
@@ -140,7 +192,7 @@ class ProposalCoordinator:
     def __init__(
         self,
         broker: GovernanceBroker,
-        consensus: ConsensusService,
+        consensus: ConsensusPort,
         *,
         peer_registry: PeerRegistryService,
         health: HealthService,
@@ -291,6 +343,8 @@ class ProposalCoordinator:
                     risk=self._risk(impact),
                     source_hash=source_hash,
                     verified_required=verified_required,
+                    origin="proposals",
+                    action="governance.proposal.create",
                 )
             except StaleRevisionError:
                 sequence_floor = sequence + 1
@@ -425,7 +479,7 @@ class ProposalCoordinator:
         event_ids: list[str] = []
         if preferred_event_id is not None:
             event_ids.append(preferred_event_id)
-        for pending in self._broker.recover_pending_effects(limit=1000):
+        for pending in self._broker.recover_all_pending_effects():
             event = pending.event
             if (
                 event.event_id not in event_ids
@@ -532,7 +586,9 @@ class ProposalCoordinator:
         escalation_reason: str | None = None
         if isinstance(resolution_raw, Mapping):
             native_outcome = resolution_raw.get("outcome")
-            if native_outcome == "approved":
+            if native_outcome == "approved" and target.state.get("revocations"):
+                outcome = "REVOKED"  # an approval that was revoked is not a success
+            elif native_outcome == "approved":
                 outcome = "CONSENSUS_OK"
             elif native_outcome == "rejected":
                 outcome = "NACK"
@@ -570,6 +626,9 @@ class ProposalCoordinator:
             if target.state.get("status") == "resolved":
                 resolution = self._mapping(target.state, "resolution")
                 request_target_id = None
+                if target.state.get("revocations"):
+                    # A revoked approval never projects its invariant request.
+                    return self._result(target, voter=voter, choice=choice)
                 if resolution.get("outcome") == "approved":
                     request_target_id = self._project_approved_request(target)
                 return self._result(
@@ -580,6 +639,14 @@ class ProposalCoordinator:
                 )
 
             if target.state.get("escalation") is not None:
+                return self._result(target, voter=voter, choice=choice)
+
+            if (
+                target.state.get("schema") == "peerhub.consensus-round.v2"
+                and target.state.get("phase") == "final_call"
+            ):
+                # Mandatory Final Call (design 4.2/6.2): approval happens on the
+                # last ACK, not by reconciliation.
                 return self._result(target, voter=voter, choice=choice)
 
             participants = self._mapping(target.state, "participants")
@@ -603,8 +670,37 @@ class ProposalCoordinator:
             )
             gate_evaluated_at = self._clock.now()
 
+            # Short-circuit like the legacy chain: gates are only consulted once
+            # there are enough eligible voters.
+            gate_closed = len(eligible) >= 2 and any(
+                not self._voter_gate_is_open(voter_id, gate_evaluated_at)
+                for voter_id in eligible
+            )
+            rule = decide_proposal_rule(
+                ProposalInputs(
+                    resolved_recovery=False,  # handled above (status == "resolved")
+                    existing_escalation=False,  # handled above (escalation recorded)
+                    eligible_count=len(eligible),
+                    gate_closed_any_eligible=gate_closed,
+                    eligible_dissent=bool(disagreed),
+                    all_required_agree=all(
+                        self._choice(votes, voter_id) == "agree"
+                        for voter_id in required
+                    ),
+                    independent_agreement=any(
+                        voter_id != proposer_id for voter_id in agreed
+                    ),
+                    proposer_only=bool(
+                        eligible
+                        and all(voter_id in votes for voter_id in eligible)
+                        and agreed == (proposer_id,)
+                    ),
+                    high_risk=False,  # legacy V1 path resolves without Final Call
+                )
+            )
+
             try:
-                if len(eligible) < 2:
+                if rule is ProposalRule.TOO_FEW_VOTERS:
                     self._consensus.request_escalation(
                         round_id,
                         ESCALATION_TOO_FEW_VOTERS,
@@ -613,13 +709,7 @@ class ProposalCoordinator:
                         "human-tier-0",
                         target.revision,
                     )
-                elif any(
-                    not self._voter_gate_is_open(
-                        voter_id,
-                        gate_evaluated_at,
-                    )
-                    for voter_id in eligible
-                ):
+                elif rule is ProposalRule.GATE_CLOSED:
                     self._consensus.request_escalation(
                         round_id,
                         ESCALATION_MID_ROUND_GATE,
@@ -628,17 +718,14 @@ class ProposalCoordinator:
                         "human-tier-0",
                         target.revision,
                     )
-                elif disagreed:
+                elif rule is ProposalRule.ELIGIBLE_DISSENT:
                     self._consensus.reject_on_dissent(
                         round_id,
                         rejected_by=requester_id,
                         basis="legacy proposal eligible voter dissent",
                         expected_revision=target.revision,
                     )
-                elif all(
-                    self._choice(votes, voter_id) == "agree"
-                    for voter_id in required
-                ) and any(voter_id != proposer_id for voter_id in agreed):
+                elif rule is ProposalRule.ALL_REQUIRED_AGREE:
                     effect_intent, _ = self._approval_effect(target)
                     submission = self._consensus.resolve(
                         round_id,
@@ -663,11 +750,7 @@ class ProposalCoordinator:
                         choice=choice,
                         invariant_request_target_id=request_target_id,
                     )
-                elif (
-                    eligible
-                    and all(voter_id in votes for voter_id in eligible)
-                    and agreed == (proposer_id,)
-                ):
+                elif rule is ProposalRule.SELF_FINALIZATION:
                     self._consensus.request_escalation(
                         round_id,
                         ESCALATION_SELF_FINALIZATION,
@@ -721,16 +804,35 @@ class ProposalCoordinator:
         normalized_choice = require_text(vote, "vote").lower()
         if not isinstance(reason, str):  # pyright: ignore[reportUnnecessaryIsInstance]
             raise ValueError("reason must be a string")
-        self._consensus.cast_vote(
-            normalized_round_id,
-            actor_id=normalized_voter,
-            choice=normalized_choice,
-            reason=reason,
-            credential_id=credential_id,
+        target = self._consensus.get_target(normalized_round_id)
+        is_v2 = (
+            target is not None
+            and target.state.get("schema") == "peerhub.consensus-round.v2"
         )
+        try:
+            self._consensus.cast_vote(
+                normalized_round_id,
+                actor_id=normalized_voter,
+                choice=normalized_choice,
+                reason=reason,
+                credential_id=credential_id,
+            )
+        except AuthorizationError:
+            # V2 refuses a vote from a voter whose health gate is closed (fail
+            # closed). Legacy recorded it and then escalated; keep the observable
+            # outcome by reconciling -- but ONLY when the gate is confirmed closed
+            # right now, otherwise the refusal is genuine and must surface.
+            if not is_v2 or self._voter_gate_is_open(
+                normalized_voter, self._clock.now()
+            ):
+                raise
         return self.reconcile_outcome(
             normalized_round_id,
-            requester_id=normalized_voter,
+            # V2 escalations/rejections are system-driven (a closed-gate voter
+            # cannot act as a health-checked electorate member).
+            requester_id=(
+                "system:proposal-reconcile" if is_v2 else normalized_voter
+            ),
             voter=normalized_voter,
             choice=normalized_choice,
         )

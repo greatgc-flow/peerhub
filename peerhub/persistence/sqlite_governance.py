@@ -1,4 +1,6 @@
 import sqlite3
+
+from peerhub.core.errors import InvalidMutationError
 from collections.abc import Sequence
 from typing import Callable
 from .sqlite_helpers import (
@@ -33,6 +35,23 @@ class SqliteGovernanceRepository:
     def get_target(self, target_id: str) -> TargetState | None:
             """Return the current target, if present."""
 
+            v2_row = self._db().execute(
+                """
+                SELECT target_id, revision, state_json, updated_at
+                FROM consensus_targets
+                WHERE target_id = ?
+                """,
+                (target_id,)
+            ).fetchone()
+
+            if v2_row is not None:
+                return TargetState(
+                    target_id=v2_row["target_id"],
+                    revision=v2_row["revision"],
+                    state=_json_object(v2_row["state_json"]),
+                    updated_at=v2_row["updated_at"],
+                )
+
             row = self._db().execute(
                 """
                 SELECT target_id, revision, state_json, updated_at
@@ -66,34 +85,57 @@ class SqliteGovernanceRepository:
             if not kind:
                 raise ValueError("kind must be nonempty")
             if scope is None:
-                rows = self._db().execute(
+                v2_rows = self._db().execute(
+                    """
+                    SELECT target_id, revision, state_json, updated_at
+                    FROM consensus_targets
+                    WHERE target_kind = ?
+                    """,
+                    (kind,),
+                ).fetchall()
+                v1_rows = self._db().execute(
                     """
                     SELECT target_id, revision, state_json, updated_at
                     FROM governed_targets
                     WHERE target_kind = ?
-                    ORDER BY target_id ASC
                     """,
                     (kind,),
                 ).fetchall()
             else:
-                rows = self._db().execute(
+                v2_rows = self._db().execute(
+                    """
+                    SELECT target_id, revision, state_json, updated_at
+                    FROM consensus_targets
+                    WHERE target_kind = ? AND target_scope = ?
+                    """,
+                    (kind, scope),
+                ).fetchall()
+                v1_rows = self._db().execute(
                     """
                     SELECT target_id, revision, state_json, updated_at
                     FROM governed_targets
                     WHERE target_kind = ? AND target_scope = ?
-                    ORDER BY target_id ASC
                     """,
                     (kind, scope),
                 ).fetchall()
-            return tuple(
-                TargetState(
+
+            targets_dict: dict[str, TargetState] = {}
+            for row in v1_rows:
+                targets_dict[row["target_id"]] = TargetState(
                     target_id=row["target_id"],
                     revision=row["revision"],
                     state=_json_object(row["state_json"]),
                     updated_at=row["updated_at"],
                 )
-                for row in rows
-            )
+            for row in v2_rows:
+                targets_dict[row["target_id"]] = TargetState(
+                    target_id=row["target_id"],
+                    revision=row["revision"],
+                    state=_json_object(row["state_json"]),
+                    updated_at=row["updated_at"],
+                )
+
+            return tuple(targets_dict[tid] for tid in sorted(targets_dict))
 
     def compare_and_set_target(
             self,
@@ -107,6 +149,105 @@ class SqliteGovernanceRepository:
             scope_value = updated.state.get("scope")
             target_kind = kind_value if isinstance(kind_value, str) else ""
             target_scope = scope_value if isinstance(scope_value, str) else None
+
+            # Re-read consensus_activation inside the write path (never cached),
+            # and only for consensus rounds so other kinds pay nothing.
+            is_activated = False
+            if target_kind == "consensus-round":
+                activation_row = connection.execute(
+                    "SELECT activated FROM consensus_activation WHERE singleton = 1"
+                ).fetchone()
+                is_activated = activation_row is not None and activation_row[0] == 1
+
+            if is_activated and target_kind == "consensus-round":
+                if updated.state.get("schema") != "peerhub.consensus-round.v2":
+                    # V1-shaped consensus state is fenced after activation: legacy
+                    # rounds must be upcast (design 7.2) before any V2 mutation.
+                    raise InvalidMutationError(
+                        "legacy consensus state cannot be written after V2 activation"
+                    )
+                if current is None:
+                    legacy_collision = connection.execute("SELECT 1 FROM governed_targets WHERE target_id = ?", (updated.target_id,)).fetchone()
+                    if legacy_collision is not None:
+                        return False
+
+                    try:
+                        connection.execute(
+                            """
+                            INSERT INTO consensus_targets (
+                                target_id,
+                                revision,
+                                state_json,
+                                updated_at,
+                                target_kind,
+                                target_scope
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                updated.target_id,
+                                updated.revision,
+                                _json_text(updated.state),
+                                updated.updated_at,
+                                target_kind,
+                                target_scope,
+                            ),
+                        )
+                    except sqlite3.IntegrityError:
+                        return False
+                    return True
+
+                v2_current = connection.execute("SELECT revision FROM consensus_targets WHERE target_id = ?", (current.target_id,)).fetchone()
+                
+                if v2_current is None:
+                    legacy_current = connection.execute("SELECT revision FROM governed_targets WHERE target_id = ?", (current.target_id,)).fetchone()
+                    legacy_rev: int | None = legacy_current[0] if legacy_current is not None else None
+                    if legacy_rev != current.revision:
+                        return False
+                        
+                    try:
+                        connection.execute(
+                            """
+                            INSERT INTO consensus_targets (
+                                target_id,
+                                revision,
+                                state_json,
+                                updated_at,
+                                target_kind,
+                                target_scope
+                            ) VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                updated.target_id,
+                                updated.revision,
+                                _json_text(updated.state),
+                                updated.updated_at,
+                                target_kind,
+                                target_scope,
+                            ),
+                        )
+                    except sqlite3.IntegrityError:
+                        return False
+                    return True
+                else:
+                    cursor = connection.execute(
+                        """
+                        UPDATE consensus_targets
+                        SET revision = ?, state_json = ?, updated_at = ?
+                            , target_kind = ?, target_scope = ?
+                        WHERE target_id = ? AND revision = ?
+                        """,
+                        (
+                            updated.revision,
+                            _json_text(updated.state),
+                            updated.updated_at,
+                            target_kind,
+                            target_scope,
+                            current.target_id,
+                            current.revision,
+                        ),
+                    )
+                    return cursor.rowcount == 1
+
             if current is None:
                 try:
                     connection.execute(

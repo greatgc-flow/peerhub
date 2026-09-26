@@ -141,7 +141,7 @@ class PeerRegistryService:
 
     def get_node(self, node_id: str) -> TargetState:
         target = self._broker.get_target(f"peer-node:{node_id}")
-        if target is not None:
+        if target is not None and not target.state.get("deregistered"):
             return target
         base = self._base_node(node_id)
         if base is not None:
@@ -172,6 +172,25 @@ class PeerRegistryService:
                 "updated_at": 0,
                 "source": "adapter-registry",
             },
+        )
+
+    def deregister_node(self, node_id: str, *, actor_id: str) -> MutationSubmission:
+        actor_id = require_text(actor_id, "actor_id")
+        target_id = f"peer-node:{node_id}"
+        current = self._broker.get_target(target_id)
+        if current is None:
+            raise RecordNotFoundError("peer-node", node_id)
+            
+        desired_state = dict(current.state)
+        desired_state["deregistered"] = True
+        desired_state["deregistered_at"] = self._clock.now()
+        
+        return self._submit(
+            target_id=target_id,
+            expected_revision=current.revision,
+            actor_id=actor_id,
+            operation="peer-registry.node.deregister",
+            desired_state=desired_state,
         )
 
     def list_nodes(self) -> Sequence[TargetState]:
@@ -511,3 +530,6 @@ def collect_peer_status(
             }
         )
     return tuple(rows)
+
+
+

@@ -74,7 +74,12 @@ class ConsensusService:
         risk: str,
         source_hash: str,
         verified_required: bool = False,
+        origin: str | None = None,
+        action: str | None = None,
     ) -> MutationSubmission:
+        # origin/action are accepted for interface parity with the V2 shell but
+        # V1 rounds carry no provenance (design 7.2: never guessed for V1).
+        del origin, action
         timestamp = self._clock.now()
         required = tuple(required_participants)
         eligible = tuple(eligible_participants)
@@ -655,61 +660,9 @@ class ConsensusService:
         first one.
         """
 
-        request_target = self._broker.get_target(request_target_id)
-        if request_target is None:
-            raise RecordNotFoundError("arbiter-review", request_target_id)
-        opinion_target = self._broker.get_target(opinion_target_id)
-        if opinion_target is None:
-            raise RecordNotFoundError("arbiter-opinion", opinion_target_id)
-
-        request_state = request_target.state
-        opinion_state = opinion_target.state
-        review_id = require_text_field(request_state, "review_id")
-        expected_request_id = f"arbiter-review:{round_id}:{review_id}"
-        expected_opinion_id = f"arbiter-opinion:{round_id}:{review_id}"
-        if (
-            request_target_id != expected_request_id
-            or opinion_target_id != expected_opinion_id
-            or request_state.get("kind") != "arbiter-review"
-            or opinion_state.get("kind") != "arbiter-opinion"
-            or request_state.get("round_id") != round_id
-            or opinion_state.get("round_id") != round_id
-            or opinion_state.get("review_id") != review_id
-            or opinion_state.get("request_target_id") != request_target_id
-        ):
-            raise InvalidMutationError(
-                "arbiter request and opinion target identities do not match"
-            )
-
-        candidate = _required_mapping(request_state, "candidate")
-        returned_by = _required_mapping(opinion_state, "returned_by")
-        candidate_peer = require_text_field(candidate, "peer_name")
-        candidate_profile = require_text_field(candidate, "profile_id")
-        if (
-            require_text_field(returned_by, "peer_name") != candidate_peer
-            or require_text_field(returned_by, "profile_id")
-            != candidate_profile
-        ):
-            raise InvalidMutationError(
-                "arbiter opinion peer/profile does not match the frozen request"
-            )
-
-        dispatch = _required_mapping(opinion_state, "dispatch")
-        if dispatch.get("state") != "SUCCEEDED_VERIFIED":
-            raise InvalidMutationError(
-                "arbiter opinion dispatch is not SUCCEEDED_VERIFIED"
-            )
-        response_text = opinion_state.get("response_text")
-        if not isinstance(response_text, str):
-            raise InvalidMutationError("arbiter opinion response_text is invalid")
-        parsed_verdict = _strict_arbiter_verdict(response_text)
-        if (
-            parsed_verdict is None
-            or opinion_state.get("parsed_verdict") != parsed_verdict
-        ):
-            raise InvalidMutationError(
-                "arbiter opinion does not contain a syntactically valid verdict"
-            )
+        reference = validated_arbiter_reference(
+            self._broker, round_id, request_target_id, opinion_target_id
+        )
 
         for _ in range(8):
             target = self._broker.get_target(round_id)
@@ -731,18 +684,7 @@ class ConsensusService:
                 return None
 
             audit = dict(_required_mapping(state, "audit"))
-            state["arbiter_opinion"] = {
-                "request_target_id": request_target_id,
-                "opinion_target_id": opinion_target_id,
-                "review_id": review_id,
-                "verdict": parsed_verdict,
-                "peer_name": candidate_peer,
-                "profile_id": candidate_profile,
-                "recorded_at": _required_nonnegative_int(
-                    opinion_state,
-                    "recorded_at",
-                ),
-            }
+            state["arbiter_opinion"] = dict(reference)
             self._finish(
                 state,
                 audit,
@@ -826,3 +768,362 @@ def _strict_arbiter_verdict(response_text: str) -> str | None:
         match = _ARBITER_VERDICT.fullmatch(stripped)
         return match.group(1).upper() if match is not None else None
     return None
+
+def validated_arbiter_reference(
+    broker: "GovernanceBroker",
+    round_id: str,
+    request_target_id: str,
+    opinion_target_id: str,
+) -> dict[str, JsonValue]:
+    """Validate an immutable arbiter request/opinion pair and return the canonical reference.
+
+    Shared by the legacy ConsensusService and the V2 shell so both attach exactly
+    the same evidence under exactly the same identity/peer/dispatch/verdict rules.
+    """
+
+    request_target = broker.get_target(request_target_id)
+    if request_target is None:
+        raise RecordNotFoundError("arbiter-review", request_target_id)
+    opinion_target = broker.get_target(opinion_target_id)
+    if opinion_target is None:
+        raise RecordNotFoundError("arbiter-opinion", opinion_target_id)
+
+    request_state = request_target.state
+    opinion_state = opinion_target.state
+    review_id = require_text_field(request_state, "review_id")
+    expected_request_id = f"arbiter-review:{round_id}:{review_id}"
+    expected_opinion_id = f"arbiter-opinion:{round_id}:{review_id}"
+    if (
+        request_target_id != expected_request_id
+        or opinion_target_id != expected_opinion_id
+        or request_state.get("kind") != "arbiter-review"
+        or opinion_state.get("kind") != "arbiter-opinion"
+        or request_state.get("round_id") != round_id
+        or opinion_state.get("round_id") != round_id
+        or opinion_state.get("review_id") != review_id
+        or opinion_state.get("request_target_id") != request_target_id
+    ):
+        raise InvalidMutationError(
+            "arbiter request and opinion target identities do not match"
+        )
+
+    candidate = _required_mapping(request_state, "candidate")
+    returned_by = _required_mapping(opinion_state, "returned_by")
+    candidate_peer = require_text_field(candidate, "peer_name")
+    candidate_profile = require_text_field(candidate, "profile_id")
+    if (
+        require_text_field(returned_by, "peer_name") != candidate_peer
+        or require_text_field(returned_by, "profile_id")
+        != candidate_profile
+    ):
+        raise InvalidMutationError(
+            "arbiter opinion peer/profile does not match the frozen request"
+        )
+
+    dispatch = _required_mapping(opinion_state, "dispatch")
+    if dispatch.get("state") != "SUCCEEDED_VERIFIED":
+        raise InvalidMutationError(
+            "arbiter opinion dispatch is not SUCCEEDED_VERIFIED"
+        )
+    response_text = opinion_state.get("response_text")
+    if not isinstance(response_text, str):
+        raise InvalidMutationError("arbiter opinion response_text is invalid")
+    parsed_verdict = _strict_arbiter_verdict(response_text)
+    if (
+        parsed_verdict is None
+        or opinion_state.get("parsed_verdict") != parsed_verdict
+    ):
+        raise InvalidMutationError(
+            "arbiter opinion does not contain a syntactically valid verdict"
+        )
+    return {
+        "request_target_id": request_target_id,
+        "opinion_target_id": opinion_target_id,
+        "review_id": review_id,
+        "verdict": parsed_verdict,
+        "peer_name": candidate_peer,
+        "profile_id": candidate_profile,
+        "recorded_at": _required_nonnegative_int(opinion_state, "recorded_at"),
+    }
+
+
+class ConsensusStateMachine:
+    def __init__(self, state: str, final_call_rule: str | None = None, mandatory_floors_hit: bool = False):
+        self.state = state
+        self.final_call_rule = final_call_rule
+        self.mandatory_floors_hit = mandatory_floors_hit
+        self.deadline_extended = False
+        self.revocation_record_created = False
+
+    def evaluate(self, ctx: EvalContext, event: ConsensusEvent) -> TransitionResult:
+        if isinstance(event, VoteEvent):
+            return self._eval_vote(ctx, event)
+        elif isinstance(event, CorrectionEvent):
+            return self._eval_correction(ctx, event)
+        elif isinstance(event, TimeoutEvent):
+            return self._eval_timeout(ctx, event)
+        elif isinstance(event, EscalationEvent):
+            return self._eval_escalation(ctx, event)
+        elif isinstance(event, QuorumMetEvent):
+            return self._eval_quorum_met(ctx, event)
+        elif isinstance(event, AckNackEvent):
+            return self._eval_ack_nack(ctx, event)
+        elif isinstance(event, RetractionEvent):
+            return self._eval_retraction(ctx, event)
+        elif isinstance(event, ArbiterAttachmentEvent):
+            return self._eval_arbiter_attachment(ctx, event)
+        elif isinstance(event, ResolutionEvent):
+            return self._eval_resolution(ctx, event)
+        elif isinstance(event, ExceptionalResolutionEvent):
+            return self._eval_exceptional_resolution(ctx, event)
+        elif isinstance(event, AbandonEvent):  # pyright: ignore[reportUnnecessaryIsInstance]
+            return self._eval_abandon(ctx, event)
+        else:
+            raise ValueError(f"Unknown event: {event}")
+
+    def _eval_vote(self, ctx: EvalContext, event: VoteEvent) -> TransitionResult:
+        if self.state not in ("proposed", "voting"):
+            raise InvalidMutationError("Invalid phase")
+        dissent = event.choice in ("block", "need_more_info")
+        return TransitionResult(
+            new_phase=self.state,
+            dissent_obligation_added=dissent
+        )
+
+    def _eval_correction(self, ctx: EvalContext, event: CorrectionEvent) -> TransitionResult:
+        if self.state != "final_call":
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase="voting",
+            candidate_invalidated=True,
+            acks_dropped=True,
+            fresh_votes_required=True
+        )
+
+    def _eval_timeout(self, ctx: EvalContext, event: TimeoutEvent) -> TransitionResult:
+        if self.state not in ("proposed", "voting", "quorum_reached", "final_call"):
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase=self.state,
+            evidence_recorded=True,
+            policy_reevaluation_triggered=True
+        )
+
+    def _eval_escalation(self, ctx: EvalContext, event: EscalationEvent) -> TransitionResult:
+        if self.state in ("approved", "rejected", "abandoned", "resolved"):
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase=self.state,
+            replacement_deadline_recorded=True,
+            policy_reevaluation_triggered=True
+        )
+
+    def _eval_quorum_met(self, ctx: EvalContext, event: QuorumMetEvent) -> TransitionResult:
+        if self.state != "voting":
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase="final_call" if self.mandatory_floors_hit else "quorum_reached"
+        )
+
+    def _eval_ack_nack(self, ctx: EvalContext, event: AckNackEvent) -> TransitionResult:
+        if self.state != "final_call":
+            raise InvalidMutationError("Invalid phase")
+        if event.nack_type == "block":
+            return TransitionResult(new_phase="final_call", barrier_held=True)
+        if event.nack_type == "cosmetic":
+            return TransitionResult(new_phase="final_call", cosmetic_logged=True)
+        if event.nack_type == "terminal_rejection":
+            return TransitionResult(new_phase="rejected", terminal_rejection=True)
+        if event.nack_type is not None:
+            raise InvalidMutationError(f"Unknown NACK type: {event.nack_type!r}")
+        # ACK: approve only once every required participant has a bound ACK
+        # for the current candidate (empty required set fails closed).
+        acked = ctx.bound_ack_participants | {event.actor}
+        if ctx.required_participants and ctx.required_participants <= acked:
+            return TransitionResult(new_phase="approved", ack_recorded=True)
+        return TransitionResult(new_phase="final_call", ack_recorded=True)
+
+    def _eval_retraction(self, ctx: EvalContext, event: RetractionEvent) -> TransitionResult:
+        if self.state != "final_call":
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(
+            new_phase="voting",
+            candidate_invalidated=True,
+            acks_dropped=True
+        )
+
+    def _eval_arbiter_attachment(self, ctx: EvalContext, event: ArbiterAttachmentEvent) -> TransitionResult:
+        if self.state not in ("approved", "rejected"):
+            raise InvalidMutationError("Invalid phase")
+        if ctx.arbiter_attachment_recorded:
+            raise InvalidMutationError("Arbiter attachment already recorded")
+        if event.dispatch != "SUCCEEDED":
+            raise InvalidMutationError("Invalid dispatch")
+        return TransitionResult(
+            new_phase=self.state,
+            evidence_recorded=True
+        )
+
+    def _eval_resolution(self, ctx: EvalContext, event: ResolutionEvent) -> TransitionResult:
+        dissent_rejection = (
+            event.basis == "eligible_dissent"
+            and event.outcome == "rejected"
+            and self.state in ("proposed", "voting", "quorum_reached", "final_call", "escalated")
+        )
+        if self.state not in ("quorum_reached", "escalated") and not dissent_rejection:
+            raise InvalidMutationError("Invalid phase")
+        if event.outcome not in ("approved", "rejected"):
+            raise InvalidMutationError("Invalid resolution outcome")
+        return TransitionResult(new_phase=event.outcome)
+
+    def _eval_exceptional_resolution(self, ctx: EvalContext, event: ExceptionalResolutionEvent) -> TransitionResult:
+        if self.state in ("approved", "rejected", "abandoned", "resolved"):
+            raise InvalidMutationError("Invalid phase")
+        if event.outcome not in ("approved", "rejected"):
+            raise InvalidMutationError("Invalid resolution outcome")
+        return TransitionResult(new_phase=event.outcome)
+
+    def _eval_abandon(self, ctx: EvalContext, event: AbandonEvent) -> TransitionResult:
+        if self.state in ("approved", "rejected", "abandoned", "resolved"):
+            raise InvalidMutationError("Invalid phase")
+        return TransitionResult(new_phase="abandoned")
+
+    def evaluate_final_call_transition(self) -> str:
+        if self.mandatory_floors_hit or self.final_call_rule == "always":
+            return "final_call"
+        return "resolved"
+
+    def process_ack(self, is_last: bool = False, live_authority: bool = True, valid_candidate: bool = True, has_concerns: bool = False, eligible: bool = True):
+        if not eligible:
+            raise InvalidMutationError("Actor is not eligible.")
+        if is_last and live_authority and valid_candidate and not has_concerns:
+            self.state = "resolved"
+            return "approved"
+        return None
+
+    def process_nack(self, qualifying_concern: bool = False):
+        if qualifying_concern:
+            self.state = "final_call"
+
+    def process_timeout(self):
+        self.state = "forced_escalation"
+
+    def process_escalation_decision(self, decision: str):
+        if decision == "accepted":
+            self.state = "resolved"
+            return "approved"
+        elif decision == "reopened":
+            self.state = "voting"
+            self.deadline_extended = True
+            return None
+
+    def process_retraction(self, post_authorization: bool = False):
+        if post_authorization:
+            self.state = "resolved"
+            self.revocation_record_created = True
+        else:
+            self.state = "final_call"
+
+import dataclasses
+import typing
+
+@dataclasses.dataclass(frozen=True)
+class EvalContext:
+    current_timestamp: float
+    caller_identity: str
+    frozen_authority_set: frozenset[str]
+    current_candidate: typing.Optional[typing.Any] = None
+    bound_ack_participants: frozenset[str] = dataclasses.field(default_factory=frozenset[str])
+    required_participants: frozenset[str] = dataclasses.field(default_factory=frozenset[str])
+    arbiter_attachment_recorded: bool = False
+
+@dataclasses.dataclass(frozen=True)
+class TransitionResult:
+    new_phase: str
+    dissent_obligation_added: bool = False
+    barrier_held: bool = False
+    evidence_recorded: bool = False
+    policy_reevaluation_triggered: bool = False
+    candidate_invalidated: bool = False
+    acks_dropped: bool = False
+    fresh_votes_required: bool = False
+    replacement_deadline_recorded: bool = False
+    terminal_rejection: bool = False
+    cosmetic_logged: bool = False
+    ack_recorded: bool = False
+
+@dataclasses.dataclass(frozen=True)
+class VoteEvent:
+    actor: str
+    choice: str
+    credential: str | None = None
+
+@dataclasses.dataclass(frozen=True)
+class CorrectionEvent:
+    actor: str
+    choice: str = "block"
+
+@dataclasses.dataclass(frozen=True)
+class TimeoutEvent:
+    requester: str
+    deadline: float
+
+@dataclasses.dataclass(frozen=True)
+class EscalationEvent:
+    source_phases: list[str]
+    replacement_deadline: float
+
+@dataclasses.dataclass(frozen=True)
+class QuorumMetEvent:
+    agreement_count: int
+
+@dataclasses.dataclass(frozen=True)
+class AckNackEvent:
+    candidate_id: str
+    actor: str
+    proof: str
+    nack_type: str | None = None
+
+@dataclasses.dataclass(frozen=True)
+class RetractionEvent:
+    candidate_id: str
+    actor: str
+    proof: str
+
+@dataclasses.dataclass(frozen=True)
+class ArbiterAttachmentEvent:
+    verdict: str
+    profile: str
+    dispatch: str
+
+@dataclasses.dataclass(frozen=True)
+class ResolutionEvent:
+    outcome: str
+    # "eligible_dissent" lets an open round be rejected from voting/final_call
+    # (design 6.1 rule 5); any other basis keeps the quorum_reached/escalated rule.
+    basis: str = ""
+
+@dataclasses.dataclass(frozen=True)
+class ExceptionalResolutionEvent:
+    admin_proof: str
+    bypass_reason: str
+    outcome: str = "approved"
+
+@dataclasses.dataclass(frozen=True)
+class AbandonEvent:
+    reason: str
+    requesting_actor: str
+
+ConsensusEvent = typing.Union[
+    VoteEvent,
+    CorrectionEvent,
+    TimeoutEvent,
+    EscalationEvent,
+    QuorumMetEvent,
+    AckNackEvent,
+    RetractionEvent,
+    ArbiterAttachmentEvent,
+    ResolutionEvent,
+    ExceptionalResolutionEvent,
+    AbandonEvent,
+]

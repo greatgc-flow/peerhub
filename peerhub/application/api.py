@@ -45,7 +45,7 @@ from peerhub.application.handlers.dispatch_builtins import (
     reconstruct_envelope as reconstruct_envelope,
     validate_wire_json_value,
 )
-from peerhub.governance.consensus import ConsensusService
+from peerhub.application.consensus_facade import ConsensusFacade
 from peerhub.governance.tasks import TaskService
 from peerhub.governance.lessons import LessonService
 from peerhub.governance.rooms import RoomsService
@@ -121,7 +121,7 @@ class ApplicationAPI:
         workflows: ApplicationWorkflows,
         dispatch: DispatchService,
         admission_provider: AdmissionInputsProvider | None = None,
-        consensus: ConsensusService | None = None,
+        consensus: ConsensusFacade | None = None,
         proposals: ProposalCoordinator | None = None,
         task: TaskService | None = None, lesson: LessonService | None = None,
         lesson_broker: GovernanceBroker | None = None,
@@ -220,7 +220,7 @@ class ApplicationAPI:
 
     def _register_consensus(
         self,
-        service: ConsensusService,
+        service: ConsensusFacade,
         broker: GovernanceBroker | None,
         arbiter: ArbiterReviewCoordinator | None,
         proposals: ProposalCoordinator | None,

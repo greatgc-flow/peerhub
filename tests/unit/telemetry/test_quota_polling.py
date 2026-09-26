@@ -237,6 +237,54 @@ def test_poll_codex_usage_success_parsing(monkeypatch):
     assert obs.evidence.value.used_fraction == 1.0
     assert obs.evidence.value.resets_at == 1787200158
 
+def test_poll_codex_usage_fallback_rate_limits_by_limit_id(monkeypatch):
+    class FakeStdout:
+        def __init__(self):
+            self.lines = [
+                '{"id": 0, "result": {"codexHome": "/whatever"}}\n',
+                (
+                    '{"id": 1, "result": {"rateLimits": null, '
+                    '"rateLimitsByLimitId": {"codex": {"usedPercent": 50, "windowDurationMins": 300, "resetsAt": 1787200159}}}}\n'
+                ),
+                "",
+            ]
+        def readline(self):
+            if not self.lines:
+                return ""
+            return self.lines.pop(0)
+
+    class FakeProc:
+        def __init__(self):
+            class FakeStdin:
+                def write(self, _): pass
+                def flush(self): pass
+            self.stdin = FakeStdin()
+            self.stdout = FakeStdout()
+            self.pid = 9999
+        def poll(self):
+            return None
+
+    def fake_popen(*args, **kwargs):
+        return FakeProc()
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_binary",
+        lambda _peer, _sys_dir=None: "dummy.exe",
+    )
+
+    ids = DummyIdSource()
+    res = poll_codex_usage(ids, "inst-1", "prof-1", deadline_sec=1.0)
+
+    assert len(res) == 1
+    obs = res[0]
+    assert obs.evidence.state == EvidenceState.MEASURED
+    assert obs.evidence.value.quota_pool_scope == "X-5H"
+    assert obs.evidence.value.used_fraction == 0.5
+    assert obs.evidence.value.resets_at == 1787200159
+
+
 import json
 from peerhub.telemetry.quota_polling import poll_agy_usage
 

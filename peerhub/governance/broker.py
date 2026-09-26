@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from typing import Protocol
+from collections.abc import Callable, Sequence
+from typing import Any, Protocol
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.errors import (
@@ -294,6 +294,11 @@ class GovernanceBroker:
         self._ids = ids
         self._faults = fault_injector or _NoFaultInjector()
 
+    @property
+    def ids(self) -> IdSource:
+        """Id source shared with governance services built on this broker."""
+        return self._ids
+
     @staticmethod
     def _require_governance_event(
         event: OutboxEvent,
@@ -308,11 +313,189 @@ class GovernanceBroker:
                 "governance-linked outbox event"
             )
 
+    def recover_all_pending_effects(self) -> tuple[PendingEffect, ...]:
+        """Every unfinished governance effect (pages through the bounded discovery)."""
+
+        limit = 100
+        while True:
+            found = self.recover_pending_effects(limit=limit)
+            if len(found) < limit:
+                return found
+            limit *= 4
+
+    def _stage_mutation(
+        self,
+        unit: Any,
+        request: MutationRequest,
+        payload_digest: str,
+    ) -> TransitionReceipt:
+        """Validate, plan and stage one mutation inside an open unit (no commit)."""
+
+        current = unit.get_target(request.target_id)
+        validate_expected_revision(request, current)
+
+        timestamp = self._clock.now()
+        plan = plan_mutation(
+            request,
+            current,
+            plan_id=self._ids.new_id("mutation-plan"),
+            planned_at=timestamp,
+        )
+        receipt = build_transition_receipt(
+            plan,
+            receipt_id=self._ids.new_id(
+                "transition-receipt"
+            ),
+            outbox_event_id=self._ids.new_id(
+                "outbox-event"
+            ),
+            committed_at=timestamp,
+        )
+        event = build_outbox_event(
+            plan,
+            receipt,
+            event_id=receipt.outbox_event_id,
+            correlation_id=request.correlation_id,
+            created_at=timestamp,
+        )
+        target = apply_mutation_plan(
+            current,
+            plan,
+            updated_at=timestamp,
+        )
+        binding = CommandBinding(
+            client_id=request.client_id,
+            command_type=request.command_type,
+            idempotency_key=request.idempotency_key,
+            payload_digest=payload_digest,
+            request_id=request.request_id,
+            receipt_id=receipt.receipt_id,
+            created_at=timestamp,
+        )
+
+        if not unit.compare_and_set_target(current, target):
+            latest = unit.get_target(request.target_id)
+            latest_revision = (
+                0 if latest is None else latest.revision
+            )
+            raise StaleRevisionError(
+                request.target_id,
+                request.expected_revision,
+                latest_revision,
+            )
+
+        self._faults.hit(FaultPoint.AFTER_TARGET_WRITE)
+
+        unit.add_mutation_request(
+            request,
+            payload_digest,
+            timestamp,
+        )
+        unit.add_mutation_plan(plan)
+        unit.add_transition_receipt(receipt)
+        unit.add_command_binding(binding)
+        unit.add_outbox_event(event)
+
+        return receipt
+
+    def submit_atomic(
+        self,
+        build_requests: Callable[[Any], Sequence[MutationRequest]],
+        *,
+        precondition: Callable[[Any], None] | None = None,
+    ) -> tuple[MutationSubmission, ...]:
+        """Commit several mutations (possibly on different targets) in ONE transaction.
+
+        ``build_requests(unit)`` runs inside the transaction so it can read the
+        live state it needs (e.g. the current authority revision). If the first
+        request was already committed (idempotent replay) its stored receipt is
+        returned and nothing else is staged. Any failure rolls everything back.
+        """
+
+        with self._store.unit_of_work() as unit:
+            if precondition is not None:
+                precondition(unit)
+            requests = tuple(build_requests(unit))
+            if not requests:
+                raise ValueError("submit_atomic requires at least one request")
+            first = requests[0]
+            binding = unit.get_command_binding(
+                first.client_id, first.command_type, first.idempotency_key
+            )
+            if binding is not None:
+                # Replay identity is the PRIMARY (first) request's semantics; companion
+                # requests (e.g. an authority bump derived from live state) are excluded.
+                if binding.payload_digest != mutation_payload_digest(first):
+                    raise IdempotencyPayloadMismatchError(
+                        first.client_id, first.command_type, first.idempotency_key
+                    )
+                receipt = unit.get_transition_receipt(binding.receipt_id)
+                if receipt is None:
+                    raise RuntimeError(
+                        "idempotency binding references a missing transition receipt"
+                    )
+                return (
+                    MutationSubmission(
+                        disposition=MutationDisposition.IDEMPOTENCY_HIT,
+                        receipt=receipt,
+                    ),
+                )
+            results: list[MutationSubmission] = []
+            for request in requests:
+                receipt = self._stage_mutation(
+                    unit, request, mutation_payload_digest(request)
+                )
+                results.append(
+                    MutationSubmission(
+                        disposition=MutationDisposition.COMMITTED,
+                        receipt=receipt,
+                    )
+                )
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return tuple(results)
+
+    def lookup_replay(
+        self,
+        client_id: str,
+        command_type: str,
+        idempotency_key: str,
+    ) -> MutationSubmission | None:
+        """Return the stored receipt of an already committed public command."""
+
+        # The read-only unit has no command-binding lookup; a write unit that
+        # is never committed is rolled back on exit and changes nothing.
+        with self._store.unit_of_work() as unit:
+            binding = unit.get_command_binding(
+                client_id, command_type, idempotency_key
+            )
+            if binding is None:
+                return None
+            receipt = unit.get_transition_receipt(binding.receipt_id)
+            if receipt is None:
+                raise RuntimeError(
+                    "idempotency binding references a missing transition receipt"
+                )
+            return MutationSubmission(
+                disposition=MutationDisposition.IDEMPOTENCY_HIT,
+                receipt=receipt,
+            )
+
     def submit(
         self,
         request: MutationRequest,
+        *,
+        precondition: Callable[[Any], None] | None = None,
     ) -> MutationSubmission:
-        """Commit a mutation or return its stored idempotent receipt."""
+        """Commit a mutation or return its stored idempotent receipt.
+
+        ``precondition(unit)`` runs inside the committing transaction (after
+        the idempotency check, before the target CAS) so callers can validate
+        state that must not change between their read and the commit; any
+        exception it raises aborts the submission with nothing written.
+        """
 
         payload_digest = mutation_payload_digest(request)
 
@@ -344,70 +527,10 @@ class GovernanceBroker:
                     receipt=receipt,
                 )
 
-            current = unit.get_target(request.target_id)
-            validate_expected_revision(request, current)
+            if precondition is not None:
+                precondition(unit)
 
-            timestamp = self._clock.now()
-            plan = plan_mutation(
-                request,
-                current,
-                plan_id=self._ids.new_id("mutation-plan"),
-                planned_at=timestamp,
-            )
-            receipt = build_transition_receipt(
-                plan,
-                receipt_id=self._ids.new_id(
-                    "transition-receipt"
-                ),
-                outbox_event_id=self._ids.new_id(
-                    "outbox-event"
-                ),
-                committed_at=timestamp,
-            )
-            event = build_outbox_event(
-                plan,
-                receipt,
-                event_id=receipt.outbox_event_id,
-                correlation_id=request.correlation_id,
-                created_at=timestamp,
-            )
-            target = apply_mutation_plan(
-                current,
-                plan,
-                updated_at=timestamp,
-            )
-            binding = CommandBinding(
-                client_id=request.client_id,
-                command_type=request.command_type,
-                idempotency_key=request.idempotency_key,
-                payload_digest=payload_digest,
-                request_id=request.request_id,
-                receipt_id=receipt.receipt_id,
-                created_at=timestamp,
-            )
-
-            if not unit.compare_and_set_target(current, target):
-                latest = unit.get_target(request.target_id)
-                latest_revision = (
-                    0 if latest is None else latest.revision
-                )
-                raise StaleRevisionError(
-                    request.target_id,
-                    request.expected_revision,
-                    latest_revision,
-                )
-
-            self._faults.hit(FaultPoint.AFTER_TARGET_WRITE)
-
-            unit.add_mutation_request(
-                request,
-                payload_digest,
-                timestamp,
-            )
-            unit.add_mutation_plan(plan)
-            unit.add_transition_receipt(receipt)
-            unit.add_command_binding(binding)
-            unit.add_outbox_event(event)
+            receipt = self._stage_mutation(unit, request, payload_digest)
 
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()

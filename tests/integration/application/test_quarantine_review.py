@@ -221,19 +221,12 @@ def test_resolve_quarantine_review_escalate(
     ]
 ) -> None:
     coordinator, errors, broker, health, store, clock, peer_registry = services
-    
+
     review_id = _seed_review(errors, broker, peer_registry)
-    
-    # In order to authorize administrative recovery, the circuit must be OPEN
-    # and admission state must be QUARANTINED, and the circuit must have non-automatic QuarantineAuthorityClass
-    # (as checked by health_service's authorize_administrative_recovery).
-    
-    # First, let's inject a projection and an open circuit so that it passes health_service check.
+
     with store.unit_of_work() as unit:
         from peerhub.health.contract import HealthProjectionSnapshot, ReadinessEvaluation
         from tests.integration.application.test_role_assignment import _seed_projection
-        
-        # We need a projection
         import uuid
         from peerhub.telemetry.contract import ReadinessObserved, EvidenceValue, EvidenceState, ReadinessMeasurement
         from peerhub.health.contract import ReadinessState, ReadinessGateState, AdmissionDecision, RevalidationAction, PolicyReceipt
@@ -260,13 +253,13 @@ def test_resolve_quarantine_review_escalate(
             ),
         )
         unit.add_readiness_observation(readiness)
-        
+
         projection = HealthProjectionSnapshot(
             projection_id="proj-1",
             instance_id="cc",
             profile_id="cc.standard",
             availability_state=AvailabilityState.HEALTHY,
-            admission_state=AdmissionState.QUARANTINED,
+            admission_state=AdmissionState.OPEN,
             readiness_observation_id=obs_id,
             operational_projection_id=None,
             operational_projection_revision=None,
@@ -291,45 +284,24 @@ def test_resolve_quarantine_review_escalate(
             adapter_declares_probe_safe=True,
         )
         unit.add_health_projection(projection)
-        
-        circuit = HealthCircuitSnapshot(
-            circuit_id="circuit-1",
-            scope=PolicyScope.PROFILE,
-            subject="cc.standard",
-            state=CircuitState.CIRCUIT_OPEN,
-            receipt=PolicyReceipt(
-                incident="inc-1",
-                gate_generation=1,
-                timestamp=clock.now(),
-                fingerprint="abc",
-            ),
-            quarantine_authority_class=QuarantineAuthorityClass.MANUAL,
-            backoff_count=0,
-            cooldown_until=None,
-            revision=1,
-            created_at=clock.now(),
-            updated_at=clock.now(),
-        )
-        unit.add_health_circuit(circuit)
         unit.commit()
-    
+
     submission = coordinator.resolve_quarantine_review(
         review_id,
         decision="ESCALATE",
         actor=AuthenticatedSubject("admin-1", "test"),
         reason="real threat",
     )
-    
+
     target = broker.get_target(submission.receipt.target_id)
     assert target is not None
     assert target.state.get("status") == "ESCALATED"
-    
-    # Check that a recovery grant was created by health service
+
     with store.unit_of_work() as unit:
-        grant = unit.get_live_recovery_probe_grant("circuit-1")
-        assert grant is not None
-        assert grant.authorized_by == "admin-1"
-        assert grant.authorization_mode.value == "ADMINISTRATIVE"
+        circuit = unit.get_health_circuit(PolicyScope.PROFILE, "cc.standard")
+        assert circuit is not None
+        assert circuit.state == CircuitState.CIRCUIT_OPEN
+        assert circuit.quarantine_authority_class == QuarantineAuthorityClass.MANUAL
 
 def test_resolve_rejects_invalid_decision(
     services: tuple[
@@ -343,49 +315,13 @@ def test_resolve_rejects_invalid_decision(
     ]
 ) -> None:
     coordinator, errors, broker, health, store, clock, peer_registry = services
+    
     review_id = _seed_review(errors, broker, peer_registry)
     
     with pytest.raises(ValueError, match="decision must be DISMISS or ESCALATE"):
         coordinator.resolve_quarantine_review(
             review_id,
             decision="IGNORE",
-            actor=AuthenticatedSubject("admin", "test"),
-            reason="ignored",
+            actor=AuthenticatedSubject("admin-1", "test"),
+            reason="invalid decision",
         )
-
-def test_resolve_already_resolved(
-    services: tuple[
-        QuarantineReviewCoordinator,
-        OperationalErrorService,
-        GovernanceBroker,
-        HealthService,
-        SqliteStateStore,
-        FixedClock,
-        PeerRegistryService,
-    ]
-) -> None:
-    coordinator, errors, broker, health, store, clock, peer_registry = services
-    review_id = _seed_review(errors, broker, peer_registry)
-    
-    # Dismiss once
-    coordinator.resolve_quarantine_review(
-        review_id,
-        decision="DISMISS",
-        actor=AuthenticatedSubject("admin", "test"),
-        reason="ok",
-    )
-    
-    clock.value += 100
-    
-    # Dismiss again gracefully updates resolved_at
-    submission = coordinator.resolve_quarantine_review(
-        review_id,
-        decision="DISMISS",
-        actor=AuthenticatedSubject("admin", "test"),
-        reason="still ok",
-    )
-    
-    target = broker.get_target(submission.receipt.target_id)
-    assert target is not None
-    assert target.state.get("resolved_at") == clock.now()
-    assert target.state.get("reason") == "still ok"

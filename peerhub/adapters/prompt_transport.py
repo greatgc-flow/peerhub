@@ -44,6 +44,73 @@ from peerhub.adapters.contract import AdapterRequest
 _STAGED_PROMPT_SUFFIX = ".prompt.txt"
 _STAGED_NAME_HEX_CHARS = 32
 
+from enum import Enum
+
+class RetentionMode(Enum):
+    EPHEMERAL = "ephemeral"
+    RETAINED = "retained"
+
+@dataclass
+class CleanupDebtRecord:
+    """An explicit pending cleanup obligation for a staged prompt whose
+    dispatch outcome was uncertain (item 3's crash-recovery model) --
+    tracked until the scratch file is confirmed safe to remove."""
+
+    staged_path: Path
+    consumer_pid: int
+    retained_input_ttl_days: int | None = None
+
+
+_DIGEST_SIDECAR_SUFFIX = ".digest"
+
+
+def sweep_by_ownership(
+    root: Path, relative_dir: str, active_owners: set[str] | None = None
+) -> int:
+    """Remove staged prompts that belong to no currently-active owner.
+
+    Age alone never authorizes deletion here (item 3, section 6.2):
+    a file is a sweep candidate only if none of ``active_owners``
+    (request/child ids) could have produced its name. Since the staged
+    filename is ``sha256(f"{request_id}:{content_digest}")``, ownership
+    is checked by recomputing that hash for each active owner against
+    the file's own current content digest.
+    """
+
+    owners = active_owners or set()
+    staging_dir = resolve_staging_dir(root, relative_dir)
+    if not staging_dir.is_dir():
+        return 0
+
+    removed = 0
+    for entry in staging_dir.iterdir():
+        if not entry.is_file() or not entry.name.endswith(_STAGED_PROMPT_SUFFIX):
+            continue
+        try:
+            payload = entry.read_bytes()
+        except OSError:
+            continue
+        digest = hashlib.sha256(payload).hexdigest()
+        owned = any(
+            _staged_filename(owner, digest) == entry.name for owner in owners
+        )
+        if not owned:
+            entry.unlink(missing_ok=True)
+            sidecar = entry.with_name(entry.name + _DIGEST_SIDECAR_SUFFIX)
+            sidecar.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
+def should_stage_prompt(payload_utf8_bytes: int, max_inline_bytes: int) -> bool:
+    """Decide inline-vs-staged per section 6.1: exactly at the boundary
+    is still inline, only strictly over it requires staging."""
+
+    return payload_utf8_bytes > max_inline_bytes
+
+def read_query_file_utf8(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
 
 @dataclass(frozen=True)
 class StagedPrompt:
@@ -103,6 +170,7 @@ def stage_prompt(
     root: Path,
     relative_dir: str,
     request_id: str,
+    retention_mode: RetentionMode = RetentionMode.EPHEMERAL,
 ) -> StagedPrompt:
     """Write ``prompt`` to the staging directory under ``root``, verbatim.
 
@@ -119,11 +187,15 @@ def stage_prompt(
     staging_dir.mkdir(parents=True, exist_ok=True)
     staged_path = staging_dir / _staged_filename(request_id, digest)
 
+    sidecar_path = staged_path.with_name(staged_path.name + _DIGEST_SIDECAR_SUFFIX)
+
     if staged_path.is_file():
         # Deterministic identity: the same request re-staging the same bytes
         # (a retried attempt) reuses the verified file instead of colliding.
         existing = staged_path.read_bytes()
         if hashlib.sha256(existing).hexdigest() == digest:
+            if not sidecar_path.is_file():
+                sidecar_path.write_text(digest, encoding="ascii")
             return StagedPrompt(
                 path=staged_path,
                 sha256_hex=digest,
@@ -143,8 +215,10 @@ def stage_prompt(
             or hashlib.sha256(round_trip).hexdigest() != digest
         ):
             raise OSError("staged prompt failed its UTF-8 digest round-trip")
+        sidecar_path.write_text(digest, encoding="ascii")
     except BaseException:
         staged_path.unlink(missing_ok=True)
+        sidecar_path.unlink(missing_ok=True)
         raise
 
     return StagedPrompt(
@@ -167,7 +241,9 @@ def remove_staged_prompt(reference: str) -> None:
     error -- idempotent, safe to call more than once.
     """
 
-    Path(reference).unlink(missing_ok=True)
+    path = Path(reference)
+    path.unlink(missing_ok=True)
+    path.with_name(path.name + _DIGEST_SIDECAR_SUFFIX).unlink(missing_ok=True)
 
 
 def sweep_stale_staged_prompts(root: Path, relative_dir: str, *, max_age_seconds: float) -> int:
@@ -198,6 +274,7 @@ def sweep_stale_staged_prompts(root: Path, relative_dir: str, *, max_age_seconds
             continue
         if age >= max_age_seconds:
             entry.unlink(missing_ok=True)
+            entry.with_name(entry.name + _DIGEST_SIDECAR_SUFFIX).unlink(missing_ok=True)
             removed += 1
     return removed
 
@@ -207,12 +284,26 @@ def render_staged_prompt_pointer(reference: str) -> str:
 
     The digest and lengths are recomputed from the file itself rather than
     trusted from the caller, so the pointer a peer receives always
-    describes the bytes actually on disk.
+    describes the bytes actually on disk. If a digest sidecar was recorded
+    at staging time, the current bytes must still match it -- external
+    modification between staging and consumption is rejected rather than
+    silently served (TP-E-07).
     """
 
     path = Path(reference)
     payload = path.read_bytes()
     digest = hashlib.sha256(payload).hexdigest()
+
+    sidecar_path = path.with_name(path.name + _DIGEST_SIDECAR_SUFFIX)
+    if sidecar_path.is_file():
+        expected_digest = sidecar_path.read_text(encoding="ascii").strip()
+        if expected_digest != digest:
+            raise ValueError(
+                f"staged prompt {path} content mismatch: expected digest "
+                f"{expected_digest}, found {digest} -- file was modified "
+                "after staging"
+            )
+
     text = payload.decode("utf-8")
     return (
         "[IPC PAYLOAD FILE]\n"

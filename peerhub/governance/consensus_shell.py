@@ -1,0 +1,1058 @@
+"""Imperative shell of the V2 consensus engine.
+
+Every mutation runs the same pipeline: replay check -> terminal guard ->
+AuthorizationGate -> pure ``ConsensusStateMachine.evaluate`` -> authority fence
+-> ONE broker transaction (state + receipt + effect [+ authority bump]) whose
+precondition re-validates the authority version inside the committing txn.
+"""
+
+import dataclasses
+import hashlib
+from collections.abc import Mapping
+from typing import Any, Callable, Dict, Optional, Sequence, cast
+
+from peerhub.core.context import Clock, IdSource
+from peerhub.core.errors import (
+    IdempotencyPayloadMismatchError,
+    InvalidMutationError,
+    RecordNotFoundError,
+    StaleRevisionError,
+)
+from peerhub.core.protocol import canonical_json_bytes
+from peerhub.governance.authority_fence import (
+    AuthorityFence,
+    AuthorityVersionStore,
+    StaleAuthorityError,
+)
+from peerhub.governance.authorization import (
+    AuthorizationError,
+    AuthorizationGate,
+    CredentialVerifier,
+    HealthIdentityPort,
+)
+from peerhub.governance.broker import GovernanceBroker, PendingEffect
+from peerhub.governance.candidate import AckLedger, Candidate, apply_retraction
+from peerhub.governance.consensus import (
+    ConsensusStateMachine,
+    EvalContext,
+    validated_arbiter_reference,
+)
+from peerhub.governance.contract import (
+    EffectIntent,
+    EffectOutcome,
+    build_mutation_request,
+)
+from peerhub.governance.invariant_requests import RATIFIED_INVARIANT_EFFECT_KIND
+from peerhub.governance.policy_snapshot import (
+    ConfigurationError,
+    decode_policy_snapshot,
+    freeze_policy_snapshot,
+)
+from peerhub.governance.proposal_policy import build_approval_submission, route_effect_kind
+from peerhub.governance.provenance import resolve_provenance
+
+State = Dict[str, Any]
+
+AUTHORITY_TARGET_ID = "system:authority-version"
+TERMINAL_PHASES = ("approved", "rejected", "abandoned")
+
+# Internal callers (proposal recovery) may perform ONLY these operations, and only
+# when their principal is on the explicit allowlist passed to the shell. They are
+# never electorate members and can never vote, ACK, NACK or resolve.
+SYSTEM_OPERATIONS = frozenset({"request_escalation", "reject_on_dissent", "mark_timeout"})
+# After an authority change these remedial operations proceed without the whole-electorate
+# health revalidation that every other mutation needs (an unhealthy electorate is exactly
+# why they are being invoked).
+REAUTH_EXEMPT_OPERATIONS = frozenset(
+    {"request_escalation", "reject_on_dissent", "mark_timeout", "resolve", "abandon", "retraction"}
+)
+NACK_TYPES = ("block", "cosmetic", "terminal_rejection")
+
+
+def eligible_of(state: Dict[str, Any]) -> list[Any]:
+    """Eligible electorate of a round: V1-style participants mapping or a plain list."""
+    participants: Any = state.get("participants", [])
+    if hasattr(participants, "get"):
+        return list(cast(Dict[str, Any], participants).get("eligible", []))
+    return list(cast(list[Any], participants))
+
+
+def candidate_state_hash(state: Dict[str, Any]) -> str:
+    """Hash the immutable content being approved (never the mutable ACK ledger/phase)."""
+    basis = {
+        key: state.get(key)
+        for key in ("policy_snapshot", "proposal", "participants", "frozen_authority_set")
+    }
+    return "sha256:" + hashlib.sha256(canonical_json_bytes(basis)).hexdigest()
+
+
+def _d(value: Any) -> Dict[str, Any]:
+    """A JSON object field as a typed dict (missing/None -> empty)."""
+    return cast(Dict[str, Any], value or {})
+
+
+def _digest(value: Any) -> str:
+    return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
+
+
+class _SystemAwareHealth:
+    """Allowlisted internal principals have no peer profile to health-check."""
+
+    def __init__(self, inner: Any, system_actor: str) -> None:
+        self._inner = inner
+        self._system_actor = system_actor
+
+    def check_health_gate(self, actor_id: str, evaluated_at: int) -> bool:
+        if actor_id == self._system_actor:
+            return True
+        return self._inner.check_health_gate(actor_id, evaluated_at)
+
+
+def _no_state_change(*_args: Any) -> None:
+    return None
+
+
+class BrokerAuthorityVersionStore(AuthorityVersionStore):
+    def __init__(self, broker: GovernanceBroker) -> None:
+        self._broker = broker
+
+    @staticmethod
+    def _version_of(target: Any) -> int:
+        if target is None:
+            return 1
+        return int(target.state.get("version", target.revision + 1))
+
+    def read_version(self) -> int:
+        return self._version_of(self._broker.get_target(AUTHORITY_TARGET_ID))
+
+    def read_version_in(self, unit: Any) -> int:
+        """Read the live version inside the caller's (committing) transaction."""
+        return self._version_of(unit.get_target(AUTHORITY_TARGET_ID))
+
+    def build_increment_request(self, unit: Any) -> Any:
+        """Mutation that bumps the version, built against the live in-txn revision."""
+        target = unit.get_target(AUTHORITY_TARGET_ID)
+        return build_mutation_request(
+            self._broker.ids,
+            id_prefix="auth-ver",
+            client_id="authority-store",
+            target_id=AUTHORITY_TARGET_ID,
+            expected_revision=0 if target is None else target.revision,
+            actor_id="system",
+            operation="increment",
+            desired_state={"version": self._version_of(target) + 1},
+            effect_intent=EffectIntent(kind="consensus.noop", payload={}),
+        )
+
+    def increment(self) -> int:
+        target = self._broker.get_target(AUTHORITY_TARGET_ID)
+        new_version = self._version_of(target) + 1
+        req = build_mutation_request(
+            self._broker.ids,
+            id_prefix="auth-ver",
+            client_id="authority-store",
+            target_id=AUTHORITY_TARGET_ID,
+            expected_revision=0 if target is None else target.revision,
+            actor_id="system",
+            operation="increment",
+            desired_state={"version": new_version},
+            effect_intent=EffectIntent(kind="consensus.noop", payload={}),
+        )
+        try:
+            self._broker.submit(req)
+            return new_version
+        except StaleRevisionError as e:
+            raise StaleAuthorityError("Lost CAS race when incrementing authority version") from e
+
+
+class ConsensusShell:
+    def __init__(
+        self,
+        broker: GovernanceBroker,
+        *,
+        clock: Clock,
+        ids: IdSource,
+        verifier: Optional[CredentialVerifier],
+        health_port: HealthIdentityPort,
+        authority_store: AuthorityVersionStore,
+        effect_factories: Optional[Dict[str, Any]] = None,
+        system_principals: frozenset[str] = frozenset(),
+    ) -> None:
+        # action -> callable(state, round_id, actor_id) -> EffectIntent (approval effect)
+        self._effect_factories = dict(effect_factories or {})
+        self._broker = broker
+        self._clock = clock
+        self._ids = ids
+        self._verifier = verifier
+        self._health_port = health_port
+        self._authority_store = authority_store
+        self._system_principals = frozenset(system_principals)
+
+    # ------------------------------------------------------------------ helpers
+    def _authority_precondition(self, expected_version: int) -> Optional[Callable[[Any], None]]:
+        """Authority validation that runs inside the committing broker txn."""
+        reader = getattr(self._authority_store, "read_version_in", None)
+        if reader is None:
+            return None
+
+        def check(unit: Any) -> None:
+            live = reader(unit)
+            if live != expected_version:
+                raise StaleAuthorityError(f"Expected {expected_version}, got {live}")
+
+        return check
+
+    def _approval_effect(self, state: Dict[str, Any], round_id: str, actor_id: str) -> EffectIntent:
+        """Approval effect for this round's action (default: consensus.resolved)."""
+        action: Any = _d(state.get("policy_snapshot")).get("action") or state.get("action")
+        factory = self._effect_factories.get(str(action)) if action else None
+        if factory is not None:
+            return factory(state, round_id, actor_id)
+        candidate = candidate_state_hash(state)
+        intent = {
+            "snapshot_hash": candidate,
+            "round_id": round_id,
+            "outcome": "approved",
+            "resolved_by": actor_id,
+            "final_call_complete": state.get("phase_before_approval") == "final_call",
+        }
+        sub = build_approval_submission({"round_id": round_id, "hash": candidate}, intent)
+        return EffectIntent(kind="consensus.resolved", payload=sub.effect_outbox_entry)
+
+    def _resolution_effect(
+        self, state: Dict[str, Any], round_id: str, actor_id: str, outcome: str, basis: str
+    ) -> EffectIntent:
+        if outcome == "approved":
+            return self._approval_effect(state, round_id, actor_id)
+        return EffectIntent(
+            kind="consensus.resolved",
+            payload={
+                "round_id": round_id,
+                "outcome": outcome,
+                "basis": basis,
+                "resolved_by": actor_id,
+                "snapshot_hash": candidate_state_hash(state),
+            },
+        )
+
+    def _finalize(self, state: Dict[str, Any], actor_id: str) -> None:
+        """Terminal bookkeeping in the V1-readable shape: status + resolution incl. decision hash."""
+        state["status"] = "resolved" if state["phase"] in ("approved", "rejected") else "abandoned"
+        if state["phase"] in ("approved", "rejected"):
+            resolution = dict(_d(state.get("resolution")))
+            resolution.setdefault("resolved_by", actor_id)
+            resolution["outcome"] = state["phase"]
+            resolution["decision_hash"] = candidate_state_hash(state)
+            resolution.setdefault("resolved_at", self._clock.now())
+            state["resolution"] = resolution
+
+    def _revalidate_electorate(self, state: Dict[str, Any]) -> None:
+        """Whole-electorate health revalidation before an approval (design 5.2)."""
+        gate = AuthorizationGate(
+            verifier=self._verifier,
+            health_port=self._health_port,
+            state_machine=ConsensusStateMachine(state="final_call"),
+        )
+        if not gate.authorize_final_call_electorate(eligible_of(state), self._clock.now()):
+            raise AuthorizationError("Final Call electorate revalidation failed")
+
+    def _reverify_ack_credentials(self, state: Dict[str, Any], completing_actor: str) -> None:
+        """Earlier ACK holders' credentials must still verify when the round is approved."""
+        creds = dict(_d(state.get("ack_credentials")))
+        for participant in eligible_of(state):
+            if participant == completing_actor:
+                continue  # verified by the gate for this very command
+            credential = creds.get(participant)
+            if credential is None:
+                if state.get("verified_required"):
+                    raise AuthorizationError(f"missing credential for ACK holder {participant}")
+                continue
+            if self._verifier is None:
+                raise AuthorizationError("Credential stored but no verifier configured.")
+            try:
+                ok = self._verifier(credential_id=credential, claimed_actor_id=participant)
+            except Exception as e:
+                raise AuthorizationError(f"credential verifier error: {e}") from e
+            if not ok:
+                raise AuthorizationError(f"credential of ACK holder {participant} no longer verifies")
+
+    def _authorize_replay(self, state: Dict[str, Any], actor_id: str, credential_id: Optional[str]) -> None:
+        """A replay needs the same authentication as the original command."""
+        if credential_id is not None:
+            if self._verifier is None:
+                raise AuthorizationError("Credential presented but no verifier configured.")
+            try:
+                ok = self._verifier(credential_id=credential_id, claimed_actor_id=actor_id)
+            except Exception as e:
+                raise AuthorizationError(f"credential verifier error: {e}") from e
+            if not ok:
+                raise AuthorizationError("Invalid credential.")
+        elif state.get("verified_required") and actor_id not in self._system_principals:
+            raise AuthorizationError("Credential absent but required.")
+
+    # ---------------------------------------------------------------- creation
+    def propose_v2(
+        self,
+        round_id: str,
+        title: str,
+        question: str,
+        body: str,
+        proposer_id: str,
+        required_participants: Sequence[str],
+        eligible_participants: Sequence[str],
+        risk: str,
+        source_hash: str,
+        config: Dict[str, Any],
+        origin: Optional[str] = None,
+        action: Optional[str] = None,
+        verified_required: bool = False,
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
+        # Identity of the CALLER's request only: the derived policy config is frozen into the
+        # first creation and must not turn an identical retry into a false mismatch.
+        creation_digest = _digest([
+            round_id, title, question, body, proposer_id, list(required_participants),
+            list(eligible_participants), risk, source_hash, origin, action,
+            bool(verified_required),
+        ])
+        scoped_key = None
+        if idempotency_key is not None:
+            scoped_key = _digest(["propose_v2", round_id, proposer_id, idempotency_key])
+            existing = self._broker.get_target(round_id)
+            if existing is not None and existing.state.get("creation_key") == scoped_key:
+                if existing.state.get("creation_digest") != creation_digest:
+                    raise IdempotencyPayloadMismatchError(
+                        "consensus_shell", "propose_v2", idempotency_key
+                    )
+                replay = self._broker.lookup_replay("consensus_shell", "propose_v2", scoped_key)
+                if replay is not None:
+                    return replay
+        prov_origin, prov_action = resolve_provenance(origin, action)
+        policy_snapshot = freeze_policy_snapshot(
+            origin=prov_origin, action=prov_action, config=config, risk=risk
+        )
+        expected_authority_version = self._authority_store.read_version()
+
+        state: State = {
+            "schema": "peerhub.consensus-round.v2",
+            "kind": "consensus-round",
+            "round_id": round_id,
+            "origin": prov_origin,
+            "action": prov_action,
+            "phase": "voting",
+            "policy_snapshot": dataclasses.asdict(policy_snapshot),
+            # V1-compatible shape so proposal/arbiter code can read V2 rounds unchanged.
+            "participants": {
+                "required": list(required_participants),
+                "eligible": list(eligible_participants),
+            },
+            "status": "open",
+            "verified_required": verified_required,
+            "created_at": self._clock.now(),
+            "votes": {},
+            "quorum": {
+                "reached": False, "counted_votes": 0, "recorded_votes": 0,
+                "decisive_votes": 0, "required_votes": policy_snapshot.required_votes,
+            },
+            "creation_digest": creation_digest,
+            "creation_key": scoped_key,
+            "ack_credentials": {},
+            "dissent_obligations": [],
+            "barrier_holders": [],
+            "command_log": {},
+            "frozen_authority_set": list(eligible_participants),
+            "expected_authority_version": expected_authority_version,
+            "ack_ledger": {},
+            "proposal": {
+                "title": title,
+                "question": question,
+                "body": body,
+                "proposer_id": proposer_id,
+                "source_hash": source_hash,
+                "required_participants": list(required_participants),
+            },
+        }
+        req = build_mutation_request(
+            self._ids,
+            id_prefix="prop",
+            client_id="consensus_shell",
+            target_id=round_id,
+            expected_revision=0,
+            actor_id=proposer_id,
+            operation="propose_v2",
+            desired_state=state,
+            effect_intent=EffectIntent(kind="consensus.noop", payload={}),
+        )
+        if scoped_key is not None:
+            req = dataclasses.replace(req, idempotency_key=scoped_key)
+        try:
+            return self._broker.submit(
+                req, precondition=self._authority_precondition(expected_authority_version)
+            )
+        except IdempotencyPayloadMismatchError:
+            # A concurrent identical creation committed between our check and submit: its
+            # generated fields differ, but the caller's request is the same -> replay it.
+            existing = self._broker.get_target(round_id)
+            if (
+                scoped_key is not None
+                and existing is not None
+                and existing.state.get("creation_key") == scoped_key
+                and existing.state.get("creation_digest") == creation_digest
+            ):
+                replay = self._broker.lookup_replay("consensus_shell", "propose_v2", scoped_key)
+                if replay is not None:
+                    return replay
+            raise
+
+    # ---------------------------------------------------------------- pipeline
+    def _process_event(
+        self,
+        round_id: str,
+        actor_id: str,
+        operation: str,
+        event_factory: Callable[[State, str], Any],
+        state_updater: Callable[..., Optional[EffectIntent]],
+        *,
+        expected_revision: Optional[int] = None,
+        credential_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        command_args: Optional[Dict[str, Any]] = None,
+        phase_for_eval: Optional[Callable[[Dict[str, Any]], str]] = None,
+    ) -> Any:
+        target = self._broker.get_target(round_id)
+        if not target:
+            raise RecordNotFoundError("consensus-round", round_id)
+        state: State = dict(cast(Dict[str, Any], target.state))
+
+        # Public-command identity: canonical (operation, round, actor, client key).
+        scoped_key = None
+        args_digest = None
+        if idempotency_key is not None:
+            scoped_key = _digest([operation, round_id, actor_id, idempotency_key])
+            args_digest = _digest(
+                {"args": command_args or {}, "expected_revision": expected_revision}
+            )
+            logged = dict(_d(state.get("command_log")))
+            if scoped_key in logged:
+                if logged[scoped_key] != args_digest:
+                    raise IdempotencyPayloadMismatchError(
+                        "consensus_shell", operation, idempotency_key
+                    )
+                self._authorize_replay(state, actor_id, credential_id)
+                replay = self._broker.lookup_replay("consensus_shell", operation, scoped_key)
+                if replay is not None:
+                    return replay
+
+        # Restart consistency (design 4.1): an inconsistent or unversioned frozen
+        # snapshot fails closed before anything is evaluated.
+        decode_policy_snapshot(dict(_d(state.get("policy_snapshot"))))
+
+        phase = state.get("phase", "voting")
+        if phase in TERMINAL_PHASES and not (operation == "retraction" and phase == "approved"):
+            raise InvalidMutationError("round is terminal")
+        eval_phase = phase_for_eval(state) if phase_for_eval is not None else phase
+
+        snapshot = _d(state.get("policy_snapshot"))
+        final_call_rule = snapshot.get("final_call_rule")
+        mandatory_final_call = bool(snapshot.get("mandatory_final_call", False)) or (
+            final_call_rule == "always"
+        )
+        sm = ConsensusStateMachine(
+            state=eval_phase,
+            final_call_rule=final_call_rule,
+            mandatory_floors_hit=mandatory_final_call,
+        )
+
+        system_actor = operation in SYSTEM_OPERATIONS and actor_id in self._system_principals
+        gate = AuthorizationGate(
+            verifier=self._verifier,
+            health_port=(
+                _SystemAwareHealth(self._health_port, actor_id) if system_actor else self._health_port
+            ),
+            state_machine=sm,
+        )
+        frozen_auth_set = frozenset(state.get("frozen_authority_set", []))
+        if system_actor:
+            frozen_auth_set = frozen_auth_set | {actor_id}
+
+        expected_auth_ver = state.get("expected_authority_version", 1)
+        live_version = self._authority_store.read_version()
+        if live_version != expected_auth_ver:
+            # Authority changed since this round last validated: re-authorize by
+            # revalidating the whole electorate (fail closed), then refresh the
+            # version this command is committed against. Remedial operations skip
+            # the health revalidation because they exist to handle unhealthy peers.
+            if operation not in REAUTH_EXEMPT_OPERATIONS:
+                self._revalidate_electorate(state)
+                # Only a command that really revalidated the whole electorate may
+                # persist the refreshed version; exempt ones commit against the live
+                # version without recording that re-authorization happened.
+                state["expected_authority_version"] = live_version
+            expected_auth_ver = live_version
+        state_hash = candidate_state_hash(state)
+        candidate = Candidate(round_id, int(state.get("candidate_revision", 0)), state_hash)
+        ledger = AckLedger()
+        for participant in _d(state.get("ack_ledger")).get(state_hash, []):
+            ledger.bind_ack(candidate, participant)
+
+        ctx = EvalContext(
+            current_timestamp=self._clock.now(),
+            caller_identity=actor_id,
+            frozen_authority_set=frozen_auth_set,
+            current_candidate=candidate,
+            bound_ack_participants=ledger.acks_for(candidate),
+            required_participants=frozenset(eligible_of(state)),
+        )
+        event = event_factory(state, state_hash)
+
+        try:
+            res = gate.authorize_and_evaluate(
+                ctx=ctx,
+                event=event,
+                credential_id=credential_id,
+                verified_required=bool(state.get("verified_required", False)) and not system_actor,
+            )
+        except AuthorizationError:
+            raise
+        except InvalidMutationError:
+            if operation == "retraction" and phase == "approved":
+                from peerhub.governance.consensus import TransitionResult
+
+                res = TransitionResult(new_phase="approved")
+            else:
+                raise
+
+        fence = AuthorityFence(self._authority_store)
+        fence.check(expected_auth_ver)  # fast fail; the committing txn re-validates below
+
+        state["phase"] = res.new_phase
+        state["_rev"] = target.revision  # transient: read by effect factories, never persisted
+        try:
+            effect = state_updater(state, res, ctx, sm, ledger, candidate, fence)
+        finally:
+            state.pop("_rev", None)
+        if state.get("phase") in TERMINAL_PHASES:
+            self._finalize(state, actor_id)
+        if effect is None:
+            effect = EffectIntent(kind="consensus.noop", payload={})
+
+        if scoped_key is not None:
+            log = dict(_d(state.get("command_log")))
+            log[scoped_key] = args_digest
+            state["command_log"] = log
+
+        req = build_mutation_request(
+            self._ids,
+            id_prefix=operation[:3],
+            client_id="consensus_shell",
+            target_id=round_id,
+            expected_revision=target.revision if expected_revision is None else expected_revision,
+            actor_id=actor_id,
+            operation=operation,
+            desired_state=state,
+            effect_intent=effect,
+        )
+        if scoped_key is not None:
+            req = dataclasses.replace(req, idempotency_key=scoped_key)
+        precondition = self._authority_precondition(expected_auth_ver)
+
+        if operation == "retraction" and state["phase"] == "approved":
+            # Post-authorization retraction: the revocation record, the authority
+            # increment that fences future work, both receipts and effects commit
+            # in ONE transaction (audit finding 4).
+            bump = getattr(self._authority_store, "build_increment_request", None)
+            if bump is None:
+                raise InvalidMutationError(
+                    "authority store cannot bump the version atomically with a revocation"
+                )
+            submissions = self._broker.submit_atomic(
+                lambda unit: (req, bump(unit)), precondition=precondition
+            )
+            return submissions[0]
+        return self._broker.submit(req, precondition=precondition)
+
+    # --------------------------------------------------------------- operations
+    def final_call_ack(
+        self,
+        round_id: str,
+        actor_id: str,
+        expected_revision: Optional[int] = None,
+        credential_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import AckNackEvent
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return AckNackEvent(
+                candidate_id=state_hash, actor=actor_id, proof=credential_id or "", nack_type=None
+            )
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            if res.ack_recorded:
+                ledger.bind_ack(c, actor_id)
+            state["ack_ledger"] = {c.target_state_hash: sorted(ledger.acks_for(c))}
+            # The ACKer's own concerns (earlier block / dissent) are resolved by their ACK.
+            holders = sorted(set(state.get("barrier_holders") or []) - {actor_id})
+            dissent = sorted(set(state.get("dissent_obligations") or []) - {actor_id})
+            state["barrier_holders"], state["dissent_obligations"] = holders, dissent
+            if res.ack_recorded:
+                creds = dict(_d(state.get("ack_credentials")))
+                if credential_id is not None:
+                    creds[actor_id] = credential_id
+                else:
+                    creds.pop(actor_id, None)  # a fresh credential-free ACK replaces a stale one
+                state["ack_credentials"] = creds
+            if res.new_phase == "approved":
+                if holders or dissent:
+                    state["phase"] = "final_call"  # barrier / unresolved dissent still hold
+                    return None
+                if not ledger.is_complete(c, eligible_of(state)):
+                    raise InvalidMutationError("Final Call ACKs are not complete for the current candidate")
+                self._revalidate_electorate(state)
+                self._reverify_ack_credentials(state, actor_id)
+                state["phase_before_approval"] = "final_call"
+                return self._approval_effect(state, round_id, actor_id)
+            return None
+
+        return self._process_event(
+            round_id, actor_id, "final_call_ack", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={},
+        )
+
+    def final_call_nack(
+        self,
+        round_id: str,
+        actor_id: str,
+        nack_type: str = "block",
+        credential_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> Any:
+        """NACK during Final Call: block (holds the barrier), cosmetic (logged) or terminal_rejection."""
+        from peerhub.governance.consensus import AckNackEvent
+
+        if nack_type not in NACK_TYPES:
+            raise InvalidMutationError(f"nack_type must be one of {NACK_TYPES}")
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return AckNackEvent(
+                candidate_id=state_hash, actor=actor_id, proof=credential_id or "", nack_type=nack_type
+            )
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            if res.barrier_held:
+                state["barrier_holders"] = sorted(set(state.get("barrier_holders") or []) | {actor_id})
+                state["barrier_held"] = True
+            if res.cosmetic_logged:
+                state["cosmetic_nacks"] = list(state.get("cosmetic_nacks", [])) + [actor_id]
+            if res.terminal_rejection:
+                state["resolution"] = {
+                    "outcome": "rejected", "basis": "terminal_rejection", "resolved_by": actor_id
+                }
+                return self._resolution_effect(state, round_id, actor_id, "rejected", "terminal_rejection")
+            return None
+
+        return self._process_event(
+            round_id, actor_id, "final_call_nack", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={"nack_type": nack_type},
+        )
+
+    def cast_vote(
+        self,
+        round_id: str,
+        actor_id: str,
+        choice: str,
+        expected_revision: Optional[int] = None,
+        credential_id: Optional[str] = None,
+        idempotency_key: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import QuorumMetEvent, ResolutionEvent, VoteEvent
+
+        if choice not in ("agree", "disagree", "abstain", "need_more_info", "block"):
+            raise InvalidMutationError(
+                "choice must be agree, disagree, abstain, need_more_info or block"
+            )
+        if reason is not None and not isinstance(reason, str):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise InvalidMutationError("reason must be a string or null")
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return VoteEvent(actor=actor_id, choice=choice, credential=credential_id)
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            votes = dict(state.get("votes", {}))
+            vote_record = {
+                "choice": choice, "actor_id": actor_id,
+                "cast_at": self._clock.now(), "reason": reason,
+            }
+            dissent = set(state.get("dissent_obligations") or []) - {actor_id}
+            if res.dissent_obligation_added:
+                vote_record["dissent_obligation"] = True
+                dissent.add(actor_id)
+            state["dissent_obligations"] = sorted(dissent)
+            votes[actor_id] = vote_record
+            state["votes"] = votes
+
+            required_votes = _d(state.get("policy_snapshot")).get("required_votes")
+            if type(required_votes) is not int or required_votes < 1:
+                raise ConfigurationError("policy snapshot has no valid required_votes")
+
+            agreements = sum(1 for v in votes.values() if v.get("choice") == "agree")
+            decisive = sum(1 for v in votes.values() if v.get("choice") in ("agree", "disagree"))
+            state["quorum"] = {
+                "reached": agreements >= required_votes,
+                "counted_votes": agreements,
+                "recorded_votes": len(votes),
+                "decisive_votes": decisive,
+                "required_votes": required_votes,
+            }
+            if agreements >= required_votes:
+                # Unresolved dissent forces the mandatory Final Call floor (design 4.2).
+                quorum_sm = sm
+                if dissent and not sm.mandatory_floors_hit:
+                    quorum_sm = ConsensusStateMachine(
+                        state=sm.state, final_call_rule=sm.final_call_rule, mandatory_floors_hit=True
+                    )
+                q_res = quorum_sm.evaluate(ctx, QuorumMetEvent(agreement_count=agreements))
+                state["phase"] = q_res.new_phase
+                if q_res.new_phase == "quorum_reached":
+                    resolver = ConsensusStateMachine(state="quorum_reached")
+                    r_res = resolver.evaluate(ctx, ResolutionEvent(outcome="approved"))
+                    state["phase"] = r_res.new_phase
+                    if r_res.new_phase == "approved":
+                        state["phase_before_approval"] = "quorum_reached"
+                        return self._approval_effect(state, round_id, actor_id)
+            return None
+
+        return self._process_event(
+            round_id, actor_id, "cast_vote", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={"choice": choice, "reason": reason},
+        )
+
+    def correction(
+        self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None,
+        credential_id: Optional[str] = None, expected_revision: Optional[int] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import CorrectionEvent
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return CorrectionEvent(actor=actor_id)
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            if res.acks_dropped:
+                ledger.invalidate("correction/new dissent")
+                state["ack_ledger"] = {}
+                state["ack_credentials"] = {}
+            if res.fresh_votes_required:
+                # A correction invalidates the candidate: every vote and concern is void.
+                state["votes"] = {}
+                state["dissent_obligations"] = []
+                state["barrier_holders"] = []
+                state.pop("barrier_held", None)
+                required = _d(state.get("policy_snapshot")).get("required_votes")
+                state["quorum"] = {
+                    "reached": False, "counted_votes": 0, "recorded_votes": 0,
+                    "decisive_votes": 0, "required_votes": required,
+                }
+                state["candidate_revision"] = int(state.get("candidate_revision", 0)) + 1
+            return None
+
+        return self._process_event(
+            round_id, actor_id, "correction", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={},
+        )
+
+    def retraction(
+        self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None,
+        credential_id: Optional[str] = None, expected_revision: Optional[int] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import RetractionEvent
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return RetractionEvent(candidate_id=state_hash, actor=actor_id, proof="")
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            if state["phase"] == "approved":
+                state["revocations"] = list(state.get("revocations", [])) + ["RevocationRecorded"]
+            elif res.acks_dropped:
+                apply_retraction(ledger, c, authorized=False)  # drops every bound ACK
+                state["ack_ledger"] = {}
+                state["ack_credentials"] = {}
+            return None
+
+        return self._process_event(
+            round_id, actor_id, "retraction", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={},
+        )
+
+    def mark_timeout(
+        self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None,
+        credential_id: Optional[str] = None, expected_revision: Optional[int] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import TimeoutEvent
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            deadlines = _d(_d(state.get("policy_snapshot")).get("deadlines"))
+            window = deadlines.get(state.get("phase", "voting"), deadlines.get("voting"))
+            deadline = None
+            if window is not None:
+                deadline = int(state.get("created_at", 0)) + int(window)
+                if self._clock.now() < deadline:
+                    raise InvalidMutationError("round deadline has not been reached")
+            return TimeoutEvent(
+                requester=actor_id, deadline=float(deadline if deadline is not None else self._clock.now())
+            )
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            if res.evidence_recorded:
+                state["timeout_evidence"] = {
+                    "actor_id": actor_id,
+                    "recorded_at": self._clock.now(),
+                    "phase_at_timeout": state.get("phase"),
+                }
+            return None
+
+        return self._process_event(
+            round_id, actor_id, "mark_timeout", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={},
+        )
+
+    def abandon(
+        self, round_id: str, actor_id: str, idempotency_key: Optional[str] = None,
+        credential_id: Optional[str] = None, expected_revision: Optional[int] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import AbandonEvent
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return AbandonEvent(reason="abandoned", requesting_actor=actor_id)
+
+        return self._process_event(
+            round_id, actor_id, "abandon", event_factory, _no_state_change,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={},
+        )
+
+    def reject_on_dissent(
+        self, round_id: str, actor_id: str, basis: str, idempotency_key: Optional[str] = None,
+        credential_id: Optional[str] = None, expected_revision: Optional[int] = None,
+    ) -> Any:
+        """Reject an open round after verifying a stored eligible dissent (design 6.1 rule 5)."""
+        from peerhub.governance.consensus import ResolutionEvent
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            eligible = set(eligible_of(state))
+            votes = _d(state.get("votes"))
+            if not any(
+                voter in eligible and _d(vote).get("choice") in ("disagree", "block")
+                for voter, vote in votes.items()
+            ):
+                raise InvalidMutationError("no stored eligible dissent to reject on")
+            return ResolutionEvent(outcome="rejected", basis="eligible_dissent")
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            state["resolution"] = {"outcome": "rejected", "basis": basis, "resolved_by": actor_id}
+            return self._resolution_effect(state, round_id, actor_id, "rejected", basis)
+
+        return self._process_event(
+            round_id, actor_id, "reject_on_dissent", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={"basis": basis},
+        )
+
+    def request_escalation(
+        self, round_id: str, reason: str, requester_id: str, tier: int, required_authority: str,
+        idempotency_key: Optional[str] = None, credential_id: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> Any:
+        from peerhub.governance.consensus import EscalationEvent
+
+        def replacement_deadline(state: State) -> int:
+            deadlines = _d(_d(state.get("policy_snapshot")).get("deadlines"))
+            return self._clock.now() + int(deadlines.get("escalation", 1800))
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return EscalationEvent(
+                source_phases=[state.get("phase", "voting")],
+                replacement_deadline=float(replacement_deadline(state)),
+            )
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            state["escalation"] = {
+                "reason": reason,
+                "requested_by": requester_id,
+                "tier": tier,
+                "required_authority": required_authority,
+                "requested_at": self._clock.now(),
+                "replacement_deadline": replacement_deadline(state),
+            }
+            return None
+
+        return self._process_event(
+            round_id, requester_id, "request_escalation", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key,
+            command_args={"reason": reason, "tier": tier, "required_authority": required_authority},
+        )
+
+    def resolve(
+        self, round_id: str, outcome: str, resolved_by: str, basis: str,
+        idempotency_key: Optional[str] = None, credential_id: Optional[str] = None,
+        expected_revision: Optional[int] = None,
+    ) -> Any:
+        """Resolve an escalated (or quorum_reached) round to approved/rejected.
+
+        Requires a regular authorized electorate member (never a system principal).
+        """
+        from peerhub.governance.consensus import ResolutionEvent
+
+        def event_factory(state: State, state_hash: str) -> Any:
+            return ResolutionEvent(outcome=outcome)
+
+        def updater(state: State, res: Any, ctx: Any, sm: Any, ledger: Any, c: Any, fence: Any) -> Optional[EffectIntent]:
+            if outcome == "approved":
+                if state.get("barrier_holders") or state.get("dissent_obligations"):
+                    raise InvalidMutationError(
+                        "cannot approve while a blocking concern or unresolved dissent is held"
+                    )
+                escalation = _d(state.get("escalation"))
+                proposer = _d(state.get("proposal")).get("proposer_id")
+                # Separation of duties: nobody resolves an escalation they raised or a
+                # round they proposed into approval.
+                if resolved_by in (escalation.get("requested_by"), proposer):
+                    raise AuthorizationError(
+                        "the escalation requester or proposer cannot approve the round themselves"
+                    )
+                snapshot = _d(state.get("policy_snapshot"))
+                if snapshot.get("mandatory_final_call") or snapshot.get("final_call_rule") == "always":
+                    # A mandatory Final Call cannot be skipped by an administrative resolve.
+                    if not ledger.is_complete(c, eligible_of(state)):
+                        raise InvalidMutationError(
+                            "mandatory Final Call ACKs are incomplete; only rejection can resolve this round"
+                        )
+                self._revalidate_electorate(state)
+            state["resolution"] = {"outcome": outcome, "basis": basis, "resolved_by": resolved_by}
+            if outcome == "approved":
+                state["phase_before_approval"] = "escalated"
+            return self._resolution_effect(state, round_id, resolved_by, outcome, basis)
+
+        return self._process_event(
+            round_id, resolved_by, "resolve", event_factory, updater,
+            expected_revision=expected_revision, credential_id=credential_id,
+            idempotency_key=idempotency_key, command_args={"outcome": outcome, "basis": basis},
+            phase_for_eval=lambda st: "escalated" if st.get("escalation") else st.get("phase", "voting"),
+        )
+
+
+    def record_arbiter_opinion(
+        self,
+        round_id: str,
+        *,
+        request_target_id: str,
+        opinion_target_id: str,
+        actor_id: str,
+        idempotency_key: Optional[str] = None,
+    ) -> Any:
+        """Attach the first valid arbiter opinion to a RESOLVED V2 round (evidence only).
+
+        Authority comes from the immutable, identity- and peer-matched request/opinion
+        records (validated exactly like V1), not from electorate membership: the opinion
+        never changes the resolution. First valid opinion wins; a later one is a no-op.
+        """
+        reference = validated_arbiter_reference(
+            self._broker, round_id, request_target_id, opinion_target_id
+        )
+        target = self._broker.get_target(round_id)
+        if not target:
+            raise RecordNotFoundError("consensus-round", round_id)
+        state: State = dict(cast(Dict[str, Any], target.state))
+        if state.get("status") != "resolved":
+            raise InvalidMutationError("arbiter opinions require a resolved consensus round")
+        if state.get("arbiter_opinion") is not None:
+            return None  # first valid canonical opinion wins
+        state["arbiter_opinion"] = dict(reference)
+        req = build_mutation_request(
+            self._ids,
+            id_prefix="arb",
+            client_id="consensus_shell",
+            target_id=round_id,
+            expected_revision=target.revision,
+            actor_id=actor_id,
+            operation="record_arbiter_opinion",
+            desired_state=state,
+            effect_intent=EffectIntent(kind="consensus.noop", payload={}),
+        )
+        if idempotency_key is not None:
+            req = dataclasses.replace(
+                req,
+                idempotency_key=_digest(
+                    ["record_arbiter_opinion", round_id, request_target_id, opinion_target_id, idempotency_key]
+                ),
+            )
+        return self._broker.submit(
+            req,
+            precondition=self._authority_precondition(state.get("expected_authority_version", 1)),
+        )
+
+    # ------------------------------------------------------------------ effects
+    def _all_unfinished_effects(self) -> list[PendingEffect]:
+        return list(self._broker.recover_all_pending_effects())
+
+    def process_consensus_effects(self, round_id: str, *, owner_id: Optional[str] = None) -> tuple[Any, ...]:
+        """Claim and receipt this round's pending consensus effects as the V2 worker.
+
+        Only the ``consensus-v2:`` owner prefix passes the activation fence. The
+        ratified-invariant effect is left for its exclusive materializer; an
+        unknown effect kind holds (EffectRoutingError) before anything is claimed.
+        An effect this owner already claimed (crash after claim) is resumed under
+        its recorded attempt instead of failing; no-op effects are completed so
+        they never hide later work.
+        """
+        owner = owner_id or f"consensus-v2:{round_id}"
+        if not owner.startswith("consensus-v2:"):
+            raise ValueError("V2 consensus worker owner must start with 'consensus-v2:'")
+        matching: list[PendingEffect] = []
+        for pending in self._all_unfinished_effects():
+            payload = pending.event.payload
+            effect_payload = payload.get("effect_payload")
+            if not (
+                payload.get("target_id") == round_id
+                or (
+                    isinstance(effect_payload, Mapping)
+                    and cast(Mapping[str, Any], effect_payload).get("round_id") == round_id
+                )
+            ):
+                continue
+            kind = str(payload.get("effect_kind"))
+            if kind == RATIFIED_INVARIANT_EFFECT_KIND:
+                continue
+            if kind != "consensus.noop":
+                route_effect_kind(kind, "generic")  # raises EffectRoutingError (hold) if unknown
+            claimed_by = pending.event.claimed_by
+            if claimed_by is not None and claimed_by != owner:
+                continue  # owned by another worker
+            matching.append(pending)
+        receipts: list[Any] = []
+        for pending in matching:
+            event = pending.event
+            attempt_id = (
+                event.claim_attempt_id
+                if event.claimed_by == owner and event.claim_attempt_id
+                else self._ids.new_id("effect-attempt")
+            )
+            claimed = self._broker.claim_effect(event.event_id, owner_id=owner, attempt_id=attempt_id)
+            receipts.append(
+                self._broker.record_effect_result(
+                    claimed.event_id,
+                    owner_id=owner,
+                    attempt_id=attempt_id,
+                    outcome=EffectOutcome.EFFECT_SUCCEEDED,
+                    evidence_refs=(f"consensus-round:{round_id}",),
+                )
+            )
+        return tuple(receipts)

@@ -360,6 +360,12 @@ class HealthService:
         with self._store.unit_of_work() as unit:
             return unit.get_health_projection(instance_id, profile_id)
 
+    def get_circuit(self, scope: PolicyScope, subject: str) -> HealthCircuitSnapshot | None:
+        """Read-only lookup of one health circuit, or None if it doesn't exist yet."""
+        # Same read pattern as read_health_projection: a unit that is never committed.
+        with self._store.unit_of_work() as unit:
+            return unit.get_health_circuit(scope, subject)
+
     def read_health_projection(
         self,
         instance_id: str,

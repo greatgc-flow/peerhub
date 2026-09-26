@@ -1262,3 +1262,19 @@ class AdmissionSnapshot:
             )
         object.__setattr__(self, "entries", entries)
         _require_nonnegative(self.created_at, "created_at")
+
+class DefaultConsequence(str, Enum):
+    REPORT_ONLY = "report_only"
+    REVIEW_THEN_QUARANTINE = "review_then_quarantine"
+    EVIDENCE_CIRCUIT_ONLY = "evidence_circuit_only"
+
+class RecoveryAuthority(str, Enum):
+    MANUAL = "MANUAL"
+    EVIDENCE_BASED = "EVIDENCE_BASED"
+    NONE = "NONE"
+
+@dataclass(frozen=True)
+class HealthConsequencePolicy:
+    default_consequence: DefaultConsequence
+    recovery_authority: RecoveryAuthority
+

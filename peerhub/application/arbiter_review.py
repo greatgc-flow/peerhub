@@ -29,7 +29,7 @@ from peerhub.core.protocol import CommandID, JsonValue
 from peerhub.dispatch.capability import CapabilityTier
 from peerhub.dispatch.contract import RequestState
 from peerhub.governance.broker import GovernanceBroker
-from peerhub.governance.consensus import ConsensusService
+from peerhub.governance.consensus_port import ConsensusPort
 from peerhub.governance.contract import EffectIntent, MutationRequest, resolve_local_os_write_provenance
 
 
@@ -526,7 +526,7 @@ class ArbiterReviewCoordinator:
     def __init__(
         self,
         broker: GovernanceBroker,
-        consensus: ConsensusService,
+        consensus: ConsensusPort,
         *,
         workspace_root: Path,
         clock: Clock,

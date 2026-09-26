@@ -19,7 +19,12 @@ from .application.workflows import ApplicationWorkflows
 from .core.context import RuntimeContext
 from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
+from .application.consensus_facade import ConsensusFacade
+from .application.consensus_policy import ConsensusPolicyProvider
+from .application.health_gate_port import PeerHealthGatePort
+from .application.proposals import PROPOSAL_CREATE_ACTION, PROPOSAL_SYSTEM_PRINCIPALS, make_v2_ratified_effect_factory
 from .governance.consensus import ConsensusService
+from .governance.consensus_shell import BrokerAuthorityVersionStore, ConsensusShell
 from .governance.tasks import TaskService
 from .governance.feedback import FeedbackService
 from .governance.file_locks import FileLockService
@@ -345,9 +350,39 @@ def _compose_runtime(
         context.paths, "workspace_root", None
     ) or context.paths.database_path.parent.parent
 
+    peer_registry_service = PeerRegistryService(
+        governance_broker,
+        clock=context.clock,
+        ids=context.ids,
+    )
+
+    # One consensus entry point: legacy behavior until the (user-gated) atomic
+    # V2 activation, ConsensusShell afterwards (see consensus_facade.py).
+    proposal_clock = context.clock
+    consensus_shell = ConsensusShell(
+        governance_broker,
+        clock=context.clock,
+        ids=context.ids,
+        verifier=bound_verify_dctx_credential,
+        health_port=PeerHealthGatePort(peer_registry_service, health_service),
+        authority_store=BrokerAuthorityVersionStore(governance_broker),
+        effect_factories={
+            PROPOSAL_CREATE_ACTION: make_v2_ratified_effect_factory(proposal_clock)
+        },
+        system_principals=PROPOSAL_SYSTEM_PRINCIPALS,
+    )
+    consensus_facade = ConsensusFacade(
+        consensus_service,
+        consensus_shell,
+        is_v2_active=state_store.is_consensus_v2_active,
+        policy_provider=ConsensusPolicyProvider.for_workspace(
+            context.paths.database_path.parent.parent
+        ),
+    )
+
     arbiter_coordinator = ArbiterReviewCoordinator(
         broker=governance_broker,
-        consensus=consensus_service,
+        consensus=consensus_facade,
         workspace_root=arbiter_workspace_root,
         clock=context.clock,
         ids=context.ids,
@@ -355,15 +390,9 @@ def _compose_runtime(
         executor=arbiter_executor or execute_direct_ask,
     )
 
-    peer_registry_service = PeerRegistryService(
-        governance_broker,
-        clock=context.clock,
-        ids=context.ids,
-    )
-
     proposal_coordinator = ProposalCoordinator(
         governance_broker,
-        consensus_service,
+        consensus_facade,
         peer_registry=peer_registry_service,
         health=health_service,
         voter_node_ids=(
@@ -458,7 +487,7 @@ def _compose_runtime(
         workflows=application_workflows,
         dispatch=dispatch_service,
         admission_provider=admission_provider,
-        consensus=consensus_service,
+        consensus=consensus_facade,
         proposals=proposal_coordinator,
         task=task_service,
         lesson=lesson_service,
