@@ -156,22 +156,23 @@ def test_b6a_precedence_4_gate_closure_wins_over_lower():
         proposer_only=True,
         high_risk=True,
     )
-    assert decide_proposal_disposition(inputs) == ProposalDisposition.HOLD
+    # Legacy-preserving: a mid-round gate closure escalates (design 6.1 item 4).
+    assert decide_proposal_disposition(inputs) == ProposalDisposition.ESCALATED
 
 
 def test_b6a_precedence_4_ignores_lower_level_eligible_dissent():
     inputs = _make_inputs(gate_closed_any_eligible=True, eligible_dissent=True)
-    assert decide_proposal_disposition(inputs) == ProposalDisposition.HOLD
+    assert decide_proposal_disposition(inputs) == ProposalDisposition.ESCALATED
 
 
 def test_b6a_precedence_4_ignores_lower_level_all_agree():
     inputs = _make_inputs(gate_closed_any_eligible=True, all_required_agree=True, independent_agreement=True)
-    assert decide_proposal_disposition(inputs) == ProposalDisposition.HOLD
+    assert decide_proposal_disposition(inputs) == ProposalDisposition.ESCALATED
 
 
 def test_b6a_precedence_4_ignores_lower_level_proposer_only():
     inputs = _make_inputs(gate_closed_any_eligible=True, proposer_only=True)
-    assert decide_proposal_disposition(inputs) == ProposalDisposition.HOLD
+    assert decide_proposal_disposition(inputs) == ProposalDisposition.ESCALATED
 
 
 def test_b6a_precedence_5_eligible_dissent_wins_over_lower():

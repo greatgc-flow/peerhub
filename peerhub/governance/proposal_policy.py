@@ -49,37 +49,67 @@ class ApprovalSubmission:
     effect_outbox_entry: Dict[str, Any]
 
 
+class ProposalRule(Enum):
+    """Which precedence rule of design 6.1 fired (the reason behind a disposition)."""
+
+    RESOLVED_RECOVERY = "resolved_recovery"
+    EXISTING_ESCALATION = "existing_escalation"
+    TOO_FEW_VOTERS = "too_few_voters"
+    GATE_CLOSED = "gate_closed"
+    ELIGIBLE_DISSENT = "eligible_dissent"
+    ALL_REQUIRED_AGREE = "all_required_agree"
+    SELF_FINALIZATION = "self_finalization"
+    NONE = "none"
+
+
+_RULE_DISPOSITION_LOW_RISK = {
+    ProposalRule.RESOLVED_RECOVERY: ProposalDisposition.APPROVED,
+    ProposalRule.EXISTING_ESCALATION: ProposalDisposition.ESCALATED,
+    ProposalRule.TOO_FEW_VOTERS: ProposalDisposition.ESCALATED,
+    # Legacy reconciliation escalates on a mid-round gate closure; the design
+    # preserves the current proposal reconciliation policy.
+    ProposalRule.GATE_CLOSED: ProposalDisposition.ESCALATED,
+    ProposalRule.ELIGIBLE_DISSENT: ProposalDisposition.REJECTED,
+    ProposalRule.ALL_REQUIRED_AGREE: ProposalDisposition.APPROVED,
+    ProposalRule.SELF_FINALIZATION: ProposalDisposition.ESCALATED,
+    ProposalRule.NONE: ProposalDisposition.HOLD,
+}
+
+
+def decide_proposal_rule(inputs: ProposalInputs) -> ProposalRule:
+    """Return the first matching rule of the 6.1 precedence chain."""
+    if inputs.resolved_recovery:
+        return ProposalRule.RESOLVED_RECOVERY
+    if inputs.existing_escalation:
+        return ProposalRule.EXISTING_ESCALATION
+    if inputs.eligible_count < 2:
+        return ProposalRule.TOO_FEW_VOTERS
+    if inputs.gate_closed_any_eligible:
+        return ProposalRule.GATE_CLOSED
+    if inputs.eligible_dissent:
+        return ProposalRule.ELIGIBLE_DISSENT
+    if inputs.all_required_agree and inputs.independent_agreement:
+        return ProposalRule.ALL_REQUIRED_AGREE
+    if inputs.proposer_only:
+        return ProposalRule.SELF_FINALIZATION
+    return ProposalRule.NONE
+
+
 def decide_proposal_disposition(inputs: ProposalInputs) -> ProposalDisposition:
     """
     Decide the proposal disposition based on strict policy precedence:
     1. Resolved recovery
     2. Existing escalation
     3. Eligible count < 2 (escalate/too_few)
-    4. Gate closure
+    4. Gate closure (escalate, legacy-preserving)
     5. Eligible dissent -> reject (UNCONDITIONAL)
     6. All required agree + independent agreement -> final_call when high_risk else approve
     7. Proposer-only self-finalization -> escalate
     """
-    if inputs.resolved_recovery:
-        return ProposalDisposition.APPROVED
-    if inputs.existing_escalation:
-        return ProposalDisposition.ESCALATED
-    if inputs.eligible_count < 2:
-        return ProposalDisposition.ESCALATED
-    if inputs.gate_closed_any_eligible:
-        return ProposalDisposition.HOLD
-    if inputs.eligible_dissent:
-        return ProposalDisposition.REJECTED
-    
-    if inputs.all_required_agree and inputs.independent_agreement:
-        if inputs.high_risk:
-            return ProposalDisposition.FINAL_CALL
-        return ProposalDisposition.APPROVED
-
-    if inputs.proposer_only:
-        return ProposalDisposition.ESCALATED
-    
-    return ProposalDisposition.HOLD
+    rule = decide_proposal_rule(inputs)
+    if rule is ProposalRule.ALL_REQUIRED_AGREE and inputs.high_risk:
+        return ProposalDisposition.FINAL_CALL
+    return _RULE_DISPOSITION_LOW_RISK[rule]
 
 
 GENERIC_EFFECT_KINDS = frozenset(

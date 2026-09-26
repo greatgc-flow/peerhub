@@ -14,6 +14,11 @@ from peerhub.application.peer_registry import PeerRegistryService
 from peerhub.application.config_layers import load_json_layer, merge_layers
 from peerhub.application.config_paths import resolve_compat_config_path, resolve_config_paths
 from peerhub.core.context import Clock, IdSource
+from peerhub.governance.proposal_policy import (
+    ProposalInputs,
+    ProposalRule,
+    decide_proposal_rule,
+)
 from peerhub.core.errors import (
     InvalidMutationError,
     RecordNotFoundError,
@@ -603,8 +608,37 @@ class ProposalCoordinator:
             )
             gate_evaluated_at = self._clock.now()
 
+            # Short-circuit like the legacy chain: gates are only consulted once
+            # there are enough eligible voters.
+            gate_closed = len(eligible) >= 2 and any(
+                not self._voter_gate_is_open(voter_id, gate_evaluated_at)
+                for voter_id in eligible
+            )
+            rule = decide_proposal_rule(
+                ProposalInputs(
+                    resolved_recovery=False,  # handled above (status == "resolved")
+                    existing_escalation=False,  # handled above (escalation recorded)
+                    eligible_count=len(eligible),
+                    gate_closed_any_eligible=gate_closed,
+                    eligible_dissent=bool(disagreed),
+                    all_required_agree=all(
+                        self._choice(votes, voter_id) == "agree"
+                        for voter_id in required
+                    ),
+                    independent_agreement=any(
+                        voter_id != proposer_id for voter_id in agreed
+                    ),
+                    proposer_only=bool(
+                        eligible
+                        and all(voter_id in votes for voter_id in eligible)
+                        and agreed == (proposer_id,)
+                    ),
+                    high_risk=False,  # legacy V1 path resolves without Final Call
+                )
+            )
+
             try:
-                if len(eligible) < 2:
+                if rule is ProposalRule.TOO_FEW_VOTERS:
                     self._consensus.request_escalation(
                         round_id,
                         ESCALATION_TOO_FEW_VOTERS,
@@ -613,13 +647,7 @@ class ProposalCoordinator:
                         "human-tier-0",
                         target.revision,
                     )
-                elif any(
-                    not self._voter_gate_is_open(
-                        voter_id,
-                        gate_evaluated_at,
-                    )
-                    for voter_id in eligible
-                ):
+                elif rule is ProposalRule.GATE_CLOSED:
                     self._consensus.request_escalation(
                         round_id,
                         ESCALATION_MID_ROUND_GATE,
@@ -628,17 +656,14 @@ class ProposalCoordinator:
                         "human-tier-0",
                         target.revision,
                     )
-                elif disagreed:
+                elif rule is ProposalRule.ELIGIBLE_DISSENT:
                     self._consensus.reject_on_dissent(
                         round_id,
                         rejected_by=requester_id,
                         basis="legacy proposal eligible voter dissent",
                         expected_revision=target.revision,
                     )
-                elif all(
-                    self._choice(votes, voter_id) == "agree"
-                    for voter_id in required
-                ) and any(voter_id != proposer_id for voter_id in agreed):
+                elif rule is ProposalRule.ALL_REQUIRED_AGREE:
                     effect_intent, _ = self._approval_effect(target)
                     submission = self._consensus.resolve(
                         round_id,
@@ -663,11 +688,7 @@ class ProposalCoordinator:
                         choice=choice,
                         invariant_request_target_id=request_target_id,
                     )
-                elif (
-                    eligible
-                    and all(voter_id in votes for voter_id in eligible)
-                    and agreed == (proposer_id,)
-                ):
+                elif rule is ProposalRule.SELF_FINALIZATION:
                     self._consensus.request_escalation(
                         round_id,
                         ESCALATION_SELF_FINALIZATION,
