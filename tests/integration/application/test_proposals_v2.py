@@ -13,7 +13,7 @@ from tests.integration.application.test_proposals import (  # noqa: F401
 )
 from peerhub.application.consensus_facade import ConsensusFacade
 from peerhub.application.health_gate_port import PeerHealthGatePort
-from peerhub.application.proposals import PROPOSAL_CREATE_ACTION, make_v2_ratified_effect_factory
+from peerhub.application.proposals import PROPOSAL_CREATE_ACTION, PROPOSAL_SYSTEM_PRINCIPALS, make_v2_ratified_effect_factory
 from peerhub.governance.consensus_shell import BrokerAuthorityVersionStore, ConsensusShell
 from peerhub.persistence.consensus_activation import activate_consensus_v2
 
@@ -93,6 +93,7 @@ def services(tmp_path: Path) -> Iterator[ProposalServices]:
         health_port=PeerHealthGatePort(registry, health),
         authority_store=BrokerAuthorityVersionStore(broker),
         effect_factories={PROPOSAL_CREATE_ACTION: make_v2_ratified_effect_factory(clock)},
+        system_principals=PROPOSAL_SYSTEM_PRINCIPALS,
     )
     consensus = ConsensusFacade(legacy, shell, is_v2_active=store.is_consensus_v2_active)
     coordinator = ProposalCoordinator(

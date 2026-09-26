@@ -313,6 +313,134 @@ class GovernanceBroker:
                 "governance-linked outbox event"
             )
 
+    def _stage_mutation(
+        self,
+        unit: Any,
+        request: MutationRequest,
+        payload_digest: str,
+    ) -> TransitionReceipt:
+        """Validate, plan and stage one mutation inside an open unit (no commit)."""
+
+        current = unit.get_target(request.target_id)
+        validate_expected_revision(request, current)
+
+        timestamp = self._clock.now()
+        plan = plan_mutation(
+            request,
+            current,
+            plan_id=self._ids.new_id("mutation-plan"),
+            planned_at=timestamp,
+        )
+        receipt = build_transition_receipt(
+            plan,
+            receipt_id=self._ids.new_id(
+                "transition-receipt"
+            ),
+            outbox_event_id=self._ids.new_id(
+                "outbox-event"
+            ),
+            committed_at=timestamp,
+        )
+        event = build_outbox_event(
+            plan,
+            receipt,
+            event_id=receipt.outbox_event_id,
+            correlation_id=request.correlation_id,
+            created_at=timestamp,
+        )
+        target = apply_mutation_plan(
+            current,
+            plan,
+            updated_at=timestamp,
+        )
+        binding = CommandBinding(
+            client_id=request.client_id,
+            command_type=request.command_type,
+            idempotency_key=request.idempotency_key,
+            payload_digest=payload_digest,
+            request_id=request.request_id,
+            receipt_id=receipt.receipt_id,
+            created_at=timestamp,
+        )
+
+        if not unit.compare_and_set_target(current, target):
+            latest = unit.get_target(request.target_id)
+            latest_revision = (
+                0 if latest is None else latest.revision
+            )
+            raise StaleRevisionError(
+                request.target_id,
+                request.expected_revision,
+                latest_revision,
+            )
+
+        self._faults.hit(FaultPoint.AFTER_TARGET_WRITE)
+
+        unit.add_mutation_request(
+            request,
+            payload_digest,
+            timestamp,
+        )
+        unit.add_mutation_plan(plan)
+        unit.add_transition_receipt(receipt)
+        unit.add_command_binding(binding)
+        unit.add_outbox_event(event)
+
+        return receipt
+
+    def submit_atomic(
+        self,
+        build_requests: Callable[[Any], Sequence[MutationRequest]],
+        *,
+        precondition: Callable[[Any], None] | None = None,
+    ) -> tuple[MutationSubmission, ...]:
+        """Commit several mutations (possibly on different targets) in ONE transaction.
+
+        ``build_requests(unit)`` runs inside the transaction so it can read the
+        live state it needs (e.g. the current authority revision). If the first
+        request was already committed (idempotent replay) its stored receipt is
+        returned and nothing else is staged. Any failure rolls everything back.
+        """
+
+        with self._store.unit_of_work() as unit:
+            if precondition is not None:
+                precondition(unit)
+            requests = tuple(build_requests(unit))
+            if not requests:
+                raise ValueError("submit_atomic requires at least one request")
+            first = requests[0]
+            binding = unit.get_command_binding(
+                first.client_id, first.command_type, first.idempotency_key
+            )
+            if binding is not None:
+                receipt = unit.get_transition_receipt(binding.receipt_id)
+                if receipt is None:
+                    raise RuntimeError(
+                        "idempotency binding references a missing transition receipt"
+                    )
+                return (
+                    MutationSubmission(
+                        disposition=MutationDisposition.IDEMPOTENCY_HIT,
+                        receipt=receipt,
+                    ),
+                )
+            results = []
+            for request in requests:
+                receipt = self._stage_mutation(
+                    unit, request, mutation_payload_digest(request)
+                )
+                results.append(
+                    MutationSubmission(
+                        disposition=MutationDisposition.COMMITTED,
+                        receipt=receipt,
+                    )
+                )
+            self._faults.hit(FaultPoint.BEFORE_COMMIT)
+            unit.commit()
+
+        self._faults.hit(FaultPoint.AFTER_COMMIT)
+        return tuple(results)
+
     def lookup_replay(
         self,
         client_id: str,
@@ -386,70 +514,7 @@ class GovernanceBroker:
             if precondition is not None:
                 precondition(unit)
 
-            current = unit.get_target(request.target_id)
-            validate_expected_revision(request, current)
-
-            timestamp = self._clock.now()
-            plan = plan_mutation(
-                request,
-                current,
-                plan_id=self._ids.new_id("mutation-plan"),
-                planned_at=timestamp,
-            )
-            receipt = build_transition_receipt(
-                plan,
-                receipt_id=self._ids.new_id(
-                    "transition-receipt"
-                ),
-                outbox_event_id=self._ids.new_id(
-                    "outbox-event"
-                ),
-                committed_at=timestamp,
-            )
-            event = build_outbox_event(
-                plan,
-                receipt,
-                event_id=receipt.outbox_event_id,
-                correlation_id=request.correlation_id,
-                created_at=timestamp,
-            )
-            target = apply_mutation_plan(
-                current,
-                plan,
-                updated_at=timestamp,
-            )
-            binding = CommandBinding(
-                client_id=request.client_id,
-                command_type=request.command_type,
-                idempotency_key=request.idempotency_key,
-                payload_digest=payload_digest,
-                request_id=request.request_id,
-                receipt_id=receipt.receipt_id,
-                created_at=timestamp,
-            )
-
-            if not unit.compare_and_set_target(current, target):
-                latest = unit.get_target(request.target_id)
-                latest_revision = (
-                    0 if latest is None else latest.revision
-                )
-                raise StaleRevisionError(
-                    request.target_id,
-                    request.expected_revision,
-                    latest_revision,
-                )
-
-            self._faults.hit(FaultPoint.AFTER_TARGET_WRITE)
-
-            unit.add_mutation_request(
-                request,
-                payload_digest,
-                timestamp,
-            )
-            unit.add_mutation_plan(plan)
-            unit.add_transition_receipt(receipt)
-            unit.add_command_binding(binding)
-            unit.add_outbox_event(event)
+            receipt = self._stage_mutation(unit, request, payload_digest)
 
             self._faults.hit(FaultPoint.BEFORE_COMMIT)
             unit.commit()

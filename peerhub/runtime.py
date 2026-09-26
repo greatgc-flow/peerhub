@@ -21,7 +21,7 @@ from .dispatch.service import DispatchService
 from .governance.broker import GovernanceBroker
 from .application.consensus_facade import ConsensusFacade
 from .application.health_gate_port import PeerHealthGatePort
-from .application.proposals import PROPOSAL_CREATE_ACTION, make_v2_ratified_effect_factory
+from .application.proposals import PROPOSAL_CREATE_ACTION, PROPOSAL_SYSTEM_PRINCIPALS, make_v2_ratified_effect_factory
 from .governance.consensus import ConsensusService
 from .governance.consensus_shell import BrokerAuthorityVersionStore, ConsensusShell
 from .governance.tasks import TaskService
@@ -368,6 +368,7 @@ def _compose_runtime(
         effect_factories={
             PROPOSAL_CREATE_ACTION: make_v2_ratified_effect_factory(proposal_clock)
         },
+        system_principals=PROPOSAL_SYSTEM_PRINCIPALS,
     )
     consensus_facade = ConsensusFacade(
         consensus_service,

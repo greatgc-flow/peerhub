@@ -101,5 +101,5 @@ def test_pending_effect_is_recovered_by_the_v2_worker_after_restart(tmp_path):
     shell.cast_vote("r1", "p2", "agree")
     shell2, broker2 = _env(db, "second")
     receipts = shell2.process_consensus_effects("r1")
-    assert len(receipts) == 1 and receipts[0].owner_id.startswith("consensus-v2:")
+    assert receipts and all(r.owner_id.startswith("consensus-v2:") for r in receipts)
     assert shell2.process_consensus_effects("r1") == ()
