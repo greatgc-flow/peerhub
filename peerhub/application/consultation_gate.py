@@ -57,8 +57,8 @@ def evaluate_consultation(workspace_root: Path, action_name: str) -> Consultatio
         return ConsultationDecision(
             depth,
             True,
-            f"consultation NOTIFY for {action_name}: non-blocking; notification delivery "
-            "is not implemented yet, dispatch proceeds",
+            f"consultation NOTIFY for {action_name}: non-blocking; a notification target is "
+            "recorded as undelivered (delivery not implemented), dispatch proceeds",
         )
     raise ConsultationBlockedError(
         f"consultation depth {depth.value!r} is configured for {action_name!r} but the "

@@ -143,6 +143,33 @@ def register_ask_command(
     add_json_arg(ask_parser, help="Emit JSON")
 
 
+def record_notification(
+    *, action: str, prompt: str, cli: ModuleType, workspace_root: Path, paths: Any, subject: Any
+) -> None:
+    """R4 CD-NF-01..03: NOTIFY records a durable notification target, never blocks dispatch."""
+
+    from peerhub.application.notification import create_notification_target
+    from peerhub.application.proposals import load_proposal_voters
+
+    try:
+        if not paths.database_path.exists():
+            return  # no workspace store yet; NOTIFY stays non-blocking
+        context = cli.RuntimeContext(
+            workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+            paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+        )
+        with cli.create_runtime(context) as runtime:
+            create_notification_target(
+                runtime.governance_broker,
+                clock=context.clock, ids=context.ids,
+                action=action, prompt=prompt,
+                recipients=load_proposal_voters(workspace_root),
+                actor_id=str(getattr(subject, "principal_id", f"system:{action}")),
+            )
+    except Exception as error:  # non-blocking by definition
+        print(f"peerhub {action}: notification target not recorded: {error}", file=cli.sys.stderr)
+
+
 def apply_health_consequence(
     result: Any, cli: ModuleType, workspace_root: Path, paths: Any, subject: Any
 ) -> None:
@@ -359,6 +386,10 @@ def run_ask(
         gate = evaluate_consultation(workspace_root, "ask")
         if gate.note:
             print(f"peerhub ask: {gate.note}", file=cli.sys.stderr)
+            record_notification(
+                action="ask", prompt=prompt_text, cli=cli,
+                workspace_root=workspace_root, paths=paths, subject=authenticated_subject,
+            )
         routed_profile = route_ask_profile(parsed, cli, workspace_root, paths)
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
@@ -762,6 +793,10 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
         gate = evaluate_consultation(workspace_root, "broadcast")
         if gate.note:
             print(f"peerhub broadcast: {gate.note}", file=cli.sys.stderr)
+            record_notification(
+                action="broadcast", prompt=prompt_text, cli=cli, workspace_root=workspace_root,
+                paths=paths, subject=cli.require_caller_identity(cli.LocalProcessCallerIdentityProvider()),
+            )
         targets: list[tuple[str, str | None]] = [
             (
                 str(peer.strip()),

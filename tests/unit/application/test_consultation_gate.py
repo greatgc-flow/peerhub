@@ -29,7 +29,7 @@ def test_shipped_defaults_do_not_block_ordinary_ask_and_broadcast(tmp_path, acti
 def test_notify_is_non_blocking_and_says_what_is_not_implemented(tmp_path):
     ws = _ws(tmp_path, '[consultation.overrides]\n"ask" = "notify"\n')
     d = evaluate_consultation(ws, "ask")
-    assert d.depth is ConsultationDepth.NOTIFY and d.proceed and "not implemented" in (d.note or "")
+    assert d.depth is ConsultationDepth.NOTIFY and d.proceed and "undelivered" in (d.note or "")
 
 
 @pytest.mark.parametrize("depth", ["review", "quorum", "unanimous"])
