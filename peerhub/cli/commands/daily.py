@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, cast
 
+from peerhub.adapters.contract import SessionAction
 from peerhub.application.consultation_gate import evaluate_consultation
 from peerhub.application.ingress import InputContractError, resolve_prompt_input
 from peerhub.cli.context import resolve_workspace
@@ -137,6 +138,14 @@ def register_ask_command(
         "--effort-routing", default=None, choices=("off", "advisory", "opt-in"),
         help="Override routing.effort_routing for this call (default from policy: advisory)",
     )
+    ask_parser.add_argument(
+        "--session-policy", default=None, choices=("reuse", "auto", "fresh"),
+        help="Conversation policy (needs --session-id or --room-id): reuse resumes the bound "
+        "session, fresh starts the next generation, auto follows the workspace policy "
+        "(session.default_mode)",
+    )
+    ask_parser.add_argument("--session-id", default=None, help="Conversation scope to bind/resume")
+    ask_parser.add_argument("--room-id", default=None, help="Room whose conversation scope to use")
     ask_parser.add_argument("--timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
@@ -277,6 +286,29 @@ def record_health_consequence(
         )
     except Exception as error:  # never let bookkeeping change the outcome
         print(f"peerhub {action}: health consequence not recorded: {error}", file=cli.sys.stderr)
+
+
+def resolve_session_policy(parsed: argparse.Namespace, workspace_root: Path) -> str:
+    """``--session-policy`` else the layered ``session.default_mode`` (built-in default: auto)."""
+
+    explicit = getattr(parsed, "session_policy", None)
+    if explicit is not None:
+        return str(explicit)
+    from peerhub.application.config_paths import (
+        resolve_global_config_home,
+        resolve_workspace_config_home,
+    )
+    from peerhub.core.errors import ConfigurationError
+    from peerhub.dispatch.policy_resolver import PolicyResolver
+
+    try:
+        resolver = PolicyResolver(
+            resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
+            resolve_global_config_home().path / "dispatch-policy.toml",
+        )
+        return str(resolver.resolve("ask").session.default_mode)
+    except ConfigurationError as error:
+        raise ValueError(f"invalid dispatch policy: {error}") from error
 
 
 def route_ask_profile(
@@ -427,12 +459,17 @@ def run_ask(
                 workspace_root=workspace_root, paths=paths, subject=authenticated_subject,
             )
         routed_profile = route_ask_profile(parsed, cli, workspace_root, paths)
+        session_policy = resolve_session_policy(parsed, workspace_root)
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
             peer_name=parsed.peer,
             prompt=prompt_text,
             required_capability_tier=cli.CapabilityTier[parsed.capability_tier],
             profile_id=routed_profile,
+            session_id=getattr(parsed, "session_id", None),
+            room_id=getattr(parsed, "room_id", None),
+            resume=session_policy == "reuse",
+            session_action=SessionAction.CREATE if session_policy == "fresh" else None,
             limits=cli.TransportLimits(
                 process_timeout_ms=parsed.timeout_seconds * 1000,
                 silence_timeout_ms=parsed.silence_timeout_seconds * 1000,

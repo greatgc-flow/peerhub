@@ -506,10 +506,12 @@ def resolve_session_lifecycle(
         return SessionAction.RESUME, hint, key
 
     action = request.session_action or SessionAction.CREATE
+    # A fresh conversation over an existing binding starts the NEXT generation (never reuses it).
+    next_generation = existing.session_generation + 1 if existing is not None else 1
     hint = SessionHint(
         external_session_id=None,
         adapter_fingerprint=fingerprint,
-        session_generation=1,
+        session_generation=next_generation,
     )
     return action, hint, key
 
