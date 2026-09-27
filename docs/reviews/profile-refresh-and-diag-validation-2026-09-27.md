@@ -80,3 +80,28 @@ is not rewritten into a fabricated health measurement.
 - Targeted profile/model/telemetry tests: 131 passed, 1 deselected
 - Full suite: 2,378 passed, 7 skipped, 15 deselected, 13 subtests passed
 - pyright: 0 errors, 0 warnings, 0 informations
+
+## Follow-up: main-version and live-diagnostic correction
+
+The original check exposed a second distinction: `v0.7.0` is the latest
+tagged GitHub release, but `main` is 77 commits beyond that tag. Main now
+identifies itself as the `0.8.0.dev0` development line instead of presenting
+post-release code as the released `0.7.0` build.
+
+The empty live dashboard had three independent causes, all corrected:
+
+1. the portable `_sys` root was not inferred from the active portable Python;
+2. an uninitialized workspace returned before polling host-level telemetry;
+3. `--live` rendered one startup projection repeatedly and peer status was a
+   literal `UNKNOWN` value.
+
+An uninitialized-workspace live poll now measures Claude and Codex quota in
+memory without creating a workspace database. The observed 2026-09-27 sample
+reported CC `C-5H=2%`, `C-7D=94%`, CX `X-5H=66%`, and `X-7D=26%`. CC/CX were
+therefore `OPEN` with `state_source=quota_poll`; AG remained honestly
+`CLI_OK` because its executable was discovered but its statusline quota input
+was absent/stale. Live mode refreshes provider quota every 60 seconds while
+retaining the two-second terminal repaint cadence.
+
+Follow-up validation: 2,380 passed, 7 skipped, 15 deselected, 13 subtests
+passed; pyright 0/0/0.

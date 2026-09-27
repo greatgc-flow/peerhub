@@ -1,7 +1,12 @@
 import pytest
 import subprocess
 from pathlib import Path
-from peerhub.telemetry.quota_polling import poll_claude_usage, poll_codex_usage, _real_binary
+from peerhub.telemetry.quota_polling import (
+    _real_binary,
+    resolve_sys_dir,
+    poll_claude_usage,
+    poll_codex_usage,
+)
 from peerhub.core.evidence import EvidenceState
 
 class DummyIdSource:
@@ -443,4 +448,16 @@ def test_poll_agy_usage_log_path_override(monkeypatch, tmp_path):
     res = poll_agy_usage(ids, "inst-1", "prof-1", log_path=None)
     assert len(res) == 1
     assert res[0].evidence.state == EvidenceState.MEASURED
+
+
+def test_resolve_sys_dir_infers_portable_root_from_interpreter(monkeypatch, tmp_path):
+    portable_sys = tmp_path / "portable" / "_sys"
+    interpreter = portable_sys / "env" / "venv" / "Scripts" / "python.exe"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.write_bytes(b"python")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
+    monkeypatch.setattr("peerhub.telemetry.quota_polling.sys.executable", str(interpreter))
+
+    assert resolve_sys_dir() == portable_sys
 

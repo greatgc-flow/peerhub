@@ -36,6 +36,9 @@ pip install peerhub
 pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.7.0"
 ```
 
+The `main` branch is the `0.8.0.dev0` development line; `v0.7.0` remains
+the latest tagged release until the next release is cut.
+
 ### Option C: Local editable development install
 
 ```bash

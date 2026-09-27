@@ -11,6 +11,7 @@ from peerhub.cli import main
 
 
 def test_cli_diag_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    monkeypatch.setattr(cli, "_refresh_usage_projections", lambda *args, **kwargs: [])
     exit_code = main(["diag", "--workspace", str(tmp_path), "--no-color"])
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -19,6 +20,7 @@ def test_cli_diag_non_interactive(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_cli_diag_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]):
+    monkeypatch.setattr(cli, "_refresh_usage_projections", lambda *args, **kwargs: [])
     exit_code = main(["diag", "--workspace", str(tmp_path), "--json"])
     assert exit_code == 0
     captured = capsys.readouterr()
@@ -42,6 +44,7 @@ def test_cli_diag_live_uses_ansi_clear_on_windows_without_subprocess(
 
     monkeypatch.setitem(sys.modules, "msvcrt", fake_msvcrt)
     monkeypatch.setattr(cli.subprocess, "run", subprocess_run)
+    monkeypatch.setattr(cli, "_refresh_usage_projections", lambda *args, **kwargs: [])
 
     assert main(["diag", "--live", "--workspace", ".", "--no-color"]) == 0
 

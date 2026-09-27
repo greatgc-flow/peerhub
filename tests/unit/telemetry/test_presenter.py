@@ -69,6 +69,8 @@ class TestCCRealData:
         (tmp_path / "_sys").mkdir(parents=True, exist_ok=True)
 
         snapshot = presenter.collect_live_snapshot()
+        assert snapshot["peers"]["cc"]["state"] == "OPEN"
+        assert snapshot["peers"]["cc"]["state_source"] == "quota_poll"
         cc_pools = snapshot["peers"]["cc"]["pools"]
         assert len(cc_pools) == 1
         pool = cc_pools[0]
@@ -130,6 +132,8 @@ class TestCXRealData:
         (tmp_path / "_sys").mkdir(parents=True, exist_ok=True)
 
         snapshot = presenter.collect_live_snapshot()
+        assert snapshot["peers"]["cx"]["state"] == "OPEN"
+        assert snapshot["peers"]["cx"]["state_source"] == "quota_poll"
         cx_pools = snapshot["peers"]["cx"]["pools"]
         assert len(cx_pools) == 1
         pool = cx_pools[0]
@@ -340,14 +344,16 @@ class TestFindSysDir:
         presenter = TelemetryPresenter(use_color=False, workspace_root=workspace)
         assert presenter._find_sys_dir() == env_sys
 
-    def test_find_sys_dir_returns_workspace_default_when_nothing_exists(self, tmp_path: Path, monkeypatch):
-        """_find_sys_dir should return workspace_root/_sys even if it doesn't exist."""
+    def test_find_sys_dir_uses_runtime_fallback_when_workspace_has_no_sys_dir(self, tmp_path: Path, monkeypatch):
+        """A portable runtime may supply _sys even when the workspace does not."""
         monkeypatch.delenv("PEERHUB_SYS_DIR", raising=False)
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         presenter = TelemetryPresenter(use_color=False, workspace_root=workspace)
         result = presenter._find_sys_dir()
-        assert result == workspace / "_sys"
+        from peerhub.telemetry.quota_polling import resolve_sys_dir
+
+        assert result == resolve_sys_dir()
 
 
 class TestBuildPoolPairFromProjections:

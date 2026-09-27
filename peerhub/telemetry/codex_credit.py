@@ -41,7 +41,7 @@ from peerhub.telemetry.quota_polling import (
     _CODEX_CLIENT_INFO as _CLIENT_INFO,  # pyright: ignore[reportPrivateUsage]
     _RATE_LIMITS_READ_METHOD,  # pyright: ignore[reportPrivateUsage]
     _real_command,  # pyright: ignore[reportPrivateUsage]
-    _resolve_sys_dir,  # pyright: ignore[reportPrivateUsage]
+    resolve_sys_dir,
 )
 
 
@@ -82,7 +82,7 @@ class _CodexAppServerSession:
     """
 
     def __init__(self, sys_dir: Optional[Path] = None, deadline_sec: float = 12.0) -> None:
-        self._sys_dir = _resolve_sys_dir(sys_dir)
+        self._sys_dir = resolve_sys_dir(sys_dir)
         self._deadline_sec = deadline_sec
         self._proc: subprocess.Popen[str] | None = None
         self._queue: "queue.Queue[str | None]" = queue.Queue()

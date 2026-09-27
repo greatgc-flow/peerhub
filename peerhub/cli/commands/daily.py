@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, cast
@@ -558,8 +557,10 @@ def refresh_usage_projections(
     still be attempted separately rely on this not aborting `run_diag`.
     """
 
-    from peerhub.telemetry.contract import UsageObserved
+    from peerhub.core.evidence import EvidenceState
+    from peerhub.telemetry.contract import UsageObserved, UsageProjectionSnapshot
     from peerhub.telemetry.quota_polling import (
+        resolve_sys_dir,
         poll_agy_usage,
         poll_claude_usage,
         poll_codex_usage,
@@ -567,8 +568,69 @@ def refresh_usage_projections(
     )
 
     paths = cli.PathLayout.for_workspace(workspace_root)
+
+    def poll_all(
+        ids: Any, include_instances: set[str] | None = None
+    ) -> list[UsageObserved]:
+        workspace_sys = Path(workspace_root) / "_sys"
+        sys_dir = resolve_sys_dir(workspace_sys if workspace_sys.is_dir() else None)
+        pollers = (("cc", poll_claude_usage), ("cx", poll_codex_usage), ("ag", poll_agy_usage))
+        observations: list[UsageObserved] = []
+        for instance_id, poll in pollers:
+            if include_instances is not None and instance_id not in include_instances:
+                continue
+            try:
+                observations.extend(
+                    poll(
+                        ids,
+                        instance_id,
+                        "standard",
+                        freshness_ttl=freshness_ttl,
+                        sys_dir=sys_dir,
+                    )
+                )
+            except Exception as poll_error:
+                print(
+                    f"peerhub: usage poll for {instance_id!r} failed: {poll_error}",
+                    file=cli.sys.stderr,
+                )
+        return observations
+
+    def project_in_memory(
+        observations: list[UsageObserved], ids: Any
+    ) -> list[UsageProjectionSnapshot]:
+        projections: dict[tuple[str, str, str], UsageProjectionSnapshot] = {}
+        for observation in observations:
+            if (
+                observation.evidence.state is not EvidenceState.MEASURED
+                or observation.evidence.value is None
+            ):
+                continue
+            value = observation.evidence.value
+            key = (
+                observation.instance_id,
+                observation.profile_id,
+                value.quota_pool_scope,
+            )
+            projections[key] = UsageProjectionSnapshot(
+                projection_id=ids.new_id("usage-projection"),
+                instance_id=observation.instance_id,
+                profile_id=observation.profile_id,
+                quota_pool_scope=value.quota_pool_scope,
+                used_fraction=value.used_fraction,
+                remaining_fraction=value.remaining_fraction,
+                window_started_at=value.window_started_at,
+                resets_at=value.resets_at,
+                revision=1,
+                updated_at=observation.evidence.captured_at,
+            )
+        return list(projections.values())
+
+    # Diagnostics must work before a workspace database exists. Build a
+    # truthful ephemeral projection instead of silently returning no data.
     if not paths.database_path.exists():
-        return []
+        ids = cli.UuidSource()
+        return project_in_memory(poll_all(ids), ids)
     try:
         context = cli.RuntimeContext(
             workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
@@ -586,30 +648,8 @@ def refresh_usage_projections(
                 for projection in existing
                 if not force and now - projection.updated_at <= freshness_ttl
             }
-            pollers = (("cc", poll_claude_usage), ("cx", poll_codex_usage), ("ag", poll_agy_usage))
-            observations: list[UsageObserved] = []
-            for instance_id, poll in pollers:
-                if instance_id in fresh_instances:
-                    continue
-                try:
-                    # Legacy P:\ / hub.py-environment compatibility: resolves sys_dir
-                    # via PEERHUB_SYS_DIR if set, falling back to legacy workspace_root / "_sys".
-                    daily_sys_dir = (
-                        Path(os.environ["PEERHUB_SYS_DIR"])
-                        if os.environ.get("PEERHUB_SYS_DIR")
-                        else (workspace_root / "_sys")
-                    )
-                    observations.extend(poll(ids, instance_id, "standard", freshness_ttl=freshness_ttl, sys_dir=daily_sys_dir))
-                except Exception as poll_error:
-                    # Surface the failure rather than silently presenting it as
-                    # "no fresh telemetry" -- a rate-limited or network-failed
-                    # poll is a different condition than "nothing to report"
-                    # and callers (diag/status) should not mask that distinction.
-                    print(
-                        f"peerhub: usage poll for {instance_id!r} failed: {poll_error}",
-                        file=cli.sys.stderr,
-                    )
-                    continue
+            stale_instances = {"cc", "cx", "ag"} - fresh_instances
+            observations = poll_all(ids, stale_instances) if stale_instances else []
             if observations:
                 with runtime.state_store.unit_of_work() as uow:
                     record_usage_observations(uow, ids, observations)
@@ -768,7 +808,13 @@ def run_diag(parsed: argparse.Namespace, cli: ModuleType) -> int:
         except ImportError:
             msvcrt = None
         try:
+            next_quota_refresh = cli.time.monotonic() + 60.0
             while True:
+                if cli.time.monotonic() >= next_quota_refresh:
+                    presenter.update_usage_projections(
+                        cli._refresh_usage_projections(workspace_root, force=True)
+                    )
+                    next_quota_refresh = cli.time.monotonic() + 60.0
                 cli.sys.stdout.write("\033[2J\033[H")
                 cli.sys.stdout.flush()
                 snapshot = with_domains(presenter.collect_live_snapshot())

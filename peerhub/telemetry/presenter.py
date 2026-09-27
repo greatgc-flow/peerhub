@@ -443,6 +443,12 @@ class TelemetryPresenter:
         """Public entry point for `_c`, for callers outside this class (e.g. cli.py)."""
         return self._c(text, *codes)
 
+    def update_usage_projections(
+        self, projections: Sequence[UsageProjectionSnapshot]
+    ) -> None:
+        """Replace the quota view after a periodic live-provider refresh."""
+        self._usage_projections = tuple(projections)
+
     def _find_sys_dir(self) -> Path:
         """Resolve _sys directory using only workspace-relative paths.
 
@@ -460,9 +466,9 @@ class TelemetryPresenter:
             if env_path.exists() and env_path.is_dir():
                 return env_path
 
-        # Return workspace-relative default even if it doesn't exist;
-        # callers handle missing files gracefully.
-        return workspace_sys
+        from peerhub.telemetry.quota_polling import resolve_sys_dir
+
+        return resolve_sys_dir()
 
     def collect_live_snapshot(self) -> Dict[str, Any]:
         """Collect live telemetry data across all active peers and configuration files."""
@@ -472,12 +478,36 @@ class TelemetryPresenter:
         # Collect usage projections (injected or empty)
         projections: list[UsageProjectionSnapshot] = list(self._usage_projections) if self._usage_projections else []
 
+        # Discovery is a filesystem-level signal, not an authentication claim.
+        # It keeps installed CLIs from being labelled UNKNOWN while reserving
+        # OPEN for a successful authenticated quota measurement.
+        adapter_states: dict[str, tuple[str, str]] = {
+            peer: ("UNKNOWN", "none") for peer in ("ag", "cc", "cx")
+        }
+        try:
+            from peerhub.adapters.discovery import (
+                AdapterFoundAndReady,
+                AdapterNotReady,
+                discover_builtin_adapters,
+            )
+
+            for result in discover_builtin_adapters():
+                if isinstance(result, AdapterFoundAndReady):
+                    adapter_states[result.peer_kind] = ("CLI_OK", "adapter_discovery")
+                elif isinstance(result, AdapterNotReady):
+                    adapter_states[result.peer_kind] = ("ERROR", "adapter_discovery")
+                else:
+                    adapter_states[result.peer_kind] = ("ABSENT", "adapter_discovery")
+        except Exception:
+            pass
+
         # Partition projections by peer instance
         cc_projections = [p for p in projections if p.instance_id == "cc"]
         cx_projections = [p for p in projections if p.instance_id == "cx"]
         # 2. AG Telemetry (Prioritize active live stdin log)
         ag_data: Dict[str, Any] = {
-            "state": "UNKNOWN",
+            "state": adapter_states["ag"][0],
+            "state_source": adapter_states["ag"][1],
             "context_str": "--",
             "cost_str": "--",
             "src": "STAT",
@@ -499,6 +529,8 @@ class TelemetryPresenter:
                         continue
                     raw_ag = json.loads(ag_path.read_text(encoding="utf-8"))
                     if raw_ag:
+                        ag_data["state"] = "OBSERVED"
+                        ag_data["state_source"] = "status_input"
                         ag_data["observed_at"] = datetime.fromtimestamp(
                             ag_path.stat().st_mtime, tz=timezone.utc
                         ).isoformat()
@@ -573,9 +605,14 @@ class TelemetryPresenter:
                     "remaining_fraction": min(g_5h_rem, g_wk_rem),
                 })
 
+            if ag_data["pools"]:
+                ag_data["state"] = "OPEN"
+                ag_data["state_source"] = "statusline_quota"
+
         # 3. CC Telemetry — uses real polled projection data from the telemetry pipeline
         cc_data: Dict[str, Any] = {
-            "state": "UNKNOWN",
+            "state": adapter_states["cc"][0],
+            "state_source": adapter_states["cc"][1],
             "context_str": "--",
             "cost_str": "--",
             "src": "STAT",
@@ -604,6 +641,8 @@ class TelemetryPresenter:
                 if age_seconds <= _STATUS_INPUT_MAX_AGE_SECONDS:
                     raw_cc = json.loads(cc_path.read_text(encoding="utf-8"))
                     if raw_cc:
+                        cc_data["state"] = "OBSERVED"
+                        cc_data["state_source"] = "status_input"
                         cc_data["observed_at"] = datetime.fromtimestamp(
                             cc_path.stat().st_mtime, tz=timezone.utc
                         ).isoformat()
@@ -637,6 +676,8 @@ class TelemetryPresenter:
         )
         if cc_pool is not None:
             cc_data["pools"].append(cc_pool)
+            cc_data["state"] = "OPEN"
+            cc_data["state_source"] = "quota_poll"
         # else: no CC quota data — pools stays empty (honestly absent)
 
         # 4. CX Telemetry — uses real polled projection data from the telemetry pipeline
@@ -649,7 +690,8 @@ class TelemetryPresenter:
             cx_win_k = f"{int(cx_win / 1000)}k" if cx_win < 1000000 else f"{int(cx_win / 1000000)}M"
             cx_context_str = f"{cx_used_k}k / {cx_win_k} ({cx_pct:.0f}%)"
         cx_data: Dict[str, Any] = {
-            "state": "UNKNOWN",
+            "state": "OBSERVED" if cx_context is not None else adapter_states["cx"][0],
+            "state_source": "app_session" if cx_context is not None else adapter_states["cx"][1],
             "context_str": cx_context_str,
             "cost_str": "--",
             "src": "APP",
@@ -667,6 +709,8 @@ class TelemetryPresenter:
         )
         if cx_pool is not None:
             cx_data["pools"].append(cx_pool)
+            cx_data["state"] = "OPEN"
+            cx_data["state_source"] = "quota_poll"
         # else: no CX quota data — pools stays empty (honestly absent)
 
         # 5. Dynamic Alerts (Badges)
@@ -820,7 +864,20 @@ class TelemetryPresenter:
             state = pdata.get("state", "UNKNOWN")
             ctx_str = pdata.get("context_str", "--")
             cost_str = pdata.get("cost_str", "--")
-            state_colored = self._c(f"🟢 {state}", "green" if state == "OPEN" else "red")
+            state_color = {
+                "OPEN": "green",
+                "OBSERVED": "cyan",
+                "CLI_OK": "cyan",
+                "ERROR": "red",
+                "ABSENT": "red",
+            }.get(state, "yellow")
+            state_icon = (
+                "🟢" if state == "OPEN"
+                else "🔵" if state in {"OBSERVED", "CLI_OK"}
+                else "🔴" if state in {"ERROR", "ABSENT"}
+                else "⚪"
+            )
+            state_colored = self._c(f"{state_icon} {state}", state_color)
 
             first_pool: Dict[str, Any] = pdata.get("pools", [{}])[0] if pdata.get("pools") else {}
             p_name = first_pool.get("name", "pool")

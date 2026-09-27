@@ -280,6 +280,29 @@ class TestQuotaWiringFixed:
         pool_names = [p["name"] for p in cc_pools]
         assert "C-pool" in pool_names
 
+    def test_diag_polls_without_initializing_a_workspace_database(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Host telemetry is available even before `workspace init`."""
+        workspace = tmp_path / "uninitialized"
+        sys_dir = workspace / "_sys"
+        workspace.mkdir()
+        sys_dir.mkdir()
+        _fake_claude_binary_returning_usage(sys_dir)
+        monkeypatch.setenv("PEERHUB_SYS_DIR", str(sys_dir))
+
+        assert not PathLayout.for_workspace(workspace).database_path.exists()
+        assert main(["diag", "--json", "--fresh", "--workspace", str(workspace)]) == 0
+        snapshot = json.loads(capsys.readouterr().out)
+
+        assert snapshot["peers"]["cc"]["state"] == "OPEN"
+        assert snapshot["peers"]["cc"]["state_source"] == "quota_poll"
+        assert snapshot["peers"]["cc"]["pools"][0]["name"] == "C-pool"
+        assert not PathLayout.for_workspace(workspace).database_path.exists()
+
     def test_diag_no_fresh_uses_cached_projections_after_poll(
         self, isolated_workspace: Path, capsys: pytest.CaptureFixture[str],
     ) -> None:

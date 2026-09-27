@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -18,7 +19,7 @@ already reuses other private helpers from this module -- see its own
 import comment)."""
 
 
-def _resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
+def resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
     """Resolve the _sys directory from explicit parameter, env var, or workspace-relative default.
 
     No hard-coded drive letters or Engram-specific paths.
@@ -32,9 +33,29 @@ def _resolve_sys_dir(sys_dir: Optional[Path] = None) -> Path:
         if p.exists() and p.is_dir():
             return p
 
-    # Workspace-relative fallback: assume peerhub is installed inside workspace
-    workspace_root = Path.cwd()
-    return workspace_root / "_sys"
+    # Workspace-relative installs remain the first implicit fallback.
+    workspace_sys = Path.cwd() / "_sys"
+    if workspace_sys.exists() and workspace_sys.is_dir():
+        return workspace_sys
+
+    # Portable installs run peerhub from ``<portable-root>/_sys/env/venv``.
+    # Discover that root from the active interpreter instead of baking in a
+    # drive letter or requiring every shell to export PEERHUB_SYS_DIR.
+    try:
+        executable = Path(sys.executable).resolve()
+        for parent in executable.parents:
+            if parent.name.lower() == "_sys" and (parent / "env").is_dir():
+                return parent
+    except OSError:
+        pass
+
+    # Preserve the historical non-existent-path fallback so callers can
+    # report ABSENT cleanly in ordinary non-portable environments.
+    return workspace_sys
+
+
+# Backwards-compatible private alias for callers predating the public helper.
+_resolve_sys_dir = resolve_sys_dir
 
 
 def _resolve_workspace_root(sys_dir: Path) -> Path:
@@ -180,7 +201,7 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     # environment, node CLI binaries live in _sys/env/nodejs/npm-global.
     # Configurable via PEERHUB_NPM_GLOBAL_DIR or PEERHUB_CC_BINARY/PEERHUB_CX_BINARY;
     # defaults to legacy resolved_sys / "env" / "nodejs" / "npm-global".
-    resolved_sys = _resolve_sys_dir(sys_dir)
+    resolved_sys = resolve_sys_dir(sys_dir)
     cli_dir = resolved_sys / "cli"
     if peer == "cc":
         cand_override = os.environ.get("PEERHUB_CC_BINARY")
@@ -279,7 +300,7 @@ def poll_claude_usage(
     sys_dir: Optional[Path] = None,
 ) -> Sequence[UsageObserved]:
     """Poll claude.cmd /usage and return observations for each quota pool."""
-    resolved_sys = _resolve_sys_dir(sys_dir)
+    resolved_sys = resolve_sys_dir(sys_dir)
     workspace_root = _resolve_workspace_root(resolved_sys)
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at = int(clock_fn())
@@ -411,7 +432,7 @@ def poll_codex_usage(
     import json
     import time
 
-    resolved_sys = _resolve_sys_dir(sys_dir)
+    resolved_sys = resolve_sys_dir(sys_dir)
     workspace_root = _resolve_workspace_root(resolved_sys)
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at = int(clock_fn())
@@ -661,7 +682,7 @@ def poll_agy_usage(
     
     _AG_QUOTA_LABELS = dict(AG_QUOTA_LABELS)
     
-    resolved_sys = _resolve_sys_dir(sys_dir)
+    resolved_sys = resolve_sys_dir(sys_dir)
     # Legacy P:\ / hub.py-environment compatibility: Antigravity statusline log
     # in the legacy frozen environment lives at _sys/data/temp/ag_statusline_stdin.log.
     # Configurable via PEERHUB_AG_STATUSLINE_LOG; defaults to legacy
