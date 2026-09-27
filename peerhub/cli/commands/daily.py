@@ -146,9 +146,35 @@ def register_ask_command(
 def apply_health_consequence(
     result: Any, cli: ModuleType, workspace_root: Path, paths: Any, subject: Any
 ) -> None:
+    """R4 7.1 for a single ``ask`` outcome."""
+
+    record_health_consequence(
+        action="ask",
+        peer_kind=str(result.peer_kind),
+        profile_id=str(result.profile_id),
+        request_state=result.request_state,
+        execution_certainty=result.execution_certainty,
+        error_code=result.error_code,
+        cli=cli, workspace_root=workspace_root, paths=paths, subject=subject,
+    )
+
+
+def record_health_consequence(
+    *,
+    action: str,
+    peer_kind: str,
+    profile_id: str,
+    request_state: Any,
+    execution_certainty: Any,
+    error_code: Any,
+    cli: ModuleType,
+    workspace_root: Path,
+    paths: Any,
+    subject: Any,
+) -> None:
     """R4 7.1: a definitive dispatch failure may create a quarantine-review target.
 
-    Best effort by design: the operator-visible ask outcome and exit code never depend on it.
+    Best effort by design: the operator-visible outcome and exit code never depend on it.
     """
 
     from peerhub.application.config_paths import (
@@ -163,12 +189,12 @@ def apply_health_consequence(
             resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
             resolve_global_config_home().path / "dispatch-policy.toml",
         )
-        mode = str(resolver.resolve("ask").health_consequence.default_consequence.value)
+        mode = str(resolver.resolve(action).health_consequence.default_consequence.value)
         if not needs_review(
             mode,
-            request_state=result.request_state,
-            execution_certainty=result.execution_certainty,
-            error_code=result.error_code,
+            request_state=request_state,
+            execution_certainty=execution_certainty,
+            error_code=error_code,
         ):
             return
         if not paths.database_path.exists():
@@ -180,19 +206,19 @@ def apply_health_consequence(
         with cli.create_runtime(context) as runtime:
             record_dispatch_failure(
                 runtime.operational_error_service,
-                peer_key=str(result.peer_kind),
-                profile_id=str(result.profile_id),
-                request_state=result.request_state,
-                error_code=result.error_code,
-                actor_id=str(getattr(subject, "principal_id", "system:ask")),
+                peer_key=peer_kind,
+                profile_id=profile_id,
+                request_state=request_state,
+                error_code=error_code,
+                actor_id=str(getattr(subject, "principal_id", f"system:{action}")),
             )
         print(
-            f"peerhub ask: quarantine-review requested for {result.peer_kind} "
+            f"peerhub {action}: quarantine-review requested for {peer_kind} "
             f"(health_consequence={mode})",
             file=cli.sys.stderr,
         )
-    except Exception as error:  # never let bookkeeping change the ask outcome
-        print(f"peerhub ask: health consequence not recorded: {error}", file=cli.sys.stderr)
+    except Exception as error:  # never let bookkeeping change the outcome
+        print(f"peerhub {action}: health consequence not recorded: {error}", file=cli.sys.stderr)
 
 
 def route_ask_profile(
@@ -771,6 +797,18 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
             authenticated_subject=cli.require_caller_identity(cli.LocalProcessCallerIdentityProvider()),
         )
         result = coordinator.fan_out(request)
+        for leg in result.legs:
+            if leg.leg_state == "failed" and leg.peer_kind is not None:
+                record_health_consequence(
+                    action="broadcast",
+                    peer_kind=leg.peer_kind,
+                    profile_id=str(leg.profile_id),
+                    request_state=leg.request_state,
+                    execution_certainty=leg.execution_certainty,
+                    error_code=leg.error_code,
+                    cli=cli, workspace_root=workspace_root, paths=paths,
+                    subject=request.authenticated_subject,
+                )
         if is_first_init and paths.database_path.exists():
             print(
                 f"[peerhub] initialized workspace at {paths.database_path.parent}",
