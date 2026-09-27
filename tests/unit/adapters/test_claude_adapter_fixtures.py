@@ -189,6 +189,42 @@ def test_claude_cli_default_omits_model_flag():
     assert plan.stdin_payload == b"Hello"
 
 
+def test_claude_effort_profile_emits_model_and_effort_flags():
+    adapter = RealClaudeAdapter()
+    from peerhub.adapters.contract import AdapterRequest
+
+    profile = next(
+        item
+        for item in adapter.descriptor.profiles
+        if item.profile_id == "cc.effort"
+    )
+    request = AdapterRequest(
+        request_id="req-effort",
+        prompt_content="Hello",
+        prompt_reference=None,
+        workspace_scope=".",
+        profile_id="cc.effort",
+        requested_session_action=SessionAction.NONE,
+        completion_contract=FakeCompletionContract(),
+        model_binding=ResolvedModelBinding(
+            selection_mode=ModelSelectionMode.PINNED,
+            model_id="claude-sonnet-5",
+            reasoning_effort="high",
+            source_layer="test-fixture",
+        ),
+    )
+
+    plan = adapter.plan_invocation(
+        request, profile, None, TransportLimits(1, 1, 1)
+    )
+
+    assert plan.argv == (
+        "claude.cmd", "-p", "-", "--output-format", "stream-json", "--verbose",
+        "--model", "claude-sonnet-5", "--effort", "high",
+    )
+    assert "--model claude-sonnet-5 --effort high" in plan.redacted_display
+
+
 def test_claude_decoder_accepts_stream_json_and_returns_final_result():
     decoder = ClaudeOutputDecoder()
     decoder.feed(

@@ -45,6 +45,7 @@ _HEADROOM_SENTINEL_KEYS = {
     "tracking_populated",
 }
 _HEADROOM_STALE_THRESHOLD_SECONDS = 60
+_STATUS_INPUT_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
 def format_headroom_surface(
@@ -200,11 +201,48 @@ def parse_source_msg_reset(msg: str, now: Optional[datetime] = None) -> Optional
     return None
 
 
-def _get_cx_context(sys_dir: Path) -> Tuple[int, int, float]:
+def _runtime_file_candidates(
+    sys_dir: Path,
+    *,
+    env_var: str,
+    relative_path: Path,
+    legacy_path: Path,
+) -> tuple[Path, ...]:
+    """Resolve current portable config homes before the legacy ``_sys`` layout.
+
+    A real workspace-local ``_sys`` directory is treated as an isolated fixture
+    or legacy installation and does not fall through to the host's live config.
+    """
+
+    raw_home = os.environ.get(env_var)
+    if raw_home:
+        env_home = Path(raw_home)
+        same_portable_root = (
+            sys_dir.parent == env_home.parent
+            or sys_dir.parent in env_home.parents
+        )
+        if not sys_dir.exists() or same_portable_root:
+            return (env_home / relative_path, sys_dir / legacy_path)
+    return (sys_dir / legacy_path,)
+
+
+def _get_cx_context(sys_dir: Path) -> Optional[Tuple[int, int, float]]:
     """Dynamically read newest Codex thread rollout token_count from SQLite."""
-    db_path = sys_dir / "codex" / "config" / "state_5.sqlite"
-    if not db_path.exists():
-        return (15000, 258400, 5.8)
+    db_path = next(
+        (
+            path
+            for path in _runtime_file_candidates(
+                sys_dir,
+                env_var="CODEX_HOME",
+                relative_path=Path("state_5.sqlite"),
+                legacy_path=Path("codex/config/state_5.sqlite"),
+            )
+            if path.exists()
+        ),
+        None,
+    )
+    if db_path is None:
+        return None
     import sqlite3
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -235,7 +273,7 @@ def _get_cx_context(sys_dir: Path) -> Tuple[int, int, float]:
                             return (int(used), int(win), (float(used) / float(win)) * 100.0)
     except (OSError, sqlite3.Error, UnicodeDecodeError):
         pass
-    return (15000, 258400, 5.8)
+    return None
 
 
 def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
@@ -447,98 +485,128 @@ class TelemetryPresenter:
         }
 
         raw_ag: Dict[str, Any] = {}
-        for ag_path in (
-            sys_dir / "data" / "temp" / "ag_statusline_stdin.log",
-            sys_dir / "antigravity" / "config" / "status_input.log",
-        ):
+        ag_paths = _runtime_file_candidates(
+            sys_dir,
+            env_var="GEMINI_DIR",
+            relative_path=Path("status_input.log"),
+            legacy_path=Path("antigravity/config/status_input.log"),
+        )
+        for ag_path in (*ag_paths, sys_dir / "data" / "temp" / "ag_statusline_stdin.log"):
             if ag_path.exists():
                 try:
+                    age_seconds = now.timestamp() - ag_path.stat().st_mtime
+                    if age_seconds > _STATUS_INPUT_MAX_AGE_SECONDS:
+                        continue
                     raw_ag = json.loads(ag_path.read_text(encoding="utf-8"))
                     if raw_ag:
+                        ag_data["observed_at"] = datetime.fromtimestamp(
+                            ag_path.stat().st_mtime, tz=timezone.utc
+                        ).isoformat()
                         break
                 except Exception:
                     pass
 
-        ag_pct = 0.0
+        ag_pct: Optional[float] = None
         if raw_ag:
             ctx: Dict[str, Any] = raw_ag.get("context_window", {})
             used_tokens = ctx.get("total_input_tokens", 0)
             if used_tokens == 0 and isinstance(ctx.get("current_usage"), dict):
                 cur = ctx["current_usage"]
                 used_tokens = cur.get("input_tokens", 0) + cur.get("cache_read_input_tokens", 0)
-            size = ctx.get("context_window_size", 1048576)
-            ag_pct = float(ctx.get("used_percentage", (used_tokens / size * 100.0) if size else 0.0))
-            used_k = int(used_tokens / 1000)
-            size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
-            ag_data["context_str"] = f"{used_k}k / {size_m} ({ag_pct:.0f}%)"
+            size = ctx.get("context_window_size")
+            if isinstance(used_tokens, (int, float)) and isinstance(size, (int, float)) and size > 0:
+                ag_pct = float(ctx.get("used_percentage", used_tokens / size * 100.0))
+                used_k = int(used_tokens / 1000)
+                size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
+                ag_data["context_str"] = f"{used_k}k / {size_m} ({ag_pct:.0f}%)"
 
             quotas: Dict[str, Any] = raw_ag.get("quota", {})
             # 3P-pool (Claude / Codex through AG)
             p3_5h: Dict[str, Any] = quotas.get(QUOTA_FAMILY_3P_5H, {})
             p3_wk: Dict[str, Any] = quotas.get(QUOTA_FAMILY_3P_WEEKLY, {})
-            p3_5h_rem = float(p3_5h.get("remaining_fraction", 1.0))
-            p3_wk_rem = float(p3_wk.get("remaining_fraction", 1.0))
-            p3_5h_used_frac = max(0.0, min(1.0, 1.0 - p3_5h_rem))
-            p3_wk_used_frac = max(0.0, min(1.0, 1.0 - p3_wk_rem))
-            p3_5h_sec = p3_5h.get("reset_in_seconds")
-            p3_wk_sec = p3_wk.get("reset_in_seconds")
-            p3_5h_ratio, _, _ = _calculate_pacing(p3_5h_used_frac, p3_5h_sec, 5.0)
-            p3_wk_ratio, _, p3_wk_ind = _calculate_pacing(p3_wk_used_frac, p3_wk_sec, 168.0)
-            p3_reset = p3_wk.get("reset_time") or p3_5h.get("reset_time")
-            p3_crit = p3_wk_used_frac >= 0.90 or p3_5h_used_frac >= 0.90
+            if p3_5h or p3_wk:
+                p3_5h_rem = float(p3_5h.get("remaining_fraction", 1.0))
+                p3_wk_rem = float(p3_wk.get("remaining_fraction", 1.0))
+                p3_5h_used_frac = max(0.0, min(1.0, 1.0 - p3_5h_rem))
+                p3_wk_used_frac = max(0.0, min(1.0, 1.0 - p3_wk_rem))
+                p3_5h_sec = p3_5h.get("reset_in_seconds")
+                p3_wk_sec = p3_wk.get("reset_in_seconds")
+                p3_5h_ratio, _, _ = _calculate_pacing(p3_5h_used_frac, p3_5h_sec, 5.0)
+                p3_wk_ratio, _, p3_wk_ind = _calculate_pacing(p3_wk_used_frac, p3_wk_sec, 168.0)
+                p3_reset = p3_wk.get("reset_time") or p3_5h.get("reset_time")
+                p3_crit = p3_wk_used_frac >= 0.90 or p3_5h_used_frac >= 0.90
 
-            ag_data["pools"].append({
-                "name": "3P-pool",
-                "status_icon": p3_wk_ind,
-                "exh_str": f"{max(p3_5h_ratio, p3_wk_ratio):.2f}x",
-                "five_h": f"{p3_5h_used_frac*100:.0f}% ({p3_5h_ratio:.2f}x)",
-                "seven_d": f"{p3_wk_used_frac*100:.0f}% ({p3_wk_ratio:.2f}x)",
-                "reset_in": _format_countdown(p3_reset, now),
-                "is_crit": p3_crit,
-                "remaining_fraction": min(p3_5h_rem, p3_wk_rem),
-            })
+                ag_data["pools"].append({
+                    "name": "3P-pool",
+                    "status_icon": p3_wk_ind,
+                    "exh_str": f"{max(p3_5h_ratio, p3_wk_ratio):.2f}x",
+                    "five_h": f"{p3_5h_used_frac*100:.0f}% ({p3_5h_ratio:.2f}x)",
+                    "seven_d": f"{p3_wk_used_frac*100:.0f}% ({p3_wk_ratio:.2f}x)",
+                    "reset_in": _format_countdown(p3_reset, now),
+                    "is_crit": p3_crit,
+                    "remaining_fraction": min(p3_5h_rem, p3_wk_rem),
+                })
 
             # G-pool (Gemini native)
             g_5h: Dict[str, Any] = quotas.get(QUOTA_FAMILY_GEMINI_5H, {})
             g_wk: Dict[str, Any] = quotas.get(QUOTA_FAMILY_GEMINI_WEEKLY, {})
-            g_5h_rem = float(g_5h.get("remaining_fraction", 1.0))
-            g_wk_rem = float(g_wk.get("remaining_fraction", 1.0))
-            g_5h_used_frac = max(0.0, min(1.0, 1.0 - g_5h_rem))
-            g_wk_used_frac = max(0.0, min(1.0, 1.0 - g_wk_rem))
-            g_5h_sec = g_5h.get("reset_in_seconds")
-            g_wk_sec = g_wk.get("reset_in_seconds")
-            g_5h_ratio, _, _ = _calculate_pacing(g_5h_used_frac, g_5h_sec, 5.0)
-            g_wk_ratio, _, g_wk_ind = _calculate_pacing(g_wk_used_frac, g_wk_sec, 168.0)
-            g_reset = g_5h.get("reset_time") or g_wk.get("reset_time")
-            g_crit = g_wk_used_frac >= 0.90 or g_5h_used_frac >= 0.90
+            if g_5h or g_wk:
+                g_5h_rem = float(g_5h.get("remaining_fraction", 1.0))
+                g_wk_rem = float(g_wk.get("remaining_fraction", 1.0))
+                g_5h_used_frac = max(0.0, min(1.0, 1.0 - g_5h_rem))
+                g_wk_used_frac = max(0.0, min(1.0, 1.0 - g_wk_rem))
+                g_5h_sec = g_5h.get("reset_in_seconds")
+                g_wk_sec = g_wk.get("reset_in_seconds")
+                g_5h_ratio, _, _ = _calculate_pacing(g_5h_used_frac, g_5h_sec, 5.0)
+                g_wk_ratio, _, g_wk_ind = _calculate_pacing(g_wk_used_frac, g_wk_sec, 168.0)
+                g_reset = g_5h.get("reset_time") or g_wk.get("reset_time")
+                g_crit = g_wk_used_frac >= 0.90 or g_5h_used_frac >= 0.90
 
-            ag_data["pools"].append({
-                "name": "G-pool",
-                "status_icon": g_wk_ind,
-                "exh_str": f"{max(g_5h_ratio, g_wk_ratio):.2f}x",
-                "five_h": f"{g_5h_used_frac*100:.0f}% ({g_5h_ratio:.2f}x)",
-                "seven_d": f"{g_wk_used_frac*100:.0f}% ({g_wk_ratio:.2f}x)",
-                "reset_in": _format_countdown(g_reset, now),
-                "is_crit": g_crit,
-                "remaining_fraction": min(g_5h_rem, g_wk_rem),
-            })
+                ag_data["pools"].append({
+                    "name": "G-pool",
+                    "status_icon": g_wk_ind,
+                    "exh_str": f"{max(g_5h_ratio, g_wk_ratio):.2f}x",
+                    "five_h": f"{g_5h_used_frac*100:.0f}% ({g_5h_ratio:.2f}x)",
+                    "seven_d": f"{g_wk_used_frac*100:.0f}% ({g_wk_ratio:.2f}x)",
+                    "reset_in": _format_countdown(g_reset, now),
+                    "is_crit": g_crit,
+                    "remaining_fraction": min(g_5h_rem, g_wk_rem),
+                })
 
         # 3. CC Telemetry — uses real polled projection data from the telemetry pipeline
         cc_data: Dict[str, Any] = {
             "state": "UNKNOWN",
-            "context_str": "0k / 1M (0%)",
+            "context_str": "--",
             "cost_str": "--",
             "src": "STAT",
             "pools": [],
         }
 
-        cc_pct = 0.0
+        cc_pct: Optional[float] = None
         # Context window: still read from status file (live session data, not quota)
-        cc_path = sys_dir / "claude" / "config" / "status_input.log"
+        cc_path = next(
+            (
+                path
+                for path in _runtime_file_candidates(
+                    sys_dir,
+                    env_var="CLAUDE_CONFIG_DIR",
+                    relative_path=Path("status_input.log"),
+                    legacy_path=Path("claude/config/status_input.log"),
+                )
+                if path.exists()
+            ),
+            None,
+        )
         raw_cc: Dict[str, Any] = {}
-        if cc_path.exists():
+        if cc_path is not None:
             try:
-                raw_cc = json.loads(cc_path.read_text(encoding="utf-8"))
+                age_seconds = now.timestamp() - cc_path.stat().st_mtime
+                if age_seconds <= _STATUS_INPUT_MAX_AGE_SECONDS:
+                    raw_cc = json.loads(cc_path.read_text(encoding="utf-8"))
+                    if raw_cc:
+                        cc_data["observed_at"] = datetime.fromtimestamp(
+                            cc_path.stat().st_mtime, tz=timezone.utc
+                        ).isoformat()
             except Exception:
                 pass
 
@@ -551,11 +619,12 @@ class TelemetryPresenter:
             if used_tokens == 0 and isinstance(ctx.get("current_usage"), dict):
                 cur = ctx["current_usage"]
                 used_tokens = cur.get("input_tokens", 0) + cur.get("cache_read_input_tokens", 0)
-            size = ctx.get("context_window_size", 1000000)
-            cc_pct = float(ctx.get("used_percentage", (used_tokens / size * 100.0) if size else 0.0))
-            used_k = int(used_tokens / 1000)
-            size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
-            cc_data["context_str"] = f"{used_k}k / {size_m} ({cc_pct:.0f}%)"
+            size = ctx.get("context_window_size")
+            if isinstance(used_tokens, (int, float)) and isinstance(size, (int, float)) and size > 0:
+                cc_pct = float(ctx.get("used_percentage", used_tokens / size * 100.0))
+                used_k = int(used_tokens / 1000)
+                size_m = f"{int(size / 1000000)}M" if size >= 1000000 else f"{int(size / 1000)}k"
+                cc_data["context_str"] = f"{used_k}k / {size_m} ({cc_pct:.0f}%)"
 
         # CC quota: use real polled projection data from telemetry pipeline
         cc_pool = _build_pool_pair_from_projections(
@@ -571,12 +640,17 @@ class TelemetryPresenter:
         # else: no CC quota data — pools stays empty (honestly absent)
 
         # 4. CX Telemetry — uses real polled projection data from the telemetry pipeline
-        cx_used, cx_win, cx_pct = _get_cx_context(sys_dir)
-        cx_used_k = int(cx_used / 1000)
-        cx_win_k = f"{int(cx_win / 1000)}k" if cx_win < 1000000 else f"{int(cx_win / 1000000)}M"
+        cx_context = _get_cx_context(sys_dir)
+        cx_pct: Optional[float] = None
+        cx_context_str = "--"
+        if cx_context is not None:
+            cx_used, cx_win, cx_pct = cx_context
+            cx_used_k = int(cx_used / 1000)
+            cx_win_k = f"{int(cx_win / 1000)}k" if cx_win < 1000000 else f"{int(cx_win / 1000000)}M"
+            cx_context_str = f"{cx_used_k}k / {cx_win_k} ({cx_pct:.0f}%)"
         cx_data: Dict[str, Any] = {
             "state": "UNKNOWN",
-            "context_str": f"{cx_used_k}k / {cx_win_k} ({cx_pct:.0f}%)",
+            "context_str": cx_context_str,
             "cost_str": "--",
             "src": "APP",
             "pools": [],
@@ -613,45 +687,88 @@ class TelemetryPresenter:
                     
         snapshot_has_data = has_data
 
-        g_rem = ag_data["pools"][1]["remaining_fraction"] if len(ag_data["pools"]) > 1 else None
-        p3_rem = ag_data["pools"][0]["remaining_fraction"] if ag_data["pools"] else None
-        cc_rem = cc_data["pools"][0]["remaining_fraction"] if cc_data["pools"] else None
-        cx_rem = cx_data["pools"][0]["remaining_fraction"] if cx_data["pools"] else None
+        def pool_remaining(peer_data: Dict[str, Any], pool_name: str) -> Optional[float]:
+            for pool in peer_data["pools"]:
+                if pool.get("name") == pool_name:
+                    value = pool.get("remaining_fraction")
+                    return float(value) if isinstance(value, (int, float)) else None
+            return None
 
-        ag_ctx_headroom = max(0, min(100, round(100.0 - ag_pct)))
-        cx_ctx_headroom = max(0, min(100, round(100.0 - cx_pct)))
-        cc_ctx_headroom = max(0, min(100, round(100.0 - cc_pct)))
+        g_rem = pool_remaining(ag_data, "G-pool")
+        cc_rem = pool_remaining(cc_data, "C-pool")
+        cx_rem = pool_remaining(cx_data, "X-pool")
 
-        ag_headroom = round(min(g_rem, ag_ctx_headroom / 100.0) * 100.0) if g_rem is not None else "--"
-        cx_headroom = round(min(cx_rem, cx_ctx_headroom / 100.0) * 100.0) if cx_rem is not None else "--"
-        cc_headroom = round(min(cc_rem, cc_ctx_headroom / 100.0) * 100.0) if cc_rem is not None else "--"
-        opus_quota = round(p3_rem * 100.0) if p3_rem is not None else "--"
+        ag_ctx_headroom = None if ag_pct is None else max(0, min(100, round(100.0 - ag_pct)))
+        cx_ctx_headroom = None if cx_pct is None else max(0, min(100, round(100.0 - cx_pct)))
+        cc_ctx_headroom = None if cc_pct is None else max(0, min(100, round(100.0 - cc_pct)))
 
-        num_ag_hr = ag_headroom if isinstance(ag_headroom, int) else ag_ctx_headroom
-        num_cx_hr = cx_headroom if isinstance(cx_headroom, int) else cx_ctx_headroom
-        best_target = "cx.deepthink" if num_cx_hr >= num_ag_hr else "ag.deepthink"
-        best_hr = f"{max(num_cx_hr, num_ag_hr)}%"
+        ag_headroom = round(min(g_rem, ag_ctx_headroom / 100.0) * 100.0) if g_rem is not None and ag_ctx_headroom is not None else "--"
+        cx_headroom = round(min(cx_rem, cx_ctx_headroom / 100.0) * 100.0) if cx_rem is not None and cx_ctx_headroom is not None else "--"
+        cc_headroom = round(min(cc_rem, cc_ctx_headroom / 100.0) * 100.0) if cc_rem is not None and cc_ctx_headroom is not None else "--"
 
-        routing_rows = [
-            {"profile": "cx.deepthink", "display_name": "cx.deepthink (Codex)", "state": "eligible", "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%", "effort": "xhigh", "is_active": best_target == "cx.deepthink"},
-            {"profile": "ag.deepthink", "display_name": "ag.deepthink (Gemini)", "state": "eligible", "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%", "effort": "high", "is_active": best_target == "ag.deepthink"},
-            {"profile": "ag.opus", "display_name": "ag.opus (Claude 3.7)", "state": "manual_only", "headroom": "--", "quota": f"{opus_quota}%" if opus_quota != "--" else "--", "ctx": "--", "effort": "high", "is_active": False},
-            {"profile": "cc.effort", "display_name": "cc.effort (Claude)", "state": "eligible", "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%", "effort": "high", "is_active": False},
+        candidates: dict[str, int] = {
+            profile_id: value
+            for profile_id, value in (
+                ("ag.deepthink", ag_headroom),
+                ("cx.deepthink", cx_headroom),
+            )
+            if isinstance(value, int)
+        }
+        best_target: Optional[str] = (
+            max(candidates, key=lambda profile_id: candidates[profile_id])
+            if candidates
+            else None
+        )
+        best_hr = f"{candidates[best_target]}%" if best_target is not None else "--"
+
+        from peerhub.application.model_config import ModelConfigService
+
+        def profile_metadata(profile_id: str) -> tuple[str, str, str]:
+            binding = ModelConfigService(None).resolve(
+                node_id=profile_id.partition(".")[0], profile_id=profile_id
+            )
+            model = binding.model_id or "CLI default"
+            effort = binding.reasoning_effort or "embedded/default"
+            return model, effort, binding.source_layer
+
+        cx_model, cx_effort, cx_source = profile_metadata("cx.deepthink")
+        ag_model, ag_effort, ag_source = profile_metadata("ag.deepthink")
+        cc_model, cc_effort, cc_source = profile_metadata("cc.effort")
+
+        routing_rows: List[Dict[str, Any]] = [
+            {"profile": "cx.deepthink", "display_name": f"cx.deepthink ({cx_model})", "model": cx_model, "model_source": cx_source, "state": "eligible", "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%" if cx_ctx_headroom is not None else "--", "effort": cx_effort, "is_active": best_target == "cx.deepthink"},
+            {"profile": "ag.deepthink", "display_name": f"ag.deepthink ({ag_model})", "model": ag_model, "model_source": ag_source, "state": "eligible", "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%" if ag_ctx_headroom is not None else "--", "effort": ag_effort, "is_active": best_target == "ag.deepthink"},
+            {"profile": "cc.effort", "display_name": f"cc.effort ({cc_model})", "model": cc_model, "model_source": cc_source, "state": "eligible", "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%" if cc_ctx_headroom is not None else "--", "effort": cc_effort, "is_active": False},
         ]
         
         for row in routing_rows:
-            if row["profile"] == "ag.opus":
-                row["notes"] = "Manual On-Demand Only"
-            elif row["profile"] == "cc.effort":
-                row["notes"] = "Weekly Limit Hit" if cc_rem == 0.0 else "Active"
+            if row["profile"] == "cc.effort":
+                row["notes"] = (
+                    "Weekly Limit Hit"
+                    if cc_rem == 0.0
+                    else "Insufficient telemetry"
+                    if row["headroom"] == "--"
+                    else "Configured"
+                )
             else:
-                row["notes"] = "Active Failover Target" if row["is_active"] else "Secondary Tier"
+                row["notes"] = (
+                    "Active Failover Target"
+                    if row["is_active"]
+                    else "Insufficient telemetry"
+                    if row["headroom"] == "--"
+                    else "Secondary Tier"
+                )
 
         _failover_display_names = {"cx.deepthink": "CX (Codex)", "ag.deepthink": "AG (Gemini)"}
+        failover_target = (
+            _failover_display_names[best_target]
+            if best_target is not None
+            else "Unknown (insufficient telemetry)"
+        )
         return {
             "has_data": snapshot_has_data,
             "alert_badges": alert_badges,
-            "failover_target": _failover_display_names.get(best_target, best_target),
+            "failover_target": failover_target,
             "failover_profile": best_target,
             "failover_headroom": best_hr,
             "peers": {

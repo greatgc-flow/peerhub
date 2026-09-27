@@ -315,20 +315,18 @@ flag — use the `models` subcommand.) **✓run**
   Claude Code skill packages. **(help)**
 - `agy plugin validate [PATH]` performs pre-install manifest validation. **(help)**
 
-### Models and live auth preflight (`agy models`, **✓run**) — DUAL model families
-The 2026-07-27 catalog still prints fully materialized lowercase/hyphenated model variants:
-`gemini-3.6-flash-{high,medium,low}`, `gemini-3.5-flash-{high,medium,low}`,
-`gemini-3.1-pro-{high,low}`, **`claude-sonnet-4-6`**, **`claude-opus-4-6-thinking`**,
-`gpt-oss-120b-medium`. These replace the old display-name strings (`Gemini 3.5 Flash
-(Low)` etc.), which Agy 1.1.5 rejects.
+### Models and live auth preflight (`agy models`, **✓run**) — multiple model families
+The 2026-09-27 catalog prints fully materialized lowercase/hyphenated variants:
+`gemini-3.8-flash-{high,medium,low}`, `gemini-3.7-flash-{high,medium,low}`,
+`gemini-3.6-flash-{high,medium,low}`, `gemini-3.1-pro-{high,low}`,
+**`claude-sonnet-4-6`**, **`claude-opus-4-6-thinking`**, and
+`gpt-oss-120b-medium`.
 
-For the configured `ag.*` profiles, live invocation establishes the current argument
-contract: use the base model plus `--effort` where supported
-(`gemini-3.6-flash --effort low|high`, `gemini-3.1-pro --effort high`, and
-`gpt-oss-120b --effort medium`). The exception is
-**`claude-opus-4-6-thinking`**: invoke that Thinking variant without `--effort`; the CLI
-rejects an effort flag for it. See `specific/ag.md` for the authoritative profile matrix.
-→ ag's `3p-*` quota = the non-Gemini (Claude/GPT-OSS) models. (Enables D3.)
+The configured `ag.standard`, `ag.effort`, and `ag.deepthink` profiles pass
+their exact tier-suffixed catalog slug as `--model` and do not add a second
+`--effort` flag. See `ag.md` for the authoritative profile matrix. The Claude
+and GPT-OSS catalog entries consume the non-Gemini `3p-*` quota but are not
+currently advertised as peerhub profiles.
 
 `agy models` is also a confirmed zero-model-call **live authentication preflight**. Before a
 2026-07-23 relogin it exited `1` with `Error: Please sign in to view available models. Launch

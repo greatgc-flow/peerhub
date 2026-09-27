@@ -15,20 +15,16 @@
 # constant carried).
 
 schema_version = 1
-defaults_revision = "2026-09-08.2"
+defaults_revision = "2026-09-27.1"
 
 [profiles."cx.standard"]
 selection_mode = "pinned"
-model = "gpt-5.6-luna"
+model = "gpt-6-luna"
 reasoning_effort = "low"
 
-# Pinned Codex tier defaults carried over from prior live-verified orchestration
-# registry (P:\_sys\ai\orchestration.json cx node). Note: that verification was
-# for hub.py dispatch, not peerhub. Peerhub invocation behavior (argv shape,
-# -c model_reasoning_effort flag translation) is verified via peerhub ask tests.
 [profiles."cx.effort"]
 selection_mode = "pinned"
-model = "gpt-5.6-terra"
+model = "gpt-6-sol"
 reasoning_effort = "high"
 
 [profiles."cx.deepthink"]
@@ -37,24 +33,40 @@ model = "gpt-6-astra"
 reasoning_effort = "xhigh"
 
 [profiles."cc.standard"]
-selection_mode = "cli_default"
+selection_mode = "pinned"
+model = "claude-haiku-4-5-20251001"
+
+[profiles."cc.effort"]
+selection_mode = "pinned"
+model = "claude-sonnet-5"
+reasoning_effort = "high"
+
+[profiles."cc.deepthink"]
+selection_mode = "pinned"
+model = "claude-opus-5"
+reasoning_effort = "high"
 
 [profiles."ag.standard"]
-selection_mode = "cli_default"
+selection_mode = "pinned"
+model = "gemini-3.8-flash-low"
+
+[profiles."ag.effort"]
+selection_mode = "pinned"
+model = "gemini-3.8-flash-high"
+
+[profiles."ag.deepthink"]
+selection_mode = "pinned"
+model = "gemini-3.1-pro-high"
 
 # Wildcard: any profile without its own entry above (e.g. a custom/future
 # adapter with no known model-drift risk) defaults to cli_default rather
 # than a hard configuration error -- there is no specific model string to
 # go stale for a profile nothing here has ever heard of. A known vendor
-# profile (cc/ag/cx.standard) always matches its own entry above first;
+# profile always matches its own entry above first;
 # this only ever applies to something genuinely unconfigured anywhere.
 #
-# NOTE (Known accepted limitation): The wildcard resolves unknown profiles to
-# cli_default, which for Codex specifically is the exact account-drift failure
-# mode model pinning prevents. This is currently latent because Codex's profile
-# set is a closed 3-tuple (cx.standard, cx.effort, cx.deepthink) and all three
-# are explicitly pinned above. If a 4th Codex profile is ever added without an
-# explicit packaged entry, a guard against wildcard cli_default will be needed.
+# NOTE: every profile currently advertised by the three production adapters is
+# explicit above. The wildcard is only for genuinely custom/future adapters.
 [profiles."*"]
 selection_mode = "cli_default"
 

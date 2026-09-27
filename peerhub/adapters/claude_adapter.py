@@ -243,9 +243,9 @@ class RealClaudeAdapter:
 
         # Model resolution is centralized: the caller resolves a
         # ResolvedModelBinding (workspace binding > global config > packaged
-        # default, which defaults cc.standard to cli_default) and carries it
+        # default) and carries it
         # on the request; this adapter only translates PINNED into
-        # claude.cmd's `--model` flag, never reads config itself.
+        # claude.cmd's `--model`/`--effort` flags, never reads config itself.
         binding = request.model_binding
         model_flags: tuple[str, ...] = ()
         model_display = ""
@@ -253,6 +253,12 @@ class RealClaudeAdapter:
             assert binding.model_id is not None
             model_flags = ("--model", binding.model_id)
             model_display = f" --model {binding.model_id}"
+            if (
+                profile.supports_reasoning_effort
+                and binding.reasoning_effort is not None
+            ):
+                model_flags = (*model_flags, "--effort", binding.reasoning_effort)
+                model_display += f" --effort {binding.reasoning_effort}"
 
         if request.requested_session_action == SessionAction.RESUME:
             if session is None or session.external_session_id is None:

@@ -259,7 +259,7 @@ def test_bind_profile_rejects_empty_required_text(
         service.bind_profile(**arguments)
 
 
-def test_collect_model_status_reports_bindings_and_blank_unbound_defaults(
+def test_collect_model_status_reports_bindings_and_resolved_defaults(
     tmp_path: Path,
 ) -> None:
     service, _, _ = _service(tmp_path)
@@ -289,10 +289,17 @@ def test_collect_model_status_reports_bindings_and_blank_unbound_defaults(
     bound_row = by_peer_profile[("bound-worker", "cc.standard")]
     assert bound_row["model"] == "claude-opus-test"
     assert bound_row["effort"] == "high"
+    assert bound_row["model_source"] == "workspace"
     assert bound_row["status"] == "UNKNOWN"
 
-    for prof in ("cx.standard", "cx.effort", "cx.deepthink"):
+    expected = {
+        "cx.standard": ("gpt-6-luna", "low"),
+        "cx.effort": ("gpt-6-sol", "high"),
+        "cx.deepthink": ("gpt-6-astra", "xhigh"),
+    }
+    for prof, (model, effort) in expected.items():
         unbound_row = by_peer_profile[("unbound-worker", prof)]
-        assert unbound_row["model"] == ""
-        assert unbound_row["effort"] == ""
+        assert unbound_row["model"] == model
+        assert unbound_row["effort"] == effort
+        assert unbound_row["model_source"] == "packaged_default"
         assert unbound_row["status"] == "UNKNOWN"

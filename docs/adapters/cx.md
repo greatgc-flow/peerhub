@@ -37,25 +37,23 @@ FORBIDDEN: `--dangerously-bypass-approvals-and-sandbox`, `-s full-auto`.
 
 ## Runtime Profiles
 
-`cx.standard`, `cx.effort`, and `cx.deepthink` are generated from
-`orchestration.json`. The root default is `cx.deepthink`; hub root asks may
-automatically select a profile based on task shape.
+`cx.standard`, `cx.effort`, and `cx.deepthink` are the complete profile set
+advertised by the production Codex adapter. Model selection resolves through
+the peerhub workspace/global/packaged configuration chain.
 
-`codex debug models` and minimal profile invocations verified the current
-account/runtime catalog on 2026-07-27 (corrected from a stale 2026-07-13
-reading — Codex 0.145.0's release notes state GPT-5.6 Sol/Terra/Luna context
-windows were corrected to 272,000 tokens, confirmed live; the configured Luna/low, Terra/high, and Sol/xhigh pairs were all invoked successfully on 2026-07-27):
+`codex debug models` enumerated the current account/runtime catalog on
+2026-09-27 using Codex CLI 0.157.1. The GPT-6 family supersedes the previous
+GPT-5.6 defaults:
 
 | Profile | Model | Reasoning | CLI context |
 |---|---|---|---:|
-| `cx.standard` | `gpt-5.6-luna` | low | 272k |
-| `cx.effort` | `gpt-5.6-terra` | high | 272k |
-| `cx.deepthink` | `gpt-5.6-sol` | xhigh | 272k |
+| `cx.standard` | `gpt-6-luna` | low | 272k |
+| `cx.effort` | `gpt-6-sol` | high | 272k |
+| `cx.deepthink` | `gpt-6-astra` | xhigh | 272k |
 
-The local catalog records measured support for `low`, `medium`, `high`, `xhigh`,
-and `max` on all three `gpt-5.6` profiles. `gpt-5.6-terra` and `gpt-5.6-sol`
-also support `ultra`; `gpt-5.6-luna` does not. `model-registry.json` tracks
-the same value (`context_limit`), also corrected to 272k on 2026-07-27.
+The local catalog records `low`, `medium`, `high`, `xhigh`, and `max` for all
+three GPT-6 models. Astra and Sol additionally support `ultra`; Luna does not.
+Each catalog row reports a 272,000-token context window.
 
 ## Context and Collaboration
 

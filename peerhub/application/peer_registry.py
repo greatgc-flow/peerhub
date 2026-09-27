@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import cast
 
 from peerhub.adapters.registry import resolve_peer_adapter, resolve_peer_target
 from peerhub.core.context import Clock, IdSource
@@ -333,6 +332,12 @@ def collect_model_status(
     boundary without making the adapter descriptor a liveness claim.
     """
 
+    # Imported lazily because model_config itself depends on this module's
+    # PeerRegistryService type. Status must use the same layered resolver as
+    # dispatch or it will report blank/stale models for unbound profiles.
+    from peerhub.application.model_config import ModelConfigService
+
+    model_config = ModelConfigService(registry)
     rows: list[dict[str, JsonValue]] = []
     for node in registry.list_nodes():
         node_id_value = node.state.get("node_id")
@@ -364,49 +369,12 @@ def collect_model_status(
                 all_profile_ids.append(pid)
 
         for profile_id in all_profile_ids:
-            binding = bindings_by_profile.get(profile_id)
-            if binding is None:
-                model_id = ""
-                reasoning_effort = ""
-            else:
-                profile_value = binding.state.get("profile_id")
-                model_value = binding.state.get("model_id")
-                effort_value = binding.state.get("reasoning_effort")
-                # schema_version 1 records have no selection_mode key at
-                # all -- absent means "pinned" (they always carried a real
-                # model_id), preserving their stored model/effort as-is.
-                selection_mode_value = binding.state.get(
-                    "selection_mode", "pinned"
-                )
-                if not isinstance(profile_value, str) or not profile_value:
-                    raise InvalidMutationError(
-                        "peer profile binding has malformed profile_id"
-                    )
-                if selection_mode_value not in ("pinned", "cli_default"):
-                    raise InvalidMutationError(
-                        "peer profile binding has malformed selection_mode"
-                    )
-                if selection_mode_value == "cli_default":
-                    if model_value is not None:
-                        raise InvalidMutationError(
-                            "peer profile binding has a model_id despite "
-                            "cli_default selection_mode"
-                        )
-                elif not isinstance(model_value, str) or not model_value:
-                    raise InvalidMutationError(
-                        "peer profile binding has malformed model_id"
-                    )
-                if effort_value is not None and not isinstance(effort_value, str):
-                    raise InvalidMutationError(
-                        "peer profile binding has malformed reasoning_effort"
-                    )
-                profile_id = profile_value
-                model_id = (
-                    "(cli default)"
-                    if selection_mode_value == "cli_default"
-                    else cast(str, model_value)
-                )
-                reasoning_effort = effort_value or ""
+            resolved_model = model_config.resolve(
+                node_id=node_id_value,
+                profile_id=profile_id,
+            )
+            model_id = resolved_model.model_id or "(cli default)"
+            reasoning_effort = resolved_model.reasoning_effort or ""
 
             health_read = (
                 None
@@ -439,6 +407,7 @@ def collect_model_status(
                     "status": status,
                     "profile": profile_id,
                     "model": model_id,
+                    "model_source": resolved_model.source_layer,
                     "effort": reasoning_effort,
                     "cost": "",
                     "context": "",

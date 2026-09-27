@@ -209,6 +209,48 @@ class TestAbsentStaleDataRendering:
         # In the pool column, it should show "--" not a hardcoded percentage
         assert "100%" not in cc_line[0]
 
+    def test_absent_context_does_not_fabricate_failover_or_profiles(self, tmp_path: Path):
+        """No status input means no synthetic context or failover recommendation."""
+        (tmp_path / "_sys").mkdir(parents=True, exist_ok=True)
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=[],
+        ).collect_live_snapshot()
+
+        assert snapshot["peers"]["cc"]["context_str"] == "--"
+        assert snapshot["peers"]["cx"]["context_str"] == "--"
+        assert snapshot["failover_profile"] is None
+        assert snapshot["failover_headroom"] == "--"
+        assert "insufficient telemetry" in snapshot["failover_target"]
+        assert {row["profile"] for row in snapshot["routing_rows"]} == {
+            "ag.deepthink",
+            "cc.effort",
+            "cx.deepthink",
+        }
+
+    def test_stale_status_input_is_not_reported_as_live(self, tmp_path: Path):
+        sys_dir = tmp_path / "_sys"
+        status_path = sys_dir / "antigravity" / "config" / "status_input.log"
+        status_path.parent.mkdir(parents=True)
+        status_path.write_text(
+            '{"context_window":{"total_input_tokens":10,"context_window_size":100}}',
+            encoding="utf-8",
+        )
+        old = datetime.now(timezone.utc).timestamp() - 2 * 24 * 60 * 60
+        import os
+
+        os.utime(status_path, (old, old))
+
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=[],
+        ).collect_live_snapshot()
+
+        assert snapshot["peers"]["ag"]["context_str"] == "--"
+        assert "observed_at" not in snapshot["peers"]["ag"]
+
 
 class TestNoHardcodedPaths:
     """Test that the peerhub package contains no hard-coded Engram-specific path literals."""
