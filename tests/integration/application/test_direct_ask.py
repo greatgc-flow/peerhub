@@ -772,6 +772,10 @@ def test_direct_ask_circuit_breaker_opens_on_exhausted_failure(
     result = execute_direct_ask(req, clock=clock, ids=ids, authenticated_subject=subject)
 
     assert result.request_state != RequestState.SUCCEEDED_VERIFIED
+    # the result now carries the authoritative evidence the CLI exit code and R4 7.1 rely on
+    assert result.execution_certainty is not None
+    from peerhub.application.health_consequence import is_definitive_failure
+    assert is_definitive_failure(result.request_state, result.execution_certainty)
 
     layout = PathLayout.for_workspace(tmp_path)
     from peerhub.core.context import RuntimeContext
