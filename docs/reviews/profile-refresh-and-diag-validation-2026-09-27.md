@@ -105,3 +105,9 @@ retaining the two-second terminal repaint cadence.
 
 Follow-up validation: 2,380 passed, 7 skipped, 15 deselected, 13 subtests
 passed; pyright 0/0/0.
+
+The final live check also closed a recommendation edge case: a measured target
+with critical quota (at least 90% used) or red pacing is no longer selected
+merely because every other target lacks telemetry. The dashboard reports
+`Unavailable (no safe measured target)` and labels the row
+`Quota/pacing critical` instead.

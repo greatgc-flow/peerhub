@@ -166,6 +166,35 @@ class TestCXRealData:
         assert pool_a["remaining_fraction"] != pool_b["remaining_fraction"]
         assert pool_b["is_crit"] is True
 
+    def test_critical_cx_quota_is_not_recommended_as_failover(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A measured but exhausted target is not safer than no recommendation."""
+        (tmp_path / "_sys").mkdir(parents=True)
+        monkeypatch.setattr(
+            "peerhub.telemetry.presenter._get_cx_context",
+            lambda _sys_dir: (1_000, 100_000, 1.0),
+        )
+        projections = [
+            _make_projection("cx", "X-5H", used=0.98, remaining=0.02),
+            _make_projection("cx", "X-7D", used=0.31, remaining=0.69),
+        ]
+
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=projections,
+        ).collect_live_snapshot()
+
+        assert snapshot["failover_profile"] is None
+        assert snapshot["failover_headroom"] == "--"
+        assert snapshot["failover_target"] == "Unavailable (no safe measured target)"
+        cx_row = next(
+            row for row in snapshot["routing_rows"] if row["profile"] == "cx.deepthink"
+        )
+        assert cx_row["is_active"] is False
+        assert cx_row["notes"] == "Quota/pacing critical"
+
 
 class TestAbsentStaleDataRendering:
     """Test that absent/stale data renders honestly, not as hardcoded defaults."""

@@ -738,9 +738,18 @@ class TelemetryPresenter:
                     return float(value) if isinstance(value, (int, float)) else None
             return None
 
+        def pool_is_unsafe(peer_data: Dict[str, Any], pool_name: str) -> bool:
+            for pool in peer_data["pools"]:
+                if pool.get("name") == pool_name:
+                    return bool(pool.get("is_crit")) or pool.get("status_icon") == "🔴"
+            return False
+
         g_rem = pool_remaining(ag_data, "G-pool")
         cc_rem = pool_remaining(cc_data, "C-pool")
         cx_rem = pool_remaining(cx_data, "X-pool")
+        ag_unsafe = pool_is_unsafe(ag_data, "G-pool")
+        cc_unsafe = pool_is_unsafe(cc_data, "C-pool")
+        cx_unsafe = pool_is_unsafe(cx_data, "X-pool")
 
         ag_ctx_headroom = None if ag_pct is None else max(0, min(100, round(100.0 - ag_pct)))
         cx_ctx_headroom = None if cx_pct is None else max(0, min(100, round(100.0 - cx_pct)))
@@ -752,11 +761,11 @@ class TelemetryPresenter:
 
         candidates: dict[str, int] = {
             profile_id: value
-            for profile_id, value in (
-                ("ag.deepthink", ag_headroom),
-                ("cx.deepthink", cx_headroom),
+            for profile_id, value, unsafe in (
+                ("ag.deepthink", ag_headroom, ag_unsafe),
+                ("cx.deepthink", cx_headroom, cx_unsafe),
             )
-            if isinstance(value, int)
+            if isinstance(value, int) and not unsafe
         }
         best_target: Optional[str] = (
             max(candidates, key=lambda profile_id: candidates[profile_id])
@@ -780,9 +789,9 @@ class TelemetryPresenter:
         cc_model, cc_effort, cc_source = profile_metadata("cc.effort")
 
         routing_rows: List[Dict[str, Any]] = [
-            {"profile": "cx.deepthink", "display_name": f"cx.deepthink ({cx_model})", "model": cx_model, "model_source": cx_source, "state": "eligible", "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%" if cx_ctx_headroom is not None else "--", "effort": cx_effort, "is_active": best_target == "cx.deepthink"},
-            {"profile": "ag.deepthink", "display_name": f"ag.deepthink ({ag_model})", "model": ag_model, "model_source": ag_source, "state": "eligible", "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%" if ag_ctx_headroom is not None else "--", "effort": ag_effort, "is_active": best_target == "ag.deepthink"},
-            {"profile": "cc.effort", "display_name": f"cc.effort ({cc_model})", "model": cc_model, "model_source": cc_source, "state": "eligible", "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%" if cc_ctx_headroom is not None else "--", "effort": cc_effort, "is_active": False},
+            {"profile": "cx.deepthink", "display_name": f"cx.deepthink ({cx_model})", "model": cx_model, "model_source": cx_source, "state": "eligible", "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%" if cx_ctx_headroom is not None else "--", "effort": cx_effort, "is_active": best_target == "cx.deepthink", "quota_unsafe": cx_unsafe},
+            {"profile": "ag.deepthink", "display_name": f"ag.deepthink ({ag_model})", "model": ag_model, "model_source": ag_source, "state": "eligible", "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%" if ag_ctx_headroom is not None else "--", "effort": ag_effort, "is_active": best_target == "ag.deepthink", "quota_unsafe": ag_unsafe},
+            {"profile": "cc.effort", "display_name": f"cc.effort ({cc_model})", "model": cc_model, "model_source": cc_source, "state": "eligible", "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%" if cc_ctx_headroom is not None else "--", "effort": cc_effort, "is_active": False, "quota_unsafe": cc_unsafe},
         ]
         
         for row in routing_rows:
@@ -790,6 +799,8 @@ class TelemetryPresenter:
                 row["notes"] = (
                     "Weekly Limit Hit"
                     if cc_rem == 0.0
+                    else "Quota/pacing critical"
+                    if row["quota_unsafe"]
                     else "Insufficient telemetry"
                     if row["headroom"] == "--"
                     else "Configured"
@@ -798,15 +809,26 @@ class TelemetryPresenter:
                 row["notes"] = (
                     "Active Failover Target"
                     if row["is_active"]
+                    else "Quota/pacing critical"
+                    if row["quota_unsafe"]
                     else "Insufficient telemetry"
                     if row["headroom"] == "--"
                     else "Secondary Tier"
                 )
 
         _failover_display_names = {"cx.deepthink": "CX (Codex)", "ag.deepthink": "AG (Gemini)"}
+        has_unsafe_measured_target = any(
+            isinstance(value, int) and unsafe
+            for value, unsafe in (
+                (ag_headroom, ag_unsafe),
+                (cx_headroom, cx_unsafe),
+            )
+        )
         failover_target = (
             _failover_display_names[best_target]
             if best_target is not None
+            else "Unavailable (no safe measured target)"
+            if has_unsafe_measured_target
             else "Unknown (insufficient telemetry)"
         )
         return {
