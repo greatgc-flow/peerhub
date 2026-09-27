@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.application.config_validate import validate_workspace_config
+from peerhub.cli import main
 
 
 def _report(reports, name):
@@ -101,3 +102,22 @@ def test_config_family_report_as_dict_round_trips() -> None:
         "detail": "resolves OK",
         "winning_layer": {"a": "workspace"},
     }
+
+
+def test_cli_validate_defaults_to_resolved_current_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["config", "validate", "--json"]) == 0
+    reports = json.loads(capsys.readouterr().out)
+
+    assert [report["name"] for report in reports] == [
+        "models.toml",
+        "ask.toml",
+        "arbiter.json",
+        "proposals.json",
+    ]
+    assert all(report["ok"] for report in reports)

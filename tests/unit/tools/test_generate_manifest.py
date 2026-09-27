@@ -26,7 +26,7 @@ DEFAULT_SYS_DIR = gen_mod.DEFAULT_SYS_DIR
 
 
 @pytest.mark.skipif(
-    not (DEFAULT_SYS_DIR / "core" / "hub.py").exists(),
+    DEFAULT_SYS_DIR is None or not (DEFAULT_SYS_DIR / "core" / "hub.py").exists(),
     reason=(
         "Legacy hub.py was removed by the 2026-08-19 Engram/peerhub separation. "
         "This generator exists to map hub.py's surface during migration; with "
@@ -35,6 +35,7 @@ DEFAULT_SYS_DIR = gen_mod.DEFAULT_SYS_DIR
     ),
 )
 def test_generator_runs_and_produces_valid_manifest(tmp_path: Path) -> None:
+    assert DEFAULT_SYS_DIR is not None
     temp_output = tmp_path / "test-surface-manifest.json"
     manifest = generate_manifest(sys_dir=DEFAULT_SYS_DIR, output_path=temp_output)
 

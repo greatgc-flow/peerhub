@@ -4,8 +4,8 @@ generate_drift_report.py - Automated Drift Report Generator (Stage 0 Artifact)
 Usage going forward:
 1. Copy the current surface manifest to a backup:
    cp docs/history/design/phase0/legacy-hub-surface-current.json docs/history/design/phase0/legacy-hub-surface-old.json
-2. Regenerate artifact 1 (the current state):
-   python tools/surface_manifest/generate_manifest.py
+2. Regenerate artifact 1 from an explicitly retained legacy archive:
+   python tools/surface_manifest/generate_manifest.py --sys-dir <legacy-sys-dir>
 3. Run this drift tool comparing old vs new:
    python tools/drift_report/generate_drift_report.py \\
        docs/history/design/phase0/legacy-hub-surface-old.json \\

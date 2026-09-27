@@ -1,13 +1,15 @@
 """
 generate_manifest.py - Legacy Hub Surface Manifest Generator (Stage 0 Artifact)
 
-Machine-generates legacy-hub-surface-current.json by statically analyzing P:\\_sys\\core\\hub.py,
+Machine-generates legacy-hub-surface-current.json by statically analyzing an
+explicitly supplied legacy ``_sys/core/hub.py`` archive,
 its argparse setup, action dispatch table, helper call graphs, state interactions, and runtime --help receipt.
 
 Usage:
-    python tools/surface_manifest/generate_manifest.py [--output OUT_PATH]
+    python tools/surface_manifest/generate_manifest.py --sys-dir LEGACY_SYS_DIR [--output OUT_PATH]
 """
 import ast
+import argparse
 import hashlib
 import json
 import os
@@ -21,7 +23,11 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 # Default canonical locations
 SCRIPT_DIR = Path(__file__).resolve().parent
 PEERHUB_ROOT = SCRIPT_DIR.parent.parent
-DEFAULT_SYS_DIR = Path("P:/_sys")
+DEFAULT_SYS_DIR = (
+    Path(os.environ["PEERHUB_LEGACY_SYS_DIR"])
+    if os.environ.get("PEERHUB_LEGACY_SYS_DIR")
+    else None
+)
 DEFAULT_OUTPUT_PATH = PEERHUB_ROOT / "docs" / "history" / "design" / "phase0" / "legacy-hub-surface-current.json"
 
 
@@ -318,7 +324,7 @@ def get_normalized_help_receipt(hub_py: Path) -> Dict[str, str]:
         }
 
 
-def generate_manifest(sys_dir: Path = DEFAULT_SYS_DIR, output_path: Path = DEFAULT_OUTPUT_PATH) -> Dict[str, Any]:
+def generate_manifest(sys_dir: Path, output_path: Path = DEFAULT_OUTPUT_PATH) -> Dict[str, Any]:
     """Main generator function for legacy-hub-surface-current.json."""
     hub_py = sys_dir / "core" / "hub.py"
     hub_peer_py = sys_dir / "core" / "hub_peer.py"
@@ -462,12 +468,26 @@ def generate_manifest(sys_dir: Path = DEFAULT_SYS_DIR, output_path: Path = DEFAU
 
 
 if __name__ == "__main__":
-    out_file = DEFAULT_OUTPUT_PATH
-    if len(sys.argv) > 1 and sys.argv[1] == "--output" and len(sys.argv) > 2:
-        out_file = Path(sys.argv[2])
+    parser = argparse.ArgumentParser(
+        description="Generate a historical surface manifest from an archived legacy hub tree."
+    )
+    parser.add_argument(
+        "--sys-dir",
+        type=Path,
+        default=DEFAULT_SYS_DIR,
+        help=(
+            "Path to the archived legacy _sys tree containing core/hub.py "
+            "(or set PEERHUB_LEGACY_SYS_DIR)"
+        ),
+    )
+    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
+    args = parser.parse_args()
+    if args.sys_dir is None:
+        parser.error("--sys-dir is required when PEERHUB_LEGACY_SYS_DIR is not set")
 
-    print(f"Generating legacy hub surface manifest from {DEFAULT_SYS_DIR / 'core' / 'hub.py'}...")
-    manifest_data = generate_manifest(output_path=out_file)
+    out_file = args.output
+    print(f"Generating legacy hub surface manifest from {args.sys_dir / 'core' / 'hub.py'}...")
+    manifest_data = generate_manifest(sys_dir=args.sys_dir, output_path=out_file)
 
     print("\n--- Manifest Generation Headline Summary ---")
     print(f"Output Path:          {out_file}")

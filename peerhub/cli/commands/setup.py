@@ -221,7 +221,8 @@ def run_config_migrate(parsed: argparse.Namespace, cli: ModuleType) -> int:
 def run_config_validate(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.config_validate import validate_workspace_config
 
-    reports = validate_workspace_config(cli.Path(parsed.workspace).resolve())
+    workspace_root = resolve_workspace(parsed.workspace).root
+    reports = validate_workspace_config(workspace_root)
     if parsed.json:
         print(cli.json.dumps([report.as_dict() for report in reports], indent=2))
     else:

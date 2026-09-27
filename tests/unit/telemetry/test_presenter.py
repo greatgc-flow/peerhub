@@ -6,6 +6,7 @@ Tests verify:
 (c) No hard-coded P:/D:/_sys Engram-specific path literals in package source.
 """
 
+import json
 import re
 import pytest
 from pathlib import Path
@@ -193,8 +194,163 @@ class TestCXRealData:
             row for row in snapshot["routing_rows"] if row["profile"] == "cx.deepthink"
         )
         assert cx_row["is_active"] is False
+        assert cx_row["state"] == "quota_critical"
         assert cx_row["notes"] == "Quota/pacing critical"
 
+    def test_five_hour_red_pacing_blocks_failover_even_when_weekly_is_safe(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Worst-of-window pacing, not only the 7D indicator, gates routing."""
+        (tmp_path / "_sys").mkdir(parents=True)
+        monkeypatch.setattr(
+            "peerhub.telemetry.presenter._get_cx_context",
+            lambda _sys_dir: (1_000, 100_000, 1.0),
+        )
+        now = int(datetime.now(timezone.utc).timestamp())
+        projections = [
+            _make_projection(
+                "cx", "X-5H", used=0.50, remaining=0.50,
+                resets_at=now + int(3.75 * 60 * 60),
+            ),
+            _make_projection(
+                "cx", "X-7D", used=0.10, remaining=0.90,
+                resets_at=now + int(3.5 * 24 * 60 * 60),
+            ),
+        ]
+
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=projections,
+        ).collect_live_snapshot()
+
+        cx_pool = snapshot["peers"]["cx"]["pools"][0]
+        assert cx_pool["status_icon"] == "🔴"
+        assert cx_pool["is_crit"] is False
+        assert snapshot["failover_profile"] is None
+        cx_row = next(
+            row for row in snapshot["routing_rows"] if row["profile"] == "cx.deepthink"
+        )
+        assert cx_row["state"] == "quota_critical"
+        assert cx_row["notes"] == "Quota/pacing critical"
+
+    def test_critical_quota_without_context_is_unavailable_not_unknown(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        (tmp_path / "_sys").mkdir(parents=True)
+        monkeypatch.setattr(
+            "peerhub.telemetry.presenter._get_cx_context",
+            lambda _sys_dir: None,
+        )
+        projections = [
+            _make_projection("cx", "X-5H", used=0.95, remaining=0.05),
+            _make_projection("cx", "X-7D", used=0.25, remaining=0.75),
+        ]
+
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=projections,
+        ).collect_live_snapshot()
+
+        assert snapshot["routing_rows"][0]["headroom"] == "--"
+        assert snapshot["routing_rows"][0]["state"] == "quota_critical"
+        assert snapshot["failover_profile"] is None
+        assert snapshot["failover_target"] == "Unavailable (no safe measured target)"
+
+
+class TestAGRealData:
+    def test_five_hour_red_pacing_blocks_ag_failover_when_weekly_is_safe(
+        self, tmp_path: Path,
+    ) -> None:
+        sys_dir = tmp_path / "_sys"
+        ag_log = sys_dir / "data" / "temp" / "ag_statusline_stdin.log"
+        ag_log.parent.mkdir(parents=True)
+        ag_log.write_text(
+            json.dumps({
+                "context_window": {
+                    "total_input_tokens": 1_000,
+                    "context_window_size": 100_000,
+                },
+                "quota": {
+                    "gemini-5h": {
+                        "remaining_fraction": 0.50,
+                        "reset_in_seconds": int(3.75 * 60 * 60),
+                    },
+                    "gemini-weekly": {
+                        "remaining_fraction": 0.90,
+                        "reset_in_seconds": int(3.5 * 24 * 60 * 60),
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=[],
+        ).collect_live_snapshot()
+
+        g_pool = next(
+            pool for pool in snapshot["peers"]["ag"]["pools"]
+            if pool["name"] == "G-pool"
+        )
+        assert g_pool["status_icon"] == "🔴"
+        assert g_pool["is_crit"] is False
+        assert snapshot["failover_profile"] is None
+        ag_row = next(
+            row for row in snapshot["routing_rows"] if row["profile"] == "ag.deepthink"
+        )
+        assert ag_row["state"] == "quota_critical"
+        assert ag_row["notes"] == "Quota/pacing critical"
+
+    def test_safe_ag_is_selected_when_cx_is_unsafe(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        sys_dir = tmp_path / "_sys"
+        ag_log = sys_dir / "data" / "temp" / "ag_statusline_stdin.log"
+        ag_log.parent.mkdir(parents=True)
+        ag_log.write_text(
+            json.dumps({
+                "context_window": {
+                    "total_input_tokens": 1_000,
+                    "context_window_size": 100_000,
+                },
+                "quota": {
+                    "gemini-5h": {
+                        "remaining_fraction": 0.90,
+                        "reset_in_seconds": 0,
+                    },
+                    "gemini-weekly": {
+                        "remaining_fraction": 0.90,
+                        "reset_in_seconds": 0,
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "peerhub.telemetry.presenter._get_cx_context",
+            lambda _sys_dir: (1_000, 100_000, 1.0),
+        )
+        projections = [
+            _make_projection("cx", "X-5H", used=0.95, remaining=0.05),
+            _make_projection("cx", "X-7D", used=0.25, remaining=0.75),
+        ]
+
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=projections,
+        ).collect_live_snapshot()
+
+        assert snapshot["failover_profile"] == "ag.deepthink"
+        assert snapshot["failover_target"] == "AG (Gemini)"
+        rows = {row["profile"]: row for row in snapshot["routing_rows"]}
+        assert rows["ag.deepthink"]["is_active"] is True
+        assert rows["ag.deepthink"]["state"] == "eligible"
+        assert rows["cx.deepthink"]["state"] == "quota_critical"
 
 class TestAbsentStaleDataRendering:
     """Test that absent/stale data renders honestly, not as hardcoded defaults."""

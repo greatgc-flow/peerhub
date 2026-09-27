@@ -328,6 +328,10 @@ def _format_countdown(target: Any, now: Optional[datetime] = None) -> str:
     return f"in {secs}s"
 
 
+def _pacing_indicator(ratio: float) -> str:
+    return "🟢" if ratio <= 1.0 else "🟡" if ratio <= 1.15 else "🔴"
+
+
 def _calculate_pacing(used_frac: float, remaining_sec: Optional[float], window_hours: float) -> Tuple[float, str, str]:
     """Calculate pacing ratio, status and emoji indicator matching canonical formula."""
     window_sec = window_hours * 3600.0
@@ -337,7 +341,7 @@ def _calculate_pacing(used_frac: float, remaining_sec: Optional[float], window_h
     elapsed_frac = elapsed_sec / window_sec
     ratio = round(used_frac / elapsed_frac, 2) if elapsed_frac > 0 else 0.0
     status = "safe" if ratio <= 1.0 else ("warn" if ratio <= 1.15 else "danger")
-    indicator = "🟢" if status == "safe" else ("🟡" if status == "warn" else "🔴")
+    indicator = _pacing_indicator(ratio)
     return ratio, status, indicator
 
 
@@ -385,23 +389,23 @@ def _build_pool_pair_from_projections(
         sd_used_frac = proj_7d.used_fraction
         sd_remaining_frac = proj_7d.remaining_fraction
         sd_remaining_sec: Optional[float] = max(0.0, float(proj_7d.resets_at) - now_ts) if proj_7d.resets_at > 0 else None
-        sd_ratio, _, sd_ind = _calculate_pacing(sd_used_frac, sd_remaining_sec, 168.0)
+        sd_ratio, _, _ = _calculate_pacing(sd_used_frac, sd_remaining_sec, 168.0)
         sd_str = f"{sd_used_frac*100:.0f}% ({sd_ratio:.2f}x)"
         reset_ts = proj_7d.resets_at
     else:
         sd_used_frac = 0.0
         sd_remaining_frac = 1.0
         sd_ratio = 0.0
-        sd_ind = "🟢"
         sd_str = "--"
         reset_ts = proj_5h.resets_at if proj_5h is not None else 0
 
     is_crit = sd_used_frac >= 0.90 or fh_used_frac >= 0.90
     max_ratio = max(fh_ratio, sd_ratio)
+    status_icon = _pacing_indicator(max_ratio)
 
     return {
         "name": pool_name,
-        "status_icon": sd_ind,
+        "status_icon": status_icon,
         "exh_str": f"{max_ratio:.2f}x",
         "five_h": fh_str,
         "seven_d": sd_str,
@@ -564,13 +568,13 @@ class TelemetryPresenter:
                 p3_5h_sec = p3_5h.get("reset_in_seconds")
                 p3_wk_sec = p3_wk.get("reset_in_seconds")
                 p3_5h_ratio, _, _ = _calculate_pacing(p3_5h_used_frac, p3_5h_sec, 5.0)
-                p3_wk_ratio, _, p3_wk_ind = _calculate_pacing(p3_wk_used_frac, p3_wk_sec, 168.0)
+                p3_wk_ratio, _, _ = _calculate_pacing(p3_wk_used_frac, p3_wk_sec, 168.0)
                 p3_reset = p3_wk.get("reset_time") or p3_5h.get("reset_time")
                 p3_crit = p3_wk_used_frac >= 0.90 or p3_5h_used_frac >= 0.90
 
                 ag_data["pools"].append({
                     "name": "3P-pool",
-                    "status_icon": p3_wk_ind,
+                    "status_icon": _pacing_indicator(max(p3_5h_ratio, p3_wk_ratio)),
                     "exh_str": f"{max(p3_5h_ratio, p3_wk_ratio):.2f}x",
                     "five_h": f"{p3_5h_used_frac*100:.0f}% ({p3_5h_ratio:.2f}x)",
                     "seven_d": f"{p3_wk_used_frac*100:.0f}% ({p3_wk_ratio:.2f}x)",
@@ -590,13 +594,13 @@ class TelemetryPresenter:
                 g_5h_sec = g_5h.get("reset_in_seconds")
                 g_wk_sec = g_wk.get("reset_in_seconds")
                 g_5h_ratio, _, _ = _calculate_pacing(g_5h_used_frac, g_5h_sec, 5.0)
-                g_wk_ratio, _, g_wk_ind = _calculate_pacing(g_wk_used_frac, g_wk_sec, 168.0)
+                g_wk_ratio, _, _ = _calculate_pacing(g_wk_used_frac, g_wk_sec, 168.0)
                 g_reset = g_5h.get("reset_time") or g_wk.get("reset_time")
                 g_crit = g_wk_used_frac >= 0.90 or g_5h_used_frac >= 0.90
 
                 ag_data["pools"].append({
                     "name": "G-pool",
-                    "status_icon": g_wk_ind,
+                    "status_icon": _pacing_indicator(max(g_5h_ratio, g_wk_ratio)),
                     "exh_str": f"{max(g_5h_ratio, g_wk_ratio):.2f}x",
                     "five_h": f"{g_5h_used_frac*100:.0f}% ({g_5h_ratio:.2f}x)",
                     "seven_d": f"{g_wk_used_frac*100:.0f}% ({g_wk_ratio:.2f}x)",
@@ -788,10 +792,17 @@ class TelemetryPresenter:
         ag_model, ag_effort, ag_source = profile_metadata("ag.deepthink")
         cc_model, cc_effort, cc_source = profile_metadata("cc.effort")
 
+        def routing_state(unsafe: bool, headroom: int | str) -> str:
+            if unsafe:
+                return "quota_critical"
+            if headroom == "--":
+                return "telemetry_unknown"
+            return "eligible"
+
         routing_rows: List[Dict[str, Any]] = [
-            {"profile": "cx.deepthink", "display_name": f"cx.deepthink ({cx_model})", "model": cx_model, "model_source": cx_source, "state": "eligible", "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%" if cx_ctx_headroom is not None else "--", "effort": cx_effort, "is_active": best_target == "cx.deepthink", "quota_unsafe": cx_unsafe},
-            {"profile": "ag.deepthink", "display_name": f"ag.deepthink ({ag_model})", "model": ag_model, "model_source": ag_source, "state": "eligible", "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%" if ag_ctx_headroom is not None else "--", "effort": ag_effort, "is_active": best_target == "ag.deepthink", "quota_unsafe": ag_unsafe},
-            {"profile": "cc.effort", "display_name": f"cc.effort ({cc_model})", "model": cc_model, "model_source": cc_source, "state": "eligible", "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%" if cc_ctx_headroom is not None else "--", "effort": cc_effort, "is_active": False, "quota_unsafe": cc_unsafe},
+            {"profile": "cx.deepthink", "display_name": f"cx.deepthink ({cx_model})", "model": cx_model, "model_source": cx_source, "state": routing_state(cx_unsafe, cx_headroom), "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%" if cx_ctx_headroom is not None else "--", "effort": cx_effort, "is_active": best_target == "cx.deepthink", "quota_unsafe": cx_unsafe},
+            {"profile": "ag.deepthink", "display_name": f"ag.deepthink ({ag_model})", "model": ag_model, "model_source": ag_source, "state": routing_state(ag_unsafe, ag_headroom), "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%" if ag_ctx_headroom is not None else "--", "effort": ag_effort, "is_active": best_target == "ag.deepthink", "quota_unsafe": ag_unsafe},
+            {"profile": "cc.effort", "display_name": f"cc.effort ({cc_model})", "model": cc_model, "model_source": cc_source, "state": routing_state(cc_unsafe, cc_headroom), "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%" if cc_ctx_headroom is not None else "--", "effort": cc_effort, "is_active": False, "quota_unsafe": cc_unsafe},
         ]
         
         for row in routing_rows:
@@ -817,13 +828,7 @@ class TelemetryPresenter:
                 )
 
         _failover_display_names = {"cx.deepthink": "CX (Codex)", "ag.deepthink": "AG (Gemini)"}
-        has_unsafe_measured_target = any(
-            isinstance(value, int) and unsafe
-            for value, unsafe in (
-                (ag_headroom, ag_unsafe),
-                (cx_headroom, cx_unsafe),
-            )
-        )
+        has_unsafe_measured_target = ag_unsafe or cx_unsafe
         failover_target = (
             _failover_display_names[best_target]
             if best_target is not None
