@@ -1,7 +1,8 @@
-# Cutover readiness — state after the overnight wiring run (2026-09-27)
+# Cutover completion — Engram + peerhub (2026-09-27)
 
-Scope: retiring `P:\_sys\core\hub.py` in favor of Engram + peerhub. **The cutover itself has NOT been
-executed.** This records what is wired, what is deliberately different, and what needs a human decision.
+Scope: retiring `P:\_sys\core\hub.py` in favor of Engram + peerhub. **The filesystem and runtime cutover
+was completed on 2026-09-27.** This records what is wired, what is deliberately different, what was
+retired, and which product follow-ups remain outside the cutover.
 
 ## Wired from the ratified design (GOVERNANCE-DISPATCH R4/R10)
 | Item | Where | Status |
@@ -43,8 +44,19 @@ executed.** This records what is wired, what is deliberately different, and what
 * cx.astra confirmation of the batch-E consensus fixes (quota); multiprocess WAL fencing against a
   restarted old binary; real credential/health lifecycle races.
 
-## The cutover itself (not started)
-Environment move (`_sys/claude` -> `.engram/claude`, incl. the Claude Code `projects/<slug>` memory folder
-rename), retiring `hub.py`, updating peers' invocation from `hub.py ask` to `peerhub ask`, and shadow
-validation ("hub.py remains authoritative until shadow validation" — peerhub backlog). Needs a planned
-window; it would disrupt the running session.
+## Cutover execution (completed 2026-09-27)
+* The active environment is the Engram-managed portable root. Claude, Codex, Antigravity, and peerhub
+  resolve their configuration beneath `.engram`; peerhub discovers all three active adapters there.
+* peerhub was force-reinstalled from the current `main` checkout and its installed runtime files were
+  hash-compared with that checkout. Engram `doctor` reports the active environment healthy.
+* The legacy `P:` registration was cleanly unregistered, including its host integrations. The legacy
+  combined tree and the superseded standalone Engram tree were removed after their Git histories and
+  private state had been preserved.
+* Every local-only Git tip from the legacy trees was pushed to a dated `archive/` branch. Complete Git
+  bundles were also verified before deletion, so retirement did not discard repository history.
+* Validation at the cutover revision completed with 584 passed / 3 skipped / 6 xfailed for Engram and
+  2,372 passed / 6 skipped / 15 deselected / 13 subtests passed for peerhub; pyright reported zero
+  errors and warnings.
+
+The items under **Still open** are post-cutover product increments. They do not require retaining
+`hub.py`, the `P:` mapping, or either retired filesystem tree.
