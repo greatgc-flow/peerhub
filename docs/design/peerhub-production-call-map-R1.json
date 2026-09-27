@@ -1712,6 +1712,49 @@
           },
           {
             "action": "_StoreAction",
+            "choices": [
+              "reuse",
+              "auto",
+              "fresh"
+            ],
+            "default": null,
+            "dest": "session_policy",
+            "help": "Conversation policy (needs --session-id or --room-id): reuse resumes the bound session, fresh starts the next generation, auto follows the workspace policy (session.default_mode)",
+            "nargs": null,
+            "option_strings": [
+              "--session-policy"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "session_id",
+            "help": "Conversation scope to bind/resume",
+            "nargs": null,
+            "option_strings": [
+              "--session-id"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "room_id",
+            "help": "Room whose conversation scope to use",
+            "nargs": null,
+            "option_strings": [
+              "--room-id"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreAction",
             "choices": null,
             "default": 60,
             "dest": "timeout_seconds",
@@ -2455,11 +2498,12 @@
               "agree",
               "disagree",
               "abstain",
-              "need_more_info"
+              "need_more_info",
+              "block"
             ],
             "default": null,
             "dest": "choice",
-            "help": "Vote choice",
+            "help": "Vote choice (block = typed integrity/safety veto, V2 rounds)",
             "nargs": null,
             "option_strings": [
               "--choice"

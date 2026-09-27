@@ -44,6 +44,17 @@ class ConsensusFacade:
         # frozen round policy comes from resolved configuration, never literals.
         self._policy_provider = policy_provider
 
+    # -- V2-only helpers ------------------------------------------------------
+    def is_v2(self) -> bool:
+        """True once the V2 engine is active (rounds created through ``propose_v2``)."""
+        return bool(self._is_v2_active())
+
+    def propose_v2(self, *args: Any, **kwargs: Any) -> MutationSubmission:
+        """Create a V2 round directly with an explicit frozen policy config (fails closed pre-activation)."""
+        if not self._is_v2_active():
+            raise UnsupportedV2Operation("consensus V2 is not active")
+        return self._shell.propose_v2(*args, **kwargs)
+
     # -- reads / pure helpers -------------------------------------------------
     def get_target(self, round_id: str) -> TargetState | None:
         return self._legacy.get_target(round_id)

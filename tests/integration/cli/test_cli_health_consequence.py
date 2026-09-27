@@ -50,3 +50,37 @@ def test_each_failure_is_its_own_review_hc07(ws):
     main(["ask", "cx", "one", "--workspace", str(ws)])
     main(["ask", "cx", "two", "--workspace", str(ws)])
     assert len(_review_targets(ws)) == 2
+
+
+def test_broadcast_creates_one_review_per_definitively_failed_leg_only(ws, monkeypatch, capsys):
+    from peerhub.application.broadcast import BroadcastLegResult
+
+    def leg(target, state, cert, req_state):
+        return BroadcastLegResult(
+            target=target, leg_state=state, command_id="c", response_text=None,
+            peer_kind=target.split(".")[0], profile_id=target, request_state=req_state,
+            execution_certainty=cert, error_code=None,
+        )
+
+    legs = [
+        leg("cx.standard", "failed", ExecutionCertainty.TERMINAL, RequestState.FAILED),          # definitive
+        leg("ag.standard", "failed", ExecutionCertainty.MAY_HAVE_STARTED, RequestState.START_UNCERTAIN),  # uncertain
+        leg("cc.standard", "failed", ExecutionCertainty.NOT_STARTED, RequestState.FAILED_PRE_DISPATCH),   # unstarted
+        BroadcastLegResult(target="cx.effort", leg_state="completed", command_id="c", response_text="ok"),
+    ]
+
+    class FakeCoordinator:
+        def __init__(self, **kw):
+            pass
+
+        def fan_out(self, request):
+            class R:
+                round_id = "r"
+                disposition = "partial"
+            R.legs = legs
+            return R()
+
+    monkeypatch.setattr("peerhub.application.broadcast.BroadcastCoordinator", FakeCoordinator)
+    main(["broadcast", "hi", "--peers", "cx,ag,cc", "--workspace", str(ws)])
+    reviews = _review_targets(ws)
+    assert [r.state["peer_key"] for r in reviews] == ["cx"]

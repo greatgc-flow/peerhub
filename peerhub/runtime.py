@@ -69,6 +69,7 @@ class Runtime:
     state_store: SqliteStateStore
     governance_broker: GovernanceBroker
     consensus_service: ConsensusService
+    consensus_facade: ConsensusFacade
     task_service: TaskService
     lesson_service: LessonService
     directive_service: DirectiveService
@@ -519,6 +520,7 @@ def _compose_runtime(
         state_store=state_store,
         governance_broker=governance_broker,
         consensus_service=consensus_service,
+        consensus_facade=consensus_facade,
         task_service=task_service,
         lesson_service=lesson_service,
         directive_service=directive_service,

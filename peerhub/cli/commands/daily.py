@@ -8,6 +8,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Mapping, cast
 
+from peerhub.adapters.contract import SessionAction
 from peerhub.application.consultation_gate import evaluate_consultation
 from peerhub.application.ingress import InputContractError, resolve_prompt_input
 from peerhub.cli.context import resolve_workspace
@@ -137,18 +138,110 @@ def register_ask_command(
         "--effort-routing", default=None, choices=("off", "advisory", "opt-in"),
         help="Override routing.effort_routing for this call (default from policy: advisory)",
     )
+    ask_parser.add_argument(
+        "--session-policy", default=None, choices=("reuse", "auto", "fresh"),
+        help="Conversation policy (needs --session-id or --room-id): reuse resumes the bound "
+        "session, fresh starts the next generation, auto follows the workspace policy "
+        "(session.default_mode)",
+    )
+    ask_parser.add_argument("--session-id", default=None, help="Conversation scope to bind/resume")
+    ask_parser.add_argument("--room-id", default=None, help="Room whose conversation scope to use")
     ask_parser.add_argument("--timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
     ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
     add_json_arg(ask_parser, help="Emit JSON")
 
 
+def run_consultation_gate(
+    *, decision: Any, action: str, prompt: str, cli: ModuleType, workspace_root: Path,
+    paths: Any, subject: Any,
+) -> None:
+    """R4 8.1: REVIEW/QUORUM/UNANIMOUS run a consultation round before dispatch (or hold it)."""
+
+    from peerhub.application.consensus_policy import ConsensusPolicyProvider
+    from peerhub.application.consultation_round import ConsultationError, run_consultation
+    from peerhub.application.proposals import load_proposal_voters
+
+    if not paths.database_path.exists():
+        raise ConsultationError(
+            "consultation needs an initialized workspace store; run `peerhub workspace init` first"
+        )
+    context = cli.RuntimeContext(
+        workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+        paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+    )
+    with cli.create_runtime(context) as runtime:
+        outcome = run_consultation(
+            depth=decision.depth, action=action, prompt=prompt, workspace_root=workspace_root,
+            runtime=runtime, proposer=str(getattr(subject, "principal_id", f"system:{action}")),
+            voters=load_proposal_voters(workspace_root), timeout_seconds=decision.timeout_seconds,
+            write=lambda line: print(f"peerhub {action}: {line}", file=cli.sys.stderr),
+            policy_provider=ConsensusPolicyProvider.for_workspace(workspace_root),
+        )
+    print(f"peerhub {action}: {outcome.reason}", file=cli.sys.stderr)
+    if not outcome.proceed:
+        raise ConsultationError(outcome.reason)
+
+
+def record_notification(
+    *, action: str, prompt: str, cli: ModuleType, workspace_root: Path, paths: Any, subject: Any
+) -> None:
+    """R4 CD-NF-01..03: NOTIFY records a durable notification target, never blocks dispatch."""
+
+    from peerhub.application.notification import create_notification_target
+    from peerhub.application.proposals import load_proposal_voters
+
+    try:
+        if not paths.database_path.exists():
+            return  # no workspace store yet; NOTIFY stays non-blocking
+        context = cli.RuntimeContext(
+            workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+            paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+        )
+        with cli.create_runtime(context) as runtime:
+            create_notification_target(
+                runtime.governance_broker,
+                clock=context.clock, ids=context.ids,
+                action=action, prompt=prompt,
+                recipients=load_proposal_voters(workspace_root),
+                actor_id=str(getattr(subject, "principal_id", f"system:{action}")),
+            )
+    except Exception as error:  # non-blocking by definition
+        print(f"peerhub {action}: notification target not recorded: {error}", file=cli.sys.stderr)
+
+
 def apply_health_consequence(
     result: Any, cli: ModuleType, workspace_root: Path, paths: Any, subject: Any
 ) -> None:
+    """R4 7.1 for a single ``ask`` outcome."""
+
+    record_health_consequence(
+        action="ask",
+        peer_kind=str(result.peer_kind),
+        profile_id=str(result.profile_id),
+        request_state=result.request_state,
+        execution_certainty=result.execution_certainty,
+        error_code=result.error_code,
+        cli=cli, workspace_root=workspace_root, paths=paths, subject=subject,
+    )
+
+
+def record_health_consequence(
+    *,
+    action: str,
+    peer_kind: str,
+    profile_id: str,
+    request_state: Any,
+    execution_certainty: Any,
+    error_code: Any,
+    cli: ModuleType,
+    workspace_root: Path,
+    paths: Any,
+    subject: Any,
+) -> None:
     """R4 7.1: a definitive dispatch failure may create a quarantine-review target.
 
-    Best effort by design: the operator-visible ask outcome and exit code never depend on it.
+    Best effort by design: the operator-visible outcome and exit code never depend on it.
     """
 
     from peerhub.application.config_paths import (
@@ -163,12 +256,12 @@ def apply_health_consequence(
             resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
             resolve_global_config_home().path / "dispatch-policy.toml",
         )
-        mode = str(resolver.resolve("ask").health_consequence.default_consequence.value)
+        mode = str(resolver.resolve(action).health_consequence.default_consequence.value)
         if not needs_review(
             mode,
-            request_state=result.request_state,
-            execution_certainty=result.execution_certainty,
-            error_code=result.error_code,
+            request_state=request_state,
+            execution_certainty=execution_certainty,
+            error_code=error_code,
         ):
             return
         if not paths.database_path.exists():
@@ -180,19 +273,42 @@ def apply_health_consequence(
         with cli.create_runtime(context) as runtime:
             record_dispatch_failure(
                 runtime.operational_error_service,
-                peer_key=str(result.peer_kind),
-                profile_id=str(result.profile_id),
-                request_state=result.request_state,
-                error_code=result.error_code,
-                actor_id=str(getattr(subject, "principal_id", "system:ask")),
+                peer_key=peer_kind,
+                profile_id=profile_id,
+                request_state=request_state,
+                error_code=error_code,
+                actor_id=str(getattr(subject, "principal_id", f"system:{action}")),
             )
         print(
-            f"peerhub ask: quarantine-review requested for {result.peer_kind} "
+            f"peerhub {action}: quarantine-review requested for {peer_kind} "
             f"(health_consequence={mode})",
             file=cli.sys.stderr,
         )
-    except Exception as error:  # never let bookkeeping change the ask outcome
-        print(f"peerhub ask: health consequence not recorded: {error}", file=cli.sys.stderr)
+    except Exception as error:  # never let bookkeeping change the outcome
+        print(f"peerhub {action}: health consequence not recorded: {error}", file=cli.sys.stderr)
+
+
+def resolve_session_policy(parsed: argparse.Namespace, workspace_root: Path) -> str:
+    """``--session-policy`` else the layered ``session.default_mode`` (built-in default: auto)."""
+
+    explicit = getattr(parsed, "session_policy", None)
+    if explicit is not None:
+        return str(explicit)
+    from peerhub.application.config_paths import (
+        resolve_global_config_home,
+        resolve_workspace_config_home,
+    )
+    from peerhub.core.errors import ConfigurationError
+    from peerhub.dispatch.policy_resolver import PolicyResolver
+
+    try:
+        resolver = PolicyResolver(
+            resolve_workspace_config_home(workspace_root).path / "dispatch-policy.toml",
+            resolve_global_config_home().path / "dispatch-policy.toml",
+        )
+        return str(resolver.resolve("ask").session.default_mode)
+    except ConfigurationError as error:
+        raise ValueError(f"invalid dispatch policy: {error}") from error
 
 
 def route_ask_profile(
@@ -330,16 +446,30 @@ def run_ask(
             return guard_code
         is_first_init = not paths.database_path.exists()
         prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
-        gate = evaluate_consultation(workspace_root, "ask")
+        gate = evaluate_consultation(workspace_root, "ask", engine_available=True)
+        if gate.needs_round:
+            run_consultation_gate(
+                decision=gate, action="ask", prompt=prompt_text, cli=cli,
+                workspace_root=workspace_root, paths=paths, subject=authenticated_subject,
+            )
         if gate.note:
             print(f"peerhub ask: {gate.note}", file=cli.sys.stderr)
+            record_notification(
+                action="ask", prompt=prompt_text, cli=cli,
+                workspace_root=workspace_root, paths=paths, subject=authenticated_subject,
+            )
         routed_profile = route_ask_profile(parsed, cli, workspace_root, paths)
+        session_policy = resolve_session_policy(parsed, workspace_root)
         request = cli.DirectAskRequest(
             workspace_root=workspace_root,
             peer_name=parsed.peer,
             prompt=prompt_text,
             required_capability_tier=cli.CapabilityTier[parsed.capability_tier],
             profile_id=routed_profile,
+            session_id=getattr(parsed, "session_id", None),
+            room_id=getattr(parsed, "room_id", None),
+            resume=session_policy == "reuse",
+            session_action=SessionAction.CREATE if session_policy == "fresh" else None,
             limits=cli.TransportLimits(
                 process_timeout_ms=parsed.timeout_seconds * 1000,
                 silence_timeout_ms=parsed.silence_timeout_seconds * 1000,
@@ -733,9 +863,19 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
         ids=cli.UuidSource(),
     )
     try:
-        gate = evaluate_consultation(workspace_root, "broadcast")
+        gate = evaluate_consultation(workspace_root, "broadcast", engine_available=True)
+        if gate.needs_round:
+            run_consultation_gate(
+                decision=gate, action="broadcast", prompt=prompt_text, cli=cli,
+                workspace_root=workspace_root, paths=paths,
+                subject=cli.require_caller_identity(cli.LocalProcessCallerIdentityProvider()),
+            )
         if gate.note:
             print(f"peerhub broadcast: {gate.note}", file=cli.sys.stderr)
+            record_notification(
+                action="broadcast", prompt=prompt_text, cli=cli, workspace_root=workspace_root,
+                paths=paths, subject=cli.require_caller_identity(cli.LocalProcessCallerIdentityProvider()),
+            )
         targets: list[tuple[str, str | None]] = [
             (
                 str(peer.strip()),
@@ -771,6 +911,18 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
             authenticated_subject=cli.require_caller_identity(cli.LocalProcessCallerIdentityProvider()),
         )
         result = coordinator.fan_out(request)
+        for leg in result.legs:
+            if leg.leg_state == "failed" and leg.peer_kind is not None:
+                record_health_consequence(
+                    action="broadcast",
+                    peer_kind=leg.peer_kind,
+                    profile_id=str(leg.profile_id),
+                    request_state=leg.request_state,
+                    execution_certainty=leg.execution_certainty,
+                    error_code=leg.error_code,
+                    cli=cli, workspace_root=workspace_root, paths=paths,
+                    subject=request.authenticated_subject,
+                )
         if is_first_init and paths.database_path.exists():
             print(
                 f"[peerhub] initialized workspace at {paths.database_path.parent}",

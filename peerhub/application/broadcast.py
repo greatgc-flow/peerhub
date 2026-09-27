@@ -11,7 +11,8 @@ from peerhub.adapters.registry import ResolvedPeerTarget, resolve_peer_target
 from peerhub.application.direct_ask import _DirectAskRouteRequestFactory  # pyright: ignore[reportPrivateUsage]
 from peerhub.application.model_config import ModelConfigService
 from peerhub.core.context import Clock, IdSource
-from peerhub.core.execution import TransportLimits
+from peerhub.core.protocol import ErrorCode
+from peerhub.core.execution import ExecutionCertainty, TransportLimits
 from peerhub.core.identity import AuthenticatedSubject
 from peerhub.core.protocol import SCHEMA_VERSION
 from peerhub.dispatch.capability import CapabilityTier
@@ -49,6 +50,12 @@ class BroadcastLegResult:
     leg_state: str
     command_id: str | None
     response_text: str | None
+    # Authoritative evidence for the R4 7.1 health consequence (None when not applicable).
+    peer_kind: str | None = None
+    profile_id: str | None = None
+    request_state: RequestState | None = None
+    execution_certainty: ExecutionCertainty | None = None
+    error_code: ErrorCode | None = None
 
 
 @dataclass(frozen=True)
@@ -338,6 +345,11 @@ class BroadcastCoordinator:
                 leg_state="failed",
                 command_id=str(command_id),
                 response_text=None,
+                peer_kind=target.peer_kind,
+                profile_id=target.profile.profile_id,
+                request_state=execution_result.request.state,
+                execution_certainty=execution_result.attempt.execution_certainty,
+                error_code=execution_result.attempt.terminal_error_code,
             )
 
         self._complete_leg(round_id, leg_target)

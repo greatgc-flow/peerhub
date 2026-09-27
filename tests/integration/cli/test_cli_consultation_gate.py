@@ -28,11 +28,11 @@ def _policy(ws: Path, body: str):
 
 
 @pytest.mark.parametrize("cmd", [["ask", "cx", "hi"], ["broadcast", "hi", "--peers", "cx"]])
-def test_configured_quorum_blocks_before_any_dispatch(ws, capsys, cmd):
+def test_configured_quorum_before_v2_activation_fails_closed_before_any_dispatch(ws, capsys, cmd):
     path, called = ws
     _policy(path, f'[consultation.overrides]\n"{cmd[0]}" = "quorum"\n')
     assert main(cmd + ["--workspace", str(path)]) == 2
-    assert "refusing to bypass" in capsys.readouterr().err
+    assert "V2 engine" in capsys.readouterr().err  # round engine unavailable pre-activation: fail closed
     assert called["ask"] == 0
 
 

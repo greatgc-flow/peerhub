@@ -506,10 +506,12 @@ def resolve_session_lifecycle(
         return SessionAction.RESUME, hint, key
 
     action = request.session_action or SessionAction.CREATE
+    # A fresh conversation over an existing binding starts the NEXT generation (never reuses it).
+    next_generation = existing.session_generation + 1 if existing is not None else 1
     hint = SessionHint(
         external_session_id=None,
         adapter_fingerprint=fingerprint,
-        session_generation=1,
+        session_generation=next_generation,
     )
     return action, hint, key
 
@@ -839,7 +841,13 @@ def execute_direct_ask(
             execution_result.request.state is not RequestState.START_UNCERTAIN
         ):
             remove_staged_prompt(prompt_reference)
-        if is_failed:
+        # HC-06 (R4 7.1): "uncertainty forbids invented failure" -- only a DEFINITIVE failure
+        # (terminal FAILED) may open a circuit from the observed CALL_PROVIDER stage failure;
+        # INCOMPLETE / INTERRUPTED / START_UNCERTAIN outcomes never do.
+        if is_failed and (
+            execution_result.attempt.state is RequestState.FAILED
+            and execution_result.attempt.execution_certainty is ExecutionCertainty.TERMINAL
+        ):
             runtime.health_service.classify_and_open_circuit(
                 attempted_trace=(
                     HealthStageObservation(
@@ -921,8 +929,11 @@ def execute_direct_ask(
             profile_id=target.profile.profile_id,
             response_text=response_text,
             request_state=execution_result.request.state,
-            error_code=None,  # let exceptions bubble for cli logic
-            execution_certainty=None,
+            # Authoritative evidence for the CLI exit-code contract and the R4 7.1 health
+            # consequence (a definitive failure is FAILED + TERMINAL; uncertainty is never
+            # promoted to failure).
+            error_code=execution_result.attempt.terminal_error_code,
+            execution_certainty=execution_result.attempt.execution_certainty,
         )
     finally:
         runtime.close()

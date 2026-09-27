@@ -772,6 +772,10 @@ def test_direct_ask_circuit_breaker_opens_on_exhausted_failure(
     result = execute_direct_ask(req, clock=clock, ids=ids, authenticated_subject=subject)
 
     assert result.request_state != RequestState.SUCCEEDED_VERIFIED
+    # the result now carries the authoritative evidence the CLI exit code and R4 7.1 rely on
+    assert result.execution_certainty is not None
+    from peerhub.application.health_consequence import is_definitive_failure
+    assert is_definitive_failure(result.request_state, result.execution_certainty)
 
     layout = PathLayout.for_workspace(tmp_path)
     from peerhub.core.context import RuntimeContext
@@ -1479,3 +1483,45 @@ def test_execute_direct_ask_degrades_gracefully_when_context_file_creation_fails
     # issue_credential ran and committed before create_context_file raised
     # -- an orphaned but harmless row that expires naturally on its own.
     assert count == 1
+
+
+def test_direct_ask_fresh_session_over_an_existing_binding_starts_the_next_generation(
+    tmp_path: Path,
+    clock: Clock,
+    ids: IdSource,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from peerhub.adapters.contract import SessionAction
+
+    adapter = RecordingFakePeerAdapter(stdout="session created", supports_session=True)
+    profile = adapter.descriptor.profiles[0]
+    target = ResolvedPeerTarget(
+        cli_name="fake", peer_kind="fake", adapter=adapter, profile=profile,
+        executable_path=Path(sys.executable),
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.resolve_peer_target",
+        lambda name, *, profile_id=None: target,
+    )
+    monkeypatch.setattr(
+        "peerhub.application.direct_ask.build_direct_ask_admission_config",
+        build_direct_ask_admission_config,
+    )
+    subject = AuthenticatedSubject("local-cli:test-user", "test")
+
+    def request(**extra):
+        return DirectAskRequest(
+            workspace_root=tmp_path, peer_name="fake", prompt="hello",
+            required_capability_tier=CapabilityTier.READ_ONLY, profile_id=profile.profile_id,
+            limits=TransportLimits(process_timeout_ms=10_000, silence_timeout_ms=10_000,
+                                   max_output_bytes=1_000_000),
+            session_id="conv-fresh", **extra,
+        )
+
+    execute_direct_ask(request(session_action=SessionAction.CREATE), clock=clock, ids=ids, authenticated_subject=subject)
+    execute_direct_ask(request(session_action=SessionAction.CREATE), clock=clock, ids=ids, authenticated_subject=subject)
+
+    layout = PathLayout.for_workspace(tmp_path)
+    with sqlite3.connect(layout.database_path) as conn:
+        generations = [r[0] for r in conn.execute("SELECT session_generation FROM session_bindings")]
+    assert generations == [2]  # one binding, advanced to the next generation by the fresh ask
