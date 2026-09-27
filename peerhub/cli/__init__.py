@@ -3573,7 +3573,7 @@ def main(args: list[str] | None = None) -> int:
                 default=None,
                 help="Voting peer ID (omit when presenting a valid --credential-id instead)",
             )
-            command_parser.add_argument("--choice", required=True, choices=("agree", "disagree", "abstain", "need_more_info"), help="Vote choice")
+            command_parser.add_argument("--choice", required=True, choices=("agree", "disagree", "abstain", "need_more_info", "block"), help="Vote choice (block = typed integrity/safety veto, V2 rounds)")
             command_parser.add_argument(
                 "--credential-id",
                 default=None,

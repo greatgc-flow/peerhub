@@ -38,9 +38,13 @@ class ConsultationDecision:
     depth: ConsultationDepth
     proceed: bool
     note: str | None = None
+    needs_round: bool = False  # REVIEW/QUORUM/UNANIMOUS with the round engine available
+    timeout_seconds: int = 0
 
 
-def evaluate_consultation(workspace_root: Path, action_name: str) -> ConsultationDecision:
+def evaluate_consultation(
+    workspace_root: Path, action_name: str, *, engine_available: bool = False
+) -> ConsultationDecision:
     """Resolve the layered policy for ``action_name`` and apply the depth decision tree."""
 
     resolver = PolicyResolver(
@@ -48,7 +52,8 @@ def evaluate_consultation(workspace_root: Path, action_name: str) -> Consultatio
         resolve_global_config_home().path / POLICY_FILE,
     )
     try:
-        depth = resolver.resolve(action_name).consultation_depth
+        policy = resolver.resolve(action_name)
+        depth = policy.consultation_depth
     except ConfigurationError as error:  # an invalid layer is a blocker, never a silent default
         raise ConsultationBlockedError(f"invalid dispatch policy: {error}") from error
     if depth is ConsultationDepth.NONE:
@@ -59,6 +64,10 @@ def evaluate_consultation(workspace_root: Path, action_name: str) -> Consultatio
             True,
             f"consultation NOTIFY for {action_name}: non-blocking; a notification target is "
             "recorded as undelivered (delivery not implemented), dispatch proceeds",
+        )
+    if engine_available:
+        return ConsultationDecision(
+            depth, False, needs_round=True, timeout_seconds=policy.consensus.timeout_seconds
         )
     raise ConsultationBlockedError(
         f"consultation depth {depth.value!r} is configured for {action_name!r} but the "

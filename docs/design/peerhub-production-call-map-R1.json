@@ -2455,11 +2455,12 @@
               "agree",
               "disagree",
               "abstain",
-              "need_more_info"
+              "need_more_info",
+              "block"
             ],
             "default": null,
             "dest": "choice",
-            "help": "Vote choice",
+            "help": "Vote choice (block = typed integrity/safety veto, V2 rounds)",
             "nargs": null,
             "option_strings": [
               "--choice"

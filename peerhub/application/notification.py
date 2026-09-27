@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Sequence
+from typing import cast
 
 from peerhub.core.context import Clock, IdSource
 from peerhub.core.protocol import JsonValue
@@ -36,7 +37,7 @@ def create_notification_target(
     """Record one dispatch notification target; never blocks and never stores the raw prompt."""
 
     notification_id = f"dispatch-notification:{ids.new_id('notification')}"
-    state: dict[str, JsonValue] = {
+    state = cast(dict[str, JsonValue], {
         "schema": "peerhub.dispatch-notification.v1",
         "kind": "dispatch-notification",
         "notification_id": notification_id,
@@ -46,7 +47,7 @@ def create_notification_target(
         "delivery_state": DELIVERY_UNDELIVERED,
         "created_at": clock.now(),
         "created_by": actor_id,
-    }
+    })
     return broker.submit(
         build_mutation_request(
             ids,

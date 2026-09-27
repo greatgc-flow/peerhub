@@ -143,6 +143,37 @@ def register_ask_command(
     add_json_arg(ask_parser, help="Emit JSON")
 
 
+def run_consultation_gate(
+    *, decision: Any, action: str, prompt: str, cli: ModuleType, workspace_root: Path,
+    paths: Any, subject: Any,
+) -> None:
+    """R4 8.1: REVIEW/QUORUM/UNANIMOUS run a consultation round before dispatch (or hold it)."""
+
+    from peerhub.application.consensus_policy import ConsensusPolicyProvider
+    from peerhub.application.consultation_round import ConsultationError, run_consultation
+    from peerhub.application.proposals import load_proposal_voters
+
+    if not paths.database_path.exists():
+        raise ConsultationError(
+            "consultation needs an initialized workspace store; run `peerhub workspace init` first"
+        )
+    context = cli.RuntimeContext(
+        workspace_home_id=cli._detect_workspace_home_id(paths.database_path, workspace_root.name),
+        paths=paths, clock=cli.SystemClock(), ids=cli.UuidSource(),
+    )
+    with cli.create_runtime(context) as runtime:
+        outcome = run_consultation(
+            depth=decision.depth, action=action, prompt=prompt, workspace_root=workspace_root,
+            runtime=runtime, proposer=str(getattr(subject, "principal_id", f"system:{action}")),
+            voters=load_proposal_voters(workspace_root), timeout_seconds=decision.timeout_seconds,
+            write=lambda line: print(f"peerhub {action}: {line}", file=cli.sys.stderr),
+            policy_provider=ConsensusPolicyProvider.for_workspace(workspace_root),
+        )
+    print(f"peerhub {action}: {outcome.reason}", file=cli.sys.stderr)
+    if not outcome.proceed:
+        raise ConsultationError(outcome.reason)
+
+
 def record_notification(
     *, action: str, prompt: str, cli: ModuleType, workspace_root: Path, paths: Any, subject: Any
 ) -> None:
@@ -383,7 +414,12 @@ def run_ask(
             return guard_code
         is_first_init = not paths.database_path.exists()
         prompt_text = resolve_prompt_input(parsed.prompt, parsed.query_file)
-        gate = evaluate_consultation(workspace_root, "ask")
+        gate = evaluate_consultation(workspace_root, "ask", engine_available=True)
+        if gate.needs_round:
+            run_consultation_gate(
+                decision=gate, action="ask", prompt=prompt_text, cli=cli,
+                workspace_root=workspace_root, paths=paths, subject=authenticated_subject,
+            )
         if gate.note:
             print(f"peerhub ask: {gate.note}", file=cli.sys.stderr)
             record_notification(
@@ -790,7 +826,13 @@ def run_broadcast(parsed: argparse.Namespace, cli: ModuleType) -> int:
         ids=cli.UuidSource(),
     )
     try:
-        gate = evaluate_consultation(workspace_root, "broadcast")
+        gate = evaluate_consultation(workspace_root, "broadcast", engine_available=True)
+        if gate.needs_round:
+            run_consultation_gate(
+                decision=gate, action="broadcast", prompt=prompt_text, cli=cli,
+                workspace_root=workspace_root, paths=paths,
+                subject=cli.require_caller_identity(cli.LocalProcessCallerIdentityProvider()),
+            )
         if gate.note:
             print(f"peerhub broadcast: {gate.note}", file=cli.sys.stderr)
             record_notification(
