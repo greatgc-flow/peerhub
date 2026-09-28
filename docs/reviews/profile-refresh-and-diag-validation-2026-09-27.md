@@ -85,8 +85,9 @@ is not rewritten into a fabricated health measurement.
 
 The original check exposed a second distinction: `v0.7.0` is the latest
 tagged GitHub release, but `main` is 77 commits beyond that tag. Main now
-identifies itself as the `0.8.0.dev0` development line instead of presenting
-post-release code as the released `0.7.0` build.
+identified itself as the `0.8.0.dev0` development line instead of presenting
+post-release code as the released `0.7.0` build. After the complete release
+gate on 2026-09-28, that line became the stable `0.8.0` release.
 
 The empty live dashboard had three independent causes, all corrected:
 

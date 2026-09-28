@@ -745,7 +745,7 @@
             "choices": null,
             "default": 60,
             "dest": "timeout_seconds",
-            "help": null,
+            "help": "Maximum total runtime per peer in seconds (default: 60)",
             "nargs": null,
             "option_strings": [
               "--timeout-seconds"
@@ -758,7 +758,7 @@
             "choices": null,
             "default": 60,
             "dest": "silence_timeout_seconds",
-            "help": null,
+            "help": "Maximum time without peer output in seconds (default: 60)",
             "nargs": null,
             "option_strings": [
               "--silence-timeout-seconds"
@@ -771,7 +771,7 @@
             "choices": null,
             "default": 1000000,
             "dest": "max_output_bytes",
-            "help": null,
+            "help": "Maximum captured output per peer in bytes (default: 1000000)",
             "nargs": null,
             "option_strings": [
               "--max-output-bytes"
@@ -1758,7 +1758,7 @@
             "choices": null,
             "default": 60,
             "dest": "timeout_seconds",
-            "help": null,
+            "help": "Maximum total peer runtime in seconds (default: 60)",
             "nargs": null,
             "option_strings": [
               "--timeout-seconds"
@@ -1771,7 +1771,7 @@
             "choices": null,
             "default": 60,
             "dest": "silence_timeout_seconds",
-            "help": null,
+            "help": "Maximum time without peer output in seconds (default: 60)",
             "nargs": null,
             "option_strings": [
               "--silence-timeout-seconds"
@@ -1784,7 +1784,7 @@
             "choices": null,
             "default": 1000000,
             "dest": "max_output_bytes",
-            "help": null,
+            "help": "Maximum captured peer output in bytes (default: 1000000)",
             "nargs": null,
             "option_strings": [
               "--max-output-bytes"
@@ -2076,7 +2076,7 @@
             "choices": null,
             "default": null,
             "dest": "subject",
-            "help": null,
+            "help": "Short subject for the proposal",
             "nargs": null,
             "option_strings": [
               "--subject"
@@ -2089,7 +2089,7 @@
             "choices": null,
             "default": "cc",
             "dest": "from_peer",
-            "help": null,
+            "help": "Proposing peer ID (default: cc)",
             "nargs": null,
             "option_strings": [
               "--from",
@@ -2103,7 +2103,7 @@
             "choices": null,
             "default": "med",
             "dest": "impact",
-            "help": null,
+            "help": "Impact tier recorded on the proposal (default: med)",
             "nargs": null,
             "option_strings": [
               "--impact"
@@ -2116,7 +2116,7 @@
             "choices": null,
             "default": "",
             "dest": "rationale",
-            "help": null,
+            "help": "Supporting rationale or detail (default: empty)",
             "nargs": null,
             "option_strings": [
               "--rationale",
@@ -2130,7 +2130,7 @@
             "choices": null,
             "default": "",
             "dest": "text",
-            "help": null,
+            "help": "Proposal body text (default: empty)",
             "nargs": null,
             "option_strings": [
               "--text"
@@ -2156,7 +2156,7 @@
             "choices": null,
             "default": false,
             "dest": "json",
-            "help": null,
+            "help": "Emit machine-readable JSON",
             "nargs": 0,
             "option_strings": [
               "--json"
@@ -2214,7 +2214,7 @@
             "choices": null,
             "default": null,
             "dest": "proposal_id",
-            "help": null,
+            "help": "Proposal or consensus round identifier",
             "nargs": null,
             "option_strings": [
               "--proposal-id",
@@ -2228,7 +2228,7 @@
             "choices": null,
             "default": null,
             "dest": "voter",
-            "help": null,
+            "help": "Voting peer ID (default: current authenticated caller)",
             "nargs": null,
             "option_strings": [
               "--voter",
@@ -2248,7 +2248,7 @@
             ],
             "default": null,
             "dest": "vote",
-            "help": null,
+            "help": "Vote to record on the proposal",
             "nargs": null,
             "option_strings": [
               "--vote"
@@ -2261,7 +2261,7 @@
             "choices": null,
             "default": "",
             "dest": "reason",
-            "help": null,
+            "help": "Optional reason for the vote (default: empty)",
             "nargs": null,
             "option_strings": [
               "--reason"
@@ -2287,7 +2287,7 @@
             "choices": null,
             "default": false,
             "dest": "json",
-            "help": null,
+            "help": "Emit machine-readable JSON",
             "nargs": 0,
             "option_strings": [
               "--json"
@@ -6986,7 +6986,7 @@
             "choices": null,
             "default": null,
             "dest": "workspace",
-            "help": null,
+            "help": "Path to the workspace root",
             "nargs": null,
             "option_strings": [
               "--workspace"
@@ -6998,7 +6998,7 @@
         "command_help": [
           "Record durable operational-error evidence",
           "Review quarantine requests",
-          null
+          "List open operational-error quarantine reviews"
         ]
       }
     },
@@ -7029,7 +7029,7 @@
             "choices": null,
             "default": null,
             "dest": "workspace",
-            "help": null,
+            "help": "Path to the workspace root",
             "nargs": null,
             "option_strings": [
               "--workspace"
@@ -7042,7 +7042,7 @@
             "choices": null,
             "default": null,
             "dest": "review_id",
-            "help": null,
+            "help": "Quarantine review identifier",
             "nargs": null,
             "option_strings": [
               "--review-id"
@@ -7058,7 +7058,7 @@
             ],
             "default": null,
             "dest": "decision",
-            "help": null,
+            "help": "Resolution decision for the review",
             "nargs": null,
             "option_strings": [
               "--decision"
@@ -7071,7 +7071,7 @@
             "choices": null,
             "default": null,
             "dest": "reason",
-            "help": null,
+            "help": "Reason supporting the resolution",
             "nargs": null,
             "option_strings": [
               "--reason"
@@ -7084,7 +7084,7 @@
             "choices": null,
             "default": null,
             "dest": "actor",
-            "help": null,
+            "help": "Peer ID resolving the review",
             "nargs": null,
             "option_strings": [
               "--actor"
@@ -7097,7 +7097,7 @@
             "choices": null,
             "default": false,
             "dest": "json",
-            "help": null,
+            "help": "Emit machine-readable JSON",
             "nargs": 0,
             "option_strings": [
               "--json"
@@ -7109,7 +7109,7 @@
         "command_help": [
           "Record durable operational-error evidence",
           "Review quarantine requests",
-          null
+          "Resolve one operational-error quarantine review"
         ]
       }
     },

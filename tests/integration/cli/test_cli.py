@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import uuid
@@ -1199,14 +1200,7 @@ def test_cli_ask_real_agy_end_to_end(
     capsys,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    portable_root = Path(__file__).resolve().parents[4]
-    agy_dir = portable_root / "_sys" / "tools" / "agy"
-    agy_executable = agy_dir / "agy.exe"
-    assert agy_executable.is_file()
-    monkeypatch.setenv(
-        "PATH",
-        f"{agy_dir}{os.pathsep}{os.environ.get('PATH', '')}",
-    )
+    assert shutil.which("agy.exe"), "agy.exe must be installed on PATH"
 
     exit_code = main(
         [

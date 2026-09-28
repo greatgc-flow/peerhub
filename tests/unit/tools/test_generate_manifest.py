@@ -22,54 +22,17 @@ spec.loader.exec_module(gen_mod)
 
 generate_manifest = gen_mod.generate_manifest
 DEFAULT_OUTPUT_PATH = gen_mod.DEFAULT_OUTPUT_PATH
-DEFAULT_SYS_DIR = gen_mod.DEFAULT_SYS_DIR
+def test_generator_requires_an_explicit_complete_legacy_archive(
+    tmp_path: Path,
+) -> None:
+    """The historical tool fails clearly instead of probing a retired root."""
 
-
-@pytest.mark.skipif(
-    DEFAULT_SYS_DIR is None or not (DEFAULT_SYS_DIR / "core" / "hub.py").exists(),
-    reason=(
-        "Legacy hub.py was removed by the 2026-08-19 Engram/peerhub separation. "
-        "This generator exists to map hub.py's surface during migration; with "
-        "the migration complete it has no target. Retire the tool or repoint it "
-        "at peerhub's own CLI surface."
-    ),
-)
-def test_generator_runs_and_produces_valid_manifest(tmp_path: Path) -> None:
-    assert DEFAULT_SYS_DIR is not None
-    temp_output = tmp_path / "test-surface-manifest.json"
-    manifest = generate_manifest(sys_dir=DEFAULT_SYS_DIR, output_path=temp_output)
-
-    assert temp_output.exists()
-    assert manifest["meta"]["schema_version"] == "1.0"
-    assert manifest["meta"]["generator_name"] == "tools/surface_manifest/generate_manifest.py"
-
-    # Action vector invariants
-    action_vector = manifest["action_vector"]
-    assert action_vector["action_count"] == 90
-    assert len(action_vector["actions"]) == 90
-    assert len(action_vector["action_vector_digest"]) == 64
-
-    # hub.py hash invariant, re-pinned repeatedly during 2026-09-23's
-    # --project-dir feature work (P: commits 778aa2c..f502862 -- see
-    # [[project_hub_project_dir_feature_2026_09_23]] for the full chain).
-    # This tracks a file outside this repo, so it must be re-pinned
-    # whenever legacy hub.py changes.
-    hub_info = manifest["source_files"]["hub_py"]
-    assert hub_info["sha256"].startswith("f9b73b36")
-    assert hub_info["line_count"] > 10000
-
-    # Dispatch table & Action details 1-to-1 match
-    dispatch = manifest["dispatch_table"]
-    details = manifest["action_details"]
-    assert len(dispatch) == 90
-    assert len(details) == 90
-    assert set(action_vector["actions"]) == set(dispatch.keys())
-    assert set(action_vector["actions"]) == set(details.keys())
-
-    # Help receipt invariant
-    help_receipt = manifest["help_receipt"]
-    assert "usage: hub" in help_receipt["normalized_help_text"]
-    assert len(help_receipt["help_text_sha256"]) == 64
+    with pytest.raises(FileNotFoundError, match="Legacy hub.py not found"):
+        generate_manifest(
+            sys_dir=tmp_path / "missing-legacy-sys",
+            output_path=tmp_path / "must-not-exist.json",
+        )
+    assert not (tmp_path / "must-not-exist.json").exists()
 
 
 def test_committed_manifest_snapshot_is_valid() -> None:

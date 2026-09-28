@@ -11,6 +11,7 @@ from peerhub.core.context import PathLayout, RuntimeContext
 from peerhub.cli import SystemClock, UuidSource, _detect_workspace_home_id  # pyright: ignore[reportPrivateUsage]
 from peerhub.governance.directive_digest import compute_directive_digest
 
+from collections.abc import Sequence
 from typing import Any, cast
 DIRECTIVES_META: dict[str, dict[str, Any]] = {
     "DIR-001": {
@@ -79,58 +80,78 @@ def parse_directives(markdown_path: Path) -> dict[str, str]:
     return result
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Migrate engram directives")
-    parser.add_argument("--source", type=str, required=True, help="Path to the user-directives.md file")
-    args = parser.parse_args()
-    
-    source_md = Path(args.source)
-    if not source_md.exists():
+def migrate_directives(source_md: Path, workspace_root: Path) -> int:
+    """Migrate the legacy markdown into an explicitly selected workspace."""
+
+    if not source_md.is_file():
         print(f"Error: Could not find {source_md}")
-        return
-        
+        return 2
+
     parsed_rules = parse_directives(source_md)
-    
-    workspace_root = Path(__file__).resolve().parent.parent
+    missing = sorted(set(DIRECTIVES_META) - set(parsed_rules))
+    if missing:
+        print(f"Error: Missing directive sections: {', '.join(missing)}")
+        return 2
+
+    workspace_root = workspace_root.resolve()
     paths = PathLayout.for_workspace(workspace_root)
     context = RuntimeContext(
-        workspace_home_id=_detect_workspace_home_id(paths.database_path, workspace_root.name),  # pyright: ignore
-        paths=paths, 
-        clock=SystemClock(), 
-        ids=UuidSource()
+        workspace_home_id=_detect_workspace_home_id(
+            paths.database_path, workspace_root.name
+        ),
+        paths=paths,
+        clock=SystemClock(),
+        ids=UuidSource(),
     )
-    
+
     with create_runtime(context, adapter_peer_kind="fake") as runtime:
         service = runtime.directive_service
-        
+
         for d_id, meta in DIRECTIVES_META.items():
-            rule_md = parsed_rules.get(d_id)
-            if not rule_md:
-                print(f"Warning: Rule markdown not found for {d_id}")
-                continue
-                
+            rule_md = parsed_rules[d_id]
             print(f"Migrating {d_id}...")
-            digest = compute_directive_digest(rule_md)
             service.migrate(
                 directive_id=d_id,
                 title=cast(str, meta["title"]),
                 rule_markdown=rule_md,
-                digest=digest,
+                digest=compute_directive_digest(rule_md),
                 consumers=cast(list[dict[str, Any]], meta["consumers"]),
-                source_path=cast(str, meta["source_path"])
+                source_path=cast(str, meta["source_path"]),
             )
-            
+
             if d_id == "DIR-003":
                 print(f"Retiring {d_id}...")
                 service.retire(
                     directive_id=d_id,
                     actor_id="terminal",
-                    reason="hub.py deleted in Engram/peerhub separation, directive has no surviving consumer"
+                    reason=(
+                        "hub.py deleted in Engram/peerhub separation, "
+                        "directive has no surviving consumer"
+                    ),
                 )
-                
+
         print("Migration complete. Listing active directives:")
-        for t in service.list_all():
-            print(f"{t.target_id}: {dict(t.state)['lifecycle']}")
+        for target in service.list_all():
+            print(f"{target.target_id}: {dict(target.state)['lifecycle']}")
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Migrate engram directives")
+    parser.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="Path to the legacy user-directives.md file",
+    )
+    parser.add_argument(
+        "--workspace",
+        type=Path,
+        default=Path.cwd(),
+        help="Target PeerHub workspace (default: current directory)",
+    )
+    args = parser.parse_args(argv)
+    return migrate_directives(args.source, args.workspace)
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

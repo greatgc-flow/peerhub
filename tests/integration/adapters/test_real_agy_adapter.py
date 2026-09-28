@@ -8,6 +8,7 @@ from peerhub.adapters.contract import (
 )
 from peerhub.core.execution import ProcessTerminalEvidence
 from peerhub.adapters.agy_adapter import RealAgyAdapter, _AGY_PROFILE
+from peerhub.application.model_config import ModelConfigService
 
 class FakeCompletionContractView:
     @property
@@ -15,10 +16,13 @@ class FakeCompletionContractView:
         return "fake-contract"
 
 @pytest.mark.slow
-def test_real_agy_adapter_shells_out():
+def test_real_agy_adapter_shells_out(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     """Integration test that shells out to real agy.exe (not mocked)."""
     adapter = RealAgyAdapter()
     
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "empty-config"))
     request = AdapterRequest(
         request_id="req-123",
         prompt_content="say hello in two words",
@@ -27,6 +31,9 @@ def test_real_agy_adapter_shells_out():
         profile_id="ag.standard",
         requested_session_action=SessionAction.NONE,
         completion_contract=FakeCompletionContractView(),
+        model_binding=ModelConfigService(None).resolve(
+            node_id="ag", profile_id="ag.standard"
+        ),
     )
     
     limits = TransportLimits(
@@ -42,7 +49,11 @@ def test_real_agy_adapter_shells_out():
         session=None,
         limits=limits,
     )
-    assert plan.argv == ("agy.exe", "-p", "say hello in two words", "--output-format", "json")
+    assert request.model_binding.model_id is not None
+    assert plan.argv == (
+        "agy.exe", "-p", "say hello in two words", "--output-format", "json",
+        "--model", request.model_binding.model_id,
+    )
     
     # 2. Execute
     proc = subprocess.run(

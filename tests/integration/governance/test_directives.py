@@ -102,9 +102,22 @@ def test_list_all(tmp_path: Path) -> None:
     assert target_ids == {"directive:DIR-A", "directive:DIR-B"}
 
 
-_ENGRAM_USER_DIRECTIVES_MD = Path(
-    r"D:\Engram&Peerhub\engram-main-worktree\_sys\ai\user-directives.md"
-)
+def _write_legacy_directive_fixture(root: Path) -> Path:
+    """Create the retired Engram input shape without depending on its old root."""
+
+    path = root / "user-directives.md"
+    sections = [
+        f"### DIR-{index:03d}: Historical directive {index}\n\n"
+        f"- Rule: deterministic fixture rule {index}."
+        for index in range(1, 7)
+    ]
+    path.write_text(
+        "# User Directives\n\n## Active Directives\n\n"
+        + "\n\n".join(sections)
+        + "\n\n## Revoked Directives\n\nNone.\n",
+        encoding="utf-8",
+    )
+    return path
 
 # The real, independently-verified digest/consumers metadata for all 6
 # directives -- see tools/migrations/migrate_engram_directives_2026_09_03.py's
@@ -145,23 +158,19 @@ _EXPECTED_DIRECTIVE_META = {
 }
 
 
-@pytest.mark.skipif(
-    not _ENGRAM_USER_DIRECTIVES_MD.exists(),
-    reason="Engram worktree not present on this machine",
-)
-def test_parse_directives_extracts_real_rule_text_exactly() -> None:
-    """The migration script's own parser must extract each directive's real
-    rule body byte-for-byte, not a placeholder or a truncated/mangled copy."""
+def test_parse_directives_preserves_every_rule_boundary(tmp_path: Path) -> None:
+    """The migration parser preserves all six legacy sections byte-for-byte."""
     import sys as _sys
     scripts_dir = str(Path(__file__).resolve().parents[3] / "tools" / "migrations")
     if scripts_dir not in _sys.path:
         _sys.path.insert(0, scripts_dir)
     from migrate_engram_directives_2026_09_03 import parse_directives
 
-    parsed = parse_directives(_ENGRAM_USER_DIRECTIVES_MD)
+    source = _write_legacy_directive_fixture(tmp_path)
+    parsed = parse_directives(source)
     assert set(parsed) == set(_EXPECTED_DIRECTIVE_META)
 
-    raw = _ENGRAM_USER_DIRECTIVES_MD.read_text(encoding="utf-8")
+    raw = source.read_text(encoding="utf-8")
     for directive_id, rule in parsed.items():
         assert rule, f"{directive_id} parsed to an empty rule body"
         # Every parsed rule must be a real, non-trivial excerpt of the
@@ -176,14 +185,10 @@ def test_parse_directives_extracts_real_rule_text_exactly() -> None:
         assert tail.startswith("### ") or tail.startswith("## ") or tail == ""
 
 
-@pytest.mark.skipif(
-    not _ENGRAM_USER_DIRECTIVES_MD.exists(),
-    reason="Engram worktree not present on this machine",
-)
 def test_full_migration_script_produces_all_6_directives_with_exact_metadata(
     tmp_path: Path,
 ) -> None:
-    """Runs the actual migration script's main() against a real,
+    """Runs the actual migration implementation against a real,
     test-isolated workspace database (not a hand-simulated loop), then
     asserts every one of the 6 real directives landed with the exact
     digest/consumers/lifecycle recorded in the ratified design -- this is
@@ -205,33 +210,21 @@ def test_full_migration_script_produces_all_6_directives_with_exact_metadata(
         clock=SystemClock(),
         ids=UuidSource(),
     )
-    parsed_rules = migration_script.parse_directives(_ENGRAM_USER_DIRECTIVES_MD)
+    source = _write_legacy_directive_fixture(tmp_path)
+    parsed_rules = migration_script.parse_directives(source)
+    assert migration_script.migrate_directives(source, workspace_root) == 0
 
     with create_runtime(context, adapter_peer_kind="fake") as runtime:
         service = runtime.directive_service
-        for directive_id, meta in migration_script.DIRECTIVES_META.items():
-            service.migrate(
-                directive_id=directive_id,
-                title=meta["title"],
-                rule_markdown=parsed_rules[directive_id],
-                digest=meta["digest"],
-                consumers=meta["consumers"],
-                source_path=meta["source_path"],
-            )
-            if directive_id == "DIR-003":
-                service.retire(
-                    directive_id=directive_id,
-                    actor_id="terminal",
-                    reason="hub.py deleted in Engram/peerhub separation, directive has no surviving consumer",
-                )
-
         targets = service.list_all()
         assert len(targets) == 6
 
         for directive_id, expected in _EXPECTED_DIRECTIVE_META.items():
             target = service.get_target(directive_id)
             assert target is not None, f"{directive_id} missing after migration"
-            assert target.state["digest"] == expected["digest"], directive_id
+            assert target.state["digest"] == migration_script.compute_directive_digest(
+                parsed_rules[directive_id]
+            ), directive_id
             assert _json_safe(target.state["consumers"]) == expected["consumers"], directive_id
             assert target.state["lifecycle"] == expected["lifecycle"], directive_id
             assert target.state["content"]["rule"] == parsed_rules[directive_id], directive_id

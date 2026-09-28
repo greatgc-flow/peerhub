@@ -88,7 +88,7 @@ def _contract(
 ) -> PeerContract:
     protocols = {
         "ag": ("flat-json", ("response",)),
-        "cc": ("claude-result-json", ("result", "is_error")),
+        "cc": ("claude-stream-json", ("result", "is_error")),
         "cx": ("jsonl-events", ("type", "item")),
     }
     default_protocol, default_fields = protocols[alias]
@@ -361,7 +361,7 @@ def test_decoder_drift_is_detected_when_the_protocol_shape_changes(
 def test_decoder_raising_on_its_own_fixture_is_an_error() -> None:
     conformance = collectors.DecoderConformance(
         peer_kind="cc",
-        output_protocol="claude-result-json",
+        output_protocol="claude-stream-json",
         fixture_digest_input=b"{}",
         observed_output_fields=(),
         canonical_text=None,
@@ -920,7 +920,7 @@ def test_invalid_contracts_fail_with_exit_two_and_still_write_a_report(
     assert report["facts"][0]["status"] == "ERROR"
 
 
-# --- real peers (deselected by default; spends no model quota) -------------
+# --- real peers (deselected by default; version/help only, no model call) ---
 
 
 @pytest.mark.slow

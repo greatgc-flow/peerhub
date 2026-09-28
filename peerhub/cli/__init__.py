@@ -150,7 +150,13 @@ from peerhub.dispatch.room_session import (
 )
 from peerhub.core.errors import InvalidMutationError, RecordNotFoundError, PeerHubError
 from peerhub.telemetry.domain_rows import format_consensus_row, format_task_row  # pyright: ignore[reportUnusedImport] -- command-module compatibility seam
-from peerhub.cli.parser import create_root_parser, help_epilog_kwargs
+from peerhub.cli.parser import (
+    complete_help_metadata,
+    create_root_parser,
+    help_epilog_kwargs,
+    normalize_help_args,
+    recursive_command_catalog,
+)
 
 class SystemClock(Clock):
     """Real system clock for production use."""
@@ -3253,7 +3259,7 @@ def main(args: list[str] | None = None) -> int:
         version_action=_LazyVersionAction,
         version_getter=get_cli_version,
     )
-    parser.epilog = (
+    workflow_help = (
         "Common workflows:\n"
         "  peerhub workspace init --workspace ./peerhub-demo                         create a workspace before using its governed state\n"
         "  peerhub ask cx \"Summarize this repository\" --workspace ./peerhub-demo      send one prompt to a configured real peer\n"
@@ -3262,6 +3268,7 @@ def main(args: list[str] | None = None) -> int:
         "  peerhub diag --workspace ./peerhub-demo                                    inspect peer diagnostics and quota telemetry\n"
         "  peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary \"Refresh docs\" --spec \"Add a usage example.\" --creator cx  create a governed task"
     )
+    parser.epilog = workflow_help
     subparsers = parser.add_subparsers(dest="command", required=True)
     
     from peerhub.cli.commands.daily import (
@@ -3466,21 +3473,37 @@ def main(args: list[str] | None = None) -> int:
     proposal_add_parser.add_argument(
         "--workspace", default=None, help="Path to the workspace root"
     )
-    proposal_add_parser.add_argument("--subject", required=True)
     proposal_add_parser.add_argument(
-        "--from", "--peer", dest="from_peer", default="cc"
+        "--subject", required=True, help="Short subject for the proposal"
     )
-    proposal_add_parser.add_argument("--impact", default="med")
     proposal_add_parser.add_argument(
-        "--rationale", "--detail", dest="rationale", default=""
+        "--from",
+        "--peer",
+        dest="from_peer",
+        default="cc",
+        help="Proposing peer ID (default: cc)",
     )
-    proposal_add_parser.add_argument("--text", default="")
+    proposal_add_parser.add_argument(
+        "--impact", default="med", help="Impact tier recorded on the proposal (default: med)"
+    )
+    proposal_add_parser.add_argument(
+        "--rationale",
+        "--detail",
+        dest="rationale",
+        default="",
+        help="Supporting rationale or detail (default: empty)",
+    )
+    proposal_add_parser.add_argument(
+        "--text", default="", help="Proposal body text (default: empty)"
+    )
     proposal_add_parser.add_argument(
         "--verified-required",
         action="store_true",
         help="Require a verified D-CTX credential (--credential-id on proposal-vote) to vote on this proposal",
     )
-    proposal_add_parser.add_argument("--json", action="store_true")
+    proposal_add_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
     proposal_vote_parser = consensus_subparsers.add_parser(
         "proposal-vote",
         help="Vote on a legacy-compatible proposal",
@@ -3489,23 +3512,37 @@ def main(args: list[str] | None = None) -> int:
         "--workspace", default=None, help="Path to the workspace root"
     )
     proposal_vote_parser.add_argument(
-        "--proposal-id", "--round-id", dest="proposal_id", required=True
+        "--proposal-id",
+        "--round-id",
+        dest="proposal_id",
+        required=True,
+        help="Proposal or consensus round identifier",
     )
     proposal_vote_parser.add_argument(
-        "--voter", "--peer", "--agent", dest="voter", default=None
+        "--voter",
+        "--peer",
+        "--agent",
+        dest="voter",
+        default=None,
+        help="Voting peer ID (default: current authenticated caller)",
     )
     proposal_vote_parser.add_argument(
         "--vote",
         required=True,
         choices=("agree", "disagree", "abstain", "need_more_info"),
+        help="Vote to record on the proposal",
     )
-    proposal_vote_parser.add_argument("--reason", default="")
+    proposal_vote_parser.add_argument(
+        "--reason", default="", help="Optional reason for the vote (default: empty)"
+    )
     proposal_vote_parser.add_argument(
         "--credential-id",
         default=None,
         help="D-CTX credential to present for verification (see PEERHUB_CONTEXT_FILE)",
     )
-    proposal_vote_parser.add_argument("--json", action="store_true")
+    proposal_vote_parser.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
     list_parser = consensus_subparsers.add_parser(
         "list",
         help="List every consensus proposal, including resolved rounds",
@@ -3635,6 +3672,9 @@ def main(args: list[str] | None = None) -> int:
         "lesson",
         help="Manage governance lessons",
         **help_epilog_kwargs(
+            "  peerhub lesson propose --workspace ./peerhub-demo --lesson-id path-1 --title \"Avoid shell path parsing\" --rule \"Use direct binaries\" --category process --severity HIGH --proposer cx --affected cc,cx,ag  record a candidate lesson\n"
+            "  peerhub lesson approve --workspace ./peerhub-demo --lesson-id path-1 --approved-by cc  authorize the lesson\n"
+            "  peerhub lesson activate --workspace ./peerhub-demo --lesson-id path-1 --actor cc  make the approved lesson active\n"
             "  peerhub lesson sweep --workspace ./peerhub-demo  retire expired non-sticky governance lessons"
         ),
     )
@@ -4140,7 +4180,9 @@ def main(args: list[str] | None = None) -> int:
         "feedback",
         help="Manage the governance feedback journal",
         **help_epilog_kwargs(
-            "  peerhub feedback list --workspace ./peerhub-demo  review recorded governance feedback"
+            "  peerhub feedback add --workspace ./peerhub-demo --source-peer cx --category docs --severity medium --title \"Missing example\" --detail \"Add a restore scenario\" --actor cx  record a gap\n"
+            "  peerhub feedback list --workspace ./peerhub-demo  review recorded governance feedback\n"
+            "  peerhub feedback resolve --workspace ./peerhub-demo --feedback-id GAP-000001 --status done --owner cx --actor cx  close the loop"
         ),
     )
     feedback_subparsers = feedback_parser.add_subparsers(
@@ -4220,7 +4262,9 @@ def main(args: list[str] | None = None) -> int:
         "error",
         help="Record durable operational-error evidence",
         **help_epilog_kwargs(
-            "  peerhub error review list --workspace ./peerhub-demo  inspect operational-error quarantine requests"
+            "  peerhub error report --workspace ./peerhub-demo --peer cx --pattern timeout --severity warn --detail \"No output for 60s\" --actor cc  record repeatable evidence\n"
+            "  peerhub error review list --workspace ./peerhub-demo  inspect operational-error quarantine requests\n"
+            "  peerhub error review resolve --workspace ./peerhub-demo --review-id review-1 --decision DISMISS --reason \"Transient vendor outage\" --actor cc  resolve a review"
         ),
     )
     error_subparsers = error_parser.add_subparsers(
@@ -4263,24 +4307,48 @@ def main(args: list[str] | None = None) -> int:
         "--json", action="store_true", help="Emit machine-readable JSON"
     )
     error_review_parser = error_subparsers.add_parser(
-        "review", help="Review quarantine requests"
+        "review",
+        help="Review quarantine requests",
+        **help_epilog_kwargs(
+            "  peerhub error review list --workspace ./peerhub-demo  list open quarantine reviews\n"
+            "  peerhub error review resolve --workspace ./peerhub-demo --review-id review-1 --decision DISMISS --reason \"False positive\" --actor cc  resolve one review"
+        ),
     )
     error_review_subparsers = error_review_parser.add_subparsers(
         dest="review_action", required=True
     )
 
-    error_review_list = error_review_subparsers.add_parser("list")
-    error_review_list.add_argument("--workspace", default=None)
-
-    error_review_resolve = error_review_subparsers.add_parser("resolve")
-    error_review_resolve.add_argument("--workspace", default=None)
-    error_review_resolve.add_argument("--review-id", required=True)
-    error_review_resolve.add_argument(
-        "--decision", required=True, choices=["DISMISS", "ESCALATE"]
+    error_review_list = error_review_subparsers.add_parser(
+        "list", help="List open operational-error quarantine reviews"
     )
-    error_review_resolve.add_argument("--reason", required=True)
-    error_review_resolve.add_argument("--actor", required=True)
-    error_review_resolve.add_argument("--json", action="store_true")
+    error_review_list.add_argument(
+        "--workspace", default=None, help="Path to the workspace root"
+    )
+
+    error_review_resolve = error_review_subparsers.add_parser(
+        "resolve", help="Resolve one operational-error quarantine review"
+    )
+    error_review_resolve.add_argument(
+        "--workspace", default=None, help="Path to the workspace root"
+    )
+    error_review_resolve.add_argument(
+        "--review-id", required=True, help="Quarantine review identifier"
+    )
+    error_review_resolve.add_argument(
+        "--decision",
+        required=True,
+        choices=["DISMISS", "ESCALATE"],
+        help="Resolution decision for the review",
+    )
+    error_review_resolve.add_argument(
+        "--reason", required=True, help="Reason supporting the resolution"
+    )
+    error_review_resolve.add_argument(
+        "--actor", required=True, help="Peer ID resolving the review"
+    )
+    error_review_resolve.add_argument(
+        "--json", action="store_true", help="Emit machine-readable JSON"
+    )
 
     alert_parser = subparsers.add_parser(
         "alert",
@@ -4664,7 +4732,9 @@ def main(args: list[str] | None = None) -> int:
             help="Emit the complete persisted session snapshot as JSON",
         )
 
-    parsed = parser.parse_args(args)
+    complete_help_metadata(parser)
+    parser.epilog = f"{workflow_help}\n\n{recursive_command_catalog(parser)}"
+    parsed = parser.parse_args(normalize_help_args(args))
 
     from peerhub.cli.commands.setup import run_setup_command
 

@@ -8,6 +8,7 @@ from peerhub.adapters.contract import (
 )
 from peerhub.core.execution import ProcessTerminalEvidence
 from peerhub.adapters.claude_adapter import RealClaudeAdapter, _CLAUDE_PROFILE
+from peerhub.application.model_config import ModelConfigService
 
 class FakeCompletionContractView:
     @property
@@ -15,10 +16,13 @@ class FakeCompletionContractView:
         return "fake-contract"
 
 @pytest.mark.slow
-def test_real_claude_adapter_shells_out():
+def test_real_claude_adapter_shells_out(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     """Integration test that shells out to real claude.cmd (not mocked)."""
     adapter = RealClaudeAdapter()
     
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "empty-config"))
     request = AdapterRequest(
         request_id="req-124",
         prompt_content="say hello in two words",
@@ -27,6 +31,9 @@ def test_real_claude_adapter_shells_out():
         profile_id="cc.standard",
         requested_session_action=SessionAction.NONE,
         completion_contract=FakeCompletionContractView(),
+        model_binding=ModelConfigService(None).resolve(
+            node_id="cc", profile_id="cc.standard"
+        ),
     )
     
     limits = TransportLimits(
@@ -42,16 +49,18 @@ def test_real_claude_adapter_shells_out():
         session=None,
         limits=limits,
     )
-    assert plan.argv == ("claude.cmd", "-p", "say hello in two words", "--output-format", "json")
+    assert request.model_binding.model_id is not None
+    assert plan.argv == (
+        "claude.cmd", "-p", "-", "--output-format", "stream-json", "--verbose",
+        "--model", request.model_binding.model_id,
+    )
     
     # 2. Execute
     proc = subprocess.run(
         plan.argv,
+        input=plan.stdin_payload,
         capture_output=True,
         cwd=plan.cwd_reference,
-        # In a real environment, passing DEVNULL prevents the warning,
-        # but adapter must handle whatever stdout gets
-        stdin=subprocess.DEVNULL,
     )
     
     # 3. Assess output
@@ -73,6 +82,5 @@ def test_real_claude_adapter_shells_out():
     decoder.feed(proc.stdout)
     decoded = decoder.finalize()
     assert decoded.canonical_text
-    assert len(decoded.events) == 1
-    assert decoded.events[0].kind.value == "ASSISTANT_TEXT"
+    assert any(event.kind.value == "ASSISTANT_TEXT" for event in decoded.events)
     

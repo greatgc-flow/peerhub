@@ -298,7 +298,7 @@ _DECODER_FIXTURES: dict[str, bytes] = {
 
 _DECODER_PROTOCOLS: dict[str, str] = {
     "ag": "flat-json",
-    "cc": "claude-result-json",
+    "cc": "claude-stream-json",
     "cx": "jsonl-events",
 }
 

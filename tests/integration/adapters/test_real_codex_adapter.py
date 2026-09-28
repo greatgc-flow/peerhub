@@ -8,6 +8,7 @@ from peerhub.adapters.contract import (
 )
 from peerhub.core.execution import ProcessTerminalEvidence
 from peerhub.adapters.codex_adapter import RealCodexAdapter, _CODEX_PROFILE
+from peerhub.application.model_config import ModelConfigService
 
 class FakeCompletionContractView:
     @property
@@ -15,10 +16,13 @@ class FakeCompletionContractView:
         return "fake-contract"
 
 @pytest.mark.slow
-def test_real_codex_adapter_shells_out():
+def test_real_codex_adapter_shells_out(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
     """Integration test that shells out to real codex.cmd (not mocked)."""
     adapter = RealCodexAdapter()
     
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "empty-config"))
     request = AdapterRequest(
         request_id="req-125",
         prompt_content="say hello in two words",
@@ -27,6 +31,9 @@ def test_real_codex_adapter_shells_out():
         profile_id="cx.standard",
         requested_session_action=SessionAction.NONE,
         completion_contract=FakeCompletionContractView(),
+        model_binding=ModelConfigService(None).resolve(
+            node_id="cx", profile_id="cx.standard"
+        ),
     )
     
     limits = TransportLimits(
@@ -42,9 +49,13 @@ def test_real_codex_adapter_shells_out():
         session=None,
         limits=limits,
     )
+    assert request.model_binding.model_id is not None
+    assert request.model_binding.reasoning_effort is not None
     assert plan.argv == (
         "codex.cmd", "exec", "--skip-git-repo-check",
-        "-c", 'model="gpt-5.6-luna"', "--json", "say hello in two words",
+        "-c", f'model="{request.model_binding.model_id}"',
+        "-c", f'model_reasoning_effort="{request.model_binding.reasoning_effort}"',
+        "--json", "say hello in two words",
     )
     
     # 2. Execute

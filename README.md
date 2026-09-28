@@ -20,7 +20,7 @@ peerhub diag
 peerhub status
 ```
 
-`peerhub ask` works end-to-end today: it genuinely dispatches through peerhub's own governance, admission, and process-supervision layers and returns the real response. See "Key commands" below for the full reference, including the governance/room/session surface used by automated multi-peer coordination (consensus, task, lesson, room, duty, session, ...) — `peerhub --help` groups all of it into tiers so the everyday commands above aren't buried under the ~30 total top-level commands.
+`peerhub ask` works end-to-end today: it genuinely dispatches through peerhub's own governance, admission, and process-supervision layers and returns the real response. See "Key commands" below for the full reference, including the governance/room/session surface used by automated multi-peer coordination (consensus, task, lesson, room, duty, session, ...) — `peerhub --help` groups all of it into tiers so the everyday commands above aren't buried under the 30 total top-level commands, then prints the complete leaf-command catalog. `-h`, `--help`, and the Windows-style `/?` work at the root and after every nested command path.
 
 ## Install
 
@@ -33,11 +33,11 @@ pip install peerhub
 ### Option B: Install an exact GitHub release
 
 ```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.7.0"
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.8.0"
 ```
 
-The `main` branch is the `0.8.0.dev0` development line; `v0.7.0` remains
-the latest tagged release until the next release is cut.
+The commands above install the stable `v0.8.0` line. Development changes after
+that release remain on `main` until the next version is cut.
 
 ### Option C: Local editable development install
 
@@ -111,9 +111,70 @@ peerhub consensus vote --workspace ./peerhub-demo --round-id docs-demo-round --a
 
 `ask` also accepts `--workspace PATH` (default `.`), `--profile PROFILE_ID`, `--timeout-seconds`/`--silence-timeout-seconds`/`--max-output-bytes` (process limits), and `--json`. Exit codes: `0` verified response, `2` usage/config/pre-spawn failure (unknown peer, executable not found, readiness probe failed), `3` definite peer/protocol failure, `4` uncertain execution (timeout, lost lease ownership), `130` interrupted. It requires the real peer CLI (`agy.exe`/`claude.cmd`/`codex.cmd`) to be installed and authenticated on your machine — `ask` will tell you clearly if it can't find or run one, rather than failing silently.
 
+### Scenario cookbook (all 30 command groups)
+
+These are safe starting points, not a second command specification. Run
+`peerhub /?` for the generated 107-leaf catalog and `peerhub <path> /?` for
+the authoritative arguments and description at any depth.
+
+| Scenario | Example |
+|---|---|
+| Create a workspace | `peerhub workspace init --workspace ./peerhub-demo` |
+| Inspect it | `peerhub status --workspace ./peerhub-demo --all` |
+| Validate effective config | `peerhub config validate --workspace ./peerhub-demo --json` |
+| Back it up | `peerhub backup workspace --workspace ./peerhub-demo --output ./backups` |
+| Discover installed adapters | `peerhub adapter discover --json` |
+| Inspect telemetry | `peerhub diag --workspace ./peerhub-demo --domains` |
+| Ask one peer | `peerhub ask cx "Summarize this repository" --workspace ./peerhub-demo` |
+| Ask several peers | `peerhub broadcast "List one risk." --peers cx,ag --workspace ./peerhub-demo` |
+| Check health | `peerhub health check --workspace ./peerhub-demo --peer cc` |
+| Inspect peer lifecycle | `peerhub peer status --workspace ./peerhub-demo --all` |
+| Inspect process leases | `peerhub lease status --workspace ./peerhub-demo` |
+| Inspect delivery backlog | `peerhub broker status --workspace ./peerhub-demo --json` |
+| Check an admission gate | `peerhub gate check cc --workspace ./peerhub-demo` |
+| Render a statusline | `peerhub statusline --peer ag --workspace ./peerhub-demo` |
+| Review consensus rounds | `peerhub consensus list --workspace ./peerhub-demo` |
+| Create governed work | `peerhub task create --workspace ./peerhub-demo --task-id docs-demo --summary "Refresh docs" --spec "Add a usage example." --creator cx` |
+| Sweep expired lessons | `peerhub lesson sweep --workspace ./peerhub-demo` |
+| Review directives | `peerhub directive list --workspace ./peerhub-demo` |
+| Inspect registered nodes | `peerhub node list --workspace ./peerhub-demo` |
+| Inspect file locks | `peerhub lock status --workspace ./peerhub-demo` |
+| Inspect artifact claims | `peerhub artifact status --workspace ./peerhub-demo` |
+| Inspect role assignments | `peerhub role status --workspace ./peerhub-demo` |
+| Discover capability-fit routes | `peerhub routing discover --workspace ./peerhub-demo --needs review` |
+| Inspect leadership | `peerhub leadership status --workspace ./peerhub-demo` |
+| Review feedback gaps | `peerhub feedback list --workspace ./peerhub-demo` |
+| Review operational errors | `peerhub error review list --workspace ./peerhub-demo` |
+| Raise a room alert | `peerhub alert raise --workspace ./peerhub-demo --room-id docs-room --raiser-instance-id cx-1 --raiser-profile-id standard --message "Review blocked"` |
+| Create a collaboration room | `peerhub room create --workspace ./peerhub-demo --room-id docs-room --topic-id docs --title "Docs review" --creator cx --participants cx,ag` |
+| Inspect terminal duty | `peerhub duty status --workspace ./peerhub-demo --room-id docs-room` |
+| Open a participant session | `peerhub session open --workspace ./peerhub-demo --workspace-scope-id demo --room-id docs-room --actor-principal-id cx --instance-id cx-1 --profile-id standard --session-fingerprint cx-1-demo` |
+
+### Feedback loop
+
+Use `feedback add → list → resolve` for product/process gaps, `error report →
+review list → review resolve` for repeatable runtime failures, and `lesson
+propose → approve → activate → retire/supersede` for rules learned from the
+evidence. These are durable workspace records rather than loose notes. The
+group-level `/?` pages contain copyable end-to-end examples. For package bugs,
+use the GitHub issue templates and include `peerhub --version`, `peerhub config
+paths --json`, `peerhub config validate --json`, and `peerhub diag --json`;
+remove prompts/transcripts or secrets before attaching output.
+
 ## Status
 
-**Released as v0.7.0.** `peerhub ask` and the full governance/room/session command surface are real, working, and dispatch through peerhub's own governance, admission, and process-supervision layers today — not a stub. Since v0.6.0: every one of the CLI's 31 top-level command groups now has runnable `--help` usage examples, a `CONVENTION.md` and `CONTRIBUTING.md` (plus GitHub issue templates) were added, a real Windows file-lock retry gap in artifact materialization was fixed, and a packaging bug that broke the `fake` adapter kind for non-editable installs was fixed. D-CTX (dispatch-context credential verification, closing the consensus-vote impersonation gap) is fully wired end-to-end. As of this release, R4/P4b governance convergence is complete across every governance-decision domain (`feedback`, `artifact`, `file-lock`, `task`, `room`, `lesson`, `duty`, `error` review, `role`, `leadership`, `consensus`) — all route through a uniform `ApplicationAPI.submit()` gateway instead of bypassing it, with `consensus vote` exercising the gateway's verified-credential path. `docs/design/peerhub-production-call-map-R1.json` still lists 26 commands as `DIRECT_CLI_BYPASS` — this is a deliberate scope boundary, not an oversight: 21 are bootstrap/session/config/health/routing/directive/node-level administrative primitives (`workspace init`, `config migrate`/`init`, `backup workspace`/`restore`, `health revalidate`/`check`/`sweep`, `peer quarantine`/`recover`, `lease sweep`, `directive add`/`migrate`/`clear`, `node register`/`bind-profile`, `routing elect-leader`/`import-capabilities`, `session open`/`heartbeat`/`close`), and 5 are the core peer-dispatch primitives themselves (`ask`, `broadcast`, `diag`, `status`, `alert raise`) that intentionally predate/sit outside the governance-decision gateway. Documented in the call-map's own `known_gaps`/`scope_boundary` fields. `hub.py` remains the authoritative system for production multi-peer coordination; peerhub is a real, tested candidate replacement, not yet a cutover.
+**Released as v0.8.0.** All nine advertised AG/Claude/Codex profiles have
+reviewed packaged model bindings and live dispatch evidence. `diag --live` now
+polls the portable runtime without requiring an initialized workspace, labels
+measured quota separately from executable-only discovery, and refuses to
+recommend a critical quota/pacing target. The complete 107-leaf CLI supports
+`-h`, `--help`, and `/?` recursively, with generated descriptions, argument
+help, workflows, and feedback-loop examples. Adapter contracts and active docs
+now match AG 1.2.12, Claude Code 2.1.283 stream JSON, and Codex 0.157.1 JSONL.
+The full governance/room/session surface still dispatches through PeerHub's
+governance, admission, and process-supervision layers; intentional direct CLI
+boundaries remain enumerated in
+`docs/design/peerhub-production-call-map-R1.json`.
 
 For the detailed development history — implementation status by feature, deferred items with their triggers, the hub.py-replacement roadmap, and the full architecture debate record — see [`docs/STATUS.md`](docs/STATUS.md).
 

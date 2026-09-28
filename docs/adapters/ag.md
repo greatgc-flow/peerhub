@@ -1,68 +1,43 @@
-# Specific — ag (AntiGravity)
-> Delta-only from general/*. Status: ACTIVE (gc replacement).
+# Antigravity (`ag`) adapter
 
-> **Ported from Engram 2026-09-03** (was `_sys/docs-v2/...`; see Engram's `_sys/data/sessions/2026-09-03_docsv2-disposition-proposal.md` for the full disposition). Content is otherwise verbatim from the original -- some internal path references (e.g. `_sys/ai/orchestration.json`, `_sys/ai/model-registry.json`, `P:\`) point at Engram's now-deleted `_sys/ai/` tree or the frozen `P:\` checkout and describe the OLD pre-separation update-checkpoint workflow; they have not been individually rewritten for peerhub's own conventions yet -- treat any such reference as historical context, not a current instruction, until this doc gets a real pass.
+This page documents the current production contract implemented by
+`peerhub.adapters.agy_adapter`. Historical migration notes live under
+[`checkpoints/`](checkpoints/) and are not operational guidance.
 
----
+## Current contract
 
-## Permission Profile & Flags
+- Executable: `agy.exe` (observed version `1.2.12` on 2026-09-28)
+- Transport: process pipe; the prompt is passed with `-p`
+- Output: flat JSON; `response` is canonical text and `conversation_id` is the
+  resumable vendor session identifier
+- Inline prompt limit: 1,000,000 UTF-8 bytes
+- Artifact references: not supported
+
+Create and resume invocations are equivalent to:
+
+```text
+agy.exe -p <prompt> --output-format json [--model MODEL] [--effort EFFORT]
+agy.exe -p <prompt> --output-format json [--model MODEL] [--effort EFFORT] --conversation ID
 ```
-agy --dangerously-skip-permissions -p {query} --print-timeout 60m
-```
-- **Inline prompt:** Uses inline `-p {query}`. `agy` ignores `-p -` (stdin).
-- **`--print-timeout 60m`:** Child-process output ceiling so `agy` does not self-terminate before the hub's liveness guard fires. There is **no hard wall-clock deadline** (orchestration `timeout: 0`); liveness is governed by `zombie_timeout_sec` (silence-based; `protocol.json communication_policy.zombie_profile_map` — `standard`/`effort`=600s, `deepthink`=900s; corrected 2026-07-17, was stale at 7200s here). Since 2026-07-17, this window tightens to 300s once genuine PTY output has been observed past the init-noise floor (`_effective_zombie_timeout_sec()`, `hub.py`) — see `ops/closure-review-2026-07-17.md` Part B. The 300s `pty_lease_sec` is a lease-renew / orphan-cleanup window, **not** an execution deadline.
-- **Windows PTY:** `agy` writes to Windows Console API. `requires_pty=true` is mandatory in `orchestration.json` (subprocess.PIPE hangs).
 
-## Session & State (`session_mode: reuse`)
-- **Durable home (verified 2026-07-01):** ag uses the durable config home
-  (`AGY_CONFIG_HOME=config`). There is **no clean/stateless IPC home** —
-  `ipc_stateless_home` is **not** configured in `peers.json` (an earlier design,
-  now inactive; the `_prepare_ipc_stateless_home` code remains but is unused for ag).
-- **A6 isolation via scoped id, not home-wipe:** `agy -p` auto-continues ambient
-  state, so IPC asks are isolated by an explicit scoped `--conversation
-  <room:ag.profile>` id (`AgyAdapter`), which pins the conversation instead of
-  wiping the home. (Empirically a fresh scope does not inherit prior context.)
-- **Session reuse — WORKS (VERIFIED end-to-end 2026-07-02):** agy owns its
-  conversation id (the `conversations/<id>.db` filename; NOT stdout — confirmed by ag).
-  So: CREATE turn omits `--conversation` (agy mints its own id) →
-  `AgyAdapter.extract_session_id` captures the **newest `conversations/<id>.db` stem** →
-  RESUME turn injects `--conversation <that-id>`. A 2-ask hub probe reused the same id
-  and recalled the codeword. Caveat: "newest .db" assumes serialized ag asks (lease) +
-  no concurrent interactive churn of the durable home.
-  - **Console requirement (not slowness):** agy needs a console — fine via the hub's
-    winpty (short asks ~13–26 s) and interactively; it only hangs in a **headless
-    no-console harness** (an earlier "agy -p multi-minute" note was that artifact,
-    retracted). `--dangerously-skip-permissions`/stdout-redirect are NOT factors.
+PeerHub resolves model configuration centrally (workspace binding, then global
+configuration, then packaged defaults). The adapter only translates a resolved
+binding into CLI flags; it does not contain model-selection policy.
 
-## Runtime Profiles
-| Profile | Runtime model | Effort |
+| Profile | Packaged model | Separate effort |
 |---|---|---|
-| `ag.standard` | `gemini-3.8-flash-low` | embedded (no `--effort`) |
-| `ag.effort` | `gemini-3.8-flash-high` | embedded (no `--effort`) |
-| `ag.deepthink` | `gemini-3.1-pro-high` | embedded (no `--effort`) |
+| `ag.standard` | `gemini-3.8-flash-low` | none |
+| `ag.effort` | `gemini-3.8-flash-high` | none |
+| `ag.deepthink` | `gemini-3.1-pro-high` | none |
 
-This is the complete profile set advertised by the production AG adapter. The
-2026-09-27 `agy.exe models` catalog also contains older Flash generations,
-`claude-sonnet-4-6`, `claude-opus-4-6-thinking`, and `gpt-oss-120b-medium`, but
-those catalog entries are not peerhub profiles. All three configured Gemini
-models use the catalog's tier-suffixed slug directly, so peerhub must not add a
-second `--effort` operand.
+## Verify and troubleshoot
 
-**2026-09-04 bake-off (`ag.effort` vs `ag.deepthink`, real local dispatches, 2 tasks):** answering a direct "which is better" question with otherwise-idle quota headroom rather than guessing. A deterministic state-machine trace (single correct answer) tied — both profiles got it exactly right, consistent with the standing finding elsewhere (Engram's `_sys/docs-v2/ops/intelligence-scores.md` §4.8) that closed-form probes don't discriminate frontier-tier reasoning between these models. A 7-simultaneous-constraint writing task also tied on content correctness, but `ag.deepthink`'s raw reply leaked a hub-injected `PROGRESS 1: ...` tracking line into the answer (violating an explicit "output only the requested text" instruction) where `ag.effort` did not, and `ag.effort` was consistently ~2x faster on both tasks. One `ag.deepthink` attempt also timed out at 929s before succeeding on retry — a reliability data point, not yet confirmed as a pattern from a single occurrence. This reproduces, on the new 3.8-flash generation, the same `ag.deepthink`-scores-below-`ag.effort` pattern the declared composite already flagged — and which is already a deliberate, ratified policy choice (deepthink is kept for long-context/tool-use/multi-turn resilience, not raw single-shot score), not something this bake-off overturns. Full writeup: Engram's `_sys/docs-v2/ops/intelligence-scores.md` §4.9.
-
-## Directory Layout & Entry
+```powershell
+peerhub adapter discover --json
+agy.exe --version
+python -m tools.peerhub_facts --live
 ```
-_sys/antigravity/
-├── config/                 ← INTERACTIVE home (durable; never mutated by hub IPC)
-│   ├── AGY.md              ← session instructions
-│   ├── conversations/      ← durable session .db store (used by IPC too)
-│   └── implicit/           ← durable implicit context
-└── health.json             ← peer health (runtime-generated)
-```
-- **Entry:** `agy.bat` → `agy_entry.py` (peerhub package; removed from Engram in the Engram/peerhub separation)
-- **Config Env:** `AGY_CONFIG_HOME`/`GEMINI_DIR` → `_sys/antigravity/config/` (durable; IPC uses the same home — no separate `ipc-config`).
 
-## Context and Collaboration
-*(Delta from general/protocol.md + general/lifecycle.md.)*
-- **PTY transport:** ag is the only PTY peer — liveness is heartbeat-based (zombie timeout), not a hard process deadline; `ag.deepthink` may think silently for long stretches without being a hang.
-- **IPC isolation via scoped id:** hub asks reuse the durable home but pin a scoped `--conversation <room:ag.profile>` id, so ag does NOT inherit prior interactive room context; collaboration context must travel in the ask envelope. (Actual history restore in `-p` mode is a pending CLI limitation — see Session & State.)
+The vendor CLI owns authentication, account quotas, network access, and model
+availability. A live facts failure must be reviewed before changing
+`model-defaults.toml`; observations are never auto-approved as new contracts.

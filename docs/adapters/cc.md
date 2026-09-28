@@ -1,58 +1,44 @@
-# Specific — cc (Claude Code)
-> Delta-only from general/*. Status: ACTIVE.
+# Claude Code (`cc`) adapter
 
-> **Ported from Engram 2026-09-03** (was `_sys/docs-v2/...`; see Engram's `_sys/data/sessions/2026-09-03_docsv2-disposition-proposal.md` for the full disposition). Content is otherwise verbatim from the original -- some internal path references (e.g. `_sys/ai/orchestration.json`, `_sys/ai/model-registry.json`, `P:\`) point at Engram's now-deleted `_sys/ai/` tree or the frozen `P:\` checkout and describe the OLD pre-separation update-checkpoint workflow; they have not been individually rewritten for peerhub's own conventions yet -- treat any such reference as historical context, not a current instruction, until this doc gets a real pass.
+This page documents the current production contract implemented by
+`peerhub.adapters.claude_adapter`. Historical migration notes live under
+[`checkpoints/`](checkpoints/) and are not operational guidance.
 
----
+## Current contract
 
-## Directory Layout & Key Files
-```
-_sys/claude/
-├── config/
-│   ├── CLAUDE.md           ← global user preferences (loaded every session)
-│   ├── settings.json       ← CLI settings
-│   ├── plans/              ← planning documents
-│   ├── projects/P--/memory/MEMORY.md  ← persistent memory index
-│   ├── sessions/           ← session snapshots
-│   └── history.jsonl       ← command history
-├── health.json             ← peer health
-└── agent/                  ← sub-agent definitions
-```
-- **Project Config:** `P:\CLAUDE.md` (consumed by Claude Code CLI at startup).
+- Executable: `claude.cmd` (observed version `2.1.283` on 2026-09-28)
+- Transport: process pipe; the prompt is written to standard input
+- Output: stream JSON; `result` is canonical text, `is_error` marks vendor
+  failure, and the init/result records provide the resumable session ID
+- Inline prompt limit: 1,000,000 UTF-8 bytes
+- Oversized evidence: staged as an ephemeral PeerHub artifact with a bounded
+  summary in the prompt; the vendor CLI receives no direct artifact reference
 
-## Permission Flags
-```
-claude -p {query} --dangerously-skip-permissions
+Create and resume invocations are equivalent to:
+
+```text
+claude.cmd -p - --output-format stream-json --verbose [--model MODEL] [--effort EFFORT]
+claude.cmd -p - --output-format stream-json --verbose [--model MODEL] [--effort EFFORT] --resume ID --autocompact auto
 ```
 
-## Runtime Profiles
-| Profile | Model | Effort | CLI context observed |
-|---|---|---|---:|
-| `cc.standard` | `claude-haiku-4-5-20251001` | low | 200k |
-| `cc.effort` | `claude-sonnet-5` | high | 1M |
-| `cc.deepthink` | `claude-opus-5` | high | 1M |
+PeerHub resolves model configuration centrally (workspace binding, then global
+configuration, then packaged defaults). The adapter only translates a resolved
+binding into CLI flags.
 
-This is the complete profile set advertised by the production Claude adapter.
-Claude Code 2.1.283 exposes `--effort low|medium|high|xhigh|max`; peerhub emits
-the configured `--effort` for `cc.effort` and `cc.deepthink`. Claude Code lacks
-a zero-token catalog command, so direct minimal invocations are the availability
-check.
+| Profile | Packaged model | Effort |
+|---|---|---|
+| `cc.standard` | `claude-haiku-4-5-20251001` | vendor default |
+| `cc.effort` | `claude-sonnet-5` | `high` |
+| `cc.deepthink` | `claude-opus-5` | `high` |
 
-## Session & State
-- **Session reuse:** hub IPC asks reuse per `session_mode: reuse` (orchestration.json), scoped by `room_id`. The interactive human-facing cc terminal is a separate fresh session per launch.
-- **Local Memory:** Claude-local memory is not automatically shared with other peers.
+## Verify and troubleshoot
 
-## Gate & Entry
-- **Gate script:** `claude-gate.bat` (removed in Engram/peerhub separation)
-- **Status check:** `claude-status.bat`
+```powershell
+peerhub adapter discover --json
+claude.cmd --version
+python -m tools.peerhub_facts --live
+```
 
-## Update Protocol & Health
-- `config/CLAUDE.md` — update via `ctx-end --global` or manual edit.
-- `config/projects/*/memory/` — auto-managed by cc memory system.
-- `health.json` — ONLY via `hub.py health-update --peer cc`.
-- **Auto-Remediation (INV-15/16):** cc cannot be auto-restarted silently by SelfHealer Tier-0/1. On RED state: SelfHealer logs the event and escalates to Human Gate.
-
-## Context and Collaboration
-*(Delta from general/protocol.md + general/learning.md.)*
-- **Primary human-interface terminal:** cc most often holds the thin-terminal role (GAP-1/PRO-19) — routes/relays, does not self-analyze once a worker is selected.
-- **Local memory is private:** cc's `projects/*/memory/` is NOT auto-propagated to peers; durable cross-peer knowledge must go through the lesson/directive loop (general/learning.md), not cc-local memory.
+The vendor CLI owns authentication, account quotas, network access, and model
+availability. A live facts failure must be reviewed before changing packaged
+defaults or compatibility contracts.

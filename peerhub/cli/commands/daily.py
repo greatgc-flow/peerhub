@@ -95,9 +95,24 @@ def register_daily_commands(
         help="Required downstream capability tier",
     )
     add_workspace_arg(broadcast_parser)
-    broadcast_parser.add_argument("--timeout-seconds", type=int, default=60)
-    broadcast_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
-    broadcast_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
+    broadcast_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=60,
+        help="Maximum total runtime per peer in seconds (default: 60)",
+    )
+    broadcast_parser.add_argument(
+        "--silence-timeout-seconds",
+        type=int,
+        default=60,
+        help="Maximum time without peer output in seconds (default: 60)",
+    )
+    broadcast_parser.add_argument(
+        "--max-output-bytes",
+        type=int,
+        default=1_000_000,
+        help="Maximum captured output per peer in bytes (default: 1000000)",
+    )
     add_json_arg(broadcast_parser, help="Emit JSON")
 
 def register_ask_command(
@@ -145,9 +160,24 @@ def register_ask_command(
     )
     ask_parser.add_argument("--session-id", default=None, help="Conversation scope to bind/resume")
     ask_parser.add_argument("--room-id", default=None, help="Room whose conversation scope to use")
-    ask_parser.add_argument("--timeout-seconds", type=int, default=60)
-    ask_parser.add_argument("--silence-timeout-seconds", type=int, default=60)
-    ask_parser.add_argument("--max-output-bytes", type=int, default=1_000_000)
+    ask_parser.add_argument(
+        "--timeout-seconds",
+        type=int,
+        default=60,
+        help="Maximum total peer runtime in seconds (default: 60)",
+    )
+    ask_parser.add_argument(
+        "--silence-timeout-seconds",
+        type=int,
+        default=60,
+        help="Maximum time without peer output in seconds (default: 60)",
+    )
+    ask_parser.add_argument(
+        "--max-output-bytes",
+        type=int,
+        default=1_000_000,
+        help="Maximum captured peer output in bytes (default: 1000000)",
+    )
     add_json_arg(ask_parser, help="Emit JSON")
 
 

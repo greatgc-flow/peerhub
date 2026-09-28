@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from peerhub.adapters.agy_adapter import RealAgyAdapter, _AGY_PROFILE
+from peerhub.application.model_config import ModelConfigService
 from peerhub.adapters.contract import AdapterRequest, SessionAction
 from peerhub.core.execution import TransportLimits
 from peerhub.dispatch.contract import CompletionAssessmentState, RequestState
@@ -33,6 +34,7 @@ from tests.integration.dispatch.test_vertical_dispatch import (
 def test_real_agy_adapter_via_pipe(
     tmp_path: Path,
     store: SqliteStateStore,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Prove a real PeerAdapter survives peerhub's full supervised dispatch pipeline."""
     workflows, dispatch = _workflows(store, peer_kind="ag")
@@ -49,6 +51,7 @@ def test_real_agy_adapter_via_pipe(
     )
 
     contract = _completion_contract()
+    monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "empty-config"))
     adapter_req = AdapterRequest(
         request_id="req-real-agy-01",
         prompt_content="say hello in two words",
@@ -57,6 +60,9 @@ def test_real_agy_adapter_via_pipe(
         profile_id="ag.standard",
         requested_session_action=SessionAction.NONE,
         completion_contract=contract,
+        model_binding=ModelConfigService(None).resolve(
+            node_id="ag", profile_id="ag.standard"
+        ),
     )
 
     adapter = RealAgyAdapter()

@@ -33,7 +33,9 @@ required_output_fields = ["response"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
 # 1.1.13 added 2026-08-17: --live adapter conformance re-run green
 # (4 passed, 3 deselected) after agy.exe moved to 1.1.13 on this workstation.
-verified_versions = ["1.1.12", "1.1.13"]
+# 1.2.12 verified 2026-09-28 by discovery, help contract, and nine-profile
+# live PONG validation.
+verified_versions = ["1.1.12", "1.1.13", "1.2.12"]
 version_argv = ["--version"]
 help_argv = ["--help"]
 # RealAgyAdapter.plan_invocation builds: agy.exe -p <prompt> --output-format json
@@ -41,15 +43,18 @@ required_help_tokens = ["-p", "--output-format"]
 
 [peers.cc]
 cli_name = "claude.cmd"
-output_protocol = "claude-result-json"
-# ClaudeOutputDecoder reads "result", gated on "is_error", after slicing
-# between the first "{" and last "}" so a warning prefix is tolerated.
+output_protocol = "claude-stream-json"
+# ClaudeOutputDecoder reads newline-delimited stream-json init/result records;
+# "result" is gated on "is_error" and the vendor session ID is retained.
 required_output_fields = ["result", "is_error"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
-verified_versions = ["2.1.222"]
+# 2.1.283 verified 2026-09-28 by discovery, help contract, and nine-profile
+# live PONG validation.
+verified_versions = ["2.1.222", "2.1.283"]
 version_argv = ["--version"]
 help_argv = ["--help"]
-# RealClaudeAdapter.plan_invocation builds: claude.cmd -p <prompt> --output-format json
+# RealClaudeAdapter writes the prompt to stdin and builds:
+# claude.cmd -p - --output-format stream-json --verbose
 required_help_tokens = ["-p", "--output-format"]
 
 [peers.cx]
@@ -59,11 +64,14 @@ output_protocol = "jsonl-events"
 # item.type == "agent_message", and reads item.text.
 required_output_fields = ["type", "item"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
-verified_versions = ["0.147.0"]
+# 0.157.1 verified 2026-09-28 by discovery, help contract, and nine-profile
+# live PONG validation.
+verified_versions = ["0.147.0", "0.157.1"]
 version_argv = ["--version"]
 # NOT ["--help"]: --json is a flag of the `exec` SUBCOMMAND and does not
 # appear in codex's top-level help. Probing top-level help reports --json
 # as missing -- a false drift. See peer-cli-observations.md, OBS-0005.
 help_argv = ["exec", "--help"]
-# RealCodexAdapter.plan_invocation builds: codex.cmd exec --json <prompt>
+# RealCodexAdapter.plan_invocation builds:
+# codex.cmd exec --skip-git-repo-check ... --json <prompt>
 required_help_tokens = ["exec", "--json"]
