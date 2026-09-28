@@ -163,7 +163,7 @@ remove prompts/transcripts or secrets before attaching output.
 
 ## Status
 
-**v0.9.0 release candidate.** All twelve advertised AG/Claude/Codex profiles
+**Released as v0.9.0.** All twelve advertised AG/Claude/Codex profiles
 (`standard`, `effort`, `deepthink`, and `pro` for each peer) have reviewed
 packaged model bindings and live dispatch evidence. `diag --live` now
 polls the portable runtime without requiring an initialized workspace, labels

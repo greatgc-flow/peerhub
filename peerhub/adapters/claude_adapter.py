@@ -118,6 +118,21 @@ class ClaudeOutputDecoder:
                 ))
                 break
         for parsed in parsed_objects:
+            if parsed.get("type") == "rate_limit_event":
+                rate_limit_info = parsed.get("rate_limit_info")
+                if (
+                    isinstance(rate_limit_info, dict)
+                    and cast(dict[str, object], rate_limit_info).get("status")
+                    == "rejected"
+                ):
+                    events.append(DecoderEvent(
+                        kind=DecoderEventKind.VENDOR_ERROR,
+                        payload={
+                            "normalized_kind": "quota_exhausted",
+                            "evidence_source": "structured_vendor_output",
+                        },
+                    ))
+                    continue
             if parsed.get("is_error", False):
                 raw_error_type = parsed.get("error_type", "")
                 err_type = raw_error_type if isinstance(raw_error_type, str) else ""
@@ -127,7 +142,21 @@ class ClaudeOutputDecoder:
                     "invalid_request_error": "invocation_plan_rejected",
                     "provider_down": "provider_unavailable",
                 }.get(err_type)
+                if (
+                    normalized is None
+                    and (
+                        parsed.get("error") == "rate_limit"
+                        or parsed.get("api_error_status") == 429
+                    )
+                ):
+                    normalized = "quota_exhausted"
                 if normalized:
+                    if any(
+                        event.kind == DecoderEventKind.VENDOR_ERROR
+                        and event.payload.get("normalized_kind") == normalized
+                        for event in events
+                    ):
+                        continue
                     events.append(DecoderEvent(
                         kind=DecoderEventKind.VENDOR_ERROR,
                         payload={

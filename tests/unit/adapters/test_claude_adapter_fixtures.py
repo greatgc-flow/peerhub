@@ -1,8 +1,7 @@
 """
-Note: The vendor-error byte patterns in these fixtures are synthetic,
-best-effort constructions, as there is no real capture available.
-They are marked TEST NEEDED for DIR-004 promotion to empirical_probe
-pending a real captured failure transcript from a live invocation.
+Most vendor-error byte patterns in these fixtures are synthetic best-effort
+constructions.  The weekly-limit fixture is minimized from a real Claude Code
+2.1.283 stream-json capture made on 2026-09-28.
 """
 import pytest
 from peerhub.adapters.claude_adapter import ClaudeOutputDecoder, RealClaudeAdapter
@@ -25,6 +24,51 @@ def test_claude_decoder_quota_exhausted():
     assert len(decoded.events) == 1
     assert decoded.events[0].kind == DecoderEventKind.VENDOR_ERROR
     assert decoded.events[0].payload["normalized_kind"] == "quota_exhausted"
+
+
+def test_claude_decoder_real_weekly_limit_capture_is_quota_exhausted():
+    decoder = ClaudeOutputDecoder()
+    decoder.feed(
+        b'{"type":"rate_limit_event","rate_limit_info":{"status":"rejected",'
+        b'"rateLimitType":"seven_day","unifiedWindows":{"five_hour":'
+        b'{"utilization":0.48},"seven_day":{"utilization":1}}}}\n'
+        b'{"type":"result","subtype":"success","is_error":true,'
+        b'"api_error_status":429,"error":"rate_limit",'
+        b'"result":"You have hit your weekly limit"}\n'
+    )
+
+    decoded = decoder.finalize()
+
+    vendor_errors = [
+        event for event in decoded.events
+        if event.kind == DecoderEventKind.VENDOR_ERROR
+    ]
+    assert len(vendor_errors) == 1
+    assert vendor_errors[0].payload == {
+        "normalized_kind": "quota_exhausted",
+        "evidence_source": "structured_vendor_output",
+    }
+
+
+def test_claude_interpret_output_weekly_limit_is_not_internal_error():
+    adapter = RealClaudeAdapter()
+    plan = InvocationPlan(
+        argv=("test",), cwd_reference=".", environment_delta={}, transport=TransportKind.PIPE,
+        stdin_payload=None, limits=TransportLimits(1, 1, 1), redacted_display="test",
+        artifacts=(), session_action=SessionAction.NONE
+    )
+    chunks = [
+        b'{"type":"result","subtype":"success","is_error":true,'
+        b'"api_error_status":429,"error":"rate_limit","result":"weekly limit"}'
+    ]
+
+    assessment = adapter.interpret_output(
+        plan, ProcessTerminalEvidence(exit_code=1), chunks
+    )
+
+    assert assessment.parsed is True
+    assert assessment.response_present is False
+    assert assessment.protocol_failure is None
 
 def test_claude_decoder_provider_down():
     decoder = ClaudeOutputDecoder()

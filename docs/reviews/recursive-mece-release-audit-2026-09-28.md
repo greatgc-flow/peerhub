@@ -2,17 +2,18 @@
 
 ## Decision
 
-PeerHub 0.8.0 is release-candidate complete. The active product surface, tests,
+PeerHub 0.9.0 was released after the active product surface, tests,
 documentation, configuration, release artifacts, and live vendor integrations
-were cross-checked. No known product defect remains open. External publication
-still requires the normal GitHub CI and release-publish gates.
+were cross-checked. A post-release audit restored the intended mandatory live
+provider gate after the initial 0.9.0 publication workflow had temporarily made
+it informational. Future publication blocks until that gate succeeds.
 
 ## Scope and evidence
 
 | Area | Authoritative implementation/config | Tests and empirical evidence | User/maintainer documentation |
 |---|---|---|---|
 | CLI and recursive help | `peerhub/cli/`, `peerhub/_version.py` | `tests/unit/test_cli_help.py`, CLI integration tests | `README.md` scenario cookbook and `peerhub /?` tree |
-| Adapter discovery and dispatch | `peerhub/adapters/`, packaged model defaults | adapter unit/integration tests; nine live profile PONGs; slow/e2e tiers | `docs/adapters/`, `docs/compatibility/` |
+| Adapter discovery and dispatch | `peerhub/adapters/`, packaged model defaults | adapter unit/integration tests; twelve live profile PONGs; slow/e2e tiers | `docs/adapters/`, `docs/compatibility/` |
 | Diagnostics, quota, and failover | diagnostics, health, routing, telemetry services | full suite plus interactive `diag --live` and fresh JSON probe | README diagnostics guidance and 2026-09-27 profile report |
 | Governance and feedback | task, room, lesson, feedback, error-review, artifact, lock, duty, consensus services | command wire contracts and service/integration suites | README feedback-loop scenarios; production call map |
 | Portability and migration | workspace/config resolvers and explicit migration arguments | temporary-root migration fixture; path/context tests | config hierarchy and migration docs |
@@ -38,17 +39,19 @@ command is added.
 
 ## Correctness and test gates
 
-- Deterministic suite: **2,393 passed, 4 skipped, 15 deselected, 13 subtests**.
+- Tagged-release deterministic suite: **2,404 passed, 4 skipped, 16 deselected, 13 subtests**.
   The four skips are host limitations: two Windows symlink-privilege cases and
   two POSIX-only permission/symlink semantics.
-- Real model/vendor tiers: **9 passed** in the slow suite and **6 passed** in the
-  e2e suite. These calls consume provider quota and therefore remain explicit
-  opt-in gates.
+- Post-release real model/vendor validation returned PONG evidence from all
+  twelve profiles, passed all **6 e2e tests**, and passed **9 of 10 slow tests**;
+  the remaining Claude probe received an empirical 429 weekly-quota rejection.
+  This is an external-capacity failure and intentionally blocks a new release
+  rather than being skipped.
 - Static typing: Pyright is required locally and in CI; source-tree analysis has
   zero errors. Build smoke copies are deleted after inspection so they cannot be
   misidentified as a second package.
-- Package: `peerhub-0.8.0` wheel and sdist build successfully, pass strict Twine
-  validation, and the wheel imports as version 0.8.0 from an isolated target.
+- Package: `peerhub-0.9.0` wheel and sdist build successfully, pass strict Twine
+  validation, and the wheel imports as version 0.9.0 from an isolated target.
 - Live diagnostics: all three vendor CLIs are discoverable. `diag --live` reports
   CLI reachability separately from quota telemetry; missing AG telemetry is not
   presented as a failure or invented capacity. At verification time CC and CX

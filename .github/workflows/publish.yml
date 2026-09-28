@@ -13,15 +13,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Informational only -- does not gate build/publish. Paid/live provider
-  # calls need quota and a dedicated self-hosted runner with authenticated
-  # agy/claude/codex CLIs, neither of which is guaranteed to be available at
-  # release time. Maintainers run the slow/e2e tiers themselves before
-  # cutting a release; this job just leaves a record when a runner exists.
+  # Releases intentionally wait for real provider validation. Keep the
+  # credential-bearing runner offline except while reviewing a trusted release
+  # or workflow dispatch; an unavailable runner must block, not bypass, publish.
   live-validation:
     runs-on: [self-hosted, Windows, X64, peerhub-live]
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -44,12 +41,7 @@ jobs:
           python -u -m pytest -q -m e2e
 
   build:
-    # Deliberately does NOT `needs: live-validation` -- that job requires a
-    # self-hosted runner with authenticated provider CLIs and paid quota,
-    # neither of which is guaranteed to exist at release time. Making
-    # publish depend on it would mean a release can never complete unless
-    # someone keeps that specific runner online with headroom. Maintainers
-    # verify the slow/e2e tiers themselves before cutting a release.
+    needs: live-validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

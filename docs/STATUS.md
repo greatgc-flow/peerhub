@@ -47,14 +47,18 @@
   - Detailed per-vendor error-taxonomy mapping, and PTY transport are deliberately out of scope for the current adapter slice.
   - No shadow-mode validation yet (routing a subset of real traffic through peerhub in parallel with `hub.py` for comparison before any real cutover) — `hub.py` remains the authoritative system for real multi-peer coordination work today; `peerhub ask` is a real, working command, not yet a production replacement.
 
-**v0.9.0 release candidate verified (2026-09-28).** The packaged profiles were
+**Released as v0.9.0 (2026-09-28).** The packaged profiles were
 refreshed against current AG, Claude Code, and Codex CLIs; all twelve profiles
 (`standard`, `effort`, `deepthink`, and `pro` for each peer) returned live PONG
 evidence. Diagnostics now distinguish CLI reachability from
 missing quota telemetry, and the recursive `/?` help tree covers all 107 leaf
-commands with descriptions and examples. The deterministic suite reports 2,393
-passed with only four OS/privilege skips; explicit slow and e2e live tiers report
-9 and 6 passed respectively. Wheel and sdist pass strict package validation. See
+commands with descriptions and examples. The tagged release's deterministic
+suite reports 2,404 passed with only four OS/privilege skips. Post-release live
+validation returned PONG evidence from all twelve profiles, passed all 6 e2e
+tests, and passed 9 of 10 slow tests; the remaining Claude probe received a 429
+after the account exhausted its weekly quota. That empirical response shape is
+now classified as quota exhaustion instead of an internal protocol error. Wheel
+and sdist pass strict package validation. See
 [`docs/reviews/recursive-mece-release-audit-2026-09-28.md`](reviews/recursive-mece-release-audit-2026-09-28.md).
 
 **Released as v0.6.0 (2026-09-20).** No breaking changes. Completes R4/P4b governance gateway convergence: every remaining gap v0.5.0 left open is now closed. `task` checkpoint's sibling actions (create/claim-start/complete/fail/cancel), `room`'s final 2 actions (create, rebuild-session-bindings — the latter threads broker/session access through `ApplicationAPI` since it wraps a free function, not a service method), `lesson`'s remaining actions (approve/supersede/quarantine/sweep, plus `propose` after adding its previously-missing `expires_at` field), `duty`'s 4 mutating actions (claim/heartbeat/close/sweep, via a design-first pass restoring a lossless 9-field lease receipt and preserving `close --close-session`'s composite partial-failure semantics), and `error review resolve` (via a new `ResolveQuarantineReviewCommand`) all now route through the gateway. `error review list` and 26 other commands remain `DIRECT_CLI_BYPASS` by deliberate scope boundary, not an oversight: 21 are bootstrap/session/config/health/routing/directive/node-level administrative primitives (pre-authorization-context, not governance decisions), and 5 (`ask`, `broadcast`, `diag`, `status`, `alert raise`) are the core peer-dispatch primitives that intentionally sit outside the governance gateway — see the call-map's own `known_gaps`/`scope_boundary` fields. (Corrected 2026-09-20: an earlier pass here undercounted this as "18" by only matching entries with `effect` exactly `"MUTATING"`, missing the `MUTATING_EXTERNAL`/`CONDITIONAL_MUTATION_EXTERNAL` variants — found via an independent MECE cross-review.) Two real pre-existing bugs were found and fixed during migration, not introduced by it: `LessonService.approve()` never updated `state["lifecycle"]` to `"APPROVED"` (unlike every sibling transition), and `duty close --close-session`'s `--json` output path never checked `session_close.status`, always returning exit 0 even when the session-close half failed. Full suite: 1770 passed, 5 skipped, 0 regressions. Also relocates the project's leftover AI-collaboration-process history (old multi-peer protocol docs, dev session archives, a 129-item development backlog) from the Engram product repo — where it had nothing to do with the shipped installer product and was needlessly bloating every release zip — into `docs/history/from-engram-repo/`, where it semantically belongs.
