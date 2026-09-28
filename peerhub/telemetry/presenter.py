@@ -124,9 +124,12 @@ def render_headroom(
     if not projections:
         lines.append("No telemetry data")
     for snapshot in sorted(projections, key=lambda p: (p.instance_id, p.quota_pool_scope)):
+        reset_at = datetime.fromtimestamp(snapshot.resets_at, tz=timezone.utc)
         line = (
             f"{snapshot.instance_id} {snapshot.quota_pool_scope}: "
-            f"used {snapshot.used_fraction * 100:.0f}%, remaining {snapshot.remaining_fraction * 100:.0f}%"
+            f"used {snapshot.used_fraction * 100:.0f}%, remaining {snapshot.remaining_fraction * 100:.0f}%, "
+            f"resets {_format_countdown(snapshot.resets_at, datetime.fromtimestamp(now, tz=timezone.utc))} "
+            f"({reset_at.isoformat()})"
         )
         age = now - snapshot.updated_at
         if age > _HEADROOM_STALE_THRESHOLD_SECONDS:
@@ -378,11 +381,15 @@ def _build_pool_pair_from_projections(
         fh_remaining_sec: Optional[float] = max(0.0, float(proj_5h.resets_at) - now_ts) if proj_5h.resets_at > 0 else None
         fh_ratio, _, _ = _calculate_pacing(fh_used_frac, fh_remaining_sec, 5.0)
         fh_str = f"{fh_used_frac*100:.0f}% ({fh_ratio:.2f}x)"
+        fh_reset_in = _format_countdown(proj_5h.resets_at, now)
+        fh_resets_at = datetime.fromtimestamp(proj_5h.resets_at, tz=timezone.utc).isoformat()
     else:
         fh_used_frac = 0.0
         fh_remaining_frac = 1.0
         fh_ratio = 0.0
         fh_str = "--"
+        fh_reset_in = "--"
+        fh_resets_at = None
 
     # 7D values
     if proj_7d is not None:
@@ -391,12 +398,16 @@ def _build_pool_pair_from_projections(
         sd_remaining_sec: Optional[float] = max(0.0, float(proj_7d.resets_at) - now_ts) if proj_7d.resets_at > 0 else None
         sd_ratio, _, _ = _calculate_pacing(sd_used_frac, sd_remaining_sec, 168.0)
         sd_str = f"{sd_used_frac*100:.0f}% ({sd_ratio:.2f}x)"
+        sd_reset_in = _format_countdown(proj_7d.resets_at, now)
+        sd_resets_at = datetime.fromtimestamp(proj_7d.resets_at, tz=timezone.utc).isoformat()
         reset_ts = proj_7d.resets_at
     else:
         sd_used_frac = 0.0
         sd_remaining_frac = 1.0
         sd_ratio = 0.0
         sd_str = "--"
+        sd_reset_in = "--"
+        sd_resets_at = None
         reset_ts = proj_5h.resets_at if proj_5h is not None else 0
 
     is_crit = sd_used_frac >= 0.90 or fh_used_frac >= 0.90
@@ -408,7 +419,11 @@ def _build_pool_pair_from_projections(
         "status_icon": status_icon,
         "exh_str": f"{max_ratio:.2f}x",
         "five_h": fh_str,
+        "five_h_reset_in": fh_reset_in,
+        "five_h_resets_at": fh_resets_at,
         "seven_d": sd_str,
+        "seven_d_reset_in": sd_reset_in,
+        "seven_d_resets_at": sd_resets_at,
         "reset_in": _format_countdown(reset_ts, now),
         "is_crit": is_crit,
         "remaining_fraction": min(fh_remaining_frac, sd_remaining_frac),
@@ -508,6 +523,7 @@ class TelemetryPresenter:
         # Partition projections by peer instance
         cc_projections = [p for p in projections if p.instance_id == "cc"]
         cx_projections = [p for p in projections if p.instance_id == "cx"]
+        ag_projections = [p for p in projections if p.instance_id == "ag"]
         # 2. AG Telemetry (Prioritize active live stdin log)
         ag_data: Dict[str, Any] = {
             "state": adapter_states["ag"][0],
@@ -612,6 +628,40 @@ class TelemetryPresenter:
             if ag_data["pools"]:
                 ag_data["state"] = "OPEN"
                 ag_data["state_source"] = "statusline_quota"
+
+        # Prefer the lossless ``agy /usage`` projection pipeline over the
+        # optional statusline cache.  The latter remains a compatibility
+        # fallback for older Agy releases only.
+        projected_ag_pools = [
+            pool
+            for pool in (
+                _build_pool_pair_from_projections(
+                    ag_projections,
+                    short_label="G",
+                    five_h_scope="G-5H",
+                    seven_d_scope="G-7D",
+                    pool_name="G-pool",
+                    now=now,
+                ),
+                _build_pool_pair_from_projections(
+                    ag_projections,
+                    short_label="3P",
+                    five_h_scope="3P-5H",
+                    seven_d_scope="3P-7D",
+                    pool_name="3P-pool",
+                    now=now,
+                ),
+            )
+            if pool is not None
+        ]
+        if projected_ag_pools:
+            projected_names = {pool["name"] for pool in projected_ag_pools}
+            fallback_pools = [
+                pool for pool in ag_data["pools"] if pool.get("name") not in projected_names
+            ]
+            ag_data["pools"] = [*projected_ag_pools, *fallback_pools]
+            ag_data["state"] = "OPEN"
+            ag_data["state_source"] = "quota_poll"
 
         # 3. CC Telemetry — uses real polled projection data from the telemetry pipeline
         cc_data: Dict[str, Any] = {
@@ -735,62 +785,55 @@ class TelemetryPresenter:
                     
         snapshot_has_data = has_data
 
-        def pool_remaining(peer_data: Dict[str, Any], pool_name: str) -> Optional[float]:
-            for pool in peer_data["pools"]:
-                if pool.get("name") == pool_name:
-                    value = pool.get("remaining_fraction")
-                    return float(value) if isinstance(value, (int, float)) else None
-            return None
+        # Get deep routing preferences dynamically
+        deep_profiles = ["ag.deepthink", "cc.deepthink", "cx.deepthink"] # fallback
+        try:
+            from peerhub.application.effort_routing import read_routing_preference_map
+            pref_map = read_routing_preference_map(sys_dir)
+            if "deep" in pref_map:
+                deep_profiles = pref_map["deep"]
+        except Exception:
+            pass
 
-        def pool_is_unsafe(peer_data: Dict[str, Any], pool_name: str) -> bool:
-            for pool in peer_data["pools"]:
-                if pool.get("name") == pool_name:
-                    return bool(pool.get("is_crit")) or pool.get("status_icon") == "🔴"
-            return False
+        peer_data_map = {"ag": ag_data, "cc": cc_data, "cx": cx_data}
 
-        g_rem = pool_remaining(ag_data, "G-pool")
-        cc_rem = pool_remaining(cc_data, "C-pool")
-        cx_rem = pool_remaining(cx_data, "X-pool")
-        ag_unsafe = pool_is_unsafe(ag_data, "G-pool")
-        cc_unsafe = pool_is_unsafe(cc_data, "C-pool")
-        cx_unsafe = pool_is_unsafe(cx_data, "X-pool")
+        def get_profile_telemetry(profile_id: str) -> tuple[Optional[float], bool, Optional[float]]:
+            peer_kind = profile_id.split(".")[0]
+            peer_data = peer_data_map.get(peer_kind, {})
+            pools = peer_data.get("pools", [])
+            rem: Optional[float] = None
+            unsafe = False
+            for p in pools:
+                p_rem = p.get("remaining_fraction")
+                if p_rem is not None:
+                    rem = min(rem, float(p_rem)) if rem is not None else float(p_rem)
+                if bool(p.get("is_crit")) or p.get("status_icon") == "🔴":
+                    unsafe = True
+            
+            # Context headroom
+            pct_var = {"ag": ag_pct, "cc": cc_pct, "cx": cx_pct}.get(peer_kind)
+            ctx_headroom = None if pct_var is None else max(0, min(100, round(100.0 - pct_var)))
+            
+            return rem, unsafe, ctx_headroom
 
-        ag_ctx_headroom = None if ag_pct is None else max(0, min(100, round(100.0 - ag_pct)))
-        cx_ctx_headroom = None if cx_pct is None else max(0, min(100, round(100.0 - cx_pct)))
-        cc_ctx_headroom = None if cc_pct is None else max(0, min(100, round(100.0 - cc_pct)))
+        candidates: dict[str, int] = {}
+        routing_rows: List[Dict[str, Any]] = []
+        
+        from peerhub.application.model_config import ModelConfigService
+        
+        # Build telemetry for all deep profiles
+        profile_stats = {}
+        for pid in deep_profiles:
+            rem, unsafe, ctx_hr = get_profile_telemetry(pid)
+            hr = round(min(rem, ctx_hr / 100.0) * 100.0) if rem is not None and ctx_hr is not None else "--"
+            profile_stats[pid] = {"rem": rem, "unsafe": unsafe, "ctx_hr": ctx_hr, "hr": hr}
+            if isinstance(hr, int) and not unsafe:
+                candidates[pid] = hr
 
-        ag_headroom = round(min(g_rem, ag_ctx_headroom / 100.0) * 100.0) if g_rem is not None and ag_ctx_headroom is not None else "--"
-        cx_headroom = round(min(cx_rem, cx_ctx_headroom / 100.0) * 100.0) if cx_rem is not None and cx_ctx_headroom is not None else "--"
-        cc_headroom = round(min(cc_rem, cc_ctx_headroom / 100.0) * 100.0) if cc_rem is not None and cc_ctx_headroom is not None else "--"
-
-        candidates: dict[str, int] = {
-            profile_id: value
-            for profile_id, value, unsafe in (
-                ("ag.deepthink", ag_headroom, ag_unsafe),
-                ("cx.deepthink", cx_headroom, cx_unsafe),
-            )
-            if isinstance(value, int) and not unsafe
-        }
         best_target: Optional[str] = (
-            max(candidates, key=lambda profile_id: candidates[profile_id])
-            if candidates
-            else None
+            max(candidates, key=lambda p: candidates[p]) if candidates else None
         )
         best_hr = f"{candidates[best_target]}%" if best_target is not None else "--"
-
-        from peerhub.application.model_config import ModelConfigService
-
-        def profile_metadata(profile_id: str) -> tuple[str, str, str]:
-            binding = ModelConfigService(None).resolve(
-                node_id=profile_id.partition(".")[0], profile_id=profile_id
-            )
-            model = binding.model_id or "CLI default"
-            effort = binding.reasoning_effort or "embedded/default"
-            return model, effort, binding.source_layer
-
-        cx_model, cx_effort, cx_source = profile_metadata("cx.deepthink")
-        ag_model, ag_effort, ag_source = profile_metadata("ag.deepthink")
-        cc_model, cc_effort, cc_source = profile_metadata("cc.effort")
 
         def routing_state(unsafe: bool, headroom: int | str) -> str:
             if unsafe:
@@ -799,41 +842,46 @@ class TelemetryPresenter:
                 return "telemetry_unknown"
             return "eligible"
 
-        routing_rows: List[Dict[str, Any]] = [
-            {"profile": "cx.deepthink", "display_name": f"cx.deepthink ({cx_model})", "model": cx_model, "model_source": cx_source, "state": routing_state(cx_unsafe, cx_headroom), "headroom": f"{cx_headroom}%" if cx_headroom != "--" else "--", "quota": f"{cx_rem*100:.0f}%" if cx_rem is not None else "--", "ctx": f"{cx_ctx_headroom}%" if cx_ctx_headroom is not None else "--", "effort": cx_effort, "is_active": best_target == "cx.deepthink", "quota_unsafe": cx_unsafe},
-            {"profile": "ag.deepthink", "display_name": f"ag.deepthink ({ag_model})", "model": ag_model, "model_source": ag_source, "state": routing_state(ag_unsafe, ag_headroom), "headroom": f"{ag_headroom}%" if ag_headroom != "--" else "--", "quota": f"{g_rem*100:.0f}%" if g_rem is not None else "--", "ctx": f"{ag_ctx_headroom}%" if ag_ctx_headroom is not None else "--", "effort": ag_effort, "is_active": best_target == "ag.deepthink", "quota_unsafe": ag_unsafe},
-            {"profile": "cc.effort", "display_name": f"cc.effort ({cc_model})", "model": cc_model, "model_source": cc_source, "state": routing_state(cc_unsafe, cc_headroom), "headroom": f"{cc_headroom}%" if cc_headroom != "--" else "--", "quota": (f"{cc_rem*100:.0f}% (Limit)" if cc_rem == 0.0 else f"{cc_rem*100:.0f}%") if cc_rem is not None else "--", "ctx": f"{cc_ctx_headroom}%" if cc_ctx_headroom is not None else "--", "effort": cc_effort, "is_active": False, "quota_unsafe": cc_unsafe},
-        ]
-        
-        for row in routing_rows:
-            if row["profile"] == "cc.effort":
-                row["notes"] = (
-                    "Weekly Limit Hit"
-                    if cc_rem == 0.0
-                    else "Quota/pacing critical"
-                    if row["quota_unsafe"]
-                    else "Insufficient telemetry"
-                    if row["headroom"] == "--"
-                    else "Configured"
-                )
-            else:
-                row["notes"] = (
-                    "Active Failover Target"
-                    if row["is_active"]
-                    else "Quota/pacing critical"
-                    if row["quota_unsafe"]
-                    else "Insufficient telemetry"
-                    if row["headroom"] == "--"
-                    else "Secondary Tier"
-                )
+        for pid in deep_profiles:
+            stats = profile_stats[pid]
+            binding = ModelConfigService(None).resolve(node_id=pid.partition(".")[0], profile_id=pid)
+            model = binding.model_id or "CLI default"
+            effort = binding.reasoning_effort or "embedded/default"
+            source = binding.source_layer
+            
+            rem = stats["rem"]
+            ctx_hr = stats["ctx_hr"]
+            hr = stats["hr"]
+            unsafe = stats["unsafe"]
+            is_active = (pid == best_target)
+            
+            notes = (
+                "Weekly Limit Hit" if rem == 0.0
+                else "Active Failover Target" if is_active
+                else "Quota/pacing critical" if unsafe
+                else "Insufficient telemetry" if hr == "--"
+                else "Secondary Tier"
+            )
+            
+            routing_rows.append({
+                "profile": pid,
+                "display_name": f"{pid} ({model})",
+                "model": model,
+                "model_source": source,
+                "state": routing_state(unsafe, hr),
+                "headroom": f"{hr}%" if hr != "--" else "--",
+                "quota": (f"{rem*100:.0f}% (Limit)" if rem == 0.0 else f"{rem*100:.0f}%") if rem is not None else "--",
+                "ctx": f"{ctx_hr}%" if ctx_hr is not None else "--",
+                "effort": effort,
+                "is_active": is_active,
+                "quota_unsafe": unsafe,
+                "notes": notes,
+            })
 
-        _failover_display_names = {"cx.deepthink": "CX (Codex)", "ag.deepthink": "AG (Gemini)"}
-        has_unsafe_measured_target = ag_unsafe or cx_unsafe
+        has_unsafe_measured_target = any(s["unsafe"] for s in profile_stats.values())
         failover_target = (
-            _failover_display_names[best_target]
-            if best_target is not None
-            else "Unavailable (no safe measured target)"
-            if has_unsafe_measured_target
+            f"{best_target.upper()}" if best_target is not None
+            else "Unavailable (no safe measured target)" if has_unsafe_measured_target
             else "Unknown (insufficient telemetry)"
         )
         return {
@@ -916,6 +964,12 @@ class TelemetryPresenter:
             pool_tag = f"↳ {p_name} {p_icon}" if first_pool else "↳ -- 🟢"
 
             lines.append(f"{peer_id.upper():<5} {_pad(state_colored, 9)} {_pad(ctx_str, 20)} {_pad(cost_str, 9)} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
+            if first_pool:
+                lines.append(
+                    f"{'':>5} {'':>9} {'':>20} {'':>9} "
+                    f"{'resets':>11} 5H {first_pool.get('five_h_reset_in', '--')} | "
+                    f"7D {first_pool.get('seven_d_reset_in', first_pool.get('reset_in', '--'))}"
+                )
 
             # Additional pools for AG
             for pool in pdata.get("pools", [])[1:]:
@@ -927,6 +981,11 @@ class TelemetryPresenter:
                 rst = pool.get("reset_in", "--")
                 pool_tag = f"↳ {p_name} {p_icon}"
                 lines.append(f"{'':>5} {'':>9} {'':>20} {'':>9} {_pad(pool_tag, 11)} {_pad(exh, 7)} {_pad(f5, 11)} {_pad(s7, 11)} {rst}")
+                lines.append(
+                    f"{'':>5} {'':>9} {'':>20} {'':>9} "
+                    f"{'resets':>11} 5H {pool.get('five_h_reset_in', '--')} | "
+                    f"7D {pool.get('seven_d_reset_in', pool.get('reset_in', '--'))}"
+                )
 
         # 3. ROUTING & RECOMMENDED PROFILES
         routing_rows: List[Dict[str, Any]] = snapshot.get("routing_rows", [])

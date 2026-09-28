@@ -155,13 +155,16 @@ def test_global_config_takes_precedence_over_packaged_default(
     (
         ("cx.standard", ModelSelectionMode.PINNED, "gpt-6-luna", "low"),
         ("cx.effort", ModelSelectionMode.PINNED, "gpt-6-sol", "high"),
-        ("cx.deepthink", ModelSelectionMode.PINNED, "gpt-6-astra", "xhigh"),
+        ("cx.deepthink", ModelSelectionMode.PINNED, "gpt-6-sol", "xhigh"),
+        ("cx.pro", ModelSelectionMode.PINNED, "gpt-6-astra", "xhigh"),
         ("cc.standard", ModelSelectionMode.PINNED, "claude-haiku-4-5-20251001", None),
         ("cc.effort", ModelSelectionMode.PINNED, "claude-sonnet-5", "high"),
         ("cc.deepthink", ModelSelectionMode.PINNED, "claude-opus-5", "high"),
+        ("cc.pro", ModelSelectionMode.PINNED, "claude-opus-5-5", "high"),
         ("ag.standard", ModelSelectionMode.PINNED, "gemini-3.8-flash-low", None),
         ("ag.effort", ModelSelectionMode.PINNED, "gemini-3.8-flash-high", None),
-        ("ag.deepthink", ModelSelectionMode.PINNED, "gemini-3.1-pro-high", None),
+        ("ag.deepthink", ModelSelectionMode.PINNED, "gemini-3.1-pro-low", None),
+        ("ag.pro", ModelSelectionMode.PINNED, "gemini-3.1-pro-high", None),
     ),
 )
 def test_packaged_defaults_resolve_each_known_profile(

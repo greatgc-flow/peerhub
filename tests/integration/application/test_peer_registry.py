@@ -295,7 +295,8 @@ def test_collect_model_status_reports_bindings_and_resolved_defaults(
     expected = {
         "cx.standard": ("gpt-6-luna", "low"),
         "cx.effort": ("gpt-6-sol", "high"),
-        "cx.deepthink": ("gpt-6-astra", "xhigh"),
+        "cx.deepthink": ("gpt-6-sol", "xhigh"),
+        "cx.pro": ("gpt-6-astra", "xhigh"),
     }
     for prof, (model, effort) in expected.items():
         unbound_row = by_peer_profile[("unbound-worker", prof)]

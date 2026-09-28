@@ -274,13 +274,14 @@ def test_claude_descriptor_advertises_profiles():
     test_codex_descriptor_advertises_profiles exactly."""
     profiles = RealClaudeAdapter.descriptor.profiles
     assert tuple(p.profile_id for p in profiles) == (
-        "cc.standard", "cc.effort", "cc.deepthink",
+        "cc.standard", "cc.effort", "cc.deepthink", "cc.pro",
     )
     assert RealClaudeAdapter.descriptor.default_profile_id == "cc.standard"
     profile_map = {p.profile_id: p for p in profiles}
     assert profile_map["cc.standard"].supports_reasoning_effort is False
     assert profile_map["cc.effort"].supports_reasoning_effort is True
     assert profile_map["cc.deepthink"].supports_reasoning_effort is True
+    assert profile_map["cc.pro"].supports_reasoning_effort is True
 
 
 def test_claude_plan_invocation_rejects_unknown_profile():

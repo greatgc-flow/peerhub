@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone, timedelta
@@ -10,7 +12,8 @@ from typing import Sequence, Optional, TypedDict, Callable, cast, Any
 from peerhub.core.binary_resolution import CLAUDE_CMD, CODEX_CMD
 from peerhub.core.context import IdSource
 from peerhub.core.evidence import EvidenceValue, EvidenceState, EvidenceRef
-from peerhub.telemetry.contract import AG_QUOTA_LABELS, UsageObserved, UsageMeasurement, UsageProjectionSnapshot
+from peerhub.adapters.agy_adapter import AGY_QUOTA_FAMILIES
+from peerhub.telemetry.contract import UsageObserved, UsageMeasurement, UsageProjectionSnapshot
 
 _CODEX_CLIENT_INFO = {"name": "hub-credit", "version": "1.0"}
 _RATE_LIMITS_READ_METHOD = "account/rateLimits/read"
@@ -203,7 +206,15 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
     # defaults to legacy resolved_sys / "env" / "nodejs" / "npm-global".
     resolved_sys = resolve_sys_dir(sys_dir)
     cli_dir = resolved_sys / "cli"
-    if peer == "cc":
+    if peer == "ag":
+        cand_override = os.environ.get("PEERHUB_AG_BINARY")
+        if cand_override:
+            cand = Path(cand_override)
+        else:
+            portable = resolved_sys / "tools" / "agy" / "agy.exe"
+            discovered = shutil.which("agy.exe") or shutil.which("agy")
+            cand = portable if portable.exists() else Path(discovered) if discovered else portable
+    elif peer == "cc":
         cand_override = os.environ.get("PEERHUB_CC_BINARY")
         if cand_override:
             cand = Path(cand_override)
@@ -249,6 +260,76 @@ def _real_command(peer: str, sys_dir: Optional[Path] = None) -> Optional[list[st
                 return result
         return [raw_bin]
     return [raw_bin]
+
+
+def _parse_agy_usage_output(text: str) -> dict[str, dict[str, Any]]:
+    """Extract quota buckets from ``agy -p /usage --output-format json``.
+
+    Agy returns a normal print-mode envelope whose ``command`` member carries
+    the lossless slash-command payload.  Parsing that member, rather than the
+    human ``response`` table, preserves exact fractions and reset timestamps.
+    The line-wise fallback tolerates launchers that prepend a diagnostic line.
+    """
+
+    candidates = [text.strip(), *(line.strip() for line in reversed(text.splitlines()))]
+    envelope: dict[str, Any] | None = None
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            raw = json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if isinstance(raw, dict):
+            envelope = cast(dict[str, Any], raw)
+            break
+    if envelope is None:
+        return {}
+
+    command_raw = envelope.get("command")
+    if not isinstance(command_raw, dict):
+        return {}
+    command = cast(dict[str, Any], command_raw)
+    if command.get("name") != "usage":
+        return {}
+    data_raw = command.get("data")
+    if not isinstance(data_raw, dict):
+        return {}
+    data = cast(dict[str, Any], data_raw)
+    groups_raw = data.get("groups")
+    if not isinstance(groups_raw, list):
+        return {}
+    groups = cast(list[Any], groups_raw)
+
+    known_ids = dict(AGY_QUOTA_FAMILIES)
+    buckets: dict[str, dict[str, Any]] = {}
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        group_dict = cast(dict[str, Any], group)
+        raw_buckets_raw = group_dict.get("buckets")
+        if not isinstance(raw_buckets_raw, list):
+            continue
+        raw_buckets = cast(list[Any], raw_buckets_raw)
+        for bucket_raw in raw_buckets:
+            if not isinstance(bucket_raw, dict):
+                continue
+            bucket = cast(dict[str, Any], bucket_raw)
+            bucket_id = bucket.get("id")
+            remaining = bucket.get("remaining_fraction")
+            reset_time = bucket.get("reset_time")
+            if (
+                not isinstance(bucket_id, str)
+                or bucket_id not in known_ids
+                or not isinstance(remaining, (int, float))
+                or not isinstance(reset_time, str)
+            ):
+                continue
+            buckets[bucket_id] = {
+                "remaining_fraction": max(0.0, min(1.0, float(remaining))),
+                "reset_time": reset_time,
+            }
+    return buckets
 
 def _fail_closed(
     ids: IdSource,
@@ -670,19 +751,58 @@ def poll_agy_usage(
     instance_id: str,
     profile_id: str,
     clock: Optional[Callable[[], float]] = None,
+    deadline_sec: float = 15.0,
     freshness_ttl: int = 60,
     log_path: Optional[str | Path] = None,
     sys_dir: Optional[Path] = None,
 ) -> Sequence[UsageObserved]:
-    """Poll agy statusline log and return observations for each quota pool."""
-    import json
+    """Poll Agy's local ``/usage`` command, with statusline fallback.
+
+    The slash command returns account quota without dispatching a model turn.
+    Current Agy reports zero input/output/thinking tokens for this operation.
+    An explicitly supplied ``log_path`` keeps the deterministic legacy-file
+    contract and skips the executable probe.
+    """
     
     clock_fn = clock if clock else (lambda: datetime.now(timezone.utc).timestamp())
     observed_at_now = int(clock_fn())
     
-    _AG_QUOTA_LABELS = dict(AG_QUOTA_LABELS)
+    _AG_QUOTA_LABELS = dict(AGY_QUOTA_FAMILIES)
     
     resolved_sys = resolve_sys_dir(sys_dir)
+    quota_dict_typed: dict[str, Any] | None = None
+    evidence_observed_at = observed_at_now
+    source_tag = "agy_cli_usage"
+    evidence_ref = EvidenceRef("probe:ag:usage")
+
+    if log_path is None and "PEERHUB_AG_STATUSLINE_LOG" not in os.environ:
+        agy_cmd = _real_command("ag", resolved_sys)
+        if agy_cmd:
+            try:
+                completed = subprocess.run(
+                    [
+                        *agy_cmd,
+                        "-p",
+                        "/usage",
+                        "--output-format",
+                        "json",
+                        "--print-timeout",
+                        f"{max(1, int(deadline_sec))}s",
+                    ],
+                    cwd=str(_resolve_workspace_root(resolved_sys)),
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    errors="replace",
+                    timeout=deadline_sec + 2.0,
+                    check=False,
+                )
+                if completed.returncode == 0:
+                    parsed = _parse_agy_usage_output(completed.stdout)
+                    if parsed:
+                        quota_dict_typed = parsed
+            except (OSError, subprocess.SubprocessError, ValueError):
+                pass
     # Legacy P:\ / hub.py-environment compatibility: Antigravity statusline log
     # in the legacy frozen environment lives at _sys/data/temp/ag_statusline_stdin.log.
     # Configurable via PEERHUB_AG_STATUSLINE_LOG; defaults to legacy
@@ -692,29 +812,31 @@ def poll_agy_usage(
         if "PEERHUB_AG_STATUSLINE_LOG" in os.environ
         else (resolved_sys / "data" / "temp" / "ag_statusline_stdin.log")
     )
-    path = Path(log_path) if log_path is not None else default_log_path
-    
-    try:
-        st = path.stat()
-        mtime = int(st.st_mtime)
-    except OSError:
-        # A richer stale-cache-aware version could read ag_last_good_quota.json as a future improvement.
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at_now, freshness_ttl, peer="ag"),)
-        
-    if observed_at_now - mtime > freshness_ttl:
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.STALE, mtime, freshness_ttl, peer="ag"),)
-        
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
-        
-    quota_dict = data.get("quota")
-    if not isinstance(quota_dict, dict):
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
+    if quota_dict_typed is None:
+        path = Path(log_path) if log_path is not None else default_log_path
+        try:
+            st = path.stat()
+            mtime = int(st.st_mtime)
+        except OSError:
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ABSENT, observed_at_now, freshness_ttl, peer="ag"),)
+
+        if observed_at_now - mtime > freshness_ttl:
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.STALE, mtime, freshness_ttl, peer="ag"),)
+
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
+
+        quota_dict = data.get("quota")
+        if not isinstance(quota_dict, dict):
+            return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
+        quota_dict_typed = cast(dict[str, Any], quota_dict)
+        evidence_observed_at = mtime
+        source_tag = "agy_statusline"
+        evidence_ref = EvidenceRef("probe:ag:statusline")
         
     results: list[UsageObserved] = []
-    quota_dict_typed = cast(dict[str, Any], quota_dict)
     for key, label in _AG_QUOTA_LABELS.items():
         q_raw = quota_dict_typed.get(key)
         if not isinstance(q_raw, dict):
@@ -737,7 +859,7 @@ def poll_agy_usage(
         
         reset_at_ts = None
         if isinstance(reset_sec, (int, float)):
-            reset_at_ts = mtime + int(reset_sec)
+            reset_at_ts = evidence_observed_at + int(reset_sec)
         elif isinstance(resets_at_iso, str):
             try:
                 dt = datetime.fromisoformat(resets_at_iso.replace("Z", "+00:00"))
@@ -760,13 +882,13 @@ def poll_agy_usage(
         
         evidence = EvidenceValue[UsageMeasurement](
             state=EvidenceState.MEASURED,
-            source_tag="agy_statusline",
+            source_tag=source_tag,
             provider_id="peerhub.telemetry.ag",
             provider_version="1.0",
-            observed_at=mtime,
+            observed_at=evidence_observed_at,
             captured_at=observed_at_now,
             freshness_ttl=freshness_ttl,
-            evidence_ref=EvidenceRef("probe:ag:statusline"),
+            evidence_ref=evidence_ref,
             value=measurement,
         )
         
@@ -780,7 +902,7 @@ def poll_agy_usage(
         )
         
     if not results:
-        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, mtime, freshness_ttl, peer="ag"),)
+        return (_fail_closed(ids, instance_id, profile_id, EvidenceState.ERROR, evidence_observed_at, freshness_ttl, peer="ag"),)
         
     return tuple(results)
 

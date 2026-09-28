@@ -46,7 +46,9 @@ def register_daily_commands(
         "diag",
         help="Show live peer diagnostics and quota telemetry",
         **help_epilog_kwargs(
-            "  peerhub diag --workspace ./peerhub-demo --domains  inspect live telemetry alongside governed work"
+            "  peerhub diag --fresh                         refresh every provider quota window now\n"
+            "  peerhub diag --fresh --json                  inspect exact remaining fractions and per-window reset timestamps\n"
+            "  peerhub diag --workspace ./peerhub-demo --domains  inspect telemetry alongside governed work"
         ),
     )
     add_workspace_arg(diag_parser)

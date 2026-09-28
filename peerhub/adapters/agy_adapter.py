@@ -50,10 +50,24 @@ _AGY_DEEPTHINK_PROFILE = ProfileDescriptor(
     supports_reasoning_effort=True,
 )
 
+_AGY_PRO_PROFILE = ProfileDescriptor(
+    profile_id="ag.pro",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
+AGY_QUOTA_FAMILIES: tuple[tuple[str, str], ...] = (
+    ("gemini-5h", "G-5H"),
+    ("gemini-weekly", "G-7D"),
+    ("3p-5h", "3P-5H"),
+    ("3p-weekly", "3P-7D"),
+)
+
 _AGY_PROFILES = (
     _AGY_STANDARD_PROFILE,
     _AGY_EFFORT_PROFILE,
     _AGY_DEEPTHINK_PROFILE,
+    _AGY_PRO_PROFILE,
 )
 
 # Kept for any external references that still expect a single default profile.
@@ -69,6 +83,7 @@ _AGY_DESCRIPTOR = PeerDescriptor(
     usage_provider_id=None,
     readiness_probe_id="agy-readiness",
     default_profile_id="ag.standard",
+    quota_families=AGY_QUOTA_FAMILIES,
 )
 
 

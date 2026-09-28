@@ -85,6 +85,8 @@ def format_statusline_ag(stdin_data: str) -> str:
     # 4. Quotas (G-5H G-7D 3P-5H 3P-7D)
     q: dict[str, Any] = data.get("quota", {})
     buckets: list[str] = []
+    # Canonical source: peerhub.adapters.agy_adapter.AGY_QUOTA_FAMILIES
+    # Deliberately duplicated here to avoid peerhub imports (zero-import hot path).
     bucket_map: list[tuple[str, str]] = [
         ("gemini-5h", "G-5H"),
         ("gemini-weekly", "G-7D"),

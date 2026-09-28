@@ -54,10 +54,17 @@ _CLAUDE_DEEPTHINK_PROFILE = ProfileDescriptor(
     supports_reasoning_effort=True,
 )
 
+_CLAUDE_PRO_PROFILE = ProfileDescriptor(
+    profile_id="cc.pro",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
 _CLAUDE_PROFILES = (
     _CLAUDE_STANDARD_PROFILE,
     _CLAUDE_EFFORT_PROFILE,
     _CLAUDE_DEEPTHINK_PROFILE,
+    _CLAUDE_PRO_PROFILE,
 )
 
 # Kept for any external references that still expect a single default profile.

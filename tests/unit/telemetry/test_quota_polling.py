@@ -2,10 +2,12 @@ import pytest
 import subprocess
 from pathlib import Path
 from peerhub.telemetry.quota_polling import (
+    _parse_agy_usage_output,
     _real_binary,
     resolve_sys_dir,
     poll_claude_usage,
     poll_codex_usage,
+    poll_agy_usage,
 )
 from peerhub.core.evidence import EvidenceState
 
@@ -291,7 +293,77 @@ def test_poll_codex_usage_fallback_rate_limits_by_limit_id(monkeypatch):
 
 
 import json
-from peerhub.telemetry.quota_polling import poll_agy_usage
+
+
+AGY_USAGE_JSON = json.dumps({
+    "status": "SUCCESS",
+    "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+    "command": {
+        "name": "usage",
+        "data": {
+            "groups": [
+                {
+                    "name": "Gemini Models",
+                    "buckets": [
+                        {"id": "gemini-weekly", "remaining_fraction": 0.0938, "reset_time": "2026-09-30T02:26:19Z"},
+                        {"id": "gemini-5h", "remaining_fraction": 0.9995, "reset_time": "2026-09-28T09:11:04Z"},
+                    ],
+                },
+                {
+                    "name": "Claude and GPT models",
+                    "buckets": [
+                        {"id": "3p-weekly", "remaining_fraction": 1.0, "reset_time": "2026-10-05T04:24:42Z"},
+                        {"id": "3p-5h", "remaining_fraction": 1.0, "reset_time": "2026-09-28T09:24:42Z"},
+                    ],
+                },
+            ]
+        },
+    },
+})
+
+
+def test_parse_agy_usage_output_preserves_all_four_windows():
+    parsed = _parse_agy_usage_output(AGY_USAGE_JSON)
+    assert set(parsed) == {"gemini-weekly", "gemini-5h", "3p-weekly", "3p-5h"}
+    assert parsed["gemini-weekly"]["remaining_fraction"] == pytest.approx(0.0938)
+    assert parsed["gemini-weekly"]["reset_time"] == "2026-09-30T02:26:19Z"
+
+
+def test_poll_agy_usage_prefers_live_slash_command(monkeypatch, tmp_path):
+    class Completed:
+        returncode = 0
+        stdout = AGY_USAGE_JSON
+        stderr = ""
+
+    captured = {}
+
+    def fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        return Completed()
+
+    monkeypatch.delenv("PEERHUB_AG_STATUSLINE_LOG", raising=False)
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_command",
+        lambda peer, _sys_dir=None: ["agy.exe"] if peer == "ag" else None,
+    )
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    ids = DummyIdSource()
+    observed_at = 1_790_000_000
+
+    res = poll_agy_usage(
+        ids,
+        "ag",
+        "standard",
+        clock=lambda: observed_at,
+        sys_dir=tmp_path / "_sys",
+    )
+
+    assert captured["argv"][1:4] == ["-p", "/usage", "--output-format"]
+    assert len(res) == 4
+    scopes = {obs.evidence.value.quota_pool_scope: obs for obs in res}
+    assert scopes["G-7D"].evidence.value.remaining_fraction == pytest.approx(0.0938)
+    assert scopes["G-7D"].evidence.value.resets_at == 1790735179
+    assert all(obs.evidence.source_tag == "agy_cli_usage" for obs in res)
 
 def test_poll_agy_usage_missing_file(tmp_path):
     ids = DummyIdSource()

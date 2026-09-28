@@ -124,7 +124,7 @@ the authoritative arguments and description at any depth.
 | Validate effective config | `peerhub config validate --workspace ./peerhub-demo --json` |
 | Back it up | `peerhub backup workspace --workspace ./peerhub-demo --output ./backups` |
 | Discover installed adapters | `peerhub adapter discover --json` |
-| Inspect telemetry | `peerhub diag --workspace ./peerhub-demo --domains` |
+| Inspect telemetry | `peerhub diag --fresh --json` (all quota windows include exact remaining fraction and reset time) |
 | Ask one peer | `peerhub ask cx "Summarize this repository" --workspace ./peerhub-demo` |
 | Ask several peers | `peerhub broadcast "List one risk." --peers cx,ag --workspace ./peerhub-demo` |
 | Check health | `peerhub health check --workspace ./peerhub-demo --peer cc` |
@@ -186,6 +186,13 @@ pytest -q -m slow          # + the real-adapter integration tests (needs real CL
 pytest -q -m e2e           # + genuine end-to-end `peerhub ask` dispatch through a real peer CLI (separate marker from slow -- also needs real CLIs)
 pyright                    # static type check, should report 0 errors
 ```
+
+The deterministic suite runs on every push and pull request. The `slow` and
+`e2e` tiers consume real provider quota, so they run on the dedicated
+`peerhub-live` self-hosted runner for releases and for changes to adapters,
+provider protocols, model bindings, or quota telemetry. PyPI publication is
+blocked until both live tiers pass. The runner must have authenticated
+`agy.exe`, `claude.cmd`, and `codex.cmd` commands on `PATH`.
 
 ## Contributing / reporting issues
 

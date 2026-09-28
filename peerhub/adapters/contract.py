@@ -153,6 +153,7 @@ class PeerDescriptor:
     usage_provider_id: str | None
     readiness_probe_id: str
     default_profile_id: str | None = None
+    quota_families: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -208,6 +209,13 @@ class PeerDescriptor:
             )
         else:
             object.__setattr__(self, "default_profile_id", profiles[0].profile_id)
+
+        qf = self.quota_families
+        if not isinstance(qf, tuple):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("quota_families must be a tuple")
+        for pair in qf:
+            if not isinstance(pair, tuple) or len(pair) != 2:  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise ValueError("each quota_families entry must be a (key, label) pair")
 
         transports = frozenset(self.transports)
         if not transports:

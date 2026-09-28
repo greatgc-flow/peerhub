@@ -253,13 +253,40 @@ class TestCXRealData:
             usage_projections=projections,
         ).collect_live_snapshot()
 
-        assert snapshot["routing_rows"][0]["headroom"] == "--"
-        assert snapshot["routing_rows"][0]["state"] == "quota_critical"
+        row = next(r for r in snapshot["routing_rows"] if r["profile"] == "cx.deepthink")
+        assert row["headroom"] == "--"
+        assert row["state"] == "quota_critical"
         assert snapshot["failover_profile"] is None
         assert snapshot["failover_target"] == "Unavailable (no safe measured target)"
 
 
 class TestAGRealData:
+    def test_ag_projections_expose_each_window_reset(self, tmp_path: Path) -> None:
+        (tmp_path / "_sys").mkdir(parents=True)
+        now = int(datetime.now(timezone.utc).timestamp())
+        projections = [
+            _make_projection("ag", "G-5H", used=0.01, remaining=0.99, resets_at=now + 3600),
+            _make_projection("ag", "G-7D", used=0.91, remaining=0.09, resets_at=now + 46 * 3600),
+            _make_projection("ag", "3P-5H", used=0.0, remaining=1.0, resets_at=now + 5 * 3600),
+            _make_projection("ag", "3P-7D", used=0.0, remaining=1.0, resets_at=now + 7 * 86400),
+        ]
+
+        presenter = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=projections,
+        )
+        snapshot = presenter.collect_live_snapshot()
+        pools = {pool["name"]: pool for pool in snapshot["peers"]["ag"]["pools"]}
+
+        assert snapshot["peers"]["ag"]["state_source"] == "quota_poll"
+        assert pools["G-pool"]["five_h_reset_in"].startswith("in ")
+        assert pools["G-pool"]["seven_d_reset_in"].startswith("in ")
+        assert pools["G-pool"]["five_h_resets_at"].endswith("+00:00")
+        assert pools["G-pool"]["seven_d_resets_at"].endswith("+00:00")
+        assert "5H in " in presenter.render(snapshot)
+        assert "7D in " in presenter.render(snapshot)
+
     def test_five_hour_red_pacing_blocks_ag_failover_when_weekly_is_safe(
         self, tmp_path: Path,
     ) -> None:
@@ -346,7 +373,7 @@ class TestAGRealData:
         ).collect_live_snapshot()
 
         assert snapshot["failover_profile"] == "ag.deepthink"
-        assert snapshot["failover_target"] == "AG (Gemini)"
+        assert snapshot["failover_target"] == "AG.DEEPTHINK"
         rows = {row["profile"]: row for row in snapshot["routing_rows"]}
         assert rows["ag.deepthink"]["is_active"] is True
         assert rows["ag.deepthink"]["state"] == "eligible"
@@ -414,7 +441,7 @@ class TestAbsentStaleDataRendering:
         assert "insufficient telemetry" in snapshot["failover_target"]
         assert {row["profile"] for row in snapshot["routing_rows"]} == {
             "ag.deepthink",
-            "cc.effort",
+            "cc.deepthink",
             "cx.deepthink",
         }
 

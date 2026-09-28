@@ -29,6 +29,11 @@ reasoning_effort = "high"
 
 [profiles."cx.deepthink"]
 selection_mode = "pinned"
+model = "gpt-6-sol"
+reasoning_effort = "xhigh"
+
+[profiles."cx.pro"]
+selection_mode = "pinned"
 model = "gpt-6-astra"
 reasoning_effort = "xhigh"
 
@@ -46,6 +51,11 @@ selection_mode = "pinned"
 model = "claude-opus-5"
 reasoning_effort = "high"
 
+[profiles."cc.pro"]
+selection_mode = "pinned"
+model = "claude-opus-5-5"
+reasoning_effort = "high"
+
 [profiles."ag.standard"]
 selection_mode = "pinned"
 model = "gemini-3.8-flash-low"
@@ -55,6 +65,10 @@ selection_mode = "pinned"
 model = "gemini-3.8-flash-high"
 
 [profiles."ag.deepthink"]
+selection_mode = "pinned"
+model = "gemini-3.1-pro-low"
+
+[profiles."ag.pro"]
 selection_mode = "pinned"
 model = "gemini-3.1-pro-high"
 

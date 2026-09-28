@@ -59,10 +59,17 @@ _CODEX_DEEPTHINK_PROFILE = ProfileDescriptor(
     supports_reasoning_effort=True,
 )
 
+_CODEX_PRO_PROFILE = ProfileDescriptor(
+    profile_id="cx.pro",
+    profile_class="tier",
+    supports_reasoning_effort=True,
+)
+
 _CODEX_PROFILES = (
     _CODEX_STANDARD_PROFILE,
     _CODEX_EFFORT_PROFILE,
     _CODEX_DEEPTHINK_PROFILE,
+    _CODEX_PRO_PROFILE,
 )
 
 _CODEX_PROFILE = _CODEX_STANDARD_PROFILE

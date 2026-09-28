@@ -1,11 +1,30 @@
 import pytest
-from peerhub.telemetry.quota_polling import poll_claude_usage, poll_codex_usage
+from peerhub.telemetry.quota_polling import poll_agy_usage, poll_claude_usage, poll_codex_usage
 from peerhub.core.evidence import EvidenceState
 from peerhub.telemetry.contract import UsageObserved
 
 class DummyIdSource:
     def new_id(self, prefix: str) -> str:
         return f"{prefix}-test"
+
+
+@pytest.mark.slow
+def test_real_poll_agy_usage_exposes_every_quota_window():
+    ids = DummyIdSource()
+
+    results = poll_agy_usage(ids, "ag", "standard")
+
+    assert isinstance(results, tuple)
+    measured = {
+        obs.evidence.value.quota_pool_scope: obs.evidence.value
+        for obs in results
+        if obs.evidence.state is EvidenceState.MEASURED
+        and obs.evidence.value is not None
+    }
+    assert set(measured) == {"G-5H", "G-7D", "3P-5H", "3P-7D"}
+    for measurement in measured.values():
+        assert 0.0 <= measurement.remaining_fraction <= 1.0
+        assert measurement.resets_at > measurement.window_started_at
 
 @pytest.mark.slow
 def test_real_poll_claude_usage():

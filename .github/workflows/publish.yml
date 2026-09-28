@@ -13,7 +13,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  live-validation:
+    runs-on: [self-hosted, Windows, X64, peerhub-live]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Verify authenticated provider CLIs
+        shell: pwsh
+        run: |
+          Get-Command agy.exe -ErrorAction Stop
+          Get-Command claude.cmd -ErrorAction Stop
+          Get-Command codex.cmd -ErrorAction Stop
+      - name: Run paid/live release gate
+        run: |
+          python -u -m pytest -q -m slow
+          python -u -m pytest -q -m e2e
+
   build:
+    needs: live-validation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

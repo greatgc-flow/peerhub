@@ -35,9 +35,20 @@ binding into CLI flags; it does not contain model-selection policy.
 ```powershell
 peerhub adapter discover --json
 agy.exe --version
+agy.exe -p "/usage" --output-format json --print-timeout 15s
+peerhub diag --fresh --json
 python -m tools.peerhub_facts --live
 ```
 
-The vendor CLI owns authentication, account quotas, network access, and model
+`peerhub diag --fresh` invokes Agy's local `/usage` slash command in print mode.
+It records four independent quota windows: Gemini 5-hour (`G-5H`), Gemini weekly
+(`G-7D`), Claude/GPT 5-hour (`3P-5H`), and Claude/GPT weekly (`3P-7D`). The JSON
+surface preserves each exact `remaining_fraction`, UTC `resets_at`, and computed
+`reset_in`; the text dashboard prints both the 5-hour and weekly countdowns.
+The observed Agy 1.2.12 command reports zero model tokens. Collection is bounded
+by a timeout and falls back to the older statusline cache when the slash-command
+payload is unavailable.
+
+The vendor CLI still owns authentication, account quotas, network access, and model
 availability. A live facts failure must be reviewed before changing
 `model-defaults.toml`; observations are never auto-approved as new contracts.

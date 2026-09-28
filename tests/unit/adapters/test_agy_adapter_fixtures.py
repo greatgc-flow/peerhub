@@ -293,7 +293,7 @@ def test_agy_descriptor_advertises_profiles():
     test_codex_descriptor_advertises_profiles exactly."""
     profiles = RealAgyAdapter.descriptor.profiles
     assert tuple(p.profile_id for p in profiles) == (
-        "ag.standard", "ag.effort", "ag.deepthink",
+        "ag.standard", "ag.effort", "ag.deepthink", "ag.pro",
     )
     assert RealAgyAdapter.descriptor.default_profile_id == "ag.standard"
     profile_map = {p.profile_id: p for p in profiles}

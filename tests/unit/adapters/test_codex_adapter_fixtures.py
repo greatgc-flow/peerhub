@@ -421,12 +421,13 @@ def test_codex_descriptor_advertises_stream():
 
 def test_codex_descriptor_advertises_profiles():
     profiles = RealCodexAdapter.descriptor.profiles
-    assert tuple(p.profile_id for p in profiles) == ("cx.standard", "cx.effort", "cx.deepthink")
+    assert tuple(p.profile_id for p in profiles) == ("cx.standard", "cx.effort", "cx.deepthink", "cx.pro")
     assert RealCodexAdapter.descriptor.default_profile_id == "cx.standard"
     profile_map = {p.profile_id: p for p in profiles}
     assert profile_map["cx.standard"].supports_reasoning_effort is True
     assert profile_map["cx.effort"].supports_reasoning_effort is True
     assert profile_map["cx.deepthink"].supports_reasoning_effort is True
+    assert profile_map["cx.pro"].supports_reasoning_effort is True
 
 
 def test_codex_plan_invocation_effort_tier_appends_reasoning_effort():
