@@ -445,6 +445,31 @@ class TestAbsentStaleDataRendering:
             "cx.deepthink",
         }
 
+    def test_routing_rows_follow_resolved_deep_preference_map(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Diagnostics use the same layered routing policy as dispatch."""
+        (tmp_path / "_sys").mkdir(parents=True)
+        config_dir = tmp_path / ".peerhub" / "config"
+        config_dir.mkdir(parents=True)
+        (config_dir / "dispatch-policy.toml").write_text(
+            '[routing.preference_map]\ndeep = ["ag.pro", "cc.pro", "cx.pro"]\n',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("PEERHUB_CONFIG_HOME", str(tmp_path / "global-config"))
+
+        snapshot = TelemetryPresenter(
+            use_color=False,
+            workspace_root=tmp_path,
+            usage_projections=[],
+        ).collect_live_snapshot()
+
+        assert [row["profile"] for row in snapshot["routing_rows"]] == [
+            "ag.pro",
+            "cc.pro",
+            "cx.pro",
+        ]
+
     def test_stale_status_input_is_not_reported_as_live(self, tmp_path: Path):
         sys_dir = tmp_path / "_sys"
         status_path = sys_dir / "antigravity" / "config" / "status_input.log"

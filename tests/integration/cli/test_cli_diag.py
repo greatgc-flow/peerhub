@@ -1,13 +1,27 @@
 import json
 from pathlib import Path
 
+import peerhub.cli as cli_module
 from peerhub.cli import main
 from peerhub.core.context import PathLayout, RuntimeContext
 from peerhub.runtime import create_runtime
 from tests.integration.conftest import FakeClock, FakeIdSource
 
 
-def test_diag_domains_and_default_output(tmp_path: Path, capsys) -> None:
+def test_diag_domains_and_default_output(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:
+    # This test is about the GOVERNED DOMAINS section, not quota telemetry.
+    # Without this, `--workspace tmp_path` has no `_sys` of its own, so
+    # `_refresh_usage_projections` resolves to the real portable `_sys`
+    # (via resolve_sys_dir()'s sys.executable-parent-walk fallback) and
+    # actually polls the real claude/codex CLIs on this machine -- ~11s/call
+    # instead of near-instant. See tests/conftest.py for the general version
+    # of this problem; that fixture doesn't cover this specific path because
+    # the real claude.cmd/codex.cmd are found by a direct portable-path
+    # `.exists()` check, not by the `shutil.which` fallback it neutralizes.
+    monkeypatch.setattr(cli_module, "_refresh_usage_projections", lambda *a, **k: [])
+
     base = ["--workspace", str(tmp_path), "--no-color"]
 
     # Populate governance data BEFORE any `diag` call: `_run_diag` always
@@ -41,7 +55,9 @@ def test_diag_domains_and_default_output(tmp_path: Path, capsys) -> None:
 
 
 def test_diag_domains_degrades_when_governance_collection_fails(tmp_path: Path, capsys, monkeypatch) -> None:
-    import peerhub.cli as cli_module
+    # See the comment in test_diag_domains_and_default_output above: without
+    # this, diag polls the real claude/codex CLIs on this machine.
+    monkeypatch.setattr(cli_module, "_refresh_usage_projections", lambda *a, **k: [])
 
     paths = PathLayout.for_workspace(tmp_path)
     with create_runtime(

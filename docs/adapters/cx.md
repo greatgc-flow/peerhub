@@ -29,7 +29,8 @@ binding into CLI flags.
 |---|---|---|
 | `cx.standard` | `gpt-6-luna` | `low` |
 | `cx.effort` | `gpt-6-sol` | `high` |
-| `cx.deepthink` | `gpt-6-astra` | `xhigh` |
+| `cx.deepthink` | `gpt-6-sol` | `xhigh` |
+| `cx.pro` | `gpt-6-astra` | `xhigh` |
 
 ## Verify and troubleshoot
 

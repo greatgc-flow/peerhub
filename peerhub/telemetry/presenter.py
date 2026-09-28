@@ -786,12 +786,26 @@ class TelemetryPresenter:
         snapshot_has_data = has_data
 
         # Get deep routing preferences dynamically
-        deep_profiles = ["ag.deepthink", "cc.deepthink", "cx.deepthink"] # fallback
+        deep_profiles: list[str] = [
+            "ag.deepthink",
+            "cc.deepthink",
+            "cx.deepthink",
+        ]  # fallback
         try:
-            from peerhub.application.effort_routing import read_routing_preference_map
-            pref_map = read_routing_preference_map(sys_dir)
+            from peerhub.application.config_paths import (
+                resolve_global_config_home,
+                resolve_workspace_config_home,
+            )
+            from peerhub.dispatch.policy_resolver import PolicyResolver
+
+            resolver = PolicyResolver(
+                resolve_workspace_config_home(self.workspace_root).path
+                / "dispatch-policy.toml",
+                resolve_global_config_home().path / "dispatch-policy.toml",
+            )
+            pref_map = resolver.resolve("diag").routing.preference_map
             if "deep" in pref_map:
-                deep_profiles = pref_map["deep"]
+                deep_profiles = list(pref_map["deep"])
         except Exception:
             pass
 
@@ -809,20 +823,20 @@ class TelemetryPresenter:
                     rem = min(rem, float(p_rem)) if rem is not None else float(p_rem)
                 if bool(p.get("is_crit")) or p.get("status_icon") == "🔴":
                     unsafe = True
-            
+
             # Context headroom
             pct_var = {"ag": ag_pct, "cc": cc_pct, "cx": cx_pct}.get(peer_kind)
             ctx_headroom = None if pct_var is None else max(0, min(100, round(100.0 - pct_var)))
-            
+
             return rem, unsafe, ctx_headroom
 
         candidates: dict[str, int] = {}
         routing_rows: List[Dict[str, Any]] = []
-        
+
         from peerhub.application.model_config import ModelConfigService
-        
+
         # Build telemetry for all deep profiles
-        profile_stats = {}
+        profile_stats: dict[str, dict[str, Any]] = {}
         for pid in deep_profiles:
             rem, unsafe, ctx_hr = get_profile_telemetry(pid)
             hr = round(min(rem, ctx_hr / 100.0) * 100.0) if rem is not None and ctx_hr is not None else "--"
@@ -848,13 +862,13 @@ class TelemetryPresenter:
             model = binding.model_id or "CLI default"
             effort = binding.reasoning_effort or "embedded/default"
             source = binding.source_layer
-            
+
             rem = stats["rem"]
             ctx_hr = stats["ctx_hr"]
             hr = stats["hr"]
             unsafe = stats["unsafe"]
             is_active = (pid == best_target)
-            
+
             notes = (
                 "Weekly Limit Hit" if rem == 0.0
                 else "Active Failover Target" if is_active
@@ -862,7 +876,7 @@ class TelemetryPresenter:
                 else "Insufficient telemetry" if hr == "--"
                 else "Secondary Tier"
             )
-            
+
             routing_rows.append({
                 "profile": pid,
                 "display_name": f"{pid} ({model})",

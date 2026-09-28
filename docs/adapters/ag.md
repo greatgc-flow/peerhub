@@ -28,7 +28,8 @@ binding into CLI flags; it does not contain model-selection policy.
 |---|---|---|
 | `ag.standard` | `gemini-3.8-flash-low` | none |
 | `ag.effort` | `gemini-3.8-flash-high` | none |
-| `ag.deepthink` | `gemini-3.1-pro-high` | none |
+| `ag.deepthink` | `gemini-3.1-pro-low` | none |
+| `ag.pro` | `gemini-3.1-pro-high` | none |
 
 ## Verify and troubleshoot
 

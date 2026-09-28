@@ -47,9 +47,10 @@
   - Detailed per-vendor error-taxonomy mapping, and PTY transport are deliberately out of scope for the current adapter slice.
   - No shadow-mode validation yet (routing a subset of real traffic through peerhub in parallel with `hub.py` for comparison before any real cutover) — `hub.py` remains the authoritative system for real multi-peer coordination work today; `peerhub ask` is a real, working command, not yet a production replacement.
 
-**v0.8.0 release candidate verified (2026-09-28).** The packaged profiles were
-refreshed against current AG, Claude Code, and Codex CLIs; all nine profile tiers
-returned live PONG evidence. Diagnostics now distinguish CLI reachability from
+**v0.9.0 release candidate verified (2026-09-28).** The packaged profiles were
+refreshed against current AG, Claude Code, and Codex CLIs; all twelve profiles
+(`standard`, `effort`, `deepthink`, and `pro` for each peer) returned live PONG
+evidence. Diagnostics now distinguish CLI reachability from
 missing quota telemetry, and the recursive `/?` help tree covers all 107 leaf
 commands with descriptions and examples. The deterministic suite reports 2,393
 passed with only four OS/privilege skips; explicit slow and e2e live tiers report

@@ -13,11 +13,11 @@ sources are the adapter modules, `peerhub/config_data/model-defaults.toml`, and
 | `cc` | `claude.cmd` 2.1.283 | stdin / stream JSON | new / `--resume ID --autocompact auto` |
 | `cx` | `codex.cmd` 0.157.1 | argument / JSONL events | `exec` / `exec resume ... ID` |
 
-| Peer | `standard` | `effort` | `deepthink` |
-|---|---|---|---|
-| `ag` | `gemini-3.8-flash-low` | `gemini-3.8-flash-high` | `gemini-3.1-pro-high` |
-| `cc` | `claude-haiku-4-5-20251001` | `claude-sonnet-5` (`high`) | `claude-opus-5` (`high`) |
-| `cx` | `gpt-6-luna` (`low`) | `gpt-6-sol` (`high`) | `gpt-6-astra` (`xhigh`) |
+| Peer | `standard` | `effort` | `deepthink` | `pro` |
+|---|---|---|---|---|
+| `ag` | `gemini-3.8-flash-low` | `gemini-3.8-flash-high` | `gemini-3.1-pro-low` | `gemini-3.1-pro-high` |
+| `cc` | `claude-haiku-4-5-20251001` | `claude-sonnet-5` (`high`) | `claude-opus-5` (`high`) | `claude-opus-5-5` (`high`) |
+| `cx` | `gpt-6-luna` (`low`) | `gpt-6-sol` (`high`) | `gpt-6-sol` (`xhigh`) | `gpt-6-astra` (`xhigh`) |
 
 Exact invocation and decoder details are in [ag.md](ag.md), [cc.md](cc.md), and
 [cx.md](cx.md).

@@ -33,7 +33,7 @@ required_output_fields = ["response"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
 # 1.1.13 added 2026-08-17: --live adapter conformance re-run green
 # (4 passed, 3 deselected) after agy.exe moved to 1.1.13 on this workstation.
-# 1.2.12 verified 2026-09-28 by discovery, help contract, and nine-profile
+# 1.2.12 verified 2026-09-28 by discovery, help contract, and twelve-profile
 # live PONG validation.
 verified_versions = ["1.1.12", "1.1.13", "1.2.12"]
 version_argv = ["--version"]
@@ -48,7 +48,7 @@ output_protocol = "claude-stream-json"
 # "result" is gated on "is_error" and the vendor session ID is retained.
 required_output_fields = ["result", "is_error"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
-# 2.1.283 verified 2026-09-28 by discovery, help contract, and nine-profile
+# 2.1.283 verified 2026-09-28 by discovery, help contract, and twelve-profile
 # live PONG validation.
 verified_versions = ["2.1.222", "2.1.283"]
 version_argv = ["--version"]
@@ -64,7 +64,7 @@ output_protocol = "jsonl-events"
 # item.type == "agent_message", and reads item.text.
 required_output_fields = ["type", "item"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
-# 0.157.1 verified 2026-09-28 by discovery, help contract, and nine-profile
+# 0.157.1 verified 2026-09-28 by discovery, help contract, and twelve-profile
 # live PONG validation.
 verified_versions = ["0.147.0", "0.157.1"]
 version_argv = ["--version"]

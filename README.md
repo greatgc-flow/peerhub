@@ -33,10 +33,10 @@ pip install peerhub
 ### Option B: Install an exact GitHub release
 
 ```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.8.0"
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.9.0"
 ```
 
-The commands above install the stable `v0.8.0` line. Development changes after
+The commands above install the stable `v0.9.0` line. Development changes after
 that release remain on `main` until the next version is cut.
 
 ### Option C: Local editable development install
@@ -163,8 +163,9 @@ remove prompts/transcripts or secrets before attaching output.
 
 ## Status
 
-**Released as v0.8.0.** All nine advertised AG/Claude/Codex profiles have
-reviewed packaged model bindings and live dispatch evidence. `diag --live` now
+**v0.9.0 release candidate.** All twelve advertised AG/Claude/Codex profiles
+(`standard`, `effort`, `deepthink`, and `pro` for each peer) have reviewed
+packaged model bindings and live dispatch evidence. `diag --live` now
 polls the portable runtime without requiring an initialized workspace, labels
 measured quota separately from executable-only discovery, and refuses to
 recommend a critical quota/pacing target. The complete 107-leaf CLI supports
@@ -192,7 +193,11 @@ The deterministic suite runs on every push and pull request. The `slow` and
 `peerhub-live` self-hosted runner for releases and for changes to adapters,
 provider protocols, model bindings, or quota telemetry. PyPI publication is
 blocked until both live tiers pass. The runner must have authenticated
-`agy.exe`, `claude.cmd`, and `codex.cmd` commands on `PATH`.
+`agy.exe`, `claude.cmd`, and `codex.cmd` commands on `PATH`. Fork pull requests
+never run automatically on that credential-bearing machine; after reviewing a
+fork, a maintainer can use the live workflow's manual dispatch on a trusted ref.
+Manual dispatch of the publish workflow validates and builds an artifact but
+does not publish it—only a published GitHub Release can reach PyPI.
 
 ## Contributing / reporting issues
 

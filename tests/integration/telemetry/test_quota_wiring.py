@@ -92,6 +92,17 @@ def isolated_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("PEERHUB_SYS_DIR", str(sys_dir))
     monkeypatch.chdir(ws)
 
+    # Keep this fixture hermetic: without this, _real_binary()'s PATH
+    # fallback finds whatever real ag/claude/codex CLI happens to be
+    # installed on the host running the test suite (e.g. this very Claude
+    # Code CLI) and actually shells out to it, which is slow, non-hermetic,
+    # and can burn real quota. Tests that want a "binary found" case create
+    # one explicitly under the portable sys_dir path, which is checked
+    # before this fallback.
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling.shutil.which", lambda name: None
+    )
+
     paths = PathLayout.for_workspace(ws)
     context = RuntimeContext(
         workspace_home_id="quota-wiring-workspace",

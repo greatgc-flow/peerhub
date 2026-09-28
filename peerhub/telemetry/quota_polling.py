@@ -232,7 +232,18 @@ def _real_binary(peer: str, sys_dir: Optional[Path] = None) -> Optional[str]:
         return None
         
     if not cand.exists():
-        return None
+        command_names = {
+            "ag": ("agy.exe", "agy"),
+            "cc": (CLAUDE_CMD, "claude"),
+            "cx": (CODEX_CMD, "codex"),
+        }.get(peer, ())
+        discovered = next(
+            (found for name in command_names if (found := shutil.which(name))),
+            None,
+        )
+        if discovered is None:
+            return None
+        cand = Path(discovered)
     resolved = cand.resolve()
     if resolved == cli_dir.resolve() or cli_dir.resolve() in resolved.parents:
         raise RuntimeError(f"refusing wrapper binary for {peer}: {resolved}")
@@ -398,9 +409,17 @@ def poll_claude_usage(
     claude_cfg_dir = (
         os.environ.get("PEERHUB_CLAUDE_CONFIG_DIR")
         or env.get("CLAUDE_CONFIG_DIR")
-        or str((resolved_sys / "claude" / "config").resolve())
     )
-    env["CLAUDE_CONFIG_DIR"] = claude_cfg_dir
+    if claude_cfg_dir:
+        env["CLAUDE_CONFIG_DIR"] = claude_cfg_dir
+    elif resolved_sys.is_dir():
+        # Compatibility with a portable runtime is discovered by PeerHub;
+        # Engram never needs to inject a PeerHub-specific bridge. A normal
+        # standalone pip install has no _sys tree and leaves Claude's own
+        # default configuration resolution untouched.
+        env["CLAUDE_CONFIG_DIR"] = str(
+            (resolved_sys / "claude" / "config").resolve()
+        )
 
     # Direct binary invocation (bypassing claude.cmd wrapper per pattern a)
     # avoids both cmd.exe '&' splitting and orphaned grandchild process leaks.

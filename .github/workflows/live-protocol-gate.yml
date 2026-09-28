@@ -14,19 +14,28 @@ on:
       - "tests/e2e/**"
       - ".github/workflows/live-protocol-gate.yml"
 
+permissions:
+  contents: read
+
 concurrency:
   group: live-protocol-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   live-provider-validation:
+    # Never execute fork-controlled code on the persistent machine that holds
+    # authenticated paid-provider CLIs. A maintainer can review a fork PR and
+    # run this workflow manually against a trusted ref when live proof is needed.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     # Authentication and paid-provider CLIs must remain on a dedicated local
     # runner; GitHub-hosted runners intentionally cannot satisfy this gate.
     runs-on: [self-hosted, Windows, X64, peerhub-live]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
           cache: "pip"

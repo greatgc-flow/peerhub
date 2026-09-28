@@ -40,6 +40,24 @@ def test_real_binary_returns_literal_path_not_resolved(monkeypatch, tmp_path):
     assert result == str(cand)
     assert result != str(poisoned)
 
+
+@pytest.mark.parametrize(
+    ("peer", "binary_name"),
+    (("ag", "agy.exe"), ("cc", "claude.cmd"), ("cx", "codex.cmd")),
+)
+def test_real_binary_falls_back_to_path_without_portable_runtime(
+    monkeypatch, tmp_path, peer, binary_name
+):
+    standalone_binary = tmp_path / "host-bin" / binary_name
+    standalone_binary.parent.mkdir()
+    standalone_binary.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling.shutil.which",
+        lambda name: str(standalone_binary) if name == binary_name else None,
+    )
+
+    assert _real_binary(peer, tmp_path / "missing-sys") == str(standalone_binary)
+
 def test_poll_claude_usage_timeout_fail_closed(monkeypatch):
     class FakeProc:
         pid = 9999
@@ -502,6 +520,37 @@ def test_poll_claude_usage_config_dir_override(monkeypatch, tmp_path):
     monkeypatch.setenv("PEERHUB_CLAUDE_CONFIG_DIR", str(custom_cfg))
     poll_claude_usage(ids, "inst-1", "prof-1", sys_dir=sys_dir)
     assert captured_envs[-1]["CLAUDE_CONFIG_DIR"] == str(custom_cfg)
+
+
+def test_poll_claude_usage_standalone_does_not_inject_portable_config(
+    monkeypatch, tmp_path
+):
+    captured_envs = []
+
+    class FakeProc:
+        pid = 1234
+
+        def communicate(self, timeout=None):
+            return "unparseable", ""
+
+    def fake_popen(*args, **kwargs):
+        captured_envs.append(kwargs.get("env", {}))
+        return FakeProc()
+
+    monkeypatch.delenv("PEERHUB_CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "peerhub.telemetry.quota_polling._real_command",
+        lambda _peer, _sys_dir=None: ["claude.cmd"],
+    )
+
+    poll_claude_usage(
+        DummyIdSource(), "cc", "standard", sys_dir=tmp_path / "missing-sys"
+    )
+
+    assert "CLAUDE_CONFIG_DIR" not in captured_envs[-1]
 
 
 def test_poll_agy_usage_log_path_override(monkeypatch, tmp_path):
