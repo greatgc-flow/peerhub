@@ -45,8 +45,11 @@ command is added.
 - Post-release real model/vendor validation returned PONG evidence from all
   twelve profiles, passed all **6 e2e tests**, and passed **9 of 10 slow tests**;
   the remaining Claude probe received an empirical 429 weekly-quota rejection.
-  This is an external-capacity failure and intentionally blocks a new release
-  rather than being skipped.
+  This empirical response shape is now classified as quota exhaustion by the
+  decoder (5053bcf) and propagated through the dispatch `terminal_error_code`
+  layer as `QUOTA_EXHAUSTED` (9a6c994) rather than masked as an internal protocol
+  failure. This external-capacity exhaustion blocks live release gates
+  until quota resets rather than being silently bypassed.
 - Static typing: Pyright is required locally and in CI; source-tree analysis has
   zero errors. Build smoke copies are deleted after inspection so they cannot be
   misidentified as a second package.

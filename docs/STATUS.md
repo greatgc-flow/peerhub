@@ -56,8 +56,11 @@ commands with descriptions and examples. The tagged release's deterministic
 suite reports 2,404 passed with only four OS/privilege skips. Post-release live
 validation returned PONG evidence from all twelve profiles, passed all 6 e2e
 tests, and passed 9 of 10 slow tests; the remaining Claude probe received a 429
-after the account exhausted its weekly quota. That empirical response shape is
-now classified as quota exhaustion instead of an internal protocol error. Wheel
+after the account exhausted its weekly quota. That empirical response shape triggered a
+two-commit fix: the decoder now classifies the 429 response as quota
+exhaustion (5053bcf), and the dispatch layer propagates `QUOTA_EXHAUSTED`
+all the way to the `terminal_error_code` field instead of falling back to
+the generic `PROTOCOL_ASSESSMENT_FAILED` sentinel (9a6c994). Wheel
 and sdist pass strict package validation. See
 [`docs/reviews/recursive-mece-release-audit-2026-09-28.md`](reviews/recursive-mece-release-audit-2026-09-28.md).
 
