@@ -615,7 +615,10 @@ class TestClassifyAttemptFailure(unittest.TestCase):
                 self.assertIsNotNone(result)
                 self.assertIs(result.code, expected_code)
 
-    def test_normalized_operational_error_refines_category_only(self) -> None:
+    def test_normalized_operational_error_refines_code_and_category(self) -> None:
+        # Previously asserted code remained INTERNAL_ERROR (category-only refinement).
+        # The layer-2 fix promotes both code AND category so the terminal_error_code
+        # visible at the CLI layer reflects the real vendor-classified cause.
         from peerhub.dispatch.model import classify_attempt_failure
         from peerhub.dispatch.contract import TerminalClassification
         from peerhub.core.protocol import ErrorCode, OperationalFailureCategory
@@ -633,7 +636,8 @@ class TestClassifyAttemptFailure(unittest.TestCase):
             decoded_output=decoded,
         )
         self.assertIsNotNone(result)
-        self.assertIs(result.code, ErrorCode.INTERNAL_ERROR)
+        # Layer-2 fix: code is now promoted to AUTH_UNAVAILABLE (not INTERNAL_ERROR)
+        self.assertIs(result.code, ErrorCode.AUTH_UNAVAILABLE)
         self.assertIs(
             result.operational_failure_category,
             OperationalFailureCategory.AUTH_UNAVAILABLE,

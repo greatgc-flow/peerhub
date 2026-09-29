@@ -738,6 +738,11 @@ def _terminal_error_for_result(
     if status is RequestState.FAILED:
         if result.protocol.protocol_failure is not None:
             return result.protocol.protocol_failure
+        if (
+            result.failure_classification is not None
+            and result.failure_classification.code is not ErrorCode.INTERNAL_ERROR
+        ):
+            return result.failure_classification.code
         return ErrorCode.PROTOCOL_ASSESSMENT_FAILED
     return None
 
@@ -1457,5 +1462,15 @@ def classify_attempt_failure(
             code = ErrorCode.INVOCATION_PLAN_REJECTED
         else:
             category = _OPERATIONAL_KINDS.get(vendor_kind or "")
+            if category is OperationalFailureCategory.QUOTA_EXHAUSTED:
+                code = ErrorCode.QUOTA_EXHAUSTED
+            elif category is OperationalFailureCategory.RATE_LIMITED:
+                code = ErrorCode.RATE_LIMITED
+            elif category is OperationalFailureCategory.PROVIDER_UNAVAILABLE:
+                code = ErrorCode.PROVIDER_UNAVAILABLE
+            elif category is OperationalFailureCategory.AUTH_UNAVAILABLE:
+                code = ErrorCode.AUTH_UNAVAILABLE
+            elif category is OperationalFailureCategory.NETWORK_UNAVAILABLE:
+                code = ErrorCode.NETWORK_UNAVAILABLE
 
     return AttemptFailureClassification(code, ErrorPhase.POST_SPAWN, category)
