@@ -33,10 +33,10 @@ pip install peerhub
 ### Option B: Install an exact GitHub release
 
 ```bash
-pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.9.0"
+pip install "git+https://github.com/greatgc-flow/peerhub.git@v0.9.1"
 ```
 
-The commands above install the stable `v0.9.0` line. Development changes after
+The commands above install the stable `v0.9.1` line. Development changes after
 that release remain on `main` until the next version is cut.
 
 ### Option C: Local editable development install
@@ -162,6 +162,11 @@ paths --json`, `peerhub config validate --json`, and `peerhub diag --json`;
 remove prompts/transcripts or secrets before attaching output.
 
 ## Status
+
+**Released as v0.9.1.** Patch release resolving the two-layer Claude quota exhaustion
+classification and error propagation defect: stream-json 429 rejections are classified
+as quota exhaustion rather than generic protocol errors, and `QUOTA_EXHAUSTED` propagates
+directly through the dispatch `terminal_error_code` layer.
 
 **Released as v0.9.0.** All twelve advertised AG/Claude/Codex profiles
 (`standard`, `effort`, `deepthink`, and `pro` for each peer) have reviewed
