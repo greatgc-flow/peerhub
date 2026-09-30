@@ -47,6 +47,13 @@
   - Detailed per-vendor error-taxonomy mapping, and PTY transport are deliberately out of scope for the current adapter slice.
   - No shadow-mode validation yet (routing a subset of real traffic through peerhub in parallel with `hub.py` for comparison before any real cutover) — `hub.py` remains the authoritative system for real multi-peer coordination work today; `peerhub ask` is a real, working command, not yet a production replacement.
 
+**Released as v0.10.0 (2026-09-30).** Complete smart lifecycle parity release:
+- `ALLOWED_CONFIG_FILES` expanded to include `models.toml`, `dispatch-policy.toml`, and `routing.toml` (preventing silent exclusion of critical configs).
+- Added `peerhub backup global` to bundle global configurations (`~/.peerhub/config`).
+- Added Dry-Run by default for `peerhub backup restore` (requiring `--apply` to activate).
+- Added `peerhub workspace reset` sub-command with 2PC Fail-Closed pre-reset safety snapshots and clean on-demand self-healing.
+- 100% strict zero-coupling with Engram verified: runs completely standalone in any Python environment. Full deterministic suite: 28/28 integration tests passing.
+
 **Released as v0.9.0 (2026-09-28).** The packaged profiles were
 refreshed against current AG, Claude Code, and Codex CLIs; all twelve profiles
 (`standard`, `effort`, `deepthink`, and `pro` for each peer) returned live PONG

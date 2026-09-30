@@ -4847,10 +4847,22 @@ def _run_backup_workspace(parsed: argparse.Namespace) -> int:  # pyright: ignore
     return run_backup_workspace(parsed, sys.modules[__name__])
 
 
+def _run_backup_global(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_backup_global
+
+    return run_backup_global(parsed, sys.modules[__name__])
+
+
 def _run_backup_restore(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
     from peerhub.cli.commands.setup import run_backup_restore
 
     return run_backup_restore(parsed, sys.modules[__name__])
+
+
+def _run_workspace_reset(parsed: argparse.Namespace) -> int:  # pyright: ignore[reportUnusedFunction] -- command-module compatibility seam
+    from peerhub.cli.commands.setup import run_workspace_reset
+
+    return run_workspace_reset(parsed, sys.modules[__name__])
 
 
 if __name__ == "__main__":

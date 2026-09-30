@@ -34,6 +34,20 @@ def register_workspace_command(
         default=None,
         help="Path to the workspace root (default: current directory)",
     )
+    workspace_reset_parser = workspace_subparsers.add_parser(
+        "reset",
+        help="Reset workspace state (cleans .peerhub/ with a pre-reset safety snapshot)",
+    )
+    workspace_reset_parser.add_argument(
+        "--workspace",
+        default=None,
+        help="Path to the workspace root (default: current directory)",
+    )
+    workspace_reset_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually execute reset (default: Dry-Run plan only)",
+    )
 
 
 def register_setup_commands(
@@ -121,6 +135,12 @@ def register_setup_commands(
         action="store_true",
         help="Include dispatch_transcripts rows (durable, sensitive dispatch text; omitted by default)",
     )
+    backup_global_parser = backup_subparsers.add_parser(
+        "global", help="Create a backup bundle for global configuration files"
+    )
+    backup_global_parser.add_argument(
+        "--output", required=True, help="Directory to create the global backup bundle under"
+    )
     backup_restore_parser = backup_subparsers.add_parser(
         "restore", help="Restore a backup bundle into a workspace"
     )
@@ -129,6 +149,11 @@ def register_setup_commands(
         "--workspace",
         default=None,
         help="Path to the workspace root (default: current directory)",
+    )
+    backup_restore_parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually apply restoration (default: Dry-Run plan only)",
     )
 
     adapter_parser = subparsers.add_parser(
@@ -187,8 +212,12 @@ def run_setup_command(parsed: argparse.Namespace, cli: ModuleType) -> int | None
         return run_config_validate(parsed, cli)
     if parsed.command == "config" and parsed.config_command == "init":
         return run_config_init(parsed, cli)
+    if parsed.command == "workspace" and parsed.workspace_action == "reset":
+        return run_workspace_reset(parsed, cli)
     if parsed.command == "backup" and parsed.backup_command == "workspace":
         return run_backup_workspace(parsed, cli)
+    if parsed.command == "backup" and parsed.backup_command == "global":
+        return run_backup_global(parsed, cli)
     if parsed.command == "backup" and parsed.backup_command == "restore":
         return run_backup_restore(parsed, cli)
     if parsed.command == "adapter":
@@ -264,13 +293,57 @@ def run_backup_workspace(parsed: argparse.Namespace, cli: ModuleType) -> int:
     return 0
 
 
+def run_backup_global(parsed: argparse.Namespace, cli: ModuleType) -> int:
+    from datetime import datetime, timezone
+    from peerhub.application.backup import create_global_backup
+
+    output_dir = cli.Path(parsed.output).resolve()
+    bundle_dir = create_global_backup(
+        output_dir=output_dir,
+        now=datetime.now(timezone.utc).isoformat(),
+    )
+    print(f"Global configuration backup created: {bundle_dir}")
+    return 0
+
+
+def run_workspace_reset(parsed: argparse.Namespace, cli: ModuleType) -> int:
+    from peerhub.application.backup import reset_workspace
+
+    workspace_root = resolve_workspace(parsed.workspace).root
+    apply_flag = getattr(parsed, "apply", False)
+    res = reset_workspace(workspace_root, apply=apply_flag)
+
+    if res.dry_run:
+        print("[PeerHub Reset] DRY-RUN MODE (Default)")
+        print(f"  Target to purge: {res.workspace_home}")
+        print("  To execute reset with safety snapshot, run with '--apply':")
+        print(f"    >> peerhub workspace reset --workspace {workspace_root} --apply")
+    else:
+        if res.snapshot_path:
+            print(f"[Safety Snapshot] Created pre-reset snapshot at: {res.snapshot_path}")
+        print(f"[OK] Workspace purged: {res.workspace_home}")
+        print("Reset complete. Skeletons will be auto-scaffolded on demand.")
+    return 0
+
+
 def run_backup_restore(parsed: argparse.Namespace, cli: ModuleType) -> int:
     from peerhub.application.backup import restore_workspace_backup
 
     workspace_root = resolve_workspace(parsed.workspace).root
     bundle_dir = cli.Path(parsed.bundle).resolve()
-    manifest = restore_workspace_backup(bundle_dir, workspace_root=workspace_root)
-    print(f"Restored workspace {manifest.workspace_home_id!r} from {bundle_dir}")
+    apply_flag = getattr(parsed, "apply", False)
+    result = restore_workspace_backup(bundle_dir, workspace_root=workspace_root, apply=apply_flag)
+
+    if getattr(result, "dry_run", False):
+        print("[PeerHub Restore] DRY-RUN MODE (Default)")
+        print(f"  Bundle: {result.bundle_dir}")
+        print(f"  Target DB: {result.target_database}")
+        print(f"  Config files to restore: {', '.join(result.config_files_to_restore)}")
+        print("  To apply this restore, run with '--apply':")
+        print(f"    >> peerhub backup restore {bundle_dir} --workspace {workspace_root} --apply")
+    else:
+        manifest = result
+        print(f"Restored workspace {manifest.workspace_home_id!r} from {bundle_dir}")
     return 0
 
 

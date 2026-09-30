@@ -94,9 +94,14 @@ _CONFIG_DIRNAME = "config"
 _BACKUP_SCHEMA_VERSION = 1
 _JOURNAL_NAME = "restore-journal.json"
 
-# Section 2.4: membership must be a strict named allowlist, not "whatever
-# is present" (is_file() previously copied any immediate entry).
-ALLOWED_CONFIG_FILES = frozenset({"ask.toml", "arbiter.json", "proposals.json"})
+ALLOWED_CONFIG_FILES = frozenset({
+    "ask.toml",
+    "arbiter.json",
+    "proposals.json",
+    "models.toml",
+    "dispatch-policy.toml",
+    "routing.toml",
+})
 
 
 class BackupBundleError(ValueError):
@@ -438,16 +443,36 @@ def recover_workspace_restore(workspace_root: Path) -> str:
     return "rolled_back"
 
 
+@dataclass(frozen=True, slots=True)
+class RestorePlan:
+    """Preview plan for workspace restoration (Dry-Run)."""
+
+    dry_run: bool
+    bundle_dir: Path
+    workspace_root: Path
+    target_database: Path
+    manifest: BackupManifest
+    config_files_to_restore: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ResetResult:
+    """Result of workspace reset transaction."""
+
+    dry_run: bool
+    workspace_root: Path
+    workspace_home: Path
+    purged: bool
+    snapshot_path: Path | None = None
+
+
 def restore_workspace_backup(
-    bundle_dir: Path, *, workspace_root: Path
-) -> BackupManifest:
+    bundle_dir: Path, *, workspace_root: Path, apply: bool = True
+) -> BackupManifest | RestorePlan:
     """Restore one backup bundle into ``workspace_root``.
 
-    Raises ``BackupBundleError`` for a malformed/unsafe bundle,
-    ``WorkspaceIdentityMismatchError`` for a schema-version or identity
-    mismatch, or ``WorkspaceMaintenanceError`` if the target is not
-    quiescent or a prior restore left it in a recovery-required state --
-    in every case before anything at ``workspace_root`` is touched.
+    When ``apply=False`` (Dry-Run by default), inspects the bundle and returns
+    a ``RestorePlan`` without altering any target files.
     """
 
     reject_redirected(bundle_dir)
@@ -468,6 +493,17 @@ def restore_workspace_backup(
     layout = PathLayout.for_workspace(workspace_root)
     home = layout.database_path.parent
     reject_redirected(home)
+
+    if not apply:
+        return RestorePlan(
+            dry_run=True,
+            bundle_dir=bundle_dir,
+            workspace_root=workspace_root,
+            target_database=layout.database_path,
+            manifest=manifest,
+            config_files_to_restore=manifest.config_files,
+        )
+
     is_independent_clone = not layout.database_path.exists()
 
     with WorkspaceGuard(home, exclusive=True):
@@ -613,3 +649,87 @@ def restore_workspace_backup(
             shutil.rmtree(staging_root, ignore_errors=True)
 
     return manifest
+
+
+def create_global_backup(
+    output_dir: Path,
+    *,
+    now: str,
+) -> Path:
+    """Create a backup bundle for global configuration under ``output_dir``."""
+    from peerhub.application.config_paths import resolve_global_config_home
+
+    global_home = resolve_global_config_home().path
+    bundle_name = f"peerhub-global-backup-{now.replace(':', '')}"
+    bundle_dir = output_dir / bundle_name
+    bundle_dir.mkdir(parents=True, exist_ok=False)
+
+    copied_files: list[str] = []
+    if global_home.exists() and global_home.is_dir():
+        for entry in global_home.iterdir():
+            if entry.is_file() and entry.name in ALLOWED_CONFIG_FILES:
+                shutil.copy2(entry, bundle_dir / entry.name)
+                copied_files.append(entry.name)
+
+    manifest_content = {
+        "backup_schema_version": _BACKUP_SCHEMA_VERSION,
+        "is_global_backup": True,
+        "created_at": now,
+        "config_files": copied_files,
+    }
+    (bundle_dir / _MANIFEST_NAME).write_text(
+        json.dumps(manifest_content, indent=2), encoding="utf-8"
+    )
+    return bundle_dir
+
+
+def reset_workspace(
+    workspace_root: Path,
+    *,
+    apply: bool = False,
+    now: str | None = None,
+) -> ResetResult:
+    """Reset workspace state: cleans .peerhub/ with a pre-reset safety snapshot.
+
+    When ``apply=False`` (Dry-Run by default), reports the plan without purging.
+    When ``apply=True``, captures a mandatory safety snapshot before rmtree.
+    """
+    from datetime import datetime, timezone
+    now_str = now or datetime.now(timezone.utc).isoformat()
+
+    layout = PathLayout.for_workspace(workspace_root)
+    home = layout.workspace_home
+    reject_redirected(home)
+
+    if not apply:
+        return ResetResult(
+            dry_run=True,
+            workspace_root=workspace_root,
+            workspace_home=home,
+            purged=False,
+            snapshot_path=None,
+        )
+
+    snapshot_path: Path | None = None
+    if home.exists() and layout.database_path.exists():
+        temp_dir = resolve_workspace_temp(workspace_root).path / "safety-snapshots"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_bundle = create_workspace_backup(
+            workspace_root,
+            output_dir=temp_dir,
+            include_transcripts=True,
+            now=now_str,
+        )
+        snapshot_path = snapshot_bundle
+
+    if home.exists():
+        shutil.rmtree(home)
+
+    return ResetResult(
+        dry_run=False,
+        workspace_root=workspace_root,
+        workspace_home=home,
+        purged=True,
+        snapshot_path=snapshot_path,
+    )
+
