@@ -47,6 +47,8 @@
   - Detailed per-vendor error-taxonomy mapping, and PTY transport are deliberately out of scope for the current adapter slice.
   - No shadow-mode validation yet (routing a subset of real traffic through peerhub in parallel with `hub.py` for comparison before any real cutover) — `hub.py` remains the authoritative system for real multi-peer coordination work today; `peerhub ask` is a real, working command, not yet a production replacement.
 
+**Released as v0.10.1 (2026-10-02).** Packaged model profiles refreshed against current peer CLIs (revision `2026-10-01.1`): `cx.effort`/`cx.deepthink` -> `gpt-6.1-sol`, `cc.effort` -> `claude-sonnet-5-5`, `cc.deepthink` -> `claude-opus-5-5` (`xhigh`), `cc.pro` -> `claude-fable-5-1`; `ag.*` unchanged. Adds `docs/model-profiles/` (JSON Schema + manifest an AI can read to repeat the refresh) and a static test that keeps the manifest, `model-defaults.toml` and the adapter doc tables in sync; model literals in the profile tests now come from the manifest. Known pre-existing failure, not addressed here: `tests/static/test_production_call_map.py` (call-map lacks `workspace reset` and one other command added in v0.10.0).
+
 **Released as v0.10.0 (2026-09-30).** Complete smart lifecycle parity release:
 - `ALLOWED_CONFIG_FILES` expanded to include `models.toml`, `dispatch-policy.toml`, and `routing.toml` (preventing silent exclusion of critical configs).
 - Added `peerhub backup global` to bundle global configurations (`~/.peerhub/config`).

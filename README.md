@@ -114,7 +114,7 @@ peerhub consensus vote --workspace ./peerhub-demo --round-id docs-demo-round --a
 ### Scenario cookbook (all 30 command groups)
 
 These are safe starting points, not a second command specification. Run
-`peerhub /?` for the generated 107-leaf catalog and `peerhub <path> /?` for
+`peerhub /?` for the generated 109-leaf catalog and `peerhub <path> /?` for
 the authoritative arguments and description at any depth.
 
 | Scenario | Example |
@@ -173,7 +173,7 @@ directly through the dispatch `terminal_error_code` layer.
 packaged model bindings and live dispatch evidence. `diag --live` now
 polls the portable runtime without requiring an initialized workspace, labels
 measured quota separately from executable-only discovery, and refuses to
-recommend a critical quota/pacing target. The complete 107-leaf CLI supports
+recommend a critical quota/pacing target. The complete 109-leaf CLI supports
 `-h`, `--help`, and `/?` recursively, with generated descriptions, argument
 help, workflows, and feedback-loop examples. Adapter contracts and active docs
 now match AG 1.2.12, Claude Code 2.1.283 stream JSON, and Codex 0.157.1 JSONL.
