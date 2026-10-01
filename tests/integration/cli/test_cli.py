@@ -500,7 +500,7 @@ def test_cli_backup_workspace_then_restore_round_trip(
     # Restoring the same workspace's own backup into itself is a legitimate
     # round trip: the detected target identity is exactly what was backed up.
     restore_exit_code = main(
-        ["backup", "restore", str(bundle_dir), "--workspace", str(workspace_root)]
+        ["backup", "restore", str(bundle_dir), "--workspace", str(workspace_root), "--apply"]
     )
 
     assert restore_exit_code == 0

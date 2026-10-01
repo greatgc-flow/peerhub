@@ -260,7 +260,7 @@ def test_every_leaf_has_complete_recursive_help() -> None:
     ]
 
     assert root.prog == "peerhub"
-    assert len(leaves) == 107
+    assert len(leaves) == 109
 
     for path, parser in leaves:
         command = " ".join(path)
@@ -314,7 +314,7 @@ def test_root_help_contains_complete_leaf_catalog_and_workflows() -> None:
 
     assert exit_info.value.code == 0
     output = stdout.getvalue()
-    assert "Command catalog (107 leaf commands):" in output
+    assert "Command catalog (109 leaf commands):" in output
     assert "Common workflows:" in output
     assert "peerhub ask cx \"Summarize this repository\"" in output
     for path in leaf_paths:

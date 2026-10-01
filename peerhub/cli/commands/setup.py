@@ -327,14 +327,14 @@ def run_workspace_reset(parsed: argparse.Namespace, cli: ModuleType) -> int:
 
 
 def run_backup_restore(parsed: argparse.Namespace, cli: ModuleType) -> int:
-    from peerhub.application.backup import restore_workspace_backup
+    from peerhub.application.backup import RestorePlan, restore_workspace_backup
 
     workspace_root = resolve_workspace(parsed.workspace).root
     bundle_dir = cli.Path(parsed.bundle).resolve()
     apply_flag = getattr(parsed, "apply", False)
     result = restore_workspace_backup(bundle_dir, workspace_root=workspace_root, apply=apply_flag)
 
-    if getattr(result, "dry_run", False):
+    if isinstance(result, RestorePlan):
         print("[PeerHub Restore] DRY-RUN MODE (Default)")
         print(f"  Bundle: {result.bundle_dir}")
         print(f"  Target DB: {result.target_database}")
@@ -342,8 +342,7 @@ def run_backup_restore(parsed: argparse.Namespace, cli: ModuleType) -> int:
         print("  To apply this restore, run with '--apply':")
         print(f"    >> peerhub backup restore {bundle_dir} --workspace {workspace_root} --apply")
     else:
-        manifest = result
-        print(f"Restored workspace {manifest.workspace_home_id!r} from {bundle_dir}")
+        print(f"Restored workspace {result.workspace_home_id!r} from {bundle_dir}")
     return 0
 
 

@@ -8,8 +8,8 @@
     "captured_on": "2026-09-13",
     "method": "Monkeypatch argparse.ArgumentParser.parse_args while calling peerhub.cli:main, capture the constructed root parser, recursively traverse each actual _SubParsersAction choice, and select parsers with no child subparser.",
     "top_level_command_count": 30,
-    "leaf_command_count": 107,
-    "mutating_or_conditional_count": 81,
+    "leaf_command_count": 109,
+    "mutating_or_conditional_count": 83,
     "parser_contract_fields": [
       "action",
       "choices",
@@ -22,7 +22,8 @@
       "type"
     ],
     "parser_test": "tests/static/test_production_call_map.py::test_production_call_map_matches_all_live_cli_paths",
-    "note_2026_09_26": "Four leaf commands (consensus ack/nack/correct/retract) added with the V2 consensus shell."
+    "note_2026_09_26": "Four leaf commands (consensus ack/nack/correct/retract) added with the V2 consensus shell.",
+    "note_2026_10_02": "Two leaf commands (workspace reset, backup global) added in v0.10.0; map brought back in sync."
   },
   "classifications": {
     "READ_ONLY": "Local state/config read with no intended write.",
@@ -74,6 +75,57 @@
         "command_help": [
           "Manage the peerhub workspace itself",
           "Explicitly initialize a workspace (creates .peerhub/peerhub.sqlite3)"
+        ]
+      }
+    },
+    {
+      "path": "workspace reset",
+      "effect": "MUTATING_EXTERNAL",
+      "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
+      "resolver": "resolve_workspace(parsed.workspace).root -> peerhub.application.backup:reset_workspace",
+      "authorizer": "No caller authentication at this entrance; explicit CLI intent plus local validation is the current boundary",
+      "gateway": "DIRECT_CLI_BYPASS",
+      "handler": "peerhub.cli.commands.setup:run_workspace_reset -> peerhub.application.backup:reset_workspace",
+      "transactional_owner": "peerhub.application.backup:reset_workspace (two-phase: pre-reset safety snapshot, then purge; fail-closed if the snapshot fails)",
+      "receipt": "ResetResult rendered as human-readable lines (dry-run preview, snapshot path, purged workspace home)",
+      "external_effects": "Default is a dry-run preview; with --apply creates a safety snapshot then deletes the workspace home directory",
+      "output_contract": "stdout: human-readable [PeerHub Reset] lines; no JSON mode",
+      "exit_contract": "0 on dry-run or successful reset; argparse usage errors raise SystemExit(2); snapshot/filesystem errors propagate",
+      "integration_tests": [
+        "tests/integration/application/test_backup_parity.py::test_reset_workspace_dry_run_and_apply"
+      ],
+      "parser_contract": {
+        "arguments": [
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "workspace",
+            "help": "Path to the workspace root (default: current directory)",
+            "nargs": null,
+            "option_strings": [
+              "--workspace"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
+            "dest": "apply",
+            "help": "Actually execute reset (default: Dry-Run plan only)",
+            "nargs": 0,
+            "option_strings": [
+              "--apply"
+            ],
+            "required": false,
+            "type": null
+          }
+        ],
+        "command_help": [
+          "Manage the peerhub workspace itself",
+          "Reset workspace state (cleans .peerhub/ with a pre-reset safety snapshot)"
         ]
       }
     },
@@ -401,6 +453,44 @@
       }
     },
     {
+      "path": "backup global",
+      "effect": "MUTATING_EXTERNAL",
+      "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
+      "resolver": "Path(parsed.output).resolve() -> peerhub.application.backup:create_global_backup (global config home via PEERHUB_CONFIG_HOME or ~/.peerhub/config)",
+      "authorizer": "No caller authentication at this entrance; explicit CLI intent plus local validation is the current boundary",
+      "gateway": "DIRECT_CLI_BYPASS",
+      "handler": "peerhub.cli.commands.setup:run_backup_global -> peerhub.application.backup:create_global_backup",
+      "transactional_owner": "peerhub.application.backup:create_global_backup (filesystem copy of allowlisted global config files; no database)",
+      "receipt": "Bundle directory path rendered as one human-readable line",
+      "external_effects": "Writes a global configuration backup bundle under --output",
+      "output_contract": "stdout: one \"Global configuration backup created\" line; no JSON mode",
+      "exit_contract": "0 on success; argparse usage errors raise SystemExit(2); filesystem errors propagate",
+      "integration_tests": [
+        "tests/integration/application/test_backup_parity.py::test_create_global_backup"
+      ],
+      "parser_contract": {
+        "arguments": [
+          {
+            "action": "_StoreAction",
+            "choices": null,
+            "default": null,
+            "dest": "output",
+            "help": "Directory to create the global backup bundle under",
+            "nargs": null,
+            "option_strings": [
+              "--output"
+            ],
+            "required": true,
+            "type": null
+          }
+        ],
+        "command_help": [
+          "Back up or restore one workspace",
+          "Create a backup bundle for global configuration files"
+        ]
+      }
+    },
+    {
       "path": "backup restore",
       "effect": "MUTATING",
       "entrance": "peerhub.cli:main (project script `peerhub` and `python -m peerhub` both terminate with its returned code)",
@@ -410,7 +500,7 @@
       "handler": "peerhub.cli:_run_backup_restore -> peerhub.application.backup:restore_workspace_backup",
       "transactional_owner": "peerhub.application.backup (SQLite online backup plus filesystem copy/activation sequence; not a whole-workspace transaction)",
       "receipt": "Backup bundle path or BackupManifest rendered as a human-readable line",
-      "external_effects": "workspace writes a bundle at --output; restore replaces workspace database/config content",
+      "external_effects": "workspace writes a bundle at --output; restore is a dry-run preview by default and replaces workspace database/config content only with --apply",
       "output_contract": "stdout: one human-readable backup-created or restored line; no JSON mode",
       "exit_contract": "0 on success; argparse usage errors raise SystemExit(2); validation/filesystem/restore exceptions propagate",
       "integration_tests": [
@@ -438,6 +528,19 @@
             "nargs": null,
             "option_strings": [
               "--workspace"
+            ],
+            "required": false,
+            "type": null
+          },
+          {
+            "action": "_StoreTrueAction",
+            "choices": null,
+            "default": false,
+            "dest": "apply",
+            "help": "Actually apply restoration (default: Dry-Run plan only)",
+            "nargs": 0,
+            "option_strings": [
+              "--apply"
             ],
             "required": false,
             "type": null
