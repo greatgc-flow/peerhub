@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,15 @@ from peerhub.governance.broker import GovernanceBroker
 from peerhub.governance.contract import EffectIntent, MutationRequest
 from peerhub.persistence.sqlite import SqliteStateStore
 from tests.fakes import SequentialIdSource
+
+_MANIFEST_PROFILES: dict[str, dict[str, str]] = json.loads(
+    (
+        Path(__file__).resolve().parents[3]
+        / "docs"
+        / "model-profiles"
+        / "model-profiles.json"
+    ).read_text(encoding="utf-8")
+)["profiles"]
 
 
 class FixedClock(Clock):
@@ -152,19 +162,9 @@ def test_global_config_takes_precedence_over_packaged_default(
 
 @pytest.mark.parametrize(
     ("profile_id", "selection_mode", "model_id", "reasoning_effort"),
-    (
-        ("cx.standard", ModelSelectionMode.PINNED, "gpt-6-luna", "low"),
-        ("cx.effort", ModelSelectionMode.PINNED, "gpt-6-sol", "high"),
-        ("cx.deepthink", ModelSelectionMode.PINNED, "gpt-6-sol", "xhigh"),
-        ("cx.pro", ModelSelectionMode.PINNED, "gpt-6-astra", "xhigh"),
-        ("cc.standard", ModelSelectionMode.PINNED, "claude-haiku-4-5-20251001", None),
-        ("cc.effort", ModelSelectionMode.PINNED, "claude-sonnet-5", "high"),
-        ("cc.deepthink", ModelSelectionMode.PINNED, "claude-opus-5", "high"),
-        ("cc.pro", ModelSelectionMode.PINNED, "claude-opus-5-5", "high"),
-        ("ag.standard", ModelSelectionMode.PINNED, "gemini-3.8-flash-low", None),
-        ("ag.effort", ModelSelectionMode.PINNED, "gemini-3.8-flash-high", None),
-        ("ag.deepthink", ModelSelectionMode.PINNED, "gemini-3.1-pro-low", None),
-        ("ag.pro", ModelSelectionMode.PINNED, "gemini-3.1-pro-high", None),
+    tuple(
+        (pid, ModelSelectionMode.PINNED, spec["model"], spec.get("reasoning_effort"))
+        for pid, spec in _MANIFEST_PROFILES.items()
     ),
 )
 def test_packaged_defaults_resolve_each_known_profile(

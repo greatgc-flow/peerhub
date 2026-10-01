@@ -1,0 +1,49 @@
+{
+  "$schema": "./model-profiles.schema.json",
+  "schema_version": 1,
+  "revision": "2026-10-01.1",
+  "observed_at": "2026-10-01",
+  "observed_versions": {"ag": "1.2.14", "cc": "2.1.286", "cx": "0.159.3"},
+  "profiles": {
+    "ag.standard": {"model": "gemini-3.8-flash-low"},
+    "ag.effort": {"model": "gemini-3.8-flash-high"},
+    "ag.deepthink": {"model": "gemini-3.1-pro-low"},
+    "ag.pro": {"model": "gemini-3.1-pro-high"},
+    "cc.standard": {"model": "claude-haiku-4-5-20251001"},
+    "cc.effort": {"model": "claude-sonnet-5-5", "reasoning_effort": "high"},
+    "cc.deepthink": {"model": "claude-opus-5-5", "reasoning_effort": "xhigh"},
+    "cc.pro": {"model": "claude-fable-5-1", "reasoning_effort": "high"},
+    "cx.standard": {"model": "gpt-6-luna", "reasoning_effort": "low"},
+    "cx.effort": {"model": "gpt-6.1-sol", "reasoning_effort": "high"},
+    "cx.deepthink": {"model": "gpt-6.1-sol", "reasoning_effort": "xhigh"},
+    "cx.pro": {"model": "gpt-6-astra", "reasoning_effort": "xhigh"}
+  },
+  "sources": {
+    "cx": {"command": "codex debug models", "parse": "Output is JSON possibly followed by extra data: decode only the first object (json.JSONDecoder().raw_decode). Use models[] with visibility != 'hide'; order by priority ascending; supported_reasoning_levels lists valid efforts."},
+    "ag": {"command": "agy.exe models", "parse": "Skip the 'Fetching available models...' line; each following line is '<slug><TAB><label>'. Slug is the model id; the -low/-medium/-high suffix is the effort."},
+    "cc": {"command": null, "parse": "No model-list command. 'claude --help' only shows aliases (fable, opus, sonnet). Use the newest full model ids known to the assistant/vendor docs and confirm each with one minimal live ping."}
+  },
+  "tier_rules": [
+    "standard = cheapest/fastest current family (cc: haiku, cx: *-luna low, ag: newest flash low).",
+    "effort = balanced current family (cc: newest sonnet high, cx: newest *-sol high, ag: newest flash high).",
+    "deepthink = stronger reasoning (cc: newest opus, cx: newest *-sol xhigh, ag: newest pro low).",
+    "pro = top-tier (cc: newest flagship, cx: *-astra xhigh, ag: newest pro high).",
+    "Never pick models with visibility 'hide'. Keep an effort only if the model lists it as supported."
+  ],
+  "update_targets": [
+    "peerhub/config_data/model-defaults.toml",
+    "docs/adapters/ag.md",
+    "docs/adapters/cc.md",
+    "docs/adapters/cx.md",
+    "docs/adapters/peer-cli-reference.md",
+    "docs/model-profiles/model-profiles.json"
+  ],
+  "instructions": [
+    "1. Run each sources[*].command (skip a peer whose CLI is absent) and read versions with '<cli> --version'.",
+    "2. Compare against profiles using tier_rules; present a diff of proposed changes to the user and wait for approval. Observations are evidence, not policy: never change packaged defaults without approval.",
+    "3. After approval edit every file in update_targets together: new values, a new revision (YYYY-MM-DD.N, also defaults_revision in model-defaults.toml), observed_at and observed_versions.",
+    "4. Run: python -m pytest -q tests/static tests/integration/application tests/unit/adapters (the manifest test fails on any drift between this file, the toml and the doc tables).",
+    "5. Optional, ask first (uses quota): for each CHANGED profile only, run once: peerhub ask <peer> \"Reply PONG\" --profile <profile_id> --capability-tier READ_ONLY --workspace <tmp>. Report failures verbatim.",
+    "6. Do not commit, push or release unless the user asks. Answer the user in their language; keep internal text English."
+  ]
+}

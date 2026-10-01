@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -292,11 +293,18 @@ def test_collect_model_status_reports_bindings_and_resolved_defaults(
     assert bound_row["model_source"] == "workspace"
     assert bound_row["status"] == "UNKNOWN"
 
+    manifest = json.loads(
+        (
+            Path(__file__).resolve().parents[3]
+            / "docs"
+            / "model-profiles"
+            / "model-profiles.json"
+        ).read_text(encoding="utf-8")
+    )["profiles"]
     expected = {
-        "cx.standard": ("gpt-6-luna", "low"),
-        "cx.effort": ("gpt-6-sol", "high"),
-        "cx.deepthink": ("gpt-6-sol", "xhigh"),
-        "cx.pro": ("gpt-6-astra", "xhigh"),
+        pid: (spec["model"], spec.get("reasoning_effort"))
+        for pid, spec in manifest.items()
+        if pid.startswith("cx.")
     }
     for prof, (model, effort) in expected.items():
         unbound_row = by_peer_profile[("unbound-worker", prof)]

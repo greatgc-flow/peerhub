@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/greatgc-flow/peerhub/docs/model-profiles/model-profiles.schema.json",
+  "title": "peerhub model profile manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "revision", "observed_at", "observed_versions", "profiles", "sources", "tier_rules", "update_targets", "instructions"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "revision": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}[.][0-9]+$", "description": "Must equal defaults_revision in model-defaults.toml."},
+    "observed_at": {"type": "string", "format": "date"},
+    "observed_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ag", "cc", "cx"],
+      "properties": {"ag": {"type": "string"}, "cc": {"type": "string"}, "cx": {"type": "string"}}
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^(ag|cc|cx)[.](standard|effort|deepthink|pro)$": {"$ref": "#/$defs/profile"}
+      },
+      "minProperties": 12,
+      "maxProperties": 12
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ag", "cc", "cx"],
+      "properties": {"ag": {"$ref": "#/$defs/source"}, "cc": {"$ref": "#/$defs/source"}, "cx": {"$ref": "#/$defs/source"}}
+    },
+    "tier_rules": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "update_targets": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Repo-relative files that must be edited together."},
+    "instructions": {"type": "array", "items": {"type": "string"}, "minItems": 1, "description": "Ordered procedure for the AI reading this file."}
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model"],
+      "properties": {
+        "model": {"type": "string", "minLength": 1},
+        "reasoning_effort": {"enum": ["low", "medium", "high", "xhigh", "max"]}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "parse"],
+      "properties": {"command": {"type": ["string", "null"]}, "parse": {"type": "string"}}
+    }
+  }
+}
