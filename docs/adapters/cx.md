@@ -28,8 +28,8 @@ binding into CLI flags.
 | Profile | Packaged model | Reasoning effort |
 |---|---|---|
 | `cx.standard` | `gpt-6-luna` | `low` |
-| `cx.effort` | `gpt-6-sol` | `high` |
-| `cx.deepthink` | `gpt-6-sol` | `xhigh` |
+| `cx.effort` | `gpt-6.1-sol` | `high` |
+| `cx.deepthink` | `gpt-6.1-sol` | `xhigh` |
 | `cx.pro` | `gpt-6-astra` | `xhigh` |
 
 ## Verify and troubleshoot
