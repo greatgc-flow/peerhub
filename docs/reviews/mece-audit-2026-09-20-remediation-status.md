@@ -11,13 +11,13 @@ Updated after each phase.
 | L-2 | E2 | Engram | DONE | 0c82044 | Update test count badge to dynamic/passing badge |
 | L-3 | E2 | Engram | DONE | 0c82044 | Remove dead _sys/docs/history/ exemption from check_encoding.py |
 | H-1 | E3 | Engram | DONE-UNCOMMITTED | - | Fix _sys renameability in backup, tidy, check_tool_updates, layout_migration; add tests |
-| M-1 | E4 | Engram | TODO | - | Report actual process image in backup liveness and clarify Node-based AI CLI note |
-| M-2 | E4 | Engram | TODO | - | Strict finite grammar validation in run_backup/restore/reset adapters (exit 2 on error) |
-| M-3 | E4 | Engram | TODO | - | Allow backup standalone CLI without --out to use default <sys_dir>/data/backups |
-| L-5 | E4 | Engram | TODO | - | Add engram.cmd-level forwarding tests for backup, restore, reset in test_engram_cmd_surface.py |
-| M-5 | E5 | Engram | TODO | - | Fixture-isolate derived path constants in test_tidy.py |
-| L-4 | E5 | Engram | TODO | - | Smoke contracts for shell test harnesses |
-| L-6 | E5 | Engram | TODO | - | Saturation scan false positives against backup allowlist |
+| M-1 | E4 | Engram | DONE | - | Report actual process image in backup liveness and clarify Node-based AI CLI note |
+| M-2 | E4 | Engram | DONE | - | Strict finite grammar validation in run_backup/restore/reset adapters (exit 2 on error) |
+| M-3 | E4 | Engram | DONE | - | Allow backup standalone CLI without --out to use default <sys_dir>/data/backups |
+| L-5 | E4 | Engram | DONE | - | Add engram.cmd-level forwarding tests for backup, restore, reset in test_engram_cmd_surface.py |
+| M-5 | E5 | Engram | DONE | - | Fixture-isolate derived path constants in test_tidy.py |
+| L-4 | E5 | Engram | DONE | - | Smoke contracts for shell test harnesses |
+| L-6 | E5 | Engram | DONE | - | Saturation scan false positives against backup allowlist |
 | P1-1 | P1 | PeerHub | DONE | (this commit) | Decouple routing import-capabilities from hardcoded _sys/ai path |
 | P1-2 | P1 | PeerHub | DONE | (this commit) | Decouple quota_polling.py from hardcoded _sys paths with configurable fallback |
 
