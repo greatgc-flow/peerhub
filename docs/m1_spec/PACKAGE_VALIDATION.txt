@@ -1,0 +1,5 @@
+PACKAGE=m1_spec
+standards=15
+legacy_commands=109
+audit_rows=27
+RESULT=PASS

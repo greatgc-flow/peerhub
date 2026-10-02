@@ -1,0 +1,28 @@
+﻿area,status,evidence
+M1 product scope,PASS,Communication/continuity only; orchestration excluded.
+Core minimality,PASS,Peer/Stream/Record/Offset only.
+Peer cardinality,PASS,"0..N per adapter, no vendor hard limit."
+Stream membership/addressing,PASS,Minimal members belong to Stream.
+Ordering/concurrency,PASS,DB append position; no MAX(seq)+1.
+Idempotency,PASS,Same key/same payload reuse; mismatch conflict.
+Delivery semantics,PASS,At-least-once/evidence-based runtime delivery.
+Long-horizon continuity,PASS,Pause/resume/redirect/session loss/context reset/quota covered.
+Duplicate runtime execution,PASS,Narrow Peer+Stream delivery claim/generation.
+Observation MECE,PASS,quota/rate/session/version/capability separated.
+Diag isolation,PASS,Strict read-only observer.
+Skills/catalog,PASS,Procedure/fact/schema separated; no global instruction DB.
+Second Brain readiness,PASS,Memory extension prepared with provenance/refs.
+Harness expansion,PASS,Managed/local harnesses are runtime adapters.
+MCP boundary,PASS,"Tool/Data only, future extension."
+A2A boundary,PASS,"Remote Peer only, future adapter."
+Standards pruning,PASS,Only JSON Schema/Agent Skills default-adopted.
+OSS/platform pruning,PASS,No Kafka/Redis/workflow/plugin framework in M1.
+Existing 109 functions,PASS,"109/109 dispositioned, 0 unclassified; exact order/effect validated against current repo evidence snapshot."
+Repo delta closure,PASS,"6 commits ahead / 0 behind, 18 changed files; all delta classified without M1 Core expansion."
+Current HEAD CI,PASS,GitHub Actions run 37027768347 success; pyright and pytest steps success.
+Package text hygiene,PASS,Hidden C0 control-character scan enforced; usage-guide path defect corrected.
+TDD vertical completeness,PASS,architecture→live/install covered.
+Deployment loop,PASS,build/package/install/live and CI graph check included.
+Feedback loop closure,PASS,runtime/vendor/skill/standard loops return to tests/releases.
+Repo drift visibility,PASS,Known source/docs/release drift recorded.
+Global AGENTS.md avoidance,PASS,No AGENTS.md included.

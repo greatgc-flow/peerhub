@@ -1,0 +1,45 @@
+# PeerHub M1 Very Simple Renewal — 진행 상황 및 협업 핸드오프
+
+> **원칙**: Side-by-side vertical slice (기존 코드 강제 축소 대신 신규 M1 Core를 안전하게 병렬 구축).  
+> **Core 4개 엔티티**: `Peer`, `Stream`, `Record`, `Offset` (Core는 어떤 Extension도 import하지 않음).  
+> **1st-party 확장**: `Session Bridge`, `Observation`, `Readonly Diag`.
+
+---
+
+## 📌 전체 진행 체크리스트
+
+### Phase 1: 스펙 동기화 및 검증 환경 준비
+- [x] Git worktree 분리 (`feat/m1-very-simple-renewal` 브랜치 / `D:\PkgDev\workspace\peerhub-m1-renewal`)
+- [x] M1 최신 스펙 문서 동기화 (`docs/m1_spec/`)
+- [x] `docs/m1_spec/tools/validate_package.py` 검증 통과 (`RESULT=PASS`, 15개 표준, 109개 커맨드 분류 완료)
+
+### Phase 2: Core 도메인 모델 (`peerhub/m1/models.py`)
+- [ ] JSON Schema 2020-12 스키마와 완벽 호환되는 4대 Core 모델 구현
+  - [ ] `Peer`: `peer_id`, `display_name`, `adapter_ref`, `metadata`, `created_at`
+  - [ ] `Stream`: `stream_id`, `title`, `state (OPEN|CLOSED)`, `members`, `revision`, `created_at`, `metadata`
+  - [ ] `Record`: `record_id`, `stream_id`, `position`, `author_peer_id`, `kind`, `body`, `targets`, `reply_to`, `refs`, `idempotency_key`, `payload_digest`, `created_at`, `appended_at`
+  - [ ] `Offset`: `peer_id`, `stream_id`, `read_through_position`, `revision`
+- [ ] Canonical JSON 직렬화 & SHA-256 payload digest 생성 로직
+
+### Phase 3: Core 영속성 계층 (`peerhub/m1/store.py`)
+- [ ] SQLite WAL + Foreign Keys 기반 순수 Core 스토어 구현
+- [ ] Monotonic Append Position 보장 (트랜잭션 기반 canonical ordering)
+- [ ] Idempotency 보장 (동일 키 + 동일 페이로드 = 기존 레코드 반환, 동일 키 + 상이 페이로드 = CONFLICT 에러)
+- [ ] Offset Compare-And-Swap (CAS) 갱신 로직
+
+### Phase 4: Core 불변식 및 TDD 검증 (`tests/unit/m1/test_core_contract.py`)
+- [ ] 스키마 유효성 테스트
+- [ ] 동시 append 순서 보장 테스트
+- [ ] Idempotent replay & conflict 테스트
+- [ ] Offset CAS 동작 테스트
+- [ ] Core Invariant 검증 (Core가 Extension 모듈을 import하지 않는지 정적 검사)
+
+### Phase 5: First-party Extensions (M1)
+- [ ] **Observation & Diag**: Read-only 진단, 쿼터/rate/세션 관측 모델
+- [ ] **Session Bridge**: Single-active delivery claim, runtime execution certainty (`MAY_HAVE_STARTED` 등)
+
+---
+
+## 📝 현재 작업 상태 (Current Status)
+- **작업 브랜치**: `feat/m1-very-simple-renewal`
+- **현재 진행 중**: **Phase 2 (Core 도메인 모델 작성)**

@@ -1,0 +1,560 @@
+{
+  "source_repository": "greatgc-flow/peerhub",
+  "source_head": "57a137cd6a0cc7e89124ea2b87b72995087627a5",
+  "source_file": "docs/design/peerhub-production-call-map-R1.json",
+  "source_blob_sha": "8fbb6dc7d359880fb5578ac2da6eb791a49e41ad",
+  "verified_on": "2026-10-03",
+  "measurement": {
+    "top_level_command_count": 30,
+    "leaf_command_count": 109,
+    "mutating_or_conditional_count": 83,
+    "note": "Current GitHub call-map was brought back in sync on 2026-10-02; two v0.10.0 leaves had been missing from the prior 107 snapshot."
+  },
+  "commands": [
+    {
+      "ordinal": 1,
+      "path": "workspace init",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 2,
+      "path": "workspace reset",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 3,
+      "path": "status",
+      "effect": "CONDITIONAL_MUTATION_EXTERNAL"
+    },
+    {
+      "ordinal": 4,
+      "path": "config paths",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 5,
+      "path": "config migrate",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 6,
+      "path": "config validate",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 7,
+      "path": "config init",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 8,
+      "path": "backup workspace",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 9,
+      "path": "backup global",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 10,
+      "path": "backup restore",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 11,
+      "path": "adapter discover",
+      "effect": "EXTERNAL_OBSERVATION"
+    },
+    {
+      "ordinal": 12,
+      "path": "diag",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 13,
+      "path": "broadcast",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 14,
+      "path": "health revalidate",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 15,
+      "path": "health check",
+      "effect": "CONDITIONAL_MUTATION_EXTERNAL"
+    },
+    {
+      "ordinal": 16,
+      "path": "health precheck",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 17,
+      "path": "health sweep",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 18,
+      "path": "peer status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 19,
+      "path": "peer quarantine",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 20,
+      "path": "peer recover",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 21,
+      "path": "lease status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 22,
+      "path": "lease sweep",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 23,
+      "path": "broker status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 24,
+      "path": "gate check",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 25,
+      "path": "ask",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 26,
+      "path": "statusline",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 27,
+      "path": "consensus propose",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 28,
+      "path": "consensus proposal-add",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 29,
+      "path": "consensus proposal-vote",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 30,
+      "path": "consensus list",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 31,
+      "path": "consensus arbiter-review",
+      "effect": "MUTATING_EXTERNAL"
+    },
+    {
+      "ordinal": 32,
+      "path": "consensus vote",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 33,
+      "path": "consensus status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 34,
+      "path": "consensus ack",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 35,
+      "path": "consensus nack",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 36,
+      "path": "consensus correct",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 37,
+      "path": "consensus retract",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 38,
+      "path": "task create",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 39,
+      "path": "task claim-start",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 40,
+      "path": "task checkpoint",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 41,
+      "path": "task complete",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 42,
+      "path": "task fail",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 43,
+      "path": "task cancel",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 44,
+      "path": "task status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 45,
+      "path": "lesson propose",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 46,
+      "path": "lesson approve",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 47,
+      "path": "lesson activate",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 48,
+      "path": "lesson retire",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 49,
+      "path": "lesson supersede",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 50,
+      "path": "lesson quarantine",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 51,
+      "path": "lesson broadcast",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 52,
+      "path": "lesson status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 53,
+      "path": "lesson sweep",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 54,
+      "path": "directive add",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 55,
+      "path": "directive migrate",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 56,
+      "path": "directive clear",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 57,
+      "path": "directive list",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 58,
+      "path": "node register",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 59,
+      "path": "node list",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 60,
+      "path": "node bind-profile",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 61,
+      "path": "node model-status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 62,
+      "path": "lock acquire",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 63,
+      "path": "lock release",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 64,
+      "path": "lock status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 65,
+      "path": "artifact claim",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 66,
+      "path": "artifact status",
+      "effect": "CONDITIONAL_MUTATION"
+    },
+    {
+      "ordinal": 67,
+      "path": "artifact finalize",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 68,
+      "path": "role assign",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 69,
+      "path": "role release",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 70,
+      "path": "role status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 71,
+      "path": "routing discover",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 72,
+      "path": "routing elect-leader",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 73,
+      "path": "routing import-capabilities",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 74,
+      "path": "leadership claim",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 75,
+      "path": "leadership yield",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 76,
+      "path": "leadership status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 77,
+      "path": "feedback add",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 78,
+      "path": "feedback list",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 79,
+      "path": "feedback resolve",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 80,
+      "path": "error report",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 81,
+      "path": "error review list",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 82,
+      "path": "error review resolve",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 83,
+      "path": "alert raise",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 84,
+      "path": "room create",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 85,
+      "path": "room thread-new",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 86,
+      "path": "room create-thread",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 87,
+      "path": "room append-message",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 88,
+      "path": "room send",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 89,
+      "path": "room broadcast",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 90,
+      "path": "room check-inbox",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 91,
+      "path": "room mark-read",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 92,
+      "path": "room promote-message",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 93,
+      "path": "room react",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 94,
+      "path": "room unreact",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 95,
+      "path": "room append-handoff",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 96,
+      "path": "room checkpoint",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 97,
+      "path": "room context-fill",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 98,
+      "path": "room update-status",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 99,
+      "path": "room clear",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 100,
+      "path": "room rebuild-session-bindings",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 101,
+      "path": "room status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 102,
+      "path": "duty claim",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 103,
+      "path": "duty heartbeat",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 104,
+      "path": "duty close",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 105,
+      "path": "duty sweep",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 106,
+      "path": "duty status",
+      "effect": "READ_ONLY"
+    },
+    {
+      "ordinal": 107,
+      "path": "session open",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 108,
+      "path": "session heartbeat",
+      "effect": "MUTATING"
+    },
+    {
+      "ordinal": 109,
+      "path": "session close",
+      "effect": "MUTATING"
+    }
+  ]
+}

@@ -1,0 +1,291 @@
+{
+  "package": "PeerHub_M1_VerySimple_Renewal_FINAL_20261003",
+  "generated_on": "2026-10-03",
+  "repository_evidence": {
+    "repository": "greatgc-flow/peerhub",
+    "previous_baseline": "39b8949336dae039fc32c92dee55edf69b479b0d",
+    "current_head": "57a137cd6a0cc7e89124ea2b87b72995087627a5",
+    "ahead_by": 6,
+    "behind_by": 0,
+    "changed_files": 18,
+    "command_count": 109,
+    "ci_run_id": 37027768347,
+    "ci_conclusion": "success"
+  },
+  "principles": [
+    "Very Simple",
+    "recursive MECE",
+    "standards/OSS first",
+    "declarative-first",
+    "one-source-multi-use",
+    "TDD",
+    "closed feedback loop"
+  ],
+  "files": [
+    {
+      "path": "01_M1/ACCEPTANCE_DOD.md",
+      "bytes": 725,
+      "sha256": "38cdc0d9282cf605f4732d8db82058555bc4352c321de1f2571114605ea21e95"
+    },
+    {
+      "path": "01_M1/BOUNDARY_MAP.md",
+      "bytes": 947,
+      "sha256": "40810514590460b100235f93cd9e8957c75d449d45b338883e3164e9ec53233e"
+    },
+    {
+      "path": "01_M1/CORE_CONTRACT.md",
+      "bytes": 792,
+      "sha256": "6360ea51e1a355124fb2084e3d5182bbc60e998288af986e410114c67c500a6e"
+    },
+    {
+      "path": "01_M1/FEEDBACK_LOOP.md",
+      "bytes": 858,
+      "sha256": "289097f9852efe11d249f328154ed4656c957d0a7090089c908496d51bc94760"
+    },
+    {
+      "path": "01_M1/LONG_HORIZON_CONTINUITY.md",
+      "bytes": 912,
+      "sha256": "6fd31bab7bd5636648b6c40ffd90be645674ac536ec09d64b4293fe20cccf7b6"
+    },
+    {
+      "path": "01_M1/M1_CHARTER_SCOPE.md",
+      "bytes": 635,
+      "sha256": "a45f4fe7f6383cef0838325248a1d7dc2bf5500cffc1c7dffca28f30f531d4fd"
+    },
+    {
+      "path": "01_M1/MIGRATION_CUTOVER.md",
+      "bytes": 569,
+      "sha256": "081ff7a7abf5a84ec058d109e1e8726a870b9f6cd5f74cb9920ae5c22b42ce81"
+    },
+    {
+      "path": "01_M1/OBSERVATION_AND_DIAG.md",
+      "bytes": 802,
+      "sha256": "cd975568a27580a328f4e7e4e21fe19c0267ecffbe1b667ee3216d11778dfbf7"
+    },
+    {
+      "path": "01_M1/PEER_CARDINALITY_RESOURCE_POOL.md",
+      "bytes": 907,
+      "sha256": "fc4e430798292428cf90e94b9346de8932bb5084265f8b5b66870b0e9789c1cd"
+    },
+    {
+      "path": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "bytes": 803,
+      "sha256": "11340c58c01feddeda37b23d91dd429355f163f3fdcb6e43ca5635bfd5065b9d"
+    },
+    {
+      "path": "01_M1/SESSION_BRIDGE.md",
+      "bytes": 979,
+      "sha256": "813adc650a530f2d25699f5536c4091155be3dc1d39067d521f92d965c3f003f"
+    },
+    {
+      "path": "01_M1/SKILLS_CATALOG_SECOND_BRAIN.md",
+      "bytes": 1210,
+      "sha256": "36f3b8cfd5323cfac355cd08c35158cbbbdc2430c98c6b6fd004429e5193967f"
+    },
+    {
+      "path": "01_M1/STREAM_RECORD_OFFSET.md",
+      "bytes": 848,
+      "sha256": "5ec8b4a4a6b553b5b4f5dc35bc560fa6cc118448658803fb519644bfce7f890b"
+    },
+    {
+      "path": "02_EXTENSIONS/109_COMMAND_DISPOSITION.csv",
+      "bytes": 12398,
+      "sha256": "1ed94f8d89f8ad32ac8a5c53bcb8f49e8cc01bfca8b01d16f78632e634598f2b"
+    },
+    {
+      "path": "02_EXTENSIONS/109_COMMAND_DISPOSITION.md",
+      "bytes": 9279,
+      "sha256": "74538512e6d96708a43040ae397ce39c66af638ccdd2c4b166e0cfcfbe2bbc3b"
+    },
+    {
+      "path": "02_EXTENSIONS/EXTENSION_CATALOG.md",
+      "bytes": 1120,
+      "sha256": "742f52bfd822d9e7860601869bd5025f72582099e37343c95357410cba3eeee1"
+    },
+    {
+      "path": "02_EXTENSIONS/FUTURE_MILESTONE_FRAMEWORK.md",
+      "bytes": 477,
+      "sha256": "b2a82f19f82eacc5f34ec7c94c468d9c2a7e7ca73e4d1743d6ab8f41eb72f088"
+    },
+    {
+      "path": "02_EXTENSIONS/OSS_STANDARD_SUBSTITUTION.md",
+      "bytes": 956,
+      "sha256": "2cb3c226bc2f8e0b67022dfe6f516cfe361b772b52f5c80dd2b1e1138d656a16"
+    },
+    {
+      "path": "03_STANDARDS/ORIGINAL_LINKS.md",
+      "bytes": 5239,
+      "sha256": "9f90e8ea2efafecdc4a49725de12c4db017323667858d1a28cd066a82c3487e4"
+    },
+    {
+      "path": "03_STANDARDS/STANDARDS_DECISION_TABLE.md",
+      "bytes": 5167,
+      "sha256": "d2e6196ed38c9d630f8e6cb10c6d11ab947e14f937a70d0d2a4d230555c0d4a5"
+    },
+    {
+      "path": "03_STANDARDS/standards_registry.json",
+      "bytes": 11653,
+      "sha256": "817452783e468e49243c33ba9f856a46a5e7184edf80f51c945270587e548a0e"
+    },
+    {
+      "path": "04_SCHEMAS/examples/peer-observation.example.json",
+      "bytes": 343,
+      "sha256": "3dfbdc6a9b7967c0a2e69ab2484c8d670e79eaa9de05e16531d4c64711e5f8c0"
+    },
+    {
+      "path": "04_SCHEMAS/examples/record.example.json",
+      "bytes": 479,
+      "sha256": "fcd4034cbcfd069507efddb1d14567d0d184def2e0b8ca321c95c43ea521b873"
+    },
+    {
+      "path": "04_SCHEMAS/extension-manifest.schema.json",
+      "bytes": 1117,
+      "sha256": "21a6a72e58f3fe912a9ea9f2739a334b106836ca5a4add0238e011b722f74260"
+    },
+    {
+      "path": "04_SCHEMAS/future/harness-target.schema.json",
+      "bytes": 1041,
+      "sha256": "3034d550e170c69c23622d69ebab6791ba81b0ad337b52a2cd96fecfadcbfc16"
+    },
+    {
+      "path": "04_SCHEMAS/future/memory-record.schema.json",
+      "bytes": 1218,
+      "sha256": "1bde349ffb22abb42117cd5eba86f68ed2be742058705ec481ce70b00cfbba54"
+    },
+    {
+      "path": "04_SCHEMAS/model-catalog.schema.json",
+      "bytes": 2033,
+      "sha256": "5e7c62aecf5f476d72f95948c69ca80646304a09ae2b03b64c7dd0446e87c7ec"
+    },
+    {
+      "path": "04_SCHEMAS/offset.schema.json",
+      "bytes": 685,
+      "sha256": "fbef560efa029321d5c4ccfdb29732d90aab4c76d4b9dd1234eabab4f4a03fae"
+    },
+    {
+      "path": "04_SCHEMAS/peer-observation.schema.json",
+      "bytes": 1195,
+      "sha256": "88b64846a24a93ebbfc1d4ceb168e89116de61699b2cb3f6abbb664ccf680f9d"
+    },
+    {
+      "path": "04_SCHEMAS/peer.schema.json",
+      "bytes": 713,
+      "sha256": "38177cee8c7f6dabc4b2c14512eadf9d966534a5cec2b67e77d530105459694c"
+    },
+    {
+      "path": "04_SCHEMAS/record.schema.json",
+      "bytes": 1640,
+      "sha256": "3d9c4b8526433c20f368de5f875cbe466789c527b4fbbb0052931eee65105a1f"
+    },
+    {
+      "path": "04_SCHEMAS/resource-pool.schema.json",
+      "bytes": 699,
+      "sha256": "1d4fe5bd2728c04f3abe989b746844680030e5a94510da9f0bb0831001ad1674"
+    },
+    {
+      "path": "04_SCHEMAS/skill-catalog.schema.json",
+      "bytes": 1441,
+      "sha256": "9abbb22ea36b3b3ba12672e45dde43a2e0c76975880632dbfde2da7ec5c407db"
+    },
+    {
+      "path": "04_SCHEMAS/stream.schema.json",
+      "bytes": 969,
+      "sha256": "47b9845e8d024db5398a342e4ba09497f8c33b181e437579f94c22c1e5821fc3"
+    },
+    {
+      "path": "05_SKILLS/refresh-model-catalog/SKILL.md",
+      "bytes": 991,
+      "sha256": "dea23e99411a16e1671906153fe8deffba60b8c4107697362900d398752cd8af"
+    },
+    {
+      "path": "05_SKILLS/token-efficient-collaboration/SKILL.md",
+      "bytes": 753,
+      "sha256": "ccdd24f4fd68eb5879372c11aebe0ed3c62154e54cf944174dcc29349ffd62d9"
+    },
+    {
+      "path": "06_GUIDES/DEVELOPER_IMPLEMENTATION_GUIDE.md",
+      "bytes": 610,
+      "sha256": "21ff2a7d72bdb92c2180147120574496567e4e74d47eae5b6740fe12b0f88bc1"
+    },
+    {
+      "path": "06_GUIDES/EXTENSION_AUTHORING_GUIDE.md",
+      "bytes": 465,
+      "sha256": "6cae0e1a9d1d2e91f4e8951b74c2a02cca5cb010d01b55158b1e5054b0b30a5f"
+    },
+    {
+      "path": "06_GUIDES/HARNESS_PROTOCOL_GUIDE.md",
+      "bytes": 507,
+      "sha256": "8113a49994693fe2524566c0d6f7f0f4e28f7ebd4eada97374416ff81882fdb0"
+    },
+    {
+      "path": "06_GUIDES/SECOND_BRAIN_GUIDE.md",
+      "bytes": 489,
+      "sha256": "0f57bcb32fa0a6e6a2f989543f5fb8d74c27518e496bfa374242b7e7f3a922b5"
+    },
+    {
+      "path": "06_GUIDES/SKILL_CATALOG_GUIDE.md",
+      "bytes": 616,
+      "sha256": "bd57275b65ea6f032851ce1cb5adccab1fd0d391dd526480857cc52f62cfbd30"
+    },
+    {
+      "path": "06_GUIDES/TEST_RELEASE_GUIDE.md",
+      "bytes": 559,
+      "sha256": "6b4b615bf56bd23ea6ba315c35edea100af8d84aef0e162f25c1f3dc68e154b7"
+    },
+    {
+      "path": "07_AUDIT/CURRENT_REPO_COMMAND_MAP_20261003.json",
+      "bytes": 10889,
+      "sha256": "99f453fd68859a60ebca9fbe3848acaea804075bd7e6f8e65d3392bc25f12b0f"
+    },
+    {
+      "path": "07_AUDIT/CURRENT_REPO_FINDINGS.md",
+      "bytes": 4159,
+      "sha256": "f4396c4dfc2327ae458fea3d41e67cf576eeb9887f569483098da17bcf4c618e"
+    },
+    {
+      "path": "07_AUDIT/FINAL_RECURSIVE_AUDIT.md",
+      "bytes": 2744,
+      "sha256": "dac69f9a89314bca2406422076c0dea3b5c66b3658e49918adca7441fad05927"
+    },
+    {
+      "path": "07_AUDIT/SOURCE_EVIDENCE_MATRIX.md",
+      "bytes": 1660,
+      "sha256": "83da5bdd93a8bbfa4e99c9daf3203e561f10cc751050f6bb3cdd902ee1e90949"
+    },
+    {
+      "path": "07_AUDIT/final_audit.csv",
+      "bytes": 2092,
+      "sha256": "08026f2c1755974c4100587a46cef6a77348fe077d9d79cc23d043a5575d44f6"
+    },
+    {
+      "path": "FINAL_M1_DECISION_KO.md",
+      "bytes": 1567,
+      "sha256": "d4c6d0881e8745dfd2d4bd0870569f1b2801b3ebebe19a14d78fb91eb2233c6b"
+    },
+    {
+      "path": "START_HERE_KO.md",
+      "bytes": 1187,
+      "sha256": "8a4f399f6d80ff1f897dc88021592c2304885dbd4846ff0ad708f29e91b9bfb7"
+    },
+    {
+      "path": "USAGE_GUIDE_KO.md",
+      "bytes": 1323,
+      "sha256": "ffb1c8d4779d2b87aa1f3338c7e160fee5c4fae21b1e19ed2865f35c4e389c8e"
+    },
+    {
+      "path": "tools/generate_docs.py",
+      "bytes": 1540,
+      "sha256": "cf70f67dd1f0f84287cc57b40c59661a43692c394906cdb65889e67916038d82"
+    },
+    {
+      "path": "tools/validate-package.bat",
+      "bytes": 74,
+      "sha256": "0ba50f078dbc72d1ea8c70cf16f590961d3b2589fa83e37fb772fc61ca412879"
+    },
+    {
+      "path": "tools/validate_package.py",
+      "bytes": 5425,
+      "sha256": "9672591d8e6d471185c805e95712b573c3fb5f2bf5194bef9a0cf0055c1d259d"
+    }
+  ]
+}

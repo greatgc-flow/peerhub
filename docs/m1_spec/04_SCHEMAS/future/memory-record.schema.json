@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://peerhub.example/schemas/future/memory-record.schema.json",
+  "title": "FutureMemoryRecord",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "memory_id",
+    "memory_type",
+    "scope",
+    "content",
+    "source_refs",
+    "created_at",
+    "evidence_state"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "memory_id": {
+      "type": "string"
+    },
+    "memory_type": {
+      "enum": [
+        "WORKING",
+        "EPISODIC",
+        "SEMANTIC",
+        "PREFERENCE",
+        "PROFILE"
+      ]
+    },
+    "scope": {
+      "type": "string"
+    },
+    "content": {},
+    "source_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidence_state": {
+      "enum": [
+        "MEASURED",
+        "INFERRED",
+        "USER_ASSERTED",
+        "STALE",
+        "UNKNOWN"
+      ]
+    },
+    "supersedes": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

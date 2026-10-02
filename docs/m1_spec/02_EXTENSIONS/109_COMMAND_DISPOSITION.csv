@@ -1,0 +1,110 @@
+﻿command,current_effect,disposition,target_component,milestone,notes
+workspace init,MUTATING,SUPERSEDE_M1,M1 Infrastructure,M1,Create/bind workspace and new minimal store
+workspace reset,MUTATING_EXTERNAL,FUTURE_EXTENSION,Backup/Recovery,N,"v0.10.0 lifecycle feature; dry-run by default and --apply uses a pre-reset safety snapshot; preserve as future Backup/Recovery, not M1 Core"
+status,CONDITIONAL_MUTATION_EXTERNAL,SUPERSEDE_M1,M1 View,M1,Supersede current conditional-mutation semantics with read-only summary
+config paths,READ_ONLY,SUPERSEDE_M1,M1 Infrastructure,M1,Resolve workspace/config paths
+config migrate,MUTATING,FUTURE_EXTENSION,Compatibility/Migration,N,Old config compatibility only; not M1 Core
+config validate,READ_ONLY,SUPERSEDE_M1,M1 Infrastructure,M1,Validate minimal configuration
+config init,MUTATING,SUPERSEDE_M1,M1 Infrastructure,M1,Initialize minimal configuration only
+backup workspace,MUTATING_EXTERNAL,FUTURE_EXTENSION,Backup/Recovery,N,Preserve proven SQLite online-backup lessons
+backup global,MUTATING_EXTERNAL,FUTURE_EXTENSION,Backup/Recovery,N,"v0.10.0 global configuration backup; preserve fail-safe backup lessons as future Backup/Recovery, not M1 Core"
+backup restore,MUTATING,FUTURE_EXTENSION,Backup/Recovery,N,Preserve proven SQLite online-backup lessons
+adapter discover,EXTERNAL_OBSERVATION,M1_EXTENSION,Observation Extension,M1,Discover CLI/adapters and emit structured observations
+diag,MUTATING_EXTERNAL,M1_EXTENSION,Diag Extension,M1,Rewrite as strictly read-only observer; no refresh/persist/repair
+broadcast,MUTATING_EXTERNAL,FUTURE_EXTENSION,Orchestration,N,Execution fan-out/policy is not communication Core
+health revalidate,MUTATING_EXTERNAL,FUTURE_EXTENSION,Health/Recovery,N,M1 observes facts; admission/quarantine/recovery is later policy
+health check,CONDITIONAL_MUTATION_EXTERNAL,FUTURE_EXTENSION,Health/Recovery,N,M1 observes facts; admission/quarantine/recovery is later policy
+health precheck,READ_ONLY,FUTURE_EXTENSION,Health/Recovery,N,M1 observes facts; admission/quarantine/recovery is later policy
+health sweep,MUTATING,FUTURE_EXTENSION,Health/Recovery,N,M1 observes facts; admission/quarantine/recovery is later policy
+peer status,READ_ONLY,M1_EXTENSION,Observation Extension/View,M1,Structured Peer snapshot view
+peer quarantine,MUTATING,FUTURE_EXTENSION,Health/Recovery,N,Mutating peer health policy is outside M1
+peer recover,MUTATING_EXTERNAL,FUTURE_EXTENSION,Health/Recovery,N,Mutating peer health policy is outside M1
+lease status,READ_ONLY,M1_EXTENSION,Session Bridge View,M1,Reduced active-delivery/session-claim view; do not keep generic lease domain
+lease sweep,MUTATING,FUTURE_EXTENSION,Resource/Recovery,N,Generic lease sweeping not needed by minimal Bridge claim
+broker status,READ_ONLY,FUTURE_EXTENSION,Governance/Effects,N,Governance effect delivery not M1
+gate check,READ_ONLY,FUTURE_EXTENSION,Policy/Admission,N,Policy gates not M1
+ask,MUTATING_EXTERNAL,M1_EXTENSION,Session Bridge Extension,M1,Deliver Record to one Peer runtime and append response Record
+statusline,READ_ONLY,M1_EXTENSION,Observation View,M1,Presentation-only projection
+consensus propose,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus proposal-add,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus proposal-vote,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus list,READ_ONLY,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus arbiter-review,MUTATING_EXTERNAL,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus vote,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus status,READ_ONLY,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus ack,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus nack,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus correct,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+consensus retract,MUTATING,FUTURE_EXTENSION,Governance/Consensus,N,Consensus is an optional workflow over Streams/Records
+task create,MUTATING,FUTURE_EXTENSION,Task/Workflow,N,Task engine optional; checkpoint/status meanings can be Records
+task claim-start,MUTATING,FUTURE_EXTENSION,Task/Workflow,N,Task engine optional; checkpoint/status meanings can be Records
+task checkpoint,MUTATING,FUTURE_EXTENSION,Task/Workflow,N,Task engine optional; checkpoint/status meanings can be Records
+task complete,MUTATING,FUTURE_EXTENSION,Task/Workflow,N,Task engine optional; checkpoint/status meanings can be Records
+task fail,MUTATING,FUTURE_EXTENSION,Task/Workflow,N,Task engine optional; checkpoint/status meanings can be Records
+task cancel,MUTATING,FUTURE_EXTENSION,Task/Workflow,N,Task engine optional; checkpoint/status meanings can be Records
+task status,READ_ONLY,FUTURE_EXTENSION,Task/Workflow,N,Task engine optional; checkpoint/status meanings can be Records
+lesson propose,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson approve,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson activate,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson retire,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson supersede,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson quarantine,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson broadcast,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson status,READ_ONLY,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+lesson sweep,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+directive add,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+directive migrate,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+directive clear,MUTATING,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+directive list,READ_ONLY,FUTURE_EXTENSION,Knowledge/Policy/Skills,N,No global auto-injection; migrate useful procedures into on-demand Skills
+node register,MUTATING,ABSORB_M1,Core,M1,Peer register/identify
+node list,READ_ONLY,ABSORB_M1,M1 View,M1,Peer list
+node bind-profile,MUTATING,M1_EXTENSION,Observation/Catalog Extension,M1,Model/profile binding outside Core
+node model-status,READ_ONLY,M1_EXTENSION,Observation/Catalog View,M1,Model/profile status from structured catalog/observations
+lock acquire,MUTATING,FUTURE_EXTENSION,Resource Coordination,N,File/resource locking optional; worktree separation preferred for M1
+lock release,MUTATING,FUTURE_EXTENSION,Resource Coordination,N,File/resource locking optional; worktree separation preferred for M1
+lock status,READ_ONLY,FUTURE_EXTENSION,Resource Coordination,N,File/resource locking optional; worktree separation preferred for M1
+artifact claim,MUTATING,FUTURE_EXTENSION,Artifact,N,Core stores opaque refs only
+artifact status,CONDITIONAL_MUTATION,FUTURE_EXTENSION,Artifact,N,Core stores opaque refs only
+artifact finalize,MUTATING,FUTURE_EXTENSION,Artifact,N,Core stores opaque refs only
+role assign,MUTATING,FUTURE_EXTENSION,Role/Orchestration,N,PeerHub must not assign AI behavior roles in M1
+role release,MUTATING,FUTURE_EXTENSION,Role/Orchestration,N,PeerHub must not assign AI behavior roles in M1
+role status,READ_ONLY,FUTURE_EXTENSION,Role/Orchestration,N,PeerHub must not assign AI behavior roles in M1
+routing discover,READ_ONLY,FUTURE_EXTENSION,Routing,N,"Quota/health-based routing is policy, not communication"
+routing elect-leader,MUTATING,FUTURE_EXTENSION,Routing,N,"Quota/health-based routing is policy, not communication"
+routing import-capabilities,MUTATING,FUTURE_EXTENSION,Routing,N,"Quota/health-based routing is policy, not communication"
+leadership claim,MUTATING,FUTURE_EXTENSION,Leadership/Orchestration,N,Leadership policy not M1
+leadership yield,MUTATING,FUTURE_EXTENSION,Leadership/Orchestration,N,Leadership policy not M1
+leadership status,READ_ONLY,FUTURE_EXTENSION,Leadership/Orchestration,N,Leadership policy not M1
+feedback add,MUTATING,FUTURE_EXTENSION,Feedback/Ops,N,Feedback workflow deferred
+feedback list,READ_ONLY,FUTURE_EXTENSION,Feedback/Ops,N,Feedback workflow deferred
+feedback resolve,MUTATING,FUTURE_EXTENSION,Feedback/Ops,N,Feedback workflow deferred
+error report,MUTATING,FUTURE_EXTENSION,Operational Review,N,M1 has logs; durable review workflow deferred
+error review list,READ_ONLY,FUTURE_EXTENSION,Operational Review,N,M1 has logs; durable review workflow deferred
+error review resolve,MUTATING,FUTURE_EXTENSION,Operational Review,N,M1 has logs; durable review workflow deferred
+alert raise,MUTATING,FUTURE_EXTENSION,Notification,N,Notification policy deferred
+room create,MUTATING,ABSORB_M1,Core,M1,Stream create
+room thread-new,MUTATING,ABSORB_M1,Core,M1,Stream create/child-stream convention; no Thread domain
+room create-thread,MUTATING,ABSORB_M1,Core,M1,Stream create/child-stream convention; no Thread domain
+room append-message,MUTATING,ABSORB_M1,Core,M1,Record append
+room send,MUTATING,ABSORB_M1,Core,M1,Record append with targets
+room broadcast,MUTATING,ABSORB_M1,Core+Session Bridge,M1,One Record addressed to Stream members; Bridge delivers
+room check-inbox,READ_ONLY,ABSORB_M1,Core,M1,Read Records after Offset
+room mark-read,MUTATING,ABSORB_M1,Core,M1,Advance Offset; does not mean work completed
+room promote-message,MUTATING,FUTURE_EXTENSION,Collaboration UX,N,Optional social/UX semantics over Records
+room react,MUTATING,FUTURE_EXTENSION,Collaboration UX,N,Optional social/UX semantics over Records
+room unreact,MUTATING,FUTURE_EXTENSION,Collaboration UX,N,Optional social/UX semantics over Records
+room append-handoff,MUTATING,ABSORB_M1,Core,M1,Record kind/namespace; no Handoff subsystem
+room checkpoint,MUTATING,ABSORB_M1,Core,M1,Record kind/namespace; no Checkpoint subsystem
+room context-fill,READ_ONLY,ABSORB_M1,M1 View,M1,Bounded catch-up projection over Records
+room update-status,MUTATING,ABSORB_M1,Core,M1,Record kind=status; current status is projection
+room clear,MUTATING,ABSORB_M1,Core,M1,Append context-boundary/cancel record; never delete durable history
+room rebuild-session-bindings,MUTATING,M1_EXTENSION,Session Bridge Extension,M1,Reconcile provider-session mappings
+room status,READ_ONLY,ABSORB_M1,M1 View,M1,Read-only Stream projection
+duty claim,MUTATING,FUTURE_EXTENSION,Duty/Resource Coordination,N,Terminal duty/leadership policy deferred
+duty heartbeat,MUTATING,FUTURE_EXTENSION,Duty/Resource Coordination,N,Terminal duty/leadership policy deferred
+duty close,MUTATING,FUTURE_EXTENSION,Duty/Resource Coordination,N,Terminal duty/leadership policy deferred
+duty sweep,MUTATING,FUTURE_EXTENSION,Duty/Resource Coordination,N,Terminal duty/leadership policy deferred
+duty status,READ_ONLY,FUTURE_EXTENSION,Duty/Resource Coordination,N,Terminal duty/leadership policy deferred
+session open,MUTATING,M1_EXTENSION,Session Bridge Extension,M1,Supersede with minimal Peer+Stream session generation/claim
+session heartbeat,MUTATING,M1_EXTENSION,Session Bridge Extension,M1,Supersede with minimal active bridge claim heartbeat
+session close,MUTATING,M1_EXTENSION,Session Bridge Extension,M1,Close provider-session mapping/claim

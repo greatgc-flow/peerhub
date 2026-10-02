@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://peerhub.example/schemas/offset.schema.json",
+  "title": "Offset",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "peer_id",
+    "stream_id",
+    "read_through_position",
+    "revision"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "peer_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stream_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "read_through_position": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}
