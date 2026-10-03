@@ -47,3 +47,9 @@
    - `session loss -> fresh catch-up` 시나리오 E2E 테스트.
 3. **패키지 빌드 & 릴리즈 게이트 점검**:
    - `python docs\m1_spec\tools\validate_package.py` 지속적 패스 확인.
+
+---
+
+## Update 2026-10-04
+
+Waves 0-9 are implemented (210/210 catalog ids). See `M1_PROGRESS_TRACKER.md`, `docs/m1_impl/PLAN.md`, `docs/m1_impl/DECISIONS.md` and `docs/m1_impl/OWNER_DECISIONS_NEEDED.md`. The CLI entrypoint moved to `peerhub/m1_cli.py` (Core never imports extensions). Real cc/cx/ag adapters live in `peerhub/extensions/adapters/`. Pending: cx.pro consolidated final review and the spec-owner decisions.
