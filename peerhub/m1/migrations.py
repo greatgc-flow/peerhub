@@ -13,6 +13,8 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Callable
 
+from .schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
+
 _BASELINE = """
 CREATE TABLE IF NOT EXISTS peers (
     peer_id TEXT PRIMARY KEY,
@@ -108,6 +110,7 @@ def _baseline(conn: sqlite3.Connection) -> None:
 
 MIGRATIONS: list[Migration] = [Migration(1, "baseline_core_tables", _baseline)]
 CURRENT_VERSION: int = MIGRATIONS[-1].version
+assert CURRENT_VERSION == SUPPORTED_SCHEMA_VERSION, "bump schema_version.SUPPORTED_SCHEMA_VERSION together with MIGRATIONS"
 
 
 def rollback_quietly(conn: sqlite3.Connection) -> None:
@@ -122,10 +125,6 @@ def rollback_quietly(conn: sqlite3.Connection) -> None:
 
 class MigrationIntegrityError(RuntimeError):
     """Migration would commit referential-integrity violations; rolled back."""
-
-
-class SchemaVersionError(RuntimeError):
-    """Stored schema is newer than this build supports (TD-14: rejected, never downgraded or repaired)."""
 
 
 def _version(conn: sqlite3.Connection) -> int:
@@ -146,7 +145,7 @@ def run_migrations(db_path, migrations: list[Migration] | None = None,
 
         def check(v: int) -> None:
             if v > latest:
-                raise SchemaVersionError(f"database schema version {v} is newer than supported {latest}")
+                raise SchemaVersionError(future_schema_message(v, latest))
 
         check(_version(conn))  # reject a future schema BEFORE any persistent mutation (e.g. WAL conversion)
         if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":

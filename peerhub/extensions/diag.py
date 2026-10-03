@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from peerhub.m1.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,
@@ -87,6 +88,9 @@ class ReadonlyDiag:
             conn.set_authorizer(read_only_authorizer(allow_transactions=True))  # runtime deny of every non-read statement
             conn.execute("BEGIN")
             conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # pins the read snapshot now
+            found = conn.execute("PRAGMA user_version").fetchone()[0]
+            if found > SUPPORTED_SCHEMA_VERSION:  # never interpret a schema this build does not understand (MIG-003)
+                raise SchemaVersionError(future_schema_message(found, SUPPORTED_SCHEMA_VERSION))
             rows = conn.execute("PRAGMA quick_check").fetchall()  # read-only probe: a corrupt authoritative store is FAILED, never half-reported
             if [r[0] for r in rows] != ["ok"]:
                 raise sqlite3.DatabaseError(f"integrity check failed: {[r[0] for r in rows[:3]]}")
@@ -187,7 +191,7 @@ class ReadonlyDiag:
         read_us = round(now * 1_000_000)
         try:
             conn = self._open()
-        except (sqlite3.Error, OSError, DiagReadOnlyError) as e:
+        except (sqlite3.Error, OSError, DiagReadOnlyError, SchemaVersionError) as e:
             return DiagnosticReport("FAILED", now, {}, {}, f"{type(e).__name__}: {e}")
         impl = {"peers": self._peers, "streams": self._streams, "resource_pools": self._pools, "observations": self._observations, "log": self._log}
         out: dict[str, Section] = {}

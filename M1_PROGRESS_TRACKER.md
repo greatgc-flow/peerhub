@@ -74,3 +74,6 @@
 
 ## Wave 6 (2026-10-04)
 - Wave 6: 27/27 catalog ids green (FLT-001..014, E2E-001..012, SEC-001). Production: typed storage faults + open-time integrity probe + test seams in `peerhub/m1/store.py`, session mapping bound to workspace generation (FLT-008) in `peerhub/extensions/bridge.py`, Diag `quick_check`, Core-only CLI (lazy Diag import, storage exit code 4, diag-unavailable 5). Tests: `tests/m1/{fault,e2e,security}/`, harness `crash_workers.py`, `core_only.py`. D-W2 deferral (FLT-009/011/012/013) closed. Details docs/m1_impl/wave6_report.md; Q-W6-1..7 in OPEN_QUESTIONS.md. ag.pro review fixes applied (rollback guard, size-threshold preflight, SEC-001 hardening). Review gate pending.
+
+## Wave 7 (2026-10-04)
+- Wave 7: 19/19 catalog ids green (REL-001..014, IMP-001..004, MIG-003). Production: `peerhub/m1/legacy_import.py` (importer), `schema_version.py`, CLI `legacy-import` + exit 6/7, store `transaction()`/`_insert_record`, `tools/m1_release_evidence.py`, packaging fixes (peerhub-m1 entrypoint, jsonschema dependency, declared matrix), ci.yml matrix, publish.yml live gate. Tests: `tests/m1/package/`, `tests/m1/migration/test_{imp_legacy_importer,mig_003_cutover}.py`. Details docs/m1_impl/wave7_report.md; Q-W7-1..10 (OWNER: 1, 2, 3, 5). Review gate pending.

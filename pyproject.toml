@@ -17,11 +17,17 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Utilities",
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.15"
 dependencies = [
+    "jsonschema>=4.18",
     "psutil>=5.9.0",
     "pydantic>=2.0",
     "typing_extensions>=4.6.0",
@@ -36,9 +42,11 @@ CI = "https://github.com/greatgc-flow/peerhub/actions"
 
 [project.scripts]
 peerhub = "peerhub.cli:main"
+peerhub-m1 = "peerhub.m1_cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "pytest-timeout>=2.3.0", "pytest-cov>=5.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0"]
+dev = ["pytest>=8.0", "pytest-timeout>=2.3.0", "pytest-cov>=5.0", "pyright>=1.1.370", "hypothesis>=6.0", "alembic>=1.13.0",
+    "build>=1.0", "setuptools>=77.0.3", "virtualenv>=20", "pyyaml>=6", "packaging>=23"]
 
 [tool.setuptools.dynamic]
 version = {attr = "peerhub._version.__version__"}
@@ -56,7 +64,7 @@ include = ["peerhub*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
-addopts = "-ra -m 'not slow and not e2e'"
+addopts = "-ra -m 'not slow and not e2e and not live and not soak'"
 timeout = 60
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
@@ -64,5 +72,5 @@ markers = [
     "m1_id(id): M1 catalog test id (traceability, see tools/m1_traceability.py)",
     "architecture", "schema", "property", "meta", "traceability", "unit", "sqlite", "concurrency",
     "multiprocess", "fault", "migration", "bridge", "observation", "diag", "security", "package",
-    "boundary", "claim", "certainty", "restart", "idempotency", "integration", "record", "canonicalization", "live", "soak", "control", "context",
+    "release", "clean-install", "smoke", "ci", "ci_only(python, os): declared matrix cell exercised only by CI", "evidence", "matrix", "windows", "cutover", "compatibility", "boundary", "claim", "certainty", "restart", "idempotency", "integration", "record", "canonicalization", "live", "soak", "control", "context",
 ]

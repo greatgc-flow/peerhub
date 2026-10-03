@@ -8,8 +8,14 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The declared support matrix (pyproject classifiers / requires-python) is exactly this cross product (REL-010/011, TD-18).
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
 
     steps:
     - uses: actions/checkout@v7
@@ -17,7 +23,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v7
       with:
-        python-version: "3.11"
+        python-version: ${{ matrix.python-version }}
         cache: "pip"
 
     - name: Install dependencies
@@ -26,6 +32,7 @@ jobs:
         pip install -e .[dev]
 
     - name: Install fake AI-CLI stubs (claude.cmd/agy.exe/codex.cmd)
+      shell: bash
       run: |
         mkdir -p "$RUNNER_TEMP/fake-bin"
         STUB_FILE="$RUNNER_TEMP/fake-peer-stub.sh"
@@ -49,6 +56,7 @@ jobs:
         echo "$RUNNER_TEMP/fake-bin" >> "$GITHUB_PATH"
 
     - name: Run pyright
+      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
       run: |
         python -m pyright
 

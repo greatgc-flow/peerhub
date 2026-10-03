@@ -78,3 +78,8 @@
 ## Wave 6 closed (orchestrator, 2026-10-04) at 12d33ef
 - ag.pro review (reworded as code review; the 'adversarial' wording triggered a refusal): 4 claims, 2 real + 1 design (quick_check size threshold, OWNER Q-W6-2), 1 false (old-schema), survivors confirmed killed by earlier waves. No further re-gate; cx final review covers waves 0-7.
 - OWNER items: Q-W6-1 generation-bound sessions, Q-W6-2 quick_check threshold (256 MiB), exit codes 4/5.
+
+## Wave 7 (2026-10-04)
+- D-W7-1 (TD-16, MIGRATION_CUTOVER step 7): importer = dry-run first (writes nothing, does not create the target), explicit apply with optional plan digest, source opened immutable read-only, one transaction per correlation group, idempotency verified against persisted rows (marker + record keys/digests, prefix match), conflicts/malformed reported not guessed. See Q-W7-3.
+- D-W7-2 (MIG-003, TD-14, RELEASE_PROMOTION_ROLLBACK 1-4): a future schema is refused with an actionable message (no journal-mode change, no bytes written), CLI exit 6; Diag reports FAILED; importer refuses a future-schema target. No downgrade path is provided.
+- D-W7-3 (TD-18): see Q-W7-1.

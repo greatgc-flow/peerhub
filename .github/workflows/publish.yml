@@ -19,7 +19,6 @@ jobs:
   live-validation:
     runs-on: [self-hosted, Windows, X64, peerhub-live]
     timeout-minutes: 30
-    continue-on-error: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -80,7 +79,7 @@ jobs:
           path: dist/
 
   publish:
-    needs: build
+    needs: [build, live-validation]
     # Manual dispatch is a safe live-validation/build dry run. Only a published
     # GitHub Release may mint an OIDC token and publish the resulting artifact.
     if: github.event_name == 'release'

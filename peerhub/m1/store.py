@@ -325,6 +325,36 @@ class CoreStore:
             return new
 
     # --- Record
+    def _insert_record(self, conn: sqlite3.Connection, req: AppendRequest, digest: str) -> Record:
+        """Validate references and append one Record inside the caller's write transaction (position = MAX + 1, TD-01)."""
+        stream = self._require_stream(conn, req.stream_id)
+        self._require_peers(conn, [req.author_peer_id])
+        if stream["state"] == StreamState.CLOSED.value:
+            raise StreamClosedError(f"stream {req.stream_id!r} is CLOSED")
+        next_pos = conn.execute(
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM records WHERE stream_id = ?", (req.stream_id,)).fetchone()[0]
+        now = utc_now_iso()
+        rec_id = f"rec-{uuid.uuid4().hex[:12]}"
+        conn.execute(
+            """
+            INSERT INTO records (record_id, stream_id, position, author_peer_id, kind, body_json, targets_json,
+                reply_to, refs_json, metadata_json, idempotency_key, payload_digest, created_at, appended_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (rec_id, req.stream_id, next_pos, req.author_peer_id, req.kind,
+             json.dumps(req.body, ensure_ascii=False, allow_nan=False),
+             json.dumps(req.targets, ensure_ascii=False), req.reply_to, json.dumps(req.refs, ensure_ascii=False),
+             json.dumps(req.metadata, ensure_ascii=False, allow_nan=False), req.idempotency_key, digest,
+             req.created_at, now),
+        )
+        return self._row_to_record(conn.execute("SELECT * FROM records WHERE record_id = ?", (rec_id,)).fetchone())
+
+    @contextmanager
+    def transaction(self, point: str | None = None):
+        """Public write transaction for multi-statement units of work (e.g. the legacy importer): BEGIN IMMEDIATE, all-or-nothing."""
+        with self._tx(point) as conn:
+            yield conn
+
     def append_record(self, *, guard: Callable[..., None] | None = None, **request: Any) -> Record:
         """Append (TD-20 scope: stream_id, author_peer_id, idempotency_key). Server-owned fields are rejected (TD-21).
         `guard(conn, stream_id=, peer_id=)` runs first inside the write transaction with the write target scope
@@ -345,27 +375,7 @@ class CoreStore:
                         f"idempotency key {req.idempotency_key!r} reused with different payload "
                         f"(stored {existing['payload_digest']}, got {digest})")
                 return self._row_to_record(existing)
-            stream = self._require_stream(conn, req.stream_id)
-            self._require_peers(conn, [req.author_peer_id])
-            if stream["state"] == StreamState.CLOSED.value:
-                raise StreamClosedError(f"stream {req.stream_id!r} is CLOSED")
-            next_pos = conn.execute(
-                "SELECT COALESCE(MAX(position), 0) + 1 FROM records WHERE stream_id = ?", (req.stream_id,)).fetchone()[0]
-            now = utc_now_iso()
-            rec_id = f"rec-{uuid.uuid4().hex[:12]}"
-            conn.execute(
-                """
-                INSERT INTO records (record_id, stream_id, position, author_peer_id, kind, body_json, targets_json,
-                    reply_to, refs_json, metadata_json, idempotency_key, payload_digest, created_at, appended_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (rec_id, req.stream_id, next_pos, req.author_peer_id, req.kind,
-                 json.dumps(req.body, ensure_ascii=False, allow_nan=False),
-                 json.dumps(req.targets, ensure_ascii=False), req.reply_to, json.dumps(req.refs, ensure_ascii=False),
-                 json.dumps(req.metadata, ensure_ascii=False, allow_nan=False), req.idempotency_key, digest,
-                 req.created_at, now),
-            )
-            rec = self._row_to_record(conn.execute("SELECT * FROM records WHERE record_id = ?", (rec_id,)).fetchone())
+            rec = self._insert_record(conn, req, digest)
         self._fire("append.after_commit")  # committed; the caller has not been told yet (lost-response seam)
         return rec
 

@@ -6,6 +6,8 @@ Commands:
   record append / read
   offset get / advance
   diag health
+  legacy-import dry-run / apply   (explicit side-by-side importer of a legacy v0.x store; MIGRATION_CUTOVER step 7)
+Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version, 7 legacy import refused.
 """
 
 from __future__ import annotations
@@ -15,7 +17,9 @@ import json
 import sys
 from pathlib import Path
 
+from peerhub._console import utf8_streams
 from peerhub.m1.models import Offset, Peer, Record, Stream, StreamState, utc_now_iso
+from peerhub.m1.schema_version import SchemaVersionError
 from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
 
 
@@ -88,14 +92,35 @@ def build_parser() -> argparse.ArgumentParser:
     d_health.add_argument("--stream", required=True, dest="stream_id")
     d_health.add_argument("--obs-db", default=".peerhub_obs.db")
 
+    # legacy import (the --db option is the M1 TARGET store; --source is the legacy v0.x database, opened read-only)
+    legacy_parser = subparsers.add_parser("legacy-import", help="Import a legacy v0.x store (dry-run first)")
+    legacy_sub = legacy_parser.add_subparsers(dest="action", required=True)
+    for name in ("dry-run", "apply"):
+        lp = legacy_sub.add_parser(name, help=f"{name} the legacy import")
+        lp.add_argument("--source", required=True, help="Path to the legacy SQLite database (never modified)")
+        if name == "apply":
+            lp.add_argument("--plan-digest", default=None, help="plan_digest from a prior dry-run; apply is refused if the plan changed")
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    utf8_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
 
     try:
+        if args.subcommand == "legacy-import":  # before CoreStore(): a dry-run must not create or migrate the target
+            from peerhub.m1.legacy_import import LegacyImporter, LegacyPlanChangedError, LegacySourceError
+
+            try:
+                imp = LegacyImporter(args.source, args.db)
+                report = imp.dry_run() if args.action == "dry-run" else imp.apply(expected_plan_digest=args.plan_digest)
+            except (LegacySourceError, LegacyPlanChangedError) as e:
+                print(f"LEGACY IMPORT REFUSED ({type(e).__name__}): {e}", file=sys.stderr)
+                return 7
+            print(json.dumps(report, indent=2, ensure_ascii=False))
+            return 0
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             try:
                 from peerhub.extensions.diag import ReadonlyDiag
@@ -188,6 +213,9 @@ def main(argv: list[str] | None = None) -> int:
     except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
         print(f"STORAGE ERROR ({type(e).__name__}): {e}", file=sys.stderr)
         return 4
+    except SchemaVersionError as e:
+        print(f"SCHEMA VERSION ERROR: {e}", file=sys.stderr)
+        return 6
     except IdempotencyConflictError as e:
         print(f"CONFLICT ERROR: {e}", file=sys.stderr)
         return 2
