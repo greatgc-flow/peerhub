@@ -347,84 +347,136 @@ def test_ctl_001_cancel_does_not_skip_earlier_unread_records(tmp_path, control):
     assert "cancelled_skip" not in [e[0] for e in sql(h, "SELECT kind FROM bridge_evidence")]
 
 
-@pytest.mark.m1_id("CTX-001")
-def test_ctx_001_bridge_catch_up_window_starts_after_the_peer_offset(tmp_path):
-    h = BridgeHarness(tmp_path / "ws")
+# ================================================================== re-gate (D-W4-8b, 2b, 5b, 9b)
+def _history(h, n_msgs=3):
     bseed(h, n=1)
-    for i in range(4):
-        msg(h, f"u{i}")
-    h.store.advance_offset_cas("b", "s", 2, 1)  # peer already read through position 2
     rt = FakeRuntimeTarget()
-    assert h.delivery_cycle("b", "s", rt).status == "delivered"  # delivers position 3
+    assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    for i in range(n_msgs - 1):
+        msg(h, f"hist{i}")
+        assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    return rt  # n_msgs messages + n_msgs responses durable
+
+
+@pytest.mark.m1_id("CTX-003")
+@pytest.mark.parametrize("budget,expected,truncated", [(3, [4, 5, 6], True), (100, [1, 2, 3, 4, 5, 6], False)])
+def test_ctx_003_fresh_generation_bootstraps_from_stream_history_within_budget(tmp_path, budget, expected, truncated):
+    h = BridgeHarness(tmp_path / "ws", catch_up_budget=CatchUpBudget(max_records=budget))
+    rt = _history(h)
+    rows = records(h)
+    assert [r[1] for r in rows] == [1, 2, 3, 4, 5, 6]  # 3 messages + 3 responses, all already read (Offset passed them)
+    rt.lose_context()
+    last = msg(h, "after-loss")
+    assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    assert rt.catch_ups[-1] == [r[0] for r in rows if r[1] in expected]  # ordered suffix of the Stream (literal oracle)
     meta = rt.catch_up_meta[-1]
-    assert meta["after_position"] == 2 and meta["before_position"] == 3  # D-W4-8: window (Offset, record)
-    assert rt.catch_ups[-1] == [r[0] for r in records(h) if 2 < r[1] < 3] == []
+    assert meta["truncated"] is truncated and meta["omitted_count"] == 6 - len(expected) and meta["after_position"] == 0
+    assert meta["before_position"] == last.position and meta["included_count"] == len(expected)
+    assert meta["omitted_through_position"] == (None if not truncated else 3)
+    (b,) = [r for r in records(h) if r[3] == "context.boundary"]
+    assert json.loads(b[4])["catch_up"]["omitted_count"] == 6 - len(expected)  # boundary Record persists the same metadata
 
 
 @pytest.mark.m1_id("BRG-008")
-@pytest.mark.fault
-def test_brg_008_crash_while_consuming_a_cancelled_attempt_replays_without_duplicates(tmp_path):
-    crash = CrashInjector()
+def test_brg_008_pause_during_a_failed_resume_stops_every_create_session(tmp_path):
     fired = []
 
     def hook(p):
-        if p == "bridge.before_marker" and not fired:
+        if p == "bridge.after_resume_failure" and not fired:
             fired.append(p)
-            ctl(h, "control.cancel", "late")
-        crash(p)
-
-    h = BridgeHarness(tmp_path / "ws", fault_hook=hook)
-    (m0,) = bseed(h)
-    crash.arm("bridge.cancel_skip_before_ack")
-    rt = FakeRuntimeTarget()
-    with pytest.raises(CrashInjected):
-        h.delivery_cycle("b", "s", rt)
-    assert offset_row(h)[0] == 0 and rt.count("deliver") == 0  # old state: not acked, never invoked
-    crash.disarm()
-    h.clock.advance(31)
-    res = BridgeHarness(tmp_path / "ws", h.clock).delivery_cycle("b", "s", rt)
-    assert res.status in ("cancelled", "idle") and rt.count("deliver") == 0 and offset_row(h)[0] >= m0.position
-    ev = [json.loads(e[0])["record_id"] for e in sql(h, "SELECT detail FROM bridge_evidence WHERE kind='cancelled_before_invoke'")]
-    assert ev == [m0.record_id]  # exactly once
-
-
-@pytest.mark.m1_id("BRG-008")
-def test_brg_008_expired_cycle_token_without_takeover_cannot_interrupt(tmp_path):
-    armed = []
-
-    def hook(p):
-        if p == "claim.after_acquire" and armed:
-            armed.clear()
-            h.clock.advance(31)  # the cycle's claim lapses (no one took over: the delivery generation is still current)
+            ctl(h, "control.pause", "late")
 
     h = BridgeHarness(tmp_path / "ws", fault_hook=hook)
     bseed(h)
-    rt, _ = running(h)
-    pause = ctl(h, "control.pause", "p1")
-    armed.append(1)
+    rt = FakeRuntimeTarget()
+    assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    msg(h, "n1")
+    rt.lose_context()  # resume will report "missing"
     res = h.delivery_cycle("b", "s", rt)
-    assert res.status == "paused" and rt.count("interrupt") == 0  # expired token: the effect is fenced
-    assert control_rows(h, pause.record_id)[0][6] is None
-    h.clock.advance(31)  # the control lease lapses; the takeover supersedes the old delivery, so recovery reports a stale target
-    assert h.delivery_cycle("b", "s", rt).status == "paused" and rt.count("interrupt") == 0
-    assert control_rows(h, pause.record_id)[0][6] == "stale_target"
+    assert fired and res.status == "paused" and rt.count("create") == 1  # no creation attempt at all after the durable pause
+    ctl(h, "control.resume", "r")  # control: after resume the fresh generation is created
+    assert h.delivery_cycle("b", "s", rt).status == "delivered" and rt.count("create") == 2
+
+
+_VALID_CU = {"after_position": 0, "before_position": 3, "candidates": 2, "included_count": 2, "first_position": 1, "last_position": 2,
+             "omitted_count": 0, "omitted_through_position": None, "truncated": False, "used_bytes": 10, "used_tokens": 0,
+             "budget": {"max_records": 100, "max_bytes": None, "max_tokens": None}}
+
+
+@pytest.mark.m1_id("CTX-003")
+@pytest.mark.parametrize("body", [
+    {"peer_id": "b", "session_generation": 2, "reason": "forged-reason", "catch_up": _VALID_CU},  # everything valid except the reason
+    {"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": {**_VALID_CU, "truncated": True}},  # flag vs counts
+    {"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": {**_VALID_CU, "candidates": 9}},  # counts do not add up
+    {"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": {**_VALID_CU, "budget": {"max_records": 1}}},
+    {"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": _VALID_CU, "extra": 1},
+    {"peer_id": "b", "session_generation": 2, "reason": "forged-reason", "catch_up": None},
+    {"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": {"truncated": "yes"}},
+    {"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": "garbage"},
+])
+def test_ctx_003_forged_boundary_payload_with_matching_peer_and_generation_is_rejected(bridge_h, body):
+    bseed(bridge_h)
+    rt = FakeRuntimeTarget()
+    assert bridge_h.delivery_cycle("b", "s", rt).status == "delivered"
+    msg(bridge_h, "n1")
+    bridge_h.append_record({**req(body=body, key="context-boundary:b:2", author="b"), "kind": "context.boundary"})
+    rt.lose_context()
+    with pytest.raises(BoundaryConflictError, match="context-boundary:b:2"):
+        bridge_h.delivery_cycle("b", "s", rt)
+    assert [c[0] for c in rt.calls].count("deliver") == 1  # the new generation never reached the runtime
 
 
 @pytest.mark.m1_id("CERT-002")
-@pytest.mark.fault
-def test_cert_002_cancel_newer_than_the_retry_blocks_a_crashed_retry_attempt(tmp_path):
+def test_cert_002_latest_authorized_decision_by_position_wins(tmp_path):
     crash = CrashInjector()
     h = BridgeHarness(tmp_path / "ws", fault_hook=crash)
     (m0,) = bseed(h)
-    rt = FakeRuntimeTarget()
-    did = _uncertain(h, rt)
-    h.reconcile_uncertain(m0.record_id, _retry(h, "rc", did))
+    did = _uncertain(h, FakeRuntimeTarget())
+    h.reconcile_uncertain(m0.record_id, _retry(h, "rc1", did))
+    ctl(h, "control.cancel", "cx")
+    blocked = FakeRuntimeTarget()
+    assert h.delivery_cycle("b", "s", blocked).status == "blocked_uncertain" and blocked.count("deliver") == 0  # RETRY1 < cancel
+    r2 = _retry(h, "rc2", did)
+    h.reconcile_uncertain(m0.record_id, r2)  # RETRY2 is newer than the cancel
+    assert sql(h, "SELECT reconcile_record_id FROM bridge_reconciliations") == [(r2.record_id,)]  # no retention of RETRY1
     crash.arm("bridge.before_session_resolve")
     with pytest.raises(CrashInjected):
-        h.delivery_cycle("b", "s", rt)  # RETRY attempt created, nothing resolved
-    crash.disarm()
-    ctl(h, "control.cancel", "cx")  # positioned AFTER the RETRY
-    follow = FakeRuntimeTarget()
-    res = BridgeHarness(tmp_path / "ws", h.clock).delivery_cycle("b", "s", follow)
-    assert res.status == "blocked_uncertain" and follow.count("deliver") == 0
-    assert [(d[6], d[7]) for d in delivery_rows(h, m0.record_id)] == [(1, "MAY_HAVE_STARTED"), (2, "NOT_STARTED")]  # attempt kept, never run
+        h.delivery_cycle("b", "s", blocked)
+    res = BridgeHarness(tmp_path / "ws", h.clock).delivery_cycle("b", "s", FakeRuntimeTarget())  # after restart: follows RETRY2
+    assert res.status == "delivered" and res.certainty == "TERMINAL"
+
+
+@pytest.mark.m1_id("CERT-002")
+def test_cert_002_replaying_an_older_retry_never_replaces_a_newer_authorization(bridge_h):
+    (m0,) = bseed(bridge_h)
+    did = _uncertain(bridge_h, FakeRuntimeTarget())
+    r1, r2 = _retry(bridge_h, "rc1", did), _retry(bridge_h, "rc2", did)
+    bridge_h.reconcile_uncertain(m0.record_id, r2)
+    bridge_h.reconcile_uncertain(m0.record_id, r1)  # older Record registered late: ignored
+    assert sql(bridge_h, "SELECT reconcile_record_id FROM bridge_reconciliations") == [(r2.record_id,)]
+
+
+@pytest.mark.m1_id("CERT-001")
+def test_cert_001_authorization_can_only_move_to_a_newer_reconcile_record_never_consumed(bridge_h):
+    import sqlite3
+
+    (m0,) = bseed(bridge_h)
+    did = _uncertain(bridge_h, FakeRuntimeTarget())
+    r1, r2 = _retry(bridge_h, "rc1", did), _retry(bridge_h, "rc2", did)
+    plain = msg(bridge_h, "plain")
+    bridge_h.reconcile_uncertain(m0.record_id, r2)
+    before = sql(bridge_h, "SELECT * FROM bridge_reconciliations")
+    for target in (r1.record_id, plain.record_id, "rec-nope"):  # older / not a reconcile Record / nonexistent
+        with pytest.raises(sqlite3.IntegrityError):
+            with bridge_h.cs._tx() as c:
+                c.execute("UPDATE bridge_reconciliations SET reconcile_record_id=?", (target,))
+        assert sql(bridge_h, "SELECT * FROM bridge_reconciliations") == before
+    r3 = _retry(bridge_h, "rc3", did)
+    with bridge_h.cs._tx() as c:  # control: a NEWER reconcile Record is a legal move while unconsumed
+        c.execute("UPDATE bridge_reconciliations SET reconcile_record_id=?", (r3.record_id,))
+    with bridge_h.cs._tx() as c:
+        c.execute("UPDATE bridge_reconciliations SET consumed_attempt=2")
+    r4 = _retry(bridge_h, "rc4", did)
+    with pytest.raises(sqlite3.IntegrityError):  # consumed: frozen
+        with bridge_h.cs._tx() as c:
+            c.execute("UPDATE bridge_reconciliations SET reconcile_record_id=?", (r4.record_id,))

@@ -174,8 +174,13 @@ _DDL = [
     """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_no_delete BEFORE DELETE ON bridge_reconciliations
         BEGIN SELECT RAISE(ABORT, 'bridge_reconciliations rows are never deleted'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_immutable
-        BEFORE UPDATE OF delivery_id, reconcile_record_id, decision ON bridge_reconciliations
+        BEFORE UPDATE OF delivery_id, decision ON bridge_reconciliations
         BEGIN SELECT RAISE(ABORT, 'authorization is immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_consumed_immutable
+        BEFORE UPDATE OF reconcile_record_id ON bridge_reconciliations WHEN OLD.consumed_attempt IS NOT NULL OR NOT EXISTS (
+            SELECT 1 FROM records n JOIN records o ON o.record_id = OLD.reconcile_record_id
+            WHERE n.record_id = NEW.reconcile_record_id AND n.kind = 'control.reconcile' AND n.stream_id = o.stream_id AND n.position > o.position)
+        BEGIN SELECT RAISE(ABORT, 'authorization may only move to a NEWER control.reconcile Record, and never once consumed'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_delete BEFORE DELETE ON bridge_deliveries
         BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never deleted'); END""",
 ]
@@ -342,11 +347,12 @@ class Bridge:
                       else "not_resumable" if not m["resumable"] else self._lost_reason(token) if m["state"] == "LOST" else m["state"].lower())
             with self.claims.fenced(token) as conn:
                 self._session_event(conn, token, reason, m["state"], "FRESH", m["session_generation"])
+        if m is not None:
+            self._fire("bridge.after_resume_failure")  # after a failed/unusable resume, before any creation attempt
         for i in range(self.max_session_attempts):
-            if i > 0:  # D-W4-2: a durable pause/cancel stops further creation attempts
-                gated = self._gate(token, runtime, record, did)
-                if gated is not None:
-                    return gated
+            gated = self._gate(token, runtime, record, did)  # D-W4-2b: a durable pause/cancel stops EVERY creation attempt
+            if gated is not None:
+                return gated
             try:
                 ext = runtime.create_session()
             except SessionError as e:
@@ -412,7 +418,7 @@ class Bridge:
             out = ProjectedRecords(proj.records)
             out.boundary = {**proj.boundary(), "session_generation": gen, "mode": "resumed_unseen_redirects"}
             return out
-        after = self.store.get_offset(peer, stream).read_through_position  # D-W4-8: CTX-001 window is (Offset, record)
+        after = 0  # D-W4-8b: the Offset governs DELIVERY only; a fresh generation is bootstrapped from the Stream history (TD-12 budget)
         proj = build_catch_up(self.store, stream, self.catch_up_budget, after_position=after, before_position=rec.position,
                               extra=self._unseen_redirects(peer, stream, rec))  # redirects consumed from the Offset are still unseen intent
         out = ProjectedRecords(proj.records)
@@ -420,6 +426,25 @@ class Bridge:
         if gen > 1:  # a fresh generation after loss/rejection/change: record the boundary durably (idempotent per generation)
             self._write_boundary(token, gen, proj)
         return out
+
+    @staticmethod
+    def _boundary_payload_ok(body: Any, peer: str, gen: int, reason: str | None, template: dict) -> bool:
+        """D-W4-5b: the COMPLETE payload must be this generation's boundary: peer, generation, the recorded reason and a catch_up
+        object with exactly the projection-metadata keys and sane types (window/counts may differ when a retry targets another Record)."""
+        if not isinstance(body, dict) or set(body) != {"peer_id", "session_generation", "reason", "catch_up"}:
+            return False
+        if body["peer_id"] != peer or body["session_generation"] != gen or body["reason"] != reason:
+            return False
+        cu = body["catch_up"]
+        if not isinstance(cu, dict) or set(cu) != set(template):
+            return False
+        ints = ("after_position", "candidates", "included_count", "omitted_count", "used_bytes", "used_tokens")
+        opt = ("before_position", "first_position", "last_position", "omitted_through_position")
+        isint = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0  # noqa: E731
+        return (all(isint(cu[k]) for k in ints) and all(cu[k] is None or isint(cu[k]) for k in opt)
+                and isinstance(cu["truncated"], bool) and cu["truncated"] == (cu["omitted_count"] > 0)
+                and cu["candidates"] == cu["included_count"] + cu["omitted_count"]
+                and isinstance(cu["budget"], dict) and cu["budget"] == template["budget"])
 
     def _write_boundary(self, token: ClaimToken, gen: int, proj) -> None:
         peer, stream = token.peer_id, token.stream_id
@@ -436,7 +461,7 @@ class Bridge:
             row = conn.execute("SELECT kind, body_json FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?",
                                (stream, peer, key)).fetchone()
         body = json.loads(row["body_json"]) if row is not None and row["kind"] == "context.boundary" else None
-        if not isinstance(body, dict) or body.get("session_generation") != gen or body.get("peer_id") != peer:
+        if not self._boundary_payload_ok(body, peer, gen, info.get("reason"), proj.boundary()):
             raise BoundaryConflictError(f"idempotency key {key!r} is occupied by a Record that is not this generation's context.boundary")
 
     # ------------------------------------------------------------------ delivery cycle
@@ -956,8 +981,13 @@ class Bridge:
                 raise ReconcileRejectedError("the bridged peer cannot authorize its own retry")
             if d["certainty"] != MAY_HAVE_STARTED:
                 raise ReconcileRejectedError(f"delivery is {d['certainty']}; only MAY_HAVE_STARTED can be reconciled")
-            conn.execute("INSERT OR IGNORE INTO bridge_reconciliations (delivery_id, reconcile_record_id, decision) VALUES (?,?,?)",
-                         (did, rr.record_id, "RETRY"))
+            cur = conn.execute("SELECT r.reconcile_record_id, r.consumed_attempt, p.position FROM bridge_reconciliations r "
+                               "LEFT JOIN records p ON p.record_id = r.reconcile_record_id WHERE r.delivery_id=?", (did,)).fetchone()
+            if cur is None:
+                conn.execute("INSERT INTO bridge_reconciliations (delivery_id, reconcile_record_id, decision) VALUES (?,?,?)",
+                             (did, rr.record_id, "RETRY"))
+            elif cur["consumed_attempt"] is None and pr["position"] > (cur["position"] or 0):  # D-W4-9b: latest decision by position wins
+                conn.execute("UPDATE bridge_reconciliations SET reconcile_record_id=? WHERE delivery_id=?", (rr.record_id, did))
             auth = dict(conn.execute("SELECT * FROM bridge_reconciliations WHERE delivery_id=?", (did,)).fetchone())
             self._evidence(conn, d["stream_id"], d["peer_id"], "reconcile_registered", did, d["certainty"],
                            reconcile_record_id=rr.record_id, authorized_by=auth["reconcile_record_id"])

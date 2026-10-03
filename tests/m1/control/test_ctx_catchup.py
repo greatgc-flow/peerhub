@@ -170,13 +170,11 @@ def test_ctx_003_context_loss_recovers_with_bounded_catch_up_and_boundary_record
     assert res.status == "delivered" and res.session_generation == 2
     rows = records(h)
     pos = [r[1] for r in rows if r[0] == last.record_id][0]
-    off = pos - 1  # everything before the new message was consumed (own responses/controls are acked as the cursor passes them)
-    # redirects were handed to the resumed session before the loss; the fresh generation still receives only what the budget allows
+    before = [r[0] for r in rows if r[1] < pos]  # D-W4-8b: bootstrap = ordered history suffix of the Stream within the budget
     meta = rt.catch_up_meta[-1]
-    assert meta["after_position"] == off and meta["before_position"] == pos and meta["mode"] == "fresh_generation"
-    assert len(rt.catch_ups[-1]) <= 1 and meta["budget"]["max_records"] == 1 and meta["session_generation"] == 2
-    window = [r[0] for r in rows if off < r[1] < pos]
-    assert rt.catch_ups[-1] == window[-1:] and meta["truncated"] is (len(window) > 1) and meta["included_count"] == len(rt.catch_ups[-1])
+    assert rt.catch_ups[-1] == before[-1:] and meta["after_position"] == 0 and meta["before_position"] == pos
+    assert meta["mode"] == "fresh_generation" and meta["budget"]["max_records"] == 1 and meta["session_generation"] == 2
+    assert meta["truncated"] is True and meta["omitted_count"] == len(before) - 1 and meta["included_count"] == 1
     (b,) = [r for r in rows if r[3] == "context.boundary"]  # durable boundary Record carries the same metadata
     body = json.loads(b[4])
     assert b[2] == "b" and body["session_generation"] == 2 and body["reason"] == "missing"
@@ -199,7 +197,7 @@ def test_ctx_003_unseen_redirects_survive_loss_within_budget(tmp_path):
     assert h.delivery_cycle("b", "s", rt).status == "delivered"
     assert rt.catch_ups[-1] == [r.record_id for r in reds[1:]]  # bounded ordered suffix of the unseen intent (oracle: literal)
     meta = rt.catch_up_meta[-1]
-    assert meta["truncated"] is True and meta["omitted_count"] == 1 and meta["omitted_through_position"] == reds[0].position
+    assert meta["truncated"] is True and meta["omitted_count"] == 3 and meta["omitted_through_position"] == reds[0].position  # m0, response, red0
     assert last.position > reds[-1].position
 
 
