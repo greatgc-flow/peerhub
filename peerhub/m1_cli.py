@@ -17,7 +17,7 @@ import json
 import sys
 from pathlib import Path
 
-from peerhub._console import utf8_streams
+from peerhub._console import tolerant_streams
 from peerhub.m1.models import Offset, Peer, Record, Stream, StreamState, utc_now_iso
 from peerhub.m1.schema_version import SchemaVersionError
 from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
@@ -104,8 +104,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _dump(model) -> str:
+    """JSON with ASCII escapes only: lossless for every Unicode text whatever the console encoding (no encoding is forced on the user)."""
+    return json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=True)
+
+
 def main(argv: list[str] | None = None) -> int:
-    utf8_streams()
+    tolerant_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -119,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             except (LegacySourceError, LegacyPlanChangedError) as e:
                 print(f"LEGACY IMPORT REFUSED ({type(e).__name__}): {e}", file=sys.stderr)
                 return 7
-            print(json.dumps(report, indent=2, ensure_ascii=False))
+            print(json.dumps(report, indent=2, ensure_ascii=True))
             return 0
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             try:
@@ -137,13 +142,13 @@ def main(argv: list[str] | None = None) -> int:
                         adapter_ref=args.adapter_ref,
                     )
                 )
-                print(p.model_dump_json(indent=2))
+                print(_dump(p))
             elif args.action == "get":
                 p = store.get_peer(args.peer_id)
                 if not p:
                     print(f"Peer not found: {args.peer_id}", file=sys.stderr)
                     return 1
-                print(p.model_dump_json(indent=2))
+                print(_dump(p))
 
         elif args.subcommand == "stream":
             if args.action == "create":
@@ -154,13 +159,13 @@ def main(argv: list[str] | None = None) -> int:
                         members=args.members,
                     )
                 )
-                print(s.model_dump_json(indent=2))
+                print(_dump(s))
             elif args.action == "show":
                 s = store.get_stream(args.stream_id)
                 if not s:
                     print(f"Stream not found: {args.stream_id}", file=sys.stderr)
                     return 1
-                print(s.model_dump_json(indent=2))
+                print(_dump(s))
 
         elif args.subcommand == "record":
             if args.action == "append":
@@ -178,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
                     targets=args.targets,
                     created_at=args.created_at or utc_now_iso(),
                 )
-                print(rec.model_dump_json(indent=2))
+                print(_dump(rec))
 
             elif args.action == "read":
                 records = store.read_records(
@@ -187,12 +192,12 @@ def main(argv: list[str] | None = None) -> int:
                     limit=args.limit,
                 )
                 out = [r.model_dump() for r in records]
-                print(json.dumps(out, indent=2, ensure_ascii=False))
+                print(json.dumps(out, indent=2, ensure_ascii=True))
 
         elif args.subcommand == "offset":
             if args.action == "get":
                 off = store.get_offset(args.peer_id, args.stream_id)
-                print(off.model_dump_json(indent=2))
+                print(_dump(off))
             elif args.action == "advance":
                 off = store.advance_offset_cas(
                     peer_id=args.peer_id,
@@ -200,13 +205,13 @@ def main(argv: list[str] | None = None) -> int:
                     new_position=args.new_position,
                     expected_revision=args.expected_revision,
                 )
-                print(off.model_dump_json(indent=2))
+                print(_dump(off))
 
         elif args.subcommand == "diag":
             if args.action == "health":
                 diag = ReadonlyDiag(args.db)
                 result = diag.inspect_stream_health(args.stream_id)
-                print(json.dumps(result, indent=2, ensure_ascii=False))
+                print(json.dumps(result, indent=2, ensure_ascii=True))
 
         return 0
 

@@ -36,6 +36,10 @@ _EVENT_COLUMNS = ("outbox_position", "event_id", "protocol_major", "protocol_min
                   "recovery_context_json", "appended_at")
 
 
+def EMPTY_PLAN() -> dict[str, list]:
+    return {"write": [], "already": [], "conflicts": []}
+
+
 class LegacySourceError(RuntimeError):
     """The legacy source (or the M1 target) cannot be used safely; nothing was written."""
 
@@ -53,9 +57,9 @@ class _Malformed(ValueError):
 class _NoWrite(Exception):
     """Internal: unit needs no write (already imported / conflict); rolls back the empty transaction."""
 
-    def __init__(self, status: str, reason: str = "") -> None:
+    def __init__(self, status: str, reason: str, plan: dict[str, list]) -> None:
         super().__init__(status)
-        self.status, self.reason = status, reason
+        self.status, self.reason, self.plan = status, reason, plan
 
 
 def _reject_constant(name: str) -> Any:
@@ -222,30 +226,54 @@ class LegacyImporter:
         except (ValueError, TypeError):
             return False
 
-    def _classify(self, conn: sqlite3.Connection | None, u: dict[str, Any]) -> tuple[str, str]:
+    def _offset_plan(self, conn: sqlite3.Connection | None, u: dict[str, Any], *, fresh: bool) -> dict[str, list]:
+        """Per-component (offsets) accounting against PERSISTED rows. Never modifies an existing offset (TD-10: no guessing):
+        a differing M1 offset is reported as `m1_ahead` (M1 moved past the legacy value) or `legacy_ahead` (legacy moved on)."""
+        plan: dict[str, list] = {"write": [], "already": [], "conflicts": []}
+        for cons, n in u["offsets"]:
+            pid = f"legacy:consumer:{cons}"
+            if fresh or conn is None:
+                plan["write"].append([cons, n])
+                continue
+            if self._peer_owned(conn, pid) is False:
+                plan["conflicts"].append({"consumer": cons, "kind": "foreign_peer", "legacy": n, "m1": None})
+                continue
+            row = conn.execute("SELECT read_through_position FROM offsets WHERE peer_id = ? AND stream_id = ?", (pid, u["unit"])).fetchone()
+            if row is None:
+                plan["write"].append([cons, n])
+            elif row[0] == n:
+                plan["already"].append([cons, n])
+            else:
+                plan["conflicts"].append({"consumer": cons, "kind": "m1_ahead" if row[0] > n else "legacy_ahead", "legacy": n, "m1": row[0]})
+        return plan
+
+    def _classify(self, conn: sqlite3.Connection | None, u: dict[str, Any]) -> tuple[str, str, dict[str, list]]:
         if u["status"] == "malformed":
-            return "malformed", u["reason"]
+            return "malformed", u["reason"], EMPTY_PLAN()
         if conn is None:
-            return "new", ""
+            return "new", "", self._offset_plan(None, u, fresh=True)
         needed = [AUTHOR_ID] + [f"legacy:consumer:{c}" for c, _ in u["offsets"]]
         srow = conn.execute("SELECT metadata_json FROM streams WHERE stream_id = ?", (u["unit"],)).fetchone()
         if srow is None:
             for pid in needed:
                 if self._peer_owned(conn, pid) is False:
-                    return "conflict", f"peer {pid!r} exists and was not created by the legacy importer; refusing to modify it"
-            return "new", ""
+                    return "conflict", f"peer {pid!r} exists and was not created by the legacy importer; refusing to modify it", EMPTY_PLAN()
+            return "new", "", self._offset_plan(conn, u, fresh=True)
         try:
             marker = json.loads(srow[0]).get("legacy_import", {})
         except (ValueError, TypeError, AttributeError):
             marker = {}
         if marker.get("source") != "event_log" or marker.get("group") != u["cid"]:
-            return "conflict", f"stream {u['unit']!r} exists and was not created by the legacy importer; refusing to modify it"
+            return "conflict", f"stream {u['unit']!r} exists and was not created by the legacy importer; refusing to modify it", EMPTY_PLAN()
         have = conn.execute("SELECT position, idempotency_key, payload_digest, author_peer_id FROM records WHERE stream_id = ? "
                             "ORDER BY position LIMIT ?", (u["unit"], len(u["digests"]))).fetchall()
         want = [(i + 1, r["idempotency_key"], d, AUTHOR_ID) for i, (r, d) in enumerate(zip(u["requests"], u["digests"]))]
         if [tuple(h) for h in have] != want:
-            return "conflict", "imported records differ from the legacy source (changed legacy row or divergent target); not overwritten"
-        return "already_imported", ""
+            return "conflict", "imported records differ from the legacy source (changed legacy row or divergent target); not overwritten", EMPTY_PLAN()
+        if self._peer_owned(conn, AUTHOR_ID) is False:
+            return "conflict", f"peer {AUTHOR_ID!r} exists and was not created by the legacy importer; refusing to modify it", EMPTY_PLAN()
+        oplan = self._offset_plan(conn, u, fresh=False)
+        return ("update" if oplan["write"] else "already_imported"), "", oplan
 
     def _open_target_readonly(self) -> sqlite3.Connection | None:
         if not self.target.exists() or self.target.stat().st_size == 0:
@@ -274,7 +302,8 @@ class LegacyImporter:
     @staticmethod
     def _zero() -> dict[str, int]:
         return {"imported_units": 0, "already_imported_units": 0, "conflict_units": 0, "malformed_units": 0, "records_imported": 0,
-                "would_import_records": 0, "peers_created": 0, "offsets_written": 0}
+                "would_import_records": 0, "peers_created": 0, "offsets_written": 0, "updated_units": 0, "would_write_offsets": 0,
+                "offset_conflicts": 0}
 
     def dry_run(self) -> dict[str, Any]:
         plan = self._plan()
@@ -282,13 +311,17 @@ class LegacyImporter:
         results, totals = [], self._zero()
         try:
             for u in plan["units"]:
-                status, reason = self._classify(conn, u)
-                results.append({"unit": u["unit"], "status": status, "records": len(u["digests"]), "reason": reason, "rows": u["rows"]})
-                key = {"new": None, "already_imported": "already_imported_units", "conflict": "conflict_units", "malformed": "malformed_units"}[status]
+                status, reason, oplan = self._classify(conn, u)
+                results.append({"unit": u["unit"], "status": status, "records": len(u["digests"]), "reason": reason, "rows": u["rows"],
+                                "offsets": oplan})
+                key = {"new": None, "update": "updated_units", "already_imported": "already_imported_units", "conflict": "conflict_units",
+                       "malformed": "malformed_units"}[status]
                 if key:
                     totals[key] += 1
-                else:
+                if status == "new":
                     totals["would_import_records"] += len(u["digests"])
+                totals["would_write_offsets"] += len(oplan["write"])
+                totals["offset_conflicts"] += len(oplan["conflicts"])
         finally:
             if conn is not None:
                 conn.close()
@@ -302,28 +335,49 @@ class LegacyImporter:
         store = CoreStore(self.target, fault_hook=self.fault_hook)  # creates/migrates the M1 target; refuses a future schema
         results, totals = [], self._zero()
         for u in plan["units"]:
-            entry = {"unit": u["unit"], "status": "malformed", "records": len(u["digests"]), "reason": u["reason"], "rows": u["rows"]}
+            entry = {"unit": u["unit"], "status": "malformed", "records": len(u["digests"]), "reason": u["reason"], "rows": u["rows"],
+                     "offsets": EMPTY_PLAN()}
             results.append(entry)
             if u["status"] == "malformed":
                 totals["malformed_units"] += 1
                 continue
             try:
                 with store.transaction("import.unit") as conn:  # one atomic unit: classify against persisted rows, then write
-                    status, reason = self._classify(conn, u)
-                    if status != "new":
-                        raise _NoWrite(status, reason)
-                    peers, offsets = self._write_unit(store, conn, u)
+                    status, reason, oplan = self._classify(conn, u)
+                    if status == "new":
+                        peers, offsets = self._write_unit(store, conn, u)
+                    elif status == "update":
+                        peers, offsets = self._write_offsets(conn, u, oplan["write"]), len(oplan["write"])
+                    else:
+                        raise _NoWrite(status, reason, oplan)
             except _NoWrite as nw:
-                entry.update(status=nw.status, reason=nw.reason, records=len(u["digests"]))
+                entry.update(status=nw.status, reason=nw.reason, offsets=nw.plan)
                 totals["already_imported_units" if nw.status == "already_imported" else "conflict_units"] += 1
+                totals["offset_conflicts"] += len(nw.plan["conflicts"])
                 continue
             store._fire("import.unit.after_commit")  # noqa: SLF001 - committed; the report has not been produced yet (crash seam)
-            entry.update(status="imported", reason="")
-            totals["imported_units"] += 1
-            totals["records_imported"] += len(u["digests"])
+            entry.update(status="imported" if status == "new" else "updated", reason="", offsets=oplan)
+            totals["imported_units" if status == "new" else "updated_units"] += 1
+            if status == "new":
+                totals["records_imported"] += len(u["digests"])
             totals["peers_created"] += peers
             totals["offsets_written"] += offsets
+            totals["offset_conflicts"] += len(oplan["conflicts"])
         return self._report("apply", plan, results, totals, self.source)
+
+    def _write_offsets(self, conn: sqlite3.Connection, u: dict[str, Any], todo: list[list]) -> int:
+        """Add ONLY missing consumer components to an already imported unit: peers, stream membership, offsets. Returns peers created."""
+        created, made = u["created_at"], 0
+        for cons, n in todo:
+            pid = f"legacy:consumer:{cons}"
+            if conn.execute("SELECT 1 FROM peers WHERE peer_id = ?", (pid,)).fetchone() is None:
+                conn.execute("INSERT INTO peers (peer_id, display_name, adapter_ref, metadata_json, created_at) VALUES (?, NULL, NULL, ?, ?)",
+                             (pid, json.dumps({"legacy_import": {"source": "consumer_offsets"}}), created))
+                made += 1
+            if conn.execute("SELECT 1 FROM stream_members WHERE stream_id = ? AND peer_id = ?", (u["unit"], pid)).fetchone() is None:
+                conn.execute("INSERT INTO stream_members (stream_id, peer_id) VALUES (?, ?)", (u["unit"], pid))
+            conn.execute("INSERT INTO offsets (peer_id, stream_id, read_through_position, revision) VALUES (?, ?, ?, 2)", (pid, u["unit"], n))
+        return made
 
     def _write_unit(self, store: CoreStore, conn: sqlite3.Connection, u: dict[str, Any]) -> tuple[int, int]:
         created = u["created_at"]

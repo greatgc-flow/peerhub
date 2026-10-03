@@ -3254,9 +3254,9 @@ class TieredHelpFormatter(argparse.RawDescriptionHelpFormatter):
 
 
 def main(args: list[str] | None = None) -> int:
-    from peerhub._console import utf8_streams
+    from peerhub._console import tolerant_streams
 
-    utf8_streams()  # help/version text contains non-ASCII; a cp949/cp1252 pipe must not crash the installed CLI (REL-002)
+    tolerant_streams()  # help/version text contains non-ASCII; a cp949/cp1252 pipe must not crash the installed CLI (REL-002)
     parser = create_root_parser(
         formatter_class=TieredHelpFormatter,
         version_action=_LazyVersionAction,

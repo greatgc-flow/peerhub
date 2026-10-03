@@ -118,7 +118,8 @@ def test_imp_002_apply_imports_only_declared_mappings_and_leaves_source_bytes_un
     assert _sha(legacy) == src_hash and tree_fingerprint(legacy.parent) == src_tree  # no -wal/-shm, no byte change
     assert [(u["unit"], u["status"]) for u in rep["units"]] == [("legacy:c1", "imported"), ("legacy:c2", "imported")]
     assert rep["totals"] == {"imported_units": 2, "already_imported_units": 0, "conflict_units": 0, "malformed_units": 0,
-                             "records_imported": 3, "would_import_records": 0, "peers_created": 3, "offsets_written": 3}
+                             "records_imported": 3, "would_import_records": 0, "peers_created": 3, "offsets_written": 3,
+                             "updated_units": 0, "would_write_offsets": 0, "offset_conflicts": 0}
     assert rep["unmapped_tables"] == _unmapped_oracle(legacy)
     with closing(sqlite3.connect(target)) as c:  # only the Core tables carry imported data; nothing for unmapped legacy tables
         names = {r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
@@ -321,3 +322,89 @@ def test_imp_004_crash_between_units_leaves_complete_units_only_and_resume_match
     t3 = tmp_path / "never.db"
     assert spawn_exitcode(import_crash_worker, (str(legacy), str(t3), "no.such.point", 1)) == 0
     assert normalized_state(t3) == normalized_state(clean)
+
+
+# ---------------------------------------------------------------- IMP-003 (per-component idempotency, review item 1)
+def _add_consumer(src, consumer, pos):
+    with closing(sqlite3.connect(src)) as c:
+        eid = c.execute("SELECT event_id FROM event_log WHERE outbox_position = ?", (pos,)).fetchone()[0]
+        c.execute("DELETE FROM consumer_offsets WHERE consumer_id = ?", (consumer,))
+        c.execute("INSERT INTO consumer_offsets (consumer_id, outbox_position, event_id, revision) VALUES (?,?,?,1)", (consumer, pos, eid))
+        c.commit()
+
+
+def _row_ids(db):
+    return (raw_dump(db, "records", "record_id", "record_id, appended_at"), raw_dump(db, "offsets", "peer_id, stream_id"),
+            raw_dump(db, "peers", "peer_id", "peer_id, created_at, metadata_json"))
+
+
+def test_imp_003_offsets_added_to_the_legacy_store_after_import_are_imported_on_rerun(tmp_path, legacy):
+    target = tmp_path / "core.db"
+    LegacyImporter(legacy, target).apply()
+    before_ids, before_offsets, before_peers = _row_ids(target)
+    _add_consumer(legacy, "late", 3)  # legacy gained a consumer after the first import
+    dry = LegacyImporter(legacy, target).dry_run()
+    assert [u["status"] for u in dry["units"]] == ["update", "update"] and dry["totals"]["would_write_offsets"] == 2
+    assert _row_ids(target) == (before_ids, before_offsets, before_peers)  # dry-run wrote nothing
+    rep = LegacyImporter(legacy, target).apply()
+    assert [u["status"] for u in rep["units"]] == ["updated", "updated"]
+    t = rep["totals"]
+    assert (t["records_imported"], t["peers_created"], t["offsets_written"], t["updated_units"], t["imported_units"]) == (0, 1, 2, 2, 0)
+    ids, offsets, peers = _row_ids(target)
+    assert ids == before_ids  # no Record re-created or touched
+    assert set(before_offsets) <= set(offsets) and set(offsets) - set(before_offsets) == {
+        ("legacy:consumer:late", "legacy:c1", 2, 2), ("legacy:consumer:late", "legacy:c2", 1, 2)}  # exact new rows only
+    assert set(before_peers) <= set(peers) and len(peers) == len(before_peers) + 1
+    assert raw_dump(target, "stream_members", "stream_id, rowid", "stream_id, peer_id")[-1] == ("legacy:c2", "legacy:consumer:late")
+    again = LegacyImporter(legacy, target).apply()  # now fully converged
+    assert [u["status"] for u in again["units"]] == ["already_imported", "already_imported"]
+    assert again["totals"]["offsets_written"] == 0 and _row_ids(target) == (ids, offsets, peers)
+
+
+def test_imp_003_offset_differences_are_reported_never_guessed(tmp_path):
+    evs = [{"event_id": f"e{i}", "correlation_id": "c1", "occurred_at": 1700000000 + i, "payload": {}} for i in (1, 2, 3)]
+    src = make_legacy(tmp_path / "l.db", evs, consumers={"dash": 1, "audit": 1, "same": 2})
+    target = tmp_path / "core.db"
+    LegacyImporter(src, target).apply()
+    from peerhub.m1.store import CoreStore
+    st = CoreStore(target)
+    st.advance_offset_cas("legacy:consumer:audit", "legacy:c1", 3, 2)  # M1 moves past legacy (audit: legacy 1, M1 3)
+    _add_consumer(src, "dash", 3)  # legacy moves past M1 (dash: legacy 3, M1 1)
+    before = _row_ids(target)
+    rep = LegacyImporter(src, target).apply()
+    (u,) = rep["units"]
+    assert u["status"] == "already_imported"  # nothing written for it
+    assert sorted((c["consumer"], c["kind"], c["legacy"], c["m1"]) for c in u["offsets"]["conflicts"]) == [
+        ("audit", "m1_ahead", 1, 3), ("dash", "legacy_ahead", 3, 1)]
+    assert [a[0] for a in u["offsets"]["already"]] == ["same"]  # positive control: equal offsets are not conflicts
+    assert rep["totals"]["offset_conflicts"] == 2 and rep["totals"]["offsets_written"] == 0
+    assert _row_ids(target) == before  # existing offsets are never rewound or advanced
+    assert st.get_offset("legacy:consumer:dash", "legacy:c1").read_through_position == 1
+
+
+def test_imp_003_crash_while_adding_offsets_leaves_old_state_and_resume_matches_clean_import(tmp_path, legacy):
+    _add_consumer(legacy, "late", 3)
+    clean = tmp_path / "clean.db"
+    LegacyImporter(legacy, clean).apply()
+    with closing(sqlite3.connect(legacy)) as c:  # rewind the legacy store to its state before the late consumer existed
+        c.execute("DELETE FROM consumer_offsets WHERE consumer_id = 'late'")
+        c.commit()
+    for point, nth in (("import.unit.before_commit", 2), ("import.unit.after_commit", 1)):
+        t = tmp_path / (point + ".db")
+        LegacyImporter(legacy, t).apply()
+        old = normalized_state(t)
+        _add_consumer(legacy, "late", 3)
+        assert spawn_exitcode(import_crash_worker, (str(legacy), str(t), point, nth)) == CRASH_EXIT  # the update really crashed
+        st = normalized_state(t)
+        late = [o for o in st["offsets"] if o[0] == "legacy:consumer:late"]
+        assert late == [("legacy:consumer:late", "legacy:c1", 2, 2)]  # complete unit or nothing: c1 committed, c2 absent
+        assert st != old
+        with closing(sqlite3.connect(t)) as c:
+            assert c.execute("PRAGMA integrity_check").fetchone()[0] == "ok" and c.execute("PRAGMA foreign_key_check").fetchall() == []
+        rep = LegacyImporter(legacy, t).apply()  # resume with exact accounting
+        assert {u["unit"]: u["status"] for u in rep["units"]} == {"legacy:c1": "already_imported", "legacy:c2": "updated"}
+        assert rep["totals"]["offsets_written"] == 1 and rep["totals"]["records_imported"] == 0
+        assert normalized_state(t) == normalized_state(clean)
+        with closing(sqlite3.connect(legacy)) as c:
+            c.execute("DELETE FROM consumer_offsets WHERE consumer_id = 'late'")
+            c.commit()

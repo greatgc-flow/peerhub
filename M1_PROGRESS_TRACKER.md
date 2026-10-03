@@ -77,3 +77,4 @@
 
 ## Wave 7 (2026-10-04)
 - Wave 7: 19/19 catalog ids green (REL-001..014, IMP-001..004, MIG-003). Production: `peerhub/m1/legacy_import.py` (importer), `schema_version.py`, CLI `legacy-import` + exit 6/7, store `transaction()`/`_insert_record`, `tools/m1_release_evidence.py`, packaging fixes (peerhub-m1 entrypoint, jsonschema dependency, declared matrix), ci.yml matrix, publish.yml live gate. Tests: `tests/m1/package/`, `tests/m1/migration/test_{imp_legacy_importer,mig_003_cutover}.py`. Details docs/m1_impl/wave7_report.md; Q-W7-1..10 (OWNER: 1, 2, 3, 5). Review gate pending.
+- Wave 7 gate fixes (ag.pro): per-component importer idempotency (offsets added later import; conflicts reported), console encoding respected (errors=replace, lossless ASCII JSON), REL-012 dispatch check, REL-006 YAML mutations. Q-W7-11..13. Re-gate pending.

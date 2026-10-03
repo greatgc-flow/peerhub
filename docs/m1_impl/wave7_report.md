@@ -19,3 +19,8 @@ Importer: foreign-stream marker check off (survived first: group mismatch fell t
 ## Gate
 `tests/m1 tests/unit/m1` minus package/concurrency/fault/e2e: 430 passed; concurrency+fault+e2e+migration 126 passed 3x; package 46 passed + 14 CI-only skips (3 runs of 188-193 s). traceability --upto 7 ok (wave 7: 19/19); validate_package PASS (tracked evidence file unchanged).
 Not done: LIVE/SOAK (waves 8-9), CI matrix cells other than 3.14/Windows, real-adapter import data, cx final review. Pre-existing failure outside scope: tests/static/test_model_profiles_manifest.py (Q-W7-8).
+
+## Gate fixes (ag.pro BLOCK on 5465969; Q-W7-11..13)
+RED first: offsets added after import were skipped (3 new IMP-003 tests failed against the old importer, then green after per-component idempotency incl. os._exit crash points before/after commit and resume == clean import); console tests cover PYTHONIOENCODING cp1252/ascii/utf-8/cp949, explicit error handler, default cp949 pipe, lossless JSON. Added REL-012 dispatch check, REL-006 textual YAML mutations + gate linkage.
+Probes (foreground, restored): 8 run, 7 killed, 1 equivalent (INSERT OR REPLACE for offsets: the plan already excludes existing rows). Also killed: m1 schema package-data dropped, migrations sql package-data dropped, offset update skipped, legacy_ahead mislabelled, conflict ignored, force-utf-8, explicit error handler overridden.
+Gate: 433 (tests/m1+unit/m1 minus package/concurrency/fault/e2e), concurrency+fault+e2e 76 x3, package 60 passed + 14 CI-only skips; traceability --upto 7 ok; validate_package PASS. Stray reviewer repro files (src.db, test_offset.py, tgt.db) removed from the repo root.

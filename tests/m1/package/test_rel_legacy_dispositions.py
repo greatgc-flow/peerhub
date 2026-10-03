@@ -147,3 +147,19 @@ def test_rel_012_comparator_detects_a_new_legacy_command_added_to_the_real_parse
     assert len(leaves) == 110
     errs = compare(leaves, load_csv(), load_evidence())
     assert "unclassified legacy command: brand-new-command" in errs
+
+
+def test_rel_012_every_classified_command_is_actually_dispatchable_in_the_real_cli(capsys):
+    """Beyond the parser tree: each of the 109 recorded paths resolves through the shipped CLI entry (`<path> --help` exits 0),
+    and a path that is not a legacy command does not (positive and negative control)."""
+    import peerhub.cli
+
+    for row in load_csv():
+        with pytest.raises(SystemExit) as ei:
+            peerhub.cli.main([*row["command"].split(), "--help"])
+        assert ei.value.code == 0, row["command"]
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as bad:
+        peerhub.cli.main(["definitely-not-a-command", "--help"])
+    assert bad.value.code != 0
+    capsys.readouterr()

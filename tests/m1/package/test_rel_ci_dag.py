@@ -166,3 +166,66 @@ def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_p
     assert r.returncode == 0 and "1 passed" in r.stdout and "2 deselected" in r.stdout, r.stdout
     live = pkg_env.run([*base, "-m", "live"], cwd=t, env=pkg_env.clean_env())  # positive control: the marker really selects it
     assert live.returncode == 1 and "live test ran" in live.stdout
+
+
+# ----------------------------------------------------------------------------- REL-006 (textual YAML mutations + gate DAG linkage)
+PUBLISH_TEXT = (REPO / ".github/workflows/publish.yml").read_text(encoding="utf-8")
+GATE_JOB = {"G3": "live-validation", "G4": "build"}  # release-gates.json gate -> publish.yml job that provides it
+
+
+def _mutate(text, how):
+    if how == "continue_on_error":
+        out = text.replace("  live-validation:\n    runs-on", "  live-validation:\n    continue-on-error: true\n    runs-on", 1)
+    elif how == "needs_dropped":
+        out = text.replace("needs: [build, live-validation]", "needs: build", 1)
+    elif how == "live_not_needed_list":
+        out = text.replace("needs: [build, live-validation]", "needs: [build]", 1)
+    elif how == "always":
+        marker = "\n  publish:"
+        head, tail = text.split(marker, 1)  # the publish JOB's own condition (the build job has a step-level `if` too)
+        out = head + marker + tail.replace("if: github.event_name == 'release'", "if: always() && github.event_name == 'release'", 1)
+    elif how == "live_removed":
+        a = text.index("  live-validation:")
+        b = text.index("  build:")
+        out = text[:a] + text[b:]
+    else:
+        raise AssertionError(how)
+    assert out != text, how  # the mutation really changed the YAML text
+    return out
+
+
+@pytest.mark.parametrize("how", ["continue_on_error", "needs_dropped", "live_not_needed_list", "always"])
+def test_rel_006_textually_mutated_real_workflow_yaml_is_caught(how):
+    wf = yaml.safe_load(_mutate(PUBLISH_TEXT, how))
+    live_fail = {"live-validation": "failure", "build": "success"}
+    assert runs(yaml.safe_load(PUBLISH_TEXT), "publish", live_fail) is False  # control: the real file blocks
+    assert runs(wf, "publish", live_fail) is True  # the mutated file would publish despite a failed live gate
+    assert "live-validation" not in closure(wf, "publish") or how in ("continue_on_error", "always")
+
+
+def test_rel_006_removed_live_job_leaves_publish_unrunnable_and_gate_linkage_fails():
+    wf = yaml.safe_load(_mutate(PUBLISH_TEXT, "live_removed"))
+    assert runs(wf, "publish", {"build": "success"}) is False  # dangling needs -> fail closed
+    assert GATE_JOB["G3"] not in wf["jobs"]
+
+
+def test_rel_006_publish_workflow_provides_every_gate_release_gates_json_requires_before_publish():
+    import json
+
+    gates = {g["id"]: g for g in json.loads((REPO / "docs/m1_spec/08_LIFECYCLE/release-gates.json").read_text(encoding="utf-8"))["gates"]}
+    seen, stack = set(), list(gates["G5"]["depends_on"])
+    while stack:
+        g = stack.pop()
+        if g not in seen:
+            seen.add(g)
+            stack.extend(gates[g]["depends_on"])
+    wf = yaml.safe_load(PUBLISH_TEXT)
+    needed_here = {g for g in seen if g in GATE_JOB}  # gates whose evidence is produced inside the publish workflow
+    assert needed_here == {"G3", "G4"} and {"G0", "G1", "G2", "G7"} <= seen  # G0-G2 = ci.yml, G7 = evidence bundle (REL-007)
+    for g in needed_here:
+        job = GATE_JOB[g]
+        assert job in closure(wf, "publish"), f"publish does not wait for {g} ({job})"
+        assert wf["jobs"][job].get("continue-on-error") is not True
+        assert gates[g]["blocking"] is True and gates[g]["on_fail"] != "OBSERVE"
+    ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    assert "pytest" in yaml.safe_dump(ci["jobs"]["build"]) and not ci["jobs"]["build"].get("continue-on-error")  # G0-G2 runner is blocking
