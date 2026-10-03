@@ -14,13 +14,13 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Protocol
 
-from peerhub.extensions.bridge_claims import ClaimStore, ClaimToken, StaleClaimError
+from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
 from peerhub.m1.store import CasMismatchError, CoreStore
 
 NOT_STARTED, MAY_HAVE_STARTED, STARTED, TERMINAL = "NOT_STARTED", "MAY_HAVE_STARTED", "STARTED", "TERMINAL"
 _ALLOWED = {
     NOT_STARTED: {NOT_STARTED, MAY_HAVE_STARTED, STARTED},
-    MAY_HAVE_STARTED: {MAY_HAVE_STARTED},
+    MAY_HAVE_STARTED: {MAY_HAVE_STARTED, STARTED, TERMINAL},  # forward edges on late evidence only (D-W3-3)
     STARTED: {STARTED, TERMINAL},
     TERMINAL: {TERMINAL},
 }
@@ -32,6 +32,14 @@ class IllegalCertaintyTransition(ValueError):
 
 class TerminalConflictError(RuntimeError):
     """A different terminal result arrived for a delivery whose terminal truth is already committed (BRG-019)."""
+
+
+class InvalidTerminalResultError(ValueError):
+    """Terminal result is not a strict-JSON dict with a `response` key; rejected before anything is committed."""
+
+
+class OffsetAckConflictError(RuntimeError):
+    """Offset CAS conflicts exhausted the retry budget: the delivery is NOT acked (terminal truth stays, recovery re-acks)."""
 
 
 class NoDeliveryError(LookupError):
@@ -59,6 +67,7 @@ class RuntimeTarget(Protocol):
     resumable: bool
 
     def fingerprint(self) -> str: ...
+    def binding(self) -> str: ...  # model/profile binding; a mapping is only resumable under the same binding
     def create_session(self) -> str: ...
     def resume_session(self, external_session_id: str) -> str: ...  # "ok" | "missing" | "unsupported" | "rejected"
     def deliver(self, external_session_id: str, record: Any, catch_up: list) -> Iterable[tuple]: ...
@@ -99,8 +108,17 @@ _DDL = [
     """CREATE TRIGGER IF NOT EXISTS bridge_evidence_no_delete BEFORE DELETE ON bridge_evidence
         BEGIN SELECT RAISE(ABORT, 'bridge_evidence is append-only'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_terminal_immutable
-        BEFORE UPDATE OF certainty, result_json, result_digest ON bridge_deliveries WHEN OLD.certainty = 'TERMINAL'
+        BEFORE UPDATE OF certainty, result_json, result_digest, terminal_at ON bridge_deliveries WHEN OLD.certainty = 'TERMINAL'
         BEGIN SELECT RAISE(ABORT, 'terminal delivery is immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_session_events_no_update BEFORE UPDATE ON bridge_session_events
+        BEGIN SELECT RAISE(ABORT, 'bridge_session_events is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_session_events_no_delete BEFORE DELETE ON bridge_session_events
+        BEGIN SELECT RAISE(ABORT, 'bridge_session_events is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_no_delete BEFORE DELETE ON bridge_reconciliations
+        BEGIN SELECT RAISE(ABORT, 'bridge_reconciliations rows are never deleted'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_immutable
+        BEFORE UPDATE OF delivery_id, reconcile_record_id, decision ON bridge_reconciliations
+        BEGIN SELECT RAISE(ABORT, 'authorization is immutable'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_delete BEFORE DELETE ON bridge_deliveries
         BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never deleted'); END""",
 ]
@@ -116,11 +134,11 @@ def _iso(ts: float) -> str:
 
 class Bridge:
     def __init__(self, store: CoreStore, claims: ClaimStore, *, owner_id: str = "bridge-1", lease_sec: float = 30.0,
-                 max_session_attempts: int = 3, catch_up_limit: int = 100,
+                 max_session_attempts: int = 3, catch_up_limit: int = 100, ack_retries: int = 8,
                  fault_hook: Callable[[str], None] | None = None) -> None:
         self.store, self.claims = store, claims
         self.owner_id, self.lease_sec = owner_id, lease_sec
-        self.max_session_attempts, self.catch_up_limit = max_session_attempts, catch_up_limit
+        self.max_session_attempts, self.catch_up_limit, self.ack_retries = max_session_attempts, catch_up_limit, ack_retries
         self._hook = fault_hook
         with claims._tx() as conn:
             for stmt in _DDL:
@@ -137,10 +155,18 @@ class Bridge:
         conn.execute("INSERT INTO bridge_evidence (delivery_id, stream_id, peer_id, kind, certainty, detail) VALUES (?,?,?,?,?,?)",
                      (delivery_id, stream_id, peer_id, kind, certainty, json.dumps(detail, sort_keys=True, default=str)))
 
-    def _transition_in(self, conn: sqlite3.Connection, delivery_id: str, to: str, kind: str, **detail: Any) -> None:
+    @staticmethod
+    def _check_scope(row, token: ClaimToken) -> None:
+        if (row["stream_id"], row["peer_id"]) != (token.stream_id, token.peer_id):
+            raise ClaimScopeError(f"claim for ({token.peer_id}, {token.stream_id}) cannot mutate delivery {row['delivery_id']}")
+
+    def _transition_in(self, conn: sqlite3.Connection, delivery_id: str, to: str, kind: str, *,
+                       token: ClaimToken | None = None, **detail: Any) -> None:
         row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
         if row is None:
             raise NoDeliveryError(delivery_id)
+        if token is not None:
+            self._check_scope(row, token)  # BEFORE any mutation
         if to not in _ALLOWED.get(row["certainty"], set()):
             raise IllegalCertaintyTransition(f"{row['certainty']} -> {to} is forbidden (TD-11/TD-26)")
         if to != row["certainty"]:
@@ -150,7 +176,19 @@ class Bridge:
     def transition(self, token: ClaimToken, delivery_id: str, to: str, kind: str = "transition", **detail: Any) -> None:
         """Fenced certainty transition; forbidden transitions raise IllegalCertaintyTransition with no write."""
         with self.claims.fenced(token) as conn:
-            self._transition_in(conn, delivery_id, to, kind, **detail)
+            self._transition_in(conn, delivery_id, to, kind, token=token, **detail)
+
+    def _revert_prespawn(self, token: ClaimToken, delivery_id: str, error: str) -> None:
+        """The adapter explicitly reports failure BEFORE any spawn: the only permitted return to NOT_STARTED (TD-11 text:
+        pre-spawn failure is NOT_STARTED). Requires the invoke-marker state and no start evidence."""
+        with self.claims.fenced(token) as conn:
+            row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
+            self._check_scope(row, token)
+            if row["certainty"] == MAY_HAVE_STARTED and row["execution_id"] is None:
+                conn.execute("UPDATE bridge_deliveries SET certainty=? WHERE delivery_id=?", (NOT_STARTED, delivery_id))
+            elif row["certainty"] != NOT_STARTED:
+                raise IllegalCertaintyTransition(f"{row['certainty']} cannot be reverted by a pre-spawn failure")
+            self._evidence(conn, row["stream_id"], row["peer_id"], "prespawn_failure", delivery_id, NOT_STARTED, error=error)
 
     def begin_attempt(self, token: ClaimToken, record, *, reconcile_of: str | None = None) -> str:
         """Create (or, for NOT_STARTED retry, reuse) the attempt row for `record`; returns delivery_id."""
@@ -219,9 +257,10 @@ class Bridge:
     def _resolve_session(self, token: ClaimToken, runtime: RuntimeTarget, record) -> tuple[str, int] | None:
         m = self.current_mapping(token.peer_id, token.stream_id)
         fp = runtime.fingerprint()
+        bnd = runtime.binding()
         now = self.claims._clock()
         reason = None
-        if m is not None and m["adapter_fingerprint"] == fp and m["resumable"] and m["state"] in ("ACTIVE", "FRESH"):
+        if m is not None and m["adapter_fingerprint"] == fp and m["binding"] == bnd and m["resumable"] and m["state"] in ("ACTIVE", "FRESH"):
             try:
                 outcome = runtime.resume_session(m["external_session_id"])
             except SessionError:
@@ -241,7 +280,7 @@ class Bridge:
                 else:
                     self._session_event(conn, token, "resume_rejected", m["state"], "FRESH", m["session_generation"], outcome=outcome)
         elif m is not None:
-            reason = "fingerprint_change" if m["adapter_fingerprint"] != fp else ("not_resumable" if not m["resumable"] else m["state"].lower())
+            reason = "fingerprint_change" if m["adapter_fingerprint"] != fp else "binding_change" if m["binding"] != bnd else ("not_resumable" if not m["resumable"] else m["state"].lower())
             with self.claims.fenced(token) as conn:
                 self._session_event(conn, token, reason, m["state"], "FRESH", m["session_generation"])
         for i in range(self.max_session_attempts):
@@ -255,7 +294,7 @@ class Bridge:
             gen = 1 if m is None else m["session_generation"] + 1
             with self.claims.fenced(token) as conn:
                 conn.execute("INSERT OR REPLACE INTO bridge_sessions VALUES (?,?,?,?,?,?,?,?,?,?)",
-                             (token.stream_id, token.peer_id, runtime.runtime_kind, ext, gen, fp, "default",
+                             (token.stream_id, token.peer_id, runtime.runtime_kind, ext, gen, fp, bnd,
                               1 if runtime.resumable else 0, "ACTIVE" if m is None else "FRESH", now))
                 self._session_event(conn, token, "created" if m is None else "fresh_generation",
                                     "NONE" if m is None else ("LOST" if reason == "missing" else "ACTIVE"),
@@ -286,6 +325,14 @@ class Bridge:
         raise NoDeliveryError(f"record {record_id} not found")
 
     def run_cycle(self, token: ClaimToken, runtime: RuntimeTarget) -> CycleResult:
+        try:
+            return self._run_cycle(token, runtime)
+        except OffsetAckConflictError as e:  # never report delivered/acked; terminal truth stays, next cycle re-acks
+            infl = self._inflight(token)
+            return CycleResult("ack_failed", infl["record_id"] if infl else None, infl["delivery_id"] if infl else None,
+                               TERMINAL, detail={"error": str(e)})
+
+    def _run_cycle(self, token: ClaimToken, runtime: RuntimeTarget) -> CycleResult:
         peer, stream = token.peer_id, token.stream_id
         infl = self._inflight(token)
         reconcile_of = None
@@ -305,6 +352,9 @@ class Bridge:
             rec = self._next_record(token)
             if rec is None:
                 return CycleResult("idle")
+        if infl is None and (rec.kind.startswith("control.") or rec.kind == "context.boundary"):
+            # D-W3-7: no ordinary-message fallback; unsupported control Records stay pending (no attempt, no runtime call, no ack)
+            return CycleResult("pending_control", rec.record_id, detail={"kind": rec.kind})
         did = self.begin_attempt(token, rec, reconcile_of=reconcile_of)
         sess = self._resolve_session(token, runtime, rec)
         if sess is None:
@@ -339,6 +389,9 @@ class Bridge:
         started = False
         terminal: Any = None
         have_terminal = False
+        # TD-11: durable 'about to invoke' marker BEFORE the runtime can possibly act; a crash from here on is MAY_HAVE_STARTED
+        self.transition(token, did, MAY_HAVE_STARTED, "about_to_invoke", external_session_id=ext, session_generation=gen)
+        self._fire("bridge.before_runtime_invoke")
         try:
             for ev in runtime.deliver(ext, rec, catch_up):
                 try:
@@ -369,7 +422,7 @@ class Bridge:
             if started:
                 self._note(token, did, "runtime_error", STARTED, error=str(e))
                 return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen)
-            self.transition(token, did, NOT_STARTED, "prespawn_failure", error=str(e))
+            self._revert_prespawn(token, did, str(e))
             return CycleResult("failed_not_started", rec.record_id, did, NOT_STARTED, session_generation=gen, detail={"error": str(e)})
         except RuntimeTargetError as e:
             if not started:
@@ -397,20 +450,35 @@ class Bridge:
         outcome: str  # first | duplicate
         response_record_id: str | None
 
-    def finalize_terminal(self, token: ClaimToken, result: dict) -> "Bridge.FinalizeOutcome":
+    @staticmethod
+    def _validate_result(result: Any) -> str:
+        if not isinstance(result, dict) or "response" not in result:
+            raise InvalidTerminalResultError("terminal result must be a dict with a 'response' key")
+        try:
+            return _digest(result)
+        except (TypeError, ValueError) as e:
+            raise InvalidTerminalResultError(f"terminal result is not strict JSON: {e}") from e
+
+    def latest_delivery_id(self, token: ClaimToken) -> str | None:
         with self.claims._tx() as conn:
-            row = conn.execute("SELECT delivery_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
-                               (token.stream_id, token.peer_id)).fetchone()
-        if row is None:
-            raise NoDeliveryError("no delivery for claim scope")
-        return self._finalize(token, row["delivery_id"], result)
+            r = conn.execute("SELECT delivery_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
+                             (token.stream_id, token.peer_id)).fetchone()
+        return r[0] if r else None
+
+    def finalize_terminal(self, token: ClaimToken, result: dict, delivery_id: str) -> "Bridge.FinalizeOutcome":
+        """Callbacks are bound to the delivery_id they belong to (never inferred from 'newest')."""
+        self._validate_result(result)
+        return self._finalize(token, delivery_id, result)
 
     def _finalize(self, token: ClaimToken, did: str, result: dict) -> "Bridge.FinalizeOutcome":
-        dig = _digest(result)
+        dig = self._validate_result(result)  # before anything is committed
         conflict = False
         try:
             with self.claims.fenced(token) as conn:
                 row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+                if row is None:
+                    raise NoDeliveryError(did)
+                self._check_scope(row, token)
                 if row["certainty"] == TERMINAL:
                     if row["result_digest"] == dig:
                         outcome = "duplicate"
@@ -423,7 +491,7 @@ class Bridge:
                     conn.execute("UPDATE bridge_deliveries SET result_json=?, result_digest=?, terminal_at=? WHERE delivery_id=?",
                                  (json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False), dig,
                                   _iso(self.claims._clock()), did))
-                    self._transition_in(conn, did, TERMINAL, "terminal", digest=dig)  # illegal source state rolls the tx back
+                    self._transition_in(conn, did, TERMINAL, "terminal", token=token, digest=dig)  # illegal source state rolls the tx back
                     outcome = "first"
         except StaleClaimError as e:
             self._late(token, did, "stale_terminal_callback", digest=dig, error=str(e))
@@ -438,6 +506,7 @@ class Bridge:
         """Idempotent: append the response Record (fenced, idempotency key), then ack the Offset; each step safe to repeat."""
         with self.claims._tx() as conn:
             d = dict(conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone())
+        self._check_scope(d, token)
         result = json.loads(d["result_json"])
         resp = self.store.append_record(
             guard=self.claims.guard(token), stream_id=d["stream_id"], author_peer_id=d["peer_id"], kind="response",
@@ -448,7 +517,7 @@ class Bridge:
                             (resp.record_id, did)).rowcount:
                 self._evidence(conn, d["stream_id"], d["peer_id"], "response_appended", did, TERMINAL, record_id=resp.record_id)
         self._fire("bridge.after_terminal_evidence_before_offset_ack")
-        for _ in range(8):
+        for _ in range(self.ack_retries):
             off = self.store.get_offset(d["peer_id"], d["stream_id"])
             if off.read_through_position >= d["record_position"]:
                 break
@@ -458,6 +527,9 @@ class Bridge:
                 break
             except CasMismatchError:
                 continue
+        else:
+            if self.store.get_offset(d["peer_id"], d["stream_id"]).read_through_position < d["record_position"]:
+                raise OffsetAckConflictError(f"offset CAS conflicted {self.ack_retries} times for {did}; delivery NOT acked")
         with self.claims.fenced(token) as conn:
             if conn.execute("UPDATE bridge_deliveries SET acked=1 WHERE delivery_id=? AND acked=0", (did,)).rowcount:
                 self._evidence(conn, d["stream_id"], d["peer_id"], "offset_acked", did, TERMINAL, position=d["record_position"])
@@ -466,20 +538,25 @@ class Bridge:
     # ------------------------------------------------------------------ reconciliation (TD-26, CERT-002/003)
     def reconcile_uncertain(self, record_id: str, reconciliation_record) -> dict:
         """Register a durable control.reconcile RETRY for the uncertain delivery of `record_id`; idempotent, one authorization per delivery."""
-        rr = reconciliation_record
-        body = rr.body if isinstance(rr.body, dict) else {}
-        if rr.kind != "control.reconcile":
-            raise ReconcileRejectedError(f"kind {rr.kind!r} is not control.reconcile")
+        # authenticate against the PERSISTED Record only; the caller's object contributes nothing but its id
+        with self.claims._tx() as conn:
+            pr = conn.execute("SELECT * FROM records WHERE record_id=?", (getattr(reconciliation_record, "record_id", None),)).fetchone()
+        if pr is None:
+            raise ReconcileRejectedError("reconciliation Record is not durable")
+        if pr["kind"] != "control.reconcile":
+            raise ReconcileRejectedError(f"persisted kind {pr['kind']!r} is not control.reconcile")
+        body = json.loads(pr["body_json"])
+        body = body if isinstance(body, dict) else {}
         if body.get("decision") != "RETRY":
             raise ReconcileRejectedError(f"decision {body.get('decision')!r} is not authorized in M1 (only RETRY, TD-26)")
-        durable = [r for r in self.store.read_records(rr.stream_id, rr.position - 1, 1) if r.record_id == rr.record_id]
-        if not durable:
-            raise ReconcileRejectedError("reconciliation Record is not durable in its Stream")
+        rr = type("Persisted", (), {"record_id": pr["record_id"], "stream_id": pr["stream_id"], "author": pr["author_peer_id"]})
         did = body.get("delivery_id")
         with self.claims._tx() as conn:
             d = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
             if d is None or d["record_id"] != record_id or d["stream_id"] != rr.stream_id:
                 raise ReconcileRejectedError("reconcile does not reference a delivery of this Record in this Stream")
+            if rr.author == d["peer_id"]:
+                raise ReconcileRejectedError("the bridged peer cannot authorize its own retry")
             if d["certainty"] != MAY_HAVE_STARTED:
                 raise ReconcileRejectedError(f"delivery is {d['certainty']}; only MAY_HAVE_STARTED can be reconciled")
             conn.execute("INSERT OR IGNORE INTO bridge_reconciliations (delivery_id, reconcile_record_id, decision) VALUES (?,?,?)",

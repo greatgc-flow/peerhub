@@ -33,7 +33,7 @@ def test_brg_002_no_mapping_creates_fresh_generation_1(bridge_h):
     assert res.status == "delivered" and res.session_generation == 1
     assert [c[0] for c in rt.calls] == ["create", "deliver"]  # created, never resumed
     assert rt.calls[1][1:3] == ("ext-1", rec.record_id)
-    assert _session_rows(bridge_h) == [("b", "s", "fake", "ext-1", 1, "F1", "default", 1, "ACTIVE", bridge_h.clock.now())]
+    assert _session_rows(bridge_h) == [("b", "s", "fake", "ext-1", 1, "F1", "model-a/profile-1", 1, "ACTIVE", bridge_h.clock.now())]
     assert _events(bridge_h) == [("created", "NONE", "ACTIVE", 1)]  # STM-040 NONE -> ACTIVE
 
 
@@ -99,7 +99,7 @@ def test_brg_005_fingerprint_change_forces_fresh_generation(bridge_h):
     assert ("resume", "ext-1") not in rt.calls  # the old external session is NOT blindly resumed
     assert [c for c in rt.calls if c[0] == "deliver"][1][1] == "ext-2"
     row = _session_rows(bridge_h)[0]
-    assert row[3:7] == ("ext-2", 2, "F2", "default") and row[8] == "FRESH"
+    assert row[3:7] == ("ext-2", 2, "F2", "model-a/profile-1") and row[8] == "FRESH"
     assert _events(bridge_h)[-2:] == [("fingerprint_change", "ACTIVE", "FRESH", 1), ("fresh_generation", "ACTIVE", "FRESH", 2)]
     # positive control: same fingerprint afterwards resumes the new generation
     _add(bridge_h, "third")
@@ -214,7 +214,7 @@ def test_brg_018_session_mapping_survives_reopen_exactly(bridge_h):
     rt.set_fingerprint("F2")
     bridge_h.clock.advance(7)
     bridge_h.delivery_cycle("b", "s", rt)  # mapping is now generation 2 (G != 1 so a recreate would be visible)
-    expected = [("b", "s", "fake", "ext-2", 2, "F2", "default", 1, "FRESH", bridge_h.clock.now())]  # independent oracle
+    expected = [("b", "s", "fake", "ext-2", 2, "F2", "model-a/profile-1", 1, "FRESH", bridge_h.clock.now())]  # independent oracle
     assert _session_rows(bridge_h) == expected
     before = bridge_h.current_mapping("b", "s")
     reopened = BridgeHarness(bridge_h.workspace, bridge_h.clock)  # fresh store/claim/bridge instances on the same files

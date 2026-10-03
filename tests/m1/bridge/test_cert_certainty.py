@@ -14,7 +14,8 @@ from tests.m1.helpers import req
 NS, MAY, ST, TERM = "NOT_STARTED", "MAY_HAVE_STARTED", "STARTED", "TERMINAL"
 STATES = (NS, MAY, ST, TERM)
 # Independent oracle (STATE_MACHINE_COVERAGE.json STM-030..038 + TD-11 "never downgrades"): the ONLY legal edges.
-LEGAL = {(NS, NS), (NS, MAY), (NS, ST), (ST, ST), (ST, TERM), (MAY, MAY), (TERM, TERM)}
+# D-W3-3: forward edges on late evidence (MAY->STARTED/TERMINAL) are legal; downgrades and TERMINAL overwrites are not.
+LEGAL = {(NS, NS), (NS, MAY), (NS, ST), (ST, ST), (ST, TERM), (MAY, MAY), (MAY, ST), (MAY, TERM), (TERM, TERM)}
 
 
 def _reconcile(h, did, decision="RETRY", kind="control.reconcile", key="rc1", stream="s"):

@@ -49,8 +49,8 @@ class BridgeHarness(CoreHarness):
     def execution_evidence(self, record_id, peer_id):
         return self.bridge.execution_evidence(record_id, peer_id)
 
-    def finalize_terminal(self, claim_token, result):
-        return self.bridge.finalize_terminal(claim_token, result)
+    def finalize_terminal(self, claim_token, result, delivery_id=None):
+        return self.bridge.finalize_terminal(claim_token, result, delivery_id or self.bridge.latest_delivery_id(claim_token))
 
     def handle_control(self, record_id, runtime_target):  # Wave 4 (CTL)
         raise NotImplementedError("handle_control arrives with Wave 4")

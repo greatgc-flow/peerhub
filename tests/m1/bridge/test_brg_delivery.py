@@ -35,7 +35,7 @@ def test_brg_006_response_record_commits_before_offset_ack(tmp_path):
     res = h.delivery_cycle("b", "s", rt)
     assert res.status == "delivered" and res.certainty == "TERMINAL"
     did = _delivery_id(h, rec)
-    assert kinds(h, did) == ["attempt_created", "started", "terminal", "response_appended", "offset_acked"]  # event-log order
+    assert kinds(h, did) == ["attempt_created", "about_to_invoke", "started", "terminal", "response_appended", "offset_acked"]  # event-log order
     assert seen["resp_at_ack"] == [1]  # the response Record was already durable when the ack began
     (resp,) = responses(h)
     assert resp[2:4] == ("b", "response") and json.loads(resp[4]) == "pong" and resp[5] == rec.record_id
@@ -65,7 +65,7 @@ def test_brg_007_execution_evidence_records_certainty_and_runtime_ids(bridge_h):
         ("TERMINAL", "exec-9", "ext-1", 1, 1)
     # independent oracle: the scripted lifecycle NOT_STARTED -> STARTED -> TERMINAL, in order
     assert [(e["kind"], e["certainty"]) for e in ev["events"]] == [
-        ("attempt_created", "NOT_STARTED"), ("started", "STARTED"), ("output", "STARTED"), ("output", "STARTED"),
+        ("attempt_created", "NOT_STARTED"), ("about_to_invoke", "MAY_HAVE_STARTED"), ("started", "STARTED"), ("output", "STARTED"), ("output", "STARTED"),
         ("terminal", "TERMINAL"), ("response_appended", "TERMINAL"), ("offset_acked", "TERMINAL")]
     started = [e for e in ev["events"] if e["kind"] == "started"][0]["detail"]
     assert started == {"execution_id": "exec-9", "external_session_id": "ext-1", "session_generation": 1}
@@ -130,7 +130,7 @@ def test_brg_013_partial_output_then_crash_fabricates_no_terminal(tmp_path):
     with pytest.raises(CrashInjected):
         h.delivery_cycle("b", "s", rt)
     did = _delivery_id(h, rec)
-    assert kinds(h, did) == ["attempt_created", "started", "output"]  # start + first partial persisted, nothing after the crash
+    assert kinds(h, did) == ["attempt_created", "about_to_invoke", "started", "output"]  # start + first partial persisted, nothing after the crash
     assert [r[3] for r in records(h)] == ["message"] and offset_row(h) == (0, 1)  # no terminal response Record
     assert delivery_rows(h, rec.record_id)[0][7] == "STARTED"
     h2 = BridgeHarness(tmp_path / "ws", h.clock)  # recovery
@@ -187,6 +187,7 @@ def test_brg_014_duplicate_terminal_callbacks_finalize_once(bridge_h):
         bridge_h.delivery_cycle("b", st, rt)
         tok = bridge_h.acquire_claim("b", st, "bridge-1")
         assert tok.generation == 1
+        did = delivery_rows(bridge_h, rec[0])[0][0]
         n = 3 if rnd % 2 else 2
         barrier = threading.Barrier(n, timeout=30)
         bridges = [bridge_h.new_bridge("bridge-1") for _ in range(n)]
@@ -194,7 +195,7 @@ def test_brg_014_duplicate_terminal_callbacks_finalize_once(bridge_h):
         def cb(b):
             def run():
                 barrier.wait()
-                return b.finalize_terminal(tok, {"response": "R1"})
+                return b.finalize_terminal(tok, {"response": "R1"}, did)
             return run
 
         outs = run_threads([cb(b) for b in bridges])
@@ -244,13 +245,14 @@ def test_brg_019_concurrent_conflicting_terminals_exactly_one_wins(bridge_h):
         rt.script_deliver(("started", "e1"), ("output", "partial"))
         bridge_h.delivery_cycle("b", st, rt)
         tok = bridge_h.acquire_claim("b", st, "bridge-1")
+        did = delivery_rows(bridge_h, rec[0])[0][0]
         barrier = threading.Barrier(2, timeout=30)
         bridges = [bridge_h.new_bridge("bridge-1") for _ in range(2)]
 
         def cb(b, val):
             def run():
                 barrier.wait()
-                return b.finalize_terminal(tok, {"response": val})
+                return b.finalize_terminal(tok, {"response": val}, did)
             return run
 
         out = run_threads([cb(bridges[0], "R1"), cb(bridges[1], "R2")])

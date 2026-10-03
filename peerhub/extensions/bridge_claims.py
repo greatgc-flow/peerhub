@@ -71,6 +71,10 @@ class ClaimStore:
         with self._tx() as conn:
             conn.execute(_DDL)
             conn.execute(_DDL_FINAL)
+            conn.execute("CREATE TRIGGER IF NOT EXISTS bridge_finalizations_no_update BEFORE UPDATE ON bridge_finalizations "
+                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
+            conn.execute("CREATE TRIGGER IF NOT EXISTS bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations "
+                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
 
     @contextmanager
     def _tx(self):
@@ -78,6 +82,7 @@ class ClaimStore:
         conn.row_factory = sqlite3.Row
         try:
             conn.execute("PRAGMA busy_timeout = 30000;")
+            conn.execute("PRAGMA recursive_triggers = ON;")  # INSERT OR REPLACE must fire the immutability triggers
             conn.execute("BEGIN IMMEDIATE")
             try:
                 yield conn

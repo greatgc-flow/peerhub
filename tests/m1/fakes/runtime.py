@@ -10,8 +10,9 @@ from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError, Session
 class FakeRuntimeTarget:
     runtime_kind = "fake"
 
-    def __init__(self, fingerprint: str = "F1", resumable: bool = True) -> None:
+    def __init__(self, fingerprint: str = "F1", resumable: bool = True, binding: str = "model-a/profile-1") -> None:
         self._fp = fingerprint
+        self._binding = binding
         self.resumable = resumable
         self.calls: list[tuple] = []  # ordered: ("create",) ("resume", id) ("deliver", session, record_id, n_catch_up)
         self.sessions: set[str] = set()
@@ -43,6 +44,12 @@ class FakeRuntimeTarget:
         return sum(1 for c in self.calls if c[0] == name)
 
     # --- RuntimeTarget
+    def set_binding(self, b: str) -> None:
+        self._binding = b
+
+    def binding(self) -> str:
+        return self._binding
+
     def fingerprint(self) -> str:
         return self._fp
 

@@ -58,3 +58,4 @@
 
 ## Wave 3 (2026-10-03)
 - Wave 3: 22/22 catalog ids green (CLM-001..003, CERT-001..003, BRG-002..007, 010..019); tests/m1/bridge/*, fakes tests/m1/fakes, harness tests/m1/harness/bridge.py; production peerhub/extensions/bridge.py (+ `renew`/`fenced` on bridge_claims.py). 188 passed in tests/m1 + tests/unit/m1; bridge+concurrency set 3x stable (71 each); traceability --upto 3 ok; validate_package PASS. Details docs/m1_impl/wave3_report.md; Q-W3-1..7 in OPEN_QUESTIONS.md. Review gate pending.
+- Wave 3 gate fixes (cx.pro BLOCK, D-W3-1..7): invoke marker, scope/callback binding, authenticated reconcile, no false ack, REPLACE-proof triggers, binding, pending control Records. 212 passed; bridge+concurrency 3x stable (95); traceability --upto 3 ok; validate PASS. Q-W3-8/9 added. Re-gate pending.
