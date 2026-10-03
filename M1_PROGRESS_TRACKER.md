@@ -78,3 +78,6 @@
 ## Wave 7 (2026-10-04)
 - Wave 7: 19/19 catalog ids green (REL-001..014, IMP-001..004, MIG-003). Production: `peerhub/m1/legacy_import.py` (importer), `schema_version.py`, CLI `legacy-import` + exit 6/7, store `transaction()`/`_insert_record`, `tools/m1_release_evidence.py`, packaging fixes (peerhub-m1 entrypoint, jsonschema dependency, declared matrix), ci.yml matrix, publish.yml live gate. Tests: `tests/m1/package/`, `tests/m1/migration/test_{imp_legacy_importer,mig_003_cutover}.py`. Details docs/m1_impl/wave7_report.md; Q-W7-1..10 (OWNER: 1, 2, 3, 5). Review gate pending.
 - Wave 7 gate fixes (ag.pro): per-component importer idempotency (offsets added later import; conflicts reported), console encoding respected (errors=replace, lossless ASCII JSON), REL-012 dispatch check, REL-006 YAML mutations. Q-W7-11..13. Re-gate pending.
+
+## Wave 8 + T1 (2026-10-04)
+- Wave 8: 6/6 catalog ids present (LIVE-CC-001/CX-001/AG-001, LIVE-004/005/006); live canary run once manually: cc 2.1.288, ag 1.2.16, cx 0.160.0 all delivered/TERMINAL, project tree unchanged; evidence `docs/m1_impl/live_evidence/2026-10-03.json`. T1: real adapters `peerhub/extensions/adapters/` (cc/cx/ag), 40 offline tests with fake CLIs, 14/14 probes killed. Q-W8-1..7 (OWNER: no real resume, no interrupt/steer). Details in wave8_report.md. Not done: SOAK, cx final review.

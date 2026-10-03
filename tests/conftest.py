@@ -37,7 +37,7 @@ def _no_real_peer_binaries_by_default(request: pytest.FixtureRequest, monkeypatc
     that class of leak has to be closed per-test by isolating `_sys` or
     mocking `_refresh_usage_projections`, as the other tests here already do.
     """
-    if request.node.get_closest_marker("slow") or request.node.get_closest_marker("e2e"):
+    if any(request.node.get_closest_marker(m) for m in ("slow", "e2e", "live")):  # live: M1 Wave 8 canary (opt-in)
         return
     monkeypatch.setattr(
         "peerhub.telemetry.quota_polling.shutil.which", lambda name: None, raising=False
