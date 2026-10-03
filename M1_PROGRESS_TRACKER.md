@@ -55,3 +55,6 @@
 
 ## Wave 2 (2026-10-03)
 - Wave 2: 28/28 catalog ids green (SQL-001..011, CON-001..011, MP-001..004, MIG-001/002); tests/m1/{integration,concurrency,migration}; details docs/m1_impl/wave2_report.md. 134 tests passed in tests/m1 + tests/unit/m1 (after cx.pro gate fixes); concurrency/MP run 3x stable; traceability --upto 2 ok; validate_package PASS. Review gate pending; Q-W2-1..6 in OPEN_QUESTIONS.md.
+
+## Wave 3 (2026-10-03)
+- Wave 3: 22/22 catalog ids green (CLM-001..003, CERT-001..003, BRG-002..007, 010..019); tests/m1/bridge/*, fakes tests/m1/fakes, harness tests/m1/harness/bridge.py; production peerhub/extensions/bridge.py (+ `renew`/`fenced` on bridge_claims.py). 188 passed in tests/m1 + tests/unit/m1; bridge+concurrency set 3x stable (71 each); traceability --upto 3 ok; validate_package PASS. Details docs/m1_impl/wave3_report.md; Q-W3-1..7 in OPEN_QUESTIONS.md. Review gate pending.

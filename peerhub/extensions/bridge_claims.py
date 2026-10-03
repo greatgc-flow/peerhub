@@ -131,6 +131,17 @@ class ClaimStore:
                          (self._clock() + row["lease_sec"], token.stream_id, token.peer_id))
         return token
 
+    def renew(self, token: ClaimToken) -> ClaimToken:
+        """Extend the current claim before expiry; generation is unchanged (CLM-001). Expired/superseded -> StaleClaimError."""
+        return self.heartbeat(token)
+
+    @contextmanager
+    def fenced(self, token: ClaimToken):
+        """Write transaction that first verifies the current token (TD-25); raising inside rolls everything back."""
+        with self._tx() as conn:
+            self._check(conn, token)
+            yield conn
+
     def assert_current(self, token: ClaimToken) -> None:
         with self._tx() as conn:
             self._check(conn, token)
