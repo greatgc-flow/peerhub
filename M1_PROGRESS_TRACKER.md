@@ -66,3 +66,7 @@
 - Wave 4 re-gate fixes (D-W4-8b/2b/5b/9b): history-based fresh bootstrap within budget, gate before first creation, full boundary payload validation, latest-by-position RETRY. control 119 (3x), concurrency 17 (3x), other dirs green, traceability --upto 4 ok, validate PASS.
 - Wave 4 re-gate 3 fixes: boundary metadata verified against recomputed projection, authorization INSERT/move triggers fully validated, triggers re-installed on reopen (bridge + claims). control 127 (3x), concurrency 17 (3x), other dirs green, traceability --upto 4 ok, validate PASS.
 - Wave 4 re-gate 4 (ag.pro): 4 real claims fixed (consumed_attempt write-once, boundary tied to first delivery, legacy triggers dropped on reopen, pinned redirects budget-bounded), claim 5 shown false. control 134 (3x), concurrency 17 (3x), other dirs green, traceability --upto 4 ok, validate PASS.
+
+
+## Wave 5 (2026-10-04)
+- Wave 5: 30/30 catalog ids green (OBS-001..018, DIA-001..010, READ-001/002). Production: `peerhub/extensions/{observation_model,observation,diag}.py` (ReadonlyDiag split into its own module; old `observation_and_diag.py` removed), schema copies in `peerhub/extensions/schemas/`. Tests: `tests/m1/{observation,diag}/`, `tests/m1/concurrency/test_dia_snapshot.py`, `tests/m1/core/test_read_boundaries.py`, ARCH-004 at module level. D-W0-2 / D-W0-4 closed. Details docs/m1_impl/wave5_report.md; Q-W5-1..13 in OPEN_QUESTIONS.md. Review gate pending.

@@ -105,28 +105,82 @@ def test_arch_003_no_vendor_peer_cardinality_ceiling(harness):
     assert len(harness.get_stream("wide2").members) == 16
 
 
+DIAG_MOD = "peerhub.extensions.diag"
+DIAG_ALLOWED_INTERNAL = {"peerhub.extensions.observation_model", "peerhub.m1.models"}  # pure models + freshness evaluation (no store, no writers)
+DIAG_BANNED_STDLIB = {"subprocess", "socket", "shutil", "multiprocessing", "threading", "os", "tempfile", "ctypes", "http", "urllib",
+                      "asyncio", "signal", "pty", "webbrowser", "smtplib", "ftplib", "pickle", "shelve"}
+DIAG_BANNED_NAMES = {"CoreStore", "ObservationStore", "SessionBridge", "Bridge", "ClaimStore", "register_peer", "create_stream", "append_record",
+                     "advance_offset_cas", "cas_stream", "record_observation", "capture", "persist", "register_resource_pool", "run_migrations",
+                     "subprocess", "Popen", "executescript", "executemany", "system", "remove", "unlink", "rename", "chmod", "write_text",
+                     "write_bytes", "rmtree", "commit"}
+WRITE_SQL = {"INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER", "REPLACE", "VACUUM", "REINDEX", "ATTACH", "DETACH", "SAVEPOINT", "RELEASE"}
+
+
+def diag_module_violations(text: str, mod: str = DIAG_MOD) -> list[str]:
+    """Module-level ARCH-004 rule (D-W0-4): the WHOLE Diag module, not one class, may only read."""
+    import sys
+
+    tree = ast.parse(text)
+    bad: list[str] = []
+    for n in ast.walk(tree):
+        names: list[str] = []
+        if isinstance(n, ast.Import):
+            names = [a.name for a in n.names]
+        elif isinstance(n, ast.ImportFrom):
+            root = n.module or ""
+            if n.level:
+                bad.append(f"relative import {root!r}")
+                continue
+            names = [root] + [f"{root}.{a.name}" for a in n.names if root.startswith("peerhub")]
+        for name in names:
+            top = name.split(".")[0]
+            if top == "peerhub":
+                if not any(name == a or name.startswith(a + ".") for a in DIAG_ALLOWED_INTERNAL):
+                    bad.append(f"internal import {name}")
+            elif top in DIAG_BANNED_STDLIB or top not in sys.stdlib_module_names and top not in ("pydantic",):
+                bad.append(f"import {name}")
+    ids = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    bad += [f"name {x}" for x in sorted(ids & DIAG_BANNED_NAMES)]
+    for s in (n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)):
+        words = s.upper().replace("(", " ").split()
+        if len(words) > 1 and words[0] in WRITE_SQL:
+            bad.append(f"write SQL {s[:40]!r}")
+        if words[:2] == ["BEGIN", "IMMEDIATE"] or words[:2] == ["BEGIN", "EXCLUSIVE"]:
+            bad.append(f"write transaction {s[:40]!r}")
+    for n in ast.walk(tree):  # every open() must be read-only; every sqlite3.connect must be mode=ro
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "open":
+            modes = [a.value for a in n.args[1:2] if isinstance(a, ast.Constant)] + [k.value.value for k in n.keywords if k.arg == "mode" and isinstance(k.value, ast.Constant)]
+            if any(set(str(m)) & set("wax+") for m in modes):
+                bad.append("writable open()")
+    if text.count("sqlite3.connect(") != text.count("mode=ro") or text.count("sqlite3.connect(") < 1:
+        bad.append("sqlite3.connect without mode=ro (or no connect)")
+    return bad
+
+
 @pytest.mark.m1_id("ARCH-004")
 def test_arch_004_diag_dependency_surface_is_read_only():
-    path = ROOT / "peerhub/extensions/observation_and_diag.py"
+    path = ROOT / "peerhub/extensions/diag.py"
+    assert path.exists() and not (ROOT / "peerhub/extensions/observation_and_diag.py").exists()  # ReadonlyDiag owns its module (D-W0-4)
     text = path.read_text(encoding="utf-8")
+    assert diag_module_violations(text) == []
+    assert "class ReadonlyDiag" in text and "class ObservationStore" not in text
+    # the checker itself rejects each kind of violation (a checker that accepts everything would make this test vacuous)
+    mutants = {"internal import": "from peerhub.extensions.observation import ObservationStore\n",
+               "stdlib import": "import subprocess\n",
+               "store import": "from peerhub.m1.store import CoreStore\n",
+               "write sql": "X = 'INSERT INTO t VALUES (1)'\n",
+               "begin immediate": "X = 'BEGIN IMMEDIATE'\n",
+               "writable open": "f = open('x', 'w')\n",
+               "rw connect": "import sqlite3\nc = sqlite3.connect('x')\n",
+               "banned call": "def f(s):\n    s.append_record()\n"}
+    for label, extra in mutants.items():
+        assert diag_module_violations(text + chr(10) + extra), label
+    # positive control for the checker: harmless additions are still accepted
+    assert diag_module_violations(text + chr(10) + "import hashlib" + chr(10) + "Y = 'SELECT 1'" + chr(10)) == []
+    # every non-dunder public method of ReadonlyDiag is a reader
     tree = ast.parse(text)
     cls = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ReadonlyDiag")
-    init = next(n for n in cls.body if isinstance(n, ast.FunctionDef) and n.name == "__init__")
-    ann = {a.arg: ast.unparse(a.annotation) for a in init.args.args if a.arg != "self" and a.annotation}
-    assert ann and all(v in ("str | Path", "str", "Path") for v in ann.values()), ann
-    names = {n.id for n in ast.walk(cls) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(cls) if isinstance(n, ast.Attribute)}
-    banned = {"CoreStore", "ObservationStore", "SessionBridge", "register_peer", "create_stream", "append_record",
-              "advance_offset_cas", "record_observation", "subprocess", "Popen", "executescript"}
-    assert not (names & banned), names & banned
-    for s in (n.value for n in ast.walk(cls) if isinstance(n, ast.Constant) and isinstance(n.value, str)):
-        first = s.strip().split(None, 1)[0].upper() if s.strip() else ""
-        assert first not in {"INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "ALTER", "REPLACE"}, s
-    src = ast.get_source_segment(text, cls)
-    assert src.count("sqlite3.connect(") == src.count("mode=ro") >= 1
-    imps = _imports(path, "peerhub.extensions.observation_and_diag")
-    assert not [i for i in imps if i.startswith((
-        "peerhub.extensions.session_bridge", "peerhub.adapters", "peerhub.dispatch", "peerhub.application",
-        "peerhub.runtime", "peerhub.m1.store", "subprocess"))]
+    assert {n.name for n in cls.body if isinstance(n, ast.FunctionDef) and not n.name.startswith("_")} == {"render", "inspect_stream_health"}
 
 
 @pytest.mark.m1_id("ARCH-005")

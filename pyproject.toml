@@ -51,6 +51,7 @@ include = ["peerhub*"]
 "peerhub.persistence.migrations" = ["*.sql"]
 "peerhub.config_data" = ["*.toml"]
 "peerhub.m1" = ["schemas/*.json"]
+"peerhub.extensions" = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

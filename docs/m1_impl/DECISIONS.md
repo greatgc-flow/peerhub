@@ -59,3 +59,10 @@
 ## Wave 4 closed (orchestrator, 2026-10-04) at 14c9e6e
 - cx.pro blocked 3 rounds; ag.pro adversarial gate found 5 claims (4 real, fixed; claim 5 refuted with evidence: recovery reads bridge_controls, not the unread window). No further per-wave re-gate (diminishing returns); cx.pro final review covers waves 0-7 once (see CX_FINAL_CHECKLIST.md).
 - OWNER items accumulated: Q-W4-11 (boundary budget change after restart conflicts), Q-W4-12 (pins make the fresh projection non-contiguous), CTX-001 'after Offset' wording, cancel semantics, control precedence.
+
+
+## Wave 5 (orchestrator, 2026-10-04): decisions taken while implementing (see OPEN_QUESTIONS.md Q-W5-*)
+- D-W5-1: Observation + Diag share the workspace SQLite file (one snapshot, real FK); catalog `e2e`-tier OBS-013/014 and DIA-010 stay in the default gate (integration marker), as BRG-015 (D-W3-1).
+- D-W5-2 (D-W0-4 closed): ReadonlyDiag has its own module `peerhub/extensions/diag.py`; ARCH-004 now checks the WHOLE module (imports allow-list: stdlib minus process/OS/network modules + `observation_model` + `m1.models`; banned writer names; SQL literals; `open()` modes; every `sqlite3.connect` is read-only URI) and the checker itself is mutation-tested.
+- D-W5-3 (D-W0-2 closed): Observation / Resource Pool wire parsing has persistence assertions (rejections leave full state digest, row counts and table digests unchanged; positive controls prove the ports write).
+- D-W5-4 (TD-13/TD-23): freshness/latest clock = local captured_at else observed_at; age >= TTL is STALE; ties broken by the persisted AUTOINCREMENT capture ordinal; source skew retained (`skew_seconds`).

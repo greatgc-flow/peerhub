@@ -17,7 +17,7 @@ from pathlib import Path
 
 from peerhub.m1.models import Offset, Peer, Record, Stream, StreamState, utc_now_iso
 from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError
-from peerhub.extensions.observation_and_diag import ReadonlyDiag
+from peerhub.extensions.diag import ReadonlyDiag
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -174,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
 
         elif args.subcommand == "diag":
             if args.action == "health":
-                diag = ReadonlyDiag(core_db_path=args.db, obs_db_path=args.obs_db)
+                diag = ReadonlyDiag(args.db)
                 result = diag.inspect_stream_health(args.stream_id)
                 print(json.dumps(result, indent=2, ensure_ascii=False))
 

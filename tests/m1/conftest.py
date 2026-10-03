@@ -15,3 +15,10 @@ def bridge_h(tmp_path: Path):
     from tests.m1.harness.bridge import BridgeHarness
 
     return BridgeHarness(tmp_path / "ws")
+
+
+@pytest.fixture
+def obs_h(tmp_path: Path):
+    from tests.m1.harness.observation import ObservationHarness
+
+    return ObservationHarness(tmp_path / "ws")
