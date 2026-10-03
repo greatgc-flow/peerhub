@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
+from peerhub.m1.migrations import rollback_quietly
 from .observation_model import (
     EvidenceState,
     FreshnessPolicy,
@@ -119,7 +120,7 @@ class ObservationStore:
                 if point is not None and self.fault_hook is not None:
                     self.fault_hook(f"{point}.before_commit")
             except BaseException:
-                conn.execute("ROLLBACK")
+                rollback_quietly(conn)
                 raise
             conn.execute("COMMIT")
         finally:

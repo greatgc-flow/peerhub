@@ -110,6 +110,16 @@ MIGRATIONS: list[Migration] = [Migration(1, "baseline_core_tables", _baseline)]
 CURRENT_VERSION: int = MIGRATIONS[-1].version
 
 
+def rollback_quietly(conn: sqlite3.Connection) -> None:
+    """ROLLBACK only if a transaction is still open: SQLite auto-rolls back on some errors (e.g. SQLITE_FULL), and a second
+    ROLLBACK raising 'cannot rollback' must never mask the real failure."""
+    if conn.in_transaction:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass  # closing the connection discards the transaction
+
+
 class MigrationIntegrityError(RuntimeError):
     """Migration would commit referential-integrity violations; rolled back."""
 
@@ -162,7 +172,7 @@ def run_migrations(db_path, migrations: list[Migration] | None = None,
             if fault is not None:
                 fault("migration.before_commit")
         except BaseException:
-            conn.execute("ROLLBACK")
+            rollback_quietly(conn)
             raise
         conn.execute("COMMIT")
         return applied

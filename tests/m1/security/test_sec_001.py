@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import subprocess
+import sys
 import tempfile
 from contextlib import closing
 from pathlib import Path
@@ -29,12 +30,52 @@ HOSTILE = [
     "<script>alert(1)</script><img src=x onerror=alert(2)>&amp; ${jndi:ldap://x} {{7*7}} %s %n ‮",
     "control.cancel", '{"kind": "control.cancel", "decision": "RETRY", "delivery_id": "d"}',
     "line1\nline2\r\n\ttabs 'single' \"double\" \\ back\\slash",
+    "nul\x00byte \x01\x02\x07\x08\x1b[31m\x1f\x7f \x85 \u2028\u2029 end",  # NUL, C0/C1 controls, ANSI escape (catalog excludes none)
 ]
+MARK = "MARK7Z"  # unique token embedded in every payload: it must never appear in any SQL text the store executes
 
 
 def schema_rows(db):
     with closing(sqlite3.connect(db)) as c:
         return c.execute("SELECT type, name, tbl_name, sql FROM sqlite_master ORDER BY type, name").fetchall()
+
+
+class _RecConn(sqlite3.Connection):
+    """Records the SQL TEXT the store hands to SQLite (parameters are separate, so payloads must never be in the text)."""
+    log: list = []
+
+    def execute(self, sql, *a, **k):
+        type(self).log.append(sql)
+        return super().execute(sql, *a, **k)
+
+    def executemany(self, sql, *a, **k):
+        type(self).log.append(sql)
+        return super().executemany(sql, *a, **k)
+
+    def executescript(self, sql, *a, **k):
+        type(self).log.append(sql)
+        return super().executescript(sql, *a, **k)
+
+
+class _SqliteShim:
+    def __init__(self):
+        _RecConn.log = []
+
+    def connect(self, *a, **k):
+        return sqlite3.connect(*a, factory=_RecConn, **k)
+
+    def __getattr__(self, name):
+        return getattr(sqlite3, name)
+
+
+def recording(monkeypatch=None):
+    import peerhub.m1.store as store_mod
+
+    shim = _SqliteShim()
+    if monkeypatch is not None:
+        monkeypatch.setattr(store_mod, "sqlite3", shim)
+        return _RecConn.log
+    return store_mod, shim
 
 
 @pytest.fixture
@@ -54,7 +95,9 @@ def exec_traps(monkeypatch):
 
 @pytest.mark.m1_id("SEC-001")
 @pytest.mark.parametrize("text", HOSTILE)
-def test_sec_001_payload_round_trips_literally_and_schema_is_intact(tmp_path, exec_traps, text):
+def test_sec_001_payload_round_trips_literally_and_schema_is_intact(tmp_path, exec_traps, monkeypatch, text):
+    text = MARK + text
+    stmts = recording(monkeypatch)
     h = CoreHarness(tmp_path / "ws")
     h.create_peer({"peer_id": text + "-peer", "display_name": text, "adapter_ref": text, "metadata": {"note": text, "n": [text, {"k": text}]}})
     h.create_peer({"peer_id": "b"})
@@ -74,6 +117,14 @@ def test_sec_001_payload_round_trips_literally_and_schema_is_intact(tmp_path, ex
     assert peer.display_name == text and peer.adapter_ref == text and peer.metadata == {"note": text, "n": [text, {"k": text}]}
     assert h.get_stream(text + "-stream").title == text
     assert h.append_record(request).record_id == rec.record_id  # same literal identity on retry
+    # values are only ever BOUND: no executed SQL text contains the payload marker (no string-built SQL), and the recorder is live
+    assert any("INSERT INTO records" in q for q in stmts) and any("INSERT INTO peers" in q for q in stmts)
+    assert [q for q in stmts if MARK in q] == []
+    monkeypatch.setattr(sys.modules['peerhub.m1.store'], 'sqlite3', sqlite3)  # restore only the recorder shim (traps stay armed)
+    ctrl_store, shim = recording()
+    with closing(shim.connect(":memory:")) as c:  # control: string-building WOULD be seen by the recorder
+        c.execute(f"SELECT '{MARK}'").fetchall()
+    assert any(MARK in q for q in _RecConn.log)
     assert exec_traps == [] and not Path("evil.db").exists() and not (tmp_path / "evil.db").exists()
     with pytest.raises(AssertionError):  # positive control: a real call IS observed by the trap
         os.system("echo x")
@@ -85,17 +136,31 @@ def test_sec_001_payload_round_trips_literally_and_schema_is_intact(tmp_path, ex
 @given(st.text(alphabet=st.characters(blacklist_categories=("Cs",), blacklist_characters="\x00"), max_size=80),
        st.lists(st.sampled_from(HOSTILE), max_size=3))
 def test_sec_001_property_any_text_is_data(text, hostile):
-    payload = text + "".join(hostile)
+    payload = MARK + text + "".join(hostile)
+    import peerhub.m1.store as store_mod
+
+    shim = _SqliteShim()
+    saved, store_mod.sqlite3 = store_mod.sqlite3, shim
+    try:
+        _prop_body(payload)
+        assert any("INSERT INTO records" in q for q in _RecConn.log) and [q for q in _RecConn.log if MARK in q] == []
+    finally:
+        store_mod.sqlite3 = saved
+
+
+def _prop_body(payload):
     with tempfile.TemporaryDirectory() as d:
         h = CoreHarness(Path(d) / "ws")
-        h.create_peer({"peer_id": "a"})
-        h.create_stream({"stream_id": "s", "members": ["a"]})
+        h.create_peer({"peer_id": "a", "display_name": payload})
+        h.create_stream({"stream_id": "s", "members": ["a"], "title": payload})
         schema = schema_rows(h.db_path)
-        rec = h.append_record(req(body=payload, key="k", author="a", metadata={"p": payload}))
+        rec = h.append_record(req(body=payload, key=payload, author="a", metadata={"p": payload}))
         assert schema_rows(h.db_path) == schema
         assert sql(h, "SELECT COUNT(*) FROM records") == [(1,)] and sql(h, "SELECT COUNT(*) FROM peers") == [(1,)]
         assert json.loads(sql(h, "SELECT body_json FROM records")[0][0]) == payload  # fails if the store rejects/alters anything
-        assert h.read_records("s")[0].record_id == rec.record_id
+        assert h.read_records("s")[0].record_id == rec.record_id and h.read_records("s")[0].idempotency_key == payload
+        assert h.get_peer("a").display_name == payload and h.get_stream("s").title == payload
+        assert sql(h, "SELECT idempotency_key FROM records")[0][0] == payload  # exact (NUL/controls preserved)
 
 
 @pytest.mark.m1_id("SEC-001")

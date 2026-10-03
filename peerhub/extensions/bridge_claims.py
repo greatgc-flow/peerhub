@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Callable
 
+from peerhub.m1.migrations import rollback_quietly
 from peerhub.m1.store import UnknownReferenceError
 
 
@@ -89,7 +90,7 @@ class ClaimStore:
             try:
                 yield conn
             except BaseException:
-                conn.execute("ROLLBACK")
+                rollback_quietly(conn)
                 raise
             conn.execute("COMMIT")
         finally:

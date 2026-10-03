@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable
 
-from .migrations import run_migrations
+from .migrations import rollback_quietly, run_migrations
 from .models import (
     AppendRequest,
     Offset,
@@ -102,13 +102,16 @@ def storage_errors():
         raise mapped from e
 
 
+DEFAULT_QUICK_CHECK_MAX_BYTES = 256 * 1024 * 1024  # open-time full quick_check is O(size): larger files get the light probe (Q-W6-2)
+
 STREAM_MUTATION_KEYS = frozenset({"state", "members", "title", "metadata"})
 
 
 
 class CoreStore:
     def __init__(self, db_path: str | Path, fault_hook: Callable[[str], None] | None = None, *,
-                 busy_timeout_ms: int = 30000, conn_init: Callable[[sqlite3.Connection], None] | None = None) -> None:
+                 busy_timeout_ms: int = 30000, conn_init: Callable[[sqlite3.Connection], None] | None = None,
+                 quick_check_max_bytes: int = DEFAULT_QUICK_CHECK_MAX_BYTES) -> None:
         """Test seams: `fault_hook(point)` (CrashInjector points: append.begin, append.before_commit, append.after_commit,
         offset.before_head_check); `conn_init(conn)` runs on every store connection (e.g. a real `PRAGMA max_page_count`);
         `busy_timeout_ms` bounds how long a writer waits for the database write lock before failing explicitly."""
@@ -116,22 +119,33 @@ class CoreStore:
         self.fault_hook = fault_hook
         self.busy_timeout_ms = int(busy_timeout_ms)
         self.conn_init = conn_init
+        self.quick_check_max_bytes = int(quick_check_max_bytes)
+        self.preflight_mode = "none"  # none (no file yet) | full (quick_check) | light (header+schema+sampled rows); see _preflight
         with storage_errors():
             self._preflight()  # fail closed on a corrupt/foreign file BEFORE any migration/WAL change (FLT-013)
             run_migrations(self.db_path)  # ordered, transactional, no-op at current version; rejects future versions (TD-14)
 
     def _preflight(self) -> None:
-        """Read-only integrity probe of an EXISTING non-empty file: never creates, repairs or migrates anything."""
+        """Read-only integrity probe of an EXISTING non-empty file: never creates, repairs or migrates anything.
+        size <= quick_check_max_bytes: full `PRAGMA quick_check`. Larger: light probe (header + schema read + first/last row of every
+        table); deeper damage then surfaces lazily as StorageCorruptError on access (every read/write path maps it). Diag always runs the full check."""
         path = Path(self.db_path)
         if not path.exists() or path.stat().st_size == 0:
             return
         conn = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
         try:
-            rows = conn.execute("PRAGMA quick_check").fetchall()
+            if path.stat().st_size <= self.quick_check_max_bytes:
+                self.preflight_mode = "full"
+                rows = conn.execute("PRAGMA quick_check").fetchall()
+                if rows != [("ok",)]:
+                    raise StorageCorruptError(f"integrity check failed: {[r[0] for r in rows[:3]]}")
+            else:
+                self.preflight_mode = "light"
+                for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall():
+                    for order in ("ASC", "DESC"):
+                        conn.execute(f'SELECT * FROM "{name}" ORDER BY rowid {order} LIMIT 1').fetchall()
         finally:
             conn.close()
-        if rows != [("ok",)]:
-            raise StorageCorruptError(f"integrity check failed: {[r[0] for r in rows[:3]]}")
 
     def _fire(self, point: str) -> None:
         if self.fault_hook is not None:
@@ -189,11 +203,7 @@ class CoreStore:
                     if point is not None:
                         self._fire(f"{point}.before_commit")
                 except BaseException:
-                    if conn.in_transaction:  # SQLite may already have rolled back (SQLITE_FULL): never mask the original error
-                        try:
-                            conn.execute("ROLLBACK")
-                        except sqlite3.Error:
-                            pass  # closing the connection discards the transaction
+                    rollback_quietly(conn)  # SQLite may already have rolled back (SQLITE_FULL): never mask the original error
                     raise
                 conn.execute("COMMIT")
         finally:

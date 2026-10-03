@@ -20,3 +20,7 @@ D-W6-1..3; Q-W6-1..7 (OWNER: Q-W6-1 generation-bound sessions, Q-W6-2 open-time 
 ## Gate
 Full `tests/m1 tests/unit/m1`: 460 passed. fault+e2e+security+concurrency 3x green (81 each). traceability --upto 6 ok (wave 6: 27/27); validate_package PASS.
 Not done: Diag views of bridge tables, real adapters (T1), ClaimStore/Bridge own connections do not map storage errors (Core only), cx final review.
+
+## Gate fixes (ag.pro review of cecbd5f)
+Tests `tests/m1/fault/test_flt_hardening.py` (+ SEC-001 rework). RED: ClaimStore real SQLITE_FULL raised "cannot rollback" instead of FULL; preflight modes missing. Fixed: `rollback_quietly` everywhere, size-threshold preflight (Q-W6-2), old-schema upgrade fixture (claim 1 false as stated, verified), SEC-001 strengthened (NUL/controls, SQL-text recorder).
+Probes (foreground, restored): 10 run, 9 killed (claims/migration rollback guard, ALTER upgrade, preflight always-full/always-light, string-built SQL, foreign_keys OFF, offset head bound, BEGIN vs IMMEDIATE killed by earlier-wave tests SQL-001/CON-010/BRG-014); survivor: observation rollback guard (shares the helper, the engine auto-rollback cannot be injected into its connection without a seam).
