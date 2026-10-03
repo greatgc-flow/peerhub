@@ -5,7 +5,7 @@ import json
 import pytest
 
 from peerhub.extensions.bridge import BoundaryConflictError, SessionError
-from peerhub.extensions.catchup import CatchUpBudget
+from peerhub.extensions.catchup import CatchUpBudget, build_catch_up
 from peerhub.extensions.direction import DirectionError, apply_direction
 from peerhub.m1.store import CasMismatchError
 from tests.m1.control_helpers import (all_record_rows, bseed, control_evidence, control_rows, ctl, delivery_rows, kinds, msg, offset_row,
@@ -480,3 +480,141 @@ def test_cert_001_authorization_can_only_move_to_a_newer_reconcile_record_never_
     with pytest.raises(sqlite3.IntegrityError):  # consumed: frozen
         with bridge_h.cs._tx() as c:
             c.execute("UPDATE bridge_reconciliations SET reconcile_record_id=?", (r4.record_id,))
+
+
+# ================================================================== re-gate 3 (boundary vs real projection, authorization trigger, stale triggers on reopen)
+def _scripted_timeout():
+    rt = FakeRuntimeTarget()
+    rt.script_deliver(("timeout",))
+    return rt
+
+
+def _loss_scenario(h, rt):
+    """History: 3 messages + 3 responses (positions 1..6), then a new message; returns the message that will be delivered on gen 2."""
+    bseed(h, n=1)
+    assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    for i in range(2):
+        msg(h, f"hist{i}")
+        assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    nxt = msg(h, "after-loss")
+    rt.lose_context()
+    return nxt
+
+
+@pytest.mark.m1_id("CTX-003")
+@pytest.mark.parametrize("lie", [
+    {"candidates": 0, "included_count": 0, "first_position": None, "last_position": None, "used_bytes": 0},  # claims zero history
+    {"candidates": 6, "included_count": 6, "omitted_count": 0, "first_position": 2, "last_position": 6},  # wrong positions
+    {"before_position": 4, "candidates": 3, "included_count": 3, "first_position": 1, "last_position": 3},  # wrong delivered position
+    {"used_bytes": 1},
+])
+def test_ctx_003_boundary_metadata_must_match_the_real_projection(bridge_h, lie):
+    rt = FakeRuntimeTarget()
+    nxt = _loss_scenario(bridge_h, rt)
+    real = {"after_position": 0, "before_position": nxt.position, "candidates": 6, "included_count": 6, "first_position": 1,
+            "last_position": 6, "omitted_count": 0, "omitted_through_position": None, "truncated": False, "used_bytes": 0,
+            "used_tokens": 0, "budget": {"max_records": 100, "max_bytes": None, "max_tokens": None}}
+    forged = {**real, **lie}
+    bridge_h.append_record({**req(body={"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": forged},
+                                  key="context-boundary:b:2", author="b"), "kind": "context.boundary"})
+    with pytest.raises(BoundaryConflictError, match="context-boundary:b:2"):
+        bridge_h.delivery_cycle("b", "s", rt)
+    assert [c[0] for c in rt.calls].count("deliver") == 3  # the new generation never reached the runtime
+
+
+@pytest.mark.m1_id("CERT-001")
+def test_cert_001_authorization_move_and_insert_require_a_valid_retry_for_the_same_delivery(bridge_h):
+    import sqlite3
+
+    (m0,) = bseed(bridge_h)
+    bridge_h.create_stream({"stream_id": "s2", "members": ["a", "b"]})
+    did = _uncertain(bridge_h, FakeRuntimeTarget())
+    r1 = _retry(bridge_h, "rc1", did)
+    bridge_h.reconcile_uncertain(m0.record_id, r1)
+
+    def rec(key, body, author="a", stream="s"):
+        return bridge_h.append_record({**req(body=body, key=key, author=author, stream=stream), "kind": "control.reconcile"}).record_id
+
+    bad = {
+        "self-authored RETRY": rec("k1", {"decision": "RETRY", "delivery_id": did}, author="b"),
+        "ACCEPT decision": rec("k2", {"decision": "ACCEPT", "delivery_id": did}),
+        "wrong delivery": rec("k3", {"decision": "RETRY", "delivery_id": "s:b:rec-other:1"}),
+        "other stream": rec("k4", {"decision": "RETRY", "delivery_id": did}, stream="s2"),
+        "no delivery_id": rec("k5", {"decision": "RETRY"}),
+        "non-object body": rec("k6", "RETRY"),
+    }
+    before = sql(bridge_h, "SELECT * FROM bridge_reconciliations")
+    for name, rid in bad.items():
+        with pytest.raises(sqlite3.IntegrityError):
+            with bridge_h.cs._tx() as c:
+                c.execute("UPDATE bridge_reconciliations SET reconcile_record_id=?", (rid,))
+        assert sql(bridge_h, "SELECT * FROM bridge_reconciliations") == before, name
+    with pytest.raises(sqlite3.IntegrityError):  # a raw INSERT of an authorization is held to the same rule
+        with bridge_h.cs._tx() as c:
+            c.execute("INSERT INTO bridge_reconciliations (delivery_id, reconcile_record_id, decision) VALUES ('s:b:rec-other:1', ?, 'RETRY')",
+                      (bad["self-authored RETRY"],))
+    assert sql(bridge_h, "SELECT * FROM bridge_reconciliations") == before
+    msg(bridge_h, "m2s2", stream="s2")  # a second uncertain delivery (stream s2) without any authorization row
+    d2 = BridgeHarness.delivery_cycle(bridge_h, "b", "s2", _scripted_timeout()).delivery_id
+    cross = rec("k8", {"decision": "RETRY", "delivery_id": d2})  # a perfect RETRY for d2 but living in stream s
+    with pytest.raises(sqlite3.IntegrityError):
+        with bridge_h.cs._tx() as c:
+            c.execute("INSERT INTO bridge_reconciliations (delivery_id, reconcile_record_id, decision) VALUES (?, ?, 'RETRY')", (d2, cross))
+    assert sql(bridge_h, "SELECT * FROM bridge_reconciliations") == before
+    good = rec("k7", {"decision": "RETRY", "delivery_id": did})  # control: a valid newer RETRY is a legal move
+    with bridge_h.cs._tx() as c:
+        c.execute("UPDATE bridge_reconciliations SET reconcile_record_id=?", (good,))
+    assert sql(bridge_h, "SELECT reconcile_record_id FROM bridge_reconciliations") == [(good,)]
+
+
+@pytest.mark.m1_id("CERT-002")
+def test_cert_002_reopening_a_db_with_the_previous_trigger_definitions_installs_the_current_ones(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    (m0,) = bseed(h)
+    did = _uncertain(h, FakeRuntimeTarget())
+    with h.cs._tx() as c:  # simulate a DB created by the previous schema: strict immutable trigger, no move trigger
+        c.execute("DROP TRIGGER bridge_reconciliations_immutable")
+        c.execute("DROP TRIGGER bridge_reconciliations_consumed_immutable")
+        c.execute("CREATE TRIGGER bridge_reconciliations_immutable BEFORE UPDATE OF delivery_id, reconcile_record_id, decision "
+                  "ON bridge_reconciliations BEGIN SELECT RAISE(ABORT, 'authorization is immutable'); END")
+    h2 = BridgeHarness(tmp_path / "ws", h.clock)  # reopen: current definitions must replace the stale ones
+    h2.reconcile_uncertain(m0.record_id, _retry(h2, "rc1", did))
+    ctl(h2, "control.cancel", "cx")
+    assert h2.delivery_cycle("b", "s", FakeRuntimeTarget()).status == "blocked_uncertain"
+    r2 = _retry(h2, "rc2", did)
+    h2.reconcile_uncertain(m0.record_id, r2)  # RETRY1 -> cancel -> RETRY2 on a reopened DB
+    assert sql(h2, "SELECT reconcile_record_id FROM bridge_reconciliations") == [(r2.record_id,)]
+    assert h2.delivery_cycle("b", "s", FakeRuntimeTarget()).status == "delivered"
+
+
+@pytest.mark.m1_id("CERT-001")
+def test_cert_001_reopen_restores_every_extension_trigger_including_claim_tables(tmp_path):
+    import sqlite3
+
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    q = "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'bridge_%' ORDER BY 1"
+    names = [r[0] for r in sql(h, q)]
+    assert "bridge_finalizations_no_update" in names and "bridge_evidence_no_update" in names
+    with h.cs._tx() as c:  # tamper: neutralise one trigger of each extension module (as a stale/weakened schema would)
+        for n, t in (("bridge_finalizations_no_update", "bridge_finalizations"), ("bridge_evidence_no_update", "bridge_evidence")):
+            c.execute(f"DROP TRIGGER {n}")
+            c.execute(f"CREATE TRIGGER {n} BEFORE UPDATE ON {t} WHEN 0 BEGIN SELECT 1; END")
+    h2 = BridgeHarness(tmp_path / "ws", h.clock)
+    assert [r[0] for r in sql(h2, q)] == names
+    tok = h2.acquire_claim("b", "s", "X", 1000)
+    h2.cs.finalize_terminal(tok, {"x": 1})
+    with pytest.raises(sqlite3.IntegrityError):  # the reinstalled definition is the strict one again
+        with h2.cs._tx() as c:
+            c.execute("UPDATE bridge_finalizations SET result_json='{}'")
+
+
+@pytest.mark.m1_id("CTX-003")
+def test_ctx_003_boundary_claiming_a_delivered_position_that_does_not_exist_is_rejected(bridge_h):
+    rt = FakeRuntimeTarget()
+    _loss_scenario(bridge_h, rt)
+    consistent = build_catch_up(bridge_h.store, "s", CatchUpBudget(max_records=100), after_position=0, before_position=99).boundary()
+    bridge_h.append_record({**req(body={"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": consistent},
+                                  key="context-boundary:b:2", author="b"), "kind": "context.boundary"})  # self-consistent but no Record 99
+    with pytest.raises(BoundaryConflictError, match="context-boundary:b:2"):
+        bridge_h.delivery_cycle("b", "s", rt)

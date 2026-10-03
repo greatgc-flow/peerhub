@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
@@ -176,11 +177,18 @@ _DDL = [
     """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_immutable
         BEFORE UPDATE OF delivery_id, decision ON bridge_reconciliations
         BEGIN SELECT RAISE(ABORT, 'authorization is immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_valid_insert BEFORE INSERT ON bridge_reconciliations
+        WHEN NOT EXISTS (SELECT 1 FROM records n JOIN bridge_deliveries d ON d.delivery_id = NEW.delivery_id
+            WHERE n.record_id = NEW.reconcile_record_id AND n.kind = 'control.reconcile' AND n.stream_id = d.stream_id AND n.author_peer_id != d.peer_id AND json_valid(n.body_json)
+            AND json_extract(n.body_json, '$.decision') = 'RETRY' AND json_extract(n.body_json, '$.delivery_id') = NEW.delivery_id)
+        BEGIN SELECT RAISE(ABORT, 'authorization must be a durable control.reconcile RETRY for this delivery, not authored by the bridged peer'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_consumed_immutable
         BEFORE UPDATE OF reconcile_record_id ON bridge_reconciliations WHEN OLD.consumed_attempt IS NOT NULL OR NOT EXISTS (
             SELECT 1 FROM records n JOIN records o ON o.record_id = OLD.reconcile_record_id
-            WHERE n.record_id = NEW.reconcile_record_id AND n.kind = 'control.reconcile' AND n.stream_id = o.stream_id AND n.position > o.position)
-        BEGIN SELECT RAISE(ABORT, 'authorization may only move to a NEWER control.reconcile Record, and never once consumed'); END""",
+            JOIN bridge_deliveries d ON d.delivery_id = NEW.delivery_id
+            WHERE n.record_id = NEW.reconcile_record_id AND n.position > o.position AND n.stream_id = o.stream_id AND n.kind = 'control.reconcile' AND n.stream_id = d.stream_id AND n.author_peer_id != d.peer_id AND json_valid(n.body_json)
+            AND json_extract(n.body_json, '$.decision') = 'RETRY' AND json_extract(n.body_json, '$.delivery_id') = NEW.delivery_id)
+        BEGIN SELECT RAISE(ABORT, 'authorization may only move to a NEWER valid control.reconcile RETRY for this delivery, never once consumed'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_delete BEFORE DELETE ON bridge_deliveries
         BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never deleted'); END""",
 ]
@@ -205,6 +213,9 @@ class Bridge:
         self._hook = fault_hook
         with claims._tx() as conn:
             for stmt in _DDL:
+                m = re.match(r"\s*CREATE TRIGGER IF NOT EXISTS (\w+)", stmt)
+                if m:  # reopen must ALWAYS install the current definition, never keep a stale one (one transaction: no gap)
+                    conn.execute(f"DROP TRIGGER IF EXISTS {m.group(1)}")
                 conn.execute(stmt)
 
     def _fire(self, point: str) -> None:
@@ -446,6 +457,16 @@ class Bridge:
                 and cu["candidates"] == cu["included_count"] + cu["omitted_count"]
                 and isinstance(cu["budget"], dict) and cu["budget"] == template["budget"])
 
+    def _boundary_matches_history(self, stream: str, cu: dict) -> bool:
+        """The claimed metadata must equal the projection recomputed from the durable Stream for the claimed delivered position."""
+        bp = cu["before_position"]
+        if bp is None or cu["after_position"] != 0:
+            return False
+        at = self.store.read_records(stream, bp - 1, 1)
+        if not at or at[0].position != bp:  # the delivered Record must really exist at that position
+            return False
+        return cu == build_catch_up(self.store, stream, self.catch_up_budget, after_position=0, before_position=bp).boundary()
+
     def _write_boundary(self, token: ClaimToken, gen: int, proj) -> None:
         peer, stream = token.peer_id, token.stream_id
         key = f"context-boundary:{peer}:{gen}"
@@ -461,7 +482,8 @@ class Bridge:
             row = conn.execute("SELECT kind, body_json FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?",
                                (stream, peer, key)).fetchone()
         body = json.loads(row["body_json"]) if row is not None and row["kind"] == "context.boundary" else None
-        if not self._boundary_payload_ok(body, peer, gen, info.get("reason"), proj.boundary()):
+        if not (self._boundary_payload_ok(body, peer, gen, info.get("reason"), proj.boundary())
+                and self._boundary_matches_history(stream, body["catch_up"])):
             raise BoundaryConflictError(f"idempotency key {key!r} is occupied by a Record that is not this generation's context.boundary")
 
     # ------------------------------------------------------------------ delivery cycle

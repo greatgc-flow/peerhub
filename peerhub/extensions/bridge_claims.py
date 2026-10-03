@@ -71,8 +71,10 @@ class ClaimStore:
         with self._tx() as conn:
             conn.execute(_DDL)
             conn.execute(_DDL_FINAL)
+            conn.execute("DROP TRIGGER IF EXISTS bridge_finalizations_no_update")
             conn.execute("CREATE TRIGGER IF NOT EXISTS bridge_finalizations_no_update BEFORE UPDATE ON bridge_finalizations "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
+            conn.execute("DROP TRIGGER IF EXISTS bridge_finalizations_no_delete")
             conn.execute("CREATE TRIGGER IF NOT EXISTS bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
 
