@@ -55,3 +55,7 @@
 - D-W4-5b: validate the COMPLETE boundary payload (reason, catch_up shape/content), not only kind/peer/generation.
 - D-W4-9b: RETRY1 -> cancel -> RETRY2: the latest authorized decision by Record position wins; no INSERT OR IGNORE retention of an older RETRY; after restart the state follows the latest decision.
 - (b) accepted: superseded runner's session interruption is best-effort provided its authoritative writes (terminal/response/Offset) are fenced.
+
+## Wave 4 closed (orchestrator, 2026-10-04) at 14c9e6e
+- cx.pro blocked 3 rounds; ag.pro adversarial gate found 5 claims (4 real, fixed; claim 5 refuted with evidence: recovery reads bridge_controls, not the unread window). No further per-wave re-gate (diminishing returns); cx.pro final review covers waves 0-7 once (see CX_FINAL_CHECKLIST.md).
+- OWNER items accumulated: Q-W4-11 (boundary budget change after restart conflicts), Q-W4-12 (pins make the fresh projection non-contiguous), CTX-001 'after Offset' wording, cancel semantics, control precedence.
