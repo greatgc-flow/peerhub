@@ -618,3 +618,109 @@ def test_ctx_003_boundary_claiming_a_delivered_position_that_does_not_exist_is_r
                                   key="context-boundary:b:2", author="b"), "kind": "context.boundary"})  # self-consistent but no Record 99
     with pytest.raises(BoundaryConflictError, match="context-boundary:b:2"):
         bridge_h.delivery_cycle("b", "s", rt)
+
+
+# ================================================================== re-gate 4 (ag.pro claims 1-4; claim 5 is covered by test_brg_008_control_stranded_in_progress_is_recovered_after_lease_expiry)
+@pytest.mark.m1_id("CERT-001")
+def test_cert_001_consumed_attempt_is_write_once(bridge_h):
+    import sqlite3
+
+    (m0,) = bseed(bridge_h)
+    did = _uncertain(bridge_h, FakeRuntimeTarget())
+    bridge_h.reconcile_uncertain(m0.record_id, _retry(bridge_h, "rc1", did))
+    assert sql(bridge_h, "SELECT consumed_attempt FROM bridge_reconciliations") == [(None,)]
+    assert bridge_h.delivery_cycle("b", "s", FakeRuntimeTarget()).status == "delivered"  # control: NULL -> 2 is the one legal write
+    assert sql(bridge_h, "SELECT consumed_attempt FROM bridge_reconciliations") == [(2,)]
+    for q in ("UPDATE bridge_reconciliations SET consumed_attempt = NULL", "UPDATE bridge_reconciliations SET consumed_attempt = 7"):
+        with pytest.raises(sqlite3.IntegrityError):
+            with bridge_h.cs._tx() as c:
+                c.execute(q)
+        assert sql(bridge_h, "SELECT consumed_attempt FROM bridge_reconciliations") == [(2,)], q
+    # the retry cannot be re-authorized: no further attempt is created
+    again = FakeRuntimeTarget()
+    assert bridge_h.delivery_cycle("b", "s", again).status == "idle" and again.count("deliver") == 0
+
+
+@pytest.mark.m1_id("CTX-003")
+def test_ctx_003_boundary_accurate_for_another_prefix_but_contradicting_the_delivered_position_is_rejected(bridge_h):
+    rt = FakeRuntimeTarget()
+    nxt = _loss_scenario(bridge_h, rt)
+    prefix = build_catch_up(bridge_h.store, "s", CatchUpBudget(max_records=100), after_position=0, before_position=5).boundary()
+    assert prefix["before_position"] == 5 != nxt.position  # describes SOME prefix accurately
+    bridge_h.append_record({**req(body={"peer_id": "b", "session_generation": 2, "reason": "missing", "catch_up": prefix},
+                                  key="context-boundary:b:2", author="b"), "kind": "context.boundary"})
+    with pytest.raises(BoundaryConflictError, match="context-boundary:b:2"):
+        bridge_h.delivery_cycle("b", "s", rt)
+    assert [c[0] for c in rt.calls].count("deliver") == 3
+
+
+@pytest.mark.m1_id("CERT-002")
+def test_cert_002_reopen_drops_legacy_triggers_that_no_longer_exist_in_the_source(tmp_path):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    with h.cs._tx() as c:  # triggers of a previous schema version, absent from the current DDL
+        c.execute("CREATE TRIGGER bridge_legacy_deliveries BEFORE INSERT ON bridge_deliveries BEGIN SELECT RAISE(ABORT, 'legacy fired'); END")
+        c.execute("CREATE TRIGGER bridge_legacy_final BEFORE INSERT ON bridge_finalizations BEGIN SELECT RAISE(ABORT, 'legacy final'); END")
+        c.execute("CREATE TRIGGER bridge_legacy_ctl BEFORE INSERT ON bridge_controls BEGIN SELECT RAISE(ABORT, 'legacy ctl'); END")
+    h2 = BridgeHarness(tmp_path / "ws", h.clock)
+    names = [r[0] for r in sql(h2, "SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'bridge_legacy%'")]
+    assert names == []  # control below: current triggers are still installed
+    assert sql(h2, "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name IN ('bridge_evidence_no_update','bridge_finalizations_no_update')") == [(2,)]
+    assert h2.delivery_cycle("b", "s", FakeRuntimeTarget()).status == "delivered"  # inserts into bridge_deliveries work again
+    h2.clock.advance(31)
+    tok = h2.acquire_claim("b", "s", "X", 1000)
+    h2.cs.finalize_terminal(tok, {"x": 1})  # bridge_finalizations insert works again
+
+
+@pytest.mark.m1_id("CTX-003")
+def test_ctx_003_early_redirect_survives_a_fresh_bootstrap_larger_than_the_budget(tmp_path):
+    h = BridgeHarness(tmp_path / "ws", catch_up_budget=CatchUpBudget(max_records=2))
+    bseed(h, n=0)
+    red = ctl(h, "control.redirect", "rd", body={"goal": "g", "instruction": "early"})  # position 1, long before the delivered Record
+    for i in range(3):
+        msg(h, f"m{i}")
+    rt = FakeRuntimeTarget()
+    for _ in range(8):
+        if h.delivery_cycle("b", "s", rt).status == "idle":
+            break
+    rt.lose_context()
+    last = msg(h, "after-loss")
+    assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    rows = records(h)
+    rest = [r[0] for r in rows if r[1] < last.position and r[0] != red.record_id]
+    assert rt.catch_ups[-1] == [red.record_id, rest[-1]]  # pinned redirect first (budget-bounded), then the newest history; ordered by position
+    meta = rt.catch_up_meta[-1]
+    assert meta["truncated"] is True and meta["pinned_count"] == 1 and meta["included_count"] == 2
+    assert meta["omitted_count"] == len(rest) + 1 - 2
+    pos = [r[1] for r in rows if r[0] in rt.catch_ups[-1]]
+    assert pos == sorted(pos)
+    (b,) = [r for r in rows if r[3] == "context.boundary"]
+    assert json.loads(b[4])["catch_up"]["pinned_count"] == 1  # persisted boundary carries the same truth
+
+
+@pytest.mark.m1_id("CTX-003")
+def test_ctx_003_pinned_redirects_are_themselves_budget_bounded_newest_first(tmp_path):
+    h = BridgeHarness(tmp_path / "ws", catch_up_budget=CatchUpBudget(max_records=2))
+    bseed(h, n=0)
+    reds = [ctl(h, "control.redirect", f"rd{i}", body={"goal": "g", "instruction": f"r{i}"}) for i in range(3)]
+    msg(h, "m")
+    rt = FakeRuntimeTarget()
+    for _ in range(4):
+        if h.delivery_cycle("b", "s", rt).status == "idle":
+            break
+    rt.lose_context()
+    msg(h, "after-loss")
+    assert h.delivery_cycle("b", "s", rt).status == "delivered"
+    assert rt.catch_ups[-1] == [reds[1].record_id, reds[2].record_id]  # 3 pins, budget 2: the newest two, ordered
+    # control: a redirect addressed to another peer is never pinned for this peer
+    h2 = BridgeHarness(tmp_path / "ws2", catch_up_budget=CatchUpBudget(max_records=2))
+    bseed(h2, peers=("a", "b", "c"), n=0)
+    other = ctl(h2, "control.redirect", "for-c", body={"goal": "g", "instruction": "x"}, targets=["c"])
+    msg(h2, "m")
+    rt2 = FakeRuntimeTarget()
+    for _ in range(4):
+        if h2.delivery_cycle("b", "s", rt2).status == "idle":
+            break
+    rt2.lose_context()
+    msg(h2, "after-loss")
+    assert h2.delivery_cycle("b", "s", rt2).status == "delivered" and other.record_id not in rt2.catch_ups[-1]

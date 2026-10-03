@@ -182,6 +182,9 @@ _DDL = [
             WHERE n.record_id = NEW.reconcile_record_id AND n.kind = 'control.reconcile' AND n.stream_id = d.stream_id AND n.author_peer_id != d.peer_id AND json_valid(n.body_json)
             AND json_extract(n.body_json, '$.decision') = 'RETRY' AND json_extract(n.body_json, '$.delivery_id') = NEW.delivery_id)
         BEGIN SELECT RAISE(ABORT, 'authorization must be a durable control.reconcile RETRY for this delivery, not authored by the bridged peer'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_consumed_write_once
+        BEFORE UPDATE OF consumed_attempt ON bridge_reconciliations WHEN OLD.consumed_attempt IS NOT NULL
+        BEGIN SELECT RAISE(ABORT, 'consumed_attempt is write-once (NULL -> attempt only)'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_consumed_immutable
         BEFORE UPDATE OF reconcile_record_id ON bridge_reconciliations WHEN OLD.consumed_attempt IS NOT NULL OR NOT EXISTS (
             SELECT 1 FROM records n JOIN records o ON o.record_id = OLD.reconcile_record_id
@@ -212,10 +215,13 @@ class Bridge:
         self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit)
         self._hook = fault_hook
         with claims._tx() as conn:
+            owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
+            marks = ",".join("?" * len(owned))
+            # reopen installs EXACTLY the current trigger set: every trigger on a bridge-owned table is dropped first (including legacy
+            # ones that no longer exist in the source), in the init transaction (no gap)
+            for (name,) in conn.execute(f"SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ({marks})", owned).fetchall():
+                conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
             for stmt in _DDL:
-                m = re.match(r"\s*CREATE TRIGGER IF NOT EXISTS (\w+)", stmt)
-                if m:  # reopen must ALWAYS install the current definition, never keep a stale one (one transaction: no gap)
-                    conn.execute(f"DROP TRIGGER IF EXISTS {m.group(1)}")
                 conn.execute(stmt)
 
     def _fire(self, point: str) -> None:
@@ -416,6 +422,10 @@ class Bridge:
         return [r for r in cands if r.position < rec.position and r.kind == "control.redirect" and r.author_peer_id != peer
                 and (not r.targets or peer in r.targets) and r.record_id not in done]
 
+    @staticmethod
+    def _redirect_pin(peer: str):
+        return lambda r: r.kind == "control.redirect" and r.author_peer_id != peer and (not r.targets or peer in r.targets)
+
     def _fresh_info(self, peer: str, stream: str, gen: int) -> dict:
         for e in reversed(self.session_events(peer, stream)):
             if e["event"] == "fresh_generation" and e["generation"] == gen:
@@ -431,7 +441,7 @@ class Bridge:
             return out
         after = 0  # D-W4-8b: the Offset governs DELIVERY only; a fresh generation is bootstrapped from the Stream history (TD-12 budget)
         proj = build_catch_up(self.store, stream, self.catch_up_budget, after_position=after, before_position=rec.position,
-                              extra=self._unseen_redirects(peer, stream, rec))  # redirects consumed from the Offset are still unseen intent
+                              pin=self._redirect_pin(peer))  # a fresh session knows no redirect intent: pin ALL addressed ones
         out = ProjectedRecords(proj.records)
         out.boundary = {**proj.boundary(), "session_generation": gen, "mode": "fresh_generation"}
         if gen > 1:  # a fresh generation after loss/rejection/change: record the boundary durably (idempotent per generation)
@@ -449,7 +459,7 @@ class Bridge:
         cu = body["catch_up"]
         if not isinstance(cu, dict) or set(cu) != set(template):
             return False
-        ints = ("after_position", "candidates", "included_count", "omitted_count", "used_bytes", "used_tokens")
+        ints = ("after_position", "candidates", "included_count", "omitted_count", "used_bytes", "used_tokens", "pinned_count")
         opt = ("before_position", "first_position", "last_position", "omitted_through_position")
         isint = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0  # noqa: E731
         return (all(isint(cu[k]) for k in ints) and all(cu[k] is None or isint(cu[k]) for k in opt)
@@ -457,15 +467,19 @@ class Bridge:
                 and cu["candidates"] == cu["included_count"] + cu["omitted_count"]
                 and isinstance(cu["budget"], dict) and cu["budget"] == template["budget"])
 
-    def _boundary_matches_history(self, stream: str, cu: dict) -> bool:
+    def _boundary_matches_history(self, peer: str, stream: str, gen: int, cu: dict) -> bool:
         """The claimed metadata must equal the projection recomputed from the durable Stream for the claimed delivered position."""
         bp = cu["before_position"]
-        if bp is None or cu["after_position"] != 0:
+        with self.claims._tx() as conn:  # the Record the generation was FIRST used for (deterministic, survives retries for other Records)
+            first = conn.execute("SELECT record_position FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? "
+                                 "ORDER BY seq LIMIT 1", (stream, peer, gen)).fetchone()
+        if bp is None or cu["after_position"] != 0 or first is None or first[0] != bp:
             return False
         at = self.store.read_records(stream, bp - 1, 1)
         if not at or at[0].position != bp:  # the delivered Record must really exist at that position
             return False
-        return cu == build_catch_up(self.store, stream, self.catch_up_budget, after_position=0, before_position=bp).boundary()
+        return cu == build_catch_up(self.store, stream, self.catch_up_budget, after_position=0, before_position=bp,
+                                    pin=self._redirect_pin(peer)).boundary()
 
     def _write_boundary(self, token: ClaimToken, gen: int, proj) -> None:
         peer, stream = token.peer_id, token.stream_id
@@ -483,7 +497,7 @@ class Bridge:
                                (stream, peer, key)).fetchone()
         body = json.loads(row["body_json"]) if row is not None and row["kind"] == "context.boundary" else None
         if not (self._boundary_payload_ok(body, peer, gen, info.get("reason"), proj.boundary())
-                and self._boundary_matches_history(stream, body["catch_up"])):
+                and self._boundary_matches_history(peer, stream, gen, body["catch_up"])):
             raise BoundaryConflictError(f"idempotency key {key!r} is occupied by a Record that is not this generation's context.boundary")
 
     # ------------------------------------------------------------------ delivery cycle

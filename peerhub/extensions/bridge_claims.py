@@ -71,11 +71,11 @@ class ClaimStore:
         with self._tx() as conn:
             conn.execute(_DDL)
             conn.execute(_DDL_FINAL)
-            conn.execute("DROP TRIGGER IF EXISTS bridge_finalizations_no_update")
-            conn.execute("CREATE TRIGGER IF NOT EXISTS bridge_finalizations_no_update BEFORE UPDATE ON bridge_finalizations "
+            for (name,) in conn.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name IN ('bridge_claims','bridge_finalizations')").fetchall():
+                conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')  # exactly the current trigger set on reopen (legacy ones included)
+            conn.execute("CREATE TRIGGER bridge_finalizations_no_update BEFORE UPDATE ON bridge_finalizations "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
-            conn.execute("DROP TRIGGER IF EXISTS bridge_finalizations_no_delete")
-            conn.execute("CREATE TRIGGER IF NOT EXISTS bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations "
+            conn.execute("CREATE TRIGGER bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
 
     @contextmanager

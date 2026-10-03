@@ -172,9 +172,9 @@ def test_ctx_003_context_loss_recovers_with_bounded_catch_up_and_boundary_record
     pos = [r[1] for r in rows if r[0] == last.record_id][0]
     before = [r[0] for r in rows if r[1] < pos]  # D-W4-8b: bootstrap = ordered history suffix of the Stream within the budget
     meta = rt.catch_up_meta[-1]
-    assert rt.catch_ups[-1] == before[-1:] and meta["after_position"] == 0 and meta["before_position"] == pos
+    assert rt.catch_ups[-1] == [reds[-1].record_id] and meta["after_position"] == 0 and meta["before_position"] == pos  # pinned redirect intent first
     assert meta["mode"] == "fresh_generation" and meta["budget"]["max_records"] == 1 and meta["session_generation"] == 2
-    assert meta["truncated"] is True and meta["omitted_count"] == len(before) - 1 and meta["included_count"] == 1
+    assert meta["truncated"] is True and meta["omitted_count"] == len(before) - 1 and meta["included_count"] == 1 and meta["pinned_count"] == 1
     (b,) = [r for r in rows if r[3] == "context.boundary"]  # durable boundary Record carries the same metadata
     body = json.loads(b[4])
     assert b[2] == "b" and body["session_generation"] == 2 and body["reason"] == "missing"
@@ -242,3 +242,41 @@ def test_ctx_003_crash_after_fresh_generation_before_delivery_still_gets_catch_u
 @pytest.mark.m1_id("CTX-003")
 def test_ctx_003_context_loss_error_type_is_a_prespawn_error():
     assert issubclass(ContextLostError, PrespawnError)
+
+
+# ------------------------------------------------------------------ pinned selection (pure projection)
+@pytest.mark.m1_id("CTX-001")
+@pytest.mark.unit
+def test_ctx_001_pinned_records_are_reserved_first_newest_first_and_output_stays_ordered():
+    recs = mem_records([5] * 10)
+    pin = lambda r: r.position in (1, 2, 3)  # noqa: E731 - early intent
+    p = project_catch_up(recs, CatchUpBudget(max_records=4), pin=pin)
+    assert _pos(p) == [1, 2, 3, 10] and p.pinned_count == 3  # all three pins reserved, the remaining slot takes the newest other
+    assert p.truncated and p.omitted_count == 6 and p.omitted_through_position == 9 and p.boundary()["pinned_count"] == 3
+    # budget smaller than the pins: pins alone, newest first
+    assert _pos(project_catch_up(recs, CatchUpBudget(max_records=2), pin=pin)) == [2, 3]
+    # control: no pin predicate = the plain contiguous suffix
+    assert _pos(project_catch_up(recs, CatchUpBudget(max_records=4))) == [7, 8, 9, 10]
+    # pinned Records at/below after_position stay candidates; non-pinned there do not
+    assert _pos(project_catch_up(recs, CatchUpBudget(max_records=10), after_position=5, pin=pin)) == [1, 2, 3, 6, 7, 8, 9, 10]
+
+
+@pytest.mark.m1_id("CTX-002")
+@pytest.mark.property
+@settings(max_examples=100, deadline=None)
+@given(sizes=st.lists(st.integers(0, 40), min_size=1, max_size=20), pins=st.sets(st.integers(1, 20), max_size=6),
+       mr=st.one_of(st.none(), st.integers(0, 12)), mb=st.one_of(st.none(), st.integers(0, 500)))
+def test_ctx_002_pinned_projection_never_exceeds_budget_and_stays_ordered(sizes, pins, mr, mb):
+    recs = mem_records(sizes)
+    p = project_catch_up(recs, CatchUpBudget(max_records=mr, max_bytes=mb), pin=lambda r: r.position in pins)
+    got = [r.position for r in p.records]
+    assert got == sorted(set(got))
+    if mr is not None:
+        assert len(got) <= mr
+    if mb is not None:
+        assert len(",".join(item_json(r) for r in p.records).encode()) <= mb
+    assert p.omitted_count == len(recs) - len(got) and p.pinned_count == len([g for g in got if g in pins])
+    kept_pins = [g for g in got if g in pins]
+    omitted_pins = [x for x in pins if x <= len(recs) and x not in got]
+    if omitted_pins and kept_pins:  # pins are kept newest-first: every kept pin is newer than every omitted pin
+        assert min(kept_pins) > max(omitted_pins)

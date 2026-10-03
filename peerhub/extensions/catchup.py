@@ -58,6 +58,7 @@ class CatchUpProjection:
     after_position: int
     before_position: int | None
     budget: dict = field(default_factory=dict)
+    pinned_count: int = 0
 
     @property
     def used_records(self) -> int:
@@ -71,7 +72,7 @@ class CatchUpProjection:
         return {"after_position": self.after_position, "before_position": self.before_position, "candidates": self.candidates,
                 "included_count": len(self.records), "first_position": self.first_position, "last_position": self.last_position,
                 "omitted_count": self.omitted_count, "omitted_through_position": self.omitted_through_position,
-                "truncated": self.truncated, "used_bytes": self.used_bytes, "used_tokens": self.used_tokens, "budget": dict(self.budget)}
+                "truncated": self.truncated, "pinned_count": self.pinned_count, "used_bytes": self.used_bytes, "used_tokens": self.used_tokens, "budget": dict(self.budget)}
 
 
 class ProjectedRecords(list):
@@ -81,51 +82,88 @@ class ProjectedRecords(list):
 
 
 def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_position: int = 0,
-                     before_position: int | None = None, pinned: frozenset = frozenset()) -> CatchUpProjection:
-    """`pinned` positions are candidates even at/below `after_position` (unseen intent such as redirects); still budget-bounded."""
-    window: deque = deque()  # (record, bytes, tokens); only ever holds a suffix that fits the budget
+                     before_position: int | None = None, pin: Callable[[Any], bool] | None = None) -> CatchUpProjection:
+    """Longest contiguous ordered suffix of the window that fits the budget. With `pin`, Records matching the predicate (e.g. unseen
+    redirect intent) are candidates regardless of `after_position` and are RESERVED first (newest first, budget-bounded); the rest of the
+    budget is filled with the newest non-pinned suffix. The result is ordered by position and `pinned_count` reports the pinned share."""
+    window: deque = deque()  # non-pinned: (record, bytes, tokens); only ever holds a suffix that fits the budget on its own
+    pins: list = []
     est = budget.token_estimator
-    nbytes = ntokens = candidates = omitted = 0
+    nbytes = ntokens = candidates = 0
     omitted_through: int | None = None
     last_seen = None
+
+    def over() -> bool:
+        return ((budget.max_records is not None and len(window) > budget.max_records)
+                or (budget.max_bytes is not None and nbytes > budget.max_bytes)
+                or (budget.max_tokens is not None and ntokens > budget.max_tokens))
+
     for r in records:
         if last_seen is not None and r.position <= last_seen:
             raise ValueError("records must be strictly increasing by position")
         last_seen = r.position
-        if (r.position <= after_position and r.position not in pinned) or (before_position is not None and r.position >= before_position):
+        if before_position is not None and r.position >= before_position:
+            continue
+        is_pin = pin is not None and pin(r)
+        if r.position <= after_position and not is_pin:
             continue
         candidates += 1
         item = item_json(r)
         b, t = len(item.encode("utf-8")), (est(item) if est is not None else 0)
+        if is_pin:
+            pins.append((r, b, t))
+            continue
         window.append((r, b, t))
         nbytes += b + (1 if len(window) > 1 else 0)
         ntokens += t
-
-        def over() -> bool:
-            return ((budget.max_records is not None and len(window) > budget.max_records)
-                    or (budget.max_bytes is not None and nbytes > budget.max_bytes)
-                    or (budget.max_tokens is not None and ntokens > budget.max_tokens))
-
         while window and over():  # drop the OLDEST until the suffix fits (the newest may itself be dropped: no gaps)
             old, ob, ot = window.popleft()
             nbytes -= ob + (1 if window else 0)
             ntokens -= ot
-            omitted += 1
-            omitted_through = old.position
-    recs = tuple(r for r, _, _ in window)
-    return CatchUpProjection(recs, omitted > 0, omitted, omitted_through, recs[0].position if recs else None,
-                             recs[-1].position if recs else None, candidates, nbytes if recs else 0, ntokens, after_position,
-                             before_position, budget.describe())
+            omitted_through = old.position if omitted_through is None else max(omitted_through, old.position)
+    chosen: list = []
+    n = cb = ct = 0
+
+    def take(entry) -> bool:
+        nonlocal n, cb, ct
+        _, b, t = entry
+        nb, nt = cb + b + (1 if n else 0), ct + t
+        if ((budget.max_records is not None and n + 1 > budget.max_records) or (budget.max_bytes is not None and nb > budget.max_bytes)
+                or (budget.max_tokens is not None and nt > budget.max_tokens)):
+            return False
+        chosen.append(entry)
+        n, cb, ct = n + 1, nb, nt
+        return True
+
+    pinned_taken = 0
+    left: list = []
+    for entry in reversed(pins):
+        if left or not take(entry):
+            left.append(entry)
+        else:
+            pinned_taken += 1
+    wleft: list = []
+    for entry in reversed(window):
+        if wleft or not take(entry):
+            wleft.append(entry)
+    for entry in left + wleft:
+        omitted_through = entry[0].position if omitted_through is None else max(omitted_through, entry[0].position)
+    chosen.sort(key=lambda e: e[0].position)
+    recs = tuple(e[0] for e in chosen)
+    omitted = candidates - len(recs)
+    return CatchUpProjection(recs, omitted > 0, omitted, omitted_through if omitted else None, recs[0].position if recs else None,
+                             recs[-1].position if recs else None, candidates, cb if recs else 0, ct, after_position, before_position,
+                             budget.describe(), pinned_taken)
 
 
 def build_catch_up(store: Any, stream_id: str, budget: CatchUpBudget, *, after_position: int = 0,
-                   before_position: int | None = None, page: int = 200, extra: Iterable[Any] = ()) -> CatchUpProjection:
-    """Read the Stream in pages (TD-22, exclusive of the cursor) and project; memory stays bounded by the budget."""
+                   before_position: int | None = None, page: int = 200, pin: Callable[[Any], bool] | None = None) -> CatchUpProjection:
+    """Read the Stream in pages (TD-22, exclusive of the cursor) and project; memory stays bounded by the budget (+ pinned Records)."""
     if isinstance(page, bool) or not isinstance(page, int) or page <= 0:
         raise ValueError("page must be a positive int")
 
     def pages():
-        cursor = after_position
+        cursor = 0 if pin is not None else after_position  # pinned Records may sit at/below the cursor
         while True:
             batch = store.read_records(stream_id, cursor, page)
             if not batch:
@@ -136,15 +174,4 @@ def build_catch_up(store: Any, stream_id: str, budget: CatchUpBudget, *, after_p
                 yield r
             cursor = batch[-1].position
 
-    pins = sorted((r for r in extra if r.position <= after_position), key=lambda r: r.position)
-
-    def merged():
-        pending = list(pins)
-        for r in pages():
-            while pending and pending[0].position < r.position:
-                yield pending.pop(0)
-            yield r
-        yield from pending
-
-    return project_catch_up(merged(), budget, after_position=after_position, before_position=before_position,
-                            pinned=frozenset(r.position for r in pins))
+    return project_catch_up(pages(), budget, after_position=after_position, before_position=before_position, pin=pin)
