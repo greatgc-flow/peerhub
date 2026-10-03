@@ -66,3 +66,7 @@
 - D-W5-2 (D-W0-4 closed): ReadonlyDiag has its own module `peerhub/extensions/diag.py`; ARCH-004 now checks the WHOLE module (imports allow-list: stdlib minus process/OS/network modules + `observation_model` + `m1.models`; banned writer names; SQL literals; `open()` modes; every `sqlite3.connect` is read-only URI) and the checker itself is mutation-tested.
 - D-W5-3 (D-W0-2 closed): Observation / Resource Pool wire parsing has persistence assertions (rejections leave full state digest, row counts and table digests unchanged; positive controls prove the ports write).
 - D-W5-4 (TD-13/TD-23): freshness/latest clock = local captured_at else observed_at; age >= TTL is STALE; ties broken by the persisted AUTOINCREMENT capture ordinal; source skew retained (`skew_seconds`).
+
+## Wave 5 closed (orchestrator, 2026-10-04) at 94f48f9
+- ag.pro adversarial gate: 2 findings (static ARCH-004 bypass -> runtime sqlite authorizer + dynamic-SQL static flag; resource_pools INSERT OR REPLACE -> no-replace trigger + audit), both fixed with probes. No further re-gate; cx final review covers waves 0-7.
+- OWNER items (Q-W5-*): TTL numbers (300s default; spec gives none), negative-age handling (UNKNOWN), trust of wire captured_at, measurement-key exclusion list for non-MEASURED states, source-declared quota/rate-limit semantic, subject_ref not checked against peers.
