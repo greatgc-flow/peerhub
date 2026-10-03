@@ -117,8 +117,8 @@ def test_mig_002_committed_migration_preserves_core_data_and_invariants(tmp_path
     assert _version(db) == 0
     before = {t: _dump(db, t) for t in ("peers", "streams", "stream_members", "records", "offsets")}
     before_digest = compute_state_digest(db)
-    assert run_migrations(db) == [1]  # advances exactly once, v0 -> v1
-    assert _version(db) == CURRENT_VERSION == 1
+    assert run_migrations(db) == [1, 2]  # advances v0 -> v2 in one atomic run
+    assert _version(db) == CURRENT_VERSION == 2
     assert compute_state_digest(db) == before_digest  # logical data byte-identical
     assert {t: _dump(db, t) for t in before} == before
     store = CoreStore(db)
@@ -250,4 +250,4 @@ def test_td14_future_version_rejected_before_any_persistent_mutation(tmp_path):
         assert not (tmp_path / "nonwal.db-wal").exists()
     ok = tmp_path / "ok.db"  # control: a supported non-WAL database does migrate (and converts to WAL)
     sqlite3.connect(ok).close()
-    assert run_migrations(ok) == [1]
+    assert run_migrations(ok) == [1, 2]

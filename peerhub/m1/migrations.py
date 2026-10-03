@@ -108,7 +108,25 @@ def _baseline(conn: sqlite3.Connection) -> None:
         conn.execute(stmt)
 
 
-MIGRATIONS: list[Migration] = [Migration(1, "baseline_core_tables", _baseline)]
+# v2: pragma-independent INSERT OR REPLACE guard. REPLACE resolves a UNIQUE/PK collision by an implicit DELETE that fires
+# delete triggers only under recursive_triggers=ON (a per-connection pragma); a BEFORE INSERT guard fires regardless.
+# Offsets/streams/peers/stream_members are mutable by design (spec STREAM_RECORD_OFFSET); records are the only append-only Core table.
+_GUARD_V2 = """
+CREATE TRIGGER IF NOT EXISTS records_no_replace BEFORE INSERT ON records
+WHEN EXISTS (SELECT 1 FROM records WHERE record_id = NEW.record_id
+    OR (stream_id = NEW.stream_id AND position = NEW.position)
+    OR (stream_id = NEW.stream_id AND author_peer_id = NEW.author_peer_id AND idempotency_key = NEW.idempotency_key))
+BEGIN SELECT RAISE(ABORT, 'records are immutable (append only)'); END;
+"""
+
+
+def _guard_v2(conn: sqlite3.Connection) -> None:
+    for stmt in split_statements(_GUARD_V2):
+        conn.execute(stmt)
+
+
+MIGRATIONS: list[Migration] = [Migration(1, "baseline_core_tables", _baseline),
+                               Migration(2, "records_no_replace_guard", _guard_v2)]
 CURRENT_VERSION: int = MIGRATIONS[-1].version
 assert CURRENT_VERSION == SUPPORTED_SCHEMA_VERSION, "bump schema_version.SUPPORTED_SCHEMA_VERSION together with MIGRATIONS"
 

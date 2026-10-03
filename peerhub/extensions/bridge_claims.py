@@ -76,6 +76,10 @@ class ClaimStore:
                 conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')  # exactly the current trigger set on reopen (legacy ones included)
             conn.execute("CREATE TRIGGER bridge_finalizations_no_update BEFORE UPDATE ON bridge_finalizations "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
+            conn.execute("CREATE TRIGGER bridge_finalizations_no_replace BEFORE INSERT ON bridge_finalizations "
+                         "WHEN EXISTS (SELECT 1 FROM bridge_finalizations WHERE stream_id = NEW.stream_id AND peer_id = NEW.peer_id "
+                         "AND claim_generation = NEW.claim_generation) "
+                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
             conn.execute("CREATE TRIGGER bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
 

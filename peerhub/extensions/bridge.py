@@ -193,6 +193,21 @@ _DDL = [
             WHERE n.record_id = NEW.reconcile_record_id AND n.position > o.position AND n.stream_id = o.stream_id AND n.kind = 'control.reconcile' AND n.stream_id = d.stream_id AND n.author_peer_id != d.peer_id AND json_valid(n.body_json)
             AND json_extract(n.body_json, '$.decision') = 'RETRY' AND json_extract(n.body_json, '$.delivery_id') = NEW.delivery_id)
         BEGIN SELECT RAISE(ABORT, 'authorization may only move to a NEWER valid control.reconcile RETRY for this delivery, never once consumed'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_evidence_no_replace BEFORE INSERT ON bridge_evidence
+        WHEN EXISTS (SELECT 1 FROM bridge_evidence WHERE seq = NEW.seq)
+        BEGIN SELECT RAISE(ABORT, 'bridge_evidence is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_session_events_no_replace BEFORE INSERT ON bridge_session_events
+        WHEN EXISTS (SELECT 1 FROM bridge_session_events WHERE seq = NEW.seq)
+        BEGIN SELECT RAISE(ABORT, 'bridge_session_events is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_replace BEFORE INSERT ON bridge_deliveries
+        WHEN EXISTS (SELECT 1 FROM bridge_deliveries WHERE delivery_id = NEW.delivery_id OR (stream_id = NEW.stream_id AND peer_id = NEW.peer_id AND record_id = NEW.record_id AND attempt = NEW.attempt))
+        BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_no_replace BEFORE INSERT ON bridge_reconciliations
+        WHEN EXISTS (SELECT 1 FROM bridge_reconciliations WHERE delivery_id = NEW.delivery_id)
+        BEGIN SELECT RAISE(ABORT, 'bridge_reconciliations rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_controls_no_replace BEFORE INSERT ON bridge_controls
+        WHEN EXISTS (SELECT 1 FROM bridge_controls WHERE record_id = NEW.record_id AND peer_id = NEW.peer_id)
+        BEGIN SELECT RAISE(ABORT, 'bridge_controls rows are never replaced'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_delete BEFORE DELETE ON bridge_deliveries
         BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never deleted'); END""",
 ]
