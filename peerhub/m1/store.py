@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 import uuid
 
-from .models import Offset, Peer, Record, Stream, StreamState, compute_payload_digest, utc_now_iso
+from .models import assert_json_value, Offset, Peer, Record, Stream, StreamState, compute_payload_digest, utc_now_iso
 
 
 class IdempotencyConflictError(Exception):
@@ -196,6 +196,9 @@ class CoreStore:
         targets = targets or []
         refs = refs or []
         metadata = metadata or {}
+        assert_json_value(metadata, "metadata")  # strict JSON before any digest/row (SCH-014/015)
+        assert_json_value(targets, "targets")
+        assert_json_value(refs, "refs")
         payload_digest = compute_payload_digest(kind, body)
         rec_id = record_id or f"rec-{uuid.uuid4().hex[:12]}"
         now = utc_now_iso()
@@ -235,7 +238,7 @@ class CoreStore:
                     next_pos,
                     author_peer_id,
                     kind,
-                    json.dumps(body, ensure_ascii=False),
+                    json.dumps(body, ensure_ascii=False, allow_nan=False),
                     json.dumps(targets, ensure_ascii=False),
                     reply_to,
                     json.dumps(refs, ensure_ascii=False),

@@ -50,6 +50,7 @@ include = ["peerhub*"]
 [tool.setuptools.package-data]
 "peerhub.persistence.migrations" = ["*.sql"]
 "peerhub.config_data" = ["*.toml"]
+"peerhub.m1" = ["schemas/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -59,4 +60,8 @@ timeout = 60
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "e2e: marks tests as End-to-End tier (deselect with '-m \"not e2e\"')",
+    "m1_id(id): M1 catalog test id (traceability, see tools/m1_traceability.py)",
+    "architecture", "schema", "property", "meta", "traceability", "unit", "sqlite", "concurrency",
+    "multiprocess", "fault", "migration", "bridge", "observation", "diag", "security", "package",
+    "boundary", "record", "canonicalization", "live", "soak",
 ]

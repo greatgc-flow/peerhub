@@ -43,3 +43,9 @@
 ## 📝 현재 작업 상태 (Current Status)
 - **작업 브랜치**: `feat/m1-very-simple-renewal`
 - **현재 진행 중**: **Phase 2 (Core 도메인 모델 작성)**
+
+
+## Wave 0 / T0 (2026-10-03)
+- Wave 0: 26/26 catalog ids implemented and green (tests/m1/{meta,architecture,schema,property}); details docs/m1_impl/wave0_report.md; open questions docs/m1_impl/OPEN_QUESTIONS.md. Review gate pending.
+- Traceability: `python tools/m1_traceability.py [--upto N]` (map in docs/m1_impl/waves.json).
+- T0: admission denial reason in `peerhub ask` errors (separate commit).

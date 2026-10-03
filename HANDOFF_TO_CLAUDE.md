@@ -29,8 +29,8 @@
 - **1st-party 확장**:
   - [`peerhub/extensions/observation_and_diag.py`](file:///D:/PkgDev/workspace/peerhub-m1-renewal/peerhub/extensions/observation_and_diag.py): Read-time freshness 평가 (`MEASURED` $\rightarrow$ `STALE`), ReadonlyDiag (`mode=ro`)
   - [`peerhub/extensions/session_bridge.py`](file:///D:/PkgDev/workspace/peerhub-m1-renewal/peerhub/extensions/session_bridge.py): `Single-active delivery claim` (세대 기반 브릿지 임대), Execution Certainty
-- **CLI 엔트리포인트**: [`peerhub/m1/cli.py`](file:///D:/PkgDev/workspace/peerhub-m1-renewal/peerhub/m1/cli.py)
-  - `python -m peerhub.m1.cli [peer|stream|record|offset|diag]`
+- **CLI 엔트리포인트**: [`peerhub.m1_cli.py`](file:///D:/PkgDev/workspace/peerhub-m1-renewal/peerhub/m1/cli.py)
+  - `python -m peerhub.m1_cli [peer|stream|record|offset|diag]`
 - **단위 테스트**:
   - [`tests/unit/m1/test_models.py`](file:///D:/PkgDev/workspace/peerhub-m1-renewal/tests/unit/m1/test_models.py)
   - [`tests/unit/m1/test_store.py`](file:///D:/PkgDev/workspace/peerhub-m1-renewal/tests/unit/m1/test_store.py)

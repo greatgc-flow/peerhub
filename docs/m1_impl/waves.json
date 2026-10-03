@@ -1,0 +1,16 @@
+{
+  "_comment": "Wave -> catalog id selectors. Selector = exact id or id prefix (before last '-NNN'). Exact id beats prefix; longest selector wins. Judgment calls: BRG split (claim/session/certainty/evidence -> 3, control/catch-up -> 4); MIG-001/002 -> 2, MIG-003 -> 7; PROP-007/008 -> 0, other PROP -> 1.",
+  "waves": {
+    "0": ["META", "ARCH", "SCH", "PROP-007", "PROP-008"],
+    "1": ["CORE", "IDEM", "STR", "OFF", "PROP"],
+    "2": ["SQL", "MP", "CON", "MIG-001", "MIG-002"],
+    "3": ["CLM", "CERT", "BRG-002", "BRG-003", "BRG-004", "BRG-005", "BRG-006", "BRG-007", "BRG-010",
+          "BRG-011", "BRG-012", "BRG-013", "BRG-014", "BRG-015", "BRG-016", "BRG-017", "BRG-018", "BRG-019"],
+    "4": ["CTL", "CTX", "BRG-001", "BRG-008", "BRG-009"],
+    "5": ["OBS", "DIA", "READ"],
+    "6": ["E2E", "FLT", "SEC"],
+    "7": ["REL", "IMP", "MIG-003"],
+    "8": ["LIVE"],
+    "9": ["SOAK"]
+  }
+}
