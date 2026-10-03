@@ -285,19 +285,21 @@ def test_cert_001_terminal_digest_and_timestamp_cannot_be_rewritten(bridge_h):
 
 # ---------------------------------------------------------------- 6. control records / binding
 @pytest.mark.m1_id("BRG-010")
-@pytest.mark.parametrize("kind", ["control.pause", "control.cancel", "context.boundary"])
-def test_brg_010_unsupported_control_records_are_never_delivered_as_prompts(bridge_h, kind):
+@pytest.mark.parametrize("kind,status,consumed", [("control.pause", "paused", False), ("control.cancel", "idle", True),
+                                                  ("context.boundary", "idle", True)])
+def test_brg_010_control_records_are_never_delivered_as_prompts(bridge_h, kind, status, consumed):
+    """Wave 4 replaces the Wave-3 interim 'pending_control' (D-W3-7): control Records get real semantics (see tests/m1/control)."""
     bseed(bridge_h)
     rt = FakeRuntimeTarget()
     assert bridge_h.delivery_cycle("b", "s", rt).status == "delivered"
     calls = list(rt.calls)
     ctl = bridge_h.append_record({**req(body={"x": 1}, key="ctl", author="a"), "kind": kind})
-    before = delivery_rows(bridge_h), offset_row(bridge_h), len(evidence(bridge_h))
     for _ in range(2):
         res = bridge_h.delivery_cycle("b", "s", rt)
-        assert res.status == "pending_control" and res.record_id == ctl.record_id
-    assert rt.calls == calls and (delivery_rows(bridge_h), len(evidence(bridge_h))) == (before[0], before[2])  # no runtime call
-    assert offset_row(bridge_h)[0] < ctl.position  # not acked past the pending control Record
+        assert res.status == status
+    assert [c for c in rt.calls if c[0] == "deliver"] == [c for c in calls if c[0] == "deliver"]  # never offered to the runtime
+    assert (offset_row(bridge_h)[0] >= ctl.position) is consumed  # consumed (not blocking) unless a pause gates delivery
+    assert [r[0] for r in sql(bridge_h, "SELECT record_id FROM bridge_controls")] == [ctl.record_id]
 
 
 @pytest.mark.m1_id("BRG-005")

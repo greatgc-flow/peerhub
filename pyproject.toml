@@ -63,5 +63,5 @@ markers = [
     "m1_id(id): M1 catalog test id (traceability, see tools/m1_traceability.py)",
     "architecture", "schema", "property", "meta", "traceability", "unit", "sqlite", "concurrency",
     "multiprocess", "fault", "migration", "bridge", "observation", "diag", "security", "package",
-    "boundary", "claim", "certainty", "restart", "idempotency", "integration", "record", "canonicalization", "live", "soak",
+    "boundary", "claim", "certainty", "restart", "idempotency", "integration", "record", "canonicalization", "live", "soak", "control", "context",
 ]

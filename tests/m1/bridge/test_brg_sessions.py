@@ -81,7 +81,7 @@ def test_brg_004_lost_session_triggers_fresh_generation_with_catch_up(bridge_h):
                                  ("fresh_generation", "LOST", "FRESH", 2)]  # STM-042, STM-043
     assert bridge_h.delivery_cycle("b", "s", rt).status == "delivered"  # next record via the new generation
     delivered = [c[2] for c in rt.calls if c[0] == "deliver"]
-    inputs = [r for r in ids_in_order if r not in {x[0] for x in responses(bridge_h)}]
+    inputs = [r[0] for r in records(bridge_h) if r[3] == "message"]  # Wave 4: the bridge also writes context.boundary Records (not inputs)
     assert delivered == [first[0].record_id, r2.record_id, r3.record_id] and delivered == inputs  # no lost Record, no duplicates
     assert offset_row(bridge_h)[0] == max(r[1] for r in records(bridge_h) if r[0] == r3.record_id)
     assert [c for c in rt.calls if c[0] == "deliver"][2][1] == "ext-2"

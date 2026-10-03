@@ -52,8 +52,8 @@ class BridgeHarness(CoreHarness):
     def finalize_terminal(self, claim_token, result, delivery_id=None):
         return self.bridge.finalize_terminal(claim_token, result, delivery_id or self.bridge.latest_delivery_id(claim_token))
 
-    def handle_control(self, record_id, runtime_target):  # Wave 4 (CTL)
-        raise NotImplementedError("handle_control arrives with Wave 4")
+    def handle_control(self, record_id, runtime_target, peer_id=None):
+        return self.bridge.handle_control(record_id, runtime_target, peer_id)
 
     def reconcile_uncertain(self, record_id, reconciliation_record):
         return self.bridge.reconcile_uncertain(record_id, reconciliation_record)

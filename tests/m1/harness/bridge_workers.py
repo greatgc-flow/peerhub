@@ -18,3 +18,18 @@ def crash_cycle_worker(ws_path: str, peer_id: str, stream_id: str, crash_point: 
     rt.script_deliver(*[tuple(e) for e in script])
     h.delivery_cycle(peer_id, stream_id, rt)
     os._exit(0)  # reached only if the crash point never fired
+
+
+def control_crash_worker(ws_path: str, record_id: str, peer_id: str, crash_point: str, start_clock: float) -> None:
+    """Child process: handle one control Record and die hard (os._exit) at a named crash point."""
+    from tests.m1.fakes import FakeRuntimeTarget
+    from tests.m1.harness.bridge import BridgeHarness
+    from tests.m1.harness.clock import ManualClock
+
+    def hook(point: str) -> None:
+        if point == crash_point:
+            os._exit(17)
+
+    h = BridgeHarness(ws_path, ManualClock(start_clock), fault_hook=hook)
+    h.handle_control(record_id, FakeRuntimeTarget(), peer_id)
+    os._exit(0)  # reached only if the crash point never fired
