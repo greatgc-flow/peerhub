@@ -36,3 +36,15 @@
 ## Wave 3 re-gate: ag.pro APPROVE at 2fbf4d2.
 - D-W3-8 (Q-W3-8): about_to_invoke marker (certainty MAY_HAVE_STARTED before invocation); adapter-reported PrespawnError is the single permitted return to NOT_STARTED. Safe: a crash before the revert persists leaves the conservative MAY_HAVE_STARTED. Needs spec-owner confirmation (report at the end).
 - Pending control Records block later Records for that peer/stream until Wave 4 (accepted as interim).
+
+## Wave 4 gate (cx.pro, 2026-10-03): BLOCK on d1945ca; rulings (conservative; items marked OWNER need spec-owner confirmation at the end)
+- D-W4-1 control fencing: a control effect must be fenced by the current delivery token AND lease; the target delivery is persisted BEFORE the effect and never retargeted on recovery; an expired lease cannot commit `done`; a superseded handler cannot execute its effect.
+- D-W4-2 gating: pause/cancel committed at any point before the runtime invoke (incl. at `bridge.before_runtime_invoke` and during session creation retries) must stop delivery/creation.
+- D-W4-3 stranded controls: an `in_progress` control whose lease expired must be revisited/recovered; Offset consumption must not hide a NULL outcome.
+- D-W4-4 redirect catch-up honours target scope and the injected budget (max_records=0 yields none) and carries boundary metadata.
+- D-W4-5 boundary Record: validate an existing Record at the deterministic key (kind/body/author) instead of swallowing conflicts; a foreign Record at that key is an explicit error.
+- D-W4-6 new-direction: no success on partial failure (close-CAS exhaustion, invalid payload must leave no empty stream); report precise failure.
+- D-W4-7 (OWNER, Q-W4-2): cancel does NOT skip earlier unread Records. CTL-003: Offset unchanged; TD-10 defers administrative skip. Cancel terminates the running delivery only; later Records still flow. Revert the skip behaviour.
+- D-W4-8 (OWNER, Q-W4-5): CTX-001 says "after Offset": the bridge catch-up uses the peer Offset, not after_position=0.
+- D-W4-9 (OWNER, Q-W4-9): control precedence is by Record POSITION (latest control decision by position wins, e.g. an older RETRY never overrides a newer cancel); deterministic across crashes. `paused` display precedence over `blocked_uncertain` accepted.
+- D-W4-10 (OWNER, Q-W4-4): control handling idempotent per (Record, peer); repeated steer contract to be confirmed by the owner.
