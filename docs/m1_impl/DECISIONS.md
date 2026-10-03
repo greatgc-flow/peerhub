@@ -48,3 +48,10 @@
 - D-W4-8 (OWNER, Q-W4-5): CTX-001 says "after Offset": the bridge catch-up uses the peer Offset, not after_position=0.
 - D-W4-9 (OWNER, Q-W4-9): control precedence is by Record POSITION (latest control decision by position wins, e.g. an older RETRY never overrides a newer cancel); deterministic across crashes. `paused` display precedence over `blocked_uncertain` accepted.
 - D-W4-10 (OWNER, Q-W4-4): control handling idempotent per (Record, peer); repeated steer contract to be confirmed by the owner.
+
+## Wave 4 re-gate (cx.pro) on 257a758: BLOCK on 3 gaps + continuity design; rulings
+- D-W4-8b (supersedes the Offset-window reading of D-W4-8): Offset governs DELIVERY only. A FRESH generation (session/context loss) is bootstrapped with a bounded, ordered history suffix of the Stream up to (excluding) the Record being delivered, within the injected TD-12 budget, with explicit boundary metadata; when history fits the budget it must be included in full. Pinned unseen redirects stay as additional intent. CTX-003 / LONG_HORIZON_CONTINUITY: lost context must be recoverable from the Stream. (OWNER: confirm the CTX-001 'after Offset' wording means the projection helper's cursor semantics, not the bridge bootstrap.)
+- D-W4-2b: gate pause/cancel before the FIRST create_session attempt too (not only between retries).
+- D-W4-5b: validate the COMPLETE boundary payload (reason, catch_up shape/content), not only kind/peer/generation.
+- D-W4-9b: RETRY1 -> cancel -> RETRY2: the latest authorized decision by Record position wins; no INSERT OR IGNORE retention of an older RETRY; after restart the state follows the latest decision.
+- (b) accepted: superseded runner's session interruption is best-effort provided its authoritative writes (terminal/response/Offset) are fenced.
