@@ -31,6 +31,22 @@ Readonly Diag
 7. `01_M1/SKILLS_CATALOG_SECOND_BRAIN.md`
 8. `02_EXTENSIONS/EXTENSION_CATALOG.md`
 9. `03_STANDARDS/STANDARDS_DECISION_TABLE.md`
-10. `07_AUDIT/FINAL_RECURSIVE_AUDIT.md`
+10. `06_GUIDES/TEST_SET/README.md`
+11. `06_GUIDES/TEST_SET/RED_SEQUENCE.md`
+12. `08_LIFECYCLE/README.md`
+13. `08_LIFECYCLE/CLOSED_LOOP_OPERATING_MODEL.md`
+14. `07_AUDIT/FINAL_RECURSIVE_AUDIT.md`
 
 전역 `AGENTS.md`는 의도적으로 포함하지 않습니다.
+
+테스트 설계 freeze: **88 requirements / 210 tests / recursive-MECE closure enforced**. 구현은 Wave 0 META/contract RED부터 시작합니다.
+
+개발/테스트 이후 lifecycle도 freeze 대상입니다. 배포 이후에는 `08_LIFECYCLE/`의 release → observe → learn → improve → close → next intake 순환을 사용합니다.
+
+## 종·횡 최종 교차점검 R2
+
+- invariant SSOT 8/8 requirement 역추적
+- test→release gate 210/210 machine mapping
+- release gate DAG explicit/fail-closed
+- signal route→lifecycle/runbook resolvability
+- rollback 후 unresolved Problem follow-up closure 규칙

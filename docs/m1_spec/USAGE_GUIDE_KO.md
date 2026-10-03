@@ -36,3 +36,26 @@ python .\tools\validate_package.py
 ```
 
 결과는 화면과 `PACKAGE_VALIDATION.txt`에 동일하게 남습니다.
+
+## 개발/테스트 이후
+
+```text
+개발 GREEN
+→ package / clean install
+→ real-provider canary
+→ release
+→ stabilization observation
+→ feedback/incident/drift triage
+→ regression/requirement update
+→ 다음 RED
+```
+
+운영 절차와 rollback/incident/evidence/post-release review는 `08_LIFECYCLE/README.md`에서 시작합니다.
+
+## 종·횡 최종 교차점검 R2
+
+- invariant SSOT 8/8 requirement 역추적
+- test→release gate 210/210 machine mapping
+- release gate DAG explicit/fail-closed
+- signal route→lifecycle/runbook resolvability
+- rollback 후 unresolved Problem follow-up closure 규칙

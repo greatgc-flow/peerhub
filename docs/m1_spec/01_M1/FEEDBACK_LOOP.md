@@ -1,19 +1,38 @@
 # PeerHub 선순환 Feedback Loop
 
+개발/테스트 이후의 완전한 운영 loop SSOT는 `08_LIFECYCLE/`입니다.
+
+```text
+Evidence / Requirement
+→ RED
+→ Minimum Implementation
+→ Deterministic Verification
+→ Package / Clean Install
+→ Real Runtime Canary
+→ Release
+→ Stabilization Observation
+→ Feedback / Incident / Drift
+→ Reproduce / Root Cause / Decision
+→ Requirement + Regression + Evidence Update
+→ Re-verify / Promote / Rollback
+→ Closure + Recurrence Watch
+↺
+```
+
 ## Runtime defect
 
 ```text
 Operational signal
-→ structured evidence
+→ preserve structured evidence
 → reproduce
-→ root cause
-→ Record/Bridge/Observation requirement update
+→ root cause / contributing factors
+→ requirement update
 → RED regression
 → fix
-→ real CLI canary
+→ clean install + real CLI canary
 → release
-→ recurrence check
-→ FIXED / accepted risk / deferred
+→ recurrence watch
+→ terminal disposition
 ```
 
 ## Vendor/Model change
@@ -25,6 +44,7 @@ CLI/provider update
 → catalog candidate
 → JSON Schema validate
 → adapter compatibility test
+→ changed-profile canary
 → release
 → observation
 ```
@@ -38,6 +58,7 @@ failure/inefficiency
 → version
 → compare
 → promote/rollback
+→ operation evidence
 ```
 
 ## Standard update
@@ -46,6 +67,10 @@ failure/inefficiency
 upstream standard release
 → official source
 → actual boundary impact?
-  NO -> record, no architecture change
-  YES -> contract/conformance RED test -> adopt
+  NO -> evidence 기록 + no architecture change
+  YES -> contract/conformance RED -> adopt -> release -> observe
 ```
+
+## 종료 규칙
+
+`Done`이나 `Released`만으로 닫지 않습니다. `08_LIFECYCLE/README.md`의 **Done → Released → Operated → Closed** 네 단계를 사용합니다.

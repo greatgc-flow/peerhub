@@ -1,0 +1,1007 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-10-03",
+  "allowed_status": [
+    "COVERED",
+    "DEFERRED",
+    "N_A",
+    "OUT_OF_SCOPE"
+  ],
+  "exceptions": [
+    {
+      "id": "EX-001",
+      "category": "Input/Schema",
+      "case": "missing required field",
+      "status": "COVERED",
+      "tests": [
+        "SCH-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-002",
+      "category": "Input/Schema",
+      "case": "null in non-null field",
+      "status": "COVERED",
+      "tests": [
+        "SCH-011",
+        "SCH-012"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-003",
+      "category": "Input/Schema",
+      "case": "empty identifier",
+      "status": "COVERED",
+      "tests": [
+        "SCH-002",
+        "SCH-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-004",
+      "category": "Input/Schema",
+      "case": "unknown property",
+      "status": "COVERED",
+      "tests": [
+        "SCH-002",
+        "SCH-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-005",
+      "category": "Input/Schema",
+      "case": "unsupported schema version",
+      "status": "COVERED",
+      "tests": [
+        "SCH-011",
+        "MIG-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-006",
+      "category": "Input/Schema",
+      "case": "malformed date/digest/enum",
+      "status": "COVERED",
+      "tests": [
+        "SCH-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-007",
+      "category": "Input/Schema",
+      "case": "duplicate members/targets",
+      "status": "COVERED",
+      "tests": [
+        "SCH-003",
+        "SCH-005",
+        "STR-005"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-008",
+      "category": "Input/Schema",
+      "case": "null versus empty arrays",
+      "status": "COVERED",
+      "tests": [
+        "SCH-012",
+        "STR-005"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-009",
+      "category": "Input/Encoding",
+      "case": "Unicode/newline/combining characters",
+      "status": "COVERED",
+      "tests": [
+        "PROP-007"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-010",
+      "category": "Input/Encoding",
+      "case": "SQL/control-like text",
+      "status": "COVERED",
+      "tests": [
+        "SEC-001",
+        "PROP-007"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-011",
+      "category": "Input/Encoding",
+      "case": "large valid body within test envelope",
+      "status": "COVERED",
+      "tests": [
+        "PROP-009",
+        "SOAK-001"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-020",
+      "category": "State",
+      "case": "append to CLOSED Stream",
+      "status": "COVERED",
+      "tests": [
+        "STR-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-021",
+      "category": "State",
+      "case": "stale Stream revision",
+      "status": "COVERED",
+      "tests": [
+        "STR-002",
+        "STR-004"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-022",
+      "category": "State",
+      "case": "Offset rewind",
+      "status": "COVERED",
+      "tests": [
+        "OFF-004"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-023",
+      "category": "State",
+      "case": "Offset past head",
+      "status": "COVERED",
+      "tests": [
+        "OFF-006",
+        "CON-010"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-024",
+      "category": "State",
+      "case": "Offset nonexistent peer/stream",
+      "status": "COVERED",
+      "tests": [
+        "OFF-008"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-025",
+      "category": "State",
+      "case": "reopen CLOSED Stream",
+      "status": "DEFERRED",
+      "tests": [],
+      "rationale": "No reopen operation in M1 default.",
+      "trigger": "Introduce explicit reopen API/control."
+    },
+    {
+      "id": "EX-030",
+      "category": "Concurrency",
+      "case": "same Stream concurrent append",
+      "status": "COVERED",
+      "tests": [
+        "CON-001",
+        "MP-001"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-031",
+      "category": "Concurrency",
+      "case": "same idempotency key same payload",
+      "status": "COVERED",
+      "tests": [
+        "CON-003",
+        "MP-002"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-032",
+      "category": "Concurrency",
+      "case": "same idempotency key different payload",
+      "status": "COVERED",
+      "tests": [
+        "CON-004"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-033",
+      "category": "Concurrency",
+      "case": "Offset CAS race",
+      "status": "COVERED",
+      "tests": [
+        "CON-005",
+        "MP-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-034",
+      "category": "Concurrency",
+      "case": "Bridge claim race",
+      "status": "COVERED",
+      "tests": [
+        "CON-006"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-035",
+      "category": "Concurrency",
+      "case": "claim expiry/takeover race",
+      "status": "COVERED",
+      "tests": [
+        "CON-007",
+        "CLM-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-036",
+      "category": "Concurrency",
+      "case": "duplicate terminal callback",
+      "status": "COVERED",
+      "tests": [
+        "BRG-014"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-040",
+      "category": "Crash",
+      "case": "before append commit",
+      "status": "COVERED",
+      "tests": [
+        "FLT-001"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-041",
+      "category": "Crash",
+      "case": "after commit before client success",
+      "status": "COVERED",
+      "tests": [
+        "FLT-002",
+        "E2E-002"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-042",
+      "category": "Crash",
+      "case": "after runtime start before terminal",
+      "status": "COVERED",
+      "tests": [
+        "FLT-003",
+        "FLT-006",
+        "BRG-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-043",
+      "category": "Crash",
+      "case": "after terminal before Offset ack",
+      "status": "COVERED",
+      "tests": [
+        "FLT-005",
+        "BRG-015"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-044",
+      "category": "Storage",
+      "case": "SQLite busy/locked",
+      "status": "COVERED",
+      "tests": [
+        "FLT-009"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-045",
+      "category": "Storage",
+      "case": "disk full/write failure",
+      "status": "COVERED",
+      "tests": [
+        "FLT-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-046",
+      "category": "Storage",
+      "case": "read-only filesystem",
+      "status": "COVERED",
+      "tests": [
+        "FLT-012"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-047",
+      "category": "Storage",
+      "case": "database corruption",
+      "status": "COVERED",
+      "tests": [
+        "FLT-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-048",
+      "category": "Storage",
+      "case": "process killed exactly during OS fsync hardware failure",
+      "status": "OUT_OF_SCOPE",
+      "tests": [],
+      "rationale": "Deterministic tests cover SQLite transaction/VFS injected failures; real sudden power-loss/hardware fault requires dedicated platform lab.",
+      "trigger": "Add hardware/power-cut lab before claiming power-loss certification."
+    },
+    {
+      "id": "EX-050",
+      "category": "Runtime",
+      "case": "pre-spawn failure",
+      "status": "COVERED",
+      "tests": [
+        "BRG-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-051",
+      "category": "Runtime",
+      "case": "timeout after start",
+      "status": "COVERED",
+      "tests": [
+        "BRG-012"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-052",
+      "category": "Runtime",
+      "case": "partial output then crash",
+      "status": "COVERED",
+      "tests": [
+        "BRG-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-053",
+      "category": "Runtime",
+      "case": "resume rejected",
+      "status": "COVERED",
+      "tests": [
+        "BRG-016"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-054",
+      "category": "Runtime",
+      "case": "all session acquisition fails",
+      "status": "COVERED",
+      "tests": [
+        "BRG-017"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-055",
+      "category": "Runtime",
+      "case": "unsupported interrupt",
+      "status": "COVERED",
+      "tests": [
+        "BRG-009"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-056",
+      "category": "Runtime",
+      "case": "terminate/kill failure",
+      "status": "COVERED",
+      "tests": [
+        "CTL-002"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-057",
+      "category": "Runtime",
+      "case": "provider-specific tool protocol mutation",
+      "status": "DEFERRED",
+      "tests": [],
+      "rationale": "M1 Bridge contract is provider-neutral.",
+      "trigger": "Add when a provider RuntimeTarget exposes tool-call mutation semantics."
+    },
+    {
+      "id": "EX-060",
+      "category": "Time",
+      "case": "lease renewal just before expiry",
+      "status": "COVERED",
+      "tests": [
+        "CLM-001"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-061",
+      "category": "Time",
+      "case": "takeover just before expiry",
+      "status": "COVERED",
+      "tests": [
+        "CLM-002"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-062",
+      "category": "Time",
+      "case": "exact lease expiry",
+      "status": "COVERED",
+      "tests": [
+        "CLM-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-063",
+      "category": "Time",
+      "case": "exact observation TTL boundary",
+      "status": "COVERED",
+      "tests": [
+        "OBS-009"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-064",
+      "category": "Time",
+      "case": "source clock far future/skew",
+      "status": "COVERED",
+      "tests": [
+        "OBS-010",
+        "OBS-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-065",
+      "category": "Observation",
+      "case": "probe timeout/malformed",
+      "status": "COVERED",
+      "tests": [
+        "FLT-010",
+        "OBS-012"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-066",
+      "category": "Observation",
+      "case": "quota exhausted",
+      "status": "COVERED",
+      "tests": [
+        "OBS-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-067",
+      "category": "Observation",
+      "case": "rate limited",
+      "status": "COVERED",
+      "tests": [
+        "OBS-014"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-070",
+      "category": "Diag",
+      "case": "malformed observation section",
+      "status": "COVERED",
+      "tests": [
+        "DIA-005"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-071",
+      "category": "Diag",
+      "case": "authoritative DB read failure",
+      "status": "COVERED",
+      "tests": [
+        "DIA-006",
+        "FLT-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-072",
+      "category": "Diag",
+      "case": "optional log unreadable",
+      "status": "COVERED",
+      "tests": [
+        "DIA-009"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-073",
+      "category": "Diag",
+      "case": "concurrent writer during report",
+      "status": "COVERED",
+      "tests": [
+        "DIA-008"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-074",
+      "category": "Diag",
+      "case": "stale evidence tempts refresh",
+      "status": "COVERED",
+      "tests": [
+        "DIA-010"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-080",
+      "category": "Migration",
+      "case": "interrupted schema migration",
+      "status": "COVERED",
+      "tests": [
+        "MIG-001"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-081",
+      "category": "Migration",
+      "case": "supported upgrade",
+      "status": "COVERED",
+      "tests": [
+        "MIG-002"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-082",
+      "category": "Migration",
+      "case": "future major/unsupported downgrade",
+      "status": "COVERED",
+      "tests": [
+        "MIG-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-083",
+      "category": "Migration",
+      "case": "legacy dry-run",
+      "status": "COVERED",
+      "tests": [
+        "IMP-001"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-084",
+      "category": "Migration",
+      "case": "legacy repeated import",
+      "status": "COVERED",
+      "tests": [
+        "IMP-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-085",
+      "category": "Migration",
+      "case": "malformed legacy row",
+      "status": "COVERED",
+      "tests": [
+        "IMP-004"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-086",
+      "category": "Release",
+      "case": "artifact missing runtime data",
+      "status": "COVERED",
+      "tests": [
+        "REL-008",
+        "REL-009"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-087",
+      "category": "Release",
+      "case": "undeclared dev dependency",
+      "status": "COVERED",
+      "tests": [
+        "REL-009"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-088",
+      "category": "Release",
+      "case": "declared Python/OS not tested",
+      "status": "COVERED",
+      "tests": [
+        "REL-010",
+        "REL-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-089",
+      "category": "Release",
+      "case": "provider auth/quota unavailable",
+      "status": "COVERED",
+      "tests": [
+        "LIVE-004",
+        "REL-006"
+      ],
+      "rationale": "Required live gate fails/holds publish rather than being treated as success.",
+      "trigger": ""
+    },
+    {
+      "id": "EX-090",
+      "category": "Cutover",
+      "case": "legacy command missing disposition",
+      "status": "COVERED",
+      "tests": [
+        "REL-012"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-100",
+      "category": "Resource",
+      "case": "very large Stream/cardinality",
+      "status": "COVERED",
+      "tests": [
+        "SOAK-001",
+        "SOAK-002"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-101",
+      "category": "Resource",
+      "case": "true process OOM by host exhaustion",
+      "status": "OUT_OF_SCOPE",
+      "tests": [],
+      "rationale": "Host OOM is nondeterministic/destructive; bounded capacity tests cover product invariants.",
+      "trigger": "Add isolated chaos/soak environment if production SLO requires OOM behavior certification."
+    },
+    {
+      "id": "EX-102",
+      "category": "Security",
+      "case": "credential/secret redaction in arbitrary Observation payload",
+      "status": "DEFERRED",
+      "tests": [],
+      "rationale": "Current M1 schema does not define sensitivity labels/redaction contract.",
+      "trigger": "Define sensitivity metadata/redaction policy before exposing Diag/evidence outside trusted local boundary."
+    },
+    {
+      "id": "EX-103",
+      "category": "Security",
+      "case": "malicious SQL-like text",
+      "status": "COVERED",
+      "tests": [
+        "SEC-001"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-012",
+      "category": "Input/Integrity",
+      "case": "caller injects server-owned Record fields",
+      "status": "COVERED",
+      "tests": [
+        "CORE-013",
+        "SQL-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-013",
+      "category": "Idempotency",
+      "case": "same key reused in another Stream/author scope",
+      "status": "COVERED",
+      "tests": [
+        "IDEM-001",
+        "IDEM-002",
+        "IDEM-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-026",
+      "category": "Read/Catch-up",
+      "case": "empty/head/page boundary",
+      "status": "COVERED",
+      "tests": [
+        "READ-001",
+        "READ-002",
+        "PROP-010"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-027",
+      "category": "Read/Catch-up",
+      "case": "append occurs between pages",
+      "status": "COVERED",
+      "tests": [
+        "CON-011"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-068",
+      "category": "Observation",
+      "case": "unknown resource pool reference",
+      "status": "COVERED",
+      "tests": [
+        "OBS-015"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-069",
+      "category": "Observation",
+      "case": "captured_at missing",
+      "status": "COVERED",
+      "tests": [
+        "OBS-017"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-069B",
+      "category": "Observation",
+      "case": "equal local capture timestamps",
+      "status": "COVERED",
+      "tests": [
+        "OBS-018"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-091",
+      "category": "Release",
+      "case": "manifest-covered file tampered",
+      "status": "COVERED",
+      "tests": [
+        "REL-013"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-092",
+      "category": "Release",
+      "case": "validator screen/evidence drift",
+      "status": "COVERED",
+      "tests": [
+        "REL-014"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-014",
+      "category": "Input/JSON",
+      "case": "bytes/set/custom runtime object in Record payload",
+      "status": "COVERED",
+      "tests": [
+        "SCH-014"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-015",
+      "category": "Input/JSON",
+      "case": "NaN/Infinity non-finite number",
+      "status": "COVERED",
+      "tests": [
+        "SCH-015"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-058",
+      "category": "Runtime",
+      "case": "session mapping after process restart",
+      "status": "COVERED",
+      "tests": [
+        "BRG-018"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-059",
+      "category": "Runtime",
+      "case": "stale owner receives late terminal after takeover",
+      "status": "COVERED",
+      "tests": [
+        "FLT-014"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-059B",
+      "category": "Runtime",
+      "case": "two Bridge processes recover same unread Record",
+      "status": "COVERED",
+      "tests": [
+        "E2E-012",
+        "MP-004"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-059C",
+      "category": "Runtime",
+      "case": "conflicting duplicate terminal callbacks",
+      "status": "COVERED",
+      "tests": [
+        "BRG-019"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-104",
+      "category": "Security/Resource",
+      "case": "arbitrarily deep JSON nesting / parser exhaustion",
+      "status": "DEFERRED",
+      "tests": [],
+      "rationale": "M1 has no ratified max nesting/bytes policy; bounded property tests avoid host DoS.",
+      "trigger": "Define explicit payload-size/depth resource policy before accepting untrusted remote JSON boundary."
+    },
+    {
+      "id": "EX-105",
+      "category": "Execution Certainty",
+      "case": "MAY_HAVE_STARTED requires explicit retry reconciliation",
+      "status": "COVERED",
+      "tests": [
+        "CERT-001",
+        "CERT-002",
+        "CERT-003"
+      ],
+      "rationale": "",
+      "trigger": ""
+    },
+    {
+      "id": "EX-106",
+      "category": "Record References",
+      "case": "reply_to missing/cross-Stream reference semantics",
+      "status": "DEFERRED",
+      "tests": [],
+      "rationale": "M1 schema carries reply_to but does not yet ratify same-Stream referential policy.",
+      "trigger": "Ratify before UI/thread semantics depend on reply_to integrity."
+    },
+    {
+      "id": "EX-107",
+      "category": "Record Targets",
+      "case": "target Peer exists but is not a current Stream member",
+      "status": "DEFERRED",
+      "tests": [],
+      "rationale": "Core intentionally avoids hidden workflow/membership authorization policy.",
+      "trigger": "Define delivery authorization/membership semantics before enforcing target membership."
+    },
+    {
+      "id": "EX-108",
+      "category": "Identifier Grammar",
+      "case": "whitespace-only or Unicode-normalization-equivalent identifiers",
+      "status": "DEFERRED",
+      "tests": [],
+      "rationale": "Current schemas require non-empty opaque ids but no canonical identifier grammar.",
+      "trigger": "Ratify generated/user-supplied identifier grammar before remote/public API exposure."
+    }
+  ]
+}

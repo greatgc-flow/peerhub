@@ -29,3 +29,34 @@
 - **Package text hygiene — PASS**: Validator rejects hidden C0 control characters; prior usage-guide path control character corrected.
 
 결론: M1은 Core/Extension/외부표준/문서/TDD/배포/Feedback의 종·횡 경계가 닫혔습니다. 현재 main delta는 Core를 확대할 이유가 없으며, 새로 확인된 lifecycle 기능은 Backup/Recovery extension으로, model-profile 변화는 Catalog/Schema/Skill/Policy 분리 원칙으로 흡수했습니다.
+## 2026-10-03 Recursive MECE test-set re-audit
+
+- Previous test baseline: 40 requirements / 114 tests.
+- Repartitioned by function × case type × applicable risk dimension × lifecycle phase.
+- Added machine-checkable state-transition, exception-space, and cross-feature interaction inventories.
+- Corrected contradiction: crash-before-commit no longer requires gapless Record position; gaps remain allowed by TD-01.
+- Added Stream lifecycle/revision, Offset head bound/isolation, disk-full/readonly/corrupt DB, real multi-process contention, crash-safe migration, runtime timeout/partial-output/resume failure, bounded catch-up, cancel ordering, clock-skew/TTL, Diag snapshot, security/data-integrity, capacity/soak, legacy importer and package-matrix cases.
+- Final baseline: **88 requirements / 210 tests / 89 classified exceptions / 36 high-risk interactions**.
+- Closure is validator-enforced, not manually asserted.
+
+
+## Post-development lifecycle closure — 2026-10-03
+
+개발/TDD 이후의 선순환도 별도 SSOT로 닫았습니다.
+
+- lifecycle graph: `08_LIFECYCLE/closed-loop.json`
+- release/publish/invariant gates: `08_LIFECYCLE/release-gates.json`
+- operational signal routing: `08_LIFECYCLE/signal-routing.json`
+- runbooks/templates: `08_LIFECYCLE/RUNBOOKS/`, `08_LIFECYCLE/TEMPLATES/`
+- validator는 stage reachability, Close→Intake, Improve→RED, Observe failure→Learn, terminal disposition completeness, invariant gate fail-closed, signal routing completeness를 검사합니다.
+
+따라서 구현/테스트 → 배포 → 운영 → 학습 → 다음 RED가 기계적으로 끊기지 않도록 검증됩니다.
+## 2026-10-03 종·횡 최종 교차점검 R2
+
+- **Vertical traceability strengthened — PASS**: 210개 test → primary release gate 1:1 machine mapping 추가. 모든 P0 test는 blocking gate에 연결됨.
+- **Gate DAG explicit — PASS**: G0→G1→G2, G3/G4→G7, G7→G5 dependency를 JSON으로 강제.
+- **Invariant drift removed — PASS**: 문서의 migration identity/provenance invariant가 machine SSOT에 누락된 문제를 INV-008로 보완하고 모든 invariant를 requirement/test에 역추적 가능하게 함.
+- **Signal route resolvability — PASS**: 모든 signal first_route가 lifecycle stage와 guide/runbook으로 기계적으로 resolve됨.
+- **Rollback semantic closure — PASS**: ROLLED_BACK은 Change terminal일 수 있으나 unresolved Incident/Problem의 자동 종료가 아니며 follow-up link/rationale를 closure requirement로 강제.
+- **External baseline recheck — PASS**: greatgc-flow/peerhub main은 여전히 `57a137cd...`; 기준 HEAD와 identical.
+

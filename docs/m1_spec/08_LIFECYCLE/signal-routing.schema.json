@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PeerHub operational signal routing",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "signals",
+    "routes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "signals": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "class",
+          "first_route",
+          "requires_evidence",
+          "possible_outcomes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string"
+          },
+          "first_route": {
+            "enum": [
+              "INCIDENT",
+              "PROBLEM",
+              "CATALOG_REFRESH",
+              "PERFORMANCE_TRIAGE",
+              "SECURITY_TRIAGE",
+              "FEEDBACK_TRIAGE",
+              "DOC_PROCESS_TRIAGE",
+              "EXTENSION_REVIEW"
+            ]
+          },
+          "requires_evidence": {
+            "const": true
+          },
+          "possible_outcomes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "lifecycle_stage",
+          "guide",
+          "runbook"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "lifecycle_stage": {
+            "type": "string"
+          },
+          "guide": {
+            "type": "string"
+          },
+          "runbook": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,429 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-10-03",
+  "machines": [
+    {
+      "name": "Stream",
+      "states": [
+        "OPEN",
+        "CLOSED"
+      ],
+      "transitions": [
+        {
+          "id": "STM-001",
+          "from": "OPEN",
+          "event": "close(current_revision)",
+          "to": "CLOSED",
+          "status": "COVERED",
+          "tests": [
+            "STR-001",
+            "STR-004"
+          ]
+        },
+        {
+          "id": "STM-002",
+          "from": "OPEN",
+          "event": "mutate(stale_revision)",
+          "to": "OPEN",
+          "status": "COVERED",
+          "tests": [
+            "STR-002",
+            "STR-004"
+          ]
+        },
+        {
+          "id": "STM-003",
+          "from": "CLOSED",
+          "event": "append_record",
+          "to": "CLOSED",
+          "status": "COVERED",
+          "tests": [
+            "STR-003"
+          ]
+        },
+        {
+          "id": "STM-004",
+          "from": "CLOSED",
+          "event": "reopen",
+          "to": "OPEN",
+          "status": "DEFERRED",
+          "trigger": "Only add if M1 explicitly introduces reopen control; default M1 has no reopen API.",
+          "tests": []
+        }
+      ]
+    },
+    {
+      "name": "Offset",
+      "states": [
+        "ABSENT_OR_ZERO",
+        "ADVANCED"
+      ],
+      "transitions": [
+        {
+          "id": "STM-010",
+          "from": "ABSENT_OR_ZERO",
+          "event": "advance(valid_head,current_revision)",
+          "to": "ADVANCED",
+          "status": "COVERED",
+          "tests": [
+            "OFF-002",
+            "OFF-007"
+          ]
+        },
+        {
+          "id": "STM-011",
+          "from": "ADVANCED",
+          "event": "advance_forward(current_revision)",
+          "to": "ADVANCED",
+          "status": "COVERED",
+          "tests": [
+            "OFF-002",
+            "PROP-006"
+          ]
+        },
+        {
+          "id": "STM-012",
+          "from": "ADVANCED",
+          "event": "stale_cas",
+          "to": "ADVANCED",
+          "status": "COVERED",
+          "tests": [
+            "OFF-003",
+            "CON-005"
+          ]
+        },
+        {
+          "id": "STM-013",
+          "from": "ADVANCED",
+          "event": "rewind",
+          "to": "ADVANCED",
+          "status": "COVERED",
+          "tests": [
+            "OFF-004"
+          ]
+        },
+        {
+          "id": "STM-014",
+          "from": "ADVANCED",
+          "event": "advance_past_head",
+          "to": "ADVANCED",
+          "status": "COVERED",
+          "tests": [
+            "OFF-006",
+            "CON-010"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "BridgeClaim",
+      "states": [
+        "ABSENT",
+        "ACTIVE",
+        "EXPIRED",
+        "TAKEN_OVER",
+        "FINALIZED"
+      ],
+      "transitions": [
+        {
+          "id": "STM-020",
+          "from": "ABSENT",
+          "event": "acquire",
+          "to": "ACTIVE",
+          "status": "COVERED",
+          "tests": [
+            "CON-006"
+          ]
+        },
+        {
+          "id": "STM-021",
+          "from": "ACTIVE",
+          "event": "renew_before_expiry",
+          "to": "ACTIVE",
+          "status": "COVERED",
+          "tests": [
+            "CLM-001"
+          ]
+        },
+        {
+          "id": "STM-022",
+          "from": "ACTIVE",
+          "event": "takeover_before_expiry",
+          "to": "ACTIVE",
+          "status": "COVERED",
+          "tests": [
+            "CLM-002"
+          ]
+        },
+        {
+          "id": "STM-023",
+          "from": "ACTIVE",
+          "event": "clock_reaches_expiry",
+          "to": "EXPIRED",
+          "status": "COVERED",
+          "tests": [
+            "CLM-003",
+            "CON-007"
+          ]
+        },
+        {
+          "id": "STM-024",
+          "from": "EXPIRED",
+          "event": "takeover",
+          "to": "TAKEN_OVER",
+          "status": "COVERED",
+          "tests": [
+            "CON-007"
+          ]
+        },
+        {
+          "id": "STM-025",
+          "from": "TAKEN_OVER",
+          "event": "stale_owner_ack/finalize",
+          "to": "TAKEN_OVER",
+          "status": "COVERED",
+          "tests": [
+            "CON-008",
+            "FLT-007"
+          ]
+        },
+        {
+          "id": "STM-026",
+          "from": "ACTIVE",
+          "event": "terminal_finalize_current_owner",
+          "to": "FINALIZED",
+          "status": "COVERED",
+          "tests": [
+            "BRG-006",
+            "BRG-014"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ExecutionCertainty",
+      "states": [
+        "NOT_STARTED",
+        "MAY_HAVE_STARTED",
+        "STARTED",
+        "TERMINAL"
+      ],
+      "transitions": [
+        {
+          "id": "STM-030",
+          "from": "NOT_STARTED",
+          "event": "pre_spawn_failure",
+          "to": "NOT_STARTED",
+          "status": "COVERED",
+          "tests": [
+            "BRG-011"
+          ]
+        },
+        {
+          "id": "STM-031",
+          "from": "NOT_STARTED",
+          "event": "start_uncertain",
+          "to": "MAY_HAVE_STARTED",
+          "status": "COVERED",
+          "tests": [
+            "FLT-003",
+            "BRG-012"
+          ]
+        },
+        {
+          "id": "STM-032",
+          "from": "NOT_STARTED",
+          "event": "start_evidence",
+          "to": "STARTED",
+          "status": "COVERED",
+          "tests": [
+            "BRG-007"
+          ]
+        },
+        {
+          "id": "STM-033",
+          "from": "STARTED",
+          "event": "terminal_evidence",
+          "to": "TERMINAL",
+          "status": "COVERED",
+          "tests": [
+            "BRG-006",
+            "BRG-014"
+          ]
+        },
+        {
+          "id": "STM-034",
+          "from": "MAY_HAVE_STARTED",
+          "event": "blind_auto_replay",
+          "to": "MAY_HAVE_STARTED",
+          "status": "COVERED",
+          "tests": [
+            "FLT-004",
+            "E2E-004"
+          ]
+        },
+        {
+          "id": "STM-035",
+          "from": "STARTED",
+          "event": "crash_no_terminal",
+          "to": "STARTED",
+          "status": "COVERED",
+          "tests": [
+            "FLT-006",
+            "BRG-013"
+          ]
+        },
+        {
+          "id": "STM-036",
+          "from": "TERMINAL",
+          "event": "duplicate_terminal",
+          "to": "TERMINAL",
+          "status": "COVERED",
+          "tests": [
+            "BRG-014",
+            "BRG-015"
+          ]
+        },
+        {
+          "id": "STM-037",
+          "from": "STARTED",
+          "event": "downgrade_to_NOT_STARTED",
+          "to": "STARTED",
+          "status": "COVERED",
+          "tests": [
+            "FLT-006",
+            "BRG-012"
+          ]
+        },
+        {
+          "id": "STM-038",
+          "from": "MAY_HAVE_STARTED",
+          "event": "control.reconcile.retry",
+          "to": "MAY_HAVE_STARTED",
+          "status": "COVERED",
+          "tests": [
+            "CERT-002",
+            "CERT-003"
+          ],
+          "trigger": "Original attempt remains immutable; event creates a distinct new attempt rather than mutating old certainty."
+        }
+      ]
+    },
+    {
+      "name": "SessionGeneration",
+      "states": [
+        "NONE",
+        "ACTIVE",
+        "LOST",
+        "FRESH"
+      ],
+      "transitions": [
+        {
+          "id": "STM-040",
+          "from": "NONE",
+          "event": "create",
+          "to": "ACTIVE",
+          "status": "COVERED",
+          "tests": [
+            "BRG-002"
+          ]
+        },
+        {
+          "id": "STM-041",
+          "from": "ACTIVE",
+          "event": "resume_compatible",
+          "to": "ACTIVE",
+          "status": "COVERED",
+          "tests": [
+            "BRG-003"
+          ]
+        },
+        {
+          "id": "STM-042",
+          "from": "ACTIVE",
+          "event": "session_loss",
+          "to": "LOST",
+          "status": "COVERED",
+          "tests": [
+            "BRG-004",
+            "E2E-006"
+          ]
+        },
+        {
+          "id": "STM-043",
+          "from": "LOST",
+          "event": "fresh_generation",
+          "to": "FRESH",
+          "status": "COVERED",
+          "tests": [
+            "BRG-004",
+            "CTX-003"
+          ]
+        },
+        {
+          "id": "STM-044",
+          "from": "ACTIVE",
+          "event": "fingerprint_change",
+          "to": "FRESH",
+          "status": "COVERED",
+          "tests": [
+            "BRG-005"
+          ]
+        },
+        {
+          "id": "STM-045",
+          "from": "ACTIVE",
+          "event": "resume_rejected",
+          "to": "FRESH",
+          "status": "COVERED",
+          "tests": [
+            "BRG-016",
+            "BRG-017"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ObservationFreshness",
+      "states": [
+        "FRESH_EVIDENCE",
+        "STALE_DERIVED"
+      ],
+      "transitions": [
+        {
+          "id": "STM-050",
+          "from": "FRESH_EVIDENCE",
+          "event": "age_below_ttl",
+          "to": "FRESH_EVIDENCE",
+          "status": "COVERED",
+          "tests": [
+            "OBS-005",
+            "OBS-009"
+          ]
+        },
+        {
+          "id": "STM-051",
+          "from": "FRESH_EVIDENCE",
+          "event": "age_reaches_ttl",
+          "to": "STALE_DERIVED",
+          "status": "COVERED",
+          "tests": [
+            "OBS-005",
+            "OBS-009"
+          ]
+        },
+        {
+          "id": "STM-052",
+          "from": "STALE_DERIVED",
+          "event": "read_again",
+          "to": "STALE_DERIVED",
+          "status": "COVERED",
+          "tests": [
+            "OBS-005",
+            "DIA-010"
+          ]
+        }
+      ]
+    }
+  ]
+}

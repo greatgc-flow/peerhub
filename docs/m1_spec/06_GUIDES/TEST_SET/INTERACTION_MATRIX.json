@@ -1,0 +1,402 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-10-03",
+  "interactions": [
+    {
+      "id": "INT-001",
+      "a": "Idempotency",
+      "b": "Concurrent append",
+      "risk": "duplicate logical Record",
+      "status": "REQUIRED",
+      "tests": [
+        "CON-003",
+        "CON-004",
+        "MP-002"
+      ]
+    },
+    {
+      "id": "INT-002",
+      "a": "Idempotency",
+      "b": "Process restart",
+      "risk": "duplicate after lost response",
+      "status": "REQUIRED",
+      "tests": [
+        "FLT-002",
+        "E2E-002"
+      ]
+    },
+    {
+      "id": "INT-003",
+      "a": "Ordering",
+      "b": "Crash-before-commit",
+      "risk": "gap/duplicate/corrupt position",
+      "status": "REQUIRED",
+      "tests": [
+        "FLT-001",
+        "SQL-005"
+      ]
+    },
+    {
+      "id": "INT-004",
+      "a": "Offset CAS",
+      "b": "Concurrent append",
+      "risk": "skip unseen head",
+      "status": "REQUIRED",
+      "tests": [
+        "CON-010"
+      ]
+    },
+    {
+      "id": "INT-005",
+      "a": "Offset CAS",
+      "b": "Multi-process",
+      "risk": "multiple winners",
+      "status": "REQUIRED",
+      "tests": [
+        "MP-003"
+      ]
+    },
+    {
+      "id": "INT-006",
+      "a": "Bridge claim",
+      "b": "Lease expiry",
+      "risk": "stale owner finalizes",
+      "status": "REQUIRED",
+      "tests": [
+        "CON-007",
+        "FLT-007",
+        "CLM-003"
+      ]
+    },
+    {
+      "id": "INT-007",
+      "a": "Bridge claim",
+      "b": "Workspace restore",
+      "risk": "pre-restore owner acts",
+      "status": "REQUIRED",
+      "tests": [
+        "FLT-008",
+        "E2E-008"
+      ]
+    },
+    {
+      "id": "INT-008",
+      "a": "Session resume",
+      "b": "Fingerprint change",
+      "risk": "resume wrong runtime context",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-005"
+      ]
+    },
+    {
+      "id": "INT-009",
+      "a": "Session resume",
+      "b": "Provider rejects resume",
+      "risk": "infinite resume loop",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-016",
+        "BRG-017"
+      ]
+    },
+    {
+      "id": "INT-010",
+      "a": "Runtime start",
+      "b": "Timeout/crash",
+      "risk": "blind replay",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-012",
+        "FLT-003",
+        "E2E-004"
+      ]
+    },
+    {
+      "id": "INT-011",
+      "a": "Partial output",
+      "b": "Crash",
+      "risk": "fabricated terminal response",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-013"
+      ]
+    },
+    {
+      "id": "INT-012",
+      "a": "Terminal callback",
+      "b": "Duplicate/restart",
+      "risk": "duplicate response or double Offset",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-014",
+        "BRG-015"
+      ]
+    },
+    {
+      "id": "INT-013",
+      "a": "Pause/Cancel",
+      "b": "Runtime side effect",
+      "risk": "intent lost before interrupt",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-008",
+        "E2E-005",
+        "CTL-001"
+      ]
+    },
+    {
+      "id": "INT-014",
+      "a": "Catch-up",
+      "b": "Context limit",
+      "risk": "full transcript overflow/order loss",
+      "status": "REQUIRED",
+      "tests": [
+        "CTX-001",
+        "CTX-002",
+        "CTX-003"
+      ]
+    },
+    {
+      "id": "INT-015",
+      "a": "Observation freshness",
+      "b": "Clock skew",
+      "risk": "false fresh/stale/latest",
+      "status": "REQUIRED",
+      "tests": [
+        "OBS-009",
+        "OBS-010",
+        "OBS-011"
+      ]
+    },
+    {
+      "id": "INT-016",
+      "a": "Quota observation",
+      "b": "Routing boundary",
+      "risk": "unexpected auto failover",
+      "status": "REQUIRED",
+      "tests": [
+        "OBS-013",
+        "OBS-014"
+      ]
+    },
+    {
+      "id": "INT-017",
+      "a": "Diag read-only",
+      "b": "Stale evidence",
+      "risk": "hidden refresh side effect",
+      "status": "REQUIRED",
+      "tests": [
+        "DIA-003",
+        "DIA-010"
+      ]
+    },
+    {
+      "id": "INT-018",
+      "a": "Diag snapshot",
+      "b": "Concurrent writer",
+      "risk": "torn report",
+      "status": "REQUIRED",
+      "tests": [
+        "DIA-008"
+      ]
+    },
+    {
+      "id": "INT-019",
+      "a": "SQLite write",
+      "b": "Disk full/readonly",
+      "risk": "partial mutation",
+      "status": "REQUIRED",
+      "tests": [
+        "FLT-011",
+        "FLT-012"
+      ]
+    },
+    {
+      "id": "INT-020",
+      "a": "Migration",
+      "b": "Crash",
+      "risk": "schema version/data mismatch",
+      "status": "REQUIRED",
+      "tests": [
+        "MIG-001"
+      ]
+    },
+    {
+      "id": "INT-021",
+      "a": "Legacy import",
+      "b": "Repeated run",
+      "risk": "duplicate M1 data",
+      "status": "REQUIRED",
+      "tests": [
+        "IMP-003"
+      ]
+    },
+    {
+      "id": "INT-022",
+      "a": "Unicode/special text",
+      "b": "Canonical digest",
+      "risk": "unstable retry identity",
+      "status": "REQUIRED",
+      "tests": [
+        "PROP-007",
+        "PROP-008",
+        "SEC-001"
+      ]
+    },
+    {
+      "id": "INT-023",
+      "a": "Package build",
+      "b": "Runtime data files",
+      "risk": "installed feature missing schema/skill",
+      "status": "REQUIRED",
+      "tests": [
+        "REL-008",
+        "REL-009"
+      ]
+    },
+    {
+      "id": "INT-024",
+      "a": "Live provider gate",
+      "b": "Publish DAG",
+      "risk": "release without empirical evidence",
+      "status": "REQUIRED",
+      "tests": [
+        "REL-006"
+      ]
+    },
+    {
+      "id": "INT-025",
+      "a": "Legacy disposition",
+      "b": "Cutover",
+      "risk": "silent feature deletion",
+      "status": "REQUIRED",
+      "tests": [
+        "REL-012"
+      ]
+    },
+    {
+      "id": "INT-026",
+      "a": "Idempotency scope",
+      "b": "Multiple Streams/Peers",
+      "risk": "false duplicate/conflict across independent scope",
+      "status": "REQUIRED",
+      "tests": [
+        "IDEM-001",
+        "IDEM-002",
+        "IDEM-003"
+      ]
+    },
+    {
+      "id": "INT-027",
+      "a": "Server-owned fields",
+      "b": "Idempotency/canonical digest",
+      "risk": "caller forges durable identity/order/digest",
+      "status": "REQUIRED",
+      "tests": [
+        "CORE-013",
+        "SQL-011"
+      ]
+    },
+    {
+      "id": "INT-028",
+      "a": "Paged catch-up",
+      "b": "Concurrent append",
+      "risk": "duplicate/skip around page boundary",
+      "status": "REQUIRED",
+      "tests": [
+        "PROP-010",
+        "CON-011"
+      ]
+    },
+    {
+      "id": "INT-029",
+      "a": "Observation time",
+      "b": "Equal/missing capture timestamp",
+      "risk": "nondeterministic latest/freshness",
+      "status": "REQUIRED",
+      "tests": [
+        "OBS-017",
+        "OBS-018"
+      ]
+    },
+    {
+      "id": "INT-030",
+      "a": "Package checksums",
+      "b": "Validation evidence",
+      "risk": "tampered artifact accepted or evidence diverges from screen",
+      "status": "REQUIRED",
+      "tests": [
+        "REL-013",
+        "REL-014"
+      ]
+    },
+    {
+      "id": "INT-031",
+      "a": "Canonical JSON",
+      "b": "Idempotency digest",
+      "risk": "NaN/non-JSON/serializer differences create unstable retry identity",
+      "status": "REQUIRED",
+      "tests": [
+        "SCH-014",
+        "SCH-015",
+        "PROP-011"
+      ]
+    },
+    {
+      "id": "INT-032",
+      "a": "Session mapping",
+      "b": "Process restart",
+      "risk": "generation reset or wrong resume after restart",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-018"
+      ]
+    },
+    {
+      "id": "INT-033",
+      "a": "Claim takeover",
+      "b": "Late terminal response",
+      "risk": "stale owner writes duplicate/conflicting response",
+      "status": "REQUIRED",
+      "tests": [
+        "FLT-014",
+        "MP-004"
+      ]
+    },
+    {
+      "id": "INT-034",
+      "a": "Crash recovery",
+      "b": "Two Bridge processes",
+      "risk": "double runtime delivery after restart",
+      "status": "REQUIRED",
+      "tests": [
+        "E2E-012",
+        "MP-004"
+      ]
+    },
+    {
+      "id": "INT-035",
+      "a": "Terminal idempotency",
+      "b": "Conflicting duplicate callback",
+      "risk": "terminal truth overwritten",
+      "status": "REQUIRED",
+      "tests": [
+        "BRG-014",
+        "BRG-019"
+      ]
+    },
+    {
+      "id": "INT-036",
+      "a": "MAY_HAVE_STARTED",
+      "b": "Durable reconciliation",
+      "risk": "permanent block or duplicate retry after crash",
+      "status": "REQUIRED",
+      "tests": [
+        "CERT-001",
+        "CERT-002",
+        "CERT-003"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,266 @@
+{
+  "schema_version": 1,
+  "entry_stage": "L0",
+  "stages": [
+    {
+      "id": "L0",
+      "name": "Intake",
+      "purpose": "Evidence와 변경 이유를 분류한다.",
+      "outputs": [
+        "evidence",
+        "requirement_or_decision"
+      ],
+      "next": [
+        "L1"
+      ],
+      "failure_routes": [
+        "L8",
+        "L10"
+      ]
+    },
+    {
+      "id": "L1",
+      "name": "RED",
+      "purpose": "실패/계약을 재현 가능한 test 또는 eval로 고정한다.",
+      "outputs": [
+        "red_evidence"
+      ],
+      "next": [
+        "L2"
+      ],
+      "failure_routes": [
+        "L0",
+        "L8"
+      ]
+    },
+    {
+      "id": "L2",
+      "name": "Build",
+      "purpose": "최소 구현/변경을 수행한다.",
+      "outputs": [
+        "change_set"
+      ],
+      "next": [
+        "L3"
+      ],
+      "failure_routes": [
+        "L1"
+      ]
+    },
+    {
+      "id": "L3",
+      "name": "Verify",
+      "purpose": "deterministic gate와 recursive-MECE 검증을 통과한다.",
+      "outputs": [
+        "test_evidence"
+      ],
+      "next": [
+        "L4"
+      ],
+      "failure_routes": [
+        "L2"
+      ]
+    },
+    {
+      "id": "L4",
+      "name": "Package",
+      "purpose": "artifact/hash/fresh install을 검증한다.",
+      "outputs": [
+        "artifact",
+        "hash",
+        "clean_install_evidence"
+      ],
+      "next": [
+        "L5"
+      ],
+      "failure_routes": [
+        "L2",
+        "L3"
+      ]
+    },
+    {
+      "id": "L5",
+      "name": "Canary",
+      "purpose": "해당 시 실제 provider/runtime에서 사실을 검증한다.",
+      "outputs": [
+        "canary_evidence"
+      ],
+      "next": [
+        "L6"
+      ],
+      "failure_routes": [
+        "L8",
+        "L2"
+      ]
+    },
+    {
+      "id": "L6",
+      "name": "Release",
+      "purpose": "검증된 artifact를 승격하고 release evidence를 고정한다.",
+      "outputs": [
+        "release_evidence_index"
+      ],
+      "next": [
+        "L7"
+      ],
+      "failure_routes": [
+        "L8"
+      ]
+    },
+    {
+      "id": "L7",
+      "name": "Observe",
+      "purpose": "stabilization 동안 invariants와 signals를 관찰한다.",
+      "outputs": [
+        "observation_summary"
+      ],
+      "next": [
+        "L10"
+      ],
+      "failure_routes": [
+        "L8"
+      ]
+    },
+    {
+      "id": "L8",
+      "name": "Learn",
+      "purpose": "incident/feedback/drift를 재현하고 원인/결정을 분류한다.",
+      "outputs": [
+        "problem_or_feedback_record"
+      ],
+      "next": [
+        "L9",
+        "L10"
+      ],
+      "failure_routes": [
+        "L8"
+      ]
+    },
+    {
+      "id": "L9",
+      "name": "Improve",
+      "purpose": "requirement/test/docs/catalog를 함께 갱신한다.",
+      "outputs": [
+        "linked_improvement"
+      ],
+      "next": [
+        "L1"
+      ],
+      "failure_routes": [
+        "L8"
+      ]
+    },
+    {
+      "id": "L10",
+      "name": "Close",
+      "purpose": "terminal disposition과 recurrence watch로 변경을 닫는다.",
+      "outputs": [
+        "closure_evidence"
+      ],
+      "next": [
+        "L0"
+      ],
+      "failure_routes": [
+        "L7",
+        "L8"
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "id": "INV-001",
+      "statement": "Stream canonical position은 충돌/중복되지 않는다.",
+      "on_breach": "HOLD_OR_ROLLBACK",
+      "requirements": [
+        "REQ-ORDER-001",
+        "REQ-CORE-003"
+      ]
+    },
+    {
+      "id": "INV-002",
+      "statement": "Offset은 후퇴하거나 Stream head를 초과하지 않는다.",
+      "on_breach": "HOLD_OR_ROLLBACK",
+      "requirements": [
+        "REQ-OFFSET-002",
+        "REQ-OFFSET-003"
+      ]
+    },
+    {
+      "id": "INV-003",
+      "statement": "stale/fenced Bridge는 authoritative write를 하지 못한다.",
+      "on_breach": "HOLD_OR_ROLLBACK",
+      "requirements": [
+        "REQ-FAULT-005",
+        "REQ-BRIDGE-002",
+        "REQ-BRIDGE-014"
+      ]
+    },
+    {
+      "id": "INV-004",
+      "statement": "MAY_HAVE_STARTED는 blind automatic replay되지 않는다.",
+      "on_breach": "HOLD_OR_ROLLBACK",
+      "requirements": [
+        "REQ-FAULT-003",
+        "REQ-CERTAINTY-001",
+        "REQ-CERTAINTY-002"
+      ]
+    },
+    {
+      "id": "INV-005",
+      "statement": "Diag read-only 경로는 상태를 변경하지 않는다.",
+      "on_breach": "HOLD_OR_ROLLBACK",
+      "requirements": [
+        "REQ-DIAG-001"
+      ]
+    },
+    {
+      "id": "INV-006",
+      "statement": "corrupt authoritative store는 silent repair/continue하지 않는다.",
+      "on_breach": "INCIDENT",
+      "requirements": [
+        "REQ-PERSIST-004"
+      ]
+    },
+    {
+      "id": "INV-007",
+      "statement": "동일 idempotency key의 상이 payload를 성공 처리하지 않는다.",
+      "on_breach": "HOLD_OR_ROLLBACK",
+      "requirements": [
+        "REQ-IDEM-002",
+        "REQ-IDEM-004"
+      ]
+    },
+    {
+      "id": "INV-008",
+      "statement": "Migration/cutover는 committed Core identity, provenance, ordering, idempotency 및 Offset 불변식을 손실하거나 재해석하지 않는다.",
+      "on_breach": "HOLD_OR_ROLLBACK",
+      "requirements": [
+        "REQ-MIG-001",
+        "REQ-MIG-002",
+        "REQ-IMP-001",
+        "REQ-IMP-002"
+      ]
+    }
+  ],
+  "closure_requirements": [
+    "evidence_linked",
+    "requirement_or_decision_linked",
+    "test_or_rationale",
+    "verification_evidence",
+    "release_relation",
+    "docs_catalog_schema_impact",
+    "terminal_disposition",
+    "recurrence_watch",
+    "unresolved_problem_link_or_rationale"
+  ],
+  "terminal_dispositions": [
+    "FIXED",
+    "ROLLED_BACK",
+    "MITIGATED",
+    "ACCEPTED_RISK",
+    "DEFERRED_WITH_TRIGGER",
+    "INVALID_OR_NOT_REPRODUCED",
+    "DUPLICATE_LINKED",
+    "NO_CHANGE_REQUIRED"
+  ]
+}

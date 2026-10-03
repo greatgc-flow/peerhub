@@ -1,0 +1,1879 @@
+{
+  "schema_version": 2,
+  "generated_on": "2026-10-03",
+  "requirements": [
+    {
+      "id": "REQ-ARCH-001",
+      "area": "Architecture",
+      "statement": "Core must not import or require Extension modules/tables at startup.",
+      "source": "01_M1/CORE_CONTRACT.md; 01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "tests": [
+        "ARCH-001",
+        "ARCH-002",
+        "E2E-009"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "negative",
+        "e2e"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-CORE-001",
+      "area": "Core/Peer",
+      "statement": "Peer is a stable collaboration identity distinct from adapter kind, model/profile, process and session.",
+      "source": "01_M1/CORE_CONTRACT.md",
+      "priority": "P0",
+      "tests": [
+        "ARCH-005",
+        "SCH-001",
+        "SCH-002",
+        "CORE-001"
+      ],
+      "required_dimensions": [
+        "schema",
+        "positive",
+        "identity"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-CORE-002",
+      "area": "Core/Stream",
+      "statement": "Stream has stable id, OPEN/CLOSED state, unique members, revision and metadata.",
+      "source": "01_M1/CORE_CONTRACT.md; 04_SCHEMAS/stream.schema.json",
+      "priority": "P0",
+      "tests": [
+        "SCH-003"
+      ],
+      "required_dimensions": [
+        "schema",
+        "state-transition",
+        "negative"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-CORE-003",
+      "area": "Core/Record",
+      "statement": "Record is immutable after append and position is the canonical durable order.",
+      "source": "01_M1/CORE_CONTRACT.md; 01_M1/STREAM_RECORD_OFFSET.md",
+      "priority": "P0",
+      "tests": [
+        "SCH-004",
+        "SCH-005",
+        "CORE-003",
+        "CORE-004",
+        "SQL-004"
+      ],
+      "required_dimensions": [
+        "schema",
+        "positive",
+        "negative",
+        "persistence"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-CORE-004",
+      "area": "Core/Offset",
+      "statement": "Offset represents read-through/delivery progress only; it is not task completion.",
+      "source": "01_M1/CORE_CONTRACT.md",
+      "priority": "P0",
+      "tests": [
+        "SCH-006",
+        "OFF-001",
+        "OFF-005",
+        "BRG-001"
+      ],
+      "required_dimensions": [
+        "positive",
+        "negative",
+        "persistence"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-ORDER-001",
+      "area": "Ordering",
+      "statement": "Committed Records in a Stream have unique strictly increasing positions assigned transactionally; gaps are allowed.",
+      "source": "01_M1/STREAM_RECORD_OFFSET.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "CORE-003",
+        "CORE-005",
+        "PROP-004",
+        "SQL-005",
+        "CON-001",
+        "CON-002",
+        "CON-009",
+        "FLT-001",
+        "FLT-009",
+        "E2E-001",
+        "MP-001",
+        "CON-011"
+      ],
+      "required_dimensions": [
+        "positive",
+        "property",
+        "concurrency",
+        "crash"
+      ],
+      "risk_tags": [
+        "CONCURRENCY"
+      ]
+    },
+    {
+      "id": "REQ-IDEM-001",
+      "area": "Idempotency",
+      "statement": "Same idempotency key plus same canonical payload returns the existing Record.",
+      "source": "01_M1/STREAM_RECORD_OFFSET.md",
+      "priority": "P0",
+      "tests": [
+        "CORE-006",
+        "PROP-001",
+        "CON-003",
+        "FLT-002",
+        "E2E-002",
+        "MP-002"
+      ],
+      "required_dimensions": [
+        "positive",
+        "property",
+        "concurrency",
+        "restart"
+      ],
+      "risk_tags": [
+        "DUPLICATE"
+      ]
+    },
+    {
+      "id": "REQ-IDEM-002",
+      "area": "Idempotency",
+      "statement": "Same idempotency key plus different canonical payload fails with conflict and does not append.",
+      "source": "01_M1/STREAM_RECORD_OFFSET.md",
+      "priority": "P0",
+      "tests": [
+        "CORE-007",
+        "CORE-010",
+        "PROP-002",
+        "CON-004"
+      ],
+      "required_dimensions": [
+        "negative",
+        "property",
+        "concurrency"
+      ],
+      "risk_tags": [
+        "DUPLICATE"
+      ]
+    },
+    {
+      "id": "REQ-IDEM-003",
+      "area": "Idempotency",
+      "statement": "Canonical payload/digest is deterministic across map key order and excludes server-assigned fields.",
+      "source": "06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "CORE-008",
+        "CORE-009",
+        "CORE-010",
+        "PROP-002",
+        "PROP-003",
+        "PROP-008",
+        "SQL-011",
+        "PROP-011"
+      ],
+      "required_dimensions": [
+        "property",
+        "boundary",
+        "canonicalization"
+      ],
+      "risk_tags": [
+        "DUPLICATE"
+      ]
+    },
+    {
+      "id": "REQ-DELIVERY-001",
+      "area": "Delivery",
+      "statement": "Durable append is exactly one logical Record; runtime delivery is evidence-based at-least-once and never claimed exactly-once.",
+      "source": "01_M1/STREAM_RECORD_OFFSET.md",
+      "priority": "P0",
+      "tests": [
+        "CORE-012"
+      ],
+      "required_dimensions": [
+        "semantic-boundary",
+        "negative"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-CONTROL-001",
+      "area": "Control",
+      "statement": "pause/resume/redirect/cancel/context.boundary are durable Records; runtime action is Session Bridge responsibility.",
+      "source": "01_M1/STREAM_RECORD_OFFSET.md",
+      "priority": "P1",
+      "tests": [
+        "CORE-011",
+        "BRG-008",
+        "BRG-009",
+        "E2E-005"
+      ],
+      "required_dimensions": [
+        "persistence",
+        "state-transition",
+        "e2e"
+      ],
+      "risk_tags": [
+        "CONTROL"
+      ]
+    },
+    {
+      "id": "REQ-PERSIST-001",
+      "area": "Persistence",
+      "statement": "SQLite is authoritative local store with FK enforcement, WAL, busy timeout, ordered migrations and explicit UoW/read-only UoW.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "tests": [
+        "SQL-001",
+        "SQL-002",
+        "SQL-003",
+        "SQL-004",
+        "SQL-005",
+        "SQL-006",
+        "CON-002",
+        "FLT-009"
+      ],
+      "required_dimensions": [
+        "persistence",
+        "concurrency",
+        "fault"
+      ],
+      "risk_tags": [
+        "STORAGE"
+      ]
+    },
+    {
+      "id": "REQ-PERSIST-002",
+      "area": "Persistence",
+      "statement": "Core can initialize and operate without any Extension-owned table.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "tests": [
+        "ARCH-002",
+        "SQL-008",
+        "E2E-009"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "negative",
+        "e2e"
+      ],
+      "risk_tags": [
+        "STORAGE"
+      ]
+    },
+    {
+      "id": "REQ-OFFSET-001",
+      "area": "Offset",
+      "statement": "Offset updates use revision compare-and-set; stale revisions cannot win.",
+      "source": "01_M1/ACCEPTANCE_DOD.md",
+      "priority": "P0",
+      "tests": [
+        "SCH-006",
+        "OFF-002",
+        "OFF-003",
+        "PROP-005",
+        "CON-005",
+        "CON-010",
+        "MP-003"
+      ],
+      "required_dimensions": [
+        "positive",
+        "negative",
+        "concurrency",
+        "property"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-OFFSET-002",
+      "area": "Offset",
+      "statement": "read_through_position is monotonic non-decreasing for a peer+stream.",
+      "source": "06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "OFF-004",
+        "PROP-006"
+      ],
+      "required_dimensions": [
+        "negative",
+        "property"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-FAULT-001",
+      "area": "Crash",
+      "statement": "Crash before append commit leaves no visible Record; later committed positions remain unique/strictly increasing and position gaps are allowed.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "tests": [
+        "FLT-001"
+      ],
+      "required_dimensions": [
+        "crash",
+        "recovery",
+        "persistence"
+      ],
+      "risk_tags": [
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-FAULT-002",
+      "area": "Crash",
+      "statement": "Crash after commit but before client success is recoverable by idempotent retry without duplicate append.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "tests": [
+        "FLT-002",
+        "E2E-002"
+      ],
+      "required_dimensions": [
+        "crash",
+        "recovery",
+        "idempotency",
+        "restart"
+      ],
+      "risk_tags": [
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-FAULT-003",
+      "area": "Crash",
+      "statement": "If runtime may have started before a crash, execution certainty becomes MAY_HAVE_STARTED and automatic blind replay is blocked.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md; 01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "tests": [
+        "FLT-003",
+        "FLT-006",
+        "E2E-004",
+        "BRG-012"
+      ],
+      "required_dimensions": [
+        "crash",
+        "recovery",
+        "execution-certainty",
+        "restart"
+      ],
+      "risk_tags": [
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-FAULT-004",
+      "area": "Crash",
+      "statement": "Crash before Offset acknowledgement preserves durable evidence and supports safe restart/catch-up.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "tests": [
+        "FLT-005",
+        "BRG-015"
+      ],
+      "required_dimensions": [
+        "crash",
+        "recovery",
+        "restart"
+      ],
+      "risk_tags": [
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-FAULT-005",
+      "area": "Crash",
+      "statement": "A stale Bridge owner cannot finalize/ack work after ownership generation changes.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "CON-007",
+        "CON-008",
+        "FLT-007",
+        "FLT-014"
+      ],
+      "required_dimensions": [
+        "concurrency",
+        "fault",
+        "fencing"
+      ],
+      "risk_tags": [
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-FAULT-006",
+      "area": "Crash/Restore",
+      "statement": "Workspace restore/generation change invalidates pre-restore claims/session mappings.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "tests": [
+        "SQL-009",
+        "SQL-010",
+        "FLT-008",
+        "E2E-008"
+      ],
+      "required_dimensions": [
+        "recovery",
+        "generation",
+        "e2e"
+      ],
+      "risk_tags": [
+        "CRASH"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-001",
+      "area": "Session Bridge",
+      "statement": "Bridge delivers unread Records, manages runtime session, streams output, appends response Record and captures execution evidence.",
+      "source": "01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "tests": [
+        "FLT-005",
+        "BRG-001",
+        "BRG-006",
+        "BRG-007",
+        "E2E-001",
+        "LIVE-CC-001",
+        "LIVE-CX-001",
+        "LIVE-AG-001"
+      ],
+      "required_dimensions": [
+        "integration",
+        "e2e",
+        "execution-certainty",
+        "persistence"
+      ],
+      "risk_tags": [
+        "RUNTIME"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-002",
+      "area": "Session Bridge",
+      "statement": "At most one active delivery owner exists for workspace+stream+peer; expiry takeover is fenced by generation.",
+      "source": "01_M1/SESSION_BRIDGE.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "CON-006",
+        "CON-007",
+        "FLT-007",
+        "E2E-008",
+        "MP-004",
+        "E2E-012"
+      ],
+      "required_dimensions": [
+        "concurrency",
+        "fencing",
+        "boundary"
+      ],
+      "risk_tags": [
+        "RUNTIME"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-003",
+      "area": "Session Bridge",
+      "statement": "Runtime mapping records external_session_id, session_generation, adapter_fingerprint, binding, resumable, state and last_seen.",
+      "source": "01_M1/SESSION_BRIDGE.md",
+      "priority": "P1",
+      "tests": [
+        "BRG-002",
+        "BRG-003",
+        "BRG-010",
+        "E2E-006",
+        "LIVE-004",
+        "BRG-018"
+      ],
+      "required_dimensions": [
+        "positive",
+        "persistence",
+        "identity"
+      ],
+      "risk_tags": [
+        "RUNTIME"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-004",
+      "area": "Session Bridge",
+      "statement": "Session loss starts a fresh generation and catches up from durable Stream/Offset rather than trusting lost provider context.",
+      "source": "01_M1/ACCEPTANCE_DOD.md",
+      "priority": "P0",
+      "tests": [
+        "BRG-004",
+        "E2E-003",
+        "E2E-006",
+        "CTX-003",
+        "E2E-010"
+      ],
+      "required_dimensions": [
+        "recovery",
+        "restart",
+        "e2e"
+      ],
+      "risk_tags": [
+        "RUNTIME"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-005",
+      "area": "Session Bridge",
+      "statement": "Adapter/session fingerprint change starts a fresh generation.",
+      "source": "01_M1/ACCEPTANCE_DOD.md",
+      "priority": "P0",
+      "tests": [
+        "BRG-005"
+      ],
+      "required_dimensions": [
+        "boundary",
+        "generation"
+      ],
+      "risk_tags": [
+        "RUNTIME"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-006",
+      "area": "Session Bridge",
+      "statement": "control.pause is committed before runtime interrupt/steer is invoked.",
+      "source": "01_M1/ACCEPTANCE_DOD.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "BRG-008",
+        "BRG-009",
+        "E2E-005"
+      ],
+      "required_dimensions": [
+        "ordering",
+        "fault",
+        "e2e"
+      ],
+      "risk_tags": [
+        "RUNTIME"
+      ]
+    },
+    {
+      "id": "REQ-CERTAINTY-001",
+      "area": "Execution Certainty",
+      "statement": "Execution certainty vocabulary is NOT_STARTED/MAY_HAVE_STARTED/STARTED/TERMINAL and MAY_HAVE_STARTED blocks automatic replay.",
+      "source": "01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "tests": [
+        "FLT-003",
+        "FLT-004",
+        "BRG-007",
+        "E2E-004",
+        "BRG-011",
+        "CERT-001"
+      ],
+      "required_dimensions": [
+        "state-transition",
+        "negative",
+        "restart"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-CONT-001",
+      "area": "Continuity",
+      "statement": "Core state and unread progress survive process restart.",
+      "source": "01_M1/ACCEPTANCE_DOD.md; 01_M1/LONG_HORIZON_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "SQL-007",
+        "E2E-002",
+        "E2E-003",
+        "REL-003",
+        "SOAK-001",
+        "E2E-012"
+      ],
+      "required_dimensions": [
+        "restart",
+        "persistence",
+        "e2e"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-OBS-001",
+      "area": "Observation",
+      "statement": "Observation uses MEASURED/ABSENT/UNAVAILABLE/ERROR/STALE/UNKNOWN honestly; missing data is never synthesized as zero/healthy/unlimited.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md",
+      "priority": "P0",
+      "tests": [
+        "SCH-007",
+        "FLT-010",
+        "BRG-009",
+        "OBS-003",
+        "OBS-004",
+        "OBS-008",
+        "LIVE-004",
+        "LIVE-005"
+      ],
+      "required_dimensions": [
+        "positive",
+        "negative",
+        "fault",
+        "honesty"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY"
+      ]
+    },
+    {
+      "id": "REQ-OBS-002",
+      "area": "Observation",
+      "statement": "Freshness is evaluated at read time from immutable observation evidence.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "OBS-005",
+        "OBS-008",
+        "OBS-009"
+      ],
+      "required_dimensions": [
+        "boundary",
+        "time",
+        "immutability"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY"
+      ]
+    },
+    {
+      "id": "REQ-OBS-003",
+      "area": "Observation",
+      "statement": "Quota and rate-limit are represented as distinct observation kinds/semantics.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md",
+      "priority": "P0",
+      "tests": [
+        "OBS-001",
+        "OBS-002",
+        "OBS-014"
+      ],
+      "required_dimensions": [
+        "semantic-boundary",
+        "negative"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY"
+      ]
+    },
+    {
+      "id": "REQ-OBS-004",
+      "area": "Observation",
+      "statement": "Multiple Peers may refer to one shared Resource Pool for account/runtime quota evidence.",
+      "source": "01_M1/PEER_CARDINALITY_RESOURCE_POOL.md",
+      "priority": "P1",
+      "tests": [
+        "SCH-008",
+        "OBS-001",
+        "OBS-006",
+        "OBS-007",
+        "E2E-007",
+        "OBS-016"
+      ],
+      "required_dimensions": [
+        "positive",
+        "isolation",
+        "cardinality"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY"
+      ]
+    },
+    {
+      "id": "REQ-DIAG-001",
+      "area": "Diag",
+      "statement": "Diag is strict read-only: no append/refresh/interrupt/resume/repair/restart/route side effects.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md",
+      "priority": "P0",
+      "tests": [
+        "ARCH-004",
+        "SQL-006",
+        "DIA-001",
+        "DIA-002",
+        "DIA-003",
+        "DIA-004",
+        "DIA-006",
+        "DIA-007",
+        "E2E-007",
+        "DIA-010"
+      ],
+      "required_dimensions": [
+        "read-only",
+        "negative",
+        "e2e"
+      ],
+      "risk_tags": [
+        "DIAG"
+      ]
+    },
+    {
+      "id": "REQ-DIAG-002",
+      "area": "Diag",
+      "statement": "Diag isolates bad/missing observations and read failures without mutating state to repair them.",
+      "source": "01_M1/ACCEPTANCE_DOD.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P1",
+      "tests": [
+        "DIA-005",
+        "DIA-006"
+      ],
+      "required_dimensions": [
+        "fault",
+        "isolation",
+        "read-only"
+      ],
+      "risk_tags": [
+        "DIAG"
+      ]
+    },
+    {
+      "id": "REQ-CARD-001",
+      "area": "Cardinality",
+      "statement": "Adapter kind supports 1:N Peer and Peer 1:N Stream without vendor-specific maximums in Core.",
+      "source": "01_M1/PEER_CARDINALITY_RESOURCE_POOL.md",
+      "priority": "P0",
+      "tests": [
+        "ARCH-003",
+        "CORE-002",
+        "CON-009",
+        "BRG-010",
+        "OBS-006",
+        "E2E-001",
+        "SOAK-002"
+      ],
+      "required_dimensions": [
+        "cardinality",
+        "concurrency",
+        "e2e"
+      ],
+      "risk_tags": [
+        "CORE"
+      ]
+    },
+    {
+      "id": "REQ-REL-001",
+      "area": "Release",
+      "statement": "Build wheel/sdist (or chosen distributable) and install into a clean environment.",
+      "source": "01_M1/ACCEPTANCE_DOD.md; 06_GUIDES/TEST_RELEASE_GUIDE.md",
+      "priority": "P0",
+      "tests": [
+        "REL-001",
+        "REL-002",
+        "REL-009"
+      ],
+      "required_dimensions": [
+        "package",
+        "clean-install"
+      ],
+      "risk_tags": [
+        "RELEASE"
+      ]
+    },
+    {
+      "id": "REQ-REL-002",
+      "area": "Release",
+      "statement": "Release/publish DAG requires real-provider gate evidence for advertised providers; deterministic CI itself must not require quota.",
+      "source": "01_M1/ACCEPTANCE_DOD.md; 06_GUIDES/TEST_RELEASE_GUIDE.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "tests": [
+        "LIVE-CC-001",
+        "LIVE-CX-001",
+        "LIVE-AG-001",
+        "LIVE-006",
+        "REL-005",
+        "REL-006"
+      ],
+      "required_dimensions": [
+        "live",
+        "package",
+        "negative"
+      ],
+      "risk_tags": [
+        "RELEASE"
+      ]
+    },
+    {
+      "id": "REQ-REL-003",
+      "area": "Release",
+      "statement": "Docs/version/schema/catalog are consistency-checked from SSOTs.",
+      "source": "01_M1/ACCEPTANCE_DOD.md; 06_GUIDES/TEST_RELEASE_GUIDE.md",
+      "priority": "P0",
+      "tests": [
+        "SCH-009",
+        "SCH-010",
+        "LIVE-005",
+        "REL-004",
+        "REL-007"
+      ],
+      "required_dimensions": [
+        "package",
+        "compatibility",
+        "consistency"
+      ],
+      "risk_tags": [
+        "RELEASE"
+      ]
+    },
+    {
+      "id": "REQ-REL-004",
+      "area": "Release",
+      "statement": "A freshly initialized clean workspace passes minimal smoke and restart smoke.",
+      "source": "01_M1/ACCEPTANCE_DOD.md",
+      "priority": "P0",
+      "tests": [
+        "REL-003"
+      ],
+      "required_dimensions": [
+        "clean-install",
+        "restart",
+        "e2e"
+      ],
+      "risk_tags": [
+        "RELEASE"
+      ]
+    },
+    {
+      "id": "REQ-BOUND-001",
+      "area": "Boundary Validation",
+      "statement": "Every public schema/API boundary rejects missing required fields, null where non-null, empty identifiers, unknown properties, malformed timestamps/digests, and unsupported schema versions without partial mutation.",
+      "source": "04_SCHEMAS/*.schema.json; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "boundary",
+        "negative",
+        "schema",
+        "no-partial-mutation"
+      ],
+      "risk_tags": [
+        "INPUT",
+        "SCHEMA"
+      ],
+      "tests": [
+        "SCH-011",
+        "SCH-013",
+        "STR-003",
+        "MIG-003"
+      ]
+    },
+    {
+      "id": "REQ-BOUND-002",
+      "area": "Boundary Validation",
+      "statement": "Free-text body/metadata values preserve Unicode, newlines and SQL-like metacharacters losslessly; Core must not silently trim, normalize or interpret them.",
+      "source": "01_M1/CORE_CONTRACT.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "boundary",
+        "property",
+        "security",
+        "persistence"
+      ],
+      "risk_tags": [
+        "INPUT",
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "PROP-007",
+        "SEC-001",
+        "PROP-009"
+      ]
+    },
+    {
+      "id": "REQ-BOUND-003",
+      "area": "Boundary Validation",
+      "statement": "Null and empty collection semantics are explicit: schema-required arrays reject null, allow empty only where schema permits, and preserve array order where semantic.",
+      "source": "04_SCHEMAS/stream.schema.json; 04_SCHEMAS/record.schema.json",
+      "priority": "P0",
+      "required_dimensions": [
+        "schema",
+        "boundary",
+        "negative"
+      ],
+      "risk_tags": [
+        "INPUT",
+        "SCHEMA"
+      ],
+      "tests": [
+        "SCH-012",
+        "STR-005"
+      ]
+    },
+    {
+      "id": "REQ-STREAM-001",
+      "area": "Stream Lifecycle",
+      "statement": "Stream mutations use revision CAS; stale revision cannot update members/state, OPEN may transition to CLOSED, and CLOSED rejects new Record append in M1.",
+      "source": "01_M1/CORE_CONTRACT.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "state-transition",
+        "concurrency",
+        "negative",
+        "persistence"
+      ],
+      "risk_tags": [
+        "STATE",
+        "CONCURRENCY"
+      ],
+      "tests": [
+        "STR-001",
+        "STR-002",
+        "STR-003",
+        "STR-004"
+      ]
+    },
+    {
+      "id": "REQ-STREAM-002",
+      "area": "Stream Membership",
+      "statement": "Stream member updates preserve uniqueness and referential integrity; member ordering is not used as delivery ordering.",
+      "source": "01_M1/CORE_CONTRACT.md; 04_SCHEMAS/stream.schema.json",
+      "priority": "P0",
+      "required_dimensions": [
+        "schema",
+        "negative",
+        "persistence",
+        "semantic-boundary"
+      ],
+      "risk_tags": [
+        "STATE",
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "STR-005",
+        "STR-006"
+      ]
+    },
+    {
+      "id": "REQ-OFFSET-003",
+      "area": "Offset",
+      "statement": "Offset cannot advance beyond the current committed Stream head; empty Stream read-through is zero.",
+      "source": "01_M1/CORE_CONTRACT.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "boundary",
+        "negative",
+        "persistence"
+      ],
+      "risk_tags": [
+        "STATE",
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "OFF-006",
+        "OFF-007",
+        "CON-010"
+      ]
+    },
+    {
+      "id": "REQ-OFFSET-004",
+      "area": "Offset",
+      "statement": "Offset rows reference existing Peer and Stream identities and never cross-contaminate another peer+stream key.",
+      "source": "01_M1/CORE_CONTRACT.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "persistence",
+        "isolation",
+        "negative"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "OFF-008"
+      ]
+    },
+    {
+      "id": "REQ-PERSIST-003",
+      "area": "Persistence Faults",
+      "statement": "Disk-full, read-only filesystem and failed fsync/commit paths fail explicitly and never expose a partially committed Core mutation.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "fault",
+        "no-partial-mutation",
+        "recovery",
+        "persistence"
+      ],
+      "risk_tags": [
+        "STORAGE",
+        "CRASH"
+      ],
+      "tests": [
+        "FLT-011",
+        "FLT-012"
+      ]
+    },
+    {
+      "id": "REQ-PERSIST-004",
+      "area": "Persistence Integrity",
+      "statement": "Corrupt or structurally invalid SQLite state fails explicitly; normal Core open and Diag never auto-repair or silently recreate authoritative data.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md; 01_M1/OBSERVATION_AND_DIAG.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "fault",
+        "negative",
+        "recovery",
+        "read-only"
+      ],
+      "risk_tags": [
+        "STORAGE",
+        "INTEGRITY"
+      ],
+      "tests": [
+        "FLT-013"
+      ]
+    },
+    {
+      "id": "REQ-PERSIST-005",
+      "area": "Multi-process Concurrency",
+      "statement": "Independent processes/connections preserve append, idempotency and Offset CAS invariants under real SQLite contention.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "multi-process",
+        "concurrency",
+        "persistence",
+        "recovery"
+      ],
+      "risk_tags": [
+        "CONCURRENCY",
+        "STORAGE"
+      ],
+      "tests": [
+        "MP-001",
+        "MP-002",
+        "MP-003",
+        "MP-004"
+      ]
+    },
+    {
+      "id": "REQ-MIG-001",
+      "area": "Schema Migration",
+      "statement": "Ordered migrations are crash-safe: failure/interruption does not advertise a newer schema version unless that migration committed completely.",
+      "source": "01_M1/PERSISTENCE_CONCURRENCY.md; 01_M1/MIGRATION_CUTOVER.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "migration",
+        "crash",
+        "recovery",
+        "compatibility"
+      ],
+      "risk_tags": [
+        "MIGRATION",
+        "CRASH"
+      ],
+      "tests": [
+        "MIG-001"
+      ]
+    },
+    {
+      "id": "REQ-MIG-002",
+      "area": "Schema Migration",
+      "statement": "Supported schema upgrades preserve Core data/invariants; unsupported downgrade or future major schema fails explicitly rather than guessing compatibility.",
+      "source": "01_M1/MIGRATION_CUTOVER.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "migration",
+        "compatibility",
+        "negative",
+        "persistence"
+      ],
+      "risk_tags": [
+        "MIGRATION",
+        "COMPATIBILITY"
+      ],
+      "tests": [
+        "MIG-002",
+        "MIG-003"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-007",
+      "area": "Session Bridge",
+      "statement": "Failure before a runtime is actually started remains NOT_STARTED and may be retried; post-start timeout/cancel/disconnect is never downgraded to NOT_STARTED.",
+      "source": "01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "execution-certainty",
+        "fault",
+        "state-transition",
+        "negative"
+      ],
+      "risk_tags": [
+        "RUNTIME",
+        "CRASH"
+      ],
+      "tests": [
+        "BRG-011",
+        "BRG-012"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-008",
+      "area": "Session Bridge",
+      "statement": "Partial/streaming output followed by crash never creates a fabricated terminal response Record; durable evidence retains the highest known certainty.",
+      "source": "01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "streaming",
+        "crash",
+        "execution-certainty",
+        "recovery"
+      ],
+      "risk_tags": [
+        "RUNTIME",
+        "CRASH"
+      ],
+      "tests": [
+        "BRG-013"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-009",
+      "area": "Session Bridge",
+      "statement": "Terminal response append/finalization is idempotent across restart and duplicate provider terminal callbacks.",
+      "source": "01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "idempotency",
+        "restart",
+        "persistence",
+        "concurrency"
+      ],
+      "risk_tags": [
+        "RUNTIME",
+        "DUPLICATE"
+      ],
+      "tests": [
+        "BRG-014",
+        "BRG-015"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-010",
+      "area": "Session Bridge",
+      "statement": "Compatible session resume failure falls back to one fresh generation/catch-up path without infinite resume/retry loops.",
+      "source": "01_M1/LONG_HORIZON_CONTINUITY.md; 01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "recovery",
+        "generation",
+        "negative",
+        "e2e"
+      ],
+      "risk_tags": [
+        "RUNTIME",
+        "RECOVERY"
+      ],
+      "tests": [
+        "BRG-016",
+        "BRG-017",
+        "E2E-010"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-011",
+      "area": "Context Catch-up",
+      "statement": "Fresh-session catch-up uses a bounded projection in canonical Record order and never requires blind full-transcript reinjection.",
+      "source": "01_M1/LONG_HORIZON_CONTINUITY.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "boundary",
+        "ordering",
+        "capacity",
+        "e2e"
+      ],
+      "risk_tags": [
+        "CONTEXT",
+        "RESOURCE"
+      ],
+      "tests": [
+        "CTX-001",
+        "CTX-002",
+        "CTX-003"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-012",
+      "area": "Claim Lifecycle",
+      "statement": "Claim renewal/takeover is deterministic at lease boundaries: takeover cannot occur before expiry; exact expiry and stale token behavior are fenced by generation.",
+      "source": "01_M1/SESSION_BRIDGE.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "time",
+        "boundary",
+        "concurrency",
+        "fencing"
+      ],
+      "risk_tags": [
+        "TIME",
+        "CONCURRENCY"
+      ],
+      "tests": [
+        "CLM-001",
+        "CLM-002",
+        "CLM-003"
+      ]
+    },
+    {
+      "id": "REQ-CONTROL-002",
+      "area": "Control",
+      "statement": "control.cancel intent is durably committed before terminate/kill side effects; side-effect failure does not erase the intent.",
+      "source": "01_M1/LONG_HORIZON_CONTINUITY.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "ordering",
+        "fault",
+        "persistence",
+        "e2e"
+      ],
+      "risk_tags": [
+        "CONTROL",
+        "RUNTIME"
+      ],
+      "tests": [
+        "CTL-001",
+        "CTL-002",
+        "E2E-011"
+      ]
+    },
+    {
+      "id": "REQ-CONTROL-003",
+      "area": "Control",
+      "statement": "Pause/cancel do not roll back durable Records or Offset; resume/redirect are new durable intent records rather than destructive state rewrites.",
+      "source": "01_M1/LONG_HORIZON_CONTINUITY.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "state-transition",
+        "persistence",
+        "negative"
+      ],
+      "risk_tags": [
+        "CONTROL",
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "CTL-003",
+        "E2E-011"
+      ]
+    },
+    {
+      "id": "REQ-CONTROL-004",
+      "area": "Long-Horizon Direction",
+      "statement": "Same-goal redirect stays in the Stream; a genuinely new goal uses a new Stream with reference to prior history, preserving old Stream evidence.",
+      "source": "01_M1/LONG_HORIZON_CONTINUITY.md",
+      "priority": "P1",
+      "required_dimensions": [
+        "state-transition",
+        "e2e",
+        "persistence"
+      ],
+      "risk_tags": [
+        "CONTROL",
+        "CONTINUITY"
+      ],
+      "tests": [
+        "CTL-004",
+        "CTL-005"
+      ]
+    },
+    {
+      "id": "REQ-OBS-005",
+      "area": "Observation Time",
+      "statement": "Freshness and latest-selection remain deterministic under TTL boundary, out-of-order source timestamps and source clock skew using the declared local capture-time policy.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "time",
+        "boundary",
+        "property",
+        "honesty"
+      ],
+      "risk_tags": [
+        "TIME",
+        "OBSERVABILITY"
+      ],
+      "tests": [
+        "OBS-009",
+        "OBS-010",
+        "OBS-011",
+        "OBS-017"
+      ]
+    },
+    {
+      "id": "REQ-OBS-006",
+      "area": "Observation Isolation",
+      "statement": "Observation capture/probe failure may append explicit observation evidence but must not mutate Core Peer/Stream/Record/Offset state or trigger routing.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md; 01_M1/LONG_HORIZON_CONTINUITY.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "fault",
+        "isolation",
+        "negative",
+        "read-only"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY",
+        "CORE_BOUNDARY"
+      ],
+      "tests": [
+        "OBS-012",
+        "DIA-010"
+      ]
+    },
+    {
+      "id": "REQ-OBS-007",
+      "area": "Quota Exhaustion",
+      "statement": "Quota exhaustion or rate limiting changes observation/runtime availability only; Core history and Offset are unchanged and M1 performs no automatic peer reroute.",
+      "source": "01_M1/LONG_HORIZON_CONTINUITY.md; 01_M1/OBSERVATION_AND_DIAG.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "semantic-boundary",
+        "negative",
+        "e2e",
+        "honesty"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY",
+        "ROUTING_BOUNDARY"
+      ],
+      "tests": [
+        "OBS-013",
+        "OBS-014"
+      ]
+    },
+    {
+      "id": "REQ-DIAG-003",
+      "area": "Diag Snapshot",
+      "statement": "Diag reads a consistent snapshot under concurrent writers or reports an explicit read conflict/error; it never emits a torn mixed-state report.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md; 01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "read-only",
+        "concurrency",
+        "isolation",
+        "persistence"
+      ],
+      "risk_tags": [
+        "DIAG",
+        "CONCURRENCY"
+      ],
+      "tests": [
+        "DIA-008"
+      ]
+    },
+    {
+      "id": "REQ-DIAG-004",
+      "area": "Diag Inputs",
+      "statement": "Malformed/unreadable optional log or observation sources are isolated by section; authoritative Core read failure remains explicit and still triggers no repair.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "fault",
+        "isolation",
+        "negative",
+        "read-only"
+      ],
+      "risk_tags": [
+        "DIAG",
+        "FAULT"
+      ],
+      "tests": [
+        "DIA-009"
+      ]
+    },
+    {
+      "id": "REQ-SEC-001",
+      "area": "Data Integrity / Security",
+      "statement": "Untrusted text containing SQL metacharacters, control-like strings or markup is stored/read as data and cannot alter SQL structure or execute commands.",
+      "source": "01_M1/CORE_CONTRACT.md; 01_M1/PERSISTENCE_CONCURRENCY.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "security",
+        "property",
+        "persistence",
+        "negative"
+      ],
+      "risk_tags": [
+        "SECURITY",
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "PROP-007",
+        "SEC-001"
+      ]
+    },
+    {
+      "id": "REQ-RES-001",
+      "area": "Capacity / Resource",
+      "statement": "Large-but-valid Streams/Records and high cardinality preserve correctness without hidden truncation; performance limits are explicit policy/config rather than vendor-specific Core ceilings.",
+      "source": "01_M1/PEER_CARDINALITY_RESOURCE_POOL.md; 01_M1/LONG_HORIZON_CONTINUITY.md",
+      "priority": "P1",
+      "required_dimensions": [
+        "capacity",
+        "property",
+        "cardinality",
+        "soak"
+      ],
+      "risk_tags": [
+        "RESOURCE",
+        "CARDINALITY"
+      ],
+      "tests": [
+        "SOAK-001",
+        "SOAK-002",
+        "PROP-009"
+      ]
+    },
+    {
+      "id": "REQ-IMP-001",
+      "area": "Legacy Import / Cutover",
+      "statement": "Legacy import is explicit and side-by-side: source v0.x data is not mutated in place, dry-run/report precedes apply, and only declared mappings enter M1.",
+      "source": "01_M1/MIGRATION_CUTOVER.md",
+      "priority": "P1",
+      "required_dimensions": [
+        "migration",
+        "negative",
+        "read-only",
+        "e2e"
+      ],
+      "risk_tags": [
+        "MIGRATION",
+        "CUTOVER"
+      ],
+      "tests": [
+        "IMP-001",
+        "IMP-002"
+      ]
+    },
+    {
+      "id": "REQ-IMP-002",
+      "area": "Legacy Import / Cutover",
+      "statement": "Repeated legacy import is idempotent; invalid/unmapped legacy items are isolated and reported without corrupting already imported M1 state.",
+      "source": "01_M1/MIGRATION_CUTOVER.md",
+      "priority": "P1",
+      "required_dimensions": [
+        "migration",
+        "idempotency",
+        "fault",
+        "recovery"
+      ],
+      "risk_tags": [
+        "MIGRATION",
+        "CUTOVER"
+      ],
+      "tests": [
+        "IMP-003",
+        "IMP-004"
+      ]
+    },
+    {
+      "id": "REQ-REL-005",
+      "area": "Package Contents",
+      "statement": "Built artifacts contain all runtime schemas/catalogs/skills required by advertised M1 features and exclude development-only/generated junk not declared for runtime.",
+      "source": "01_M1/SKILLS_CATALOG_SECOND_BRAIN.md; 06_GUIDES/TEST_RELEASE_GUIDE.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "package",
+        "consistency",
+        "clean-install"
+      ],
+      "risk_tags": [
+        "RELEASE",
+        "PACKAGING"
+      ],
+      "tests": [
+        "REL-008",
+        "REL-009"
+      ]
+    },
+    {
+      "id": "REQ-REL-006",
+      "area": "Compatibility Matrix",
+      "statement": "Declared Python/OS support matrix in package metadata is exercised by CI or explicitly marked unsupported; tests may not silently pass only on the developer host.",
+      "source": "06_GUIDES/TEST_RELEASE_GUIDE.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "package",
+        "compatibility",
+        "matrix"
+      ],
+      "risk_tags": [
+        "RELEASE",
+        "COMPATIBILITY"
+      ],
+      "tests": [
+        "REL-010",
+        "REL-011"
+      ]
+    },
+    {
+      "id": "REQ-LEGACY-001",
+      "area": "Legacy Disposition",
+      "statement": "Before cutover/removal, every current legacy leaf command remains exactly once in the disposition inventory and matches frozen repository call-map evidence.",
+      "source": "01_M1/MIGRATION_CUTOVER.md; 02_EXTENSIONS/109_COMMAND_DISPOSITION.csv",
+      "priority": "P0",
+      "required_dimensions": [
+        "consistency",
+        "compatibility",
+        "package"
+      ],
+      "risk_tags": [
+        "CUTOVER",
+        "TRACEABILITY"
+      ],
+      "tests": [
+        "REL-012"
+      ]
+    },
+    {
+      "id": "REQ-META-001",
+      "area": "Test Meta-Quality",
+      "statement": "Every requirement has declared required test dimensions and the linked tests collectively cover every declared dimension with no orphan tests or dangling requirement references.",
+      "source": "06_GUIDES/TEST_SET/RECURSIVE_MECE_MODEL.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "meta",
+        "consistency",
+        "traceability"
+      ],
+      "risk_tags": [
+        "TEST_OF_TESTS"
+      ],
+      "tests": [
+        "META-001"
+      ]
+    },
+    {
+      "id": "REQ-META-002",
+      "area": "Test Meta-Quality",
+      "statement": "All declared state-machine transitions and forbidden transitions are covered by tests or explicitly deferred with a trigger.",
+      "source": "06_GUIDES/TEST_SET/STATE_MACHINE_COVERAGE.json",
+      "priority": "P0",
+      "required_dimensions": [
+        "meta",
+        "state-transition",
+        "traceability"
+      ],
+      "risk_tags": [
+        "TEST_OF_TESTS",
+        "STATE"
+      ],
+      "tests": [
+        "META-002"
+      ]
+    },
+    {
+      "id": "REQ-META-003",
+      "area": "Test Meta-Quality",
+      "statement": "The exception taxonomy has no OPEN/unclassified item: each exception is COVERED, DEFERRED with trigger, N/A with rationale, or explicitly OUT_OF_SCOPE.",
+      "source": "06_GUIDES/TEST_SET/EXCEPTION_CATALOG.json",
+      "priority": "P0",
+      "required_dimensions": [
+        "meta",
+        "exception-space",
+        "traceability"
+      ],
+      "risk_tags": [
+        "TEST_OF_TESTS",
+        "MECE"
+      ],
+      "tests": [
+        "META-003"
+      ]
+    },
+    {
+      "id": "REQ-META-004",
+      "area": "Test Meta-Quality",
+      "statement": "Every high-risk cross-feature interaction in the interaction matrix has at least one named test and no duplicate interaction row.",
+      "source": "06_GUIDES/TEST_SET/INTERACTION_MATRIX.json",
+      "priority": "P0",
+      "required_dimensions": [
+        "meta",
+        "interaction",
+        "traceability"
+      ],
+      "risk_tags": [
+        "TEST_OF_TESTS",
+        "MECE"
+      ],
+      "tests": [
+        "META-004"
+      ]
+    },
+    {
+      "id": "REQ-IDEM-004",
+      "area": "Idempotency",
+      "statement": "Idempotency scope is (stream_id, author_peer_id, idempotency_key): retries within that scope collapse/conflict, while the same key may be reused independently by another Stream or author.",
+      "source": "01_M1/CORE_CONTRACT.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "positive",
+        "negative",
+        "isolation",
+        "concurrency"
+      ],
+      "risk_tags": [
+        "DUPLICATE",
+        "SCOPE"
+      ],
+      "tests": [
+        "CORE-006",
+        "CORE-007",
+        "CON-003",
+        "CON-004",
+        "IDEM-001",
+        "IDEM-002",
+        "IDEM-003"
+      ]
+    },
+    {
+      "id": "REQ-CORE-005",
+      "area": "Core/Record Ownership",
+      "statement": "record_id, position, payload_digest and appended_at are server-owned; append callers cannot override them and the server computes canonical payload_digest.",
+      "source": "01_M1/CORE_CONTRACT.md; 06_GUIDES/TEST_SET/TEST_HARNESS_PORT.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "boundary",
+        "negative",
+        "persistence",
+        "canonicalization"
+      ],
+      "risk_tags": [
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "CORE-013",
+        "SQL-011"
+      ]
+    },
+    {
+      "id": "REQ-READ-001",
+      "area": "Record Read / Catch-up",
+      "statement": "Record reads after a position return canonical order without duplicates/skips; empty/head boundaries and page limits are explicit, and a positive finite limit is required when supplied.",
+      "source": "01_M1/CORE_CONTRACT.md; 06_GUIDES/TEST_SET/TEST_HARNESS_PORT.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "boundary",
+        "ordering",
+        "property",
+        "concurrency"
+      ],
+      "risk_tags": [
+        "READ_PATH",
+        "CONTINUITY"
+      ],
+      "tests": [
+        "READ-001",
+        "READ-002",
+        "PROP-010",
+        "CON-011"
+      ]
+    },
+    {
+      "id": "REQ-OBS-008",
+      "area": "Observation Referential Integrity",
+      "statement": "Observation resource_pool_ref, when present, references an existing Resource Pool and cannot leak evidence across another pool/subject.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md; 04_SCHEMAS/resource-pool.schema.json",
+      "priority": "P0",
+      "required_dimensions": [
+        "persistence",
+        "isolation",
+        "negative"
+      ],
+      "risk_tags": [
+        "OBSERVABILITY",
+        "DATA_INTEGRITY"
+      ],
+      "tests": [
+        "OBS-015",
+        "OBS-016"
+      ]
+    },
+    {
+      "id": "REQ-OBS-009",
+      "area": "Observation Capture Ordering",
+      "statement": "Freshness/latest selection uses captured_at when present, falls back to observed_at only when absent, and equal local capture times use a deterministic persisted tie-breaker.",
+      "source": "01_M1/OBSERVATION_AND_DIAG.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "time",
+        "boundary",
+        "property",
+        "persistence"
+      ],
+      "risk_tags": [
+        "TIME",
+        "OBSERVABILITY"
+      ],
+      "tests": [
+        "OBS-017",
+        "OBS-018"
+      ]
+    },
+    {
+      "id": "REQ-REL-007",
+      "area": "Release Evidence Integrity",
+      "statement": "Package checksum/evidence validation detects tampering, and validator console output equals the persisted PACKAGE_VALIDATION evidence.",
+      "source": "06_GUIDES/TEST_RELEASE_GUIDE.md; tools/validate_package.py",
+      "priority": "P0",
+      "required_dimensions": [
+        "package",
+        "negative",
+        "consistency",
+        "evidence"
+      ],
+      "risk_tags": [
+        "RELEASE",
+        "INTEGRITY"
+      ],
+      "tests": [
+        "REL-013",
+        "REL-014"
+      ]
+    },
+    {
+      "id": "REQ-CANON-001",
+      "area": "Canonical JSON Domain",
+      "statement": "Record semantic payloads are valid JSON values only; canonicalization rejects non-finite numbers and non-JSON runtime objects and remains stable across a JSON round trip.",
+      "source": "04_SCHEMAS/record.schema.json; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "schema",
+        "negative",
+        "property",
+        "canonicalization"
+      ],
+      "risk_tags": [
+        "INPUT",
+        "IDEMPOTENCY"
+      ],
+      "tests": [
+        "SCH-014",
+        "SCH-015",
+        "PROP-011"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-013",
+      "area": "Session Mapping Durability",
+      "statement": "Session mapping and generation/fingerprint evidence survive process restart exactly; restart never silently resets generation to 1 or loses a resumable mapping.",
+      "source": "01_M1/SESSION_BRIDGE.md; 01_M1/LONG_HORIZON_CONTINUITY.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "persistence",
+        "restart",
+        "identity",
+        "generation"
+      ],
+      "risk_tags": [
+        "RUNTIME",
+        "RECOVERY"
+      ],
+      "tests": [
+        "BRG-018"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-014",
+      "area": "Bridge Fencing Scope",
+      "statement": "All delivery side effects that commit M1 state—including response append/finalize/Offset ack—must validate the current claim token/generation; a stale owner cannot write a late response after takeover.",
+      "source": "01_M1/SESSION_BRIDGE.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "fencing",
+        "concurrency",
+        "fault",
+        "persistence"
+      ],
+      "risk_tags": [
+        "CONCURRENCY",
+        "DUPLICATE"
+      ],
+      "tests": [
+        "MP-004",
+        "FLT-014",
+        "E2E-012"
+      ]
+    },
+    {
+      "id": "REQ-BRIDGE-015",
+      "area": "Terminal Callback Consistency",
+      "statement": "Duplicate terminal callbacks with identical semantic result are idempotent; a conflicting terminal result for the same delivery is detected and never overwrites the first terminal truth.",
+      "source": "01_M1/SESSION_BRIDGE.md",
+      "priority": "P0",
+      "required_dimensions": [
+        "idempotency",
+        "negative",
+        "concurrency",
+        "persistence"
+      ],
+      "risk_tags": [
+        "RUNTIME",
+        "DUPLICATE"
+      ],
+      "tests": [
+        "BRG-014",
+        "BRG-015",
+        "BRG-019"
+      ]
+    },
+    {
+      "id": "REQ-CERTAINTY-002",
+      "area": "Execution Certainty Recovery",
+      "statement": "MAY_HAVE_STARTED remains blocked across restart/time until an explicit durable reconciliation control authorizes a new attempt; reconciliation never rewrites prior execution evidence.",
+      "source": "01_M1/SESSION_BRIDGE.md; 01_M1/FEEDBACK_LOOP.md; 06_GUIDES/TEST_SET/TEST_DECISIONS_AND_OPTIONS.md",
+      "priority": "P1",
+      "required_dimensions": [
+        "state-transition",
+        "persistence",
+        "restart",
+        "e2e"
+      ],
+      "risk_tags": [
+        "RECOVERY",
+        "FEEDBACK_LOOP"
+      ],
+      "tests": [
+        "CERT-001",
+        "CERT-002",
+        "CERT-003"
+      ]
+    }
+  ]
+}

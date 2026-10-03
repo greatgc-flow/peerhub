@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "gates": [
+    {
+      "id": "G0",
+      "phase": "fast",
+      "blocking": true,
+      "evidence": [
+        "architecture/schema/unit/property/meta/security-static"
+      ],
+      "on_fail": "FIX",
+      "depends_on": []
+    },
+    {
+      "id": "G1",
+      "phase": "core",
+      "blocking": true,
+      "evidence": [
+        "SQLite/concurrency/multiprocess/fault/migration"
+      ],
+      "on_fail": "FIX",
+      "depends_on": [
+        "G0"
+      ]
+    },
+    {
+      "id": "G2",
+      "phase": "m1",
+      "blocking": true,
+      "evidence": [
+        "Bridge/Observation/Diag/fake-runtime-E2E"
+      ],
+      "on_fail": "FIX",
+      "depends_on": [
+        "G1"
+      ]
+    },
+    {
+      "id": "G3",
+      "phase": "live",
+      "blocking": true,
+      "evidence": [
+        "advertised provider discovery/canary"
+      ],
+      "on_fail": "HOLD",
+      "depends_on": [
+        "G2"
+      ]
+    },
+    {
+      "id": "G4",
+      "phase": "package",
+      "blocking": true,
+      "evidence": [
+        "wheel/sdist/runtime-data/clean-install/support-matrix/restart"
+      ],
+      "on_fail": "FIX",
+      "depends_on": [
+        "G2"
+      ]
+    },
+    {
+      "id": "G5",
+      "phase": "publish",
+      "blocking": true,
+      "evidence": [
+        "G2",
+        "G3",
+        "G4",
+        "evidence-index",
+        "hashes"
+      ],
+      "on_fail": "HOLD",
+      "depends_on": [
+        "G7"
+      ]
+    },
+    {
+      "id": "G6",
+      "phase": "soak",
+      "blocking": false,
+      "evidence": [
+        "capacity/high-cardinality/stabilization"
+      ],
+      "on_fail": "OBSERVE",
+      "depends_on": [
+        "G2"
+      ]
+    },
+    {
+      "id": "G7",
+      "phase": "invariant",
+      "blocking": true,
+      "evidence": [
+        "zero-tolerance invariant scan"
+      ],
+      "on_fail": "ROLLBACK_OR_HOLD",
+      "depends_on": [
+        "G3",
+        "G4"
+      ]
+    }
+  ]
+}

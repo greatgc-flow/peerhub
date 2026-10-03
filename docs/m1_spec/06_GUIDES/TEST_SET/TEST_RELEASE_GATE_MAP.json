@@ -1,0 +1,1266 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-10-03",
+  "entries": [
+    {
+      "test_id": "ARCH-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "architecture"
+    },
+    {
+      "test_id": "ARCH-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "architecture"
+    },
+    {
+      "test_id": "ARCH-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "architecture"
+    },
+    {
+      "test_id": "ARCH-004",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "architecture"
+    },
+    {
+      "test_id": "ARCH-005",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "architecture"
+    },
+    {
+      "test_id": "SCH-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-004",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-005",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-006",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-007",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-008",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-009",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-010",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "CORE-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-004",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-005",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-006",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-007",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-008",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-009",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-010",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-012",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CORE-011",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OFF-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OFF-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OFF-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OFF-004",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OFF-005",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "PROP-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "PROP-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "PROP-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "PROP-004",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "PROP-005",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "PROP-006",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "SQL-001",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-002",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-003",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-004",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-005",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-006",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-007",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-008",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-009",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "SQL-010",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "CON-001",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-002",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-003",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-004",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-005",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-006",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-007",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-008",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CON-009",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "FLT-001",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-002",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-003",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-004",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-005",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-006",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-007",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-008",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-009",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-010",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "BRG-001",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-002",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-003",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-004",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-005",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-006",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-007",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-008",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-009",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-010",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "OBS-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-004",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-005",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-006",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "OBS-007",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "OBS-008",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "DIA-001",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "DIA-002",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "DIA-003",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "DIA-004",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "DIA-005",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "DIA-006",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "DIA-007",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "E2E-001",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-002",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-003",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-004",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-005",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-006",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-007",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-008",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-009",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "LIVE-CC-001",
+      "primary_gate": "G3",
+      "priority": "P0",
+      "tier": "live"
+    },
+    {
+      "test_id": "LIVE-CX-001",
+      "primary_gate": "G3",
+      "priority": "P0",
+      "tier": "live"
+    },
+    {
+      "test_id": "LIVE-AG-001",
+      "primary_gate": "G3",
+      "priority": "P0",
+      "tier": "live"
+    },
+    {
+      "test_id": "LIVE-004",
+      "primary_gate": "G3",
+      "priority": "P1",
+      "tier": "live"
+    },
+    {
+      "test_id": "LIVE-005",
+      "primary_gate": "G3",
+      "priority": "P1",
+      "tier": "live"
+    },
+    {
+      "test_id": "LIVE-006",
+      "primary_gate": "G3",
+      "priority": "P0",
+      "tier": "live"
+    },
+    {
+      "test_id": "REL-001",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-002",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-003",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-004",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-005",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-006",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-007",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "SCH-011",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-012",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-013",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "PROP-007",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "PROP-008",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "SEC-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "security"
+    },
+    {
+      "test_id": "STR-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "STR-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "STR-003",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "STR-004",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "STR-005",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "STR-006",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "OFF-006",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OFF-007",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "OFF-008",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "CON-010",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "FLT-011",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-012",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "FLT-013",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "MIG-001",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "migration"
+    },
+    {
+      "test_id": "MIG-002",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "migration"
+    },
+    {
+      "test_id": "MIG-003",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "migration"
+    },
+    {
+      "test_id": "MP-001",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "MP-002",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "MP-003",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "BRG-011",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-012",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-013",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-014",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "BRG-015",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "BRG-016",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "BRG-017",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "CTX-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CTX-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "CTX-003",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "CLM-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CLM-002",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CLM-003",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CTL-001",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "CTL-002",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "CTL-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CTL-004",
+      "primary_gate": "G2",
+      "priority": "P1",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "CTL-005",
+      "primary_gate": "G2",
+      "priority": "P1",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "OBS-009",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-010",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "OBS-011",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-012",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "OBS-013",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "OBS-014",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "DIA-008",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "DIA-009",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "DIA-010",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "SOAK-001",
+      "primary_gate": "G6",
+      "priority": "P1",
+      "tier": "soak"
+    },
+    {
+      "test_id": "SOAK-002",
+      "primary_gate": "G6",
+      "priority": "P1",
+      "tier": "soak"
+    },
+    {
+      "test_id": "PROP-009",
+      "primary_gate": "G0",
+      "priority": "P1",
+      "tier": "property"
+    },
+    {
+      "test_id": "IMP-001",
+      "primary_gate": "G1",
+      "priority": "P1",
+      "tier": "migration"
+    },
+    {
+      "test_id": "IMP-002",
+      "primary_gate": "G1",
+      "priority": "P1",
+      "tier": "migration"
+    },
+    {
+      "test_id": "IMP-003",
+      "primary_gate": "G1",
+      "priority": "P1",
+      "tier": "migration"
+    },
+    {
+      "test_id": "IMP-004",
+      "primary_gate": "G1",
+      "priority": "P1",
+      "tier": "fault"
+    },
+    {
+      "test_id": "REL-008",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-009",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-010",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-011",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-012",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "META-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "meta"
+    },
+    {
+      "test_id": "META-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "meta"
+    },
+    {
+      "test_id": "META-003",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "meta"
+    },
+    {
+      "test_id": "META-004",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "meta"
+    },
+    {
+      "test_id": "E2E-010",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "E2E-011",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "IDEM-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "IDEM-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "IDEM-003",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CORE-013",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "SQL-011",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "READ-001",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "READ-002",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "PROP-010",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "CON-011",
+      "primary_gate": "G1",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "OBS-015",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "OBS-016",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "OBS-017",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "unit"
+    },
+    {
+      "test_id": "OBS-018",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "REL-013",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "REL-014",
+      "primary_gate": "G4",
+      "priority": "P0",
+      "tier": "package"
+    },
+    {
+      "test_id": "SCH-014",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "SCH-015",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "schema"
+    },
+    {
+      "test_id": "PROP-011",
+      "primary_gate": "G0",
+      "priority": "P0",
+      "tier": "property"
+    },
+    {
+      "test_id": "BRG-018",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "integration"
+    },
+    {
+      "test_id": "MP-004",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "FLT-014",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "fault"
+    },
+    {
+      "test_id": "E2E-012",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "e2e"
+    },
+    {
+      "test_id": "BRG-019",
+      "primary_gate": "G2",
+      "priority": "P0",
+      "tier": "concurrency"
+    },
+    {
+      "test_id": "CERT-001",
+      "primary_gate": "G0",
+      "priority": "P1",
+      "tier": "unit"
+    },
+    {
+      "test_id": "CERT-002",
+      "primary_gate": "G2",
+      "priority": "P1",
+      "tier": "integration"
+    },
+    {
+      "test_id": "CERT-003",
+      "primary_gate": "G2",
+      "priority": "P1",
+      "tier": "e2e"
+    }
+  ]
+}

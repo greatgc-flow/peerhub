@@ -66,3 +66,27 @@ Telemetry export -> OTel Adapter
 ## 현행 repo delta 확인
 
 2026-10-03 재검증한 main HEAD `57a137cd...`의 109 leaf commands와 model-profile 변경을 전수 분류했으며, **Core 계약 변경은 없습니다.** `workspace reset`/`backup global`은 Backup/Recovery future extension으로 유지합니다.
+
+## TDD-ready test baseline
+
+M1 계약은 `06_GUIDES/TEST_SET/`의 **88 requirements / 210 test cases**로 추적됩니다. Core invariants, SQLite race/crash, Bridge fencing/certainty, Observation honesty, strict read-only Diag, fake-runtime E2E, real-provider canary, clean install/publish gate까지 설계 완료했습니다.
+
+## TDD / Recursive MECE baseline
+
+- Requirements: **88**
+- Tests: **210**
+- Requirement required-dimension coverage: validator enforced
+- State/Exception/Interaction inventories: terminal closure required
+- Provider live와 soak는 deterministic CI와 분리
+
+## Post-development closed loop
+
+개발/테스트 완료 후에는 `08_LIFECYCLE/`의 **Done → Released → Operated → Closed** 모델을 적용합니다. Correctness invariant 위반은 즉시 release hold/rollback 후보이며, 운영 signal은 evidence→triage→reproduce→requirement/regression→release→recurrence watch로 다시 개발 입력에 귀환합니다. 성능/용량 threshold는 코드나 문서에 고정하지 않고 baseline을 측정한 뒤 환경별 config로 관리합니다.
+
+## 종·횡 최종 교차점검 R2
+
+- invariant SSOT 8/8 requirement 역추적
+- test→release gate 210/210 machine mapping
+- release gate DAG explicit/fail-closed
+- signal route→lifecycle/runbook resolvability
+- rollback 후 unresolved Problem follow-up closure 규칙

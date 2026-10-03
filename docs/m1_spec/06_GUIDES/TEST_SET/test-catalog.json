@@ -1,0 +1,5758 @@
+{
+  "schema_version": 2,
+  "generated_on": "2026-10-03",
+  "count": 210,
+  "tests": [
+    {
+      "id": "ARCH-001",
+      "tier": "architecture",
+      "title": "Core import graph forbids Extension dependency",
+      "requirements": [
+        "REQ-ARCH-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture"
+      ],
+      "setup": "Install package with Core and first-party extensions present; expose import graph/static dependency checker.",
+      "action": "Traverse imports reachable from Core package entrypoints.",
+      "oracle": "No Core module imports Session Bridge, Observation, Diag, or future Extension package.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ARCH-002",
+      "tier": "architecture",
+      "title": "Core boots with Extension tables absent",
+      "requirements": [
+        "REQ-ARCH-001",
+        "REQ-PERSIST-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "sqlite"
+      ],
+      "setup": "Create empty SQLite workspace; run only Core migrations; do not create extension tables.",
+      "action": "Open Core store, create two Peers and one Stream, append/read one Record.",
+      "oracle": "All Core operations succeed and no extension table is created implicitly.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "negative",
+        "positive"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ARCH-003",
+      "tier": "architecture",
+      "title": "No vendor Peer cardinality ceiling in Core",
+      "requirements": [
+        "REQ-CARD-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture"
+      ],
+      "setup": "Register one adapter kind identifier and generate 32 distinct Peer ids bound to it.",
+      "action": "Persist all Peers and join them to Streams.",
+      "oracle": "All 32 are accepted; behavior is data/DB-capacity bound, not vendor-name bound.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "ARCH-004",
+      "tier": "architecture",
+      "title": "Diag dependency surface is read-only",
+      "requirements": [
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "diag"
+      ],
+      "setup": "Static dependency rule lists allowed Diag ports: query Core/Observation/log readers only.",
+      "action": "Scan Diag imports/constructor dependencies.",
+      "oracle": "No mutation/runtime-control port is reachable from Diag.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "positive",
+        "read-only"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "ARCH-005",
+      "tier": "architecture",
+      "title": "Core identity is not runtime identity",
+      "requirements": [
+        "REQ-CORE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture"
+      ],
+      "setup": "Prepare one Peer test object and two distinct runtime/session descriptors.",
+      "action": "Associate descriptors sequentially with same peer_id through bridge-side mapping only.",
+      "oracle": "peer_id remains unchanged and Core Peer serialization contains no external_session_id/process id/profile state.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "identity",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-001",
+      "tier": "schema",
+      "title": "Valid Peer example validates",
+      "requirements": [
+        "REQ-CORE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Load peer.schema.json and minimal valid Peer.",
+      "action": "Validate with Draft 2020-12 validator.",
+      "oracle": "Validation passes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "positive",
+        "schema"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-002",
+      "tier": "schema",
+      "title": "Peer rejects empty id, wrong version, unknown property",
+      "requirements": [
+        "REQ-CORE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Generate three invalid Peer objects.",
+      "action": "Validate each.",
+      "oracle": "Each fails at the intended constraint.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "negative",
+        "schema"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-003",
+      "tier": "schema",
+      "title": "Stream accepts OPEN/CLOSED and unique members only",
+      "requirements": [
+        "REQ-CORE-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Create valid OPEN and CLOSED Streams plus duplicate-member/invalid-state cases.",
+      "action": "Validate all cases.",
+      "oracle": "Valid cases pass; duplicate members and invalid state fail.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "negative",
+        "positive",
+        "schema",
+        "state-transition"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-004",
+      "tier": "schema",
+      "title": "Record validates position/kind/digest constraints",
+      "requirements": [
+        "REQ-CORE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Create valid Record and variants with position 0, malformed kind, malformed sha256 digest.",
+      "action": "Validate.",
+      "oracle": "Valid passes; all invalid variants fail.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "canonicalization",
+        "ordering",
+        "positive",
+        "schema"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-005",
+      "tier": "schema",
+      "title": "Record rejects duplicate targets and unknown fields",
+      "requirements": [
+        "REQ-CORE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Create variants with duplicate targets and additional property.",
+      "action": "Validate.",
+      "oracle": "Both fail.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "negative",
+        "schema"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-006",
+      "tier": "schema",
+      "title": "Offset validates read-through >=0 and revision >=1",
+      "requirements": [
+        "REQ-CORE-004",
+        "REQ-OFFSET-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema"
+      ],
+      "setup": "Create valid offset and negative position/revision-zero variants.",
+      "action": "Validate.",
+      "oracle": "Valid passes; invalids fail.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "positive",
+        "schema"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-007",
+      "tier": "schema",
+      "title": "Observation vocabulary is closed and honest",
+      "requirements": [
+        "REQ-OBS-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "observation"
+      ],
+      "setup": "For each allowed state create valid object; create state HEALTHY and LIMITLESS as invalid examples.",
+      "action": "Validate.",
+      "oracle": "Six allowed states pass; invented states fail.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "positive",
+        "schema",
+        "state-transition"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-008",
+      "tier": "schema",
+      "title": "Resource Pool kind vocabulary validates",
+      "requirements": [
+        "REQ-OBS-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "observation"
+      ],
+      "setup": "Create QUOTA/RATE_LIMIT/ACCOUNT/RUNTIME pools and invalid OTHER.",
+      "action": "Validate.",
+      "oracle": "Declared kinds pass; OTHER fails.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "cardinality",
+        "isolation",
+        "positive",
+        "schema",
+        "state-transition"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-009",
+      "tier": "schema",
+      "title": "Published JSON examples validate against their schemas",
+      "requirements": [
+        "REQ-REL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "package"
+      ],
+      "setup": "Load every file under 04_SCHEMAS/examples with its declared schema.",
+      "action": "Validate examples.",
+      "oracle": "All examples pass.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "positive",
+        "schema"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-010",
+      "tier": "schema",
+      "title": "All production schemas are syntactically valid Draft 2020-12",
+      "requirements": [
+        "REQ-REL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "package"
+      ],
+      "setup": "Enumerate *.schema.json.",
+      "action": "Run Draft202012Validator.check_schema.",
+      "oracle": "Every schema is valid.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "positive",
+        "schema"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-001",
+      "tier": "unit",
+      "title": "Peer identity survives adapter/profile/session change",
+      "requirements": [
+        "REQ-CORE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "core"
+      ],
+      "setup": "Create peer cx-review with adapter_ref codex-cli; prepare two model/profile/session mappings.",
+      "action": "Swap bridge mappings without updating Core Peer key.",
+      "oracle": "Peer lookup by peer_id returns same identity and original created_at.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "identity",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-002",
+      "tier": "unit",
+      "title": "One adapter kind can back many Peers",
+      "requirements": [
+        "REQ-CARD-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "core"
+      ],
+      "setup": "Create cx-01/cx-02/cx-review using same adapter_ref.",
+      "action": "Persist/read all.",
+      "oracle": "Three distinct Peer identities coexist.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "cardinality",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-003",
+      "tier": "unit",
+      "title": "Record append assigns position server-side",
+      "requirements": [
+        "REQ-ORDER-001",
+        "REQ-CORE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "record"
+      ],
+      "setup": "Open Stream with two valid members; client append request omits position/record_id/appended_at.",
+      "action": "Append once.",
+      "oracle": "Returned Record has position >=1 and server-assigned durable fields.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "ordering",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-004",
+      "tier": "unit",
+      "title": "Record is immutable after append",
+      "requirements": [
+        "REQ-CORE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "record"
+      ],
+      "setup": "Append one Record.",
+      "action": "Attempt supported update/mutation path or mutate returned object then reread.",
+      "oracle": "Store exposes no Record update; reread value is unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "immutability",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-005",
+      "tier": "unit",
+      "title": "Read order is canonical position order",
+      "requirements": [
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "record"
+      ],
+      "setup": "Append 5 Records with intentionally shuffled created_at values.",
+      "action": "Read Stream Records.",
+      "oracle": "Result is ordered strictly by position, not created_at/record_id.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "canonicalization",
+        "ordering",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-006",
+      "tier": "unit",
+      "title": "Idempotent retry returns existing Record",
+      "requirements": [
+        "REQ-IDEM-001",
+        "REQ-IDEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "idempotency"
+      ],
+      "setup": "Build one canonical append request with key K.",
+      "action": "Append same request twice.",
+      "oracle": "Second call returns same record_id and position; stream Record count is 1.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "idempotency",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-007",
+      "tier": "unit",
+      "title": "Idempotency key conflicts on changed semantic payload",
+      "requirements": [
+        "REQ-IDEM-002",
+        "REQ-IDEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "idempotency"
+      ],
+      "setup": "Append key K with body A.",
+      "action": "Retry K with body B.",
+      "oracle": "Conflict is returned and Record count remains 1.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "idempotency",
+        "negative",
+        "semantic-boundary",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-008",
+      "tier": "unit",
+      "title": "Map key order does not change payload digest",
+      "requirements": [
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "idempotency"
+      ],
+      "setup": "Create semantically equal body/metadata maps with different insertion order.",
+      "action": "Compute canonical payload digest.",
+      "oracle": "Digests are identical.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "canonicalization",
+        "negative",
+        "ordering",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-009",
+      "tier": "unit",
+      "title": "Server-assigned fields do not participate in canonical retry digest",
+      "requirements": [
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "idempotency"
+      ],
+      "setup": "Prepare semantic request then compare with stored Record carrying record_id/position/appended_at.",
+      "action": "Recompute digest from semantic projection.",
+      "oracle": "Digest equals original request digest.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "canonicalization",
+        "idempotency",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-010",
+      "tier": "unit",
+      "title": "Changed created_at is a semantic conflict",
+      "requirements": [
+        "REQ-IDEM-002",
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "idempotency"
+      ],
+      "setup": "Append key K with caller-created_at T1.",
+      "action": "Retry K with same fields but created_at T2.",
+      "oracle": "Conflict is returned; no second Record.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "semantic-boundary",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-012",
+      "tier": "unit",
+      "title": "Durable append success does not imply runtime exactly-once delivery",
+      "requirements": [
+        "REQ-DELIVERY-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "delivery",
+        "architecture"
+      ],
+      "setup": "Append one user Record successfully while no Session Bridge/runtime is running.",
+      "action": "Inspect append result and Core state.",
+      "oracle": "Core reports durable Record only; it does not mark runtime execution/delivery success or exactly-once side effect.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "persistence",
+        "semantic-boundary",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "CORE-011",
+      "tier": "unit",
+      "title": "Control record kinds remain durable data",
+      "requirements": [
+        "REQ-CONTROL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "control"
+      ],
+      "setup": "Prepare one Record for each control.pause/resume/redirect/cancel/context.boundary.",
+      "action": "Append and reread.",
+      "oracle": "kind/body/targets are preserved exactly; Core executes no runtime action.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "persistence",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "OFF-001",
+      "tier": "unit",
+      "title": "Initial offset is zero through explicit absence/default contract",
+      "requirements": [
+        "REQ-CORE-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "offset"
+      ],
+      "setup": "Peer belongs to Stream but has no Offset row.",
+      "action": "Read effective offset.",
+      "oracle": "Effective read_through_position is 0 without implying completion.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "OFF-002",
+      "tier": "unit",
+      "title": "Offset CAS succeeds with current revision",
+      "requirements": [
+        "REQ-OFFSET-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "offset"
+      ],
+      "setup": "Current offset position 2 revision 3.",
+      "action": "CAS expected revision 3 -> position 5.",
+      "oracle": "Position becomes 5 and revision advances exactly once.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "OFF-003",
+      "tier": "unit",
+      "title": "Stale Offset CAS fails without mutation",
+      "requirements": [
+        "REQ-OFFSET-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "offset"
+      ],
+      "setup": "Current revision 4.",
+      "action": "CAS with expected revision 3.",
+      "oracle": "Conflict; position and revision unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "negative",
+        "time",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "OFF-004",
+      "tier": "unit",
+      "title": "Offset cannot move backward",
+      "requirements": [
+        "REQ-OFFSET-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "offset"
+      ],
+      "setup": "Current position 10 at current revision.",
+      "action": "CAS to position 9.",
+      "oracle": "Rejected; position/revision unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "OFF-005",
+      "tier": "unit",
+      "title": "Offset update does not mark task/work complete",
+      "requirements": [
+        "REQ-CORE-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "offset",
+        "architecture"
+      ],
+      "setup": "Workspace contains only Core tables and one Offset.",
+      "action": "Advance Offset.",
+      "oracle": "Only offset state changes; no completion/task/governance artifact appears.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "PROP-001",
+      "tier": "property",
+      "title": "Repeated identical retries collapse to one Record",
+      "requirements": [
+        "REQ-IDEM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "idempotency"
+      ],
+      "setup": "Generate arbitrary valid semantic Record payload P and retry count 1..30.",
+      "action": "Append same key+P N times.",
+      "oracle": "Exactly one durable Record exists and every return identifies it.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "positive",
+        "property"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "PROP-002",
+      "tier": "property",
+      "title": "Any semantic field change conflicts under same key",
+      "requirements": [
+        "REQ-IDEM-002",
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "idempotency"
+      ],
+      "setup": "Generate valid P then mutate one of author/kind/body/targets/reply_to/refs/metadata/created_at/stream_id.",
+      "action": "Append P then mutated P with same key.",
+      "oracle": "Second append conflicts for every generated mutation.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "negative",
+        "property",
+        "semantic-boundary"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "PROP-003",
+      "tier": "property",
+      "title": "Canonical JSON map ordering is stable",
+      "requirements": [
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "idempotency"
+      ],
+      "setup": "Generate nested JSON objects and randomize object key insertion order while preserving list order.",
+      "action": "Digest each equivalent object.",
+      "oracle": "Equivalent objects have identical digest.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "canonicalization",
+        "ordering",
+        "positive",
+        "property"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "PROP-004",
+      "tier": "property",
+      "title": "Positions are strictly increasing for committed appends",
+      "requirements": [
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "record"
+      ],
+      "setup": "Generate sequence of valid unique appends into one Stream.",
+      "action": "Append and collect positions.",
+      "oracle": "positions == sorted(unique positions) and each next > previous.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "ordering",
+        "persistence",
+        "positive",
+        "property"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "PROP-005",
+      "tier": "property",
+      "title": "Offset revisions increase only on successful CAS",
+      "requirements": [
+        "REQ-OFFSET-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "offset"
+      ],
+      "setup": "Generate sequence of valid and stale expected revisions.",
+      "action": "Apply CAS operations.",
+      "oracle": "Revision increments exactly once per accepted write and never on rejected writes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "positive",
+        "property"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "PROP-006",
+      "tier": "property",
+      "title": "Offset position never decreases across accepted history",
+      "requirements": [
+        "REQ-OFFSET-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "offset"
+      ],
+      "setup": "Generate candidate positions around current value.",
+      "action": "Apply with correct revision.",
+      "oracle": "Only positions >= current can succeed.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "ordering",
+        "positive",
+        "property"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-001",
+      "tier": "integration",
+      "title": "SQLite connection enforces WAL, foreign_keys, busy_timeout",
+      "requirements": [
+        "REQ-PERSIST-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite"
+      ],
+      "setup": "Initialize fresh workspace store.",
+      "action": "Query PRAGMA journal_mode, foreign_keys, busy_timeout.",
+      "oracle": "WAL enabled; foreign_keys=ON; busy_timeout > 0.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-002",
+      "tier": "integration",
+      "title": "Ordered migrations bootstrap empty database",
+      "requirements": [
+        "REQ-PERSIST-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite"
+      ],
+      "setup": "Create zero-byte/new database.",
+      "action": "Run migration runner once.",
+      "oracle": "Core tables and migration metadata exist at expected current version.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "compatibility",
+        "integration",
+        "ordering",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-003",
+      "tier": "integration",
+      "title": "Migration runner is repeatable at current version",
+      "requirements": [
+        "REQ-PERSIST-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite"
+      ],
+      "setup": "Database already migrated to current version.",
+      "action": "Run migration runner again.",
+      "oracle": "No schema/data drift and success is deterministic.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "compatibility",
+        "integration",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-004",
+      "tier": "integration",
+      "title": "Foreign keys reject orphan Record references",
+      "requirements": [
+        "REQ-PERSIST-001",
+        "REQ-CORE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite"
+      ],
+      "setup": "Fresh Core DB with no matching Stream/Peer.",
+      "action": "Attempt direct/store append referencing missing ids.",
+      "oracle": "Write fails atomically with referential-integrity error.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "negative",
+        "persistence"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-005",
+      "tier": "integration",
+      "title": "Append transaction publishes Record and position atomically",
+      "requirements": [
+        "REQ-PERSIST-001",
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "fault"
+      ],
+      "setup": "Valid Peer/Stream.",
+      "action": "Inject observer connection between allocation and commit barrier.",
+      "oracle": "Observer sees neither partial Record nor reserved visible position before commit; after commit sees complete Record.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "ordering",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-006",
+      "tier": "integration",
+      "title": "Read-only UoW rejects writes",
+      "requirements": [
+        "REQ-PERSIST-001",
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "diag"
+      ],
+      "setup": "Open read-only/query_only UoW.",
+      "action": "Attempt INSERT/UPDATE through raw connection or mutation repository.",
+      "oracle": "SQLite/write boundary rejects mutation.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "negative",
+        "read-only"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-007",
+      "tier": "integration",
+      "title": "Committed state survives new process/store instance",
+      "requirements": [
+        "REQ-CONT-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "restart"
+      ],
+      "setup": "Append Records and advance Offset, close all connections.",
+      "action": "Open fresh store instance against same workspace.",
+      "oracle": "Peers/Streams/Records/Offset are identical and unread calculation is correct.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "persistence",
+        "positive",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-008",
+      "tier": "integration",
+      "title": "Core starts with only Core migrations after extension schema deletion",
+      "requirements": [
+        "REQ-PERSIST-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "architecture"
+      ],
+      "setup": "Create then remove/not-install extension tables.",
+      "action": "Restart Core and perform basic operations.",
+      "oracle": "Core remains operational.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "compatibility",
+        "integration",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-009",
+      "tier": "integration",
+      "title": "Workspace generation is durable",
+      "requirements": [
+        "REQ-FAULT-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "restart"
+      ],
+      "setup": "Initialize workspace and read generation identity.",
+      "action": "Restart store.",
+      "oracle": "Generation is unchanged across normal restart.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "generation",
+        "integration",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SQL-010",
+      "tier": "integration",
+      "title": "Restore/generation replacement is observable",
+      "requirements": [
+        "REQ-FAULT-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "restore"
+      ],
+      "setup": "Create workspace snapshot identity G1 then simulate supported restore/replacement to G2.",
+      "action": "Reopen bridge/store views.",
+      "oracle": "Generation differs and pre-G2 owner/session tokens are considered stale.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "generation",
+        "integration",
+        "persistence",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "CON-001",
+      "tier": "concurrency",
+      "title": "Concurrent append produces unique ordered positions",
+      "requirements": [
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "sqlite",
+        "record"
+      ],
+      "setup": "Use two independent SQLite connections and barrier-start 100 appends to one Stream.",
+      "action": "Run writers concurrently.",
+      "oracle": "100 Records commit; positions are unique and strictly ordered when read.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "ordering",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CON-002",
+      "tier": "concurrency",
+      "title": "High-contention append remains corruption-free",
+      "requirements": [
+        "REQ-ORDER-001",
+        "REQ-PERSIST-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "sqlite",
+        "stress"
+      ],
+      "setup": "8 writers, 50 appends each, deterministic busy timeout.",
+      "action": "Run 400 appends.",
+      "oracle": "Every success is durable/unique; any bounded busy failure is explicit/retryable; DB integrity_check passes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CON-003",
+      "tier": "concurrency",
+      "title": "Concurrent identical idempotency retries create one Record",
+      "requirements": [
+        "REQ-IDEM-001",
+        "REQ-IDEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "sqlite",
+        "idempotency"
+      ],
+      "setup": "Two connections share same key+payload and synchronize before append.",
+      "action": "Append simultaneously.",
+      "oracle": "One logical Record/position exists; both callers resolve to it.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "idempotency",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CON-004",
+      "tier": "concurrency",
+      "title": "Concurrent same key different payload has one winner and one conflict",
+      "requirements": [
+        "REQ-IDEM-002",
+        "REQ-IDEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "sqlite",
+        "idempotency"
+      ],
+      "setup": "Two connections share key K but payload A/B.",
+      "action": "Append simultaneously.",
+      "oracle": "Exactly one Record commits; other result is conflict; never two Records.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "CON-005",
+      "tier": "concurrency",
+      "title": "Offset CAS race has exactly one winner",
+      "requirements": [
+        "REQ-OFFSET-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "sqlite",
+        "offset"
+      ],
+      "setup": "Two writers read same offset revision.",
+      "action": "CAS to two different forward positions at barrier.",
+      "oracle": "Exactly one succeeds; loser sees stale revision; final revision increments once.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CON-006",
+      "tier": "concurrency",
+      "title": "Bridge claim race elects one active owner",
+      "requirements": [
+        "REQ-BRIDGE-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "bridge"
+      ],
+      "setup": "Two Bridge instances contend for same workspace+stream+peer with no current owner.",
+      "action": "Acquire claim concurrently.",
+      "oracle": "Exactly one active claim is granted for the generation.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "fencing",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CON-007",
+      "tier": "concurrency",
+      "title": "Expired Bridge claim takeover increments fencing generation",
+      "requirements": [
+        "REQ-BRIDGE-002",
+        "REQ-FAULT-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "bridge",
+        "clock"
+      ],
+      "setup": "Owner A claim expires under manual clock.",
+      "action": "Owner B acquires.",
+      "oracle": "B owns new generation > A; A token is invalid.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "concurrency",
+        "fencing",
+        "generation",
+        "positive"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "CON-008",
+      "tier": "concurrency",
+      "title": "Stale owner heartbeat/ack is fenced",
+      "requirements": [
+        "REQ-FAULT-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "bridge",
+        "fencing"
+      ],
+      "setup": "A token from old generation, B current owner.",
+      "action": "A heartbeats and attempts delivery finalization/offset ack.",
+      "oracle": "All stale operations fail and current state remains owned by B.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "fencing",
+        "positive",
+        "time"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "CON-009",
+      "tier": "concurrency",
+      "title": "Different Streams progress independently",
+      "requirements": [
+        "REQ-ORDER-001",
+        "REQ-CARD-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "sqlite"
+      ],
+      "setup": "Concurrent writers target two Streams.",
+      "action": "Append high volume to both.",
+      "oracle": "Each Stream has its own ordered positions; contention does not merge sequences.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-001",
+      "tier": "fault",
+      "title": "Crash before append commit leaves no Record",
+      "requirements": [
+        "REQ-FAULT-001",
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "sqlite",
+        "crash"
+      ],
+      "setup": "Crash injector barrier after validation/allocation work but before transaction commit.",
+      "action": "Terminate operation at barrier and reopen store.",
+      "oracle": "No uncommitted Record is visible. A subsequent clean append commits exactly once with a unique position greater than every previously committed position; a numeric gap is allowed.",
+      "failure_injection": "raise/terminate before commit barrier",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "fault",
+        "negative",
+        "ordering",
+        "persistence",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-002",
+      "tier": "fault",
+      "title": "Lost client response after commit recovers by idempotency",
+      "requirements": [
+        "REQ-FAULT-002",
+        "REQ-IDEM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "sqlite",
+        "idempotency"
+      ],
+      "setup": "Injector commits append then drops/raises before returning result.",
+      "action": "Retry exact request after reconnect.",
+      "oracle": "Retry returns committed Record; count remains 1.",
+      "failure_injection": "raise after commit before client success",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "fault",
+        "idempotency",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-003",
+      "tier": "fault",
+      "title": "Runtime spawn uncertainty records MAY_HAVE_STARTED",
+      "requirements": [
+        "REQ-FAULT-003",
+        "REQ-CERTAINTY-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "bridge",
+        "certainty"
+      ],
+      "setup": "Fake runtime starts process then transport dies before start receipt is conclusive.",
+      "action": "Bridge handles ambiguous result.",
+      "oracle": "Execution evidence state is MAY_HAVE_STARTED; delivery is not auto-replayed.",
+      "failure_injection": "disconnect immediately after process start",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "execution-certainty",
+        "fault",
+        "positive",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-004",
+      "tier": "fault",
+      "title": "MAY_HAVE_STARTED blocks automatic retry loop",
+      "requirements": [
+        "REQ-CERTAINTY-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "bridge",
+        "certainty"
+      ],
+      "setup": "Persist ambiguous delivery evidence for unread Record.",
+      "action": "Restart/schedule Bridge automatically.",
+      "oracle": "No second runtime start occurs until explicit reconciliation/operator/control decision.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "execution-certainty",
+        "fault",
+        "idempotency",
+        "negative",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-005",
+      "tier": "fault",
+      "title": "Crash after terminal evidence before Offset ack resumes safely",
+      "requirements": [
+        "REQ-FAULT-004",
+        "REQ-BRIDGE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "bridge",
+        "restart"
+      ],
+      "setup": "Fake runtime completes; response/evidence is durable; crash occurs before offset CAS.",
+      "action": "Restart Bridge.",
+      "oracle": "Bridge recognizes terminal evidence/idempotency and advances/reconciles without re-executing runtime.",
+      "failure_injection": "raise after evidence commit before offset CAS",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "fault",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-006",
+      "tier": "fault",
+      "title": "Crash after runtime start with no terminal evidence never assumes NOT_STARTED",
+      "requirements": [
+        "REQ-FAULT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "bridge",
+        "certainty"
+      ],
+      "setup": "Persist STARTED or ambiguous start evidence; terminate Bridge process.",
+      "action": "Recover.",
+      "oracle": "Recovered certainty is STARTED/MAY_HAVE_STARTED per evidence, never downgraded to NOT_STARTED.",
+      "failure_injection": "terminate bridge after start evidence",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "execution-certainty",
+        "fault",
+        "negative",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-007",
+      "tier": "fault",
+      "title": "Claim expires mid-execution and stale owner cannot finalize",
+      "requirements": [
+        "REQ-FAULT-005",
+        "REQ-BRIDGE-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "bridge",
+        "fencing"
+      ],
+      "setup": "A starts runtime; manual clock expires claim; B takes ownership.",
+      "action": "A attempts terminal finalize with old token.",
+      "oracle": "Finalize is fenced; system records uncertainty/evidence without allowing stale Offset advancement.",
+      "failure_injection": "advance manual clock beyond lease expiry",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "fencing",
+        "negative",
+        "recovery",
+        "time"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-008",
+      "tier": "fault",
+      "title": "Restore generation change invalidates owner and session mapping",
+      "requirements": [
+        "REQ-FAULT-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "restore",
+        "bridge"
+      ],
+      "setup": "A owns claim and has resumable session under workspace generation G1.",
+      "action": "Restore/replacement switches to G2.",
+      "oracle": "G1 claim/session cannot be used; fresh claim/session generation is required.",
+      "failure_injection": "workspace generation switch",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "fault",
+        "generation",
+        "persistence",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-009",
+      "tier": "fault",
+      "title": "Busy/locked database never produces partial append",
+      "requirements": [
+        "REQ-PERSIST-001",
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "sqlite"
+      ],
+      "setup": "Hold write lock longer than one competing attempt but within/around configured timeout variants.",
+      "action": "Attempt append.",
+      "oracle": "Either append commits fully after wait or explicit busy failure occurs; never partial row/offset corruption.",
+      "failure_injection": "database write lock",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "positive",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "FLT-010",
+      "tier": "fault",
+      "title": "Observation probe error remains ERROR/UNKNOWN, never synthetic healthy zero",
+      "requirements": [
+        "REQ-OBS-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "observation"
+      ],
+      "setup": "Fake source raises timeout/parse error.",
+      "action": "Capture Observation.",
+      "oracle": "State is ERROR or UNAVAILABLE with evidence; numeric quota/health is not fabricated.",
+      "failure_injection": "source timeout/malformed payload",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "honesty",
+        "negative",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-001",
+      "tier": "integration",
+      "title": "Bridge delivers only unread Records in position order",
+      "requirements": [
+        "REQ-BRIDGE-001",
+        "REQ-CORE-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge"
+      ],
+      "setup": "Stream positions 1..5, peer Offset=2, fake runtime call log.",
+      "action": "Bridge performs one delivery cycle.",
+      "oracle": "Only 3,4,5 are offered in order subject to control semantics.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "ordering",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-002",
+      "tier": "integration",
+      "title": "No session mapping creates fresh runtime session generation 1",
+      "requirements": [
+        "REQ-BRIDGE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge"
+      ],
+      "setup": "No mapping for peer+stream.",
+      "action": "Deliver first unread Record.",
+      "oracle": "Fake runtime create called; durable mapping stores external id and generation 1.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "generation",
+        "integration",
+        "negative",
+        "time"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-003",
+      "tier": "integration",
+      "title": "Resumable matching fingerprint uses existing session",
+      "requirements": [
+        "REQ-BRIDGE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge"
+      ],
+      "setup": "Durable mapping resumable=true and adapter fingerprint matches.",
+      "action": "Deliver next Record.",
+      "oracle": "Runtime resume path uses same external_session_id and generation.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "generation",
+        "integration",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-004",
+      "tier": "integration",
+      "title": "Lost provider session triggers fresh catch-up generation",
+      "requirements": [
+        "REQ-BRIDGE-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "restart"
+      ],
+      "setup": "Stored resumable mapping exists but fake runtime reports session missing.",
+      "action": "Deliver next unread Record.",
+      "oracle": "Bridge creates new session generation and reconstructs from durable Stream/Offset context; no lost Record.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "generation",
+        "integration",
+        "positive",
+        "recovery",
+        "restart",
+        "time"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-005",
+      "tier": "integration",
+      "title": "Fingerprint change forces fresh generation",
+      "requirements": [
+        "REQ-BRIDGE-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge"
+      ],
+      "setup": "Mapping fingerprint F1; current adapter/model/session fingerprint F2.",
+      "action": "Bridge cycles.",
+      "oracle": "Existing external session is not blindly resumed; new generation is stored.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "boundary",
+        "generation",
+        "integration",
+        "positive",
+        "time"
+      ],
+      "case_type": "boundary",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-006",
+      "tier": "integration",
+      "title": "Response is appended as durable Record before delivery completion ack",
+      "requirements": [
+        "REQ-BRIDGE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge"
+      ],
+      "setup": "Fake runtime returns deterministic response.",
+      "action": "Bridge delivers one Record.",
+      "oracle": "Response Record/evidence commit precedes Offset completion in event log; restart can recover.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-007",
+      "tier": "integration",
+      "title": "Execution evidence records certainty and runtime identifiers",
+      "requirements": [
+        "REQ-BRIDGE-001",
+        "REQ-CERTAINTY-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "certainty"
+      ],
+      "setup": "Script runtime lifecycle NOT_STARTED->STARTED->TERMINAL.",
+      "action": "Deliver.",
+      "oracle": "Evidence captures transitions and external session/process correlation sufficient for recovery.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "execution-certainty",
+        "integration",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-008",
+      "tier": "integration",
+      "title": "Pause durability precedes runtime interrupt",
+      "requirements": [
+        "REQ-BRIDGE-006",
+        "REQ-CONTROL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "control"
+      ],
+      "setup": "Fake runtime logs interrupt invocation; store logs commit sequence.",
+      "action": "Append/handle control.pause.",
+      "oracle": "pause Record commit sequence is earlier than interrupt call; failure of interrupt does not erase intent.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "positive",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-009",
+      "tier": "integration",
+      "title": "Unsupported interrupt remains durable intent with explicit evidence",
+      "requirements": [
+        "REQ-CONTROL-001",
+        "REQ-OBS-001",
+        "REQ-BRIDGE-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "control"
+      ],
+      "setup": "Fake RuntimeTarget declares interrupt unsupported.",
+      "action": "Process control.cancel/pause requiring interrupt.",
+      "oracle": "Control Record persists; runtime capability outcome is explicit unsupported/unavailable, not success.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "integration",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "BRG-010",
+      "tier": "integration",
+      "title": "Two Peers on same adapter keep independent sessions",
+      "requirements": [
+        "REQ-CARD-001",
+        "REQ-BRIDGE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge"
+      ],
+      "setup": "cx-01 and cx-02 share adapter kind and Stream.",
+      "action": "Bridge both peers.",
+      "oracle": "Distinct peer-scoped mappings/offsets/claims; no session id bleed.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "cardinality",
+        "identity",
+        "integration",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-001",
+      "tier": "unit",
+      "title": "Measured quota uses quota observation and optional resource pool",
+      "requirements": [
+        "REQ-OBS-003",
+        "REQ-OBS-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation"
+      ],
+      "setup": "Fake source returns quota usage for shared account.",
+      "action": "Capture.",
+      "oracle": "kind=quota, state=MEASURED, resource_pool_ref points to shared pool.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "cardinality",
+        "honesty",
+        "isolation",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-002",
+      "tier": "unit",
+      "title": "Rate limit is not stored as quota",
+      "requirements": [
+        "REQ-OBS-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation"
+      ],
+      "setup": "Fake source returns requests-per-minute limit event.",
+      "action": "Capture.",
+      "oracle": "Observation kind/semantic is rate_limit, not quota.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "honesty",
+        "negative",
+        "persistence",
+        "positive",
+        "semantic-boundary",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-003",
+      "tier": "unit",
+      "title": "Absent telemetry does not become zero/unlimited",
+      "requirements": [
+        "REQ-OBS-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation"
+      ],
+      "setup": "Source reachable but field not exposed.",
+      "action": "Capture.",
+      "oracle": "state=ABSENT or UNKNOWN with no fabricated numeric remaining value.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-004",
+      "tier": "unit",
+      "title": "Unavailable source is explicit",
+      "requirements": [
+        "REQ-OBS-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation"
+      ],
+      "setup": "Executable/auth/source is unavailable.",
+      "action": "Capture.",
+      "oracle": "state=UNAVAILABLE and evidence identifies source condition.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "honesty",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-005",
+      "tier": "unit",
+      "title": "Freshness is derived at read time without rewriting evidence",
+      "requirements": [
+        "REQ-OBS-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation",
+        "clock"
+      ],
+      "setup": "Store MEASURED observation observed_at=T0; manual clock before and after configured TTL.",
+      "action": "Read at T0+fresh then T0+expired.",
+      "oracle": "First view fresh; second view STALE-derived; stored original evidence row/hash is unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "time",
+        "unit"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-006",
+      "tier": "integration",
+      "title": "Multiple peers share one Resource Pool without copying quota into Peer",
+      "requirements": [
+        "REQ-OBS-004",
+        "REQ-CARD-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "observation"
+      ],
+      "setup": "cx-01/cx-02 reference pool openai-account-X.",
+      "action": "Store/read observations for both.",
+      "oracle": "Pool is shared reference; Core Peer objects have no quota property.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "cardinality",
+        "honesty",
+        "integration",
+        "isolation",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-007",
+      "tier": "integration",
+      "title": "Independent Resource Pools do not leak observations",
+      "requirements": [
+        "REQ-OBS-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "observation"
+      ],
+      "setup": "Peers bound to pool A and B.",
+      "action": "Query each.",
+      "oracle": "Evidence is attributed to correct pool only.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "cardinality",
+        "integration",
+        "isolation",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "OBS-008",
+      "tier": "integration",
+      "title": "Observation append is immutable evidence",
+      "requirements": [
+        "REQ-OBS-001",
+        "REQ-OBS-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "observation"
+      ],
+      "setup": "Capture one observation.",
+      "action": "Attempt overwrite instead of append/new observation.",
+      "oracle": "Existing evidence is unchanged; refresh creates a new observation identity.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "immutability",
+        "integration",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "DIA-001",
+      "tier": "integration",
+      "title": "Diag opens SQLite in query-only/read-only mode",
+      "requirements": [
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "diag",
+        "sqlite"
+      ],
+      "setup": "Instrument connection factory.",
+      "action": "Run diag against populated workspace.",
+      "oracle": "Connection is read-only/query_only and no write transaction begins.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "persistence",
+        "positive",
+        "read-only"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "DIA-002",
+      "tier": "integration",
+      "title": "Diag cannot append Record",
+      "requirements": [
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "diag"
+      ],
+      "setup": "Expose only Diag public surface; snapshot DB hash/counts.",
+      "action": "Request normal diagnostic report.",
+      "oracle": "No Record/Offset/Observation count or DB content changes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "negative",
+        "read-only"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "DIA-003",
+      "tier": "integration",
+      "title": "Diag does not refresh observations or call provider runtime",
+      "requirements": [
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "diag"
+      ],
+      "setup": "Fake observation source/runtime would fail test if invoked.",
+      "action": "Run diag.",
+      "oracle": "No source/runtime invocation occurs; only stored evidence is read.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "negative",
+        "read-only",
+        "time"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "DIA-004",
+      "tier": "integration",
+      "title": "Diag cannot interrupt/resume/repair/restart/route",
+      "requirements": [
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "diag"
+      ],
+      "setup": "Mutation/control fakes raise on access.",
+      "action": "Run all supported diag views.",
+      "oracle": "No forbidden port called.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "integration",
+        "negative",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "DIA-005",
+      "tier": "fault",
+      "title": "One malformed observation is isolated",
+      "requirements": [
+        "REQ-DIAG-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "diag"
+      ],
+      "setup": "Workspace contains valid sections plus one corrupted/unsupported observation payload.",
+      "action": "Render diag.",
+      "oracle": "Affected section reports explicit error/unknown while unrelated sections remain readable; DB is unchanged.",
+      "failure_injection": "malformed observation payload",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "isolation",
+        "positive",
+        "read-only",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "DIA-006",
+      "tier": "fault",
+      "title": "Store read failure does not trigger repair",
+      "requirements": [
+        "REQ-DIAG-002",
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "diag"
+      ],
+      "setup": "Read-only store raises simulated I/O error.",
+      "action": "Run diag.",
+      "oracle": "Diag exits/reports failure; no migration/repair/restart/write is attempted.",
+      "failure_injection": "read I/O error",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "isolation",
+        "negative",
+        "persistence",
+        "read-only",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "DIA-007",
+      "tier": "integration",
+      "title": "Authoritative logical state is unchanged after Diag",
+      "requirements": [
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "diag"
+      ],
+      "setup": "Capture canonical Core/Observation logical-state digest and hashes of immutable input/config files; ignore SQLite transient lock/shm read-coordination artifacts.",
+      "action": "Run Diag and close all read handles.",
+      "oracle": "Logical state digest and immutable input/config hashes are identical; no authoritative table row/revision or provider/runtime call changes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "integration",
+        "positive",
+        "read-only",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-001",
+      "tier": "e2e",
+      "title": "Two peers using same adapter collaborate through one Stream",
+      "requirements": [
+        "REQ-CARD-001",
+        "REQ-BRIDGE-001",
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime"
+      ],
+      "setup": "Fresh workspace, fake runtime adapter, two Peers, one Stream.",
+      "action": "Append user Record, bridge peer A response, bridge peer B response.",
+      "oracle": "Durable ordered transcript contains all Records; per-peer offsets/sessions remain independent.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "cardinality",
+        "e2e",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-002",
+      "tier": "e2e",
+      "title": "Client retry plus restart yields one logical append",
+      "requirements": [
+        "REQ-IDEM-001",
+        "REQ-CONT-001",
+        "REQ-FAULT-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime",
+        "restart"
+      ],
+      "setup": "Fresh workspace; inject lost response after commit.",
+      "action": "Restart process and retry same idempotency key.",
+      "oracle": "One Record exists and client obtains it.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "e2e",
+        "idempotency",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-003",
+      "tier": "e2e",
+      "title": "Restart catches up unread records",
+      "requirements": [
+        "REQ-CONT-001",
+        "REQ-BRIDGE-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime",
+        "restart"
+      ],
+      "setup": "Bridge peer through position 2, append positions 3..5, stop process.",
+      "action": "Start new process/Bridge.",
+      "oracle": "Unread 3..5 delivered in order with no loss/duplicate logical response.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "e2e",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-004",
+      "tier": "e2e",
+      "title": "MAY_HAVE_STARTED survives restart and blocks blind replay",
+      "requirements": [
+        "REQ-CERTAINTY-001",
+        "REQ-FAULT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime",
+        "restart"
+      ],
+      "setup": "Inject ambiguous runtime start and persist evidence.",
+      "action": "Restart and run scheduler.",
+      "oracle": "No automatic second runtime start; status exposes uncertainty.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "e2e",
+        "execution-certainty",
+        "negative",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-005",
+      "tier": "e2e",
+      "title": "Pause-before-interrupt ordering holds end to end",
+      "requirements": [
+        "REQ-BRIDGE-006",
+        "REQ-CONTROL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime",
+        "control"
+      ],
+      "setup": "Fake runtime supports interrupt and records monotonic event sequence.",
+      "action": "Issue pause control while session active.",
+      "oracle": "Durable pause commit precedes runtime interrupt event.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "e2e",
+        "ordering",
+        "positive",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-006",
+      "tier": "e2e",
+      "title": "Lost session creates new generation and reconstructs durable context",
+      "requirements": [
+        "REQ-BRIDGE-004",
+        "REQ-BRIDGE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime"
+      ],
+      "setup": "Fake session generation 1 processes earlier records then disappears.",
+      "action": "Append new Record and run Bridge.",
+      "oracle": "Generation 2 created; context comes from durable records/offset, not inaccessible provider memory.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "e2e",
+        "generation",
+        "persistence",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-007",
+      "tier": "e2e",
+      "title": "Shared resource pool is visible without contaminating Core Peer",
+      "requirements": [
+        "REQ-OBS-004",
+        "REQ-DIAG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime",
+        "diag"
+      ],
+      "setup": "Two peers share pool; capture quota observation.",
+      "action": "Run read-only diag.",
+      "oracle": "Report relates both peers/pool while serialized Core Peers remain quota-free; no writes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "cardinality",
+        "e2e",
+        "isolation",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-008",
+      "tier": "e2e",
+      "title": "Restore generation invalidates old claim/session and safely resumes",
+      "requirements": [
+        "REQ-FAULT-006",
+        "REQ-BRIDGE-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "fake-runtime",
+        "restore"
+      ],
+      "setup": "Create G1 claim/session, snapshot, advance state, restore/replace to G2.",
+      "action": "Attempt G1 operations then acquire fresh G2.",
+      "oracle": "G1 rejected; G2 can safely resume from durable state.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "crash",
+        "e2e",
+        "fencing",
+        "generation",
+        "persistence",
+        "positive",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "E2E-009",
+      "tier": "e2e",
+      "title": "Core remains useful with all first-party extensions disabled",
+      "requirements": [
+        "REQ-ARCH-001",
+        "REQ-PERSIST-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "core-only"
+      ],
+      "setup": "Install/launch Core-only mode.",
+      "action": "Create Peers/Stream, append/read Records, CAS Offset, restart.",
+      "oracle": "All Core acceptance behaviors pass.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "e2e",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "LIVE-CC-001",
+      "tier": "live",
+      "title": "Claude discovery and minimal canary",
+      "requirements": [
+        "REQ-REL-002",
+        "REQ-BRIDGE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "live",
+        "cc",
+        "provider"
+      ],
+      "setup": "Clean temporary workspace; authenticated Claude CLI available; test prompt has fixed tiny response contract.",
+      "action": "Discover cc, create one Peer mapping, send one minimal canary through Session Bridge.",
+      "oracle": "Provider response is captured as a durable response Record with TERMINAL evidence; secrets/prompts are sanitized from retained evidence.",
+      "failure_injection": "none",
+      "evidence": "sanitized live-canary JSON + JUnit + CLI version",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": false
+    },
+    {
+      "id": "LIVE-CX-001",
+      "tier": "live",
+      "title": "Codex discovery and minimal canary",
+      "requirements": [
+        "REQ-REL-002",
+        "REQ-BRIDGE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "live",
+        "cx",
+        "provider"
+      ],
+      "setup": "Clean temporary workspace; authenticated Codex CLI available; test prompt has fixed tiny response contract.",
+      "action": "Discover cx, create one Peer mapping, send one minimal canary through Session Bridge.",
+      "oracle": "Provider response is captured as a durable response Record with TERMINAL evidence; secrets/prompts are sanitized from retained evidence.",
+      "failure_injection": "none",
+      "evidence": "sanitized live-canary JSON + JUnit + CLI version",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": false
+    },
+    {
+      "id": "LIVE-AG-001",
+      "tier": "live",
+      "title": "Agy discovery and minimal canary",
+      "requirements": [
+        "REQ-REL-002",
+        "REQ-BRIDGE-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "live",
+        "ag",
+        "provider"
+      ],
+      "setup": "Clean temporary workspace; authenticated Agy CLI available; test prompt has fixed tiny response contract.",
+      "action": "Discover ag, create one Peer mapping, send one minimal canary through Session Bridge.",
+      "oracle": "Provider response is captured as a durable response Record with TERMINAL evidence; secrets/prompts are sanitized from retained evidence.",
+      "failure_injection": "none",
+      "evidence": "sanitized live-canary JSON + JUnit + CLI version",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": false
+    },
+    {
+      "id": "LIVE-004",
+      "tier": "live",
+      "title": "Live capability mismatch is reported, never synthesized",
+      "requirements": [
+        "REQ-OBS-001",
+        "REQ-BRIDGE-003"
+      ],
+      "priority": "P1",
+      "markers": [
+        "live",
+        "provider"
+      ],
+      "setup": "Use provider/runtime where an optional capability (resume/interrupt) is absent or deliberately disabled by fake wrapper around real discovery.",
+      "action": "Discover capability and attempt only through capability-aware path.",
+      "oracle": "Capability is reported unavailable/unsupported; no false success and fallback behavior is explicit.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": false
+    },
+    {
+      "id": "LIVE-005",
+      "tier": "live",
+      "title": "Observed CLI version is captured as evidence, not hardcoded truth",
+      "requirements": [
+        "REQ-OBS-001",
+        "REQ-REL-003"
+      ],
+      "priority": "P1",
+      "markers": [
+        "live",
+        "provider"
+      ],
+      "setup": "Authenticated installed provider CLIs.",
+      "action": "Run version/discovery capture.",
+      "oracle": "Observed versions are timestamped evidence/catalog input; mismatch fails consistency gate only where policy says pinned.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": false
+    },
+    {
+      "id": "LIVE-006",
+      "tier": "live",
+      "title": "Live gate runs in isolated workspace and leaves no project mutation",
+      "requirements": [
+        "REQ-REL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "live",
+        "provider",
+        "isolation"
+      ],
+      "setup": "Snapshot project tree; allocate temporary workspace.",
+      "action": "Run all advertised provider canaries.",
+      "oracle": "Only designated sanitized evidence artifact changes; source/project workspace remains unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": true,
+      "dimensions": [
+        "live",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": false
+    },
+    {
+      "id": "REL-001",
+      "tier": "package",
+      "title": "Build distributable artifacts from clean checkout",
+      "requirements": [
+        "REQ-REL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release"
+      ],
+      "setup": "Clean source checkout with locked/declared build dependencies.",
+      "action": "Build wheel and sdist (or project-selected equivalents).",
+      "oracle": "Build succeeds; artifact metadata/version are consistent.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "clean-install",
+        "package",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "REL-002",
+      "tier": "package",
+      "title": "Fresh environment install and import/CLI smoke",
+      "requirements": [
+        "REQ-REL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "clean-install"
+      ],
+      "setup": "New virtual environment with no editable source path.",
+      "action": "Install built wheel then run version/help/minimal Core import.",
+      "oracle": "Installed artifact works without repository checkout.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "clean-install",
+        "package",
+        "positive",
+        "time"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "REL-003",
+      "tier": "package",
+      "title": "Fresh workspace smoke plus restart",
+      "requirements": [
+        "REQ-REL-004",
+        "REQ-CONT-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "smoke"
+      ],
+      "setup": "Installed artifact in clean temp directory.",
+      "action": "Initialize, create peers/stream, append/read/CAS, close process, reopen/read.",
+      "oracle": "All minimal operations pass after restart.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "clean-install",
+        "crash",
+        "e2e",
+        "package",
+        "positive",
+        "recovery",
+        "restart",
+        "time"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "REL-004",
+      "tier": "package",
+      "title": "Docs/version/schema/catalog consistency gate",
+      "requirements": [
+        "REQ-REL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "schema"
+      ],
+      "setup": "Built source tree/package.",
+      "action": "Run manifest/schema/doc generation drift checks.",
+      "oracle": "No stale generated view, version mismatch, invalid schema, or catalog drift.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "compatibility",
+        "consistency",
+        "package",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "REL-005",
+      "tier": "package",
+      "title": "Deterministic CI does not require real provider quota",
+      "requirements": [
+        "REQ-REL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "ci"
+      ],
+      "setup": "CI environment has no provider credentials/CLIs except explicit fakes.",
+      "action": "Run architecture through fake-runtime E2E suite.",
+      "oracle": "Suite passes without network/provider quota; live tests are deselected.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "honesty",
+        "negative",
+        "package"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "REL-006",
+      "tier": "package",
+      "title": "Publish job is causally gated by live-provider job",
+      "requirements": [
+        "REQ-REL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "ci"
+      ],
+      "setup": "Parse CI/release workflow DAG.",
+      "action": "Inspect needs/dependencies and simulate failed live gate.",
+      "oracle": "Publish cannot run/succeed when required live gate fails or is missing.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "package",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "REL-007",
+      "tier": "package",
+      "title": "Release evidence bundle has checksums and coverage summary",
+      "requirements": [
+        "REQ-REL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "evidence"
+      ],
+      "setup": "Completed release candidate test outputs.",
+      "action": "Assemble evidence manifest.",
+      "oracle": "Manifest includes commit/version, deterministic suite, live canaries, package hashes and requirement coverage with no uncovered P0 requirement.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "dimensions": [
+        "package",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SCH-011",
+      "tier": "schema",
+      "title": "All required fields reject omission/null and unsupported major schema version",
+      "requirements": [
+        "REQ-BOUND-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "boundary"
+      ],
+      "dimensions": [
+        "boundary",
+        "negative",
+        "no-partial-mutation",
+        "schema"
+      ],
+      "case_type": "negative",
+      "setup": "Load one valid object for each public schema and create mutations that omit each required field, set non-null fields to null, and change schema_version.",
+      "action": "Validate every mutant and attempt API persistence through a transaction fixture.",
+      "oracle": "Every invalid mutant is rejected before mutation; database row counts and revisions remain unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SCH-012",
+      "tier": "schema",
+      "title": "Required collection fields distinguish null from empty arrays",
+      "requirements": [
+        "REQ-BOUND-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "boundary"
+      ],
+      "dimensions": [
+        "boundary",
+        "negative",
+        "schema"
+      ],
+      "case_type": "negative",
+      "setup": "Prepare valid Stream/Record fixtures.",
+      "action": "For members/targets/refs, replace the required array with null and then with [] where allowed.",
+      "oracle": "null is rejected; [] is accepted only where schema permits; no implicit null-to-empty coercion occurs.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SCH-013",
+      "tier": "schema",
+      "title": "Malformed dates, digest, enum and unknown properties fail closed",
+      "requirements": [
+        "REQ-BOUND-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "boundary"
+      ],
+      "dimensions": [
+        "boundary",
+        "negative",
+        "no-partial-mutation",
+        "schema"
+      ],
+      "case_type": "negative",
+      "setup": "Prepare valid Peer/Stream/Record/Observation fixtures.",
+      "action": "Mutate date-time, sha256 digest, closed enums and add unknown fields.",
+      "oracle": "Validation rejects each invalid object and no persistence side effect occurs.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "PROP-007",
+      "tier": "property",
+      "title": "Unicode/newline/special free-text round-trips losslessly",
+      "requirements": [
+        "REQ-BOUND-002",
+        "REQ-SEC-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "security"
+      ],
+      "dimensions": [
+        "boundary",
+        "persistence",
+        "property",
+        "security"
+      ],
+      "case_type": "boundary",
+      "setup": "Generate Unicode text including Korean, emoji, combining marks, CR/LF, quotes, semicolons and SQL-like tokens.",
+      "action": "Append as body/metadata then reopen store and read.",
+      "oracle": "Exact code-point/string value is preserved and surrounding rows/schema are unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "PROP-008",
+      "tier": "property",
+      "title": "Canonical digest preserves array order and scalar types",
+      "requirements": [
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "canonicalization"
+      ],
+      "dimensions": [
+        "boundary",
+        "canonicalization",
+        "property"
+      ],
+      "case_type": "boundary",
+      "setup": "Generate semantically distinct payloads differing only by array order, 1 vs \"1\", true vs 1, null vs missing optional field.",
+      "action": "Compute canonical payload digest.",
+      "oracle": "Semantically distinct values produce distinct digests while map key ordering remains irrelevant.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SEC-001",
+      "tier": "security",
+      "title": "SQL/control-like payload is treated only as data",
+      "requirements": [
+        "REQ-SEC-001",
+        "REQ-BOUND-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "sqlite"
+      ],
+      "dimensions": [
+        "negative",
+        "persistence",
+        "property",
+        "security"
+      ],
+      "case_type": "negative",
+      "setup": "Use body/metadata containing SQL DDL/DML, shell-looking strings and markup.",
+      "action": "Append/read through real SQLite store using normal API.",
+      "oracle": "Payload round-trips literally; tables, row counts and schema remain intact; no command execution hook is invoked.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "STR-001",
+      "tier": "unit",
+      "title": "OPEN Stream closes with current revision and increments revision",
+      "requirements": [
+        "REQ-STREAM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "stream"
+      ],
+      "dimensions": [
+        "positive",
+        "state-transition",
+        "unit"
+      ],
+      "case_type": "positive",
+      "setup": "Create OPEN Stream revision N.",
+      "action": "Close with expected revision N.",
+      "oracle": "State becomes CLOSED and revision becomes N+1 exactly once.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "STR-002",
+      "tier": "unit",
+      "title": "Stale Stream revision update loses without mutation",
+      "requirements": [
+        "REQ-STREAM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "stream"
+      ],
+      "dimensions": [
+        "concurrency",
+        "negative",
+        "state-transition",
+        "unit"
+      ],
+      "case_type": "negative",
+      "setup": "Create Stream; retain stale revision after one successful mutation.",
+      "action": "Attempt member/state mutation with stale revision.",
+      "oracle": "Operation returns conflict; state/members/revision remain at committed winner.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "STR-003",
+      "tier": "integration",
+      "title": "CLOSED Stream rejects Record append atomically",
+      "requirements": [
+        "REQ-STREAM-001",
+        "REQ-BOUND-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "stream"
+      ],
+      "dimensions": [
+        "integration",
+        "negative",
+        "no-partial-mutation",
+        "persistence",
+        "state-transition"
+      ],
+      "case_type": "negative",
+      "setup": "Persist CLOSED Stream with valid member Peers.",
+      "action": "Attempt Record append using fresh idempotency key.",
+      "oracle": "Append is rejected; no Record/idempotency/position mutation is visible.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "STR-004",
+      "tier": "concurrency",
+      "title": "Concurrent Stream CAS updates have one winner",
+      "requirements": [
+        "REQ-STREAM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "stream"
+      ],
+      "dimensions": [
+        "concurrency",
+        "persistence",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "setup": "Two writers read same Stream revision.",
+      "action": "Synchronize at barrier and submit different legal mutations.",
+      "oracle": "Exactly one mutation commits; loser receives stale revision; revision increments once.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "STR-005",
+      "tier": "schema",
+      "title": "Stream members reject duplicates and null; empty follows declared policy",
+      "requirements": [
+        "REQ-STREAM-002",
+        "REQ-BOUND-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "stream"
+      ],
+      "dimensions": [
+        "boundary",
+        "negative",
+        "schema"
+      ],
+      "case_type": "negative",
+      "setup": "Use Stream schema fixture.",
+      "action": "Validate duplicate members, null members, and empty members.",
+      "oracle": "Duplicates/null reject; empty behavior exactly matches schema/default decision and is documented.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "STR-006",
+      "tier": "integration",
+      "title": "Member references enforce Peer integrity without becoming delivery order",
+      "requirements": [
+        "REQ-STREAM-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "stream"
+      ],
+      "dimensions": [
+        "integration",
+        "negative",
+        "persistence",
+        "semantic-boundary"
+      ],
+      "case_type": "negative",
+      "setup": "Create Peers A/B and Stream members [B,A].",
+      "action": "Persist Stream then append ordered Records and read them.",
+      "oracle": "Unknown member ids are rejected by persistence; Record delivery/read order follows position, never member array order.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OFF-006",
+      "tier": "unit",
+      "title": "Offset cannot advance past committed Stream head",
+      "requirements": [
+        "REQ-OFFSET-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "offset"
+      ],
+      "dimensions": [
+        "boundary",
+        "negative",
+        "unit"
+      ],
+      "case_type": "negative",
+      "setup": "Stream head position H with Offset <=H.",
+      "action": "CAS Offset to H+1.",
+      "oracle": "Rejected without revision or position change.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OFF-007",
+      "tier": "integration",
+      "title": "Empty Stream Offset resolves to zero and cannot jump positive",
+      "requirements": [
+        "REQ-OFFSET-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "offset"
+      ],
+      "dimensions": [
+        "boundary",
+        "integration",
+        "negative",
+        "persistence"
+      ],
+      "case_type": "negative",
+      "setup": "Persist empty Stream and Peer.",
+      "action": "Read absent Offset then try CAS/read-through 1.",
+      "oracle": "Read-through resolves as 0; positive advance is rejected until a Record commits.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OFF-008",
+      "tier": "integration",
+      "title": "Offsets are isolated by exact peer+stream key",
+      "requirements": [
+        "REQ-OFFSET-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "offset"
+      ],
+      "dimensions": [
+        "integration",
+        "isolation",
+        "negative",
+        "persistence"
+      ],
+      "case_type": "negative",
+      "setup": "Create Peers A/B and Streams X/Y with independent offsets.",
+      "action": "Advance A/X; query all other combinations.",
+      "oracle": "Only A/X changes; nonexistent Peer/Stream references are rejected.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CON-010",
+      "tier": "concurrency",
+      "title": "Offset head check and append race never skips unseen Record",
+      "requirements": [
+        "REQ-OFFSET-003",
+        "REQ-OFFSET-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "offset"
+      ],
+      "dimensions": [
+        "boundary",
+        "concurrency",
+        "persistence"
+      ],
+      "case_type": "boundary",
+      "setup": "Offset at H; coordinate writer append H+1 and offset advancer.",
+      "action": "Race append commit and CAS attempt using deterministic barriers.",
+      "oracle": "Accepted Offset never exceeds committed head visible in the same serialization order; stale attempt retries/conflicts explicitly.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "FLT-011",
+      "tier": "fault",
+      "title": "Disk-full during append is atomic and restart-readable",
+      "requirements": [
+        "REQ-PERSIST-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "sqlite",
+        "storage"
+      ],
+      "dimensions": [
+        "fault",
+        "no-partial-mutation",
+        "persistence",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Store with injectable VFS/write fault after transaction begins.",
+      "action": "Raise disk-full/IO error before durable commit.",
+      "oracle": "Append reports explicit failure; after reopen there is either complete prior state or complete new commit, never partial rows/idempotency/offset.",
+      "failure_injection": "inject SQLITE_FULL / write failure before commit",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "FLT-012",
+      "tier": "fault",
+      "title": "Read-only filesystem rejects mutation without database replacement",
+      "requirements": [
+        "REQ-PERSIST-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "sqlite",
+        "storage"
+      ],
+      "dimensions": [
+        "fault",
+        "negative",
+        "persistence",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Open existing valid store then make DB/directory write-protected via fixture/VFS.",
+      "action": "Attempt append and Stream mutation.",
+      "oracle": "Explicit read-only failure; original database bytes/content remain readable after reopening read-only.",
+      "failure_injection": "inject readonly VFS/filesystem",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "FLT-013",
+      "tier": "fault",
+      "title": "Corrupt SQLite header/page fails explicit without auto-recreate",
+      "requirements": [
+        "REQ-PERSIST-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "sqlite",
+        "integrity"
+      ],
+      "dimensions": [
+        "fault",
+        "negative",
+        "read-only",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Copy fixture DB and corrupt header/page in disposable copy.",
+      "action": "Open Core store and run Diag.",
+      "oracle": "Core open/Diag reports corruption; no empty replacement DB, migration, repair or write occurs.",
+      "failure_injection": "corrupt disposable DB bytes",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "MIG-001",
+      "tier": "migration",
+      "title": "Interrupted migration does not bump schema version early",
+      "requirements": [
+        "REQ-MIG-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "migration",
+        "sqlite"
+      ],
+      "dimensions": [
+        "compatibility",
+        "crash",
+        "migration",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Create N-version fixture and migration N→N+1 with injectable mid-step barrier.",
+      "action": "Terminate/raise before migration transaction commit.",
+      "oracle": "After reopen, schema reports N and data is valid for N; rerunning migration can complete once.",
+      "failure_injection": "terminate/raise mid-migration",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "MIG-002",
+      "tier": "migration",
+      "title": "Committed migration preserves Core records and invariants",
+      "requirements": [
+        "REQ-MIG-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "migration",
+        "sqlite"
+      ],
+      "dimensions": [
+        "compatibility",
+        "migration",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "setup": "Seed prior supported schema with Peer/Stream/Record/Offset fixtures.",
+      "action": "Run supported migration to current version.",
+      "oracle": "All logical data/digests/order/offset invariants remain valid and schema version advances exactly once.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "MIG-003",
+      "tier": "migration",
+      "title": "Future major schema and unsupported downgrade fail explicitly",
+      "requirements": [
+        "REQ-MIG-002",
+        "REQ-BOUND-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "migration",
+        "compatibility"
+      ],
+      "dimensions": [
+        "compatibility",
+        "migration",
+        "negative"
+      ],
+      "case_type": "negative",
+      "setup": "Prepare metadata indicating future major version and separately a newer DB opened by older code.",
+      "action": "Open/migrate with current runtime.",
+      "oracle": "Runtime refuses destructive guess/downgrade and emits actionable version error without writes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "MP-001",
+      "tier": "concurrency",
+      "title": "Multi-process concurrent append preserves unique positions",
+      "requirements": [
+        "REQ-PERSIST-005",
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "multiprocess",
+        "sqlite"
+      ],
+      "dimensions": [
+        "concurrency",
+        "multi-process",
+        "persistence",
+        "recovery"
+      ],
+      "case_type": "positive",
+      "setup": "Spawn multiple OS processes, each independent SQLite connection, same Stream.",
+      "action": "Release process barrier, append unique keys concurrently, then close every process/connection and reopen the database in a fresh verifier process.",
+      "oracle": "All successful commits are unique and strictly ordered by position; fresh verifier process reads an integrity-valid store with the same logical records; no corruption.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "MP-002",
+      "tier": "concurrency",
+      "title": "Multi-process identical idempotency key collapses to one Record",
+      "requirements": [
+        "REQ-PERSIST-005",
+        "REQ-IDEM-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "multiprocess",
+        "idempotency"
+      ],
+      "dimensions": [
+        "concurrency",
+        "idempotency",
+        "multi-process"
+      ],
+      "case_type": "positive",
+      "setup": "Spawn multiple processes with same canonical append request.",
+      "action": "Start concurrently.",
+      "oracle": "Exactly one logical Record exists and all success responses identify it; no duplicate positions.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "MP-003",
+      "tier": "concurrency",
+      "title": "Multi-process Offset CAS has single winner",
+      "requirements": [
+        "REQ-PERSIST-005",
+        "REQ-OFFSET-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "multiprocess",
+        "offset"
+      ],
+      "dimensions": [
+        "concurrency",
+        "multi-process",
+        "persistence"
+      ],
+      "case_type": "positive",
+      "setup": "Multiple processes read same Offset revision.",
+      "action": "Race CAS to legal new positions.",
+      "oracle": "At most one writer with a given expected revision succeeds; losers report stale revision.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-011",
+      "tier": "integration",
+      "title": "Pre-spawn adapter failure stays NOT_STARTED and retryable",
+      "requirements": [
+        "REQ-BRIDGE-007",
+        "REQ-CERTAINTY-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "fault"
+      ],
+      "dimensions": [
+        "execution-certainty",
+        "fault",
+        "integration",
+        "negative",
+        "state-transition"
+      ],
+      "case_type": "fault",
+      "setup": "Fake runtime configured to fail before process/session start.",
+      "action": "Bridge attempts delivery.",
+      "oracle": "Evidence is NOT_STARTED with explicit failure; Offset unchanged; retry policy may safely retry.",
+      "failure_injection": "adapter pre-spawn failure",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-012",
+      "tier": "integration",
+      "title": "Post-start timeout becomes MAY_HAVE_STARTED, not NOT_STARTED",
+      "requirements": [
+        "REQ-BRIDGE-007",
+        "REQ-FAULT-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "fault"
+      ],
+      "dimensions": [
+        "execution-certainty",
+        "fault",
+        "integration",
+        "negative"
+      ],
+      "case_type": "fault",
+      "setup": "Fake runtime signals started then never terminal.",
+      "action": "Trigger execution timeout.",
+      "oracle": "Evidence is MAY_HAVE_STARTED/STARTED according to durable start evidence; automatic replay remains blocked; Offset unchanged.",
+      "failure_injection": "timeout after runtime-start barrier",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-013",
+      "tier": "integration",
+      "title": "Partial output then crash does not fabricate terminal Record",
+      "requirements": [
+        "REQ-BRIDGE-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "fault"
+      ],
+      "dimensions": [
+        "crash",
+        "execution-certainty",
+        "integration",
+        "recovery",
+        "streaming"
+      ],
+      "case_type": "fault",
+      "setup": "Fake runtime emits partial chunks and durable STARTED evidence.",
+      "action": "Crash bridge before terminal callback.",
+      "oracle": "No terminal response Record is appended; partial/start evidence remains; recovery does not downgrade certainty.",
+      "failure_injection": "terminate after partial output",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-014",
+      "tier": "concurrency",
+      "title": "Duplicate terminal callbacks append/finalize once",
+      "requirements": [
+        "REQ-BRIDGE-009",
+        "REQ-BRIDGE-015"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "bridge",
+        "idempotency"
+      ],
+      "dimensions": [
+        "concurrency",
+        "idempotency",
+        "persistence"
+      ],
+      "case_type": "positive",
+      "setup": "Same delivery receives duplicate identical terminal callback concurrently.",
+      "action": "Process both callbacks through bridge finalizer.",
+      "oracle": "One response Record/finalization wins; duplicate resolves idempotently; Offset advances once.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-015",
+      "tier": "e2e",
+      "title": "Restart after terminal callback before final response stays idempotent",
+      "requirements": [
+        "REQ-BRIDGE-009",
+        "REQ-FAULT-004",
+        "REQ-BRIDGE-015"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "bridge",
+        "restart"
+      ],
+      "dimensions": [
+        "e2e",
+        "idempotency",
+        "recovery",
+        "restart"
+      ],
+      "case_type": "positive",
+      "setup": "Fake runtime terminal evidence/response persisted; terminate process before client/final ack.",
+      "action": "Restart and resume delivery cycle.",
+      "oracle": "Existing terminal response is recognized; no runtime restart or duplicate response; Offset safely reconciles.",
+      "failure_injection": "process restart after terminal persistence",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-016",
+      "tier": "integration",
+      "title": "Resume failure falls back once to fresh generation",
+      "requirements": [
+        "REQ-BRIDGE-010"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge"
+      ],
+      "dimensions": [
+        "generation",
+        "integration",
+        "negative",
+        "recovery"
+      ],
+      "case_type": "negative",
+      "setup": "Persist resumable compatible mapping; fake provider rejects resume.",
+      "action": "Run delivery cycle.",
+      "oracle": "Bridge records resume failure, creates exactly one fresh generation and catch-up; no infinite resume loop.",
+      "failure_injection": "provider resume rejects session id",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-017",
+      "tier": "fault",
+      "title": "Repeated resume/fresh-session failures terminate boundedly",
+      "requirements": [
+        "REQ-BRIDGE-010"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "bridge"
+      ],
+      "dimensions": [
+        "capacity",
+        "fault",
+        "negative",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Fake provider rejects resume and fresh session creation according to bounded retry policy.",
+      "action": "Execute delivery.",
+      "oracle": "Bridge exits with explicit failure/uncertainty after configured attempts; no unbounded loop or duplicate Records.",
+      "failure_injection": "all session acquisition attempts fail",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTX-001",
+      "tier": "unit",
+      "title": "Catch-up projection obeys injected record/byte budget in order",
+      "requirements": [
+        "REQ-BRIDGE-011"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "context"
+      ],
+      "dimensions": [
+        "boundary",
+        "capacity",
+        "ordering",
+        "unit"
+      ],
+      "case_type": "boundary",
+      "setup": "Stream with many Records and deterministic CatchUpBudget.",
+      "action": "Build fresh-session projection after Offset.",
+      "oracle": "Projection contains canonical ordered suffix fitting budget, marks truncation/boundary explicitly, and does not reorder.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTX-002",
+      "tier": "property",
+      "title": "Catch-up projection never exceeds configured budget",
+      "requirements": [
+        "REQ-BRIDGE-011"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "context"
+      ],
+      "dimensions": [
+        "boundary",
+        "capacity",
+        "property"
+      ],
+      "case_type": "boundary",
+      "setup": "Generate Streams/Record sizes and budgets including 0/1/exact boundary.",
+      "action": "Build projection.",
+      "oracle": "Reported/serialized projection never exceeds the declared budget and always preserves included Record order.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTX-003",
+      "tier": "e2e",
+      "title": "Context compaction/loss recovers with bounded fresh catch-up",
+      "requirements": [
+        "REQ-BRIDGE-011",
+        "REQ-BRIDGE-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "context",
+        "bridge"
+      ],
+      "dimensions": [
+        "capacity",
+        "e2e",
+        "recovery"
+      ],
+      "case_type": "positive",
+      "setup": "Fake session loses context after several Records; durable Stream/Offset intact.",
+      "action": "Trigger next delivery.",
+      "oracle": "Fresh session generation receives bounded catch-up projection and continues without full transcript requirement.",
+      "failure_injection": "provider reports context/session loss",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CLM-001",
+      "tier": "unit",
+      "title": "Claim renew before expiry extends same generation",
+      "requirements": [
+        "REQ-BRIDGE-012"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "claim"
+      ],
+      "dimensions": [
+        "boundary",
+        "fencing",
+        "positive",
+        "time",
+        "unit"
+      ],
+      "case_type": "boundary",
+      "setup": "ManualClock, active claim generation G expiring at T.",
+      "action": "Owner renews at T-epsilon.",
+      "oracle": "Renew succeeds, generation remains G, expiry extends deterministically.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CLM-002",
+      "tier": "concurrency",
+      "title": "Takeover before expiry is rejected",
+      "requirements": [
+        "REQ-BRIDGE-012"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "claim"
+      ],
+      "dimensions": [
+        "boundary",
+        "concurrency",
+        "negative",
+        "time"
+      ],
+      "case_type": "negative",
+      "setup": "ManualClock at T-epsilon; owner A claim active.",
+      "action": "Owner B attempts takeover.",
+      "oracle": "B is rejected; A remains owner; generation unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CLM-003",
+      "tier": "concurrency",
+      "title": "Exact expiry boundary has deterministic takeover rule",
+      "requirements": [
+        "REQ-BRIDGE-012"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "claim"
+      ],
+      "dimensions": [
+        "boundary",
+        "concurrency",
+        "fencing",
+        "time"
+      ],
+      "case_type": "boundary",
+      "setup": "ManualClock exactly at expiry T.",
+      "action": "Owner A heartbeat and owner B takeover race under documented expiry comparison.",
+      "oracle": "Outcome matches TD-19 exactly; only current generation can ack/finalize afterward.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTL-001",
+      "tier": "integration",
+      "title": "Cancel intent commits before terminate/kill",
+      "requirements": [
+        "REQ-CONTROL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "control"
+      ],
+      "dimensions": [
+        "fault",
+        "integration",
+        "ordering",
+        "persistence"
+      ],
+      "case_type": "fault",
+      "setup": "Running fake runtime and Stream.",
+      "action": "Issue control.cancel; instrument commit and terminate call order.",
+      "oracle": "cancel Record commit happens-before terminate/kill invocation.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTL-002",
+      "tier": "fault",
+      "title": "Terminate failure leaves cancel intent durable",
+      "requirements": [
+        "REQ-CONTROL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "control"
+      ],
+      "dimensions": [
+        "fault",
+        "persistence",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Fake runtime terminate raises.",
+      "action": "Issue cancel.",
+      "oracle": "Cancel Record remains committed; failure evidence explicit; no rollback of durable history/Offset.",
+      "failure_injection": "terminate/kill raises",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTL-003",
+      "tier": "unit",
+      "title": "Pause/cancel do not roll back Record or Offset history",
+      "requirements": [
+        "REQ-CONTROL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "control"
+      ],
+      "dimensions": [
+        "negative",
+        "persistence",
+        "state-transition",
+        "unit"
+      ],
+      "case_type": "negative",
+      "setup": "Stream with Records and advanced Offset.",
+      "action": "Append pause/cancel then resume intent.",
+      "oracle": "Prior Records/Offset remain unchanged; controls are additional Records.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTL-004",
+      "tier": "e2e",
+      "title": "Same-goal redirect stays in Stream and preserves history",
+      "requirements": [
+        "REQ-CONTROL-004"
+      ],
+      "priority": "P1",
+      "markers": [
+        "e2e",
+        "control"
+      ],
+      "dimensions": [
+        "e2e",
+        "persistence",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "setup": "Active Stream with goal metadata and history.",
+      "action": "Append redirect for same goal using decision helper.",
+      "oracle": "Redirect is another Record in same Stream; old history remains addressable.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CTL-005",
+      "tier": "e2e",
+      "title": "New goal opens new Stream referencing prior Stream",
+      "requirements": [
+        "REQ-CONTROL-004"
+      ],
+      "priority": "P1",
+      "markers": [
+        "e2e",
+        "control"
+      ],
+      "dimensions": [
+        "e2e",
+        "persistence",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "setup": "Existing Stream and explicit new-goal decision.",
+      "action": "Create new direction.",
+      "oracle": "Old Stream remains preserved/closed per policy; new Stream id differs and carries explicit prior reference.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-009",
+      "tier": "unit",
+      "title": "Freshness exact TTL boundary is deterministic",
+      "requirements": [
+        "REQ-OBS-005",
+        "REQ-OBS-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation"
+      ],
+      "dimensions": [
+        "boundary",
+        "honesty",
+        "time",
+        "unit"
+      ],
+      "case_type": "boundary",
+      "setup": "ManualClock, observation capture time C, TTL D.",
+      "action": "Read at C+D-epsilon and exactly C+D.",
+      "oracle": "Fresh/stale result matches TD-13 boundary rule exactly without mutating stored evidence.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-010",
+      "tier": "property",
+      "title": "Out-of-order source observed_at cannot make older capture newest",
+      "requirements": [
+        "REQ-OBS-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "observation"
+      ],
+      "dimensions": [
+        "honesty",
+        "property",
+        "time"
+      ],
+      "case_type": "positive",
+      "setup": "Generate observations where source observed_at order differs from local captured_at order.",
+      "action": "Select latest effective observation.",
+      "oracle": "Selection follows declared capture-time/order policy; source clock skew is retained as evidence but does not reorder local capture history incorrectly.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-011",
+      "tier": "unit",
+      "title": "Future-skewed source timestamp remains evidence, not synthetic freshness",
+      "requirements": [
+        "REQ-OBS-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation"
+      ],
+      "dimensions": [
+        "boundary",
+        "honesty",
+        "negative",
+        "time",
+        "unit"
+      ],
+      "case_type": "negative",
+      "setup": "Observation source observed_at far in future but local captured_at now.",
+      "action": "Evaluate freshness/latest.",
+      "oracle": "Policy uses local capture basis; no negative-age unlimited freshness is invented.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-012",
+      "tier": "fault",
+      "title": "Probe failure cannot mutate Core or trigger routing",
+      "requirements": [
+        "REQ-OBS-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "observation"
+      ],
+      "dimensions": [
+        "fault",
+        "isolation",
+        "negative",
+        "read-only"
+      ],
+      "case_type": "fault",
+      "setup": "Snapshot Core hashes/row counts and fake probe failure.",
+      "action": "Capture observation.",
+      "oracle": "At most explicit Observation evidence changes; Peer/Stream/Record/Offset and routing/runtime invocations remain unchanged.",
+      "failure_injection": "probe timeout/exception",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-013",
+      "tier": "e2e",
+      "title": "Quota exhaustion leaves Core state and peer choice unchanged",
+      "requirements": [
+        "REQ-OBS-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "observation"
+      ],
+      "dimensions": [
+        "e2e",
+        "honesty",
+        "negative",
+        "semantic-boundary"
+      ],
+      "case_type": "negative",
+      "setup": "Active Stream/Peer; fake provider reports quota exhausted.",
+      "action": "Run observation/bridge cycle without routing extension.",
+      "oracle": "Quota observation records exhausted/unavailable; Core history/Offset unchanged except valid execution evidence; no automatic alternate Peer dispatch.",
+      "failure_injection": "quota exhausted response",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-014",
+      "tier": "e2e",
+      "title": "Rate limit does not masquerade as account quota exhaustion",
+      "requirements": [
+        "REQ-OBS-007",
+        "REQ-OBS-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "observation"
+      ],
+      "dimensions": [
+        "e2e",
+        "honesty",
+        "semantic-boundary"
+      ],
+      "case_type": "positive",
+      "setup": "Fake runtime returns rate-limit event with separate account quota state.",
+      "action": "Capture and render Diag.",
+      "oracle": "Rate-limit and quota remain distinct; no synthesized quota value or reroute.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "DIA-008",
+      "tier": "concurrency",
+      "title": "Diag reads one consistent snapshot during concurrent append",
+      "requirements": [
+        "REQ-DIAG-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "diag",
+        "sqlite"
+      ],
+      "dimensions": [
+        "concurrency",
+        "isolation",
+        "persistence",
+        "read-only"
+      ],
+      "case_type": "positive",
+      "setup": "Reader begins transaction; writer appends/advances after barrier.",
+      "action": "Render Diag from reader snapshot.",
+      "oracle": "Report is internally consistent to one SQLite snapshot (old or new), never mixed cross-table state.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "DIA-009",
+      "tier": "fault",
+      "title": "Unreadable optional log source is isolated",
+      "requirements": [
+        "REQ-DIAG-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "diag"
+      ],
+      "dimensions": [
+        "fault",
+        "isolation",
+        "negative",
+        "read-only"
+      ],
+      "case_type": "fault",
+      "setup": "Core DB valid; optional log source permission/error injected.",
+      "action": "Render Diag.",
+      "oracle": "Core/Observation sections render; log section reports explicit unavailable/error; no chmod/repair/write attempted.",
+      "failure_injection": "log open raises permission/IO error",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "DIA-010",
+      "tier": "e2e",
+      "title": "Diag has zero provider/runtime calls even when data is stale",
+      "requirements": [
+        "REQ-DIAG-001",
+        "REQ-OBS-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "diag"
+      ],
+      "dimensions": [
+        "e2e",
+        "negative",
+        "read-only"
+      ],
+      "case_type": "negative",
+      "setup": "Stale observations and fake provider spies installed.",
+      "action": "Run full Diag.",
+      "oracle": "No provider refresh, resume, route or process invocation occurs; stale state is reported honestly.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SOAK-001",
+      "tier": "soak",
+      "title": "Large Stream preserves ordering/idempotency across restart",
+      "requirements": [
+        "REQ-RES-001",
+        "REQ-CONT-001"
+      ],
+      "priority": "P1",
+      "markers": [
+        "soak",
+        "slow"
+      ],
+      "dimensions": [
+        "capacity",
+        "persistence",
+        "restart",
+        "soak"
+      ],
+      "case_type": "positive",
+      "setup": "Configurable test envelope with thousands of Records and mixed retries.",
+      "action": "Append, restart, scan, retry sampled keys.",
+      "oracle": "No hidden truncation/corruption; positions/order/idempotency remain valid. Runtime threshold is evidence-only, not a hard product SLA.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SOAK-002",
+      "tier": "soak",
+      "title": "Many Peers and Streams have no vendor-specific Core ceiling",
+      "requirements": [
+        "REQ-RES-001",
+        "REQ-CARD-001"
+      ],
+      "priority": "P1",
+      "markers": [
+        "soak",
+        "slow"
+      ],
+      "dimensions": [
+        "capacity",
+        "cardinality",
+        "soak"
+      ],
+      "case_type": "positive",
+      "setup": "Create configurable large N Peers across same adapter kind and M Streams.",
+      "action": "Persist/read mappings and offsets.",
+      "oracle": "Correctness holds; any resource failure is explicit/configured, not a hardcoded provider cardinality rejection.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "PROP-009",
+      "tier": "property",
+      "title": "Large valid Record body is never silently truncated",
+      "requirements": [
+        "REQ-RES-001",
+        "REQ-BOUND-002"
+      ],
+      "priority": "P1",
+      "markers": [
+        "property",
+        "capacity"
+      ],
+      "dimensions": [
+        "capacity",
+        "data-integrity",
+        "property"
+      ],
+      "case_type": "positive",
+      "setup": "Generate valid bodies around chosen test-envelope boundaries.",
+      "action": "Append/read/restart.",
+      "oracle": "Exact body length/content survives or explicit configured size rejection occurs before mutation; never silent truncation.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "IMP-001",
+      "tier": "migration",
+      "title": "Legacy importer dry-run is source and target read-only",
+      "requirements": [
+        "REQ-IMP-001"
+      ],
+      "priority": "P1",
+      "markers": [
+        "migration",
+        "cutover"
+      ],
+      "dimensions": [
+        "migration",
+        "negative",
+        "read-only"
+      ],
+      "case_type": "negative",
+      "setup": "Copy legacy v0.x fixture and empty M1 target.",
+      "action": "Run importer dry-run/report.",
+      "oracle": "Source and target hashes/rows are unchanged; report lists only declared mappings/unmapped items.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "IMP-002",
+      "tier": "migration",
+      "title": "Legacy apply imports only declared mappings and leaves source untouched",
+      "requirements": [
+        "REQ-IMP-001"
+      ],
+      "priority": "P1",
+      "markers": [
+        "migration",
+        "cutover"
+      ],
+      "dimensions": [
+        "e2e",
+        "migration",
+        "persistence"
+      ],
+      "case_type": "positive",
+      "setup": "Legacy fixture with mapped and unmapped entities.",
+      "action": "Run explicit apply.",
+      "oracle": "Only declared M1 entities appear; source bytes unchanged; unmapped items reported, not guessed.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "IMP-003",
+      "tier": "migration",
+      "title": "Repeated legacy import is idempotent",
+      "requirements": [
+        "REQ-IMP-002"
+      ],
+      "priority": "P1",
+      "markers": [
+        "migration",
+        "cutover"
+      ],
+      "dimensions": [
+        "idempotency",
+        "migration",
+        "persistence"
+      ],
+      "case_type": "positive",
+      "setup": "Apply same legacy fixture once.",
+      "action": "Apply again.",
+      "oracle": "No duplicate Peer/Stream/Record; counts/digests stable; report marks already imported items.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "IMP-004",
+      "tier": "fault",
+      "title": "Malformed legacy row is isolated without corrupting prior imports",
+      "requirements": [
+        "REQ-IMP-002"
+      ],
+      "priority": "P1",
+      "markers": [
+        "migration",
+        "fault"
+      ],
+      "dimensions": [
+        "fault",
+        "migration",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Legacy fixture contains valid rows then malformed/unmapped row.",
+      "action": "Apply import with per-item/report boundary.",
+      "oracle": "Previously committed valid imports remain consistent according to declared transaction granularity; malformed item reported; no partial malformed object.",
+      "failure_injection": "malformed legacy record",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "REL-008",
+      "tier": "package",
+      "title": "Wheel/sdist include required runtime schemas catalogs and skills",
+      "requirements": [
+        "REQ-REL-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release"
+      ],
+      "dimensions": [
+        "clean-install",
+        "consistency",
+        "package"
+      ],
+      "case_type": "positive",
+      "setup": "Build wheel and sdist from clean checkout.",
+      "action": "Inspect artifact file list and install each.",
+      "oracle": "All declared runtime schema/catalog/skill files are present and loadable; prohibited dev/test junk is absent per packaging allowlist.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "REL-009",
+      "tier": "package",
+      "title": "Installed artifact runs without undeclared dev dependency",
+      "requirements": [
+        "REQ-REL-005",
+        "REQ-REL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release"
+      ],
+      "dimensions": [
+        "clean-install",
+        "negative",
+        "package"
+      ],
+      "case_type": "negative",
+      "setup": "Fresh venv installs runtime artifact only, excluding dev extras.",
+      "action": "Import package, initialize workspace, validate schemas/catalogs.",
+      "oracle": "All advertised runtime paths work; missing pytest/pyright/dev tools do not break runtime import.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "REL-010",
+      "tier": "package",
+      "title": "Declared Python support matrix is exercised or fails metadata gate",
+      "requirements": [
+        "REQ-REL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "matrix"
+      ],
+      "dimensions": [
+        "compatibility",
+        "matrix",
+        "package"
+      ],
+      "case_type": "positive",
+      "setup": "Read Requires-Python/classifiers and CI matrix configuration.",
+      "action": "Compare declared interpreter range against required CI jobs.",
+      "oracle": "Every declared mandatory interpreter family has a deterministic gate, or package metadata narrows support explicitly.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "REL-011",
+      "tier": "package",
+      "title": "Declared OS support includes Windows and path/newline smoke",
+      "requirements": [
+        "REQ-REL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release",
+        "windows"
+      ],
+      "dimensions": [
+        "compatibility",
+        "matrix",
+        "package"
+      ],
+      "case_type": "positive",
+      "setup": "CI metadata declares supported OSes; Windows temp paths include spaces/non-ASCII.",
+      "action": "Run minimal install/workspace/append/restart smoke per supported OS matrix.",
+      "oracle": "Every declared OS passes or is removed from declared support; Windows path/newline handling is lossless.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "REL-012",
+      "tier": "package",
+      "title": "109 legacy dispositions exactly match frozen call-map",
+      "requirements": [
+        "REQ-LEGACY-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "traceability"
+      ],
+      "dimensions": [
+        "compatibility",
+        "consistency",
+        "package"
+      ],
+      "case_type": "positive",
+      "setup": "Load 109_COMMAND_DISPOSITION.csv and CURRENT_REPO_COMMAND_MAP_20261003.json.",
+      "action": "Compare count, command path, order/effect and uniqueness.",
+      "oracle": "Exactly 109 unique rows match frozen evidence 1:1; no legacy command is unclassified.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "META-001",
+      "tier": "meta",
+      "title": "Requirement dimension coverage is complete",
+      "requirements": [
+        "REQ-META-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "meta",
+        "traceability"
+      ],
+      "dimensions": [
+        "consistency",
+        "meta",
+        "traceability"
+      ],
+      "case_type": "meta",
+      "setup": "Load requirements.json and test-catalog.json.",
+      "action": "For each requirement, union linked test dimensions and compare with required_dimensions.",
+      "oracle": "No required dimension is uncovered; no test references unknown requirement; declared test lists match reverse index.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "META-002",
+      "tier": "meta",
+      "title": "State-machine transition matrix has no uncovered required transition",
+      "requirements": [
+        "REQ-META-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "meta",
+        "traceability"
+      ],
+      "dimensions": [
+        "meta",
+        "state-transition",
+        "traceability"
+      ],
+      "case_type": "meta",
+      "setup": "Load STATE_MACHINE_COVERAGE.json and test catalog.",
+      "action": "Validate every required/forbidden transition references existing tests.",
+      "oracle": "Every transition is COVERED or explicitly DEFERRED with non-empty trigger; no OPEN row.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "META-003",
+      "tier": "meta",
+      "title": "Exception catalog has no open or unclassified case",
+      "requirements": [
+        "REQ-META-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "meta",
+        "traceability"
+      ],
+      "dimensions": [
+        "exception-space",
+        "meta",
+        "traceability"
+      ],
+      "case_type": "meta",
+      "setup": "Load EXCEPTION_CATALOG.json.",
+      "action": "Validate taxonomy/category uniqueness/status/test references.",
+      "oracle": "Every case is terminal COVERED/DEFERRED/N_A/OUT_OF_SCOPE with rationale and trigger where needed; COVERED cases have existing tests.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "META-004",
+      "tier": "meta",
+      "title": "High-risk interaction matrix is fully covered",
+      "requirements": [
+        "REQ-META-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "meta",
+        "traceability"
+      ],
+      "dimensions": [
+        "interaction",
+        "meta",
+        "traceability"
+      ],
+      "case_type": "meta",
+      "setup": "Load INTERACTION_MATRIX.json.",
+      "action": "Validate unique pair/interaction ids and named test references.",
+      "oracle": "Every REQUIRED interaction has one or more existing tests; no duplicate or OPEN interaction row.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "E2E-010",
+      "tier": "e2e",
+      "title": "Provider resume rejection falls back to one fresh generation end to end",
+      "requirements": [
+        "REQ-BRIDGE-010",
+        "REQ-BRIDGE-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "bridge"
+      ],
+      "dimensions": [
+        "e2e",
+        "recovery",
+        "generation",
+        "negative"
+      ],
+      "case_type": "negative",
+      "setup": "Persist compatible resumable mapping and unread Stream Record; fake provider rejects resume but accepts a fresh session.",
+      "action": "Run complete Bridge delivery cycle through fake runtime.",
+      "oracle": "Exactly one resume attempt is recorded, then one fresh generation is created, bounded catch-up occurs, response is appended once, and delivery completes without loop.",
+      "failure_injection": "provider resume rejects external_session_id",
+      "evidence": "pytest/JUnit result + fake-runtime call trace",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "E2E-011",
+      "tier": "e2e",
+      "title": "Cancel intent remains durable when runtime termination fails end to end",
+      "requirements": [
+        "REQ-CONTROL-002",
+        "REQ-CONTROL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "control",
+        "fault"
+      ],
+      "dimensions": [
+        "e2e",
+        "ordering",
+        "fault",
+        "persistence",
+        "recovery"
+      ],
+      "case_type": "fault",
+      "setup": "Running fake runtime, durable Stream/Offset snapshot, terminate hook configured to fail.",
+      "action": "Issue control.cancel through public surface and restart process after termination failure.",
+      "oracle": "Cancel Record is present after restart, prior Records/Offset are unchanged, failure evidence is explicit, and no rollback/destructive rewrite occurred.",
+      "failure_injection": "runtime terminate/kill hook raises",
+      "evidence": "pytest/JUnit result + persisted Record/evidence snapshot",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "IDEM-001",
+      "tier": "unit",
+      "title": "Same key in different Streams is independent",
+      "requirements": [
+        "REQ-IDEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "idempotency"
+      ],
+      "dimensions": [
+        "isolation",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "setup": "Create Streams X/Y and same author A; choose idempotency key K.",
+      "action": "Append payload P with K to X and different payload Q with K to Y.",
+      "oracle": "Both Records append successfully and have independent positions/digests; no cross-stream conflict.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "IDEM-002",
+      "tier": "unit",
+      "title": "Same key from different authors in one Stream is independent",
+      "requirements": [
+        "REQ-IDEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "idempotency"
+      ],
+      "dimensions": [
+        "isolation",
+        "positive",
+        "unit"
+      ],
+      "case_type": "positive",
+      "setup": "Create Stream X with authors A/B and key K.",
+      "action": "Append A/K/P then B/K/Q.",
+      "oracle": "Both append independently because idempotency scope includes author_peer_id.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "IDEM-003",
+      "tier": "concurrency",
+      "title": "Same key races independently across idempotency scopes",
+      "requirements": [
+        "REQ-IDEM-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "idempotency"
+      ],
+      "dimensions": [
+        "concurrency",
+        "isolation"
+      ],
+      "case_type": "positive",
+      "setup": "Prepare same K across X/A and X/B and Y/A.",
+      "action": "Race all scopes concurrently.",
+      "oracle": "Each scope resolves independently; duplicates collapse only within identical scope; no false conflicts across scopes.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CORE-013",
+      "tier": "unit",
+      "title": "Append request cannot set server-owned Record fields",
+      "requirements": [
+        "REQ-CORE-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "record"
+      ],
+      "dimensions": [
+        "boundary",
+        "negative",
+        "unit"
+      ],
+      "case_type": "negative",
+      "setup": "Build valid append request plus variants attempting record_id/position/payload_digest/appended_at injection.",
+      "action": "Submit through public append harness/API.",
+      "oracle": "Server-owned fields are rejected/ignored according to request schema; caller cannot force canonical stored values; no partial mutation on invalid injection.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SQL-011",
+      "tier": "integration",
+      "title": "Server computes payload digest and stored value matches canonical request",
+      "requirements": [
+        "REQ-CORE-005",
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "sqlite",
+        "record"
+      ],
+      "dimensions": [
+        "canonicalization",
+        "integration",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "setup": "Create Stream/Peer and append request without server-owned fields.",
+      "action": "Append through real SQLite store, reopen, and recompute canonical digest from semantic request fields.",
+      "oracle": "Stored payload_digest equals server-computed canonical digest; record_id/position/appended_at are server assigned and durable.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "READ-001",
+      "tier": "unit",
+      "title": "Read after_position boundary returns strict suffix",
+      "requirements": [
+        "REQ-READ-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "read"
+      ],
+      "dimensions": [
+        "boundary",
+        "ordering",
+        "positive",
+        "unit"
+      ],
+      "case_type": "boundary",
+      "setup": "Stream positions 1..5.",
+      "action": "Read after_position 0, 3, 5.",
+      "oracle": "Results are [1..5], [4,5], [] respectively in canonical order.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "READ-002",
+      "tier": "unit",
+      "title": "Read limit exact boundary and invalid limit are explicit",
+      "requirements": [
+        "REQ-READ-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "read"
+      ],
+      "dimensions": [
+        "boundary",
+        "negative",
+        "unit"
+      ],
+      "case_type": "negative",
+      "setup": "Stream with >3 Records.",
+      "action": "Read limit 1, exact remaining count, 0 and negative.",
+      "oracle": "Positive limits return at most limit without reorder; zero/negative are rejected explicitly and do not mutate state.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "PROP-010",
+      "tier": "property",
+      "title": "Paged catch-up has no duplicates or skips",
+      "requirements": [
+        "REQ-READ-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "read"
+      ],
+      "dimensions": [
+        "boundary",
+        "ordering",
+        "property"
+      ],
+      "case_type": "boundary",
+      "setup": "Generate Stream length N and positive page sizes.",
+      "action": "Repeatedly call read_records(after_position=last_seen, limit=page_size) until empty.",
+      "oracle": "Concatenated positions equal exactly all committed positions once and in increasing order.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CON-011",
+      "tier": "concurrency",
+      "title": "Append during paged catch-up preserves monotonic no-duplicate reads",
+      "requirements": [
+        "REQ-READ-001",
+        "REQ-ORDER-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "read"
+      ],
+      "dimensions": [
+        "boundary",
+        "concurrency",
+        "ordering"
+      ],
+      "case_type": "boundary",
+      "setup": "Reader consumes page 1; writer barrier appends new Records before next page.",
+      "action": "Continue catch-up from last seen position.",
+      "oracle": "Reader never repeats/skips any Record <= final observed head; newly committed Records may appear only after their position and remain ordered.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-015",
+      "tier": "integration",
+      "title": "Unknown Resource Pool reference is rejected atomically",
+      "requirements": [
+        "REQ-OBS-008"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "observation",
+        "sqlite"
+      ],
+      "dimensions": [
+        "integration",
+        "isolation",
+        "negative",
+        "persistence"
+      ],
+      "case_type": "negative",
+      "setup": "Valid Peer/Observation but nonexistent resource_pool_ref.",
+      "action": "Capture/persist observation.",
+      "oracle": "Referential-integrity error; no observation row or Core mutation is committed.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-016",
+      "tier": "integration",
+      "title": "Resource Pool evidence remains isolated by pool and subject",
+      "requirements": [
+        "REQ-OBS-008",
+        "REQ-OBS-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "observation"
+      ],
+      "dimensions": [
+        "integration",
+        "isolation",
+        "persistence",
+        "positive"
+      ],
+      "case_type": "positive",
+      "setup": "Pools P1/P2; Peers A/B with observations in each.",
+      "action": "Query latest/list by pool and subject.",
+      "oracle": "Only matching evidence is returned; no pool/subject cross-leak.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-017",
+      "tier": "unit",
+      "title": "Missing captured_at falls back to observed_at for freshness",
+      "requirements": [
+        "REQ-OBS-009",
+        "REQ-OBS-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "unit",
+        "observation"
+      ],
+      "dimensions": [
+        "boundary",
+        "positive",
+        "time",
+        "unit"
+      ],
+      "case_type": "boundary",
+      "setup": "Observation has captured_at absent and source observed_at O; ManualClock and TTL.",
+      "action": "Evaluate before/at TTL.",
+      "oracle": "Freshness uses O exactly under fallback policy and obeys the same TTL boundary.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "OBS-018",
+      "tier": "property",
+      "title": "Equal capture timestamps have deterministic latest tie-breaker",
+      "requirements": [
+        "REQ-OBS-009"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "observation"
+      ],
+      "dimensions": [
+        "persistence",
+        "property",
+        "time"
+      ],
+      "case_type": "positive",
+      "setup": "Generate multiple observations for same subject/kind with equal captured_at and deterministic persisted capture sequence.",
+      "action": "Reopen store repeatedly and call latest.",
+      "oracle": "The same last-captured observation wins every time independent of source observed_at or query plan order.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "REL-013",
+      "tier": "package",
+      "title": "Tampered package file fails checksum/manifest validation",
+      "requirements": [
+        "REQ-REL-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release"
+      ],
+      "dimensions": [
+        "consistency",
+        "evidence",
+        "negative",
+        "package"
+      ],
+      "case_type": "negative",
+      "setup": "Copy a validated package to temp and change one manifest-covered byte.",
+      "action": "Run package validator/checksum verifier.",
+      "oracle": "Validation fails and names the mismatched file; it never rewrites baseline hashes to make tampering pass.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "REL-014",
+      "tier": "package",
+      "title": "Validator stdout and PACKAGE_VALIDATION evidence are identical",
+      "requirements": [
+        "REQ-REL-007"
+      ],
+      "priority": "P0",
+      "markers": [
+        "package",
+        "release"
+      ],
+      "dimensions": [
+        "evidence",
+        "package",
+        "positive"
+      ],
+      "case_type": "positive",
+      "setup": "Run validator in clean package capturing stdout bytes/text.",
+      "action": "Read PACKAGE_VALIDATION.txt after run.",
+      "oracle": "Normalized line-for-line validation content is identical to console output, including RESULT and every ERROR when a negative fixture is used.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SCH-014",
+      "tier": "schema",
+      "title": "Record body accepts every JSON value class but rejects non-JSON runtime values",
+      "requirements": [
+        "REQ-CANON-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "record"
+      ],
+      "dimensions": [
+        "boundary",
+        "canonicalization",
+        "negative",
+        "schema"
+      ],
+      "case_type": "negative",
+      "setup": "Prepare body variants: null, bool, finite number, string, array, object; plus bytes/set/custom object.",
+      "action": "Pass through append serialization/validation boundary.",
+      "oracle": "All JSON value classes are accepted; non-JSON runtime values are rejected before digest/persistence.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "SCH-015",
+      "tier": "schema",
+      "title": "NaN and Infinity are rejected as non-canonical JSON numbers",
+      "requirements": [
+        "REQ-CANON-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "record"
+      ],
+      "dimensions": [
+        "boundary",
+        "canonicalization",
+        "negative",
+        "schema"
+      ],
+      "case_type": "negative",
+      "setup": "Create payload bodies/metadata containing NaN, +Infinity, -Infinity.",
+      "action": "Canonicalize/append using strict JSON mode.",
+      "oracle": "Every non-finite number fails explicitly before idempotency row or Record mutation.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "PROP-011",
+      "tier": "property",
+      "title": "Canonical digest is stable across strict JSON round trip",
+      "requirements": [
+        "REQ-CANON-001",
+        "REQ-IDEM-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "property",
+        "canonicalization"
+      ],
+      "dimensions": [
+        "canonicalization",
+        "positive",
+        "property"
+      ],
+      "case_type": "positive",
+      "setup": "Generate valid JSON payload trees with bounded depth and Unicode strings.",
+      "action": "Canonicalize directly, serialize strict JSON, parse, canonicalize again.",
+      "oracle": "Digests are identical after round trip; no serializer-specific whitespace/key order affects digest.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-018",
+      "tier": "integration",
+      "title": "Session mapping survives store/process reopen exactly",
+      "requirements": [
+        "REQ-BRIDGE-013",
+        "REQ-BRIDGE-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "integration",
+        "bridge",
+        "restart"
+      ],
+      "dimensions": [
+        "generation",
+        "identity",
+        "integration",
+        "persistence",
+        "restart"
+      ],
+      "case_type": "positive",
+      "setup": "Persist mapping with external_session_id, generation G, fingerprint, binding, resumable/state/last_seen.",
+      "action": "Close store/process and reopen via fresh harness instance.",
+      "oracle": "All mapping fields are identical; next compatible delivery resumes generation G rather than recreating generation 1.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "MP-004",
+      "tier": "concurrency",
+      "title": "Multi-process Bridge claim race elects one owner",
+      "requirements": [
+        "REQ-BRIDGE-002",
+        "REQ-BRIDGE-014",
+        "REQ-PERSIST-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "multiprocess",
+        "bridge"
+      ],
+      "dimensions": [
+        "concurrency",
+        "fencing",
+        "multi-process",
+        "persistence"
+      ],
+      "case_type": "positive",
+      "setup": "Spawn independent Bridge processes/connections for same workspace+stream+peer.",
+      "action": "Release barrier and acquire claim simultaneously.",
+      "oracle": "Exactly one active generation/owner exists; losers cannot append response/finalize/ack.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "FLT-014",
+      "tier": "fault",
+      "title": "Stale owner cannot append late response after takeover",
+      "requirements": [
+        "REQ-BRIDGE-014",
+        "REQ-FAULT-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "bridge"
+      ],
+      "dimensions": [
+        "concurrency",
+        "fault",
+        "fencing",
+        "persistence"
+      ],
+      "case_type": "fault",
+      "setup": "Owner A starts runtime; claim expires; owner B takes generation G+1.",
+      "action": "A receives a late terminal response and attempts response append/finalize using stale token.",
+      "oracle": "A is fenced before any response Record/Offset mutation; uncertainty/late evidence may be recorded only through safe non-authoritative evidence path.",
+      "failure_injection": "late terminal callback to stale generation",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "E2E-012",
+      "tier": "e2e",
+      "title": "Two Bridges recovering after crash still deliver once",
+      "requirements": [
+        "REQ-BRIDGE-014",
+        "REQ-BRIDGE-002",
+        "REQ-CONT-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "e2e",
+        "bridge",
+        "restart"
+      ],
+      "dimensions": [
+        "concurrency",
+        "e2e",
+        "fencing",
+        "restart"
+      ],
+      "case_type": "positive",
+      "setup": "Crash previous owner with unread Record; start two recovery Bridge processes against same store.",
+      "action": "Both attempt recovery/delivery.",
+      "oracle": "One claim generation wins and exactly one runtime delivery/response append occurs; loser remains fenced.",
+      "failure_injection": "simultaneous recovery processes",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "BRG-019",
+      "tier": "concurrency",
+      "title": "Conflicting duplicate terminal callbacks do not overwrite terminal truth",
+      "requirements": [
+        "REQ-BRIDGE-015"
+      ],
+      "priority": "P0",
+      "markers": [
+        "concurrency",
+        "bridge"
+      ],
+      "dimensions": [
+        "concurrency",
+        "idempotency",
+        "negative",
+        "persistence"
+      ],
+      "case_type": "negative",
+      "setup": "One delivery receives terminal response R1 then concurrent/delayed different semantic response R2 with same delivery identity.",
+      "action": "Process both terminal callbacks.",
+      "oracle": "First committed terminal truth remains immutable; identical repeats are idempotent, differing repeat is explicit conflict/evidence and cannot replace response/Offset result.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CERT-001",
+      "tier": "unit",
+      "title": "MAY_HAVE_STARTED cannot be cleared by time or restart metadata alone",
+      "requirements": [
+        "REQ-CERTAINTY-002",
+        "REQ-CERTAINTY-001"
+      ],
+      "priority": "P1",
+      "markers": [
+        "unit",
+        "certainty"
+      ],
+      "dimensions": [
+        "negative",
+        "restart",
+        "state-transition",
+        "unit"
+      ],
+      "case_type": "negative",
+      "setup": "Persist MAY_HAVE_STARTED evidence without reconcile control.",
+      "action": "Advance ManualClock and reopen store.",
+      "oracle": "Original delivery remains MAY_HAVE_STARTED and automatic retry stays blocked.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CERT-002",
+      "tier": "integration",
+      "title": "Durable reconcile.retry authorizes a new linked attempt without rewriting old evidence",
+      "requirements": [
+        "REQ-CERTAINTY-002"
+      ],
+      "priority": "P1",
+      "markers": [
+        "integration",
+        "certainty"
+      ],
+      "dimensions": [
+        "integration",
+        "persistence",
+        "positive",
+        "state-transition"
+      ],
+      "case_type": "positive",
+      "setup": "Delivery D has MAY_HAVE_STARTED; Stream receives control.reconcile with decision RETRY referencing D.",
+      "action": "Bridge consumes control and creates next attempt generation.",
+      "oracle": "D evidence remains immutable MAY_HAVE_STARTED; a distinct new attempt starts with its own identity/certainty and audit link to reconciliation Record.",
+      "failure_injection": "none",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    },
+    {
+      "id": "CERT-003",
+      "tier": "e2e",
+      "title": "Reconcile retry survives restart and does not double-authorize",
+      "requirements": [
+        "REQ-CERTAINTY-002"
+      ],
+      "priority": "P1",
+      "markers": [
+        "e2e",
+        "certainty",
+        "restart"
+      ],
+      "dimensions": [
+        "e2e",
+        "idempotency",
+        "persistence",
+        "restart"
+      ],
+      "case_type": "positive",
+      "setup": "Persist MAY_HAVE_STARTED and one reconcile.retry; crash after reconciliation commit before new attempt starts.",
+      "action": "Restart two recovery cycles.",
+      "oracle": "Exactly one new attempt is authorized/claimed from the reconciliation decision; old evidence remains unchanged and duplicate consumption is idempotent.",
+      "failure_injection": "restart after reconcile commit",
+      "evidence": "pytest/JUnit result + assertion output",
+      "live_provider": false,
+      "deterministic": true
+    }
+  ]
+}

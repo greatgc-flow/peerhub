@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-10-03",
+  "axes": {
+    "functional_partition": [
+      "Architecture/Boundary",
+      "Core Domain",
+      "Persistence/Concurrency",
+      "Session Bridge/Control",
+      "Observation/Diag",
+      "Continuity/Context",
+      "Migration/Cutover",
+      "Release/Packaging",
+      "Meta-Quality"
+    ],
+    "case_partition": [
+      "positive",
+      "negative",
+      "boundary",
+      "fault",
+      "meta"
+    ],
+    "risk_dimensions": [
+      "schema",
+      "state-transition",
+      "persistence",
+      "idempotency",
+      "concurrency",
+      "multi-process",
+      "crash",
+      "restart",
+      "recovery",
+      "time",
+      "fencing",
+      "execution-certainty",
+      "read-only",
+      "isolation",
+      "compatibility",
+      "security",
+      "capacity",
+      "live",
+      "package"
+    ],
+    "lifecycle_phases": [
+      "create/bootstrap",
+      "steady-state",
+      "mutation",
+      "concurrent mutation",
+      "failure window",
+      "restart/recovery",
+      "migration/upgrade",
+      "release/install"
+    ],
+    "evidence_levels": [
+      "deterministic local",
+      "fake-runtime e2e",
+      "real-provider empirical",
+      "package/release evidence"
+    ]
+  },
+  "recursive_rule": "For each functional partition, re-apply case_partition and only the applicable risk_dimensions/lifecycle phases. Applicability is declared by requirement.required_dimensions; validator proves linked tests cover them.",
+  "stop_condition": [
+    "no uncovered requirement",
+    "no uncovered required dimension",
+    "no OPEN state transition",
+    "no OPEN exception",
+    "no uncovered REQUIRED interaction",
+    "no dangling/orphan test reference",
+    "all validator checks pass"
+  ]
+}
