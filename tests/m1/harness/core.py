@@ -44,13 +44,13 @@ class CoreHarness:
         return self.store.get_stream(stream_id)
 
     def cas_stream(self, stream_id: str, expected_revision: int, mutation: Any) -> Stream:
-        raise NotImplementedError("Stream CAS is a Wave 1 (STR) capability")
+        return self.store.cas_stream(stream_id, expected_revision, mutation)
 
     def append_record(self, append_request: dict[str, Any]) -> Record:
         return self.store.append_record(**append_request)
 
-    def read_records(self, stream_id: str, after_position: int = 0, limit: int = 1000) -> list[Record]:
-        return self.store.read_records(stream_id, after_position, limit)
+    def read_records(self, stream_id: str, after_position: int = 0, limit: int | None = None) -> list[Record]:
+        return self.store.read_records(stream_id, after_position, 2**31 - 1 if limit is None else limit)
 
     def get_offset(self, peer_id: str, stream_id: str) -> Offset:
         return self.store.get_offset(peer_id, stream_id)
@@ -67,12 +67,32 @@ class CoreHarness:
             return self.store.register_peer(model)
         if kind == "stream":
             return self.store.create_stream(model)
+        if kind == "record":
+            from peerhub.m1.wire import append_request_from_wire
+
+            return self.store.append_record(**append_request_from_wire(model))
+        if kind == "offset":  # wire revision = expected current revision; position = requested read-through
+            return self.store.advance_offset_cas(model.peer_id, model.stream_id, model.read_through_position, model.revision)
         raise ValueError(f"no persistence port for {kind}")
 
     # --- observability of state
     def table_names(self) -> list[str]:
         with sqlite3.connect(self.db_path) as c:
             return sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"))
+
+    def row_counts(self) -> dict[str, int]:
+        with sqlite3.connect(self.db_path) as c:
+            return {t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in self.table_names()}
+
+    def table_digests(self) -> dict[str, str]:
+        out = {}
+        with sqlite3.connect(self.db_path) as c:
+            for t in self.table_names():
+                h = hashlib.sha256()
+                for row in c.execute(f"SELECT * FROM {t} ORDER BY 1,2"):
+                    h.update(json.dumps(row, default=str).encode())
+                out[t] = h.hexdigest()
+        return out
 
     def state_digest(self) -> str:
         h = hashlib.sha256()

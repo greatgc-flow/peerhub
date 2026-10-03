@@ -74,9 +74,34 @@ def canonical_json_bytes(obj: Any) -> bytes:
 
 
 def compute_payload_digest(kind: str, body: Any) -> str:
-    """Compute sha256:<hex> digest over kind + body."""
+    """Canonicalization primitive over kind + body. NOT the Record digest (see compute_record_digest, TD-02)."""
     raw = canonical_json_bytes({"kind": kind, "body": body})
     return f"sha256:{hashlib.sha256(raw).hexdigest()}"
+
+
+SEMANTIC_FIELDS = ("stream_id", "author_peer_id", "kind", "body", "targets", "reply_to", "refs", "metadata", "created_at")
+SERVER_OWNED_FIELDS = ("record_id", "position", "payload_digest", "appended_at")
+
+
+def compute_record_digest(fields: Mapping[str, Any]) -> str:
+    """TD-02: sha256 over canonical JSON of the client semantic projection (+schema_version).
+
+    Server-owned fields (record_id/position/payload_digest/appended_at) are never read. Absent optional
+    fields project as null/[]/{}; an omitted created_at projects as null (the server fills the stored value).
+    """
+    proj = {
+        "stream_id": fields["stream_id"],
+        "author_peer_id": fields["author_peer_id"],
+        "kind": fields["kind"],
+        "body": fields.get("body"),
+        "targets": list(fields.get("targets") or []),
+        "reply_to": fields.get("reply_to"),
+        "refs": list(fields.get("refs") or []),
+        "metadata": dict(fields.get("metadata") or {}),
+        "created_at": fields.get("created_at"),
+        "schema_version": SCHEMA_VERSION,
+    }
+    return f"sha256:{hashlib.sha256(canonical_json_bytes(proj)).hexdigest()}"
 
 
 class StreamState(str, Enum):
@@ -129,7 +154,7 @@ class Stream(_CoreModel):
 
 
 class Record(_CoreModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)  # CORE-004: immutable after append
 
     schema_version: Literal["1.0"] = Field(default="1.0", frozen=True)
     record_id: str = Field(..., min_length=1)
@@ -165,6 +190,57 @@ class Record(_CoreModel):
     @classmethod
     def _json_body(cls, v: Any) -> Any:
         assert_json_value(v, "body")
+        return v
+
+
+class AppendRequest(BaseModel):
+    """Client append request (TD-21): server-owned fields are forbidden, not ignored."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stream_id: str = Field(..., min_length=1)
+    author_peer_id: str = Field(..., min_length=1)
+    kind: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_.-]*$")
+    body: Any = None
+    idempotency_key: str = Field(..., min_length=1)
+    targets: list[str] = Field(default_factory=list)
+    reply_to: str | None = None
+    refs: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+
+    @field_validator("body", mode="before")
+    @classmethod
+    def _json_body(cls, v: Any) -> Any:
+        assert_json_value(v, "body")
+        return v
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _json_meta(cls, v: Any) -> Any:
+        assert_json_value(v, "metadata")
+        return v
+
+    @field_validator("targets", "refs", mode="before")
+    @classmethod
+    def _str_lists(cls, v: Any) -> Any:
+        assert_json_value(v, "list")
+        if not isinstance(v, (list, tuple)) or any(not isinstance(x, str) or not x for x in v):
+            raise ValueError("must be a list of non-empty strings")
+        return list(v)
+
+    @field_validator("targets")
+    @classmethod
+    def _unique_targets(cls, v: list[str]) -> list[str]:
+        if len(set(v)) != len(v):
+            raise ValueError("targets must be unique")
+        return v
+
+    @field_validator("created_at")
+    @classmethod
+    def _created_at(cls, v: str | None) -> str | None:
+        if v is not None and not is_rfc3339(v):
+            raise ValueError(f"created_at is not an RFC 3339 date-time: {v!r}")
         return v
 
 

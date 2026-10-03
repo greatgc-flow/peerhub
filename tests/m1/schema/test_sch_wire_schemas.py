@@ -131,18 +131,41 @@ def _null_mutants(name, obj):
 
 
 def _must_reject(harness, name, m):
-    """Persistence attempt through the strict boundary; state must not change."""
-    digest = harness.state_digest()
-    with pytest.raises(REJECT):
-        if name in ("peer", "stream"):
-            harness.persist_wire(name, m)
-        else:
-            _strict(name, m)
+    """Persistence attempt through the strict boundary (D-W0-1); row counts, revisions and state digest must not change."""
+    from peerhub.m1.wire import WireValidationError
+
+    digest, counts, tables = harness.state_digest(), harness.row_counts(), harness.table_digests()
+    with pytest.raises(WireValidationError):  # specific: rejected by the wire boundary, not by an incidental error
+        harness.persist_wire(name, m)
+    assert harness.row_counts() == counts, (name, m)
+    assert harness.table_digests() == tables, (name, m)  # includes stream/offset revisions
     assert harness.state_digest() == digest, (name, m)
+
+
+def _prove_port_live(harness):
+    """Positive controls: each persistence port really writes, so unchanged-state asserts cannot be vacuous."""
+    from peerhub.m1.models import compute_record_digest
+
+    for p in ("p-1", "p-2"):
+        harness.persist_wire("peer", {"schema_version": "1.0", "peer_id": p, "created_at": "2026-10-01T00:00:00Z"})
+    harness.persist_wire("stream", {**valid_objects()["stream"], "members": ["p-1", "p-2"]})
+    sem = {"stream_id": "s-1", "author_peer_id": "p-1", "kind": "message", "body": "hi", "targets": ["p-2"], "reply_to": None,
+           "refs": [], "metadata": {}, "created_at": "2026-10-01T00:00:00Z"}
+    wire = {"schema_version": "1.0", "record_id": "client-chosen", "position": 77, **sem, "idempotency_key": "wk",
+            "payload_digest": compute_record_digest(sem), "appended_at": "2026-10-01T00:00:00Z"}
+    before = harness.row_counts()
+    rec = harness.persist_wire("record", wire)
+    assert harness.row_counts()["records"] == before["records"] + 1
+    assert rec.position == 1 and rec.record_id != "client-chosen"  # server-owned wire fields are not trusted
+    off = harness.persist_wire("offset", {"schema_version": "1.0", "peer_id": "p-2", "stream_id": "s-1",
+                                          "read_through_position": 1, "revision": 1})
+    assert (off.read_through_position, off.revision) == (1, 2) and harness.row_counts()["offsets"] == 1
+    return wire
 
 
 @pytest.mark.m1_id("SCH-011")
 def test_sch_011_required_fields_null_and_version_rejected_without_mutation(harness):
+    _prove_port_live(harness)
     for name, obj in valid_objects().items():
         assert errors(name, obj) == [], name
         mutants = [(f"omit {req}", {k: v for k, v in obj.items() if k != req}) for req in schema(name)["required"]]
@@ -153,10 +176,12 @@ def test_sch_011_required_fields_null_and_version_rejected_without_mutation(harn
             if name in CORE_KINDS:
                 _must_reject(harness, name, m)
     assert set(harness.table_names()) == {"peers", "streams", "stream_members", "records", "offsets"}
+    assert harness.row_counts() == {"peers": 2, "streams": 1, "stream_members": 2, "records": 1, "offsets": 1}
 
 
 @pytest.mark.m1_id("SCH-012")
 def test_sch_012_null_vs_empty_arrays(harness):
+    wire = _prove_port_live(harness)
     v = valid_objects()
     for name, field in (("stream", "members"), ("record", "targets"), ("record", "refs")):
         assert errors(name, {**v[name], field: None}), (name, field)
@@ -164,9 +189,16 @@ def test_sch_012_null_vs_empty_arrays(harness):
             _strict(name, {**v[name], field: None})
         assert errors(name, {**v[name], field: []}) == []
         _strict(name, {**v[name], field: []})
-    _must_reject(harness, "stream", {**v["stream"], "members": None})
-    harness.persist_wire("stream", {**v["stream"], "members": []})
-    assert harness.get_stream("s-1").members == []
+    _must_reject(harness, "stream", {**v["stream"], "stream_id": "s-null", "members": None})
+    for field in ("targets", "refs"):
+        _must_reject(harness, "record", {**wire, "idempotency_key": f"n-{field}", field: None})
+    harness.persist_wire("stream", {**v["stream"], "stream_id": "s-empty", "members": []})
+    assert harness.get_stream("s-empty").members == []
+    from peerhub.m1.models import compute_record_digest
+
+    sem = {k: wire[k] for k in ("stream_id", "author_peer_id", "kind", "body", "reply_to", "metadata", "created_at")}
+    empty = {**wire, "idempotency_key": "e1", "targets": [], "refs": [], "payload_digest": compute_record_digest({**sem, "targets": [], "refs": []})}
+    assert harness.persist_wire("record", empty).targets == []
 
 
 @pytest.mark.m1_id("SCH-013")

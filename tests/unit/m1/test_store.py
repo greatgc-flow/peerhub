@@ -123,6 +123,8 @@ def test_append_record_idempotency_conflict_on_mismatch(store: CoreStore):
 def test_offset_cas_flow(store: CoreStore):
     store.register_peer(Peer(peer_id="worker"))
     store.create_stream(Stream(stream_id="stream-1"))
+    for i in range(10):  # TD-10: offset may not pass the committed head
+        store.append_record(stream_id="stream-1", author_peer_id="worker", kind="message", body=i, idempotency_key=f"h{i}")
 
     initial_offset = store.get_offset("worker", "stream-1")
     assert initial_offset.read_through_position == 0

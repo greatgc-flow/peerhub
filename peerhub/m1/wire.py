@@ -13,7 +13,7 @@ from typing import Any
 from jsonschema import FormatChecker
 from jsonschema.validators import Draft202012Validator
 
-from .models import Offset, Peer, Record, Stream, is_rfc3339
+from .models import Offset, Peer, Record, Stream, compute_record_digest, is_rfc3339
 
 _DIR = Path(__file__).parent / "schemas"
 _MODELS = {"peer": Peer, "stream": Stream, "record": Record, "offset": Offset}
@@ -37,3 +37,15 @@ def parse_wire(kind: str, obj: Any) -> Any:
     if errs:
         raise WireValidationError("; ".join(f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errs[:5]))
     return _MODELS[kind].model_validate(obj)
+
+
+def append_request_from_wire(rec: Record) -> dict[str, Any]:
+    """Wire Record -> client append request (TD-21: server-owned fields are dropped, never trusted).
+
+    The wire payload_digest must equal the TD-02 digest of the semantic fields, else the object is rejected.
+    """
+    req = {k: getattr(rec, k) for k in ("stream_id", "author_peer_id", "kind", "body", "targets", "reply_to", "refs",
+                                       "metadata", "idempotency_key", "created_at")}
+    if compute_record_digest(req) != rec.payload_digest:
+        raise WireValidationError("payload_digest does not match canonical semantic payload")
+    return req

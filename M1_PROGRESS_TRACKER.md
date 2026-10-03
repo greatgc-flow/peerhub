@@ -49,3 +49,6 @@
 - Wave 0: 26/26 catalog ids implemented and green (tests/m1/{meta,architecture,schema,property}); details docs/m1_impl/wave0_report.md; open questions docs/m1_impl/OPEN_QUESTIONS.md. Review gate pending.
 - Traceability: `python tools/m1_traceability.py [--upto N]` (map in docs/m1_impl/waves.json).
 - T0: admission denial reason in `peerhub ask` errors (separate commit).
+
+## Wave 1 (2026-10-03)
+- Wave 1: 39/39 catalog ids green (tests/m1/core, tests/m1/property/test_prop_core.py, reworked SCH-011/012/013 per D-W0-1); details docs/m1_impl/wave1_report.md. 82 tests passed, traceability --upto 1 ok, validate_package PASS. Review gate pending; Q-W1-1..5 in OPEN_QUESTIONS.md.
