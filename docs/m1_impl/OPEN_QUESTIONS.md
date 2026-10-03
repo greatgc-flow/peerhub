@@ -15,3 +15,12 @@
 - Q-W1-3: mutation of members on a CLOSED Stream is allowed (TD-09 only forbids append and reopen). Confirm.
 - Q-W1-4: Peer upsert (create_peer on existing id) updates display_name/adapter_ref/metadata but never created_at; no conflict semantics specified.
 - Q-W1-5: no record body size limit configured (PROP-009); an explicit limit would need a decision.
+
+## Wave 2
+- Q-W2-1 (CON-006/007/008, MP-004, SQL-008/010): these Bridge-flavoured ids are mapped to wave 2 (waves.json) but Bridge claims are Wave 3 (CLM). Built a minimal extension-owned fenced claim kernel (`peerhub/extensions/bridge_claims.py`: table `bridge_claims`, token = workspace gen + claim gen + owner, TD-19 `now >= expires_at`, TD-25 `guard` inside Core write tx). Wave 3 extends it; the legacy wall-clock `session_bridge.py` claim code is untouched and not used.
+- Q-W2-2 (SQL-002 "migration metadata"): ARCH-002 requires the Core table set to be exactly 5 tables, so schema version is stored in `PRAGMA user_version`, not a metadata table. Confirm.
+- Q-W2-3 (MIG-001/002 "N -> N+1"): production has only baseline v1 (version 0 = empty or unversioned Wave-1 schema). MIG-002 tests v0->v1 on a raw-SQL legacy fixture and a test-supplied v1->v2 step (table/index change); MIG-001 uses the test-supplied v2 with an in-process raise and a real killed child process (os._exit at `migration.before_commit`). No invented production N+1 migration.
+- Q-W2-4 (CON-002 "bounded busy failure explicit/retryable"): store busy timeout is 30 s, so zero busy failures occur in practice; the test tolerates only `sqlite3.OperationalError` "locked/busy" and asserts every success is durable and unique, integrity_check ok, foreign_key_check empty.
+- Q-W2-5 (CON-010): oracle "same serialization order" tested with deterministic hook orderings (advancer-first -> `OffsetBeyondHeadError`, nothing moved, retry succeeds; writer-first -> CAS accepted at head) plus 20 free-running real-thread rounds.
+- Q-W2-6 (heartbeat on an expired but not-yet-taken-over claim): treated as stale (an expired claim cannot be renewed, FLT-007 fences finalize after expiry). CLM-001..003 in Wave 3 should confirm the exact-boundary heartbeat/takeover race.
+- Test seams added to CoreStore (not behaviour changes): `fault_hook(point)` (append.before_commit, offset.before_head_check), `guard(conn)` kwarg on append_record / advance_offset_cas, `connect()`, `read_uow()`; TD-14 `SchemaVersionError` for future versions.

@@ -15,8 +15,9 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
+from .migrations import run_migrations
 from .models import (
     AppendRequest,
     Offset,
@@ -64,78 +65,32 @@ class OffsetBeyondHeadError(ValueError):
 
 STREAM_MUTATION_KEYS = frozenset({"state", "members", "title", "metadata"})
 
-_SCHEMA = """
-CREATE TABLE IF NOT EXISTS peers (
-    peer_id TEXT PRIMARY KEY,
-    display_name TEXT,
-    adapter_ref TEXT,
-    metadata_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS streams (
-    stream_id TEXT PRIMARY KEY,
-    title TEXT,
-    state TEXT NOT NULL,
-    revision INTEGER NOT NULL DEFAULT 1,
-    metadata_json TEXT NOT NULL DEFAULT '{}',
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS stream_members (
-    stream_id TEXT NOT NULL,
-    peer_id TEXT NOT NULL,
-    PRIMARY KEY (stream_id, peer_id),
-    FOREIGN KEY (stream_id) REFERENCES streams(stream_id) ON DELETE CASCADE,
-    FOREIGN KEY (peer_id) REFERENCES peers(peer_id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS records (
-    record_id TEXT PRIMARY KEY,
-    stream_id TEXT NOT NULL,
-    position INTEGER NOT NULL,
-    author_peer_id TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    body_json TEXT,
-    targets_json TEXT NOT NULL DEFAULT '[]',
-    reply_to TEXT,
-    refs_json TEXT NOT NULL DEFAULT '[]',
-    metadata_json TEXT NOT NULL DEFAULT '{}',
-    idempotency_key TEXT NOT NULL,
-    payload_digest TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    appended_at TEXT NOT NULL,
-    FOREIGN KEY (stream_id) REFERENCES streams(stream_id) ON DELETE CASCADE,
-    FOREIGN KEY (author_peer_id) REFERENCES peers(peer_id) ON DELETE RESTRICT,
-    UNIQUE (stream_id, position),
-    UNIQUE (stream_id, author_peer_id, idempotency_key)
-);
-
-CREATE TABLE IF NOT EXISTS offsets (
-    peer_id TEXT NOT NULL,
-    stream_id TEXT NOT NULL,
-    read_through_position INTEGER NOT NULL DEFAULT 0,
-    revision INTEGER NOT NULL DEFAULT 1,
-    PRIMARY KEY (peer_id, stream_id),
-    FOREIGN KEY (peer_id) REFERENCES peers(peer_id) ON DELETE CASCADE,
-    FOREIGN KEY (stream_id) REFERENCES streams(stream_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_records_stream_position ON records(stream_id, position);
-
-CREATE TRIGGER IF NOT EXISTS records_immutable_update BEFORE UPDATE ON records
-BEGIN SELECT RAISE(ABORT, 'records are immutable'); END;
-CREATE TRIGGER IF NOT EXISTS records_immutable_delete BEFORE DELETE ON records
-BEGIN SELECT RAISE(ABORT, 'records are immutable'); END;
-"""
 
 
 class CoreStore:
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, fault_hook: Callable[[str], None] | None = None) -> None:
+        """`fault_hook(point)` is a test seam (CrashInjector points: append.before_commit, offset.before_head_check)."""
         self.db_path = str(db_path)
-        conn = self._get_connection()
+        self.fault_hook = fault_hook
+        run_migrations(self.db_path)  # ordered, transactional, no-op at current version; rejects future versions (TD-14)
+
+    def _fire(self, point: str) -> None:
+        if self.fault_hook is not None:
+            self.fault_hook(point)
+
+    def connect(self) -> sqlite3.Connection:
+        """Raw connection with the Core pragmas (WAL, foreign_keys, busy_timeout). Caller closes it."""
+        return self._get_connection()
+
+    @contextmanager
+    def read_uow(self):
+        """Read-only unit of work: `mode=ro` + `query_only`; any write is rejected by SQLite itself."""
+        conn = sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA query_only = ON;")
+        conn.execute("PRAGMA foreign_keys = ON;")
         try:
-            conn.executescript(_SCHEMA)
+            yield conn
         finally:
             conn.close()
 
@@ -149,14 +104,17 @@ class CoreStore:
         return conn
 
     @contextmanager
-    def _tx(self):
-        """Serialized write transaction (BEGIN IMMEDIATE); rolls back on any error, always closes."""
+    def _tx(self, point: str | None = None):
+        """Serialized write transaction (BEGIN IMMEDIATE); rolls back on any error, always closes.
+        With `point`, fires fault hook `<point>.before_commit` after the body and before COMMIT."""
         conn = self._get_connection()
         conn.isolation_level = None
         try:
             conn.execute("BEGIN IMMEDIATE")
             try:
                 yield conn
+                if point is not None:
+                    self._fire(f"{point}.before_commit")
             except BaseException:
                 conn.execute("ROLLBACK")
                 raise
@@ -279,11 +237,14 @@ class CoreStore:
             return new
 
     # --- Record
-    def append_record(self, **request: Any) -> Record:
-        """Append (TD-20 scope: stream_id, author_peer_id, idempotency_key). Server-owned fields are rejected (TD-21)."""
+    def append_record(self, *, guard: Callable[[sqlite3.Connection], None] | None = None, **request: Any) -> Record:
+        """Append (TD-20 scope: stream_id, author_peer_id, idempotency_key). Server-owned fields are rejected (TD-21).
+        `guard(conn)` runs first inside the write transaction (fencing, TD-25); raising aborts with no mutation."""
         req = AppendRequest(**request)
         digest = compute_record_digest(req.model_dump())
-        with self._tx() as conn:
+        with self._tx("append") as conn:
+            if guard is not None:
+                guard(conn)
             existing = conn.execute(
                 "SELECT * FROM records WHERE stream_id = ? AND author_peer_id = ? AND idempotency_key = ?",
                 (req.stream_id, req.author_peer_id, req.idempotency_key),
@@ -348,11 +309,14 @@ class CoreStore:
             return Offset(peer_id=peer_id, stream_id=stream_id,
                           read_through_position=row["read_through_position"], revision=row["revision"])
 
-    def advance_offset_cas(self, peer_id: str, stream_id: str, new_position: int, expected_revision: int) -> Offset:
+    def advance_offset_cas(self, peer_id: str, stream_id: str, new_position: int, expected_revision: int,
+                           guard: Callable[[sqlite3.Connection], None] | None = None) -> Offset:
         """Checks in order: references, revision CAS, monotonic (TD-03), head bound (TD-10). Accepted write bumps revision once."""
         if isinstance(new_position, bool) or not isinstance(new_position, int) or new_position < 0:
             raise ValueError("new_position must be an integer >= 0")
         with self._tx() as conn:
+            if guard is not None:
+                guard(conn)
             self._require_peers(conn, [peer_id])
             self._require_stream(conn, stream_id)
             row = conn.execute(
@@ -364,6 +328,7 @@ class CoreStore:
                     f"offset ({peer_id}, {stream_id}): expected revision {expected_revision}, actual {cur_rev}")
             if new_position < cur_pos:
                 raise OffsetRegressionError(f"offset cannot move backward ({cur_pos} -> {new_position})")
+            self._fire("offset.before_head_check")
             head = conn.execute(
                 "SELECT COALESCE(MAX(position), 0) FROM records WHERE stream_id = ?", (stream_id,)).fetchone()[0]
             if new_position > head:

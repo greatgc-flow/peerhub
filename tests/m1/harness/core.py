@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-import uuid
 from pathlib import Path
 from typing import Any
 
@@ -12,14 +11,24 @@ from peerhub.m1.models import Offset, Peer, Record, Stream
 from peerhub.m1.store import CoreStore
 
 
+def compute_state_digest(db_path) -> str:
+    h = hashlib.sha256()
+    with sqlite3.connect(db_path) as c:
+        names = sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"))
+        for t in names:
+            h.update(t.encode())
+            for row in c.execute(f"SELECT * FROM {t} ORDER BY 1,2"):
+                h.update(json.dumps(row, default=str).encode())
+    return h.hexdigest()
+
+
 class CoreHarness:
     def __init__(self, workspace: Path) -> None:
-        self.workspace = Path(workspace)
-        self.workspace.mkdir(parents=True, exist_ok=True)
-        self.db_path = self.workspace / "core.db"
-        gen = self.workspace / "workspace.generation"
-        if not gen.exists():
-            gen.write_text(uuid.uuid4().hex, encoding="utf-8")
+        from peerhub.m1.workspace import Workspace
+
+        self.ws = Workspace(Path(workspace))
+        self.workspace = self.ws.root
+        self.db_path = self.ws.db_path
         self.store = CoreStore(self.db_path)
 
     # --- identity / lifecycle
@@ -28,7 +37,12 @@ class CoreHarness:
         return self
 
     def workspace_generation(self) -> str:
-        return (self.workspace / "workspace.generation").read_text(encoding="utf-8")
+        return self.ws.generation()
+
+    def claims(self, clock):
+        from peerhub.extensions.bridge_claims import ClaimStore
+
+        return ClaimStore(self.db_path, generation=self.ws.generation, clock=clock.now)
 
     # --- Core ports
     def create_peer(self, peer_spec: dict[str, Any]) -> Peer:
@@ -95,10 +109,4 @@ class CoreHarness:
         return out
 
     def state_digest(self) -> str:
-        h = hashlib.sha256()
-        with sqlite3.connect(self.db_path) as c:
-            for t in self.table_names():
-                h.update(t.encode())
-                for row in c.execute(f"SELECT * FROM {t} ORDER BY 1,2"):
-                    h.update(json.dumps(row, default=str).encode())
-        return h.hexdigest()
+        return compute_state_digest(self.db_path)
