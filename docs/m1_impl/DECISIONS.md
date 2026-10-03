@@ -74,3 +74,7 @@
 ## Wave 6 (orchestrator, 2026-10-04): see OPEN_QUESTIONS Q-W6-*
 - D-W6-1: Core fails closed on read-only/full/corrupt storage with typed errors, unchanged state and no repair/recreate (FLT-011/012/013); busy stays raw OperationalError (MP-001).
 - D-W6-2: session mappings are bound to the workspace generation (FLT-008, OWNER Q-W6-1). D-W6-3: Core CLI works with extensions absent (E2E-009).
+
+## Wave 6 closed (orchestrator, 2026-10-04) at 12d33ef
+- ag.pro review (reworded as code review; the 'adversarial' wording triggered a refusal): 4 claims, 2 real + 1 design (quick_check size threshold, OWNER Q-W6-2), 1 false (old-schema), survivors confirmed killed by earlier waves. No further re-gate; cx final review covers waves 0-7.
+- OWNER items: Q-W6-1 generation-bound sessions, Q-W6-2 quick_check threshold (256 MiB), exit codes 4/5.
