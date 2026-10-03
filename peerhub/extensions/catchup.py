@@ -81,7 +81,8 @@ class ProjectedRecords(list):
 
 
 def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_position: int = 0,
-                     before_position: int | None = None) -> CatchUpProjection:
+                     before_position: int | None = None, pinned: frozenset = frozenset()) -> CatchUpProjection:
+    """`pinned` positions are candidates even at/below `after_position` (unseen intent such as redirects); still budget-bounded."""
     window: deque = deque()  # (record, bytes, tokens); only ever holds a suffix that fits the budget
     est = budget.token_estimator
     nbytes = ntokens = candidates = omitted = 0
@@ -91,7 +92,7 @@ def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_pos
         if last_seen is not None and r.position <= last_seen:
             raise ValueError("records must be strictly increasing by position")
         last_seen = r.position
-        if r.position <= after_position or (before_position is not None and r.position >= before_position):
+        if (r.position <= after_position and r.position not in pinned) or (before_position is not None and r.position >= before_position):
             continue
         candidates += 1
         item = item_json(r)
@@ -118,7 +119,7 @@ def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_pos
 
 
 def build_catch_up(store: Any, stream_id: str, budget: CatchUpBudget, *, after_position: int = 0,
-                   before_position: int | None = None, page: int = 200) -> CatchUpProjection:
+                   before_position: int | None = None, page: int = 200, extra: Iterable[Any] = ()) -> CatchUpProjection:
     """Read the Stream in pages (TD-22, exclusive of the cursor) and project; memory stays bounded by the budget."""
     if isinstance(page, bool) or not isinstance(page, int) or page <= 0:
         raise ValueError("page must be a positive int")
@@ -135,4 +136,15 @@ def build_catch_up(store: Any, stream_id: str, budget: CatchUpBudget, *, after_p
                 yield r
             cursor = batch[-1].position
 
-    return project_catch_up(pages(), budget, after_position=after_position, before_position=before_position)
+    pins = sorted((r for r in extra if r.position <= after_position), key=lambda r: r.position)
+
+    def merged():
+        pending = list(pins)
+        for r in pages():
+            while pending and pending[0].position < r.position:
+                yield pending.pop(0)
+            yield r
+        yield from pending
+
+    return project_catch_up(merged(), budget, after_position=after_position, before_position=before_position,
+                            pinned=frozenset(r.position for r in pins))

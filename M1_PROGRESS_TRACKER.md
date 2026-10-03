@@ -62,3 +62,4 @@
 
 ## Wave 4 (2026-10-03)
 - Wave 4: 11/11 catalog ids green (CTL-001..005, CTX-001..003, BRG-001/008/009); tests/m1/control/*, production bridge.py + catchup.py + direction.py; Wave-3 `pending_control` interim replaced (controls consumed/gating). Details docs/m1_impl/wave4_report.md; Q-W4-1..9 in OPEN_QUESTIONS.md. Review gate pending.
+- Wave 4 gate fixes (cx.pro BLOCK, D-W4-1..10): control fencing, invoke-time gating, stranded recovery, redirect scope/budget, boundary validation, direction atomicity, position precedence, cancel-skip reverted, Offset-based catch-up. control 109 / concurrency 17 (3x), full dirs green; traceability --upto 4 ok; validate PASS. Q-W4-10 + OWNER items in OPEN_QUESTIONS.md. Re-gate pending.

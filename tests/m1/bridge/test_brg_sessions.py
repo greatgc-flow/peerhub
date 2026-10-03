@@ -73,8 +73,9 @@ def test_brg_004_lost_session_triggers_fresh_generation_with_catch_up(bridge_h):
     ids_in_order = [r[0] for r in records(bridge_h)]  # independent oracle: durable Stream order
     # catch-up = every durable Record before the one being delivered (the response to m0 is among them)
     pos_r2 = [r[1] for r in records(bridge_h) if r[0] == r2.record_id][0]
-    expected_catch_up = [r[0] for r in records(bridge_h) if r[1] < pos_r2]
-    assert rt.catch_ups[-1] == expected_catch_up and first[0].record_id in expected_catch_up
+    # D-W4-8 (CTX-001 "after Offset"): the window is (peer Offset, record); the Offset already passed m0 and its response
+    expected_catch_up = [r[0] for r in records(bridge_h) if pos_r2 - 1 < r[1] < pos_r2]
+    assert rt.catch_ups[-1] == expected_catch_up == [] and rt.catch_up_meta[-1]["after_position"] == pos_r2 - 1
     assert rt.catch_ups[0] == []  # first delivery had no history
     assert _session_rows(bridge_h)[0][3:5] == ("ext-2", 2) and _session_rows(bridge_h)[0][8] == "FRESH"
     assert _events(bridge_h) == [("created", "NONE", "ACTIVE", 1), ("session_lost", "ACTIVE", "LOST", 1),
@@ -146,7 +147,7 @@ def test_brg_016_resume_failure_falls_back_once_to_fresh_generation(bridge_h, ou
     assert rt.count("resume") == 1 and rt.count("create") == 2  # exactly ONE fresh generation, no resume loop
     assert _events(bridge_h)[1:] == [("resume_rejected", "ACTIVE", "FRESH", 1), ("fresh_generation", "ACTIVE", "FRESH", 2)]  # STM-045
     assert _session_rows(bridge_h)[0][3:5] == ("ext-2", 2)
-    assert len(rt.catch_ups[-1]) >= 1  # catch-up delivered with the fresh generation
+    assert rt.catch_up_meta[-1]["mode"] == "fresh_generation" and rt.catch_up_meta[-1]["session_generation"] == 2  # projection built (window after the Offset)
     assert len(responses(bridge_h)) == 2  # one response per input, no duplicates
     # positive control: when resume succeeds nothing fresh is created
     _add(bridge_h, "third")

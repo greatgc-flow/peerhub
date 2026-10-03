@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Iterable, Protocol
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
-from peerhub.extensions.catchup import CatchUpBudget, ProjectedRecords, build_catch_up
+from peerhub.extensions.catchup import CatchUpBudget, ProjectedRecords, build_catch_up, project_catch_up
 from peerhub.m1.store import CasMismatchError, CoreStore, IdempotencyConflictError
 
 NOT_STARTED, MAY_HAVE_STARTED, STARTED, TERMINAL = "NOT_STARTED", "MAY_HAVE_STARTED", "STARTED", "TERMINAL"
@@ -58,6 +58,10 @@ class ReconcileRejectedError(ValueError):
 
 class ControlRejectedError(ValueError):
     """A control request is not authentic/addressed (not durable, not a control Record, wrong peer/author); nothing was written."""
+
+
+class BoundaryConflictError(RuntimeError):
+    """The deterministic context.boundary key is occupied by a Record that is not this generation's boundary."""
 
 
 class RuntimeTargetError(RuntimeError):
@@ -142,11 +146,16 @@ _DDL = [
     """CREATE TABLE IF NOT EXISTS bridge_controls (
         record_id TEXT NOT NULL, stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, kind TEXT NOT NULL, position INTEGER NOT NULL,
         effect TEXT NOT NULL, outcome TEXT, error TEXT, delivery_id TEXT, lease_id TEXT, lease_expires REAL,
-        attempts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (record_id, peer_id))""",
+        attempts INTEGER NOT NULL DEFAULT 0, accepted_seq INTEGER NOT NULL DEFAULT 0, target_delivery_id TEXT,
+        target_session_id TEXT, target_claim_generation INTEGER, PRIMARY KEY (record_id, peer_id))""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_controls_target_write_once
+        BEFORE UPDATE OF target_delivery_id, target_session_id, target_claim_generation ON bridge_controls
+        WHEN OLD.target_delivery_id IS NOT NULL
+        BEGIN SELECT RAISE(ABORT, 'control target is persisted once and never retargeted'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_controls_no_delete BEFORE DELETE ON bridge_controls
         BEGIN SELECT RAISE(ABORT, 'bridge_controls rows are never deleted'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_controls_identity_immutable
-        BEFORE UPDATE OF record_id, stream_id, peer_id, kind, position, effect ON bridge_controls
+        BEFORE UPDATE OF record_id, stream_id, peer_id, kind, position, effect, accepted_seq ON bridge_controls
         BEGIN SELECT RAISE(ABORT, 'control intent identity is immutable'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_controls_outcome_write_once
         BEFORE UPDATE OF outcome, error, delivery_id ON bridge_controls WHEN OLD.outcome IS NOT NULL
@@ -227,7 +236,7 @@ class Bridge:
         with self.claims.fenced(token) as conn:
             self._transition_in(conn, delivery_id, to, kind, token=token, **detail)
 
-    def _revert_prespawn(self, token: ClaimToken, delivery_id: str, error: str) -> None:
+    def _revert_prespawn(self, token: ClaimToken, delivery_id: str, error: str, kind: str = "prespawn_failure") -> None:
         """The adapter explicitly reports failure BEFORE any spawn: the only permitted return to NOT_STARTED (TD-11 text:
         pre-spawn failure is NOT_STARTED). Requires the invoke-marker state and no start evidence."""
         with self.claims.fenced(token) as conn:
@@ -237,7 +246,7 @@ class Bridge:
                 conn.execute("UPDATE bridge_deliveries SET certainty=? WHERE delivery_id=?", (NOT_STARTED, delivery_id))
             elif row["certainty"] != NOT_STARTED:
                 raise IllegalCertaintyTransition(f"{row['certainty']} cannot be reverted by a pre-spawn failure")
-            self._evidence(conn, row["stream_id"], row["peer_id"], "prespawn_failure", delivery_id, NOT_STARTED, error=error)
+            self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, NOT_STARTED, error=error)
 
     def begin_attempt(self, token: ClaimToken, record, *, reconcile_of: str | None = None) -> str:
         """Create (or, for NOT_STARTED retry, reuse) the attempt row for `record`; returns delivery_id."""
@@ -303,7 +312,7 @@ class Bridge:
         conn.execute("INSERT INTO bridge_session_events (stream_id, peer_id, event, from_state, to_state, generation, detail) "
                      "VALUES (?,?,?,?,?,?,?)", (token.stream_id, token.peer_id, event, frm, to, gen, json.dumps(detail, sort_keys=True)))
 
-    def _resolve_session(self, token: ClaimToken, runtime: RuntimeTarget, record) -> tuple[str, int] | None:
+    def _resolve_session(self, token: ClaimToken, runtime: RuntimeTarget, record, did: str):
         m = self.current_mapping(token.peer_id, token.stream_id)
         fp = runtime.fingerprint()
         bnd = runtime.binding()
@@ -334,12 +343,17 @@ class Bridge:
             with self.claims.fenced(token) as conn:
                 self._session_event(conn, token, reason, m["state"], "FRESH", m["session_generation"])
         for i in range(self.max_session_attempts):
+            if i > 0:  # D-W4-2: a durable pause/cancel stops further creation attempts
+                gated = self._gate(token, runtime, record, did)
+                if gated is not None:
+                    return gated
             try:
                 ext = runtime.create_session()
             except SessionError as e:
                 with self.claims.fenced(token) as conn:
                     self._session_event(conn, token, "create_failed", (m or {}).get("state", "NONE"), (m or {}).get("state", "NONE"),
                                         (m or {}).get("session_generation", 0), attempt=i + 1, error=str(e))
+                self._fire("bridge.after_create_failure")
                 continue
             gen = 1 if m is None else m["session_generation"] + 1
             with self.claims.fenced(token) as conn:
@@ -375,7 +389,7 @@ class Bridge:
         return seen is None
 
     def _unseen_redirects(self, peer: str, stream: str, rec) -> list:
-        """control.redirect Records the resumed session has not seen (never delivered as prompts) and no steer delivered."""
+        """control.redirect Records addressed to this peer that the resumed session has not seen and no steer delivered."""
         with self.claims._tx() as conn:
             last = conn.execute("SELECT COALESCE(MAX(record_position),0) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND certainty != ?",
                                 (stream, peer, NOT_STARTED)).fetchone()[0]
@@ -383,7 +397,7 @@ class Bridge:
                                                (stream, peer))}
         cands = self.store.read_records(stream, last, 2**31 - 1)
         return [r for r in cands if r.position < rec.position and r.kind == "control.redirect" and r.author_peer_id != peer
-                and r.record_id not in done]
+                and (not r.targets or peer in r.targets) and r.record_id not in done]
 
     def _fresh_info(self, peer: str, stream: str, gen: int) -> dict:
         for e in reversed(self.session_events(peer, stream)):
@@ -393,21 +407,37 @@ class Bridge:
 
     def _catch_up_for(self, token: ClaimToken, rec, gen: int) -> list:
         peer, stream = token.peer_id, token.stream_id
-        if not self._needs_catch_up(peer, stream, gen):
-            return ProjectedRecords(self._unseen_redirects(peer, stream, rec))
-        proj = build_catch_up(self.store, stream, self.catch_up_budget, before_position=rec.position)
+        if not self._needs_catch_up(peer, stream, gen):  # resumed session: only unseen redirects, under the same budget
+            proj = project_catch_up(self._unseen_redirects(peer, stream, rec), self.catch_up_budget, before_position=rec.position)
+            out = ProjectedRecords(proj.records)
+            out.boundary = {**proj.boundary(), "session_generation": gen, "mode": "resumed_unseen_redirects"}
+            return out
+        after = self.store.get_offset(peer, stream).read_through_position  # D-W4-8: CTX-001 window is (Offset, record)
+        proj = build_catch_up(self.store, stream, self.catch_up_budget, after_position=after, before_position=rec.position,
+                              extra=self._unseen_redirects(peer, stream, rec))  # redirects consumed from the Offset are still unseen intent
         out = ProjectedRecords(proj.records)
-        out.boundary = {**proj.boundary(), "session_generation": gen}
+        out.boundary = {**proj.boundary(), "session_generation": gen, "mode": "fresh_generation"}
         if gen > 1:  # a fresh generation after loss/rejection/change: record the boundary durably (idempotent per generation)
-            info = self._fresh_info(peer, stream, gen)
-            try:
-                self.store.append_record(
-                    guard=self.claims.guard(token), stream_id=stream, author_peer_id=peer, kind="context.boundary",
-                    body={"peer_id": peer, "session_generation": gen, "reason": info.get("reason"), "catch_up": proj.boundary()},
-                    idempotency_key=f"context-boundary:{peer}:{gen}", created_at=info.get("at") or _iso(self.claims._clock()))
-            except IdempotencyConflictError:
-                pass  # already written by an earlier attempt of this generation (possibly for another Record): once per generation
+            self._write_boundary(token, gen, proj)
         return out
+
+    def _write_boundary(self, token: ClaimToken, gen: int, proj) -> None:
+        peer, stream = token.peer_id, token.stream_id
+        key = f"context-boundary:{peer}:{gen}"
+        info = self._fresh_info(peer, stream, gen)
+        try:
+            self.store.append_record(
+                guard=self.claims.guard(token), stream_id=stream, author_peer_id=peer, kind="context.boundary",
+                body={"peer_id": peer, "session_generation": gen, "reason": info.get("reason"), "catch_up": proj.boundary()},
+                idempotency_key=key, created_at=info.get("at") or _iso(self.claims._clock()))
+        except IdempotencyConflictError:
+            pass  # validated below: only THIS generation's boundary may occupy the key
+        with self.claims._tx() as conn:
+            row = conn.execute("SELECT kind, body_json FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?",
+                               (stream, peer, key)).fetchone()
+        body = json.loads(row["body_json"]) if row is not None and row["kind"] == "context.boundary" else None
+        if not isinstance(body, dict) or body.get("session_generation") != gen or body.get("peer_id") != peer:
+            raise BoundaryConflictError(f"idempotency key {key!r} is occupied by a Record that is not this generation's context.boundary")
 
     # ------------------------------------------------------------------ delivery cycle
     def delivery_cycle(self, peer_id: str, stream_id: str, runtime: RuntimeTarget) -> CycleResult:
@@ -454,7 +484,15 @@ class Bridge:
                                         (infl["delivery_id"],)).fetchone()
                 if auth is None or infl["certainty"] != MAY_HAVE_STARTED:
                     return CycleResult("blocked_uncertain", rec.record_id, infl["delivery_id"], infl["certainty"])
+                blocker = self._retry_blocked_by_cancel(token, auth["reconcile_record_id"])
+                if blocker is not None:  # D-W4-9: an older RETRY never overrides a newer cancel
+                    return CycleResult("blocked_uncertain", rec.record_id, infl["delivery_id"], infl["certainty"],
+                                       detail={"blocked_by_cancel": blocker})
                 reconcile_of = infl["delivery_id"]
+            else:
+                blocker = self._retry_blocked_by_cancel(token, infl["reconcile_record_id"])
+                if blocker is not None:
+                    return CycleResult("blocked_uncertain", rec.record_id, infl["delivery_id"], NOT_STARTED, detail={"blocked_by_cancel": blocker})
         else:
             st = self.control_state(peer, stream)
             if st["paused"]:
@@ -465,10 +503,12 @@ class Bridge:
                 return CycleResult("idle", detail={"consumed_controls": consumed} if consumed else {})
         did = self.begin_attempt(token, rec, reconcile_of=reconcile_of)
         self._fire("bridge.before_session_resolve")
-        gated = self._gate(token, runtime, rec, did, honour_cancel=reconcile_of is None)
+        gated = self._gate(token, runtime, rec, did)
         if gated is not None:
             return gated
-        sess = self._resolve_session(token, runtime, rec)
+        sess = self._resolve_session(token, runtime, rec, did)
+        if isinstance(sess, CycleResult):
+            return sess
         if sess is None:
             self._note(token, did, "session_unavailable", NOT_STARTED, attempts=self.max_session_attempts)
             return CycleResult("session_unavailable", rec.record_id, did, NOT_STARTED,
@@ -479,7 +519,7 @@ class Bridge:
             conn.execute("UPDATE bridge_deliveries SET external_session_id=?, session_generation=? WHERE delivery_id=?", (ext, gen, did))
         catch_up = self._catch_up_for(token, rec, gen)
         self._fire("bridge.before_marker")
-        gated = self._gate(token, runtime, rec, did, honour_cancel=reconcile_of is None)
+        gated = self._gate(token, runtime, rec, did)
         if gated is not None:
             return gated
         return self._run_runtime(token, runtime, rec, did, ext, gen, catch_up)
@@ -497,14 +537,10 @@ class Bridge:
                 elif is_control_kind(r.kind):  # control intent is never a prompt: apply (idempotent), then consume
                     if not r.targets or peer in r.targets:
                         self._apply_control({"record_id": r.record_id, "stream_id": stream, "position": r.position, "kind": r.kind},
-                                            peer, runtime)
+                                            peer, runtime, token)
                         consumed.append(r.record_id)
                     self._advance_to(token, r.position)
                 else:
-                    fence = self.control_state(peer, stream)["cancel_fence_position"]
-                    if r.position < fence:
-                        self._cancel_skip(token, r, None, fence)
-                        continue
                     return r
 
     def _run_runtime(self, token, runtime, rec, did, ext, gen, catch_up) -> CycleResult:
@@ -514,6 +550,9 @@ class Bridge:
         # TD-11: durable 'about to invoke' marker BEFORE the runtime can possibly act; a crash from here on is MAY_HAVE_STARTED
         self.transition(token, did, MAY_HAVE_STARTED, "about_to_invoke", external_session_id=ext, session_generation=gen)
         self._fire("bridge.before_runtime_invoke")
+        gated = self._gate(token, runtime, rec, did, after_marker=True)  # intent committed up to the very invoke still wins
+        if gated is not None:
+            return gated
         try:
             for ev in runtime.deliver(ext, rec, catch_up):
                 try:
@@ -667,10 +706,10 @@ class Bridge:
         with self.claims._tx() as conn:
             last = conn.execute("SELECT kind, record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? "
                                 "AND kind IN ('control.pause','control.resume') ORDER BY position DESC LIMIT 1", (stream_id, peer_id)).fetchone()
-            fence = conn.execute("SELECT COALESCE(MAX(position),0) FROM bridge_controls WHERE stream_id=? AND peer_id=? "
-                                 "AND kind='control.cancel'", (stream_id, peer_id)).fetchone()[0]
+            cancel = conn.execute("SELECT COALESCE(MAX(position),0) FROM bridge_controls WHERE stream_id=? AND peer_id=? "
+                                  "AND kind='control.cancel'", (stream_id, peer_id)).fetchone()[0]
         paused = last is not None and last["kind"] == "control.pause"
-        return {"paused": paused, "pause_record_id": last["record_id"] if paused else None, "cancel_fence_position": fence}
+        return {"paused": paused, "pause_record_id": last["record_id"] if paused else None, "last_cancel_position": cancel}
 
     def handle_control(self, record_id: str, runtime, peer_id: str | None = None) -> ControlResult:
         """Apply one durable control Record to `runtime` for the addressed peer. Authenticated ONLY against the persisted Record
@@ -703,28 +742,21 @@ class Bridge:
         paused = self.control_state(row["peer_id"], row["stream_id"])["paused"]
         return ControlResult(status, row["record_id"], row["kind"], row["peer_id"], row["stream_id"], row["effect"], outcome, paused, detail)
 
-    def _running_target(self, stream_id: str, peer_id: str) -> tuple[str, str] | None:
-        """(delivery_id, external_session_id) of a delivery that may be running right now, else None."""
-        with self.claims._tx() as conn:
-            d = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
-                             (stream_id, peer_id)).fetchone()
-        if d is None or d["acked"] or d["certainty"] not in (MAY_HAVE_STARTED, STARTED) or not d["external_session_id"]:
-            return None
-        return d["delivery_id"], d["external_session_id"]
-
-    def _apply_control(self, pr: dict, peer: str, runtime) -> ControlResult:
+    def _apply_control(self, pr: dict, peer: str, runtime, token: ClaimToken | None = None) -> ControlResult:
         kind, rid, stream = pr["kind"], pr["record_id"], pr["stream_id"]
         effect = CONTROL_EFFECT.get(kind, "none")
         lease_id = uuid.uuid4().hex
         now = self.claims._clock()
-        # 1. durable intent acceptance (commits BEFORE any runtime effect, TD-05)
+        sel = "SELECT * FROM bridge_controls WHERE record_id=? AND peer_id=?"
+        # 1. durable intent acceptance + lease + persisted target (all commit BEFORE any runtime effect, TD-05, D-W4-1)
+        early = None
         with self.claims._tx() as conn:
-            row = conn.execute("SELECT * FROM bridge_controls WHERE record_id=? AND peer_id=?", (rid, peer)).fetchone()
+            row = conn.execute(sel, (rid, peer)).fetchone()
             if row is None:
-                conn.execute("INSERT INTO bridge_controls (record_id, stream_id, peer_id, kind, position, effect) VALUES (?,?,?,?,?,?)",
-                             (rid, stream, peer, kind, pr["position"], effect))
-                row = conn.execute("SELECT * FROM bridge_controls WHERE record_id=? AND peer_id=?", (rid, peer)).fetchone()
-            early = None
+                acc = conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0]
+                conn.execute("INSERT INTO bridge_controls (record_id, stream_id, peer_id, kind, position, effect, accepted_seq) "
+                             "VALUES (?,?,?,?,?,?,?)", (rid, stream, peer, kind, pr["position"], effect, acc))
+                row = conn.execute(sel, (rid, peer)).fetchone()
             if row["outcome"] is not None:
                 early = ("replayed", row["outcome"], {"error": row["error"]})
             elif effect == "none":
@@ -737,48 +769,90 @@ class Bridge:
                 early = ("in_progress", None, {})
             else:
                 attempts = row["attempts"] + 1
+                if row["target_delivery_id"] is None:  # decided ONCE; recovery never retargets
+                    d = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
+                                     (stream, peer)).fetchone()
+                    if d is not None and not d["acked"] and d["certainty"] in (MAY_HAVE_STARTED, STARTED) and d["external_session_id"]:
+                        tgt = (d["delivery_id"], d["external_session_id"], d["claim_generation"])
+                    else:
+                        tgt = ("-", None, None)
+                    conn.execute("UPDATE bridge_controls SET target_delivery_id=?, target_session_id=?, target_claim_generation=? "
+                                 "WHERE record_id=? AND peer_id=?", (*tgt, rid, peer))
                 conn.execute("UPDATE bridge_controls SET lease_id=?, lease_expires=?, attempts=? WHERE record_id=? AND peer_id=?",
                              (lease_id, now + self.lease_sec, attempts, rid, peer))
         if early is not None:
             return self._control_result(early[0], row, early[1], **early[2])
         self._fire("control.after_intent_commit")
-        # 2. best-effort runtime effect; failure/unsupported is evidence, never a rollback of intent
-        target = self._running_target(stream, peer)
-        did, error = None, None
-        if target is None:
-            outcome = "nothing_running"
-        elif not getattr(runtime, f"supports_{effect}", False):
-            outcome, did = "unsupported", target[0]
-        else:
-            did = target[0]
+        # 2. fence EXECUTION: current lease AND (when called from a delivery cycle) the current claim token AND a still-current target
+        status, outcome, error = None, None, None
+        with self.claims._tx() as conn:
+            row = conn.execute(sel, (rid, peer)).fetchone()
+            if not (row["outcome"] is None and row["lease_id"] == lease_id and row["attempts"] == attempts
+                    and self.claims._clock() < row["lease_expires"]):
+                status = "superseded"
+            elif token is not None and not self._token_current(conn, token):
+                status = "fenced"
+            elif row["target_delivery_id"] == "-":
+                outcome = "nothing_running"
+            else:
+                d = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (row["target_delivery_id"],)).fetchone()
+                c = conn.execute("SELECT generation FROM bridge_claims WHERE stream_id=? AND peer_id=?", (stream, peer)).fetchone()
+                if (d is None or d["acked"] or d["certainty"] not in (MAY_HAVE_STARTED, STARTED)
+                        or c is None or c["generation"] != row["target_claim_generation"]):
+                    outcome = "stale_target"
+                elif not getattr(runtime, f"supports_{effect}", False):
+                    outcome = "unsupported"
+        if status is not None:
+            return self._control_result(status, row, None)
+        did = None if row["target_delivery_id"] == "-" else row["target_delivery_id"]
+        if outcome is None:
             try:
                 if effect == "steer":
-                    self._steer(runtime, target[1], pr)
+                    self._steer(runtime, row["target_session_id"], pr)
                 else:
-                    getattr(runtime, effect)(target[1])
+                    getattr(runtime, effect)(row["target_session_id"])
                 outcome = "done"
             except RuntimeTargetError as e:
                 outcome, error = "failed", str(e)
         self._fire("control.after_effect_before_outcome")
-        # 3. outcome is write-once and only the CURRENT lease holder may write it
+        # 3. fence COMPLETION: outcome is write-once; only the CURRENT, UNEXPIRED lease holder (and current token) may write it
         with self.claims._tx() as conn:
-            won = conn.execute("UPDATE bridge_controls SET outcome=?, error=?, delivery_id=? WHERE record_id=? AND peer_id=? "
-                               "AND outcome IS NULL AND lease_id=? AND attempts=?",
-                               (outcome, error, did, rid, peer, lease_id, attempts)).rowcount
+            won = 0
+            if token is None or self._token_current(conn, token):
+                won = conn.execute("UPDATE bridge_controls SET outcome=?, error=?, delivery_id=? WHERE record_id=? AND peer_id=? "
+                                   "AND outcome IS NULL AND lease_id=? AND attempts=? AND lease_expires > ?",
+                                   (outcome, error, did, rid, peer, lease_id, attempts, self.claims._clock())).rowcount
             if won:
                 self._evidence(conn, stream, peer, "control_applied", did, None, control_record_id=rid, control_kind=kind, effect=effect,
                                runtime_outcome=outcome, error=error)
-            row = conn.execute("SELECT * FROM bridge_controls WHERE record_id=? AND peer_id=?", (rid, peer)).fetchone()
+            row = conn.execute(sel, (rid, peer)).fetchone()
         if not won:
             return self._control_result("superseded", row, None)
         return self._control_result("applied", row, outcome, error=error)
+
+    def _token_current(self, conn, token: ClaimToken) -> bool:
+        try:
+            self.claims._check(conn, token)
+            return True
+        except StaleClaimError:
+            return False
 
     def _steer(self, runtime, ext: str, pr: dict) -> None:
         rec = self._record_by_id(pr["stream_id"], pr["position"], pr["record_id"])
         runtime.steer(ext, rec)
 
+    def _recover_stranded(self, token: ClaimToken, runtime) -> None:
+        """A control whose lease expired without an outcome is revisited regardless of the Offset (D-W4-3)."""
+        with self.claims._tx() as conn:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT record_id, stream_id, position, kind FROM bridge_controls WHERE stream_id=? AND peer_id=? AND outcome IS NULL "
+                "AND (lease_id IS NULL OR lease_expires <= ?) ORDER BY position", (token.stream_id, token.peer_id, self.claims._clock()))]
+        for r in rows:
+            self._apply_control(r, token.peer_id, runtime, token)
+
     def _handle_unread_controls(self, token: ClaimToken, runtime) -> None:
-        """Honour durable intent BEFORE any side effect: apply every unprocessed control Record in the unread window (idempotent)."""
+        """Honour durable intent BEFORE any side effect: recover stranded controls, then apply every unprocessed control in the unread window."""
+        self._recover_stranded(token, runtime)
         peer, stream = token.peer_id, token.stream_id
         cursor = self.store.get_offset(peer, stream).read_through_position
         while True:
@@ -788,7 +862,8 @@ class Bridge:
             for r in recs:
                 cursor = r.position
                 if r.author_peer_id != peer and is_control_kind(r.kind) and (not r.targets or peer in r.targets):
-                    self._apply_control({"record_id": r.record_id, "stream_id": stream, "position": r.position, "kind": r.kind}, peer, runtime)
+                    self._apply_control({"record_id": r.record_id, "stream_id": stream, "position": r.position, "kind": r.kind},
+                                        peer, runtime, token)
 
     def _note_once(self, token: ClaimToken, did: str | None, kind: str, record_id: str, **detail: Any) -> None:
         with self.claims.fenced(token) as conn:
@@ -811,25 +886,51 @@ class Bridge:
                 continue
         raise OffsetAckConflictError(f"offset CAS conflicted {self.ack_retries} times advancing to {position}")
 
-    def _cancel_skip(self, token: ClaimToken, rec, did: str | None, fence: int) -> None:
-        """Cancel intent covers unread Records before it: skip (evidence once, then ack forward); nothing is deleted or run."""
-        self._note_once(token, did, "cancelled_skip", rec.record_id, cancel_fence_position=fence)
+    def _cancel_applies(self, token: ClaimToken, rec, did: str) -> str | None:
+        """A cancel accepted AFTER this attempt was created (and, for a reconcile retry, positioned after the RETRY Record) cancels
+        this attempt before it runs. Earlier unread Records are NOT affected (D-W4-7). Deterministic from persisted rows."""
+        with self.claims._tx() as conn:
+            d = conn.execute("SELECT reconcile_record_id FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
+            thr = rec.position
+            if d is not None and d["reconcile_record_id"]:
+                pr = conn.execute("SELECT position FROM records WHERE record_id=?", (d["reconcile_record_id"],)).fetchone()
+                thr = max(thr, pr[0] if pr else 0)
+            ev = conn.execute("SELECT seq FROM bridge_evidence WHERE delivery_id=? AND kind='attempt_created'", (did,)).fetchone()
+            hit = conn.execute("SELECT record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? AND kind='control.cancel' "
+                               "AND position>? AND accepted_seq>=?", (token.stream_id, token.peer_id, thr, ev[0] if ev else 0)).fetchone()
+        return hit[0] if hit else None
+
+    def _retry_blocked_by_cancel(self, token: ClaimToken, reconcile_record_id: str | None) -> str | None:
+        """D-W4-9: an authorization (RETRY Record) never overrides a cancel positioned AFTER it; a newer RETRY wins over an older cancel."""
+        if not reconcile_record_id:
+            return None
+        with self.claims._tx() as conn:
+            pr = conn.execute("SELECT position FROM records WHERE record_id=?", (reconcile_record_id,)).fetchone()
+            hit = conn.execute("SELECT record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? AND kind='control.cancel' AND position>?",
+                               (token.stream_id, token.peer_id, pr[0] if pr else 0)).fetchone()
+        return hit[0] if hit else None
+
+    def _cancel_attempt(self, token: ClaimToken, rec, did: str, cancel_id: str) -> None:
+        """Consume ONE cancelled in-flight attempt: evidence once, mark the attempt done, ack only this Record."""
+        self._note_once(token, did, "cancelled_before_invoke", rec.record_id, cancel_record_id=cancel_id)
         self._fire("bridge.cancel_skip_before_ack")
-        if did is not None:
-            with self.claims.fenced(token) as conn:
-                conn.execute("UPDATE bridge_deliveries SET acked=1 WHERE delivery_id=? AND certainty=?", (did, NOT_STARTED))
+        with self.claims.fenced(token) as conn:
+            conn.execute("UPDATE bridge_deliveries SET acked=1 WHERE delivery_id=? AND certainty=?", (did, NOT_STARTED))
         self._advance_to(token, rec.position)
 
-    def _gate(self, token: ClaimToken, runtime, rec, did: str, *, honour_cancel: bool) -> CycleResult | None:
+    def _gate(self, token: ClaimToken, runtime, rec, did: str, *, after_marker: bool = False) -> CycleResult | None:
         """Re-check durable intent right before a side effect (session create/resume, runtime invocation)."""
         self._handle_unread_controls(token, runtime)
         st = self.control_state(token.peer_id, token.stream_id)
+        cancel = None if st["paused"] else self._cancel_applies(token, rec, did)
+        if not st["paused"] and cancel is None:
+            return None
+        if after_marker:  # the invoke marker is already durable: explicitly revert it (nothing was invoked)
+            self._revert_prespawn(token, did, "halted by control intent before invoke", kind="control_halt")
         if st["paused"]:
             return CycleResult("paused", rec.record_id, did, NOT_STARTED, detail={"pause_record_id": st["pause_record_id"]})
-        if honour_cancel and rec.position < st["cancel_fence_position"]:
-            self._cancel_skip(token, rec, did, st["cancel_fence_position"])
-            return CycleResult("cancelled", rec.record_id, did, NOT_STARTED, detail={"cancel_fence_position": st["cancel_fence_position"]})
-        return None
+        self._cancel_attempt(token, rec, did, cancel)
+        return CycleResult("cancelled", rec.record_id, did, NOT_STARTED, detail={"cancel_record_id": cancel})
 
     # ------------------------------------------------------------------ reconciliation (TD-26, CERT-002/003)
     def reconcile_uncertain(self, record_id: str, reconciliation_record) -> dict:

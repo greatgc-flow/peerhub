@@ -140,46 +140,7 @@ def test_ctl_003_pause_is_scoped_to_its_stream_and_peer(bridge_h):
     assert bridge_h.delivery_cycle("c", "s", other).status == "delivered"  # other peer unaffected (pause targets b)
 
 
-# ------------------------------------------------------------------ cancel scope
-@pytest.mark.m1_id("CTL-001")
-@pytest.mark.parametrize("control,expected", [("control.cancel", [2]), ("control.resume", [0, 1, 2])])
-def test_ctl_001_cancel_skips_unread_records_before_it_without_any_runtime_call(tmp_path, control, expected):
-    h = BridgeHarness(tmp_path / "ws")
-    pre = bseed(h, n=2)  # two unread messages the user then cancels
-    ctl(h, control, "c1")
-    post = msg(h, "post")
-    rt = FakeRuntimeTarget()
-    res = _cycles(h, rt)
-    offered = [c[2] for c in rt.calls if c[0] == "deliver"]
-    ids = [pre[0].record_id, pre[1].record_id, post.record_id]
-    assert offered == [ids[i] for i in expected]  # literal oracle
-    skipped = [json.loads(e[2])["record_id"] for e in sql(h, "SELECT kind, certainty, detail FROM bridge_evidence ORDER BY seq") if e[0] == "cancelled_skip"]
-    assert skipped == ([] if control == "control.resume" else [pre[0].record_id, pre[1].record_id])
-    assert offset_row(h)[0] == max(r[1] for r in records(h)) and res[-1].status == "idle"
-    assert sql(h, "SELECT COUNT(*) FROM records WHERE kind='message'") == [(3,)]  # nothing deleted: Records are history
-
-
-@pytest.mark.m1_id("CTL-001")
-@pytest.mark.fault
-def test_ctl_001_crash_between_cancel_skip_evidence_and_ack_replays_without_duplicates(tmp_path):
-    crash = CrashInjector()
-    h = BridgeHarness(tmp_path / "ws", fault_hook=crash)
-    pre = bseed(h, n=1)
-    ctl(h, "control.cancel", "c1")
-    crash.arm("bridge.cancel_skip_before_ack")
-    rt = FakeRuntimeTarget()
-    with pytest.raises(CrashInjected):
-        h.delivery_cycle("b", "s", rt)
-    assert offset_row(h)[0] == 0 and rt.calls == []  # old state: not acked, nothing ran
-    crash.disarm()
-    h.clock.advance(31)
-    res = _cycles(BridgeHarness(tmp_path / "ws", h.clock), rt)
-    assert res[-1].status == "idle" and rt.calls == []
-    ev = [json.loads(e[2])["record_id"] for e in sql(h, "SELECT kind, certainty, detail FROM bridge_evidence") if e[0] == "cancelled_skip"]
-    assert ev == [pre[0].record_id]  # exactly once despite the replay
-    assert offset_row(h)[0] == max(r[1] for r in records(h))
-
-
+# ------------------------------------------------------------------ cancel scope (D-W4-7: no skipping of earlier Records)
 @pytest.mark.m1_id("CTL-001")
 def test_ctl_001_cancel_never_skips_a_delivery_that_already_started(bridge_h):
     (m0,) = bseed(bridge_h)
@@ -369,7 +330,7 @@ def test_cert_001_control_rows_are_immutable_and_outcome_is_write_once(bridge_h)
 
 
 # ------------------------------------------------------------------ control state machine: allowed AND forbidden
-SEQS = {  # literal oracle: (controls in position order) -> (paused, cancel fence is the position of the last cancel or 0)
+SEQS = {  # literal oracle: (controls in position order) -> (paused, position of the last cancel or 0)
     ("pause",): (True, 0), ("pause", "resume"): (False, 0), ("resume", "pause"): (True, 0), ("pause", "cancel"): (True, 2),
     ("pause", "resume", "pause"): (True, 0), ("cancel",): (False, 1), ("resume",): (False, 0), ("pause", "pause"): (True, 0),
     ("cancel", "pause", "resume"): (False, 1), ("pause", "cancel", "resume", "cancel"): (False, 4),
@@ -388,20 +349,19 @@ def test_ctl_003_control_state_is_a_function_of_positions_not_of_handling_order(
         assert h.handle_control(r.record_id, rt, "b").status == "applied"
     st = h.bridge.control_state("b", "s")
     paused, fence = SEQS[seq]
-    assert st["paused"] is paused and st["cancel_fence_position"] == fence
+    assert st["paused"] is paused and st["last_cancel_position"] == fence
     assert h.delivery_cycle("b", "s", rt).status == ("paused" if paused else "idle")
     assert rt.calls == []  # no session -> controls never reached a runtime; gating itself has no side effect
     assert len(control_rows(h)) == len(seq)  # forbidden: a second row for the same Record
 
 
 @pytest.mark.m1_id("CTL-003")
-def test_ctl_003_resume_does_not_undo_cancel_and_pause_does_not_cancel(tmp_path):
+def test_ctl_003_cancel_pause_resume_never_remove_unread_work(tmp_path):
     h = BridgeHarness(tmp_path / "ws")
     pre = bseed(h, n=1)
-    ctl(h, "control.cancel", "c")
-    ctl(h, "control.pause", "p")
-    ctl(h, "control.resume", "r")
+    for k in ("cancel", "pause", "resume"):
+        ctl(h, f"control.{k}", k)
     rt = FakeRuntimeTarget()
     res = _cycles(h, rt)
-    assert rt.count("deliver") == 0 and res[-1].status == "idle"  # forbidden: resume must not re-offer the cancelled Record
+    assert [c[2] for c in rt.calls if c[0] == "deliver"] == [pre[0].record_id] and res[-1].status == "idle"  # D-W4-7: later Records still flow
     assert sql(h, "SELECT COUNT(*) FROM records WHERE record_id=?", (pre[0].record_id,)) == [(1,)]  # history kept

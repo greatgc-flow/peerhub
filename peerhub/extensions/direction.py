@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from peerhub.m1.models import Stream
+from peerhub.m1.models import AppendRequest, Stream
 from peerhub.m1.store import CasMismatchError
 
 
@@ -49,6 +49,14 @@ def apply_direction(store: Any, stream_id: str, *, author_peer_id: str, proposed
     want = {"goal": proposed_goal, "prior_stream_id": stream_id}
     if existing is not None and existing.metadata != want:
         raise DirectionError(f"stream {new_stream_id!r} already exists with a different goal/prior reference")
+    # validate EVERYTHING before the first write: an invalid request must leave no new Stream behind (D-W4-6)
+    if author_peer_id not in cur.members:
+        raise DirectionError(f"author {author_peer_id!r} is not a member of stream {stream_id!r}")
+    try:
+        AppendRequest.model_validate({"stream_id": new_stream_id, "author_peer_id": author_peer_id, "kind": "message", "body": instruction,
+                                      "idempotency_key": idempotency_key, "created_at": created_at})
+    except ValueError as e:
+        raise DirectionError(f"invalid new-direction payload: {e}") from e
     if existing is None:
         store.create_stream(Stream(stream_id=new_stream_id, title=cur.title, members=list(cur.members), metadata=want))
     rec = store.append_record(stream_id=new_stream_id, author_peer_id=author_peer_id, kind="message", body=instruction,
@@ -63,4 +71,7 @@ def apply_direction(store: Any, stream_id: str, *, author_peer_id: str, proposed
                 break
             except CasMismatchError:
                 continue
+        else:
+            raise DirectionError(f"could not close prior stream {stream_id!r} (CAS conflicts); {new_stream_id!r} exists with its first Record, "
+                                 "retry is idempotent")
     return DirectionResult(decision, new_stream_id, rec, stream_id)
