@@ -19,3 +19,16 @@
 - D-W1-4 (Q-W1-4): peer upsert preserves identity and original created_at; mutable fields replaced; no conflict semantics (document).
 - D-W1-5 (Q-W1-5): no body size limit; exact preservation required (PROP-009).
 - Positions may have gaps (TD-01): CORE-005/PROP-010 must assert on actual committed positions, not gapless sequences.
+
+## Wave 2 gate: cx.pro BLOCK -> fixed -> ag.pro APPROVE (816093d). Rulings Q-W2-1..6 accepted (see wave2 gate notes in reports).
+
+## Wave 3 gate (cx.pro, 2026-10-03): BLOCK on f8741d5; rulings
+- D-W3-1 (Q-W3-1): BRG-015/CERT-003 stay in the default gate (deterministic); catalog tier e2e kept for traceability.
+- D-W3-2 (Q-W3-2): reconcile body `{decision:"RETRY", delivery_id}` accepted as convention, AUTHENTICATED against the durable Record (persisted kind/body/author), never against caller copies. ACCEPT/ABANDON deferred.
+- D-W3-3 (Q-W3-3): "unlisted in STM coverage" does NOT mean forbidden. Forbidden = downgrade of certainty and any overwrite of TERMINAL truth (TD-11).
+  Forward edges backed by evidence (NOT_STARTED->MAY_HAVE_STARTED->STARTED->TERMINAL, and MAY_HAVE_STARTED->STARTED/TERMINAL on late evidence) are allowed;
+  NOT_STARTED->TERMINAL only with an explicit pre-spawn-failure result. SPEC GAP to report to the spec owner (user): the transition contract is not exhaustive.
+- D-W3-4 (Q-W3-4): ACTIVE/FRESH + logged LOST accepted; the constant "default" binding is rejected: persist and test real binding compatibility (SESSION_BRIDGE.md mapping contract).
+- D-W3-5 (Q-W3-5): CTX budget/truncation deferred to Wave 4 (TD-12).
+- D-W3-6 (Q-W3-6): terminal result dict/key/digest convention accepted; VALIDATE before terminal commit; callbacks bound to a specific delivery.
+- D-W3-7 (Q-W3-7): no ordinary-message fallback for control Records; until Wave 4, unsupported control Records stay pending or fail explicitly with no runtime delivery/ack.
