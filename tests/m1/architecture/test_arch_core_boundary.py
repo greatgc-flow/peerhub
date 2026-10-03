@@ -84,7 +84,7 @@ def test_arch_002_core_boots_with_extension_tables_absent(harness):
     for pid in ("a", "b"):
         harness.create_peer({"peer_id": pid})
     harness.create_stream({"stream_id": "s", "members": ["a", "b"]})
-    rec = harness.append_record(dict(stream_id="s", author_peer_id="a", kind="message", body="hi", idempotency_key="k1"))
+    rec = harness.append_record(dict(created_at="2026-10-01T00:00:00Z", stream_id="s", author_peer_id="a", kind="message", body="hi", idempotency_key="k1"))
     assert [r.record_id for r in harness.read_records("s")] == [rec.record_id]
     assert set(harness.table_names()) == {"peers", "streams", "stream_members", "records", "offsets"}
     code = ("import sys, peerhub.m1.store, peerhub.m1.models;"

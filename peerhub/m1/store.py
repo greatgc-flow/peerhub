@@ -144,6 +144,7 @@ class CoreStore:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode = WAL;")
         conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA recursive_triggers = ON;")  # REPLACE deletes must fire the immutability trigger
         conn.execute("PRAGMA busy_timeout = 30000;")
         return conn
 
@@ -311,7 +312,7 @@ class CoreStore:
                  json.dumps(req.body, ensure_ascii=False, allow_nan=False),
                  json.dumps(req.targets, ensure_ascii=False), req.reply_to, json.dumps(req.refs, ensure_ascii=False),
                  json.dumps(req.metadata, ensure_ascii=False, allow_nan=False), req.idempotency_key, digest,
-                 req.created_at or now, now),
+                 req.created_at, now),
             )
             return self._row_to_record(conn.execute("SELECT * FROM records WHERE record_id = ?", (rec_id,)).fetchone())
 

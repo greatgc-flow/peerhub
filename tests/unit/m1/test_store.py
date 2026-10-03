@@ -49,14 +49,14 @@ def test_append_record_monotonic_position(store: CoreStore):
     store.create_stream(Stream(stream_id="stream-1"))
 
     r1 = store.append_record(
-        stream_id="stream-1",
+        created_at="2026-10-01T00:00:00Z", stream_id="stream-1",
         author_peer_id="author",
         kind="message",
         body={"text": "first"},
         idempotency_key="key-1",
     )
     r2 = store.append_record(
-        stream_id="stream-1",
+        created_at="2026-10-01T00:00:00Z", stream_id="stream-1",
         author_peer_id="author",
         kind="message",
         body={"text": "second"},
@@ -78,7 +78,7 @@ def test_append_record_idempotency_reuse(store: CoreStore):
     store.create_stream(Stream(stream_id="stream-1"))
 
     r1 = store.append_record(
-        stream_id="stream-1",
+        created_at="2026-10-01T00:00:00Z", stream_id="stream-1",
         author_peer_id="author",
         kind="message",
         body={"text": "identical"},
@@ -86,7 +86,7 @@ def test_append_record_idempotency_reuse(store: CoreStore):
     )
     # Append with same key and same payload
     r2 = store.append_record(
-        stream_id="stream-1",
+        created_at="2026-10-01T00:00:00Z", stream_id="stream-1",
         author_peer_id="author",
         kind="message",
         body={"text": "identical"},
@@ -103,7 +103,7 @@ def test_append_record_idempotency_conflict_on_mismatch(store: CoreStore):
     store.create_stream(Stream(stream_id="stream-1"))
 
     store.append_record(
-        stream_id="stream-1",
+        created_at="2026-10-01T00:00:00Z", stream_id="stream-1",
         author_peer_id="author",
         kind="message",
         body={"text": "first payload"},
@@ -112,7 +112,7 @@ def test_append_record_idempotency_conflict_on_mismatch(store: CoreStore):
 
     with pytest.raises(IdempotencyConflictError):
         store.append_record(
-            stream_id="stream-1",
+            created_at="2026-10-01T00:00:00Z", stream_id="stream-1",
             author_peer_id="author",
             kind="message",
             body={"text": "DIFFERENT payload"},
@@ -124,7 +124,7 @@ def test_offset_cas_flow(store: CoreStore):
     store.register_peer(Peer(peer_id="worker"))
     store.create_stream(Stream(stream_id="stream-1"))
     for i in range(10):  # TD-10: offset may not pass the committed head
-        store.append_record(stream_id="stream-1", author_peer_id="worker", kind="message", body=i, idempotency_key=f"h{i}")
+        store.append_record(created_at="2026-10-01T00:00:00Z", stream_id="stream-1", author_peer_id="worker", kind="message", body=i, idempotency_key=f"h{i}")
 
     initial_offset = store.get_offset("worker", "stream-1")
     assert initial_offset.read_through_position == 0

@@ -21,11 +21,11 @@ def test_prop_007_unicode_free_text_round_trips(tmp_path_factory, extra):
     h = CoreHarness(tmp_path_factory.mktemp("p7") / uuid.uuid4().hex)
     h.create_peer({"peer_id": "a"})
     h.create_stream({"stream_id": "s", "members": ["a"]})
-    h.append_record(dict(stream_id="s", author_peer_id="a", kind="message", body="sentinel", idempotency_key="sent"))
+    h.append_record(dict(created_at="2026-10-01T00:00:00Z", stream_id="s", author_peer_id="a", kind="message", body="sentinel", idempotency_key="sent"))
     tables, sent_digest = h.table_names(), h.read_records("s")[0].payload_digest
     texts = FIXED + [extra]
     for i, t in enumerate(texts):
-        h.append_record(dict(stream_id="s", author_peer_id="a", kind="message", body=t,
+        h.append_record(dict(created_at="2026-10-01T00:00:00Z", stream_id="s", author_peer_id="a", kind="message", body=t,
                              metadata={"note": t, "list": [t]}, idempotency_key=f"k{i}"))
     h.reopen()
     recs = h.read_records("s")

@@ -48,7 +48,7 @@ FIELDS = st.fixed_dictionaries({
 
 
 def request(sid, key, fields, author="a"):
-    return {"stream_id": sid, "author_peer_id": author, "idempotency_key": key, **fields}
+    return {"stream_id": sid, "author_peer_id": author, "idempotency_key": key, **fields}  # fields carry created_at
 
 
 @pytest.mark.m1_id("PROP-001")
@@ -124,7 +124,7 @@ def _shuffled(o, rnd):
 def test_prop_003_canonical_json_map_ordering_is_stable(body, seed):
     other = _shuffled(body, seed)
     assert canonical_json_bytes(body) == canonical_json_bytes(other)
-    base = {"stream_id": "s", "author_peer_id": "a", "kind": "message", "metadata": {"m": body}}
+    base = {"stream_id": "s", "author_peer_id": "a", "kind": "message", "created_at": "2026-10-01T00:00:00Z", "metadata": {"m": body}}
     assert compute_record_digest({**base, "body": body}) == compute_record_digest({**base, "body": other})
     assert compute_payload_digest("message", body) == compute_payload_digest("message", other)
 
@@ -135,7 +135,7 @@ def test_prop_003_canonical_json_map_ordering_is_stable(body, seed):
 def test_prop_004_positions_strictly_increasing(tmp_path_factory, bodies):
     h = shared(tmp_path_factory, "p4")
     sid = new_stream(h)
-    pos = [h.append_record({"stream_id": sid, "author_peer_id": "a", "kind": "message", "body": b,
+    pos = [h.append_record({"created_at": "2026-10-01T00:00:00Z", "stream_id": sid, "author_peer_id": "a", "kind": "message", "body": b,
                             "idempotency_key": f"k{i}"}).position for i, b in enumerate(bodies)]
     assert pos == sorted(set(pos)) and all(y > x for x, y in zip(pos, pos[1:])) and pos[0] >= 1
     assert [r.position for r in h.read_records(sid)] == pos
@@ -144,7 +144,7 @@ def test_prop_004_positions_strictly_increasing(tmp_path_factory, bodies):
 def _stream_with_records(h, n):
     sid = new_stream(h)
     for i in range(n):
-        h.append_record({"stream_id": sid, "author_peer_id": "a", "kind": "message", "body": i, "idempotency_key": f"k{i}"})
+        h.append_record({"created_at": "2026-10-01T00:00:00Z", "stream_id": sid, "author_peer_id": "a", "kind": "message", "body": i, "idempotency_key": f"k{i}"})
     return sid
 
 
@@ -154,18 +154,22 @@ def _stream_with_records(h, n):
 def test_prop_005_offset_revision_increments_only_on_accepted_cas(tmp_path_factory, ops):
     h = shared(tmp_path_factory, "p5")
     sid = _stream_with_records(h, 8)
-    off = h.get_offset("a", sid)
+    accepted_n = 0
+    head = h.read_records(sid)[-1].position
     for fresh, pos in ops:
         before = h.get_offset("a", sid)
         expected = before.revision if fresh else before.revision + 7
-        try:
-            after = h.cas_offset("a", sid, expected, pos)
-        except (CasMismatchError, OffsetRegressionError, OffsetBeyondHeadError):
+        should_accept = fresh and before.read_through_position <= pos <= head  # decided BEFORE the CAS
+        if should_accept:
+            after = h.cas_offset("a", sid, expected, pos)  # valid writes must succeed
+            assert after.revision == before.revision + 1 and after.read_through_position == pos
+            assert h.get_offset("a", sid) == after
+            accepted_n += 1
+        else:
+            with pytest.raises((CasMismatchError, OffsetRegressionError, OffsetBeyondHeadError)):
+                h.cas_offset("a", sid, expected, pos)
             assert h.get_offset("a", sid) == before  # rejected: nothing changes
-            continue
-        assert fresh and pos >= before.read_through_position
-        assert after.revision == before.revision + 1 and h.get_offset("a", sid) == after
-    assert h.get_offset("a", sid).revision >= off.revision
+    assert h.get_offset("a", sid).revision == 1 + accepted_n
 
 
 @pytest.mark.m1_id("PROP-006")
@@ -175,7 +179,8 @@ def test_prop_006_offset_position_never_decreases(tmp_path_factory, start, cand)
     h = shared(tmp_path_factory, "p6")
     sid = _stream_with_records(h, 8)
     cur = h.cas_offset("a", sid, 1, start)
-    if 0 <= cand and cand >= start and cand <= 8:
+    head = h.read_records(sid)[-1].position
+    if cand >= start and cand <= head:
         new = h.cas_offset("a", sid, cur.revision, cand)
         assert new.read_through_position == cand >= start
     else:
@@ -194,7 +199,7 @@ def test_prop_009_large_body_never_silently_truncated(tmp_path_factory, n, ch):
     h = shared(tmp_path_factory, "p9")
     sid = new_stream(h)
     body = ch * n
-    rec = h.append_record({"stream_id": sid, "author_peer_id": "a", "kind": "message", "body": body, "idempotency_key": "K"})
+    rec = h.append_record({"created_at": "2026-10-01T00:00:00Z", "stream_id": sid, "author_peer_id": "a", "kind": "message", "body": body, "idempotency_key": "K"})
     assert rec.body == body
     got = h.reopen().read_records(sid)[0]  # no size limit is configured in M1: exact survival is the only legal outcome
     assert got.body == body and len(got.body) == n and got.payload_digest == rec.payload_digest
@@ -206,6 +211,8 @@ def test_prop_009_large_body_never_silently_truncated(tmp_path_factory, n, ch):
 def test_prop_010_paged_catch_up_has_no_duplicates_or_skips(tmp_path_factory, total, page):
     h = shared(tmp_path_factory, "p10")
     sid = _stream_with_records(h, total)
+    committed = [r.position for r in h.read_records(sid)]
+    assert len(committed) == total and committed == sorted(set(committed))
     seen, last = [], 0
     while True:
         chunk = h.read_records(sid, after_position=last, limit=page)
@@ -214,7 +221,7 @@ def test_prop_010_paged_catch_up_has_no_duplicates_or_skips(tmp_path_factory, to
         assert len(chunk) <= page
         seen += [r.position for r in chunk]
         last = chunk[-1].position
-    assert seen == list(range(1, total + 1))
+    assert seen == committed  # actual committed positions; no gapless assumption (TD-01)
 
 
 @pytest.mark.m1_id("PROP-010")
@@ -234,6 +241,6 @@ def test_prop_011_digest_stable_across_strict_json_round_trip(body, meta):
     wire = json.dumps({"metadata": meta, "body": body}, allow_nan=False, indent=3, ensure_ascii=False)
     again = json.loads(wire)
     assert canonical_json_bytes(again) == direct
-    base = {"stream_id": "s", "author_peer_id": "a", "kind": "message"}
+    base = {"stream_id": "s", "author_peer_id": "a", "kind": "message", "created_at": "2026-10-01T00:00:00Z"}
     assert compute_record_digest({**base, "body": body, "metadata": meta}) == \
         compute_record_digest({**base, "body": again["body"], "metadata": again["metadata"]})

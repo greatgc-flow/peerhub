@@ -48,7 +48,7 @@ def assert_json_value(value: Any, path: str = "$") -> None:
         if not math.isfinite(value):
             raise ValueError(f"non-finite number at {path}")
         return
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, list):  # TD-24: tuples/other containers are rejected, never coerced
         for i, v in enumerate(value):
             assert_json_value(v, f"{path}[{i}]")
         return
@@ -87,7 +87,7 @@ def compute_record_digest(fields: Mapping[str, Any]) -> str:
     """TD-02: sha256 over canonical JSON of the client semantic projection (+schema_version).
 
     Server-owned fields (record_id/position/payload_digest/appended_at) are never read. Absent optional
-    fields project as null/[]/{}; an omitted created_at projects as null (the server fills the stored value).
+    fields project as null/[]/{}; created_at is required (D-W1-2) so the stored Record recomputes to its digest.
     """
     proj = {
         "stream_id": fields["stream_id"],
@@ -98,7 +98,7 @@ def compute_record_digest(fields: Mapping[str, Any]) -> str:
         "reply_to": fields.get("reply_to"),
         "refs": list(fields.get("refs") or []),
         "metadata": dict(fields.get("metadata") or {}),
-        "created_at": fields.get("created_at"),
+        "created_at": fields["created_at"],
         "schema_version": SCHEMA_VERSION,
     }
     return f"sha256:{hashlib.sha256(canonical_json_bytes(proj)).hexdigest()}"
@@ -207,7 +207,7 @@ class AppendRequest(BaseModel):
     reply_to: str | None = None
     refs: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: str | None = None
+    created_at: str  # required by record.schema.json (D-W1-2)
 
     @field_validator("body", mode="before")
     @classmethod
@@ -238,8 +238,8 @@ class AppendRequest(BaseModel):
 
     @field_validator("created_at")
     @classmethod
-    def _created_at(cls, v: str | None) -> str | None:
-        if v is not None and not is_rfc3339(v):
+    def _created_at(cls, v: str) -> str:
+        if not is_rfc3339(v):
             raise ValueError(f"created_at is not an RFC 3339 date-time: {v!r}")
         return v
 

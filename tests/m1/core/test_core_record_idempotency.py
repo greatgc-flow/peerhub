@@ -60,6 +60,13 @@ def test_core_004_record_immutable_after_append(harness):
         with sqlite3.connect(harness.db_path) as c:
             c.execute("DELETE FROM records")
     assert harness.reopen().read_records("s") == [rec] and rec.body == {"a": 1}
+    digest = harness.state_digest()
+    with pytest.raises(sqlite3.IntegrityError):  # INSERT OR REPLACE must not overwrite (REPLACE-proof via recursive triggers)
+        with harness.store._get_connection() as c:
+            c.execute("INSERT OR REPLACE INTO records (record_id, stream_id, position, author_peer_id, kind, body_json, "
+                      "idempotency_key, payload_digest, created_at, appended_at) SELECT record_id, stream_id, position, "
+                      "author_peer_id, kind, '\"evil\"', 'other', payload_digest, created_at, appended_at FROM records")
+    assert harness.state_digest() == digest and harness.reopen().read_records("s") == [rec]
 
 
 @pytest.mark.m1_id("CORE-005")
@@ -69,7 +76,9 @@ def test_core_005_read_order_is_position_not_created_at_or_record_id(harness):
     for i, ts in enumerate(stamps):
         harness.append_record(req(i, key=f"k{i}", created_at=ts))
     recs = harness.read_records("s")
-    assert [r.position for r in recs] == [1, 2, 3, 4, 5] and [r.body for r in recs] == [0, 1, 2, 3, 4]
+    positions = [r.position for r in recs]  # actual committed positions; gaps would be legal (TD-01)
+    assert positions == sorted(set(positions)) and len(positions) == 5 and positions[0] >= 1
+    assert [r.body for r in recs] == [0, 1, 2, 3, 4]
     assert [r.created_at for r in recs] == stamps and stamps != sorted(stamps)
 
 
@@ -94,10 +103,10 @@ def test_core_007_changed_payload_conflicts(harness):
 
 @pytest.mark.m1_id("CORE-008")
 def test_core_008_map_key_order_does_not_change_digest():
-    a = {"stream_id": "s", "author_peer_id": "a", "kind": "message",
+    a = {"stream_id": "s", "author_peer_id": "a", "kind": "message", "created_at": "2026-10-01T00:00:00Z",
          "body": {"x": 1, "y": {"p": [1, 2], "q": None}}, "metadata": {"m1": 1, "m2": 2}}
     b = {"metadata": {"m2": 2, "m1": 1}, "body": {"y": {"q": None, "p": [1, 2]}, "x": 1},
-         "kind": "message", "author_peer_id": "a", "stream_id": "s"}
+         "kind": "message", "author_peer_id": "a", "stream_id": "s", "created_at": "2026-10-01T00:00:00Z"}
     assert compute_record_digest(a) == compute_record_digest(b)
     c = {**a, "body": {"x": 1, "y": {"p": [2, 1], "q": None}}}  # array order is semantic
     assert compute_record_digest(c) != compute_record_digest(a)
@@ -111,6 +120,14 @@ def test_core_009_server_fields_do_not_participate_in_digest(harness):
     projection = {k: v for k, v in stored.model_dump().items()
                   if k not in set(SERVER_OWNED_FIELDS) | {"idempotency_key", "schema_version"}}
     assert compute_record_digest(projection) == stored.payload_digest == compute_record_digest(request)
+    # stored Record (reopened) must recompute to its own digest, and omitted created_at is rejected (D-W1-2)
+    again = harness.reopen().read_records("s")[0]
+    assert compute_record_digest(again.model_dump()) == again.payload_digest == stored.payload_digest
+    digest = harness.state_digest()
+    for bad in ({k: v for k, v in request.items() if k != "created_at"}, {**request, "created_at": None}):
+        with pytest.raises(REJECT):
+            harness.append_record(bad)
+    assert harness.state_digest() == digest
     polluted = {**stored.model_dump(), "record_id": "other", "position": 99, "appended_at": "2030-01-01T00:00:00Z",
                 "payload_digest": "sha256:" + "0" * 64}
     assert compute_record_digest(polluted) == stored.payload_digest
@@ -203,4 +220,19 @@ def test_idem_003_same_key_races_independently_across_scopes(harness):
     for sc in scopes:
         assert len({r.record_id for s, r in results if s == sc}) == 1, sc  # collapse only within identical scope
     assert harness.row_counts()["records"] == 3
-    assert sorted(r.position for r in harness.read_records("s")) == [1, 2] and harness.read_records("y")[0].position == 1
+    ps = [r.position for r in harness.read_records("s")]
+    assert len(ps) == 2 and ps == sorted(set(ps)) and len(harness.read_records("y")) == 1
+
+
+@pytest.mark.m1_id("CORE-013")
+def test_core_013_non_json_containers_rejected_before_canonicalization(harness):
+    """TD-24: tuples/sets/other containers in body or nested metadata are rejected, never coerced to lists."""
+    seed(harness)
+    digest = harness.state_digest()
+    for i, kw in enumerate(({"body": (1, 2)}, {"body": {"a": (1,)}}, {"body": [1, (2, 3)]}, {"metadata": {"m": (1,)}},
+                            {"metadata": {"m": {"n": [(1,)]}}}, {"targets": ("b",)}, {"refs": ("r",)})):
+        with pytest.raises(REJECT):
+            harness.append_record(req(key=f"t{i}", **kw))
+    assert harness.state_digest() == digest
+    with pytest.raises(TypeError):
+        compute_record_digest({**req(), "body": (1, 2)})

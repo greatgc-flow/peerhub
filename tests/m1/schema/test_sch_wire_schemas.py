@@ -130,13 +130,16 @@ def _null_mutants(name, obj):
             yield k, m  # only fields whose schema forbids null
 
 
-def _must_reject(harness, name, m):
+def _must_reject(harness, name, m, expect):
     """Persistence attempt through the strict boundary (D-W0-1); row counts, revisions and state digest must not change."""
     from peerhub.m1.wire import WireValidationError
 
     digest, counts, tables = harness.state_digest(), harness.row_counts(), harness.table_digests()
-    with pytest.raises(WireValidationError):  # specific: rejected by the wire boundary, not by an incidental error
+    with pytest.raises(WireValidationError) as ei:  # specific: rejected by the wire boundary, not by an incidental error
         harness.persist_wire(name, m)
+    msg = str(ei.value)
+    assert expect in msg, (name, m, expect, msg)  # the INTENDED violation is the one reported
+    assert "; " not in msg, (name, m, msg)  # and it is the only one: no unrelated violation masks it
     assert harness.row_counts() == counts, (name, m)
     assert harness.table_digests() == tables, (name, m)  # includes stream/offset revisions
     assert harness.state_digest() == digest, (name, m)
@@ -160,38 +163,52 @@ def _prove_port_live(harness):
     off = harness.persist_wire("offset", {"schema_version": "1.0", "peer_id": "p-2", "stream_id": "s-1",
                                           "read_through_position": 1, "revision": 1})
     assert (off.read_through_position, off.revision) == (1, 2) and harness.row_counts()["offsets"] == 1
-    return wire
+    return {"peer": {"schema_version": "1.0", "peer_id": "p-1", "created_at": "2026-10-01T00:00:00Z"},
+            "stream": {**valid_objects()["stream"], "members": ["p-1", "p-2"]}, "record": wire,
+            "offset": {"schema_version": "1.0", "peer_id": "p-2", "stream_id": "s-1", "read_through_position": 1, "revision": 2}}
+
+
+def _baselines(harness):
+    """Persistable (fully valid) baseline per core kind; non-core kinds stay schema-only (D-W0-2)."""
+    return {**valid_objects(), **_prove_port_live(harness)}
+
+
+def _expect_for(label, field=None):
+    return {"omit": "is a required property", "null": f"{field}:", "version": "schema_version:", "date": f"{field}:",
+            "digest": "payload_digest:", "enum": f"{field}:", "unknown": "unknown_field"}[label]
 
 
 @pytest.mark.m1_id("SCH-011")
 def test_sch_011_required_fields_null_and_version_rejected_without_mutation(harness):
-    _prove_port_live(harness)
-    for name, obj in valid_objects().items():
+    base = _baselines(harness)
+    for name, obj in base.items():
         assert errors(name, obj) == [], name
-        mutants = [(f"omit {req}", {k: v for k, v in obj.items() if k != req}) for req in schema(name)["required"]]
-        mutants += [(f"null {k}", m) for k, m in _null_mutants(name, obj)]
-        mutants += [("version 2.0", {**obj, "schema_version": "2.0"}), ("version 1.1", {**obj, "schema_version": "1.1"})]
-        for label, m in mutants:
-            assert errors(name, m), (name, label)
+        mutants = [("omit", None, req, {k: v for k, v in obj.items() if k != req}) for req in schema(name)["required"]]
+        mutants += [("null", k, k, m) for k, m in _null_mutants(name, obj)]
+        mutants += [("version", None, "v", {**obj, "schema_version": "2.0"}), ("version", None, "v", {**obj, "schema_version": "1.1"})]
+        for label, field, tag, m in mutants:
+            assert errors(name, m), (name, label, tag)
             if name in CORE_KINDS:
-                _must_reject(harness, name, m)
+                expect = f"'{tag}' is a required property" if label == "omit" else _expect_for(label, field)
+                _must_reject(harness, name, m, expect)
     assert set(harness.table_names()) == {"peers", "streams", "stream_members", "records", "offsets"}
     assert harness.row_counts() == {"peers": 2, "streams": 1, "stream_members": 2, "records": 1, "offsets": 1}
 
 
 @pytest.mark.m1_id("SCH-012")
 def test_sch_012_null_vs_empty_arrays(harness):
-    wire = _prove_port_live(harness)
-    v = valid_objects()
+    v = _baselines(harness)
+    wire = v["record"]
     for name, field in (("stream", "members"), ("record", "targets"), ("record", "refs")):
         assert errors(name, {**v[name], field: None}), (name, field)
         with pytest.raises(REJECT):
             _strict(name, {**v[name], field: None})
         assert errors(name, {**v[name], field: []}) == []
         _strict(name, {**v[name], field: []})
-    _must_reject(harness, "stream", {**v["stream"], "stream_id": "s-null", "members": None})
-    for field in ("targets", "refs"):
-        _must_reject(harness, "record", {**wire, "idempotency_key": f"n-{field}", field: None})
+    _must_reject(harness, "stream", {**v["stream"], "stream_id": "s-null", "members": None}, "members:")
+    for field in ("targets", "refs"):  # omitted array must be rejected, not silently filled with []
+        _must_reject(harness, "record", {**wire, "idempotency_key": f"n-{field}", field: None}, f"{field}:")
+        _must_reject(harness, "record", {k: x for k, x in wire.items() if k != field}, f"'{field}' is a required property")
     harness.persist_wire("stream", {**v["stream"], "stream_id": "s-empty", "members": []})
     assert harness.get_stream("s-empty").members == []
     from peerhub.m1.models import compute_record_digest
@@ -203,22 +220,23 @@ def test_sch_012_null_vs_empty_arrays(harness):
 
 @pytest.mark.m1_id("SCH-013")
 def test_sch_013_malformed_dates_digest_enum_unknown_fields_fail_closed(harness):
-    v = valid_objects()
-    mutants = []
+    v = _baselines(harness)
+    mutants = []  # (kind, mutant, intended-violation substring)
     for date_field, name in (("created_at", "peer"), ("created_at", "stream"), ("appended_at", "record"),
                              ("created_at", "record"), ("observed_at", "peer-observation")):
         for bad in ("2026-13-45T00:00:00Z", "yesterday", "2026-10-01 00:00:00", "2026-10-01T00:00:00"):
-            mutants.append((name, {**v[name], date_field: bad}))
+            mutants.append((name, {**v[name], date_field: bad}, f"{date_field}:"))
     for bad in ("sha256:" + "G" * 64, "sha256:" + "a" * 63, "SHA256:" + "a" * 64, "a" * 64):
-        mutants.append(("record", {**v["record"], "payload_digest": bad}))
-    mutants += [("stream", {**v["stream"], "state": "open"}), ("peer-observation", {**v["peer-observation"], "state": "measured"}),
-                ("resource-pool", {**v["resource-pool"], "kind": "quota"})]
-    for name in ("peer", "stream", "record", "peer-observation"):
-        mutants.append((name, {**v[name], "unknown_field": 1}))
-    for name, m in mutants:
+        mutants.append(("record", {**v["record"], "payload_digest": bad}, "payload_digest:"))
+    mutants += [("stream", {**v["stream"], "state": "open"}, "state:"),
+                ("peer-observation", {**v["peer-observation"], "state": "measured"}, "state:"),
+                ("resource-pool", {**v["resource-pool"], "kind": "quota"}, "kind:")]
+    for name in ("peer", "stream", "record", "offset", "peer-observation"):
+        mutants.append((name, {**v[name], "unknown_field": 1}, "unknown_field"))
+    for name, m, expect in mutants:
         assert errors(name, m), (name, m)
         if name in CORE_KINDS:
-            _must_reject(harness, name, m)
+            _must_reject(harness, name, m, expect)
 
 
 def _seed(h):
@@ -227,7 +245,7 @@ def _seed(h):
 
 
 def _req(body=None, key="k", **extra):
-    return dict(stream_id="s", author_peer_id="a", kind="message", body=body, idempotency_key=key, **extra)
+    return dict(created_at="2026-10-01T00:00:00Z", stream_id="s", author_peer_id="a", kind="message", body=body, idempotency_key=key, **extra)
 
 
 @pytest.mark.m1_id("SCH-014")

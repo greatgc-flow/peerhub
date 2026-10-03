@@ -11,7 +11,8 @@ def seed(h, peers=("a", "b"), stream="s", members=None):
 
 
 def req(body="x", key="k", author="a", stream="s", **extra):
-    return dict(stream_id=stream, author_peer_id=author, kind="message", body=body, idempotency_key=key, **extra)
+    return {"created_at": "2026-10-01T00:00:00Z", "stream_id": stream, "author_peer_id": author, "kind": "message",
+            "body": body, "idempotency_key": key, **extra}
 
 
 def append_n(h, n, stream="s", author="a", prefix="r"):

@@ -15,7 +15,7 @@ import json
 import sys
 from pathlib import Path
 
-from peerhub.m1.models import Offset, Peer, Record, Stream, StreamState
+from peerhub.m1.models import Offset, Peer, Record, Stream, StreamState, utc_now_iso
 from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError
 from peerhub.extensions.observation_and_diag import ReadonlyDiag
 
@@ -59,6 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     r_append.add_argument("--kind", required=True)
     r_append.add_argument("--body", required=True, help="JSON body string")
     r_append.add_argument("--idemp-key", required=True)
+    r_append.add_argument("--created-at", default=None, help="RFC3339; pass the same value on retries (part of the idempotency digest)")
     r_append.add_argument("--targets", nargs="*", default=[])
 
     r_read = rec_sub.add_parser("read", help="Read records from stream")
@@ -145,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
                     body=body_data,
                     idempotency_key=args.idemp_key,
                     targets=args.targets,
+                    created_at=args.created_at or utc_now_iso(),
                 )
                 print(rec.model_dump_json(indent=2))
 

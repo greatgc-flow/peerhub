@@ -50,6 +50,7 @@ def test_readonly_diag_observes_without_mutation(tmp_path: Path):
     core.register_peer(Peer(peer_id="p1"))
     core.create_stream(Stream(stream_id="s1", members=["p1"]))
     core.append_record(
+        created_at="2026-10-01T00:00:00Z",
         stream_id="s1",
         author_peer_id="p1",
         kind="test",

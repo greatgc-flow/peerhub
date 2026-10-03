@@ -21,13 +21,18 @@ controls prove the record/offset ports really write (so unchanged-state asserts 
 Harness port completed: create/get_peer, create/get/cas_stream, append_record, read_records, get_offset, cas_offset, state_digest, reopen, workspace_generation, + persist_wire, row_counts, table_digests.
 
 ## Decisions / ambiguities (spec citations)
-- Digest scope (D-W0-5, Q-W0-6): TD-02 field set + schema_version, canonical JSON (TD-17/24); server fields excluded (TD-21). Omitted `created_at` projects as null (server stores now()), so a keyless-timestamp retry matches; supplied-and-changed created_at conflicts (CORE-010). `compute_payload_digest(kind, body)` kept only as canonicalization primitive (PROP-008).
+- Digest scope (D-W0-5, Q-W0-6): TD-02 field set + schema_version, canonical JSON (TD-17/24); server fields excluded (TD-21). `created_at` is REQUIRED on append (record.schema.json, D-W1-2); stored Record recomputes to its own digest (tested after reopen); omission/null rejected without mutation. `compute_payload_digest(kind, body)` kept only as canonicalization primitive (PROP-008).
 - Idempotency scope (TD-20): (stream_id, author_peer_id, key). Retry lookup runs before the CLOSED check, so a retry of an already committed record still resolves.
 - PROP-002 oracle ("every field incl. author/stream_id conflicts") contradicts IDEM-001/002 + TD-20: author/stream changes select another scope. Asserted conflict for the 7 other fields; for author/stream asserted independent records with different digests (Q-W1-1).
 - Offset (TD-03/TD-10): equal position accepted; every accepted write bumps revision once (PROP-005); check order refs -> CAS -> monotonic -> head. Absent row = (0, rev 1); first accepted write gives rev 2. get_offset on unknown peer/stream raises (OFF-008).
 - Stream CAS mutation grammar (TD-09): dict with state (OPEN->CLOSED only; reopen = IllegalTransitionError), members (replacement, peers must exist), title, metadata. Empty members valid (schema has no minItems; STR-005).
 - Wire offset persistence: wire `revision` = expected current revision, `read_through_position` = requested position. Wire record persistence: server fields dropped, `payload_digest` must equal recomputed TD-02 digest.
+- SPEC ERRATUM (D-W1-1): catalog PROP-002 says author/stream_id change under the same key must conflict; this contradicts TD-20 and IDEM-001/002. Implemented TD-20; frozen catalog not edited. Report to spec owner.
 - Existing unit test_offset_cas_flow advanced to 5 on an empty stream; contradicts TD-10, so it now appends 10 records first (spec-driven change, not an oracle weakening).
 - PROP-009: no size limit is configured in M1; envelope 0..1 MiB+1 asserts exact survival across reopen.
 
 Gate: pytest tests/m1 tests/unit/m1 = 82 passed; m1_traceability --upto 1 rc=0 (wave 1 39/39); validate_package PASS.
+
+## cx.pro gate fixes (post cd93865)
+1. created_at required (D-W1-2); CLI gained `--created-at`; tests pass explicit created_at. 2. SCH-011/012/013: persistable baselines (valid digest), each mutant must raise WireValidationError containing the intended violation and ONLY that one; mutation probes (unknown fields dropped, missing arrays filled) now fail SCH-002/005/011/012/013. 3. PROP-005 decides acceptance before CAS; valid writes must succeed. 4. TD-24: tuples rejected in assert_json_value (no tuple->list). 5. `PRAGMA recursive_triggers=ON` so INSERT OR REPLACE fires the delete trigger (CORE-004 test). 6. CORE-005/PROP-010/IDEM-003/PROP-005/006 use actual committed positions/head. 7. D-W1-3/4: member change on CLOSED allowed; peer upsert documented.
+RED probe vs. old production: CORE-004 (REPLACE), CORE-009 (omitted created_at), CORE-013 (tuples) failed. Gate: 83 passed.
