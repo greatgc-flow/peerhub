@@ -1,0 +1,44 @@
+name: Scheduled soak (evidence only)
+
+# Gate G6 (release-gates.json): non-blocking, on_fail OBSERVE. Capacity numbers are evidence only (no SLO ratified);
+# hard correctness oracles still fail the job, but publish.yml never depends on this workflow.
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      scale:
+        description: "Soak scale (smoke | moderate | full)"
+        default: "moderate"
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    continue-on-error: true
+    env:
+      PEERHUB_M1_SOAK: "1"
+      PEERHUB_M1_SOAK_SCALE: ${{ github.event.inputs.scale || 'moderate' }}
+      PEERHUB_M1_SOAK_EVIDENCE_DIR: soak-evidence
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: "pip"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Run soak (SOAK-001, SOAK-002)
+        run: python -u -m pytest -q -m soak tests/m1/soak
+      - name: Upload evidence JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-evidence
+          path: soak-evidence/*.json
+          if-no-files-found: warn

@@ -81,3 +81,6 @@
 
 ## Wave 8 + T1 (2026-10-04)
 - Wave 8: 6/6 catalog ids present (LIVE-CC-001/CX-001/AG-001, LIVE-004/005/006); live canary run once manually: cc 2.1.288, ag 1.2.16, cx 0.160.0 all delivered/TERMINAL, project tree unchanged; evidence `docs/m1_impl/live_evidence/2026-10-03.json`. T1: real adapters `peerhub/extensions/adapters/` (cc/cx/ag), 40 offline tests with fake CLIs, 14/14 probes killed. Q-W8-1..7 (OWNER: no real resume, no interrupt/steer). Details in wave8_report.md. Not done: SOAK, cx final review.
+
+## Wave 9 (2026-10-04)
+- SOAK-001/002 implemented (evidence-only capacity, hard correctness oracles); 210/210 catalog ids present. `tests/m1/soak/` (smoke runs by default; scaled `-m soak` + `PEERHUB_M1_SOAK=1`), `.github/workflows/soak.yml` (weekly, non-blocking, uploads evidence), moderate-scale evidence in `docs/m1_impl/soak_evidence/`. 8/8 probes killed. Q-W9-1..6 (OWNER: ratify SLO / full scale). Details in wave9_report.md. Not done: full-scale run, run on a real CI runner, cx final review.

@@ -149,3 +149,11 @@
 - Q-W8-5: evidence file date is UTC (2026-10-03 file for a 2026-10-04 local run); the file merges per-provider sections.
 - Q-W8-6: retained response is redacted for secrets only (a response may quote the prompt); error/evidence text also redacts the prompt.
 - Q-W8-7: `tests/conftest.py` hermetic which-patch exempts `live` tests (shared test infra change).
+
+## Wave 9 (soak, evidence only)
+- Q-W9-1 (OWNER): no capacity SLO is ratified; soak records latency/size/Diag/claim numbers and applies NO threshold (`capacity_thresholds: null` in every evidence file). Ratify numbers before any threshold is added; until then they are trend evidence only.
+- Q-W9-2 (OWNER): "scale" levels (smoke 300 records/60 peers; moderate 20k records/2000 peers/400 streams; full 200k/20k/2000) are ours; the spec only says "configurable". Confirm the intended full envelope.
+- Q-W9-3: opt-in shape: scaled params carry marker `soak`+`slow` (deselected by addopts; with `-m soak` and no `PEERHUB_M1_SOAK=1` they skip with `SOAK-OPT-IN[env=PEERHUB_M1_SOAK;required=1;marker=soak]`); the smoke param of the same functions is unmarked and runs by default. Scale via `PEERHUB_M1_SOAK_SCALE`, evidence dir via `PEERHUB_M1_SOAK_EVIDENCE_DIR`, timeout via `PEERHUB_M1_SOAK_TIMEOUT_S` (the global 60 s test timeout would otherwise kill scaled runs).
+- Q-W9-4: WAL size is sampled (every 50 appends) but reads 0 here: the store opens/closes a connection per transaction, so SQLite checkpoints/removes the WAL on the last close; the sampling is of limited value and a long-lived reader would be needed to grow it. Diag on a bare Core DB reports PARTIAL (observation/resource-pool tables belong to extensions); the soak asserts only the Core sections (peers, streams) are OK.
+- Q-W9-5: scheduled job is a separate `.github/workflows/soak.yml` (weekly cron + dispatch, `continue-on-error`, always-upload artifact), not a job in ci.yml, so the REL matrix/DAG tests stay untouched; publish.yml never references it (G6 non-blocking, on_fail OBSERVE). Not run on a real GitHub runner.
+- Q-W9-6 (observation): ~8-9 ms per append/offset/registration commit on this Windows host (one connection + fsync per transaction); evidence only, no product claim.
