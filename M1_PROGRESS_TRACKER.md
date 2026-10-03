@@ -70,3 +70,4 @@
 
 ## Wave 5 (2026-10-04)
 - Wave 5: 30/30 catalog ids green (OBS-001..018, DIA-001..010, READ-001/002). Production: `peerhub/extensions/{observation_model,observation,diag}.py` (ReadonlyDiag split into its own module; old `observation_and_diag.py` removed), schema copies in `peerhub/extensions/schemas/`. Tests: `tests/m1/{observation,diag}/`, `tests/m1/concurrency/test_dia_snapshot.py`, `tests/m1/core/test_read_boundaries.py`, ARCH-004 at module level. D-W0-2 / D-W0-4 closed. Details docs/m1_impl/wave5_report.md; Q-W5-1..13 in OPEN_QUESTIONS.md. Review gate pending.
+- Wave 5 gate fixes (ag.pro, 2 findings): runtime sqlite authorizer on Diag + Observation read connections, static checker flags dynamic SQL, resource_pools no-replace trigger + immutability audit. Details in wave5_report.md.

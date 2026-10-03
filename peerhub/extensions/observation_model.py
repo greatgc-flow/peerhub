@@ -7,6 +7,7 @@ Spec: OBSERVATION_AND_DIAG.md, PEER_CARDINALITY_RESOURCE_POOL.md, TD-13 (freshne
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -236,3 +237,22 @@ def parse_observation_wire(obj: Any) -> Observation:
 
 def parse_resource_pool_wire(obj: Any) -> ResourcePool:
     return _parse("resource-pool", obj)
+
+
+# ----------------------------------------------------------------------------- runtime read-only enforcement
+_READ_ACTIONS = frozenset({sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE})
+
+
+def read_only_authorizer(allow_transactions: bool = False):
+    """sqlite3 authorizer allowing only SELECT/READ/FUNCTION/RECURSIVE (+ BEGIN/ROLLBACK, + the read form of PRAGMA query_only).
+    Everything else (INSERT/UPDATE/DELETE/CREATE*/DROP*/ALTER/ATTACH/TEMP objects/PRAGMA writes/COMMIT) is denied at statement
+    preparation time, whatever way the SQL text was built (static scanning can never be complete)."""
+    def authorize(action, arg1, arg2, _db, _src):
+        if action in _READ_ACTIONS:
+            return sqlite3.SQLITE_OK
+        if allow_transactions and action == sqlite3.SQLITE_TRANSACTION and arg1 in ("BEGIN", "ROLLBACK"):
+            return sqlite3.SQLITE_OK
+        if action == sqlite3.SQLITE_PRAGMA and arg1 == "query_only" and arg2 is None:
+            return sqlite3.SQLITE_OK
+        return sqlite3.SQLITE_DENY
+    return authorize

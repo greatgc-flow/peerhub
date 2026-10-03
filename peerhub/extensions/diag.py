@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from peerhub.extensions.observation_model import (
-    COLUMNS,
     FreshnessPolicy,
     ObservationCorruptError,
     effective_us,
     evaluate,
+    read_only_authorizer,
     row_to_observation,
 )
 
@@ -84,6 +84,7 @@ class ReadonlyDiag:
             row = conn.execute("PRAGMA query_only").fetchone()
             if not row or row[0] != 1:
                 raise DiagReadOnlyError("connection is not read-only (query_only could not be enabled)")
+            conn.set_authorizer(read_only_authorizer(allow_transactions=True))  # runtime deny of every non-read statement
             conn.execute("BEGIN")
             conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # pins the read snapshot now
         except BaseException:
@@ -123,7 +124,9 @@ class ReadonlyDiag:
             {"resource_pool_id": r[0], "provider": r[1], "kind": r[2], "metadata_json": r[3], "observation_count": counts.get(r[0], 0)} for r in rows]})
 
     def _observations(self, conn, read_us) -> Section:
-        rows = conn.execute(f"SELECT {', '.join(COLUMNS)} FROM observations ORDER BY capture_seq").fetchall()
+        rows = conn.execute(
+            "SELECT capture_seq, observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, observed_at, captured_at "
+            "FROM observations ORDER BY capture_seq").fetchall()
         best: dict[tuple, Any] = {}
         errors: list[dict[str, Any]] = []
         for r in rows:
@@ -187,9 +190,10 @@ class ReadonlyDiag:
         out: dict[str, Section] = {}
         try:
             snapshot = {}
-            for key, table in (("records_total", "records"), ("observations_total", "observations")):
+            for key, one in (("records_total", lambda: conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]),
+                             ("observations_total", lambda: conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0])):
                 try:
-                    snapshot[key] = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                    snapshot[key] = one()
                 except sqlite3.Error:
                     snapshot[key] = None
             for name in names:

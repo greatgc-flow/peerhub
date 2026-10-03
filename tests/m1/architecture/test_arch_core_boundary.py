@@ -147,6 +147,10 @@ def diag_module_violations(text: str, mod: str = DIAG_MOD) -> list[str]:
             bad.append(f"write SQL {s[:40]!r}")
         if words[:2] == ["BEGIN", "IMMEDIATE"] or words[:2] == ["BEGIN", "EXCLUSIVE"]:
             bad.append(f"write transaction {s[:40]!r}")
+    for n in ast.walk(tree):  # dynamic SQL construction can hide any statement from the literal scan: only literal first args
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ("execute", "executescript", "executemany"):
+            if not n.args or not (isinstance(n.args[0], ast.Constant) and isinstance(n.args[0].value, str)):
+                bad.append(f"non-literal SQL passed to {n.func.attr}")
     for n in ast.walk(tree):  # every open() must be read-only; every sqlite3.connect must be mode=ro
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "open":
             modes = [a.value for a in n.args[1:2] if isinstance(a, ast.Constant)] + [k.value.value for k in n.keywords if k.arg == "mode" and isinstance(k.value, ast.Constant)]
@@ -172,9 +176,18 @@ def test_arch_004_diag_dependency_surface_is_read_only():
                "begin immediate": "X = 'BEGIN IMMEDIATE'\n",
                "writable open": "f = open('x', 'w')\n",
                "rw connect": "import sqlite3\nc = sqlite3.connect('x')\n",
+               "chr smuggling": "def g(c):\n    c.execute(chr(73) + 'NSERT INTO t VALUES (1)')\n",
+               "concat smuggling": "def g(c, t):\n    c.execute('SELECT * FROM ' + t)\n",
+               "fstring smuggling": "def g(c, t):\n    c.execute(f'SELECT * FROM {t}')\n",
+               "format smuggling": "def g(c, t):\n    c.execute('SELECT * FROM {}'.format(t))\n",
+               "variable smuggling": "def g(c, q):\n    c.execute(q)\n",
+               "script smuggling": "def g(c):\n    c.executescript('SELECT 1')\n",
+               "many smuggling": "def g(c, q):\n    c.executemany(q, [])\n",
                "banned call": "def f(s):\n    s.append_record()\n"}
     for label, extra in mutants.items():
         assert diag_module_violations(text + chr(10) + extra), label
+    # positive control for the checker: literal SQL (incl. implicit concatenation) is accepted
+    assert diag_module_violations(text + chr(10) + "def g(c):" + chr(10) + "    c.execute('SELECT 1 ' 'FROM t')" + chr(10)) == []
     # positive control for the checker: harmless additions are still accepted
     assert diag_module_violations(text + chr(10) + "import hashlib" + chr(10) + "Y = 'SELECT 1'" + chr(10)) == []
     # every non-dunder public method of ReadonlyDiag is a reader
