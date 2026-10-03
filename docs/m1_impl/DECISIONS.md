@@ -83,3 +83,7 @@
 - D-W7-1 (TD-16, MIGRATION_CUTOVER step 7): importer = dry-run first (writes nothing, does not create the target), explicit apply with optional plan digest, source opened immutable read-only, one transaction per correlation group, idempotency verified against persisted rows (marker + record keys/digests, prefix match), conflicts/malformed reported not guessed. See Q-W7-3.
 - D-W7-2 (MIG-003, TD-14, RELEASE_PROMOTION_ROLLBACK 1-4): a future schema is refused with an actionable message (no journal-mode change, no bytes written), CLI exit 6; Diag reports FAILED; importer refuses a future-schema target. No downgrade path is provided.
 - D-W7-3 (TD-18): see Q-W7-1.
+
+## Wave 7 closed (orchestrator, 2026-10-04) at d6b36c3
+- ag.pro review: importer later-offsets (real, fixed per component; conflicts reported, never auto-advanced: OWNER Q-W7-11), forced UTF-8 (real, fixed: tolerant streams), 3 survivor claims refuted/strengthened. Branch ref was behind a detached HEAD; moved to the HEAD (no history lost). cx final review covers waves 0-7 once.
+- Next: Wave 8 (LIVE canary) = real adapters (T1) + opt-in live tests, run ONCE with minimum quota (lowest-tier profiles, tiny prompts, no retries; cx at most once).
