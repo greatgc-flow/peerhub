@@ -24,3 +24,4 @@
 - Q-W2-5 (CON-010): oracle "same serialization order" tested with deterministic hook orderings (advancer-first -> `OffsetBeyondHeadError`, nothing moved, retry succeeds; writer-first -> CAS accepted at head) plus 20 free-running real-thread rounds.
 - Q-W2-6 (heartbeat on an expired but not-yet-taken-over claim): treated as stale (an expired claim cannot be renewed, FLT-007 fences finalize after expiry). CLM-001..003 in Wave 3 should confirm the exact-boundary heartbeat/takeover race.
 - Test seams added to CoreStore (not behaviour changes): `fault_hook(point)` (append.before_commit, offset.before_head_check), `guard(conn)` kwarg on append_record / advance_offset_cas, `connect()`, `read_uow()`; TD-14 `SchemaVersionError` for future versions.
+- Q-W2 gate rulings (cx.pro): Q-W2-1..6 accepted as ruled; claim guard now scope-bound and terminal finalization is a real fenced write (TD-25). No new ambiguities.

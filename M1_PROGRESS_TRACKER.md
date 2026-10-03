@@ -54,4 +54,4 @@
 - Wave 1: 39/39 catalog ids green (tests/m1/core, tests/m1/property/test_prop_core.py, reworked SCH-011/012/013 per D-W0-1); details docs/m1_impl/wave1_report.md. 82 tests passed, traceability --upto 1 ok, validate_package PASS. Review gate pending; Q-W1-1..5 in OPEN_QUESTIONS.md.
 
 ## Wave 2 (2026-10-03)
-- Wave 2: 28/28 catalog ids green (SQL-001..011, CON-001..011, MP-001..004, MIG-001/002); tests/m1/{integration,concurrency,migration}; details docs/m1_impl/wave2_report.md. 115 tests passed in tests/m1 + tests/unit/m1; concurrency/MP run 3x stable; traceability --upto 2 ok; validate_package PASS. Review gate pending; Q-W2-1..6 in OPEN_QUESTIONS.md.
+- Wave 2: 28/28 catalog ids green (SQL-001..011, CON-001..011, MP-001..004, MIG-001/002); tests/m1/{integration,concurrency,migration}; details docs/m1_impl/wave2_report.md. 134 tests passed in tests/m1 + tests/unit/m1 (after cx.pro gate fixes); concurrency/MP run 3x stable; traceability --upto 2 ok; validate_package PASS. Review gate pending; Q-W2-1..6 in OPEN_QUESTIONS.md.

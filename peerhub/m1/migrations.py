@@ -110,6 +110,10 @@ MIGRATIONS: list[Migration] = [Migration(1, "baseline_core_tables", _baseline)]
 CURRENT_VERSION: int = MIGRATIONS[-1].version
 
 
+class MigrationIntegrityError(RuntimeError):
+    """Migration would commit referential-integrity violations; rolled back."""
+
+
 class SchemaVersionError(RuntimeError):
     """Stored schema is newer than this build supports (TD-14: rejected, never downgraded or repaired)."""
 
@@ -129,14 +133,15 @@ def run_migrations(db_path, migrations: list[Migration] | None = None,
     conn = sqlite3.connect(str(db_path), timeout=30.0, isolation_level=None)
     try:
         conn.execute("PRAGMA busy_timeout = 30000;")
-        if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
-            conn.execute("PRAGMA journal_mode = WAL;")
 
         def check(v: int) -> None:
             if v > latest:
                 raise SchemaVersionError(f"database schema version {v} is newer than supported {latest}")
 
-        check(_version(conn))
+        check(_version(conn))  # reject a future schema BEFORE any persistent mutation (e.g. WAL conversion)
+        if conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+            conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA foreign_keys = ON;")  # must be set outside the transaction
         if _version(conn) == latest:
             return []
         conn.execute("BEGIN IMMEDIATE")
@@ -151,6 +156,9 @@ def run_migrations(db_path, migrations: list[Migration] | None = None,
                     applied.append(m.version)
                     if fault is not None:
                         fault("migration.step")
+            violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+            if violations:
+                raise MigrationIntegrityError(f"foreign key violations after migration: {[tuple(v) for v in violations[:5]]}")
             if fault is not None:
                 fault("migration.before_commit")
         except BaseException:

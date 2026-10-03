@@ -67,13 +67,17 @@ def test_con_002_high_contention_append_is_corruption_free(harness):
     seed(harness)
     results = _writers(harness, 8, 50)
     flat = [r for res in results for r in res]
-    assert len(flat) == 400
+    assert len(flat) == 400  # one response per attempted append, none lost
     ok = [r for r in flat if not isinstance(r, Exception)]
     failed = [r for r in flat if isinstance(r, Exception)]  # only explicit busy errors passed the writer filter
-    assert len(ok) + len(failed) == 400 and len(ok) > 0
-    durable = {r.record_id: r.position for r in harness.read_records("s", 0, None)}
-    assert {r.record_id: r.position for r in ok} == durable  # every success durable & unique; nothing else exists
-    assert len(set(durable.values())) == len(durable)
+    assert len(ok) + len(failed) == 400
+    ok_keys = [r.idempotency_key for r in ok]
+    assert len(set(ok_keys)) == len(ok_keys) and len(set(r.record_id for r in ok)) == len(ok)  # no duplicate success
+    with sqlite3.connect(harness.db_path) as c:
+        rows = c.execute("SELECT idempotency_key, record_id, position FROM records").fetchall()
+    assert len(rows) == len(ok)  # durable rows == explicit successes (nothing extra, nothing missing)
+    assert sorted(rows) == sorted((r.idempotency_key, r.record_id, r.position) for r in ok)
+    assert len({p for _, _, p in rows}) == len(rows)
     assert _integrity(harness.db_path) == "ok"
     fk = sqlite3.connect(harness.db_path)
     try:
@@ -173,9 +177,11 @@ def test_con_009_different_streams_progress_independently(harness):
     assert all(not isinstance(r, Exception) for r in res), res
     for stream in ("s1", "s2"):
         pos = [r.position for r in harness.read_records(stream, 0, None)]
-        assert len(pos) == 80 and len(set(pos)) == 80 and pos == sorted(pos)
-        assert pos[0] == 1 and pos[-1] == 80  # own dense-from-1 sequence; streams never share a counter
+        committed = _positions(harness.db_path, stream)  # actual committed positions; gaps are allowed (TD-01)
+        assert pos == committed and len(pos) == 80 and len(set(pos)) == 80 and pos == sorted(pos)
         assert all(r.stream_id == stream for r in harness.read_records(stream, 0, None))
+    p1, p2 = _positions(harness.db_path, "s1"), _positions(harness.db_path, "s2")
+    assert set(p1) & set(p2)  # independent per-stream sequences overlap in value; a shared counter could never repeat
 
 
 def _race_offset_vs_append(harness, order):
@@ -194,17 +200,28 @@ def _race_offset_vs_append(harness, order):
         return hook
 
     out = {}
+    entered = threading.Event()  # set by the SECOND thread's store when it enters its competing operation
+
+    def signal(point_name):
+        def hook(point):
+            if point == point_name:
+                entered.set()
+        return hook
+
     if order == "advancer-first":  # advancer holds the write lock inside its head check; writer must queue behind it
         advancer.fault_hook = hold("offset.before_head_check")
+        writer.fault_hook = signal("append.begin")
         first = threading.Thread(target=lambda: out.update(adv=_try(lambda: advancer.advance_offset_cas("b", "s", 4, off.revision))), daemon=True)
         second = threading.Thread(target=lambda: out.update(app=_try(lambda: writer.append_record(**req(body="new", key="h4")))), daemon=True)
     else:  # writer-first: writer commits H+1 only after the advancer is already waiting for the lock
         writer.fault_hook = hold("append.before_commit")
+        advancer.fault_hook = signal("offset.begin")
         first = threading.Thread(target=lambda: out.update(app=_try(lambda: writer.append_record(**req(body="new", key="h4")))), daemon=True)
         second = threading.Thread(target=lambda: out.update(adv=_try(lambda: advancer.advance_offset_cas("b", "s", 4, off.revision))), daemon=True)
     first.start()
     assert gate_in.wait(BT)
     second.start()
+    assert entered.wait(BT), "second thread never entered its competing operation"  # handshake before releasing
     gate_release.set()
     first.join(BT), second.join(BT)
     assert not first.is_alive() and not second.is_alive()

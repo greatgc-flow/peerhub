@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ from peerhub.m1.store import CoreStore
 
 def compute_state_digest(db_path) -> str:
     h = hashlib.sha256()
-    with sqlite3.connect(db_path) as c:
+    with closing(sqlite3.connect(db_path)) as c:
         names = sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"))
         for t in names:
             h.update(t.encode())
@@ -91,16 +92,16 @@ class CoreHarness:
 
     # --- observability of state
     def table_names(self) -> list[str]:
-        with sqlite3.connect(self.db_path) as c:
+        with closing(sqlite3.connect(self.db_path)) as c:
             return sorted(r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"))
 
     def row_counts(self) -> dict[str, int]:
-        with sqlite3.connect(self.db_path) as c:
+        with closing(sqlite3.connect(self.db_path)) as c:
             return {t: c.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in self.table_names()}
 
     def table_digests(self) -> dict[str, str]:
         out = {}
-        with sqlite3.connect(self.db_path) as c:
+        with closing(sqlite3.connect(self.db_path)) as c:
             for t in self.table_names():
                 h = hashlib.sha256()
                 for row in c.execute(f"SELECT * FROM {t} ORDER BY 1,2"):

@@ -7,6 +7,7 @@ fence check and the write share one transaction. Full Bridge semantics (sessions
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from contextlib import contextmanager
@@ -22,6 +23,14 @@ class ClaimHeldError(RuntimeError):
 
 class StaleClaimError(RuntimeError):
     """Token is not the current claim (superseded, expired, wrong owner/generation, or another workspace generation)."""
+
+
+class ClaimFinalizedError(RuntimeError):
+    """This claim generation already recorded its terminal finalization."""
+
+
+class ClaimScopeError(RuntimeError):
+    """A valid claim was presented for a write targeting a different (stream, peer) scope."""
 
 
 @dataclass(frozen=True)
@@ -44,6 +53,14 @@ CREATE TABLE IF NOT EXISTS bridge_claims (
     workspace_generation TEXT NOT NULL,
     PRIMARY KEY (stream_id, peer_id)
 )"""
+_DDL_FINAL = """
+CREATE TABLE IF NOT EXISTS bridge_finalizations (
+    stream_id TEXT NOT NULL,
+    peer_id TEXT NOT NULL,
+    claim_generation INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    PRIMARY KEY (stream_id, peer_id, claim_generation)
+)"""
 
 
 class ClaimStore:
@@ -53,6 +70,7 @@ class ClaimStore:
         self._clock = clock
         with self._tx() as conn:
             conn.execute(_DDL)
+            conn.execute(_DDL_FINAL)
 
     @contextmanager
     def _tx(self):
@@ -117,10 +135,23 @@ class ClaimStore:
         with self._tx() as conn:
             self._check(conn, token)
 
+    def finalize_terminal(self, token: ClaimToken, result: dict) -> None:
+        """Authoritative terminal finalization write; fenced by the current token in the same transaction (TD-25)."""
+        with self._tx() as conn:
+            self._check(conn, token)
+            try:
+                conn.execute("INSERT INTO bridge_finalizations VALUES (?,?,?,?)",
+                             (token.stream_id, token.peer_id, token.generation,
+                              json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False)))
+            except sqlite3.IntegrityError as e:
+                raise ClaimFinalizedError(f"claim generation {token.generation} already finalized") from e
+
     def guard(self, token: ClaimToken) -> Callable[[sqlite3.Connection], None]:
         """Fence check to run inside a Core write transaction (same connection, same serialization point)."""
 
-        def check(conn: sqlite3.Connection) -> None:
+        def check(conn: sqlite3.Connection, *, stream_id: str | None = None, peer_id: str | None = None) -> None:
+            if (stream_id is not None and stream_id != token.stream_id) or (peer_id is not None and peer_id != token.peer_id):
+                raise ClaimScopeError(f"claim for ({token.peer_id}, {token.stream_id}) cannot authorize ({peer_id}, {stream_id})")
             self._check(conn, token)
 
         return check

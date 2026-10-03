@@ -228,18 +228,3 @@ def test_sql_010_restore_generation_replacement_is_observable(harness, tmp_path)
     assert harness.get_stream("s") is not None and len(harness.read_records("s")) == 1  # restored data intact
     fresh = claims2.acquire("a", "s", "owner", lease_sec=300)  # fresh claim for G2 works
     assert fresh.workspace_generation == g2 and claims2.heartbeat(fresh)
-
-
-@pytest.mark.m1_id("SQL-011")
-def test_sql_011_server_computes_digest_and_ids_durably(harness):
-    seed(harness)
-    request = req(body={"k": [1, "two", None]}, key="d1", metadata={"m": 1}, targets=["b"])
-    assert not {"record_id", "position", "payload_digest", "appended_at"} & set(request)
-    rec = harness.append_record(request)
-    harness.reopen()
-    (stored,) = harness.read_records("s")
-    assert stored == rec
-    expected = compute_record_digest(AppendRequest(**request).model_dump())
-    assert stored.payload_digest == expected
-    assert stored.record_id and stored.position == 1 and stored.appended_at
-    assert stored.appended_at != request["created_at"]  # server clock, not client supplied

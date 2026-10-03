@@ -87,11 +87,16 @@ class CoreStore:
         """Read-only unit of work: `mode=ro` + `query_only`; any write is rejected by SQLite itself."""
         conn = sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=30.0)
         conn.row_factory = sqlite3.Row
+        conn.isolation_level = None
         conn.execute("PRAGMA query_only = ON;")
         conn.execute("PRAGMA foreign_keys = ON;")
         try:
+            conn.execute("BEGIN")  # one read transaction = one committed snapshot for the whole UoW
+            conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # pins the snapshot now (WAL read mark)
             yield conn
         finally:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
             conn.close()
 
     def _get_connection(self) -> sqlite3.Connection:
@@ -237,14 +242,16 @@ class CoreStore:
             return new
 
     # --- Record
-    def append_record(self, *, guard: Callable[[sqlite3.Connection], None] | None = None, **request: Any) -> Record:
+    def append_record(self, *, guard: Callable[..., None] | None = None, **request: Any) -> Record:
         """Append (TD-20 scope: stream_id, author_peer_id, idempotency_key). Server-owned fields are rejected (TD-21).
-        `guard(conn)` runs first inside the write transaction (fencing, TD-25); raising aborts with no mutation."""
+        `guard(conn, stream_id=, peer_id=)` runs first inside the write transaction with the write target scope
+        (fencing, TD-25); raising aborts with no mutation."""
         req = AppendRequest(**request)
         digest = compute_record_digest(req.model_dump())
+        self._fire("append.begin")
         with self._tx("append") as conn:
             if guard is not None:
-                guard(conn)
+                guard(conn, stream_id=req.stream_id, peer_id=req.author_peer_id)
             existing = conn.execute(
                 "SELECT * FROM records WHERE stream_id = ? AND author_peer_id = ? AND idempotency_key = ?",
                 (req.stream_id, req.author_peer_id, req.idempotency_key),
@@ -310,13 +317,14 @@ class CoreStore:
                           read_through_position=row["read_through_position"], revision=row["revision"])
 
     def advance_offset_cas(self, peer_id: str, stream_id: str, new_position: int, expected_revision: int,
-                           guard: Callable[[sqlite3.Connection], None] | None = None) -> Offset:
+                           guard: Callable[..., None] | None = None) -> Offset:
         """Checks in order: references, revision CAS, monotonic (TD-03), head bound (TD-10). Accepted write bumps revision once."""
         if isinstance(new_position, bool) or not isinstance(new_position, int) or new_position < 0:
             raise ValueError("new_position must be an integer >= 0")
+        self._fire("offset.begin")
         with self._tx() as conn:
             if guard is not None:
-                guard(conn)
+                guard(conn, stream_id=stream_id, peer_id=peer_id)
             self._require_peers(conn, [peer_id])
             self._require_stream(conn, stream_id)
             row = conn.execute(

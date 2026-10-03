@@ -71,12 +71,15 @@ def test_mp_004_multiprocess_claim_race_elects_one_owner(harness):
     assert len(winners) == 1 and len(losers) == NPROC - 1, results
     assert all(r["acquire_err"]["type"] == "ClaimHeldError" for r in losers)
     w = winners[0]
-    assert "ack" in w and "append" in w, w  # positive control: the elected owner can ack and append
+    assert "ack" in w and "append" in w and w.get("final") is True, w  # positive control: the elected owner can ack and append
     for r in losers:  # losers cannot append response / ack
         assert r["ack_err"]["type"] == "StaleClaimError" and r["append_err"]["type"] == "StaleClaimError", r
+        assert r["final_err"]["type"] == "StaleClaimError" and "final" not in r
         assert "ack" not in r and "append" not in r
     with sqlite3.connect(harness.db_path) as c:
         rows = c.execute("SELECT owner_id, generation FROM bridge_claims").fetchall()
         assert rows == [(w["owner"], 1)]
         assert c.execute("SELECT COUNT(*) FROM records WHERE idempotency_key LIKE 'resp-%'").fetchone()[0] == 1
+        fin = c.execute("SELECT claim_generation, result_json FROM bridge_finalizations").fetchall()
+        assert fin == [(1, '{"by":"%s"}' % w["owner"])]  # exactly one terminal finalization, by the elected owner
     assert harness.get_offset("a", "s").read_through_position == 1

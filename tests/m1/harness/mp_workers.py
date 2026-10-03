@@ -96,6 +96,11 @@ def claim_worker(db_path: str, ws_root: str, barrier: Any, owner: str, peer: str
             out["append"] = r.position
         except Exception as e:
             out["append_err"] = _err(e)
+        try:
+            claims.finalize_terminal(tok, {"by": owner})
+            out["final"] = True
+        except Exception as e:
+            out["final_err"] = _err(e)
     except BaseException as e:
         out["fatal"] = _err(e)
     out_q.put(out)
