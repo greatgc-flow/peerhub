@@ -266,7 +266,8 @@ def test_cert_001_insert_or_replace_cannot_bypass_append_only_or_terminal_immuta
     # control: the mutable mapping table accepts REPLACE (immutability is targeted, not blanket)
     with bridge_h.cs._tx() as c:
         c.execute("INSERT OR REPLACE INTO bridge_sessions SELECT stream_id, peer_id, runtime_kind, external_session_id, "
-                  "session_generation, adapter_fingerprint, binding, resumable, state, last_seen + 1 FROM bridge_sessions LIMIT 1")
+                  "session_generation, adapter_fingerprint, binding, resumable, state, last_seen + 1, workspace_generation "
+                  "FROM bridge_sessions LIMIT 1")
 
 
 @pytest.mark.m1_id("CERT-001")

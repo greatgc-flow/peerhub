@@ -252,7 +252,7 @@ def read_only_authorizer(allow_transactions: bool = False):
             return sqlite3.SQLITE_OK
         if allow_transactions and action == sqlite3.SQLITE_TRANSACTION and arg1 in ("BEGIN", "ROLLBACK"):
             return sqlite3.SQLITE_OK
-        if action == sqlite3.SQLITE_PRAGMA and arg1 == "query_only" and arg2 is None:
+        if action == sqlite3.SQLITE_PRAGMA and arg1 in ("query_only", "quick_check") and arg2 is None:
             return sqlite3.SQLITE_OK
         return sqlite3.SQLITE_DENY
     return authorize

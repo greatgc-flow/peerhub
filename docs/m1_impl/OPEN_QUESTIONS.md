@@ -106,3 +106,13 @@
 - RED: 4 new/changed tests failed on the pre-fix production code (non-literal SQL in Diag, "not authorized" missing, pool REPLACE did not raise). Production edits were made before the tests were written, so RED was re-established by reverting `peerhub/extensions` and re-applying.
 - Mutation probes (foreground, restored): 5/5 killed (no Diag authorizer, PRAGMA write form allowed, INSERT allowed by authorizer, store read connection without authorizer, pool no-replace trigger off).
 - Gate: architecture/diag/observation/concurrency 3x green (72 tests), other dirs green, traceability --upto 5 ok, validate_package PASS.
+
+
+## Wave 6 (2026-10-04): fault injection / E2E / security
+- Q-W6-1 (OWNER): FLT-008 "G1 session cannot be used". Chosen: `bridge_sessions.workspace_generation`; a mapping from another workspace generation is never resumed (reason `workspace_generation_change`, fresh session generation with durable catch-up). Pre-existing rows (column absent) get '' => always fresh (conservative). Confirm vs. letting a restored mapping resume.
+- Q-W6-2 (OWNER): open-time `PRAGMA quick_check` on every `CoreStore()` open (fail closed on corruption, FLT-013). Cost is O(db size) per open; alternative is lazy detection only. Diag also runs quick_check inside its snapshot and reports FAILED.
+- Q-W6-3 (decided): busy/locked stays the raw `sqlite3.OperationalError` ("database is locked", SQLITE_BUSY) to keep the MP-001 contract; read-only/full/corrupt become `StorageReadOnlyError`/`StorageFullError`/`StorageCorruptError` (subclasses of sqlite3 errors, original as `__cause__`). Busy timeout is configurable (`busy_timeout_ms`, default 30000).
+- Q-W6-4 (decided): disk-full is injected with a real `PRAGMA max_page_count` via the `conn_init` seam (no Python VFS exists); read-only = real `chmod` of core.db (WAL folded first); corruption = disposable copies with real header/page damage.
+- Q-W6-5 (decided, D-W3-1/Q-W5-11 precedent): catalog tier `e2e` is deselected by default; E2E tests carry `integration` and stay in the default gate.
+- Q-W6-6 (decided): a fresh generation in a new process writes one `context.boundary` Record before the responses (E2E-003 oracle states it literally).
+- Q-W6-7: CLI `diag` without the extension exits 5 with an explicit message; storage faults exit 4 (new codes, no spec value). Dead path: Diag quick_check non-raising branch is unreachable by any corruption we could craft (all raise), so that mutant survives as equivalent.

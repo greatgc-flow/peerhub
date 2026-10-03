@@ -87,6 +87,9 @@ class ReadonlyDiag:
             conn.set_authorizer(read_only_authorizer(allow_transactions=True))  # runtime deny of every non-read statement
             conn.execute("BEGIN")
             conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # pins the read snapshot now
+            rows = conn.execute("PRAGMA quick_check").fetchall()  # read-only probe: a corrupt authoritative store is FAILED, never half-reported
+            if [r[0] for r in rows] != ["ok"]:
+                raise sqlite3.DatabaseError(f"integrity check failed: {[r[0] for r in rows[:3]]}")
         except BaseException:
             try:
                 conn.close()

@@ -63,16 +63,75 @@ class OffsetBeyondHeadError(ValueError):
     """Offset may not exceed the committed Stream head (TD-10)."""
 
 
+class StorageReadOnlyError(sqlite3.OperationalError):
+    """The database/filesystem is read-only; the operation failed closed with no change (FLT-012)."""
+
+
+class StorageFullError(sqlite3.OperationalError):
+    """SQLITE_FULL: the write was rolled back atomically (FLT-011)."""
+
+
+class StorageCorruptError(sqlite3.DatabaseError):
+    """The database file is corrupt/not a database; nothing was recreated, repaired or written (FLT-013)."""
+
+
+_STORAGE_ERRORS = (StorageReadOnlyError, StorageFullError, StorageCorruptError)
+_CODE_READONLY, _CODE_FULL, _CODE_CORRUPT, _CODE_NOTADB = 8, 13, 11, 26  # SQLite primary result codes
+
+
+def classify_storage_error(e: sqlite3.DatabaseError) -> sqlite3.DatabaseError | None:
+    """Map a raw SQLite failure to a precise storage error (None = not a storage-health failure: callers re-raise it unchanged).
+    Busy/locked stays the raw OperationalError (explicit, retryable, MP-001)."""
+    if isinstance(e, _STORAGE_ERRORS):
+        return None
+    code = (getattr(e, "sqlite_errorcode", None) or 0) & 0xFF
+    cls = {_CODE_READONLY: StorageReadOnlyError, _CODE_FULL: StorageFullError, _CODE_CORRUPT: StorageCorruptError,
+           _CODE_NOTADB: StorageCorruptError}.get(code)
+    return None if cls is None else cls(str(e))
+
+
+@contextmanager
+def storage_errors():
+    """Re-raise SQLite storage faults as precise Storage*Error (original kept as __cause__); everything else is untouched."""
+    try:
+        yield
+    except sqlite3.DatabaseError as e:
+        mapped = classify_storage_error(e)
+        if mapped is None:
+            raise
+        raise mapped from e
+
+
 STREAM_MUTATION_KEYS = frozenset({"state", "members", "title", "metadata"})
 
 
 
 class CoreStore:
-    def __init__(self, db_path: str | Path, fault_hook: Callable[[str], None] | None = None) -> None:
-        """`fault_hook(point)` is a test seam (CrashInjector points: append.before_commit, offset.before_head_check)."""
+    def __init__(self, db_path: str | Path, fault_hook: Callable[[str], None] | None = None, *,
+                 busy_timeout_ms: int = 30000, conn_init: Callable[[sqlite3.Connection], None] | None = None) -> None:
+        """Test seams: `fault_hook(point)` (CrashInjector points: append.begin, append.before_commit, append.after_commit,
+        offset.before_head_check); `conn_init(conn)` runs on every store connection (e.g. a real `PRAGMA max_page_count`);
+        `busy_timeout_ms` bounds how long a writer waits for the database write lock before failing explicitly."""
         self.db_path = str(db_path)
         self.fault_hook = fault_hook
-        run_migrations(self.db_path)  # ordered, transactional, no-op at current version; rejects future versions (TD-14)
+        self.busy_timeout_ms = int(busy_timeout_ms)
+        self.conn_init = conn_init
+        with storage_errors():
+            self._preflight()  # fail closed on a corrupt/foreign file BEFORE any migration/WAL change (FLT-013)
+            run_migrations(self.db_path)  # ordered, transactional, no-op at current version; rejects future versions (TD-14)
+
+    def _preflight(self) -> None:
+        """Read-only integrity probe of an EXISTING non-empty file: never creates, repairs or migrates anything."""
+        path = Path(self.db_path)
+        if not path.exists() or path.stat().st_size == 0:
+            return
+        conn = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
+        try:
+            rows = conn.execute("PRAGMA quick_check").fetchall()
+        finally:
+            conn.close()
+        if rows != [("ok",)]:
+            raise StorageCorruptError(f"integrity check failed: {[r[0] for r in rows[:3]]}")
 
     def _fire(self, point: str) -> None:
         if self.fault_hook is not None:
@@ -86,26 +145,34 @@ class CoreStore:
     def read_uow(self):
         """Read-only unit of work: `mode=ro` + `query_only`; any write is rejected by SQLite itself."""
         conn = sqlite3.connect(Path(self.db_path).resolve().as_uri() + "?mode=ro", uri=True, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.isolation_level = None
-        conn.execute("PRAGMA query_only = ON;")
-        conn.execute("PRAGMA foreign_keys = ON;")
         try:
-            conn.execute("BEGIN")  # one read transaction = one committed snapshot for the whole UoW
-            conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # pins the snapshot now (WAL read mark)
-            yield conn
+            with storage_errors():
+                conn.row_factory = sqlite3.Row
+                conn.isolation_level = None
+                conn.execute("PRAGMA query_only = ON;")
+                conn.execute("PRAGMA foreign_keys = ON;")
+                conn.execute("BEGIN")  # one read transaction = one committed snapshot for the whole UoW
+                conn.execute("SELECT COUNT(*) FROM sqlite_master").fetchone()  # pins the snapshot now (WAL read mark)
+                yield conn
         finally:
             if conn.in_transaction:
                 conn.execute("ROLLBACK")
             conn.close()
 
     def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL;")
-        conn.execute("PRAGMA foreign_keys = ON;")
-        conn.execute("PRAGMA recursive_triggers = ON;")  # REPLACE deletes must fire the immutability trigger
-        conn.execute("PRAGMA busy_timeout = 30000;")
+        conn = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000.0)
+        try:
+            with storage_errors():
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode = WAL;")
+                conn.execute("PRAGMA foreign_keys = ON;")
+                conn.execute("PRAGMA recursive_triggers = ON;")  # REPLACE deletes must fire the immutability trigger
+                conn.execute(f"PRAGMA busy_timeout = {self.busy_timeout_ms};")
+                if self.conn_init is not None:
+                    self.conn_init(conn)
+        except BaseException:
+            conn.close()
+            raise
         return conn
 
     @contextmanager
@@ -115,15 +182,20 @@ class CoreStore:
         conn = self._get_connection()
         conn.isolation_level = None
         try:
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                yield conn
-                if point is not None:
-                    self._fire(f"{point}.before_commit")
-            except BaseException:
-                conn.execute("ROLLBACK")
-                raise
-            conn.execute("COMMIT")
+            with storage_errors():
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    yield conn
+                    if point is not None:
+                        self._fire(f"{point}.before_commit")
+                except BaseException:
+                    if conn.in_transaction:  # SQLite may already have rolled back (SQLITE_FULL): never mask the original error
+                        try:
+                            conn.execute("ROLLBACK")
+                        except sqlite3.Error:
+                            pass  # closing the connection discards the transaction
+                    raise
+                conn.execute("COMMIT")
         finally:
             conn.close()
 
@@ -131,7 +203,8 @@ class CoreStore:
     def _read(self):
         conn = self._get_connection()
         try:
-            yield conn
+            with storage_errors():
+                yield conn
         finally:
             conn.close()
 
@@ -282,7 +355,9 @@ class CoreStore:
                  json.dumps(req.metadata, ensure_ascii=False, allow_nan=False), req.idempotency_key, digest,
                  req.created_at, now),
             )
-            return self._row_to_record(conn.execute("SELECT * FROM records WHERE record_id = ?", (rec_id,)).fetchone())
+            rec = self._row_to_record(conn.execute("SELECT * FROM records WHERE record_id = ?", (rec_id,)).fetchone())
+        self._fire("append.after_commit")  # committed; the caller has not been told yet (lost-response seam)
+        return rec
 
     def read_records(self, stream_id: str, after_position: int = 0, limit: int = 100) -> list[Record]:
         """Exclusive of after_position; limit must be positive (TD-22)."""

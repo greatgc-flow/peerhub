@@ -16,8 +16,7 @@ import sys
 from pathlib import Path
 
 from peerhub.m1.models import Offset, Peer, Record, Stream, StreamState, utc_now_iso
-from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError
-from peerhub.extensions.diag import ReadonlyDiag
+from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -95,9 +94,15 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    store = CoreStore(args.db)
 
     try:
+        if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
+            try:
+                from peerhub.extensions.diag import ReadonlyDiag
+            except ImportError as e:
+                print(f"ERROR: the diagnostics extension is unavailable ({e})", file=sys.stderr)
+                return 5
+        store = CoreStore(args.db)
         if args.subcommand == "peer":
             if args.action == "register":
                 p = store.register_peer(
@@ -180,6 +185,9 @@ def main(argv: list[str] | None = None) -> int:
 
         return 0
 
+    except (StorageReadOnlyError, StorageFullError, StorageCorruptError) as e:
+        print(f"STORAGE ERROR ({type(e).__name__}): {e}", file=sys.stderr)
+        return 4
     except IdempotencyConflictError as e:
         print(f"CONFLICT ERROR: {e}", file=sys.stderr)
         return 2

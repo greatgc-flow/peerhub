@@ -70,3 +70,7 @@
 ## Wave 5 closed (orchestrator, 2026-10-04) at 94f48f9
 - ag.pro adversarial gate: 2 findings (static ARCH-004 bypass -> runtime sqlite authorizer + dynamic-SQL static flag; resource_pools INSERT OR REPLACE -> no-replace trigger + audit), both fixed with probes. No further re-gate; cx final review covers waves 0-7.
 - OWNER items (Q-W5-*): TTL numbers (300s default; spec gives none), negative-age handling (UNKNOWN), trust of wire captured_at, measurement-key exclusion list for non-MEASURED states, source-declared quota/rate-limit semantic, subject_ref not checked against peers.
+
+## Wave 6 (orchestrator, 2026-10-04): see OPEN_QUESTIONS Q-W6-*
+- D-W6-1: Core fails closed on read-only/full/corrupt storage with typed errors, unchanged state and no repair/recreate (FLT-011/012/013); busy stays raw OperationalError (MP-001).
+- D-W6-2: session mappings are bound to the workspace generation (FLT-008, OWNER Q-W6-1). D-W6-3: Core CLI works with extensions absent (E2E-009).

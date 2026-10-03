@@ -129,7 +129,8 @@ _DDL = [
     """CREATE TABLE IF NOT EXISTS bridge_sessions (
         stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, runtime_kind TEXT NOT NULL, external_session_id TEXT NOT NULL,
         session_generation INTEGER NOT NULL, adapter_fingerprint TEXT NOT NULL, binding TEXT NOT NULL,
-        resumable INTEGER NOT NULL, state TEXT NOT NULL, last_seen REAL NOT NULL, PRIMARY KEY (stream_id, peer_id))""",
+        resumable INTEGER NOT NULL, state TEXT NOT NULL, last_seen REAL NOT NULL,
+        workspace_generation TEXT NOT NULL DEFAULT '', PRIMARY KEY (stream_id, peer_id))""",
     """CREATE TABLE IF NOT EXISTS bridge_session_events (
         seq INTEGER PRIMARY KEY AUTOINCREMENT, stream_id TEXT NOT NULL, peer_id TEXT NOT NULL, event TEXT NOT NULL,
         from_state TEXT NOT NULL, to_state TEXT NOT NULL, generation INTEGER NOT NULL, detail TEXT NOT NULL)""",
@@ -223,6 +224,9 @@ class Bridge:
                 conn.execute(f'DROP TRIGGER IF EXISTS "{name}"')
             for stmt in _DDL:
                 conn.execute(stmt)
+            if "workspace_generation" not in {r[1] for r in conn.execute("PRAGMA table_info(bridge_sessions)")}:
+                # stores created before FLT-008: unknown lineage ('' never equals a real generation) => never resumed, always fresh
+                conn.execute("ALTER TABLE bridge_sessions ADD COLUMN workspace_generation TEXT NOT NULL DEFAULT ''")
 
     def _fire(self, point: str) -> None:
         if self._hook is not None:
@@ -340,7 +344,8 @@ class Bridge:
         bnd = runtime.binding()
         now = self.claims._clock()
         reason = None
-        if m is not None and m["adapter_fingerprint"] == fp and m["binding"] == bnd and m["resumable"] and m["state"] in ("ACTIVE", "FRESH"):
+        if (m is not None and m["adapter_fingerprint"] == fp and m["binding"] == bnd and m["resumable"] and m["state"] in ("ACTIVE", "FRESH")
+                and m["workspace_generation"] == token.workspace_generation):  # FLT-008: a session of another lineage is never resumed
             try:
                 outcome = runtime.resume_session(m["external_session_id"])
             except SessionError:
@@ -360,7 +365,8 @@ class Bridge:
                 else:
                     self._session_event(conn, token, "resume_rejected", m["state"], "FRESH", m["session_generation"], outcome=outcome)
         elif m is not None:
-            reason = ("fingerprint_change" if m["adapter_fingerprint"] != fp else "binding_change" if m["binding"] != bnd
+            reason = ("workspace_generation_change" if m["workspace_generation"] != token.workspace_generation
+                      else "fingerprint_change" if m["adapter_fingerprint"] != fp else "binding_change" if m["binding"] != bnd
                       else "not_resumable" if not m["resumable"] else self._lost_reason(token) if m["state"] == "LOST" else m["state"].lower())
             with self.claims.fenced(token) as conn:
                 self._session_event(conn, token, reason, m["state"], "FRESH", m["session_generation"])
@@ -380,9 +386,10 @@ class Bridge:
                 continue
             gen = 1 if m is None else m["session_generation"] + 1
             with self.claims.fenced(token) as conn:
-                conn.execute("INSERT OR REPLACE INTO bridge_sessions VALUES (?,?,?,?,?,?,?,?,?,?)",
+                conn.execute("INSERT OR REPLACE INTO bridge_sessions (stream_id, peer_id, runtime_kind, external_session_id, session_generation, "
+                             "adapter_fingerprint, binding, resumable, state, last_seen, workspace_generation) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                              (token.stream_id, token.peer_id, runtime.runtime_kind, ext, gen, fp, bnd,
-                              1 if runtime.resumable else 0, "ACTIVE" if m is None else "FRESH", now))
+                              1 if runtime.resumable else 0, "ACTIVE" if m is None else "FRESH", now, token.workspace_generation))
                 self._session_event(conn, token, "created" if m is None else "fresh_generation",
                                     "NONE" if m is None else ("LOST" if reason == "missing" or m["state"] == "LOST" else "ACTIVE"),
                                     "ACTIVE" if m is None else "FRESH", gen, reason=reason, at=_iso(now))
