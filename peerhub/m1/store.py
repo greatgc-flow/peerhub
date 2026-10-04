@@ -15,7 +15,7 @@ import sqlite3
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from .migrations import rollback_quietly, run_migrations
 from .models import (
@@ -29,6 +29,11 @@ from .models import (
     compute_record_digest,
     utc_now_iso,
 )
+
+
+def _is_int(v: object) -> bool:
+    """Wire/untyped boundary check: a real int, never a bool."""
+    return isinstance(v, int) and not isinstance(v, bool)
 
 
 class IdempotencyConflictError(Exception):
@@ -150,6 +155,14 @@ class CoreStore:
     def _fire(self, point: str) -> None:
         if self.fault_hook is not None:
             self.fault_hook(point)
+
+    def fire(self, point: str) -> None:
+        """Public fault-seam trigger for first-party importers (same hook as the Core's own commit points)."""
+        self._fire(point)
+
+    def insert_record(self, conn: sqlite3.Connection, req: AppendRequest, digest: str) -> Record:
+        """Insert one Record inside the caller's write transaction (importer path; same code as append_record)."""
+        return self._insert_record(conn, req, digest)
 
     def connect(self) -> sqlite3.Connection:
         """Raw connection with the Core pragmas (WAL, foreign_keys, busy_timeout). Caller closes it."""
@@ -296,7 +309,7 @@ class CoreStore:
 
     def cas_stream(self, stream_id: str, expected_revision: int, mutation: dict[str, Any]) -> Stream:
         """Revision-CAS mutation (TD-09). Keys: state (OPEN->CLOSED only), members (replacement), title, metadata."""
-        if not isinstance(mutation, dict) or not mutation or set(mutation) - STREAM_MUTATION_KEYS:
+        if not isinstance(cast(object, mutation), dict) or not mutation or set(mutation) - STREAM_MUTATION_KEYS:
             raise ValueError(f"mutation must be a non-empty dict with keys from {sorted(STREAM_MUTATION_KEYS)}")
         if "metadata" in mutation:
             assert_json_value(mutation["metadata"], "metadata")
@@ -383,9 +396,9 @@ class CoreStore:
 
     def read_records(self, stream_id: str, after_position: int = 0, limit: int = 100) -> list[Record]:
         """Exclusive of after_position; limit must be positive (TD-22)."""
-        if isinstance(after_position, bool) or not isinstance(after_position, int) or after_position < 0:
+        if not _is_int(after_position) or after_position < 0:
             raise ValueError("after_position must be an integer >= 0")
-        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        if not _is_int(limit) or limit < 1:
             raise ValueError("limit must be a positive integer")
         with self._read() as conn:
             rows = conn.execute(
@@ -416,7 +429,7 @@ class CoreStore:
     def advance_offset_cas(self, peer_id: str, stream_id: str, new_position: int, expected_revision: int,
                            guard: Callable[..., None] | None = None) -> Offset:
         """Checks in order: references, revision CAS, monotonic (TD-03), head bound (TD-10). Accepted write bumps revision once."""
-        if isinstance(new_position, bool) or not isinstance(new_position, int) or new_position < 0:
+        if not _is_int(new_position) or new_position < 0:
             raise ValueError("new_position must be an integer >= 0")
         self._fire("offset.begin")
         with self._tx() as conn:

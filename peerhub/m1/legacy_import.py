@@ -22,7 +22,7 @@ import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from .models import AppendRequest, canonical_json_bytes, compute_record_digest
 from .schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionError, future_schema_message
@@ -36,7 +36,7 @@ _EVENT_COLUMNS = ("outbox_position", "event_id", "protocol_major", "protocol_min
                   "recovery_context_json", "appended_at")
 
 
-def EMPTY_PLAN() -> dict[str, list]:
+def EMPTY_PLAN() -> dict[str, list[Any]]:
     return {"write": [], "already": [], "conflicts": []}
 
 
@@ -57,7 +57,7 @@ class _Malformed(ValueError):
 class _NoWrite(Exception):
     """Internal: unit needs no write (already imported / conflict); rolls back the empty transaction."""
 
-    def __init__(self, status: str, reason: str, plan: dict[str, list]) -> None:
+    def __init__(self, status: str, reason: str, plan: dict[str, list[Any]]) -> None:
         super().__init__(status)
         self.status, self.reason, self.plan = status, reason, plan
 
@@ -130,7 +130,7 @@ class LegacyImporter:
                 events = c.execute(f"SELECT {', '.join(_EVENT_COLUMNS)} FROM event_log ORDER BY outbox_position").fetchall()
                 consumers = (c.execute("SELECT consumer_id, outbox_position FROM consumer_offsets ORDER BY consumer_id").fetchall()
                              if "consumer_offsets" in tables else [])
-                unmapped = {}
+                unmapped: dict[str, int] = {}
                 for t in sorted(tables - _MAPPED_TABLES):
                     n = c.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0]
                     if n:
@@ -163,7 +163,7 @@ class LegacyImporter:
                 if not isinstance(refs, list):
                     raise _Malformed("evidence_refs_json is not a JSON list", pos)
                 recovery = None if r["recovery_context_json"] is None else _loads(r["recovery_context_json"], "recovery_context_json", pos)
-                body = {"event_id": eid, "event_kind": r["event_kind"], "correlation_id": cid, "occurred_at": r["occurred_at"],
+                body: dict[str, Any] = {"event_id": eid, "event_kind": r["event_kind"], "correlation_id": cid, "occurred_at": r["occurred_at"],
                         "appended_at": r["appended_at"], "outbox_position": pos, "protocol_major": r["protocol_major"],
                         "protocol_minor": r["protocol_minor"], "schema_version": r["schema_version"],
                         "request_id": _opt_text(r["request_id"], "request_id", pos), "round_id": _opt_text(r["round_id"], "round_id", pos),
@@ -202,13 +202,14 @@ class LegacyImporter:
             else:
                 bad_consumers.append({"consumer_id": cid_, "outbox_position": pos, "reason": "malformed consumer_offsets row"})
         for u in units:
-            u["offsets"] = []
+            offsets_out: list[list[Any]] = []
+            u["offsets"] = offsets_out
             if u["status"] != "malformed":
                 for cons, pos in sorted(good_consumers):
                     n = sum(1 for p in u["positions"] if p <= pos)
                     if n:
-                        u["offsets"].append([cons, n])
-        plan = {"units": units, "unmapped": unmapped, "bad_consumers": bad_consumers}
+                        offsets_out.append([cons, n])
+        plan: dict[str, Any] = {"units": units, "unmapped": unmapped, "bad_consumers": bad_consumers}
         plan["plan_digest"] = _digest({
             "units": [{"unit": u["unit"], "malformed": u["status"] == "malformed", "rows": u["rows"], "digests": u["digests"],
                        "offsets": u["offsets"]} for u in units],
@@ -224,15 +225,15 @@ class LegacyImporter:
             return None
         source = "event_log" if peer_id == AUTHOR_ID else "consumer_offsets"
         try:
-            meta = json.loads(row[0])
-            return isinstance(meta, dict) and meta.get("legacy_import") == {"source": source}
+            meta: object = json.loads(row[0])
+            return isinstance(meta, dict) and cast("dict[str, Any]", meta).get("legacy_import") == {"source": source}
         except (ValueError, TypeError):
             return False
 
     @staticmethod
-    def _persisted_digests(conn: sqlite3.Connection, stream_id: str, limit: int) -> list[tuple]:
+    def _persisted_digests(conn: sqlite3.Connection, stream_id: str, limit: int) -> list[tuple[Any, ...]]:
         """(position, idempotency_key, digest RECOMPUTED from the persisted fields, author) -- never the stored payload_digest."""
-        out = []
+        out: list[tuple[Any, ...]] = []
         for r in conn.execute("SELECT position, idempotency_key, stream_id, author_peer_id, kind, body_json, targets_json, reply_to, "
                               "refs_json, metadata_json, created_at, payload_digest FROM records WHERE stream_id = ? "
                               "ORDER BY position LIMIT ?", (stream_id, limit)):
@@ -245,10 +246,10 @@ class LegacyImporter:
             out.append((r[0], r[1], d if d == r[11] else f"stored-mismatch:{d}", r[3]))
         return out
 
-    def _offset_plan(self, conn: sqlite3.Connection | None, u: dict[str, Any], *, fresh: bool) -> dict[str, list]:
+    def _offset_plan(self, conn: sqlite3.Connection | None, u: dict[str, Any], *, fresh: bool) -> dict[str, list[Any]]:
         """Per-component (offsets) accounting against PERSISTED rows. Never modifies an existing offset (TD-10: no guessing):
         a differing M1 offset is reported as `m1_ahead` (M1 moved past the legacy value) or `legacy_ahead` (legacy moved on)."""
-        plan: dict[str, list] = {"write": [], "already": [], "conflicts": []}
+        plan: dict[str, list[Any]] = {"write": [], "already": [], "conflicts": []}
         for cons, n in u["offsets"]:
             pid = f"legacy:consumer:{cons}"
             if fresh or conn is None:
@@ -266,7 +267,7 @@ class LegacyImporter:
                 plan["conflicts"].append({"consumer": cons, "kind": "m1_ahead" if row[0] > n else "legacy_ahead", "legacy": n, "m1": row[0]})
         return plan
 
-    def _classify(self, conn: sqlite3.Connection | None, u: dict[str, Any]) -> tuple[str, str, dict[str, list]]:
+    def _classify(self, conn: sqlite3.Connection | None, u: dict[str, Any]) -> tuple[str, str, dict[str, list[Any]]]:
         if u["status"] == "malformed":
             return "malformed", u["reason"], EMPTY_PLAN()
         if conn is None:
@@ -279,7 +280,7 @@ class LegacyImporter:
                     return "conflict", f"peer {pid!r} exists and was not created by the legacy importer; refusing to modify it", EMPTY_PLAN()
             return "new", "", self._offset_plan(conn, u, fresh=True)
         try:
-            marker = json.loads(srow[0]).get("legacy_import", {})
+            marker: dict[str, Any] = json.loads(srow[0]).get("legacy_import", {})
         except (ValueError, TypeError, AttributeError):
             marker = {}
         if marker.get("source") != "event_log" or marker.get("group") != u["cid"]:
@@ -326,7 +327,8 @@ class LegacyImporter:
     def dry_run(self) -> dict[str, Any]:
         plan = self._plan()
         conn = self._open_target_readonly()
-        results, totals = [], self._zero()
+        results: list[dict[str, Any]] = []
+        totals = self._zero()
         try:
             for u in plan["units"]:
                 status, reason, oplan = self._classify(conn, u)
@@ -351,7 +353,8 @@ class LegacyImporter:
             raise LegacyPlanChangedError("the legacy source changed since the approved dry-run (plan digest differs); nothing was written")
         self.target.parent.mkdir(parents=True, exist_ok=True)  # only apply creates anything, and only after the source/plan checks passed
         store = CoreStore(self.target, fault_hook=self.fault_hook)  # creates/migrates the M1 target; refuses a future schema
-        results, totals = [], self._zero()
+        results: list[dict[str, Any]] = []
+        totals = self._zero()
         for u in plan["units"]:
             entry = {"unit": u["unit"], "status": "malformed", "records": len(u["digests"]), "reason": u["reason"], "rows": u["rows"],
                      "offsets": EMPTY_PLAN()}
@@ -373,7 +376,7 @@ class LegacyImporter:
                 totals["already_imported_units" if nw.status == "already_imported" else "conflict_units"] += 1
                 totals["offset_conflicts"] += len(nw.plan["conflicts"])
                 continue
-            store._fire("import.unit.after_commit")  # noqa: SLF001 - committed; the report has not been produced yet (crash seam)
+            store.fire("import.unit.after_commit")  # committed; the report has not been produced yet (crash seam)
             entry.update(status="imported" if status == "new" else "updated", reason="", offsets=oplan)
             totals["imported_units" if status == "new" else "updated_units"] += 1
             if status == "new":
@@ -383,7 +386,7 @@ class LegacyImporter:
             totals["offset_conflicts"] += len(oplan["conflicts"])
         return self._report("apply", plan, results, totals, self.source)
 
-    def _write_offsets(self, conn: sqlite3.Connection, u: dict[str, Any], todo: list[list]) -> int:
+    def _write_offsets(self, conn: sqlite3.Connection, u: dict[str, Any], todo: list[list[Any]]) -> int:
         """Add ONLY missing consumer components to an already imported unit: peers, stream membership, offsets. Returns peers created."""
         created, made = u["created_at"], 0
         for cons, n in todo:
@@ -412,7 +415,7 @@ class LegacyImporter:
         for member in [AUTHOR_ID] + [f"legacy:consumer:{c}" for c in consumers]:  # rowid keeps declared order
             conn.execute("INSERT INTO stream_members (stream_id, peer_id) VALUES (?, ?)", (u["unit"], member))
         for request, digest in zip(u["requests"], u["digests"]):
-            store._insert_record(conn, AppendRequest(**request), digest)  # noqa: SLF001 - same insert path as append_record
+            store.insert_record(conn, AppendRequest(**request), digest)
         for cons, n in u["offsets"]:
             conn.execute("INSERT INTO offsets (peer_id, stream_id, read_through_position, revision) VALUES (?, ?, ?, 2)",
                          (f"legacy:consumer:{cons}", u["unit"], n))

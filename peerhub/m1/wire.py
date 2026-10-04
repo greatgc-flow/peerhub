@@ -18,7 +18,13 @@ from .models import Offset, Peer, Record, Stream, compute_record_digest, is_rfc3
 _DIR = Path(__file__).parent / "schemas"
 _MODELS = {"peer": Peer, "stream": Stream, "record": Record, "offset": Offset}
 _FORMATS = FormatChecker()
-_FORMATS.checks("date-time")(lambda v: is_rfc3339(v) if isinstance(v, str) else True)
+
+
+def _check_date_time(v: object) -> bool:
+    return is_rfc3339(v) if isinstance(v, str) else True
+
+
+_FORMATS.checks("date-time")(_check_date_time)
 
 
 class WireValidationError(ValueError):
@@ -33,7 +39,7 @@ def _validator(kind: str) -> Draft202012Validator:
 def parse_wire(kind: str, obj: Any) -> Any:
     if kind not in _MODELS:
         raise WireValidationError(f"unknown core kind {kind!r}")
-    errs = sorted(_validator(kind).iter_errors(obj), key=lambda e: list(e.path))
+    errs = sorted(_validator(kind).iter_errors(obj), key=lambda e: list(e.path))  # pyright: ignore[reportUnknownMemberType]  # jsonschema stubs leave iter_errors partially unknown
     if errs:
         raise WireValidationError("; ".join(f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errs[:5]))
     return _MODELS[kind].model_validate(obj)

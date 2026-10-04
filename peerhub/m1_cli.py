@@ -15,10 +15,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
+from pydantic import BaseModel
 
 from peerhub._console import tolerant_streams
-from peerhub.m1.models import Offset, Peer, Record, Stream, StreamState, utc_now_iso
+from peerhub.m1.models import Peer, Stream, utc_now_iso
 from peerhub.m1.schema_version import SchemaVersionError
 from peerhub.m1.store import CoreStore, IdempotencyConflictError, CasMismatchError, StorageCorruptError, StorageFullError, StorageReadOnlyError
 
@@ -104,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _dump(model) -> str:
+def _dump(model: BaseModel) -> str:
     """JSON with ASCII escapes only: lossless for every Unicode text whatever the console encoding (no encoding is forced on the user)."""
     return json.dumps(model.model_dump(mode="json"), indent=2, ensure_ascii=True)
 
@@ -209,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
 
         elif args.subcommand == "diag":
             if args.action == "health":
+                from peerhub.extensions.diag import ReadonlyDiag  # availability already checked above
                 diag = ReadonlyDiag(args.db)
                 result = diag.inspect_stream_health(args.stream_id)
                 print(json.dumps(result, indent=2, ensure_ascii=True))

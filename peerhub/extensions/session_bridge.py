@@ -10,16 +10,11 @@ from __future__ import annotations
 
 from peerhub.extensions.schema_guard import refuse_future_schema
 
-import json
 import sqlite3
 import time
-from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any
-from pydantic import BaseModel, ConfigDict, Field
-
-from peerhub.m1.models import Record, utc_now_iso
+from pydantic import BaseModel, ConfigDict
 
 
 class ExecutionCertainty(str, Enum):

@@ -14,11 +14,18 @@ from __future__ import annotations
 import json
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
+
+_Entry = tuple[Any, int, int]  # (record, bytes, tokens)
+
+
+def _is_int(v: object) -> bool:
+    """Untyped-boundary check: a real int, never a bool."""
+    return isinstance(v, int) and not isinstance(v, bool)
 
 
 def _check_count(name: str, v: Any) -> None:
-    if v is not None and (isinstance(v, bool) or not isinstance(v, int) or v < 0):
+    if v is not None and (not _is_int(v) or v < 0):
         raise ValueError(f"{name} must be a non-negative int or None, got {v!r}")
 
 
@@ -35,7 +42,7 @@ class CatchUpBudget:
         if self.max_tokens is not None and self.token_estimator is None:
             raise ValueError("max_tokens requires an injected token_estimator")
 
-    def describe(self) -> dict:
+    def describe(self) -> dict[str, Any]:
         return {"max_records": self.max_records, "max_bytes": self.max_bytes, "max_tokens": self.max_tokens}
 
 
@@ -46,7 +53,7 @@ def item_json(record: Any) -> str:
 
 @dataclass(frozen=True)
 class CatchUpProjection:
-    records: tuple
+    records: tuple[Any, ...]
     truncated: bool
     omitted_count: int
     omitted_through_position: int | None
@@ -57,7 +64,7 @@ class CatchUpProjection:
     used_tokens: int
     after_position: int
     before_position: int | None
-    budget: dict = field(default_factory=dict)
+    budget: dict[str, Any] = field(default_factory=dict[str, Any])
     pinned_count: int = 0
 
     @property
@@ -67,7 +74,7 @@ class CatchUpProjection:
     def payload(self) -> str:
         return ",".join(item_json(r) for r in self.records)
 
-    def boundary(self) -> dict:
+    def boundary(self) -> dict[str, Any]:
         """JSON-able boundary/truncation metadata (also persisted in context.boundary Records)."""
         return {"after_position": self.after_position, "before_position": self.before_position, "candidates": self.candidates,
                 "included_count": len(self.records), "first_position": self.first_position, "last_position": self.last_position,
@@ -75,10 +82,10 @@ class CatchUpProjection:
                 "truncated": self.truncated, "pinned_count": self.pinned_count, "used_bytes": self.used_bytes, "used_tokens": self.used_tokens, "budget": dict(self.budget)}
 
 
-class ProjectedRecords(list):
+class ProjectedRecords(list[Any]):
     """The list handed to RuntimeTarget.deliver(): the projected Records plus `.boundary` metadata."""
 
-    boundary: dict | None = None
+    boundary: dict[str, Any] | None = None
 
 
 def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_position: int = 0,
@@ -86,12 +93,12 @@ def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_pos
     """Longest contiguous ordered suffix of the window that fits the budget. With `pin`, Records matching the predicate (e.g. unseen
     redirect intent) are candidates regardless of `after_position` and are RESERVED first (newest first, budget-bounded); the rest of the
     budget is filled with the newest non-pinned suffix. The result is ordered by position and `pinned_count` reports the pinned share."""
-    window: deque = deque()  # non-pinned: (record, bytes, tokens); only ever holds a suffix that fits the budget on its own
-    pins: list = []
+    window: deque[_Entry] = deque()  # non-pinned: (record, bytes, tokens); only ever holds a suffix that fits the budget on its own
+    pins: list[_Entry] = []
     est = budget.token_estimator
     nbytes = ntokens = candidates = 0
     omitted_through: int | None = None
-    last_seen = None
+    last_seen: int | None = None
 
     def over() -> bool:
         return ((budget.max_records is not None and len(window) > budget.max_records)
@@ -121,10 +128,10 @@ def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_pos
             nbytes -= ob + (1 if window else 0)
             ntokens -= ot
             omitted_through = old.position if omitted_through is None else max(omitted_through, old.position)
-    chosen: list = []
+    chosen: list[_Entry] = []
     n = cb = ct = 0
 
-    def take(entry) -> bool:
+    def take(entry: _Entry) -> bool:
         nonlocal n, cb, ct
         _, b, t = entry
         nb, nt = cb + b + (1 if n else 0), ct + t
@@ -136,13 +143,13 @@ def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_pos
         return True
 
     pinned_taken = 0
-    left: list = []
+    left: list[_Entry] = []
     for entry in reversed(pins):
         if left or not take(entry):
             left.append(entry)
         else:
             pinned_taken += 1
-    wleft: list = []
+    wleft: list[_Entry] = []
     for entry in reversed(window):
         if wleft or not take(entry):
             wleft.append(entry)
@@ -159,10 +166,10 @@ def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_pos
 def build_catch_up(store: Any, stream_id: str, budget: CatchUpBudget, *, after_position: int = 0,
                    before_position: int | None = None, page: int = 200, pin: Callable[[Any], bool] | None = None) -> CatchUpProjection:
     """Read the Stream in pages (TD-22, exclusive of the cursor) and project; memory stays bounded by the budget (+ pinned Records)."""
-    if isinstance(page, bool) or not isinstance(page, int) or page <= 0:
+    if not _is_int(page) or page <= 0:
         raise ValueError("page must be a positive int")
 
-    def pages():
+    def pages() -> Iterator[Any]:
         cursor = 0 if pin is not None else after_position  # pinned Records may sit at/below the cursor
         while True:
             batch = store.read_records(stream_id, cursor, page)

@@ -9,6 +9,7 @@ no repair); a crash before COMMIT leaves the previous version untouched.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from dataclasses import dataclass
 from typing import Callable
@@ -163,7 +164,7 @@ def _version(conn: sqlite3.Connection) -> int:
     return conn.execute("PRAGMA user_version").fetchone()[0]
 
 
-def run_migrations(db_path, migrations: list[Migration] | None = None,
+def run_migrations(db_path: str | os.PathLike[str], migrations: list[Migration] | None = None,
                    fault: Callable[[str], None] | None = None) -> list[int]:
     """Apply pending migrations once; returns the versions applied ([] when already current).
 

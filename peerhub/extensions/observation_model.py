@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Mapping
+from typing import Any, Callable, Literal, Mapping, cast
 
 from jsonschema import FormatChecker
 from jsonschema.validators import Draft202012Validator
@@ -109,7 +109,7 @@ class SourceReading:
     """What a source adapter's `probe()` returns. `semantic` is the semantic the source itself claims (quota / rate_limit / ...)."""
 
     state: EvidenceState
-    payload: dict = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict[str, Any])
     observed_at: str | None = None
     semantic: str | None = None
 
@@ -119,10 +119,11 @@ class FreshnessPolicy:
     """TTL policy per observation kind (TD-13: age >= TTL is STALE)."""
 
     default_ttl_seconds: float = 300.0
-    by_kind: Mapping[str, float] = field(default_factory=dict)
+    by_kind: Mapping[str, float] = field(default_factory=dict[str, float])
 
     def __post_init__(self) -> None:
-        for v in (self.default_ttl_seconds, *self.by_kind.values()):
+        ttls: list[object] = [self.default_ttl_seconds, *self.by_kind.values()]  # untyped-boundary values: validated at runtime
+        for v in ttls:
             if isinstance(v, bool) or not isinstance(v, (int, float)) or not v > 0:
                 raise ValueError(f"TTL must be a positive number, got {v!r}")
 
@@ -195,9 +196,10 @@ COLUMNS = ("capture_seq", "observation_id", "subject_ref", "resource_pool_ref", 
 def row_to_observation(row: Any) -> tuple[Observation, int]:
     """Parse one stored row (mapping by COLUMNS); raises ObservationCorruptError when it is not valid evidence."""
     try:
-        payload = json.loads(row["payload_json"])
+        payload: object = json.loads(row["payload_json"])
         if not isinstance(payload, dict):
             raise ValueError("payload is not a JSON object")
+        payload = cast("dict[str, Any]", payload)
         obs = Observation(observation_id=row["observation_id"], subject_ref=row["subject_ref"], resource_pool_ref=row["resource_pool_ref"],
                           kind=row["kind"], source=row["source"], state=EvidenceState(row["state"]), payload=payload,
                           observed_at=row["observed_at"], captured_at=row["captured_at"])
@@ -209,7 +211,11 @@ def row_to_observation(row: Any) -> tuple[Observation, int]:
 
 # ----------------------------------------------------------------------------- wire boundary
 _FORMATS = FormatChecker()
-_FORMATS.checks("date-time")(lambda v: is_rfc3339(v) if isinstance(v, str) else True)
+def _check_date_time(v: object) -> bool:
+    return is_rfc3339(v) if isinstance(v, str) else True
+
+
+_FORMATS.checks("date-time")(_check_date_time)
 _MODELS = {"peer-observation": Observation, "resource-pool": ResourcePool}
 
 
@@ -219,7 +225,7 @@ def _validator(name: str) -> Draft202012Validator:
 
 
 def _parse(name: str, obj: Any) -> Any:
-    errs = sorted(_validator(name).iter_errors(obj), key=lambda e: list(e.path))
+    errs = sorted(_validator(name).iter_errors(obj), key=lambda e: list(e.path))  # pyright: ignore[reportUnknownMemberType]  # jsonschema stubs leave iter_errors partially unknown
     if errs:
         raise WireValidationError("; ".join(f"{'/'.join(map(str, e.path)) or '<root>'}: {e.message}" for e in errs[:5]))
     try:
@@ -243,11 +249,11 @@ def parse_resource_pool_wire(obj: Any) -> ResourcePool:
 _READ_ACTIONS = frozenset({sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE})
 
 
-def read_only_authorizer(allow_transactions: bool = False):
+def read_only_authorizer(allow_transactions: bool = False) -> Callable[[int, str | None, str | None, str | None, str | None], int]:
     """sqlite3 authorizer allowing only SELECT/READ/FUNCTION/RECURSIVE (+ BEGIN/ROLLBACK, + the read form of PRAGMA query_only).
     Everything else (INSERT/UPDATE/DELETE/CREATE*/DROP*/ALTER/ATTACH/TEMP objects/PRAGMA writes/COMMIT) is denied at statement
     preparation time, whatever way the SQL text was built (static scanning can never be complete)."""
-    def authorize(action, arg1, arg2, _db, _src):
+    def authorize(action: int, arg1: str | None, arg2: str | None, _db: str | None, _src: str | None) -> int:
         if action in _READ_ACTIONS:
             return sqlite3.SQLITE_OK
         if allow_transactions and action == sqlite3.SQLITE_TRANSACTION and arg1 in ("BEGIN", "ROLLBACK"):

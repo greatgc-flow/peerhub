@@ -22,10 +22,11 @@ import sqlite3
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Protocol
+from typing import Any, Callable, Iterable, Mapping, Protocol, cast
 
 from peerhub.extensions.bridge_claims import ClaimScopeError, ClaimStore, ClaimToken, StaleClaimError
-from peerhub.extensions.catchup import CatchUpBudget, ProjectedRecords, build_catch_up, project_catch_up
+from peerhub.extensions.catchup import CatchUpBudget, CatchUpProjection, ProjectedRecords, build_catch_up, project_catch_up
+from peerhub.m1.models import Record
 from peerhub.m1.store import CasMismatchError, CoreStore, IdempotencyConflictError
 
 NOT_STARTED, MAY_HAVE_STARTED, STARTED, TERMINAL = "NOT_STARTED", "MAY_HAVE_STARTED", "STARTED", "TERMINAL"
@@ -77,6 +78,20 @@ class BoundaryConflictError(RuntimeError):
     """The deterministic context.boundary key is occupied by a Record that is not this generation's boundary."""
 
 
+@dataclass(frozen=True)
+class _PersistedRecord:
+    """Facts of the Core-persisted Record a delivery is bound to (never the caller's copy)."""
+    record_id: str
+    position: int
+
+
+@dataclass(frozen=True)
+class _PersistedReconcile:
+    record_id: str
+    stream_id: str
+    author: str
+
+
 class RuntimeTargetError(RuntimeError):
     """Ambiguous runtime failure (process/session may have started)."""
 
@@ -93,6 +108,9 @@ class SessionError(RuntimeError):
     """Session create/resume failure."""
 
 
+RuntimeEvent = tuple[str, Any]  # ("started", exec_id) | ("timeout", seconds) | ("terminal", {"response": ...}) | ...
+
+
 class RuntimeTarget(Protocol):
     runtime_kind: str
     resumable: bool
@@ -101,7 +119,11 @@ class RuntimeTarget(Protocol):
     def binding(self) -> str: ...  # model/profile binding; a mapping is only resumable under the same binding
     def create_session(self) -> str: ...
     def resume_session(self, external_session_id: str) -> str: ...  # "ok" | "missing" | "unsupported" | "rejected"
-    def deliver(self, external_session_id: str, record: Any, catch_up: list) -> Iterable[tuple]: ...
+    def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]: ...
+
+
+class SteerableTarget(Protocol):
+    def steer(self, external_session_id: str, record: Any) -> None: ...
 
 
 @dataclass
@@ -112,7 +134,7 @@ class CycleResult:
     certainty: str | None = None
     response_record_id: str | None = None
     session_generation: int | None = None
-    detail: dict = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 CONTROL_EFFECT = {"control.pause": "interrupt", "control.cancel": "terminate", "control.redirect": "steer"}
@@ -134,7 +156,7 @@ class ControlResult:
     effect: str
     runtime_outcome: str | None = None  # done | unsupported | failed | nothing_running | not_required | noted | unsupported_kind
     paused: bool = False
-    detail: dict = field(default_factory=dict)
+    detail: dict[str, Any] = field(default_factory=dict[str, Any])
 
 
 _DDL = [
@@ -302,7 +324,7 @@ class Bridge:
         self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit)
         self._hook = fault_hook
         refuse_future_schema(claims.db_path)  # MIG-003: refuse a future schema before any DDL/DML
-        with claims._tx() as conn:
+        with claims.transaction() as conn:
             owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
             marks = ",".join("?" * len(owned))
             # reopen installs EXACTLY the current trigger set: every trigger on a bridge-owned table is dropped first (including legacy
@@ -327,7 +349,7 @@ class Bridge:
                      (delivery_id, stream_id, peer_id, kind, certainty, json.dumps(detail, sort_keys=True, default=str)))
 
     @staticmethod
-    def _check_scope(row, token: ClaimToken) -> None:
+    def _check_scope(row: sqlite3.Row | Mapping[str, Any], token: ClaimToken) -> None:
         if (row["stream_id"], row["peer_id"]) != (token.stream_id, token.peer_id):
             raise ClaimScopeError(f"claim for ({token.peer_id}, {token.stream_id}) cannot mutate delivery {row['delivery_id']}")
 
@@ -395,7 +417,7 @@ class Bridge:
              "WHERE d.stream_id=? AND d.peer_id=? AND d.certainty=? AND NOT EXISTS (SELECT 1 FROM bridge_invocation_resolutions r "
              "WHERE r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no)")
         args = (token.stream_id, token.peer_id, NOT_STARTED)
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             if not conn.execute(q, args).fetchall():
                 return  # nothing dangling: a read-only (possibly stale) cycle writes nothing
         with self.claims.fenced(token) as conn:
@@ -405,7 +427,7 @@ class Bridge:
                              (did, n, "promoted_may_have_started", token.generation))
 
     @staticmethod
-    def _authentic_record(conn: sqlite3.Connection, token: ClaimToken, record):
+    def _authentic_record(conn: sqlite3.Connection, token: ClaimToken, record: object) -> "_PersistedRecord":
         """Never trust a caller copy: the Record must exist in Core, belong to the claim's Stream, be addressed to the claim's peer and match
         the persisted position/author/kind. Returns the persisted facts."""
         pr = conn.execute("SELECT * FROM records WHERE record_id=?", (getattr(record, "record_id", None),)).fetchone()
@@ -421,9 +443,9 @@ class Bridge:
         for attr, col in (("position", "position"), ("author_peer_id", "author_peer_id"), ("kind", "kind"), ("stream_id", "stream_id")):
             if getattr(record, attr, pr[col]) != pr[col]:
                 raise RecordRejectedError(f"caller copy disagrees with the persisted Record ({attr})")
-        return type("PersistedRecord", (), {"record_id": pr["record_id"], "position": pr["position"]})
+        return _PersistedRecord(pr["record_id"], pr["position"])
 
-    def begin_attempt(self, token: ClaimToken, record, *, reconcile_of: str | None = None) -> str:
+    def begin_attempt(self, token: ClaimToken, record: object, *, reconcile_of: str | None = None) -> str:
         """Create (or, for NOT_STARTED retry, reuse) the attempt row for `record`; returns delivery_id."""
         with self.claims.fenced(token) as conn:
             s, p = token.stream_id, token.peer_id
@@ -457,8 +479,8 @@ class Bridge:
             self._evidence(conn, token.stream_id, token.peer_id, kind, delivery_id, certainty, **detail)
 
     # ------------------------------------------------------------------ harness-facing reads
-    def current_mapping(self, peer_id: str, stream_id: str) -> dict | None:
-        with self.claims._tx() as conn:
+    def current_mapping(self, peer_id: str, stream_id: str) -> dict[str, Any] | None:
+        with self.claims.transaction() as conn:
             r = conn.execute("SELECT * FROM bridge_sessions WHERE stream_id=? AND peer_id=?", (stream_id, peer_id)).fetchone()
         if r is None:
             return None
@@ -466,14 +488,14 @@ class Bridge:
         d["resumable"] = bool(d["resumable"])
         return d
 
-    def session_events(self, peer_id: str, stream_id: str) -> list[dict]:
-        with self.claims._tx() as conn:
+    def session_events(self, peer_id: str, stream_id: str) -> list[dict[str, Any]]:
+        with self.claims.transaction() as conn:
             rows = conn.execute("SELECT * FROM bridge_session_events WHERE stream_id=? AND peer_id=? ORDER BY seq",
                                 (stream_id, peer_id)).fetchall()
         return [dict(r) for r in rows]
 
-    def execution_evidence(self, record_id: str, peer_id: str) -> dict:
-        with self.claims._tx() as conn:
+    def execution_evidence(self, record_id: str, peer_id: str) -> dict[str, Any]:
+        with self.claims.transaction() as conn:
             dels = [dict(r) for r in conn.execute("SELECT * FROM bridge_deliveries WHERE record_id=? AND peer_id=? ORDER BY attempt",
                                                   (record_id, peer_id))]
             ids = [d["delivery_id"] for d in dels]
@@ -484,15 +506,15 @@ class Bridge:
         return {"deliveries": dels, "events": ev}
 
     # ------------------------------------------------------------------ session resolution
-    def _session_event(self, conn, token, event, frm, to, gen, **detail) -> None:
+    def _session_event(self, conn: sqlite3.Connection, token: ClaimToken, event: str, frm: str | None, to: str, gen: int, **detail: Any) -> None:
         conn.execute("INSERT INTO bridge_session_events (stream_id, peer_id, event, from_state, to_state, generation, detail) "
                      "VALUES (?,?,?,?,?,?,?)", (token.stream_id, token.peer_id, event, frm, to, gen, json.dumps(detail, sort_keys=True)))
 
-    def _resolve_session(self, token: ClaimToken, runtime: RuntimeTarget, record, did: str):
+    def _resolve_session(self, token: ClaimToken, runtime: RuntimeTarget, record: Record, did: str):
         m = self.current_mapping(token.peer_id, token.stream_id)
         fp = runtime.fingerprint()
         bnd = runtime.binding()
-        now = self.claims._clock()
+        now = self.claims.now()
         reason = None
         if (m is not None and m["adapter_fingerprint"] == fp and m["binding"] == bnd and m["resumable"] and m["state"] in ("ACTIVE", "FRESH")
                 and m["workspace_generation"] == token.workspace_generation):  # FLT-008: a session of another lineage is never resumed
@@ -563,14 +585,14 @@ class Bridge:
 
     def _needs_catch_up(self, peer: str, stream: str, gen: int) -> bool:
         """A session generation needs catch-up until some delivery actually reached it (NOT_STARTED rows never reached it)."""
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             seen = conn.execute("SELECT 1 FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? AND certainty != ? LIMIT 1",
                                 (stream, peer, gen, NOT_STARTED)).fetchone()
         return seen is None
 
-    def _unseen_redirects(self, peer: str, stream: str, rec) -> list:
+    def _unseen_redirects(self, peer: str, stream: str, rec: Record) -> list[Any]:
         """control.redirect Records addressed to this peer that the resumed session has not seen and no steer delivered."""
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             last = conn.execute("SELECT COALESCE(MAX(record_position),0) FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND certainty != ?",
                                 (stream, peer, NOT_STARTED)).fetchone()[0]
             done = {r[0] for r in conn.execute("SELECT record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? AND outcome='done'",
@@ -580,16 +602,16 @@ class Bridge:
                 and (not r.targets or peer in r.targets) and r.record_id not in done]
 
     @staticmethod
-    def _redirect_pin(peer: str):
+    def _redirect_pin(peer: str) -> Callable[[Any], bool]:
         return lambda r: r.kind == "control.redirect" and r.author_peer_id != peer and (not r.targets or peer in r.targets)
 
-    def _fresh_info(self, peer: str, stream: str, gen: int) -> dict:
+    def _fresh_info(self, peer: str, stream: str, gen: int) -> dict[str, Any]:
         for e in reversed(self.session_events(peer, stream)):
             if e["event"] == "fresh_generation" and e["generation"] == gen:
                 return json.loads(e["detail"])
         return {}
 
-    def _catch_up_for(self, token: ClaimToken, rec, gen: int) -> list:
+    def _catch_up_for(self, token: ClaimToken, rec: Record, gen: int) -> list[Any]:
         peer, stream = token.peer_id, token.stream_id
         if not self._needs_catch_up(peer, stream, gen):  # resumed session: only unseen redirects, under the same budget
             proj = project_catch_up(self._unseen_redirects(peer, stream, rec), self.catch_up_budget, before_position=rec.position)
@@ -606,28 +628,36 @@ class Bridge:
         return out
 
     @staticmethod
-    def _boundary_payload_ok(body: Any, peer: str, gen: int, reason: str | None, template: dict) -> bool:
+    def _boundary_payload_ok(body_in: object, peer: str, gen: int, reason: str | None, template: dict[str, Any]) -> bool:
         """D-W4-5b: the COMPLETE payload must be this generation's boundary: peer, generation, the recorded reason and a catch_up
         object with exactly the projection-metadata keys and sane types (window/counts may differ when a retry targets another Record)."""
-        if not isinstance(body, dict) or set(body) != {"peer_id", "session_generation", "reason", "catch_up"}:
+        if not isinstance(body_in, dict):
+            return False
+        body = cast("dict[str, Any]", body_in)  # JSON object: keys are strings
+        if set(body) != {"peer_id", "session_generation", "reason", "catch_up"}:
             return False
         if body["peer_id"] != peer or body["session_generation"] != gen or body["reason"] != reason:
             return False
-        cu = body["catch_up"]
-        if not isinstance(cu, dict) or set(cu) != set(template):
+        cu_in: object = body["catch_up"]
+        if not isinstance(cu_in, dict):
+            return False
+        cu = cast("dict[str, Any]", cu_in)
+        if set(cu) != set(template):
             return False
         ints = ("after_position", "candidates", "included_count", "omitted_count", "used_bytes", "used_tokens", "pinned_count")
         opt = ("before_position", "first_position", "last_position", "omitted_through_position")
-        isint = lambda v: isinstance(v, int) and not isinstance(v, bool) and v >= 0  # noqa: E731
+        def isint(v: object) -> bool:
+            return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
         return (all(isint(cu[k]) for k in ints) and all(cu[k] is None or isint(cu[k]) for k in opt)
                 and isinstance(cu["truncated"], bool) and cu["truncated"] == (cu["omitted_count"] > 0)
                 and cu["candidates"] == cu["included_count"] + cu["omitted_count"]
                 and isinstance(cu["budget"], dict) and cu["budget"] == template["budget"])
 
-    def _boundary_matches_history(self, peer: str, stream: str, gen: int, cu: dict) -> bool:
+    def _boundary_matches_history(self, peer: str, stream: str, gen: int, cu: dict[str, Any]) -> bool:
         """The claimed metadata must equal the projection recomputed from the durable Stream for the claimed delivered position."""
         bp = cu["before_position"]
-        with self.claims._tx() as conn:  # the Record the generation was FIRST used for (deterministic, survives retries for other Records)
+        with self.claims.transaction() as conn:  # the Record the generation was FIRST used for (deterministic, survives retries for other Records)
             first = conn.execute("SELECT record_position FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND session_generation=? "
                                  "ORDER BY seq LIMIT 1", (stream, peer, gen)).fetchone()
         if bp is None or cu["after_position"] != 0 or first is None or first[0] != bp:
@@ -638,7 +668,7 @@ class Bridge:
         return cu == build_catch_up(self.store, stream, self.catch_up_budget, after_position=0, before_position=bp,
                                     pin=self._redirect_pin(peer)).boundary()
 
-    def _write_boundary(self, token: ClaimToken, gen: int, proj) -> None:
+    def _write_boundary(self, token: ClaimToken, gen: int, proj: CatchUpProjection) -> None:
         peer, stream = token.peer_id, token.stream_id
         key = f"context-boundary:{peer}:{gen}"
         info = self._fresh_info(peer, stream, gen)
@@ -646,14 +676,14 @@ class Bridge:
             self.store.append_record(
                 guard=self.claims.guard(token), stream_id=stream, author_peer_id=peer, kind="context.boundary",
                 body={"peer_id": peer, "session_generation": gen, "reason": info.get("reason"), "catch_up": proj.boundary()},
-                idempotency_key=key, created_at=info.get("at") or _iso(self.claims._clock()))
+                idempotency_key=key, created_at=info.get("at") or _iso(self.claims.now()))
         except IdempotencyConflictError:
             pass  # validated below: only THIS generation's boundary may occupy the key
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             row = conn.execute("SELECT kind, body_json FROM records WHERE stream_id=? AND author_peer_id=? AND idempotency_key=?",
                                (stream, peer, key)).fetchone()
         body = json.loads(row["body_json"]) if row is not None and row["kind"] == "context.boundary" else None
-        if not (self._boundary_payload_ok(body, peer, gen, info.get("reason"), proj.boundary())
+        if not (body is not None and self._boundary_payload_ok(body, peer, gen, info.get("reason"), proj.boundary())
                 and self._boundary_matches_history(peer, stream, gen, body["catch_up"])):
             raise BoundaryConflictError(f"idempotency key {key!r} is occupied by a Record that is not this generation's context.boundary")
 
@@ -664,7 +694,7 @@ class Bridge:
         return self.run_cycle(token, runtime)
 
     def _inflight(self, token: ClaimToken) -> sqlite3.Row | None:
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             row = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
                                (token.stream_id, token.peer_id)).fetchone()
         return row if row is not None and row["acked"] == 0 else None  # sequential per scope: only the newest attempt can be in flight
@@ -698,7 +728,7 @@ class Bridge:
             if st["paused"]:
                 return CycleResult("paused", rec.record_id, infl["delivery_id"], infl["certainty"], detail={"pause_record_id": st["pause_record_id"]})
             if infl["certainty"] != NOT_STARTED:
-                with self.claims._tx() as conn:
+                with self.claims.transaction() as conn:
                     auth = conn.execute("SELECT * FROM bridge_reconciliations WHERE delivery_id=? AND consumed_attempt IS NULL",
                                         (infl["delivery_id"],)).fetchone()
                 if auth is None or infl["certainty"] != MAY_HAVE_STARTED:
@@ -743,7 +773,7 @@ class Bridge:
             return gated
         return self._run_runtime(token, runtime, rec, did, ext, gen, catch_up)
 
-    def _next_record(self, token: ClaimToken, runtime, consumed: list[str]):
+    def _next_record(self, token: ClaimToken, runtime: RuntimeTarget, consumed: list[str]):
         peer, stream = token.peer_id, token.stream_id
         while True:
             off = self.store.get_offset(peer, stream)
@@ -762,7 +792,7 @@ class Bridge:
                 else:
                     return r
 
-    def _run_runtime(self, token, runtime, rec, did, ext, gen, catch_up) -> CycleResult:
+    def _run_runtime(self, token: ClaimToken, runtime: RuntimeTarget, rec: Record, did: str, ext: str, gen: int, catch_up: list[Any]) -> CycleResult:
         started = False
         terminal: Any = None
         have_terminal = False
@@ -832,7 +862,7 @@ class Bridge:
 
     def _late(self, token: ClaimToken, did: str | None, kind: str, **detail: Any) -> None:
         """Unfenced evidence-only write for stale/late callbacks (TD-25): never touches delivery state."""
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             self._evidence(conn, token.stream_id, token.peer_id, kind, did, None, claim_generation=token.generation, **detail)
 
     # ------------------------------------------------------------------ terminal finalization (BRG-006/014/019)
@@ -851,17 +881,17 @@ class Bridge:
             raise InvalidTerminalResultError(f"terminal result is not strict JSON: {e}") from e
 
     def latest_delivery_id(self, token: ClaimToken) -> str | None:
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             r = conn.execute("SELECT delivery_id FROM bridge_deliveries WHERE stream_id=? AND peer_id=? ORDER BY seq DESC LIMIT 1",
                              (token.stream_id, token.peer_id)).fetchone()
         return r[0] if r else None
 
-    def finalize_terminal(self, token: ClaimToken, result: dict, delivery_id: str) -> "Bridge.FinalizeOutcome":
+    def finalize_terminal(self, token: ClaimToken, result: dict[str, Any], delivery_id: str) -> "Bridge.FinalizeOutcome":
         """Callbacks are bound to the delivery_id they belong to (never inferred from 'newest')."""
         self._validate_result(result)
         return self._finalize(token, delivery_id, result)
 
-    def _finalize(self, token: ClaimToken, did: str, result: dict) -> "Bridge.FinalizeOutcome":
+    def _finalize(self, token: ClaimToken, did: str, result: dict[str, Any]) -> "Bridge.FinalizeOutcome":
         dig = self._validate_result(result)  # before anything is committed
         conflict = False
         try:
@@ -881,7 +911,7 @@ class Bridge:
                 else:
                     conn.execute("UPDATE bridge_deliveries SET result_json=?, result_digest=?, terminal_at=? WHERE delivery_id=?",
                                  (json.dumps(result, sort_keys=True, separators=(",", ":"), allow_nan=False), dig,
-                                  _iso(self.claims._clock()), did))
+                                  _iso(self.claims.now()), did))
                     self._transition_in(conn, did, TERMINAL, "terminal", token=token, digest=dig)  # illegal source state rolls the tx back
                     outcome = "first"
         except StaleClaimError as e:
@@ -895,7 +925,7 @@ class Bridge:
 
     def _materialize(self, token: ClaimToken, did: str) -> str:
         """Idempotent: append the response Record (fenced, idempotency key), then ack the Offset; each step safe to repeat."""
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             d = dict(conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone())
         self._check_scope(d, token)
         result = json.loads(d["result_json"])
@@ -927,22 +957,22 @@ class Bridge:
         return resp.record_id
 
     # ------------------------------------------------------------------ control (TD-05, CTL-001..005, BRG-008/009)
-    def control_state(self, peer_id: str, stream_id: str) -> dict:
+    def control_state(self, peer_id: str, stream_id: str) -> dict[str, Any]:
         """Gating state derived from ACCEPTED control intent, ordered by Record position (never by handling order)."""
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             last = conn.execute("SELECT kind, record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? "
                                 "AND kind IN ('control.pause','control.resume') ORDER BY position DESC LIMIT 1", (stream_id, peer_id)).fetchone()
             cancel = conn.execute("SELECT COALESCE(MAX(position),0) FROM bridge_controls WHERE stream_id=? AND peer_id=? "
                                   "AND kind='control.cancel'", (stream_id, peer_id)).fetchone()[0]
         paused = last is not None and last["kind"] == "control.pause"
-        return {"paused": paused, "pause_record_id": last["record_id"] if paused else None, "last_cancel_position": cancel}
+        return {"paused": paused, "pause_record_id": last["record_id"] if last is not None and paused else None, "last_cancel_position": cancel}
 
-    def handle_control(self, record_id: str, runtime, peer_id: str | None = None) -> ControlResult:
+    def handle_control(self, record_id: str, runtime: RuntimeTarget, peer_id: str | None = None) -> ControlResult:
         """Apply one durable control Record to `runtime` for the addressed peer. Authenticated ONLY against the persisted Record
         (kind, stream, author, targets); idempotent per (Record, peer): a replay or a concurrent duplicate never repeats the effect."""
-        if not isinstance(record_id, str):
+        if not isinstance(cast(object, record_id), str):  # untyped caller boundary
             raise TypeError("handle_control takes a persisted record_id (str), never a caller copy of the Record")
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             pr = conn.execute("SELECT * FROM records WHERE record_id=?", (record_id,)).fetchone()
             members = [r[0] for r in conn.execute("SELECT peer_id FROM stream_members WHERE stream_id=? ORDER BY peer_id",
                                                   (pr["stream_id"],))] if pr is not None else []
@@ -955,7 +985,7 @@ class Bridge:
             cands = [m for m in (targets or members) if m != pr["author_peer_id"]]
             if len(cands) != 1:
                 raise ControlRejectedError(f"cannot resolve the addressed peer from the Record ({len(cands)} candidates); pass peer_id")
-            peer_id = cands[0]
+            peer_id = cast(str, cands[0])
         if peer_id not in members:
             raise ControlRejectedError(f"peer {peer_id!r} is not a member of stream {pr['stream_id']!r}")
         if peer_id == pr["author_peer_id"]:
@@ -964,19 +994,20 @@ class Bridge:
             raise ControlRejectedError(f"control Record is not addressed to peer {peer_id!r}")
         return self._apply_control(dict(pr), peer_id, runtime)
 
-    def _control_result(self, status: str, row, outcome: str | None, **detail: Any) -> ControlResult:
+    def _control_result(self, status: str, row: sqlite3.Row, outcome: str | None, **detail: Any) -> ControlResult:
         paused = self.control_state(row["peer_id"], row["stream_id"])["paused"]
         return ControlResult(status, row["record_id"], row["kind"], row["peer_id"], row["stream_id"], row["effect"], outcome, paused, detail)
 
-    def _apply_control(self, pr: dict, peer: str, runtime, token: ClaimToken | None = None) -> ControlResult:
+    def _apply_control(self, pr: dict[str, Any], peer: str, runtime: RuntimeTarget, token: ClaimToken | None = None) -> ControlResult:
         kind, rid, stream = pr["kind"], pr["record_id"], pr["stream_id"]
         effect = CONTROL_EFFECT.get(kind, "none")
         lease_id = uuid.uuid4().hex
-        now = self.claims._clock()
+        now = self.claims.now()
         sel = "SELECT * FROM bridge_controls WHERE record_id=? AND peer_id=?"
         # 1. durable intent acceptance + lease + persisted target (all commit BEFORE any runtime effect, TD-05, D-W4-1)
-        early = None
-        with self.claims._tx() as conn:
+        early: tuple[str, str | None, dict[str, Any]] | None = None
+        attempts = 0
+        with self.claims.transaction() as conn:
             row = conn.execute(sel, (rid, peer)).fetchone()
             if row is None:
                 acc = conn.execute("SELECT COALESCE(MAX(seq),0) FROM bridge_evidence").fetchone()[0]
@@ -1011,10 +1042,10 @@ class Bridge:
         self._fire("control.after_intent_commit")
         # 2. fence EXECUTION: current lease AND (when called from a delivery cycle) the current claim token AND a still-current target
         status, outcome, error = None, None, None
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             row = conn.execute(sel, (rid, peer)).fetchone()
             if not (row["outcome"] is None and row["lease_id"] == lease_id and row["attempts"] == attempts
-                    and self.claims._clock() < row["lease_expires"]):
+                    and self.claims.now() < row["lease_expires"]):
                 status = "superseded"
             elif token is not None and not self._token_current(conn, token):
                 status = "fenced"
@@ -1042,12 +1073,12 @@ class Bridge:
                 outcome, error = "failed", str(e)
         self._fire("control.after_effect_before_outcome")
         # 3. fence COMPLETION: outcome is write-once; only the CURRENT, UNEXPIRED lease holder (and current token) may write it
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             won = 0
             if token is None or self._token_current(conn, token):
                 won = conn.execute("UPDATE bridge_controls SET outcome=?, error=?, delivery_id=? WHERE record_id=? AND peer_id=? "
                                    "AND outcome IS NULL AND lease_id=? AND attempts=? AND lease_expires > ?",
-                                   (outcome, error, did, rid, peer, lease_id, attempts, self.claims._clock())).rowcount
+                                   (outcome, error, did, rid, peer, lease_id, attempts, self.claims.now())).rowcount
             if won:
                 self._evidence(conn, stream, peer, "control_applied", did, None, control_record_id=rid, control_kind=kind, effect=effect,
                                runtime_outcome=outcome, error=error)
@@ -1056,27 +1087,27 @@ class Bridge:
             return self._control_result("superseded", row, None)
         return self._control_result("applied", row, outcome, error=error)
 
-    def _token_current(self, conn, token: ClaimToken) -> bool:
+    def _token_current(self, conn: sqlite3.Connection, token: ClaimToken) -> bool:
         try:
-            self.claims._check(conn, token)
+            self.claims.check(conn, token)
             return True
         except StaleClaimError:
             return False
 
-    def _steer(self, runtime, ext: str, pr: dict) -> None:
+    def _steer(self, runtime: RuntimeTarget, ext: str, pr: dict[str, Any]) -> None:
         rec = self._record_by_id(pr["stream_id"], pr["position"], pr["record_id"])
-        runtime.steer(ext, rec)
+        cast(SteerableTarget, runtime).steer(ext, rec)  # only reached after `supports_steer` was verified
 
-    def _recover_stranded(self, token: ClaimToken, runtime) -> None:
+    def _recover_stranded(self, token: ClaimToken, runtime: RuntimeTarget) -> None:
         """A control whose lease expired without an outcome is revisited regardless of the Offset (D-W4-3)."""
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             rows = [dict(r) for r in conn.execute(
                 "SELECT record_id, stream_id, position, kind FROM bridge_controls WHERE stream_id=? AND peer_id=? AND outcome IS NULL "
-                "AND (lease_id IS NULL OR lease_expires <= ?) ORDER BY position", (token.stream_id, token.peer_id, self.claims._clock()))]
+                "AND (lease_id IS NULL OR lease_expires <= ?) ORDER BY position", (token.stream_id, token.peer_id, self.claims.now()))]
         for r in rows:
             self._apply_control(r, token.peer_id, runtime, token)
 
-    def _handle_unread_controls(self, token: ClaimToken, runtime) -> None:
+    def _handle_unread_controls(self, token: ClaimToken, runtime: RuntimeTarget) -> None:
         """Honour durable intent BEFORE any side effect: recover stranded controls, then apply every unprocessed control in the unread window."""
         self._recover_stranded(token, runtime)
         peer, stream = token.peer_id, token.stream_id
@@ -1112,10 +1143,10 @@ class Bridge:
                 continue
         raise OffsetAckConflictError(f"offset CAS conflicted {self.ack_retries} times advancing to {position}")
 
-    def _cancel_applies(self, token: ClaimToken, rec, did: str) -> str | None:
+    def _cancel_applies(self, token: ClaimToken, rec: Record, did: str) -> str | None:
         """A cancel accepted AFTER this attempt was created (and, for a reconcile retry, positioned after the RETRY Record) cancels
         this attempt before it runs. Earlier unread Records are NOT affected (D-W4-7). Deterministic from persisted rows."""
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             d = conn.execute("SELECT reconcile_record_id FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
             thr = rec.position
             if d is not None and d["reconcile_record_id"]:
@@ -1130,13 +1161,13 @@ class Bridge:
         """D-W4-9: an authorization (RETRY Record) never overrides a cancel positioned AFTER it; a newer RETRY wins over an older cancel."""
         if not reconcile_record_id:
             return None
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             pr = conn.execute("SELECT position FROM records WHERE record_id=?", (reconcile_record_id,)).fetchone()
             hit = conn.execute("SELECT record_id FROM bridge_controls WHERE stream_id=? AND peer_id=? AND kind='control.cancel' AND position>?",
                                (token.stream_id, token.peer_id, pr[0] if pr else 0)).fetchone()
         return hit[0] if hit else None
 
-    def _cancel_attempt(self, token: ClaimToken, rec, did: str, cancel_id: str) -> None:
+    def _cancel_attempt(self, token: ClaimToken, rec: Record, did: str, cancel_id: str) -> None:
         """Consume ONE cancelled in-flight attempt: evidence once, mark the attempt done, ack only this Record."""
         self._note_once(token, did, "cancelled_before_invoke", rec.record_id, cancel_record_id=cancel_id)
         self._fire("bridge.cancel_skip_before_ack")
@@ -1144,7 +1175,7 @@ class Bridge:
             conn.execute("UPDATE bridge_deliveries SET acked=1 WHERE delivery_id=? AND certainty=?", (did, NOT_STARTED))
         self._advance_to(token, rec.position)
 
-    def _gate(self, token: ClaimToken, runtime, rec, did: str, *, after_marker: bool = False) -> CycleResult | None:
+    def _gate(self, token: ClaimToken, runtime: RuntimeTarget, rec: Record, did: str, *, after_marker: bool = False) -> CycleResult | None:
         """Re-check durable intent right before a side effect (session create/resume, runtime invocation)."""
         self._handle_unread_controls(token, runtime)
         st = self.control_state(token.peer_id, token.stream_id)
@@ -1155,26 +1186,28 @@ class Bridge:
             self._resolve_invocation(token, did, "control_halt", "halted by control intent before invoke", "control_halt")
         if st["paused"]:
             return CycleResult("paused", rec.record_id, did, NOT_STARTED, detail={"pause_record_id": st["pause_record_id"]})
+        if cancel is None:  # not reachable (not paused and no cancel returned above); keeps the narrowing explicit
+            return None
         self._cancel_attempt(token, rec, did, cancel)
         return CycleResult("cancelled", rec.record_id, did, NOT_STARTED, detail={"cancel_record_id": cancel})
 
     # ------------------------------------------------------------------ reconciliation (TD-26, CERT-002/003)
-    def reconcile_uncertain(self, record_id: str, reconciliation_record) -> dict:
+    def reconcile_uncertain(self, record_id: str, reconciliation_record: Record) -> dict[str, Any]:
         """Register a durable control.reconcile RETRY for the uncertain delivery of `record_id`; idempotent, one authorization per delivery."""
         # authenticate against the PERSISTED Record only; the caller's object contributes nothing but its id
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             pr = conn.execute("SELECT * FROM records WHERE record_id=?", (getattr(reconciliation_record, "record_id", None),)).fetchone()
         if pr is None:
             raise ReconcileRejectedError("reconciliation Record is not durable")
         if pr["kind"] != "control.reconcile":
             raise ReconcileRejectedError(f"persisted kind {pr['kind']!r} is not control.reconcile")
-        body = json.loads(pr["body_json"])
-        body = body if isinstance(body, dict) else {}
+        body_raw: object = json.loads(pr["body_json"])
+        body: dict[str, Any] = cast("dict[str, Any]", body_raw) if isinstance(body_raw, dict) else {}
         if body.get("decision") != "RETRY":
             raise ReconcileRejectedError(f"decision {body.get('decision')!r} is not authorized in M1 (only RETRY, TD-26)")
-        rr = type("Persisted", (), {"record_id": pr["record_id"], "stream_id": pr["stream_id"], "author": pr["author_peer_id"]})
+        rr = _PersistedReconcile(pr["record_id"], pr["stream_id"], pr["author_peer_id"])
         did = body.get("delivery_id")
-        with self.claims._tx() as conn:
+        with self.claims.transaction() as conn:
             d = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (did,)).fetchone()
             if d is None or d["record_id"] != record_id or d["stream_id"] != rr.stream_id:
                 raise ReconcileRejectedError("reconcile does not reference a delivery of this Record in this Stream")

@@ -19,6 +19,7 @@ from peerhub.m1.schema_version import SUPPORTED_SCHEMA_VERSION, SchemaVersionErr
 from peerhub.extensions.observation_model import (
     FreshnessPolicy,
     ObservationCorruptError,
+    ObservationView,
     effective_us,
     evaluate,
     read_only_authorizer,
@@ -38,7 +39,7 @@ class DiagReadOnlyError(RuntimeError):
 class Section:
     name: str
     status: str  # OK | ERROR | UNAVAILABLE
-    data: dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict[str, Any])
     errors: tuple[dict[str, Any], ...] = ()
 
 
@@ -78,7 +79,7 @@ class ReadonlyDiag:
         self._hook = section_hook
 
     # ------------------------------------------------------------------ connection
-    def _open(self):
+    def _open(self) -> sqlite3.Connection:
         conn = self._factory(self.db_path)
         try:
             conn.execute("PRAGMA query_only = ON")
@@ -104,13 +105,13 @@ class ReadonlyDiag:
 
     # ------------------------------------------------------------------ sections (all read from the same snapshot)
     @staticmethod
-    def _peers(conn, _us) -> Section:
+    def _peers(conn: sqlite3.Connection, _us: int) -> Section:
         rows = conn.execute("SELECT peer_id, display_name, adapter_ref, created_at FROM peers ORDER BY peer_id").fetchall()
         return Section("peers", "OK", {"peers": [dict(zip(("peer_id", "display_name", "adapter_ref", "created_at"), tuple(r))) for r in rows]})
 
     @staticmethod
-    def _streams(conn, _us) -> Section:
-        out = []
+    def _streams(conn: sqlite3.Connection, _us: int) -> Section:
+        out: list[dict[str, Any]] = []
         for s in conn.execute("SELECT stream_id, title, state, revision FROM streams ORDER BY stream_id").fetchall():
             sid = s[0]
             head = conn.execute("SELECT COALESCE(MAX(position), 0) FROM records WHERE stream_id = ?", (sid,)).fetchone()[0]
@@ -123,18 +124,18 @@ class ReadonlyDiag:
         return Section("streams", "OK", {"streams": out})
 
     @staticmethod
-    def _pools(conn, _us) -> Section:
+    def _pools(conn: sqlite3.Connection, _us: int) -> Section:
         counts = {r[0]: r[1] for r in conn.execute(
             "SELECT resource_pool_ref, COUNT(*) FROM observations WHERE resource_pool_ref IS NOT NULL GROUP BY resource_pool_ref").fetchall()}
         rows = conn.execute("SELECT resource_pool_id, provider, kind, metadata_json FROM resource_pools ORDER BY resource_pool_id").fetchall()
         return Section("resource_pools", "OK", {"pools": [
             {"resource_pool_id": r[0], "provider": r[1], "kind": r[2], "metadata_json": r[3], "observation_count": counts.get(r[0], 0)} for r in rows]})
 
-    def _observations(self, conn, read_us) -> Section:
+    def _observations(self, conn: sqlite3.Connection, read_us: int) -> Section:
         rows = conn.execute(
             "SELECT capture_seq, observation_id, subject_ref, resource_pool_ref, kind, source, state, payload_json, observed_at, captured_at "
             "FROM observations ORDER BY capture_seq").fetchall()
-        best: dict[tuple, Any] = {}
+        best: dict[tuple[str, str, str | None], ObservationView] = {}
         errors: list[dict[str, Any]] = []
         for r in rows:
             try:
@@ -147,7 +148,7 @@ class ReadonlyDiag:
             prev = best.get(key)
             if prev is None or self._newer(view, prev):
                 best[key] = view
-        items = []
+        items: list[dict[str, Any]] = []
         for key in sorted(best, key=lambda k: (k[0], k[1], k[2] or "")):
             v = best[key]
             o = v.observation
@@ -158,12 +159,12 @@ class ReadonlyDiag:
         return Section("observations", "ERROR" if errors else "OK", {"items": items}, tuple(errors))
 
     @staticmethod
-    def _newer(a, b) -> bool:
+    def _newer(a: ObservationView, b: ObservationView) -> bool:
         """TD-13/TD-23 ordering: effective capture time, then persisted capture ordinal."""
         ka, kb = (effective_us(a.observation), a.capture_seq), (effective_us(b.observation), b.capture_seq)
         return ka > kb
 
-    def _log(self, _conn, _us) -> Section:
+    def _log(self, _conn: sqlite3.Connection, _us: int) -> Section:
         if self.log_path is None:
             return Section("log", "UNAVAILABLE", {}, ({"error": "log source not configured"},))
         try:
@@ -193,10 +194,10 @@ class ReadonlyDiag:
             conn = self._open()
         except (sqlite3.Error, OSError, DiagReadOnlyError, SchemaVersionError) as e:
             return DiagnosticReport("FAILED", now, {}, {}, f"{type(e).__name__}: {e}")
-        impl = {"peers": self._peers, "streams": self._streams, "resource_pools": self._pools, "observations": self._observations, "log": self._log}
+        impl: dict[str, Callable[[sqlite3.Connection, int], Section]] = {"peers": self._peers, "streams": self._streams, "resource_pools": self._pools, "observations": self._observations, "log": self._log}
         out: dict[str, Section] = {}
         try:
-            snapshot = {}
+            snapshot: dict[str, Any] = {}
             for key, one in (("records_total", lambda: conn.execute("SELECT COUNT(*) FROM records").fetchone()[0]),
                              ("observations_total", lambda: conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0])):
                 try:

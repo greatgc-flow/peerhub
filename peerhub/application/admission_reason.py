@@ -17,10 +17,10 @@ def describe_admission_denial(result: Any) -> str:
         return "no route was evaluated (replayed or concurrent admission without a stored decision)"
     code = getattr(getattr(route, "error_code", None), "name", None) or "UNKNOWN"
     decision = getattr(route, "decision", None)
-    cands = tuple(getattr(decision, "candidates", ()) or ())
+    cands: tuple[Any, ...] = tuple(getattr(decision, "candidates", ()) or ())
     if not cands:
         return f"{code}: no candidate peers configured for the required capability tier"
-    parts = []
+    parts: list[str] = []
     for c in cands[:_MAX_CANDIDATES]:
         elig = getattr(getattr(c, "eligibility", None), "name", str(getattr(c, "eligibility", "?")))
         why = getattr(c, "exclusion_reason", None) or "no reason recorded"

@@ -12,7 +12,7 @@ import math
 import re
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Literal, Mapping
+from typing import Any, Literal, Mapping, Sequence, cast
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
@@ -29,7 +29,8 @@ _RFC3339 = re.compile(r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-
 
 def is_rfc3339(value: str) -> bool:
     """Strict RFC 3339 date-time (matches schema `format: date-time`)."""
-    if not isinstance(value, str) or not _RFC3339.match(value):
+    v = cast(object, value)  # wire/untyped boundary: the runtime type check is intentional
+    if not isinstance(v, str) or not _RFC3339.match(v):
         return False
     try:
         datetime.fromisoformat(value.replace("z", "Z"))
@@ -49,11 +50,11 @@ def assert_json_value(value: Any, path: str = "$") -> None:
             raise ValueError(f"non-finite number at {path}")
         return
     if isinstance(value, list):  # TD-24: tuples/other containers are rejected, never coerced
-        for i, v in enumerate(value):
+        for i, v in enumerate(cast("list[Any]", value)):
             assert_json_value(v, f"{path}[{i}]")
         return
     if isinstance(value, dict):
-        for k, v in value.items():
+        for k, v in cast("dict[Any, Any]", value).items():
             if not isinstance(k, str):
                 raise TypeError(f"non-string key {k!r} at {path}")
             assert_json_value(v, f"{path}.{k}")
@@ -225,9 +226,12 @@ class AppendRequest(BaseModel):
     @classmethod
     def _str_lists(cls, v: Any) -> Any:
         assert_json_value(v, "list")
-        if not isinstance(v, (list, tuple)) or any(not isinstance(x, str) or not x for x in v):
+        if not isinstance(v, (list, tuple)):
             raise ValueError("must be a list of non-empty strings")
-        return list(v)
+        items = list(cast("Sequence[Any]", v))
+        if any(not isinstance(x, str) or not x for x in items):
+            raise ValueError("must be a list of non-empty strings")
+        return items
 
     @field_validator("targets")
     @classmethod

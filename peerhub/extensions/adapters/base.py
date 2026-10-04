@@ -16,12 +16,12 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence, cast
 
 from peerhub.extensions.adapters.process import (DEFAULT_MAX_BYTES, DEFAULT_TIMEOUT_S, BoundedProcess, ProcessResult,
                                                  SpawnFailure, check_argv, run_bounded)
 from peerhub.extensions.adapters.sanitize import Sanitizer, env_secrets
-from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError
+from peerhub.extensions.bridge import PrespawnError, RuntimeEvent, RuntimeTargetError
 
 MAX_PROMPT_BYTES = 1_000_000
 EXCERPT_CHARS = 300
@@ -49,24 +49,24 @@ class ProviderSpec:
         raise NotImplementedError
 
 
-def _json_lines(text: str) -> list[dict]:
-    out = []
+def _json_lines(text: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for line in text.splitlines():
         line = line.strip()
         if line.startswith("{"):
             try:
-                v = json.loads(line)
+                v: object = json.loads(line)
             except ValueError:
                 continue
             if isinstance(v, dict):
-                out.append(v)
+                out.append(cast("dict[str, Any]", v))  # json.loads objects always have str keys
     return out
 
 
 class CcSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cc", "claude", "--resume", True
 
-    def argv(self, model, effort, prompt):
+    def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
         a = ["-p", "-", "--output-format", "stream-json", "--verbose"]
         if model:
             a += ["--model", model]
@@ -74,7 +74,7 @@ class CcSpec(ProviderSpec):
             a += ["--effort", effort]
         return a
 
-    def parse(self, stdout):
+    def parse(self, stdout: str) -> str:
         results = [e for e in _json_lines(stdout) if e.get("type") == "result"]
         if not results:
             raise ValueError("no result record in cc output")
@@ -85,13 +85,13 @@ class CcSpec(ProviderSpec):
             raise ValueError(f"cc result subtype {r.get('subtype')!r} is not success")
         if not isinstance(r.get("result"), str):
             raise ValueError("cc result is not text")
-        return r["result"]
+        return cast(str, r["result"])
 
 
 class CxSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "cx", "codex", "resume", True
 
-    def argv(self, model, effort, prompt):
+    def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
         a = ["exec", "--skip-git-repo-check", "-s", "read-only"]
         if model:
             a += ["-m", model]
@@ -99,7 +99,7 @@ class CxSpec(ProviderSpec):
             a += ["-c", f"model_reasoning_effort={effort}"]
         return a + ["--json", "-"]
 
-    def parse(self, stdout):
+    def parse(self, stdout: str) -> str:
         events = _json_lines(stdout)
         for e in events:
             if e.get("type") in ("turn.failed", "error"):
@@ -119,22 +119,25 @@ class AgSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "ag", "agy", "--conversation", False
     max_prompt_bytes = 30_000 if sys.platform == "win32" else 120_000  # prompt travels in argv: CreateProcess ~32k chars / MAX_ARG_STRLEN
 
-    def argv(self, model, effort, prompt):
+    def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
         a = ["-p", prompt, "--output-format", "json"]
         if model:
             a += ["--model", model]
         return a
 
-    def parse(self, stdout):
+    def parse(self, stdout: str) -> str:
         try:
-            v = json.loads(stdout.strip())  # strict: the WHOLE stdout is exactly one flat JSON object (no scanning for fragments)
+            v: object = json.loads(stdout.strip())  # strict: the WHOLE stdout is exactly one flat JSON object (no scanning for fragments)
         except ValueError:
             raise ValueError("ag output is not a single JSON object") from None
-        if not isinstance(v, dict) or not isinstance(v.get("response"), str):
+        if not isinstance(v, dict):
+            raise ValueError("no flat JSON response in ag output")
+        v = cast("dict[str, Any]", v)
+        if not isinstance(v.get("response"), str):
             raise ValueError("no flat JSON response in ag output")
         if v.get("is_error") not in (None, False) or v.get("error") not in (None, False, "", {}):
             raise ValueError("ag reported an error")
-        return v["response"]
+        return cast(str, v["response"])
 
 
 SPECS: dict[str, ProviderSpec] = {s.kind: s for s in (CcSpec(), CxSpec(), AgSpec())}
@@ -173,7 +176,7 @@ class CliRuntimeTarget:
         self._timeout_s, self._max_bytes = timeout_s, max_bytes
         self._env = {**os.environ, **(env_extra or {})}
         self._san = Sanitizer(secrets=[*env_secrets(self._env), *extra_secrets])
-        self.evidence: deque[dict] = deque(maxlen=100)  # sanitized and bounded
+        self.evidence: deque[dict[str, Any]] = deque(maxlen=100)  # sanitized and bounded
 
     # ---- helpers
     def _note(self, event: str, **kw: Any) -> None:
@@ -194,9 +197,9 @@ class CliRuntimeTarget:
         return san.clean(b.decode("utf-8", "replace"), limit)
 
     # ---- discovery (LIVE-004/005): never spends model tokens
-    def discover(self, timeout_s: float = 20.0) -> dict:
+    def discover(self, timeout_s: float = 20.0) -> dict[str, Any]:
         """Observed version + capabilities as timestamped evidence. Unavailable/unsupported is reported, never synthesized."""
-        caps: dict[str, dict] = {c: {"status": "unsupported", "source": "adapter", "reason": "not implemented by this adapter"}
+        caps: dict[str, dict[str, Any]] = {c: {"status": "unsupported", "source": "adapter", "reason": "not implemented by this adapter"}
                                  for c in ("interrupt", "terminate", "steer")}
         info: dict[str, Any] = {"provider": self.runtime_kind, "observed_at": _now(), "available": False, "version": None,
                                 "version_line": None, "reason": None}
@@ -244,17 +247,17 @@ class CliRuntimeTarget:
         return "unsupported"
 
     @staticmethod
-    def _prompt(record: Any, catch_up: list) -> str:
+    def _prompt(record: Any, catch_up: list[Any]) -> str:
         def txt(r: Any) -> str:
             b = getattr(r, "body", None)
             return b if isinstance(b, str) else json.dumps(b, ensure_ascii=False, sort_keys=True)
-        parts = []
+        parts: list[str] = []
         if catch_up:
             parts.append("Earlier context:\n" + "\n".join(f"[{getattr(r, 'author_peer_id', '?')}] {txt(r)}" for r in catch_up))  # never truncated here: the Bridge's injected budget decides
         parts.append(txt(record))
         return "\n\n".join(parts)
 
-    def deliver(self, external_session_id: str, record: Any, catch_up: list) -> Iterable[tuple]:
+    def deliver(self, external_session_id: str, record: Any, catch_up: list[Any]) -> Iterable[RuntimeEvent]:
         prompt = self._prompt(record, catch_up)
         san = self._san.with_prompt(prompt)
         # ---- genuine pre-spawn failures: nothing was created

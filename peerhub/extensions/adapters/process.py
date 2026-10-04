@@ -1,13 +1,14 @@
 """Bounded subprocess runner (extension side). Explicit argv, never a shell; bounded time and output."""
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 
 DEFAULT_TIMEOUT_S = 120.0
 DEFAULT_MAX_BYTES = 1_048_576
@@ -29,7 +30,7 @@ class ProcessResult:
     duration_s: float
 
 
-def check_argv(argv: Sequence[str]) -> None:
+def check_argv(argv: Sequence[Any]) -> None:
     """Reject argv that cannot be passed safely (checked BEFORE any spawn; raises ValueError)."""
     if not argv or not all(isinstance(a, str) and a and "\0" not in a for a in argv):
         raise ValueError("argv must be a non-empty list of non-empty strings without NUL")
@@ -38,7 +39,7 @@ def check_argv(argv: Sequence[str]) -> None:
             raise ValueError("argument contains characters unsafe for a .cmd wrapper")
 
 
-def _kill_tree(proc: subprocess.Popen) -> None:
+def _kill_tree(proc: "subprocess.Popen[bytes]") -> None:
     try:
         if sys.platform == "win32":
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=10, check=False)
@@ -54,7 +55,7 @@ class BoundedProcess:
                  timeout_s: float = DEFAULT_TIMEOUT_S, max_bytes: int = DEFAULT_MAX_BYTES) -> None:
         self._argv, self._stdin, self._cwd, self._env = list(argv), stdin, cwd, dict(env)
         self._timeout_s, self._max_bytes = timeout_s, max_bytes
-        self._proc: subprocess.Popen | None = None
+        self._proc: subprocess.Popen[bytes] | None = None
         self._t0 = 0.0
         self._bufs: dict[str, bytearray] = {"out": bytearray(), "err": bytearray()}
         self._exceeded = threading.Event()
@@ -74,14 +75,16 @@ class BoundedProcess:
         except (OSError, ValueError) as e:
             raise SpawnFailure(f"{type(e).__name__}: {getattr(e, 'strerror', None) or e}") from e
         p = self._proc
-        self._threads = [threading.Thread(target=self._pump, args=(p.stdout, "out"), daemon=True),
-                         threading.Thread(target=self._pump, args=(p.stderr, "err"), daemon=True),
-                         threading.Thread(target=self._feed, daemon=True)]
+        # default bufsize=-1 => the pipes are io.BufferedReader (read1 available)
+        out, err = cast(io.BufferedReader, p.stdout), cast(io.BufferedReader, p.stderr)
+        self._threads = [threading.Thread(target=self._pump, args=(out, "out"), daemon=True),
+                         threading.Thread(target=self._pump, args=(err, "err"), daemon=True),
+                         threading.Thread(target=self._feed, args=(p,), daemon=True)]
         for t in self._threads:
             t.start()
         return self
 
-    def _pump(self, stream, key: str) -> None:
+    def _pump(self, stream: io.BufferedReader, key: str) -> None:
         try:
             while True:
                 chunk = stream.read1(65536)
@@ -95,11 +98,14 @@ class BoundedProcess:
         except (OSError, ValueError):
             return
 
-    def _feed(self) -> None:
+    def _feed(self, p: "subprocess.Popen[bytes]") -> None:
         try:
+            stdin = p.stdin
+            if stdin is None:
+                return
             if self._stdin:
-                self._proc.stdin.write(self._stdin)
-            self._proc.stdin.close()
+                stdin.write(self._stdin)
+            stdin.close()
         except (OSError, ValueError):
             pass
 
@@ -129,7 +135,8 @@ class BoundedProcess:
             t.join(timeout=5)
         for s in (p.stdout, p.stderr):
             try:
-                s.close()
+                if s is not None:
+                    s.close()
             except OSError:
                 pass
         return ProcessResult(pid=p.pid, returncode=p.returncode, stdout=bytes(self._bufs["out"]), stderr=bytes(self._bufs["err"]),

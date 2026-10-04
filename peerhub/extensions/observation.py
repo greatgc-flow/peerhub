@@ -18,7 +18,7 @@ import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 from peerhub.m1.migrations import rollback_quietly
 from .observation_model import (
@@ -89,7 +89,11 @@ _SELECT = ("SELECT capture_seq, observation_id, subject_ref, resource_pool_ref, 
 _ORDER_LATEST = " ORDER BY effective_at_us DESC, capture_seq DESC"
 
 
-def _canon(d: dict) -> str:
+def _nonempty_str(v: object) -> bool:
+    return isinstance(v, str) and bool(v)
+
+
+def _canon(d: dict[str, Any]) -> str:
     return json.dumps(d, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -206,7 +210,7 @@ class ObservationStore:
     def capture(self, subject_ref: str, kind: str, source: Any, *, resource_pool_ref: str | None = None) -> Observation:
         """Probe `source` once and persist the outcome as evidence. Probe failures become ERROR evidence (never an exception,
         never a Core/routing side effect). A source semantic that contradicts `kind` is rejected and nothing is stored."""
-        if not isinstance(subject_ref, str) or not subject_ref or not isinstance(kind, str) or not kind:
+        if not _nonempty_str(subject_ref) or not _nonempty_str(kind):
             raise InvalidObservationError("subject_ref and kind must be non-empty strings")
         with self._read() as conn:  # validate the pool binding BEFORE the probe runs
             self._require_pool(conn, resource_pool_ref)
@@ -219,7 +223,7 @@ class ObservationStore:
             failure = ("timeout" if isinstance(e, TimeoutError) else f"exception:{type(e).__name__}", str(e))
         captured_at = epoch_to_iso(self.clock())
 
-        def evidence(state: EvidenceState, payload: dict, observed_at: str | None = None) -> Observation:
+        def evidence(state: EvidenceState, payload: dict[str, Any], observed_at: str | None = None) -> Observation:
             return Observation(observation_id=self._new_id(), subject_ref=subject_ref, resource_pool_ref=resource_pool_ref, kind=kind,
                                source=src_name, observed_at=observed_at or captured_at, captured_at=captured_at, state=state, payload=payload)
 
@@ -234,11 +238,13 @@ class ObservationStore:
             if reading.semantic is not None and reading.semantic != kind:
                 raise KindSemanticError(f"source reports semantic {reading.semantic!r}; refusing to store it as kind {kind!r}")
             try:
-                if reading.observed_at is not None and not isinstance(reading.observed_at, str):
+                rd: Any = reading  # untyped source boundary: fields are validated at runtime
+                if rd.observed_at is not None and not isinstance(rd.observed_at, str):
                     raise ValueError("observed_at is not a string")
-                if not isinstance(reading.payload, dict):
+                pl: object = rd.payload
+                if not isinstance(pl, dict):
                     raise ValueError("payload is not an object")
-                obs = evidence(EvidenceState(reading.state), dict(reading.payload), reading.observed_at)
+                obs = evidence(EvidenceState(rd.state), dict(cast("dict[str, Any]", pl)), rd.observed_at)
                 check_honesty(obs)
             except (ValueError, InvalidObservationError) as e:  # includes pydantic ValidationError and bad state values
                 obs = error("malformed_source_reading", str(e).splitlines()[0] if str(e) else type(e).__name__)

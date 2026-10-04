@@ -23,7 +23,7 @@ def env_secrets(env: Mapping[str, str] | None = None) -> list[str]:
 
 class Sanitizer:
     def __init__(self, secrets: Iterable[str] = (), prompts: Iterable[str] = ()) -> None:
-        self._literals = sorted({s for s in (*secrets, *prompts) if s and len(s) >= 2}, key=len, reverse=True)
+        self._literals: list[str] = sorted({s for s in (*secrets, *prompts) if s and len(s) >= 2}, key=len, reverse=True)
 
     def with_prompt(self, prompt: str) -> "Sanitizer":
         s = Sanitizer()

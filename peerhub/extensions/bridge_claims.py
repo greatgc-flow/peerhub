@@ -10,11 +10,12 @@ from __future__ import annotations
 from peerhub.extensions.schema_guard import refuse_future_schema
 
 import json
+import os
 import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 from peerhub.m1.migrations import rollback_quietly
 from peerhub.m1.store import UnknownReferenceError
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS bridge_finalizations (
 
 
 class ClaimStore:
-    def __init__(self, db_path, generation: Callable[[], str], clock: Callable[[], float] = time.time) -> None:
+    def __init__(self, db_path: str | os.PathLike[str], generation: Callable[[], str], clock: Callable[[], float] = time.time) -> None:
         self.db_path = str(db_path)
         self._generation = generation
         self._clock = clock
@@ -153,6 +154,15 @@ class ClaimStore:
         """Extend the current claim before expiry; generation is unchanged (CLM-001). Expired/superseded -> StaleClaimError."""
         return self.heartbeat(token)
 
+    def transaction(self):  # public entry for the Bridge (same serialized write transaction)
+        return self._tx()
+
+    def now(self) -> float:
+        return self._clock()
+
+    def check(self, conn: sqlite3.Connection, token: ClaimToken) -> sqlite3.Row:
+        return self._check(conn, token)
+
     @contextmanager
     def fenced(self, token: ClaimToken):
         """Write transaction that first verifies the current token (TD-25); raising inside rolls everything back."""
@@ -164,7 +174,7 @@ class ClaimStore:
         with self._tx() as conn:
             self._check(conn, token)
 
-    def finalize_terminal(self, token: ClaimToken, result: dict) -> None:
+    def finalize_terminal(self, token: ClaimToken, result: dict[str, Any]) -> None:
         """Authoritative terminal finalization write; fenced by the current token in the same transaction (TD-25)."""
         with self._tx() as conn:
             self._check(conn, token)
