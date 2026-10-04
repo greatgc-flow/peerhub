@@ -84,6 +84,10 @@ def _lease_and_capability_counts(store: SqliteStateStore) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
+# Generous: the loser only has to fail fast, but a loaded (windows CI) runner can stall a thread for several seconds; the bound only matters on failure.
+_RACE_WAIT_S = 60.0
+
+
 def test_two_real_callers_race_at_attempt_creation_one_loses_cleanly(
     tmp_path: Path,
     store: SqliteStateStore,
@@ -97,7 +101,7 @@ def test_two_real_callers_race_at_attempt_creation_one_loses_cleanly(
             # The winner pauses here (after create_attempt and record_dispatch_intent,
             # while attempt 1 is durably recorded and in-progress in SQLite) until
             # the loser has cleanly observed CONCURRENT_ATTEMPT_IN_PROGRESS.
-            self.loser_done.wait(timeout=10.0)
+            self.loser_done.wait(timeout=_RACE_WAIT_S)
             return super().new_decoder(plan)
 
     adapter = _BlockingAdapter()
@@ -135,7 +139,7 @@ def test_two_real_callers_race_at_attempt_creation_one_loses_cleanly(
         # The winner claims attempt 1 and pauses in new_decoder.
         # The loser fails at create_attempt and completes immediately.
         done, not_done = wait(
-            [future_one, future_two], return_when=FIRST_COMPLETED, timeout=10.0
+            [future_one, future_two], return_when=FIRST_COMPLETED, timeout=_RACE_WAIT_S
         )
         adapter.loser_done.set()
 
@@ -153,8 +157,9 @@ def test_two_real_callers_race_at_attempt_creation_one_loses_cleanly(
     # Exactly one winner proceeds normally; exactly one loser backs off
     # cleanly via the new ConcurrentAttemptClaimError -> classify ->
     # CONCURRENT_ATTEMPT_IN_PROGRESS wiring, never a retry of its own.
-    assert len(winners) == 1
-    assert len(losers) == 1
+    reasons = [r.stop_reason for r in results]
+    assert len(winners) == 1, reasons
+    assert len(losers) == 1, reasons
 
     loser = losers[0]
     assert len(loser.attempts) == 1
