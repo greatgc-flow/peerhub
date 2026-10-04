@@ -186,3 +186,35 @@ def test_rel_007_w9_skip_is_accepted_only_with_machine_readable_reason_and_is_ne
     assert m["unverified_blocking_tests"]["IMP-003"] == ("not_verified" if accepted else "skipped")
     assert m["deterministic_suite"]["not_verified"] == (1 if accepted else 0) and m["deterministic_suite"]["passed"] == len(all_ids(live=False)) - 1
     assert m["release_ready"] is False  # an accepted skip stays explicit and unverified, never ready
+
+
+def _add_case(path, tid, tag, message):
+    """Append a SECOND synthetic testcase for the same catalog id (e.g. a matrix cell skipped next to the real pass)."""
+    text = path.read_text(encoding="utf-8")
+    name = "test_" + tid.lower().replace("-", "_") + "_cell"
+    body = f"<{tag} message={quoteattr(message)}/>" if tag else ""
+    path.write_text(text.replace("</testsuite>", f"<testcase classname='tests.x' name={quoteattr(name)}>{body}</testcase></testsuite>"), encoding="utf-8")
+
+
+@pytest.mark.parametrize("reason,ready", [
+    ("CI-ONLY[python=3.12;os=ubuntu-latest]: VERIFIED-CI (https://example/run/1); not runnable here", True),
+    ("CI-ONLY[python=3.12;os=windows-latest]: VERIFIED-LOCAL (evidence docs/m1_impl/matrix_evidence/x.json)", True),
+    ("CI-ONLY[python=3.12;os=ubuntu-latest]: UNVERIFIED here (TD-18); not runnable here", False),
+    ("CI-ONLY[python=3.12;os=ubuntu-latest]", False),
+])
+def test_rel_007_evidence_backed_matrix_skip_counts_only_next_to_a_real_pass(tmp_path, dist_dir, reason, ready):
+    base = {i: "passed" for i in all_ids(live=True)}
+    j = junit(tmp_path / "junit.xml", base)
+    _add_case(j, "REL-010", "skipped", reason)
+    m = ev.build_manifest(repo_root=REPO, junit_paths=[j], dist_dir=dist_dir)
+    assert m["release_ready"] is ready, m["blockers"]
+    if not ready:
+        assert m["unverified_blocking_tests"]["REL-010"] == "not_verified"
+
+
+def test_rel_007_evidence_backed_skip_alone_is_never_a_pass(tmp_path, dist_dir):
+    base = {i: "passed" for i in all_ids(live=True) if i != "REL-010"}
+    j = junit(tmp_path / "junit.xml", base)
+    _add_case(j, "REL-010", "skipped", "CI-ONLY[python=3.12;os=ubuntu-latest]: VERIFIED-CI (https://example/run/1); not runnable here")
+    m = ev.build_manifest(repo_root=REPO, junit_paths=[j], dist_dir=dist_dir)
+    assert m["release_ready"] is False and m["unverified_blocking_tests"]["REL-010"] == "evidence_verified", m["blockers"]
