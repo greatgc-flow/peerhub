@@ -9,8 +9,8 @@ on:
 jobs:
   build:
     # The declared support matrix (pyproject classifiers / requires-python) is exactly this cross product (REL-010/011, TD-18).
-    # Cells not yet executed by a CI run are UNVERIFIED, except windows py3.11/3.12/3.13/3.14 which are VERIFIED-LOCAL (evidence docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json
-    # for 3.11-3.13; 3.14 run live); all ubuntu cells are UNVERIFIED. A green CI run is what verifies a cell in CI.
+    # All 8 cells are VERIFIED-CI: green run https://github.com/greatgc-flow/peerhub/actions/runs/37189754726
+    # (evidence docs/m1_impl/matrix_evidence/ci-run-37189754726.json; tests/m1/package/test_rel_matrix.py requires it). A cell without run evidence is UNVERIFIED (TD-18).
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60  # the full deterministic suite takes ~20 min on windows runners (process-spawn heavy)
     strategy:

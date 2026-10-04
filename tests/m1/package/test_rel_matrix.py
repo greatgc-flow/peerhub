@@ -5,6 +5,7 @@ Locally only the cell this machine can run is EXECUTED; every other declared cel
 `CI-ONLY[python=<v>;os=<name>]: ...` and the marker `ci_only(python=, os=)` (so a CI report can assert they ran there)."""
 import json
 import platform
+import re
 import sys
 
 import pytest
@@ -67,6 +68,24 @@ def _verified_local():
     return {(c["python"], c["os"]) for c in ev["cells"] if c["failed"] == 0 and c["dirs"]}
 
 
+CI_EVIDENCE_DIR = REPO / "docs/m1_impl/matrix_evidence"
+
+
+def _ci_evidence_files():
+    return sorted(CI_EVIDENCE_DIR.glob("ci-run-*.json"))
+
+
+def _verified_ci():
+    """{(python, os): run_url} for cells whose CI conclusion is recorded as success in a ci-run-<id>.json evidence file."""
+    out = {}
+    for f in _ci_evidence_files():
+        ev = json.loads(f.read_text(encoding="utf-8"))
+        for c in ev["cells"]:
+            if c["conclusion"] == "success":
+                out[(c["python"], c["os"])] = ev["run_url"]
+    return out
+
+
 def _cell_params():
     local_py = f"{sys.version_info.major}.{sys.version_info.minor}"
     local_os = pkg_env.local_os_name()
@@ -76,7 +95,10 @@ def _cell_params():
     for py, os_ in sorted(_ci_matrix()):
         runnable = py == local_py and os_ == local_os  # a cell is executed only if BOTH axes match this machine
         marks = [pytest.mark.ci_only(python=py, os=os_)] if not runnable else []
-        if not runnable and (py, os_) in _verified_local():
+        if not runnable and (py, os_) in _verified_ci():
+            marks.append(pytest.mark.skip(reason=f"CI-ONLY[python={py};os={os_}]: VERIFIED-CI ({_verified_ci()[(py, os_)]}); "
+                                                 f"not runnable on local python {local_py} / {local_os}"))
+        elif not runnable and (py, os_) in _verified_local():
             marks.append(pytest.mark.skip(reason=f"CI-ONLY[python={py};os={os_}]: VERIFIED-LOCAL (executed on another local interpreter, evidence {EVIDENCE_REL}); "
                                                  f"not runnable on local python {local_py} / {local_os}; a green ci.yml matrix job is still the CI proof"))
         elif not runnable:
@@ -153,6 +175,41 @@ def test_rel_010_verified_local_claims_are_backed_by_evidence():
         assert EVIDENCE_REL in t, f"{name} claims VERIFIED-LOCAL without citing {EVIDENCE_REL}"
     # negative control: a cell without evidence is not VERIFIED-LOCAL
     assert ("3.11", "ubuntu-latest") not in _verified_local()
+
+
+def test_rel_010_verified_ci_claims_are_backed_by_run_evidence():
+    """A VERIFIED-CI claim requires a ci-run-<id>.json evidence file: real run id/url, a head sha, and a green conclusion for the
+    claimed cell; evidence may only name declared matrix cells. Without evidence no doc may claim VERIFIED-CI."""
+    ci_cells = _ci_matrix()
+    text = {"README.md": (REPO / "README.md").read_text(encoding="utf-8"), "ci.yml": (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")}
+    claims = {name: t for name, t in text.items() if "VERIFIED-CI" in t}
+    files = _ci_evidence_files()
+    if not files:
+        assert not claims, f"VERIFIED-CI claimed in {sorted(claims)} but no {CI_EVIDENCE_DIR.name}/ci-run-<id>.json evidence exists"
+        return
+    for f in files:
+        ev = json.loads(f.read_text(encoding="utf-8"))
+        run_id = f.stem.removeprefix("ci-run-")
+        assert run_id.isdigit() and ev["run_id"] == run_id, f"{f.name}: run_id must equal the file name id"
+        assert ev["run_url"] == f"https://github.com/greatgc-flow/peerhub/actions/runs/{run_id}", f"{f.name}: run_url must point at the run"
+        assert re.fullmatch(r"[0-9a-f]{40}", ev["head_sha"]), f"{f.name}: head_sha must be a full commit sha"
+        seen = set()
+        for c in ev["cells"]:
+            cell = (c["python"], c["os"])
+            assert cell in ci_cells, f"{f.name}: evidence cell {cell} is not a declared matrix cell"
+            assert cell not in seen, f"{f.name}: duplicate cell {cell}"
+            seen.add(cell)
+            assert c["conclusion"] in {"success", "failure", "cancelled", "skipped"}
+            assert c["job_url"].startswith(ev["run_url"] + "/job/"), f"{f.name}: job_url of {cell} does not belong to the run"
+    verified = _verified_ci()
+    assert claims, "CI evidence exists but no doc claims it"
+    for name, t in claims.items():
+        assert any(f.name in t for f in files), f"{name} claims VERIFIED-CI without citing a ci-run-<id>.json evidence file"
+    # a doc may claim the whole matrix only if every declared cell has green evidence
+    if any("all 8 cells VERIFIED-CI" in t for t in claims.values()):
+        assert set(verified) == ci_cells, f"claimed all cells VERIFIED-CI but evidence is green only for {sorted(verified)}"
+    # negative control: a cell without evidence is not VERIFIED-CI
+    assert ("3.99", "ubuntu-latest") not in verified
 
 
 # ------------------------------------------------------------------------------------------- REL-011

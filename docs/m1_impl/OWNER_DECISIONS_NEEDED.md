@@ -14,7 +14,7 @@ Consultation (cx + ag consensus, DECISIONS.md "D-OWN-*"): A1, A3, B6, B7, B8 and
 | B6 legacy importer scope | Accepted: partial import with explicit unmapped report; guide `LEGACY_IMPORT_SCOPE.md` |
 | B7 real adapters | Accepted: no real resume/interrupt/terminate/steer in M1; fallback fresh generation + catch-up; `ADAPTER_CAPABILITIES.md` |
 | B8 cancel semantics | Accepted (D-W4-7, D-W4-9) |
-| C safe defaults | Accepted; Python/OS matrix cells not executed by CI are marked UNVERIFIED (TD-18) in README, ci.yml and CI-only skip reasons; windows py3.11-3.13 now VERIFIED-LOCAL (docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json), ubuntu cells still UNVERIFIED |
+| C safe defaults | Accepted; all 8 Python/OS matrix cells are now VERIFIED-CI (green run https://github.com/greatgc-flow/peerhub/actions/runs/37189754726; evidence docs/m1_impl/matrix_evidence/ci-run-37189754726.json); a cell without run evidence stays UNVERIFIED (TD-18); windows py3.11-3.13 also VERIFIED-LOCAL (docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json). The live-provider-validation job (self-hosted) is still pending/not run in hosted CI |
 
 ## Still needs the owner
 Nothing blocking. Accepted by delegation, for later confirmation (no code change expected unless the owner disagrees):
