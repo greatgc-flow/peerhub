@@ -35,7 +35,9 @@ required_output_fields = ["response"]
 # (4 passed, 3 deselected) after agy.exe moved to 1.1.13 on this workstation.
 # 1.2.12 verified 2026-09-28 by discovery, help contract, and twelve-profile
 # live PONG validation.
-verified_versions = ["1.1.12", "1.1.13", "1.2.12"]
+# 1.2.16 verified 2026-10-04: discovery, help contract and the live adapter conformance tests (self-hosted live gate, 9 passed) plus a twelve-profile
+# live PONG ping through the M1 runtime adapters on this workstation.
+verified_versions = ["1.1.12", "1.1.13", "1.2.12", "1.2.16"]
 version_argv = ["--version"]
 help_argv = ["--help"]
 # RealAgyAdapter.plan_invocation builds: agy.exe -p <prompt> --output-format json
@@ -50,7 +52,9 @@ required_output_fields = ["result", "is_error"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
 # 2.1.283 verified 2026-09-28 by discovery, help contract, and twelve-profile
 # live PONG validation.
-verified_versions = ["2.1.222", "2.1.283"]
+# 2.1.289 verified 2026-10-04: discovery, help contract and the live adapter conformance tests (self-hosted live gate, 9 passed) plus a twelve-profile
+# live PONG ping through the M1 runtime adapters on this workstation.
+verified_versions = ["2.1.222", "2.1.283", "2.1.289"]
 version_argv = ["--version"]
 help_argv = ["--help"]
 # RealClaudeAdapter writes the prompt to stdin and builds:
@@ -66,7 +70,9 @@ required_output_fields = ["type", "item"]
 # source_tag: empirical_probe, measured 2026-08-12 on this workstation.
 # 0.157.1 verified 2026-09-28 by discovery, help contract, and twelve-profile
 # live PONG validation.
-verified_versions = ["0.147.0", "0.157.1"]
+# 0.160.0 verified 2026-10-04: discovery, help contract and the live adapter conformance tests (self-hosted live gate, 9 passed) plus a twelve-profile
+# live PONG ping through the M1 runtime adapters on this workstation.
+verified_versions = ["0.147.0", "0.157.1", "0.160.0"]
 version_argv = ["--version"]
 # NOT ["--help"]: --json is a flag of the `exec` SUBCOMMAND and does not
 # appear in codex's top-level help. Probing top-level help reports --json
