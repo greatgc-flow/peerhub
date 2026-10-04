@@ -8,3 +8,9 @@ Classes of defect cx.pro found in earlier waves (probe all of them again, across
 5. Immutability bypass: INSERT OR REPLACE, recursive_triggers off, stale triggers retained on reopen.
 6. Replay/crash safety: marker before invoke (TD-11), crash points leave complete old-or-new state, restore atomicity, generation consistency.
 7. Spec contradictions and owner items: see DECISIONS.md items marked OWNER and the erratum/gap list in the final report.
+
+## Operating notes (2026-10-04)
+- cx cannot run disk-backed tests: READ_ONLY denies writes (pytest basetemp, even inside the workspace) and WORKTREE_WRITE is not enforceable for cx (CapabilityLeaseViolation). Pass `--workspace <parent root>` so cx can READ sibling/sub paths; verify disk-backed behaviour with our own test runs and record evidence instead.
+- cx.pro/cx.deepthink are refused (not admitted) while the cx pool pacing is critical; cx.effort/cx.standard still work. Large single review prompts end CANCELLED: split reviews into scoped parts.
+- ag.pro refuses prompts worded as adversarial/exploit/injection hunting; phrase as correctness code review.
+- Run `peerhub diag --fresh` before peer calls and watch pacing (CC/CX quotas were tight).
