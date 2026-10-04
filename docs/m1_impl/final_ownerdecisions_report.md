@@ -25,3 +25,12 @@ traceability: no missing ids; validate_package PASS.
 
 ## Open issues
 cx.pro consolidated review still pending; accepted-by-delegation items listed in OWNER_DECISIONS_NEEDED.md. Pre-existing unrelated tests/static manifest failure untouched.
+
+## cx final review part 2 (HEAD 650e06c): 5 defects + 1 test gap, all reproduced RED then fixed
+1. Pre-invoke fence: after the marker and gate, `_run_runtime` re-validates the claim (token/generation/lease) in a fence immediately before `runtime.deliver`. If lost, the runtime is never called, late evidence `fenced_before_invoke` is written and the cycle returns `fenced`. A lost claim cannot write a fenced resolution, so the marker stays unresolved and the new owner promotes it to MAY_HAVE_STARTED (conservative; a `lost_fence` resolution reason was not added because it could not be written by a fenced-out owner). Residual: a lease expiring between the check and the call is inherent and caught by the per-event heartbeat.
+2. Attempt binding: `begin_attempt` authenticates the Record against the persisted Core row (exists, same Stream as the claim, addressed to the peer, not authored by it, position/author/kind/stream equal to the caller copy) and uses the persisted position; `RecordRejectedError` otherwise, nothing written.
+3. RETRY authorization: the reconcile Record must address the delivery's peer (empty targets = broadcast, else must include it), in `reconcile_uncertain` and in both authorization triggers.
+4. Invocation resolution: CHECK constraints (closed reason set prespawn_failure / control_halt / promoted_may_have_started, invocation_no >= 1, generation >= 0) plus a BEFORE INSERT trigger: it must be the latest (open) marker, the delivery certainty must match the reason (NOT_STARTED for prespawn/halt, advanced for promoted) and a persisted evidence row of the matching kind carrying that invocation_no must exist (evidence is now written before the resolution).
+5. Certainty: BEFORE UPDATE trigger enforces forward-only edges (NS->MAY/ST, MAY->ST/TERM, ST->TERM) and rejects unknown values; BEFORE INSERT requires NOT_STARTED.
+6. CTX-002 property test now has an independent oracle (exact kept set for record-only budgets; newest fitting pin must be kept for byte budgets; non-empty when something fits). Probes: always-empty projection and ignores-pins both KILLED.
+Tests: `tests/m1/bridge/test_own_review2.py` (30 cases incl. 20 raw-SQL certainty pairs with an independent LEGAL literal, recursive_triggers OFF). Mutation probes (8, try/finally, clean diff): all KILLED.

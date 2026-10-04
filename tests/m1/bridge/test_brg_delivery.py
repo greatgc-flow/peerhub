@@ -85,7 +85,7 @@ def test_brg_011_prespawn_failure_stays_not_started_and_is_retryable(bridge_h):
     ev = bridge_h.execution_evidence(rec.record_id, "b")
     assert ev["deliveries"][0]["certainty"] == "NOT_STARTED" and ev["deliveries"][0]["execution_id"] is None
     fail = [e for e in ev["events"] if e["kind"] == "prespawn_failure"]
-    assert len(fail) == 1 and fail[0]["detail"] == {"error": "binary not found"} and fail[0]["certainty"] == "NOT_STARTED"
+    assert len(fail) == 1 and fail[0]["detail"] == {"error": "binary not found", "invocation_no": 1} and fail[0]["certainty"] == "NOT_STARTED"
     assert offset_row(bridge_h) == (0, 1) and responses(bridge_h) == []  # Offset unchanged
     # retry is safe: same attempt row is reused, runtime is called again, and it completes
     res2 = bridge_h.delivery_cycle("b", "s", rt)

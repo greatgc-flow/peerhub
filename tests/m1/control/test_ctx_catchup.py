@@ -280,3 +280,16 @@ def test_ctx_002_pinned_projection_never_exceeds_budget_and_stays_ordered(sizes,
     omitted_pins = [x for x in pins if x <= len(recs) and x not in got]
     if omitted_pins and kept_pins:  # pins are kept newest-first: every kept pin is newer than every omitted pin
         assert min(kept_pins) > max(omitted_pins)
+    # independent oracle (not derived from the implementation): which Records MUST be kept
+    valid = sorted(x for x in pins if 1 <= x <= len(recs))
+    if mb is None:  # record budget only: pins reserved newest-first, remaining slots take the newest non-pinned Records
+        k = len(recs) if mr is None else mr
+        want_pins = valid[::-1][:k]
+        others = [i for i in range(len(recs), 0, -1) if i not in valid][:max(0, k - len(want_pins))]
+        assert got == sorted(want_pins + others)
+    else:  # byte budget: the newest pin (reserved first) must be kept whenever it fits alone and a record slot exists
+        newest = valid[-1] if valid else None
+        if newest is not None and (mr is None or mr >= 1) and len(item_json(recs[newest - 1]).encode()) <= mb:
+            assert newest in got
+        if not valid and recs and (mr is None or mr >= 1) and len(item_json(recs[-1]).encode()) <= mb:
+            assert got  # an always-empty projection is wrong whenever something fits

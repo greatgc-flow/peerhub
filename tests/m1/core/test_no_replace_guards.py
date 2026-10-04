@@ -41,7 +41,7 @@ EV = dict(seq=1, delivery_id="d", stream_id="s", peer_id="p", kind="k", detail="
 SE = dict(seq=1, stream_id="s", peer_id="p", event="e", from_state="a", to_state="b", generation=1, detail="{}")
 CTL = dict(record_id="c", stream_id="s", peer_id="p", kind="k", position=1, effect="e")
 INV = dict(delivery_id="d1", invocation_no=1, stream_id="s", peer_id="p", claim_generation=1)
-RES = dict(delivery_id="d1", invocation_no=1, reason="r", claim_generation=1)
+RES = dict(delivery_id="d1", invocation_no=1, reason="prespawn_failure", claim_generation=1)
 FIN = dict(stream_id="s", peer_id="p", claim_generation=1, result_json="{}")
 
 # table -> (seed rows, row, colliding variants, non-colliding positive-control row or None)
@@ -58,8 +58,13 @@ CASES = {
     "bridge_controls": ([], CTL, [dict(CTL, position=9, effect="other")], dict(CTL, peer_id="p2")),
     "bridge_finalizations": ([], FIN, [dict(FIN, result_json='{"x":1}')], dict(FIN, claim_generation=2)),
     "bridge_invocations": ([], INV, [dict(INV, claim_generation=9)], dict(INV, invocation_no=2)),
-    "bridge_invocation_resolutions": ([("bridge_invocations", INV), ("bridge_invocations", dict(INV, invocation_no=2)),
-                                       ("bridge_invocations", dict(INV, delivery_id="z"))], RES, [dict(RES, reason="X")], dict(RES, invocation_no=2)),
+    "bridge_invocation_resolutions": ([("bridge_deliveries", DELIVERY), ("bridge_deliveries", dict(DELIVERY, delivery_id="z", seq=3, attempt=3)),
+                                       ("bridge_invocations", INV), ("bridge_invocations", dict(INV, invocation_no=2)),
+                                       ("bridge_invocations", dict(INV, delivery_id="z"))] + [
+                                       ("bridge_evidence", dict(EV, seq=10 + i, delivery_id=d, kind=k, detail=json.dumps({"invocation_no": n})))
+                                       for i, (d, n, k) in enumerate([("d1", 1, "prespawn_failure"), ("d1", 2, "prespawn_failure"),
+                                                                      ("z", 1, "prespawn_failure"), ("d1", 1, "control_halt")])],
+                                      RES, [dict(RES, reason="control_halt")], dict(RES, invocation_no=2)),
 }
 
 

@@ -55,6 +55,10 @@ class InvocationMarkerError(ValueError):
     """Invocation marker/resolution violates the marker protocol (no unresolved marker, or certainty is not NOT_STARTED); nothing was written."""
 
 
+class RecordRejectedError(ValueError):
+    """The Record handed to begin_attempt is not the persisted Record of this claim's Stream/peer; nothing was written."""
+
+
 class NoDeliveryError(LookupError):
     """No delivery exists for the claim scope."""
 
@@ -187,6 +191,7 @@ _DDL = [
     """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_valid_insert BEFORE INSERT ON bridge_reconciliations
         WHEN NOT EXISTS (SELECT 1 FROM records n JOIN bridge_deliveries d ON d.delivery_id = NEW.delivery_id
             WHERE n.record_id = NEW.reconcile_record_id AND n.kind = 'control.reconcile' AND n.stream_id = d.stream_id AND n.author_peer_id != d.peer_id AND json_valid(n.body_json)
+            AND (json_array_length(n.targets_json) = 0 OR EXISTS (SELECT 1 FROM json_each(n.targets_json) WHERE value = d.peer_id))
             AND json_extract(n.body_json, '$.decision') = 'RETRY' AND json_extract(n.body_json, '$.delivery_id') = NEW.delivery_id)
         BEGIN SELECT RAISE(ABORT, 'authorization must be a durable control.reconcile RETRY for this delivery, not authored by the bridged peer'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_consumed_write_once
@@ -197,6 +202,7 @@ _DDL = [
             SELECT 1 FROM records n JOIN records o ON o.record_id = OLD.reconcile_record_id
             JOIN bridge_deliveries d ON d.delivery_id = NEW.delivery_id
             WHERE n.record_id = NEW.reconcile_record_id AND n.position > o.position AND n.stream_id = o.stream_id AND n.kind = 'control.reconcile' AND n.stream_id = d.stream_id AND n.author_peer_id != d.peer_id AND json_valid(n.body_json)
+            AND (json_array_length(n.targets_json) = 0 OR EXISTS (SELECT 1 FROM json_each(n.targets_json) WHERE value = d.peer_id))
             AND json_extract(n.body_json, '$.decision') = 'RETRY' AND json_extract(n.body_json, '$.delivery_id') = NEW.delivery_id)
         BEGIN SELECT RAISE(ABORT, 'authorization may only move to a NEWER valid control.reconcile RETRY for this delivery, never once consumed'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_evidence_no_replace BEFORE INSERT ON bridge_evidence
@@ -216,10 +222,12 @@ _DDL = [
         BEGIN SELECT RAISE(ABORT, 'bridge_controls rows are never replaced'); END""",
     """CREATE TABLE IF NOT EXISTS bridge_invocations (
         delivery_id TEXT NOT NULL, invocation_no INTEGER NOT NULL, stream_id TEXT NOT NULL, peer_id TEXT NOT NULL,
-        claim_generation INTEGER NOT NULL, external_session_id TEXT, session_generation INTEGER,
-        PRIMARY KEY (delivery_id, invocation_no))""",
+        claim_generation INTEGER NOT NULL CHECK (claim_generation >= 0), external_session_id TEXT, session_generation INTEGER,
+        PRIMARY KEY (delivery_id, invocation_no), CHECK (invocation_no >= 1))""",
     """CREATE TABLE IF NOT EXISTS bridge_invocation_resolutions (
-        delivery_id TEXT NOT NULL, invocation_no INTEGER NOT NULL, reason TEXT NOT NULL, claim_generation INTEGER NOT NULL,
+        delivery_id TEXT NOT NULL, invocation_no INTEGER NOT NULL CHECK (invocation_no >= 1),
+        reason TEXT NOT NULL CHECK (reason IN ('prespawn_failure', 'control_halt', 'promoted_may_have_started')),
+        claim_generation INTEGER NOT NULL CHECK (claim_generation >= 0),
         PRIMARY KEY (delivery_id, invocation_no))""",
     """CREATE TRIGGER IF NOT EXISTS bridge_invocations_no_update BEFORE UPDATE ON bridge_invocations
         BEGIN SELECT RAISE(ABORT, 'bridge_invocations is append-only'); END""",
@@ -235,9 +243,25 @@ _DDL = [
     """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_no_replace BEFORE INSERT ON bridge_invocation_resolutions
         WHEN EXISTS (SELECT 1 FROM bridge_invocation_resolutions WHERE delivery_id = NEW.delivery_id AND invocation_no = NEW.invocation_no)
         BEGIN SELECT RAISE(ABORT, 'bridge_invocation_resolutions rows are never replaced'); END""",
-    """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_needs_marker BEFORE INSERT ON bridge_invocation_resolutions
-        WHEN NOT EXISTS (SELECT 1 FROM bridge_invocations WHERE delivery_id = NEW.delivery_id AND invocation_no = NEW.invocation_no)
-        BEGIN SELECT RAISE(ABORT, 'a resolution needs its invocation marker'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_verifiable BEFORE INSERT ON bridge_invocation_resolutions
+        WHEN NOT (
+            EXISTS (SELECT 1 FROM bridge_invocations i WHERE i.delivery_id = NEW.delivery_id AND i.invocation_no = NEW.invocation_no)
+            AND EXISTS (SELECT 1 FROM bridge_deliveries d WHERE d.delivery_id = NEW.delivery_id AND (
+                (NEW.reason IN ('prespawn_failure', 'control_halt') AND d.certainty = 'NOT_STARTED' AND d.execution_id IS NULL)
+                OR (NEW.reason = 'promoted_may_have_started' AND d.certainty != 'NOT_STARTED')))
+            AND EXISTS (SELECT 1 FROM bridge_evidence e WHERE e.delivery_id = NEW.delivery_id AND json_valid(e.detail)
+                AND json_extract(e.detail, '$.invocation_no') = NEW.invocation_no
+                AND e.kind = CASE NEW.reason WHEN 'prespawn_failure' THEN 'prespawn_failure' WHEN 'control_halt' THEN 'control_halt'
+                                             ELSE 'invocation_unresolved_recovered' END))
+        BEGIN SELECT RAISE(ABORT, 'a resolution needs the open marker, a matching certainty state and its evidence'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_certainty_forward_only BEFORE UPDATE OF certainty ON bridge_deliveries
+        WHEN NEW.certainty != OLD.certainty AND NOT (
+            (OLD.certainty = 'NOT_STARTED' AND NEW.certainty IN ('MAY_HAVE_STARTED', 'STARTED'))
+            OR (OLD.certainty = 'MAY_HAVE_STARTED' AND NEW.certainty IN ('STARTED', 'TERMINAL'))
+            OR (OLD.certainty = 'STARTED' AND NEW.certainty = 'TERMINAL'))
+        BEGIN SELECT RAISE(ABORT, 'execution certainty is forward-only (no downgrade, no NOT_STARTED to TERMINAL)'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_insert_not_started BEFORE INSERT ON bridge_deliveries WHEN NEW.certainty != 'NOT_STARTED'
+        BEGIN SELECT RAISE(ABORT, 'an attempt starts NOT_STARTED'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_rowid_replace BEFORE INSERT ON bridge_deliveries
         WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_deliveries WHERE rowid = NEW.rowid)
         BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never replaced'); END""",
@@ -357,9 +381,9 @@ class Bridge:
             n = self._open_invocation(conn, delivery_id)
             if row["certainty"] != NOT_STARTED or n is None or row["execution_id"] is not None:
                 raise InvocationMarkerError(f"no unresolved invocation marker to resolve on a {row['certainty']} delivery")
+            self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, NOT_STARTED, error=error, invocation_no=n)
             conn.execute("INSERT INTO bridge_invocation_resolutions (delivery_id, invocation_no, reason, claim_generation) VALUES (?,?,?,?)",
                          (delivery_id, n, reason, token.generation))
-            self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, NOT_STARTED, error=error)
         self._fire("bridge.after_invocation_resolved")
 
     def _promote_unresolved(self, token: ClaimToken) -> None:
@@ -377,10 +401,30 @@ class Bridge:
                 conn.execute("INSERT INTO bridge_invocation_resolutions (delivery_id, invocation_no, reason, claim_generation) VALUES (?,?,?,?)",
                              (did, n, "promoted_may_have_started", token.generation))
 
+    @staticmethod
+    def _authentic_record(conn: sqlite3.Connection, token: ClaimToken, record):
+        """Never trust a caller copy: the Record must exist in Core, belong to the claim's Stream, be addressed to the claim's peer and match
+        the persisted position/author/kind. Returns the persisted facts."""
+        pr = conn.execute("SELECT * FROM records WHERE record_id=?", (getattr(record, "record_id", None),)).fetchone()
+        if pr is None:
+            raise RecordRejectedError(f"record {getattr(record, 'record_id', None)!r} is not durable")
+        if pr["stream_id"] != token.stream_id:
+            raise RecordRejectedError("record belongs to another Stream than the claim")
+        if pr["author_peer_id"] == token.peer_id:
+            raise RecordRejectedError("a peer's own Record is never delivered to it")
+        targets = json.loads(pr["targets_json"] or "[]")
+        if targets and token.peer_id not in targets:
+            raise RecordRejectedError("record is not addressed to the claim's peer")
+        for attr, col in (("position", "position"), ("author_peer_id", "author_peer_id"), ("kind", "kind"), ("stream_id", "stream_id")):
+            if getattr(record, attr, pr[col]) != pr[col]:
+                raise RecordRejectedError(f"caller copy disagrees with the persisted Record ({attr})")
+        return type("PersistedRecord", (), {"record_id": pr["record_id"], "position": pr["position"]})
+
     def begin_attempt(self, token: ClaimToken, record, *, reconcile_of: str | None = None) -> str:
         """Create (or, for NOT_STARTED retry, reuse) the attempt row for `record`; returns delivery_id."""
         with self.claims.fenced(token) as conn:
             s, p = token.stream_id, token.peer_id
+            record = self._authentic_record(conn, token, record)
             last = conn.execute("SELECT * FROM bridge_deliveries WHERE stream_id=? AND peer_id=? AND record_id=? "
                                 "ORDER BY attempt DESC LIMIT 1", (s, p, record.record_id)).fetchone()
             if last is not None and last["certainty"] == NOT_STARTED and reconcile_of is None:
@@ -726,6 +770,12 @@ class Bridge:
         gated = self._gate(token, runtime, rec, did, after_marker=True)  # intent committed up to the very invoke still wins
         if gated is not None:
             return gated
+        try:
+            with self.claims.fenced(token):  # D-OWN-A4: the claim must still be current/unexpired at the very moment of invoking
+                pass
+        except StaleClaimError as e:  # lost: nothing was invoked; the unresolved marker is promoted conservatively by the new owner
+            self._late(token, did, "fenced_before_invoke", error=str(e))
+            return CycleResult("fenced", rec.record_id, did, NOT_STARTED, session_generation=gen)
         try:
             for ev in runtime.deliver(ext, rec, catch_up):
                 try:
@@ -1127,6 +1177,9 @@ class Bridge:
                 raise ReconcileRejectedError("reconcile does not reference a delivery of this Record in this Stream")
             if rr.author == d["peer_id"]:
                 raise ReconcileRejectedError("the bridged peer cannot authorize its own retry")
+            targets = json.loads(pr["targets_json"] or "[]")
+            if targets and d["peer_id"] not in targets:
+                raise ReconcileRejectedError("the reconcile Record does not address the delivery's peer")
             if d["certainty"] != MAY_HAVE_STARTED:
                 raise ReconcileRejectedError(f"delivery is {d['certainty']}; only MAY_HAVE_STARTED can be reconciled")
             cur = conn.execute("SELECT r.reconcile_record_id, r.consumed_attempt, p.position FROM bridge_reconciliations r "
