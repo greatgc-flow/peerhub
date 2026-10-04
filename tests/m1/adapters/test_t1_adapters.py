@@ -299,5 +299,9 @@ def test_t1_catch_up_is_in_prompt_and_bounded(mk):
     drain(mk("ag").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="earlier fact", author_peer_id="a")]))
     p = calls(mk.log)[0]["prompt"]
     assert "earlier fact" in p and p.endswith("now")
-    drain(mk("ag").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="z" * 50_000, author_peer_id="a")]))
-    assert calls(mk.log)[1]["prompt_len"] < 25_000
+    # W9: never truncated silently. stdin providers get the full history (within the inline limit); argv providers fail PRE-spawn
+    drain(mk("cc").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="z" * 50_000, author_peer_id="a")]))
+    assert calls(mk.log)[1]["prompt_len"] > 50_000
+    with pytest.raises(PrespawnError, match="exceeding the ag inline limit"):
+        drain(mk("ag").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="z" * 50_000, author_peer_id="a")]))
+    assert len(calls(mk.log)) == 2

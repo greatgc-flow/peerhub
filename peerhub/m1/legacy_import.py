@@ -218,13 +218,32 @@ class LegacyImporter:
     # ------------------------------------------------------------------ classification against PERSISTED target rows
     @staticmethod
     def _peer_owned(conn: sqlite3.Connection, peer_id: str) -> bool | None:
+        """None = absent; True only when the persisted marker EXACTLY equals the importer's marker for this peer (never null/partial)."""
         row = conn.execute("SELECT metadata_json FROM peers WHERE peer_id = ?", (peer_id,)).fetchone()
         if row is None:
             return None
+        source = "event_log" if peer_id == AUTHOR_ID else "consumer_offsets"
         try:
-            return "legacy_import" in json.loads(row[0])
+            meta = json.loads(row[0])
+            return isinstance(meta, dict) and meta.get("legacy_import") == {"source": source}
         except (ValueError, TypeError):
             return False
+
+    @staticmethod
+    def _persisted_digests(conn: sqlite3.Connection, stream_id: str, limit: int) -> list[tuple]:
+        """(position, idempotency_key, digest RECOMPUTED from the persisted fields, author) -- never the stored payload_digest."""
+        out = []
+        for r in conn.execute("SELECT position, idempotency_key, stream_id, author_peer_id, kind, body_json, targets_json, reply_to, "
+                              "refs_json, metadata_json, created_at, payload_digest FROM records WHERE stream_id = ? "
+                              "ORDER BY position LIMIT ?", (stream_id, limit)):
+            try:
+                d = compute_record_digest({"stream_id": r[2], "author_peer_id": r[3], "kind": r[4],
+                                           "body": None if r[5] is None else json.loads(r[5]), "targets": json.loads(r[6]),
+                                           "reply_to": r[7], "refs": json.loads(r[8]), "metadata": json.loads(r[9]), "created_at": r[10]})
+            except (ValueError, TypeError, KeyError):
+                d = "unverifiable"
+            out.append((r[0], r[1], d if d == r[11] else f"stored-mismatch:{d}", r[3]))
+        return out
 
     def _offset_plan(self, conn: sqlite3.Connection | None, u: dict[str, Any], *, fresh: bool) -> dict[str, list]:
         """Per-component (offsets) accounting against PERSISTED rows. Never modifies an existing offset (TD-10: no guessing):
@@ -265,8 +284,7 @@ class LegacyImporter:
             marker = {}
         if marker.get("source") != "event_log" or marker.get("group") != u["cid"]:
             return "conflict", f"stream {u['unit']!r} exists and was not created by the legacy importer; refusing to modify it", EMPTY_PLAN()
-        have = conn.execute("SELECT position, idempotency_key, payload_digest, author_peer_id FROM records WHERE stream_id = ? "
-                            "ORDER BY position LIMIT ?", (u["unit"], len(u["digests"]))).fetchall()
+        have = self._persisted_digests(conn, u["unit"], len(u["digests"]))
         want = [(i + 1, r["idempotency_key"], d, AUTHOR_ID) for i, (r, d) in enumerate(zip(u["requests"], u["digests"]))]
         if [tuple(h) for h in have] != want:
             return "conflict", "imported records differ from the legacy source (changed legacy row or divergent target); not overwritten", EMPTY_PLAN()

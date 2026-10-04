@@ -7,6 +7,8 @@ fence check and the write share one transaction. Full Bridge semantics (sessions
 """
 from __future__ import annotations
 
+from peerhub.extensions.schema_guard import refuse_future_schema
+
 import json
 import sqlite3
 import time
@@ -69,6 +71,7 @@ class ClaimStore:
         self.db_path = str(db_path)
         self._generation = generation
         self._clock = clock
+        refuse_future_schema(self.db_path)  # MIG-003: refuse a future schema before any DDL/DML
         with self._tx() as conn:
             conn.execute(_DDL)
             conn.execute(_DDL_FINAL)

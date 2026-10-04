@@ -13,6 +13,8 @@ Ledger evidence is append-only (DB triggers); a TERMINAL delivery's result is im
 """
 from __future__ import annotations
 
+from peerhub.extensions.schema_guard import refuse_future_schema
+
 import hashlib
 import json
 import re
@@ -299,6 +301,7 @@ class Bridge:
         self.max_session_attempts, self.catch_up_limit, self.ack_retries = max_session_attempts, catch_up_limit, ack_retries
         self.catch_up_budget = catch_up_budget if catch_up_budget is not None else CatchUpBudget(max_records=catch_up_limit)
         self._hook = fault_hook
+        refuse_future_schema(claims.db_path)  # MIG-003: refuse a future schema before any DDL/DML
         with claims._tx() as conn:
             owned = [m.group(1) for stmt in _DDL if (m := re.match(r"\s*CREATE TABLE IF NOT EXISTS (\w+)", stmt))]
             marks = ",".join("?" * len(owned))

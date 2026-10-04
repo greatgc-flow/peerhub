@@ -1,5 +1,5 @@
 """Tiny fake vendor CLI (run as `python fake_cli.py <args>`). Mode via env FAKE_MODE; log via FAKE_LOG; kind via FAKE_KIND.
-Modes: ok nonzero hang huge garbage secret_echo secret_fail vendor_error."""
+Modes: ok nonzero hang huge garbage secret_echo secret_fail vendor_error incomplete error_marked."""
 import json
 import os
 import sys
@@ -23,14 +23,21 @@ secret = os.environ.get("FAKE_SECRET", "")
 
 
 def emit(text):
+    bad = mode in ("vendor_error", "error_marked")
     if kind == "cc":
         print(json.dumps({"type": "system", "subtype": "init", "session_id": "s1"}))
-        print(json.dumps({"type": "result", "is_error": mode == "vendor_error", "result": text, "session_id": "s1"}))
+        if mode != "incomplete":  # incomplete: the stream ends without the terminal result event
+            print(json.dumps({"type": "result", "subtype": "success", "is_error": bad, "result": text, "session_id": "s1"}))
     elif kind == "cx":
         print(json.dumps({"type": "thread.started", "thread_id": "t1"}))
         print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": text}}))
-    else:
-        print(json.dumps({"response": text, "conversation_id": "c1"}))
+        if mode == "error_marked":
+            print(json.dumps({"type": "turn.failed", "error": {"message": "partial"}}))
+        elif mode != "incomplete":
+            print(json.dumps({"type": "turn.completed", "usage": {}}))
+    else:  # ag has no streamed terminal event: "incomplete" = a truncated JSON document
+        doc = json.dumps({"response": text, "conversation_id": "c1", **({"is_error": True} if mode == "error_marked" else {})})
+        print(doc[:-1] if mode == "incomplete" else doc)
 
 
 if mode == "hang":
@@ -50,5 +57,7 @@ elif mode == "secret_echo":
     emit(f"here is {secret}")
 elif mode == "vendor_error":
     emit("quota exceeded")
+elif mode in ("incomplete", "error_marked"):
+    emit("PARTIAL")
 else:
     emit("OK")

@@ -170,16 +170,18 @@ def test_rel_005_live_and_soak_tests_are_deselected_by_the_default_command(tmp_p
 
 # ----------------------------------------------------------------------------- REL-006 (textual YAML mutations + gate DAG linkage)
 PUBLISH_TEXT = (REPO / ".github/workflows/publish.yml").read_text(encoding="utf-8")
-GATE_JOB = {"G3": "live-validation", "G4": "build"}  # release-gates.json gate -> publish.yml job that provides it
+GATE_JOB = {"G0": "gate-g0-fast", "G1": "gate-g1-core", "G2": "gate-g2-m1", "G3": "live-validation", "G4": "build",
+            "G5": "release-evidence", "G7": "gate-g7-invariant"}  # release-gates.json blocking gate -> publish.yml job that provides it
+PUBLISH_NEEDS = "needs: [gate-g0-fast, gate-g1-core, gate-g2-m1, live-validation, build, gate-g7-invariant, release-evidence]"
 
 
 def _mutate(text, how):
     if how == "continue_on_error":
-        out = text.replace("  live-validation:\n    runs-on", "  live-validation:\n    continue-on-error: true\n    runs-on", 1)
+        out = text.replace("  live-validation:\n", "  live-validation:\n    continue-on-error: true\n", 1)
     elif how == "needs_dropped":
-        out = text.replace("needs: [build, live-validation]", "needs: build", 1)
+        out = text.replace(PUBLISH_NEEDS, "needs: build", 1)
     elif how == "live_not_needed_list":
-        out = text.replace("needs: [build, live-validation]", "needs: [build]", 1)
+        out = text.replace(PUBLISH_NEEDS, "needs: [build]", 1)
     elif how == "always":
         marker = "\n  publish:"
         head, tail = text.split(marker, 1)  # the publish JOB's own condition (the build job has a step-level `if` too)
@@ -209,23 +211,89 @@ def test_rel_006_removed_live_job_leaves_publish_unrunnable_and_gate_linkage_fai
     assert GATE_JOB["G3"] not in wf["jobs"]
 
 
-def test_rel_006_publish_workflow_provides_every_gate_release_gates_json_requires_before_publish():
+def _gates():
     import json
 
-    gates = {g["id"]: g for g in json.loads((REPO / "docs/m1_spec/08_LIFECYCLE/release-gates.json").read_text(encoding="utf-8"))["gates"]}
-    seen, stack = set(), list(gates["G5"]["depends_on"])
-    while stack:
-        g = stack.pop()
-        if g not in seen:
-            seen.add(g)
-            stack.extend(gates[g]["depends_on"])
+    return {g["id"]: g for g in json.loads((REPO / "docs/m1_spec/08_LIFECYCLE/release-gates.json").read_text(encoding="utf-8"))["gates"]}
+
+
+def _bypass(job):
+    return bool(re.search(r"\b(always|failure|cancelled)\(\)", str(job.get("if", "")))) or job.get("continue-on-error") not in (None, False)
+
+
+def _blocking_gate_ids():
+    return sorted(g for g, v in _gates().items() if v["blocking"] is True)
+
+
+def test_rel_006_every_blocking_gate_in_release_gates_json_maps_to_a_job_in_publish_needs_closure():
+    gates = _gates()
+    blocking = _blocking_gate_ids()
+    assert set(blocking) == set(GATE_JOB), f"release-gates.json blocking gates {blocking} vs mapped {sorted(GATE_JOB)}"  # a new gate needs a job
+    assert "G6" not in GATE_JOB and gates["G6"]["blocking"] is False  # soak never gates publish
     wf = yaml.safe_load(PUBLISH_TEXT)
-    needed_here = {g for g in seen if g in GATE_JOB}  # gates whose evidence is produced inside the publish workflow
-    assert needed_here == {"G3", "G4"} and {"G0", "G1", "G2", "G7"} <= seen  # G0-G2 = ci.yml, G7 = evidence bundle (REL-007)
-    for g in needed_here:
+    clo = closure(wf, "publish")
+    for g in blocking:
         job = GATE_JOB[g]
-        assert job in closure(wf, "publish"), f"publish does not wait for {g} ({job})"
-        assert wf["jobs"][job].get("continue-on-error") is not True
-        assert gates[g]["blocking"] is True and gates[g]["on_fail"] != "OBSERVE"
+        assert job in wf["jobs"], f"{g}: job {job} missing from publish.yml"
+        assert job in clo, f"publish does not wait for {g} ({job})"
+        assert job in _needs(wf["jobs"]["publish"]), f"{g} ({job}) not a direct need of publish"
+        assert gates[g]["on_fail"] != "OBSERVE"
+    for job in clo:  # no bypass anywhere in the closure or on publish itself
+        assert not _bypass(wf["jobs"][job]), f"{job}: continue-on-error/always() bypass"
+    assert not _bypass(wf["jobs"]["publish"])
+    for g in blocking:  # gate DAG edges are honoured: each dependency's job is in the closure of the dependent's job
+        for dep in gates[g]["depends_on"]:
+            assert GATE_JOB[dep] in closure(wf, GATE_JOB[g]), f"{g} must wait for {dep}"
+    ok = {GATE_JOB[g]: "success" for g in blocking}
+    assert runs(wf, "publish", ok) is True  # positive control
+    for g in blocking:
+        for bad in ("failure", "cancelled", "skipped"):
+            assert runs(wf, "publish", {**ok, GATE_JOB[g]: bad}) is False, (g, bad)
+
+
+@pytest.mark.parametrize("gate", sorted(GATE_JOB))
+def test_rel_006_mutated_yaml_per_gate_is_caught(gate):
+    job = GATE_JOB[gate]
+    base = yaml.safe_load(PUBLISH_TEXT)
+    ok = {GATE_JOB[g]: "success" for g in GATE_JOB}
+    bad = {**ok, job: "failure"}
+    assert runs(base, "publish", bad) is False  # control: the real file blocks
+    coe = copy.deepcopy(base)
+    coe["jobs"][job]["continue-on-error"] = True
+    assert runs(coe, "publish", bad) is True and _bypass(coe["jobs"][job])  # bypass publishes despite the failed gate
+    dropped = copy.deepcopy(base)  # gate removed from every needs list: no longer in the closure
+    for j in dropped["jobs"].values():
+        if "needs" in j:
+            j["needs"] = [n for n in _needs(j) if n != job]
+    assert job not in closure(dropped, "publish") and runs(dropped, "publish", bad) is True
+    gone = copy.deepcopy(base)  # job removed: dangling needs fails closed and the mapping check would fail
+    del gone["jobs"][job]
+    assert runs(gone, "publish", ok) is False and job not in gone["jobs"]
+    alw = copy.deepcopy(base)  # always() on publish itself
+    alw["jobs"]["publish"]["if"] = "always() && github.event_name == 'release'"
+    assert runs(alw, "publish", bad) is True and _bypass(alw["jobs"]["publish"])
+
+
+def test_rel_006_live_job_selects_the_six_m1_live_tests_with_opt_in():
+    wf = yaml.safe_load(PUBLISH_TEXT)
+    live = wf["jobs"]["live-validation"]
+    assert str(live["env"]["PEERHUB_M1_LIVE"]) == "1" and "self-hosted" in live["runs-on"]
+    steps = [st.get("run", "") for st in live["steps"]]
+    cmd = next(c for c in steps if "-m live" in c)
+    assert "tests/m1/live" in cmd and "--junitxml" in cmd
+    import json
+    ids = sorted(t["id"] for t in json.loads((REPO / "docs/m1_spec/06_GUIDES/TEST_SET/test-catalog.json").read_text(encoding="utf-8"))["tests"]
+                 if t.get("live_provider"))
+    assert ids == ["LIVE-004", "LIVE-005", "LIVE-006", "LIVE-AG-001", "LIVE-CC-001", "LIVE-CX-001"]
+    col = pkg_env.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", "-m", "live", "tests/m1/live"], cwd=REPO)
+    assert len(re.findall(r"::test_live_", col.stdout)) == 6, col.stdout  # `-m live` (not slow/e2e) really selects all six
+    assert not re.search(r"-m (slow|e2e)\b", cmd)  # the old selectors deselect all six
+
+
+def test_rel_006_publish_evidence_job_runs_the_release_evidence_tool_over_every_gate_junit():
+    wf = yaml.safe_load(PUBLISH_TEXT)
+    run = next(st["run"] for st in wf["jobs"]["release-evidence"]["steps"] if "m1_release_evidence" in st.get("run", ""))
+    for g in ("g0", "g1", "g2", "g3", "g4"):
+        assert f"junit/{g}.xml" in run
     ci = yaml.safe_load((REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
-    assert "pytest" in yaml.safe_dump(ci["jobs"]["build"]) and not ci["jobs"]["build"].get("continue-on-error")  # G0-G2 runner is blocking
+    assert "pytest" in yaml.safe_dump(ci["jobs"]["build"]) and not ci["jobs"]["build"].get("continue-on-error")  # CI runner is blocking

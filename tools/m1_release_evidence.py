@@ -1,8 +1,9 @@
 """M1 release evidence bundle (REL-007): commit/version, deterministic suite result, live canaries, package hashes and a
 requirement coverage summary, with SHA-256 checksums over every bundle file.
 
-Fail closed: `release_ready` is true only if every blocking-gate catalog test linked to every requirement has a PASSED result,
-all live canaries passed, at least one package exists, and every package version equals the source version.
+Fail closed: `release_ready` is true only if EVERY catalog test on a blocking gate (any priority; everything but G6) has a PASSED
+result (failed/error/missing/skipped all block; a skip with a machine-readable live/soak/CI-only reason is reported as
+`not_verified`, never as a pass), EVERY requirement is covered, all live canaries passed, at least one package exists, and every package version equals the source version.
 Soak (G6) is non-blocking and does not affect readiness.
 
 Usage: python -m tools.m1_release_evidence --junit J.xml [--junit ...] --dist DIR --out OUTDIR [--commit SHA]   (exit 1 if not ready)
@@ -40,8 +41,13 @@ def _test_ids(name: str, ids: list[str]) -> list[str]:
     return [i for i, k in key_of.items() if re.search(r"(?<![a-z0-9])" + re.escape(k) + r"(?![0-9])", low)]
 
 
+# accepted machine-readable skip reasons (live opt-in / provider availability / soak opt-in / CI-only); anything else is a plain skip
+ALLOWED_SKIP = re.compile(r"^(LIVE-OPT-IN|LIVE-PROVIDER-UNAVAILABLE|SOAK-OPT-IN|CI-ONLY)\[[^\]]*\]")
+
+
 def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
-    """catalog id -> passed|failed|skipped|error|missing. An id passes only if EVERY matching testcase passed."""
+    """catalog id -> passed|failed|skipped|not_verified|error|missing. An id passes only if EVERY matching testcase passed.
+    `not_verified` = skipped with an accepted machine-readable reason; it is never a pass."""
     seen: dict[str, list[str]] = {}
     for p in paths:
         for case in ET.parse(p).getroot().iter("testcase"):
@@ -50,6 +56,8 @@ def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
                 tag = child.tag
                 if tag in ("failure", "error", "skipped"):
                     outcome = "failed" if tag == "failure" else tag
+                    if tag == "skipped":
+                        outcome = "not_verified" if ALLOWED_SKIP.match((child.get("message") or child.text or "").strip()) else "skipped"
                     break
             for tid in _test_ids(case.get("name", ""), ids):
                 seen.setdefault(tid, []).append(outcome)
@@ -59,7 +67,7 @@ def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
         if not res:
             out[tid] = "missing"
         else:
-            out[tid] = "passed" if all(r == "passed" for r in res) else next(r for r in ("failed", "error", "skipped") if r in res)
+            out[tid] = "passed" if all(r == "passed" for r in res) else next(r for r in ("failed", "error", "skipped", "not_verified") if r in res)
     return out
 
 
@@ -81,12 +89,16 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
     det = [i for i in ids if i not in live_ids and gates[i] != "G6"]
     suite = {"total": len(det), "passed": sum(outcomes[i] == "passed" for i in det),
              "failed": sum(outcomes[i] in ("failed", "error") for i in det), "skipped": sum(outcomes[i] == "skipped" for i in det),
+             "not_verified": sum(outcomes[i] == "not_verified" for i in det),
              "missing": sum(outcomes[i] == "missing" for i in det), "junit_sha256": {Path(p).name: _sha(Path(p)) for p in junit_paths}}
     live = {i: outcomes[i] for i in live_ids}
     for i, st in live.items():
         if st != "passed":
             blockers.append(f"live canary {i} is {st}")
     blocking = {i for i in ids if gates[i] != "G6"}
+    unverified = {i: outcomes[i] for i in ids if i in blocking and i not in live_ids and outcomes[i] != "passed"}
+    for i, st in unverified.items():
+        blockers.append(f"blocking test {i} (gate {gates[i]}) is {st}" + (" (not verified; an accepted skip is never a pass)" if st == "not_verified" else ""))
     uncovered, uncovered_p0 = [], []
     for r in reqs:
         linked = [t for t in r["tests"] if t in blocking]
@@ -96,6 +108,8 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
                 uncovered_p0.append(r["id"])
     if uncovered_p0:
         blockers.append("uncovered P0 requirement(s): " + ", ".join(uncovered_p0))
+    if set(uncovered) - set(uncovered_p0):
+        blockers.append("uncovered requirement(s): " + ", ".join(sorted(set(uncovered) - set(uncovered_p0))))
     packages = []
     for p in sorted(Path(dist_dir).glob("*")):
         if p.suffix == ".whl" or p.name.endswith(".tar.gz"):
@@ -104,7 +118,7 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
                 blockers.append(f"package {p.name} version differs from source version {version}")
     if not packages:
         blockers.append("no package artifacts found")
-    return {"schema_version": 1, "commit": commit, "version": version, "deterministic_suite": suite, "live_canaries": live,
+    return {"schema_version": 1, "commit": commit, "version": version, "deterministic_suite": suite, "live_canaries": live, "unverified_blocking_tests": unverified,
             "packages": packages, "requirement_coverage": {"total": len(reqs), "covered": len(reqs) - len(uncovered),
                                                             "uncovered": sorted(uncovered), "uncovered_p0": sorted(uncovered_p0)},
             "blockers": blockers, "release_ready": not blockers}

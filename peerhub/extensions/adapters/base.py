@@ -39,6 +39,7 @@ class ProviderSpec:
     binary: str
     resume_flag: str  # token looked up in `--help` output to report CLI-level resume support
     stdin_prompt: bool
+    max_prompt_bytes: int = MAX_PROMPT_BYTES  # provider-specific inline limit (argv-borne prompts are far smaller)
 
     def argv(self, model: str | None, effort: str | None, prompt: str) -> list[str]:
         raise NotImplementedError
@@ -78,8 +79,10 @@ class CcSpec(ProviderSpec):
         if not results:
             raise ValueError("no result record in cc output")
         r = results[-1]
-        if r.get("is_error"):
-            raise ValueError("cc reported is_error")
+        if r.get("is_error") is not False:  # explicit completion needs an explicit is_error=false (absent/true/other = not success)
+            raise ValueError("cc result is not explicitly is_error=false")
+        if r.get("subtype", "success") != "success":
+            raise ValueError(f"cc result subtype {r.get('subtype')!r} is not success")
         if not isinstance(r.get("result"), str):
             raise ValueError("cc result is not text")
         return r["result"]
@@ -105,11 +108,16 @@ class CxSpec(ProviderSpec):
                 and e["item"].get("type") == "agent_message" and isinstance(e["item"].get("text"), str)]
         if not msgs:
             raise ValueError("no agent_message in cx output")
+        last_msg = max(i for i, e in enumerate(events) if e.get("type") == "item.completed" and isinstance(e.get("item"), dict)
+                       and e["item"].get("type") == "agent_message")
+        if not any(e.get("type") == "turn.completed" for e in events[last_msg + 1:]):
+            raise ValueError("cx output has no turn.completed after the last agent_message (incomplete)")
         return "\n".join(msgs)
 
 
 class AgSpec(ProviderSpec):
     kind, binary, resume_flag, stdin_prompt = "ag", "agy", "--conversation", False
+    max_prompt_bytes = 30_000 if sys.platform == "win32" else 120_000  # prompt travels in argv: CreateProcess ~32k chars / MAX_ARG_STRLEN
 
     def argv(self, model, effort, prompt):
         a = ["-p", prompt, "--output-format", "json"]
@@ -118,15 +126,15 @@ class AgSpec(ProviderSpec):
         return a
 
     def parse(self, stdout):
-        cands = [stdout.strip()] + [ln for ln in reversed(stdout.splitlines()) if ln.strip().startswith("{")]
-        for c in cands:
-            try:
-                v = json.loads(c)
-            except ValueError:
-                continue
-            if isinstance(v, dict) and isinstance(v.get("response"), str):
-                return v["response"]
-        raise ValueError("no flat JSON response in ag output")
+        try:
+            v = json.loads(stdout.strip())  # strict: the WHOLE stdout is exactly one flat JSON object (no scanning for fragments)
+        except ValueError:
+            raise ValueError("ag output is not a single JSON object") from None
+        if not isinstance(v, dict) or not isinstance(v.get("response"), str):
+            raise ValueError("no flat JSON response in ag output")
+        if v.get("is_error") not in (None, False) or v.get("error") not in (None, False, "", {}):
+            raise ValueError("ag reported an error")
+        return v["response"]
 
 
 SPECS: dict[str, ProviderSpec] = {s.kind: s for s in (CcSpec(), CxSpec(), AgSpec())}
@@ -242,7 +250,7 @@ class CliRuntimeTarget:
             return b if isinstance(b, str) else json.dumps(b, ensure_ascii=False, sort_keys=True)
         parts = []
         if catch_up:
-            parts.append("Earlier context:\n" + "\n".join(f"[{getattr(r, 'author_peer_id', '?')}] {txt(r)}" for r in catch_up)[:20000])
+            parts.append("Earlier context:\n" + "\n".join(f"[{getattr(r, 'author_peer_id', '?')}] {txt(r)}" for r in catch_up))  # never truncated here: the Bridge's injected budget decides
         parts.append(txt(record))
         return "\n\n".join(parts)
 
@@ -250,8 +258,10 @@ class CliRuntimeTarget:
         prompt = self._prompt(record, catch_up)
         san = self._san.with_prompt(prompt)
         # ---- genuine pre-spawn failures: nothing was created
-        if len(prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
-            raise PrespawnError("prompt exceeds the inline limit")
+        n_bytes, limit = len(prompt.encode("utf-8")), min(MAX_PROMPT_BYTES, self._spec.max_prompt_bytes)
+        if n_bytes > limit:
+            raise PrespawnError(f"prompt is {n_bytes} bytes, exceeding the {self.runtime_kind} inline limit of {limit} bytes "
+                                f"(catch-up history is never truncated silently; lower the catch-up budget)")
         if not Path(self._workspace).is_dir():
             raise PrespawnError("workspace is not a directory")
         base = self._base()

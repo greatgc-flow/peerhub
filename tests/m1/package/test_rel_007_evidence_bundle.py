@@ -145,3 +145,44 @@ def test_rel_007_cli_writes_the_bundle_and_exits_nonzero_when_not_release_ready(
                          "--commit", "c" * 40], cwd=REPO, capture_output=True, text=True)
     assert cp.returncode == 1 and (out / "evidence.json").is_file() and ev.verify_bundle(out) == []  # evidence is written even when blocked
     assert json.loads((out / "evidence.json").read_text(encoding="utf-8"))["release_ready"] is False
+
+
+# ---------------------------------------------------------------- W9: readiness is fail-closed for every blocking-gate test
+def _with_message(path, tid, tag, message=None):
+    """Rewrite one synthetic testcase to <skipped message=...> / failure / error (independent XML oracle)."""
+    text = path.read_text(encoding="utf-8")
+    name = "test_" + tid.lower().replace("-", "_") + "_synthetic"
+    attr = f" message={quoteattr(message)}" if message is not None else ""
+    old = f"<testcase classname='tests.x' name={quoteattr(name)}></testcase>"
+    assert old in text
+    path.write_text(text.replace(old, f"<testcase classname='tests.x' name={quoteattr(name)}><{tag}{attr}/></testcase>"), encoding="utf-8")
+
+
+@pytest.mark.parametrize("tid", ["IMP-003", "ARCH-001", "REL-012"])  # IMP-003 is the reported repro (its only requirement REQ-IMP-002)
+@pytest.mark.parametrize("bad", ["failed", "error", "skipped", "missing"])
+def test_rel_007_w9_any_blocking_test_not_passed_flips_readiness(tmp_path, dist_dir, tid, bad):
+    base = {i: "passed" for i in all_ids(live=True)}
+    assert manifest(tmp_path, dist_dir, base)["release_ready"] is True  # positive control
+    if bad == "missing":
+        base.pop(tid)
+    else:
+        base[tid] = bad
+    m = manifest(tmp_path, dist_dir, base)
+    assert m["release_ready"] is False
+    assert any(f"blocking test {tid}" in b for b in m["blockers"]), m["blockers"]
+    assert m["unverified_blocking_tests"][tid] == ("missing" if bad == "missing" else "failed" if bad == "failed" else bad)
+    if tid == "IMP-003":
+        assert "REQ-IMP-002" in m["requirement_coverage"]["uncovered"] and any("uncovered requirement" in b for b in m["blockers"])
+
+
+@pytest.mark.parametrize("message,accepted", [("LIVE-OPT-IN[env=PEERHUB_M1_LIVE;required=1;marker=live]: off", True),
+                                              ("LIVE-PROVIDER-UNAVAILABLE[provider=cc;reason=x]", True), ("CI-ONLY[job=x]", True),
+                                              ("flaky, skipping", False), ("", False), ("LIVE-OPT-IN no brackets", False)])
+def test_rel_007_w9_skip_is_accepted_only_with_machine_readable_reason_and_is_never_a_pass(tmp_path, dist_dir, message, accepted):
+    base = {i: "passed" for i in all_ids(live=True)}
+    j = junit(tmp_path / "junit.xml", base)
+    _with_message(j, "IMP-003", "skipped", message)
+    m = ev.build_manifest(repo_root=REPO, junit_paths=[j], dist_dir=dist_dir)
+    assert m["unverified_blocking_tests"]["IMP-003"] == ("not_verified" if accepted else "skipped")
+    assert m["deterministic_suite"]["not_verified"] == (1 if accepted else 0) and m["deterministic_suite"]["passed"] == len(all_ids(live=False)) - 1
+    assert m["release_ready"] is False  # an accepted skip stays explicit and unverified, never ready

@@ -8,6 +8,8 @@ Key Responsibilities:
 
 from __future__ import annotations
 
+from peerhub.extensions.schema_guard import refuse_future_schema
+
 import json
 import sqlite3
 import time
@@ -41,6 +43,7 @@ class DeliveryClaim(BaseModel):
 class SessionBridgeStore:
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = str(db_path)
+        refuse_future_schema(self.db_path)  # MIG-003: refuse a future schema before any DDL/DML
         self._init_schema()
 
     def _get_connection(self) -> sqlite3.Connection:

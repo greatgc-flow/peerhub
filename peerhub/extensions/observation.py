@@ -10,6 +10,8 @@ Rules (OBSERVATION_AND_DIAG.md, PEER_CARDINALITY_RESOURCE_POOL.md, TD-13/TD-23):
 
 from __future__ import annotations
 
+from peerhub.extensions.schema_guard import refuse_future_schema
+
 import json
 import sqlite3
 import time
@@ -100,6 +102,7 @@ class ObservationStore:
         self.policy = policy or FreshnessPolicy()
         self._new_id = id_source or (lambda: f"obs-{uuid.uuid4().hex}")
         self.fault_hook = fault_hook
+        refuse_future_schema(self.db_path)  # MIG-003: refuse a future schema before any DDL/DML
         self._init_schema()
 
     # ------------------------------------------------------------------ plumbing
