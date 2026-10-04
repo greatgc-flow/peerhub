@@ -25,7 +25,7 @@ Run tests by directory under `tests/m1/<dir>` (+ `tests/unit/m1`); live/soak/CI-
 
 ## Open items
 - Owner decisions: all resolved or accepted by delegation, nothing blocking (`docs/m1_impl/OWNER_DECISIONS_NEEDED.md`). A2/A4 implemented (separate invocation marker, no certainty downgrade; `final_ownerdecisions_report.md`).
-- cx.pro consolidated final review is still pending. Prompt and checklist: `docs/m1_impl/CX_FINAL_CHECKLIST.md`.
+- Consolidated final review (cx.effort, 3 scoped parts; cx.pro was unavailable while pacing was critical) found 13 defects across parts 1-3; all fixed and re-verified by ag.pro (HEAD 6ecd4d6). Live canary re-run with strict adapter completion checks: 6/6 passed (live_evidence/2026-10-04.json).
 - New docs: `SPEC_FEEDBACK_RECORD.md`, `LEGACY_IMPORT_SCOPE.md`, `ADAPTER_CAPABILITIES.md`.
 - Not in M1: real session resume / interrupt / steer for real providers; Diag views of bridge tables; full-scale soak; matrix cells not executed by CI are UNVERIFIED (TD-18).
 - T0 done: `peerhub ask` admission failures now carry a reason (peerhub/application/admission_reason.py).
