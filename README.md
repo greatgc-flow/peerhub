@@ -48,7 +48,7 @@ pip install -e .          # runtime only
 pip install -e .[dev]     # + pytest, pyright, hypothesis, alembic (needed to run tests/type-check locally)
 ```
 
-Requires Python >= 3.11 (declared matrix 3.11-3.14 x ubuntu/windows; every cell not yet executed by CI is UNVERIFIED, TD-18 - only 3.14/Windows was executed locally). This installs the `peerhub` package and registers a `peerhub` entrypoint on your PATH (verified via a real sdist build + install: `pyproject.toml`'s `[project.scripts]` defines only `peerhub`, not a separate `hub` alias). `python -m peerhub` works too.
+Requires Python >= 3.11 (declared matrix 3.11-3.14 x ubuntu/windows; every cell not yet executed by CI is UNVERIFIED, TD-18; windows py3.11/3.12/3.13/3.14 are VERIFIED-LOCAL, evidence docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json; all ubuntu cells UNVERIFIED). This installs the `peerhub` package and registers a `peerhub` entrypoint on your PATH (verified via a real sdist build + install: `pyproject.toml`'s `[project.scripts]` defines only `peerhub`, not a separate `hub` alias). `python -m peerhub` works too.
 
 ## Key commands
 

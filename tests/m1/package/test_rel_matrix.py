@@ -55,6 +55,18 @@ def _declared_oses():
     return {os_ for os_, c in OS_CLASSIFIERS.items() if c in classifiers}
 
 
+EVIDENCE = REPO / "docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json"
+EVIDENCE_REL = "docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json"
+
+
+def _verified_local():
+    """Cells with recorded local execution evidence (VERIFIED-LOCAL). A cell counts only if its evidence says every directory ran with 0 failures."""
+    if not EVIDENCE.exists():
+        return set()
+    ev = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+    return {(c["python"], c["os"]) for c in ev["cells"] if c["failed"] == 0 and c["dirs"]}
+
+
 def _cell_params():
     local_py = f"{sys.version_info.major}.{sys.version_info.minor}"
     local_os = pkg_env.local_os_name()
@@ -64,7 +76,10 @@ def _cell_params():
     for py, os_ in sorted(_ci_matrix()):
         runnable = py == local_py and os_ == local_os  # a cell is executed only if BOTH axes match this machine
         marks = [pytest.mark.ci_only(python=py, os=os_)] if not runnable else []
-        if not runnable:
+        if not runnable and (py, os_) in _verified_local():
+            marks.append(pytest.mark.skip(reason=f"CI-ONLY[python={py};os={os_}]: VERIFIED-LOCAL (executed on another local interpreter, evidence {EVIDENCE_REL}); "
+                                                 f"not runnable on local python {local_py} / {local_os}; a green ci.yml matrix job is still the CI proof"))
+        elif not runnable:
             marks.append(pytest.mark.skip(reason=f"CI-ONLY[python={py};os={os_}]: UNVERIFIED here (TD-18); not runnable on local python {local_py} / {local_os}; "
                                                  f"exercised by the .github/workflows/ci.yml matrix job"))
         params.append(pytest.param(py, os_, id=f"py{py}-{os_}", marks=marks))
@@ -114,6 +129,30 @@ def test_rel_010_python_matrix_cell(py, os_, installed, tmp_path, record_propert
     out = installed.run(["-I", "-c", "import sys; print('%d.%d' % sys.version_info[:2])"], cwd=tmp_path)
     assert out.stdout.strip() == py  # the venv under test really is the declared interpreter
     assert [r["body"] for r in _smoke(installed, tmp_path)] == ["hi"]
+
+
+def test_rel_010_verified_local_claims_are_backed_by_evidence():
+    """A VERIFIED-LOCAL claim without evidence fails; evidence must cover every test directory with 0 failures and match a declared cell."""
+    ci_cells = _ci_matrix()
+    text = {"README.md": (REPO / "README.md").read_text(encoding="utf-8"), "ci.yml": (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")}
+    claims = {name: t for name, t in text.items() if "VERIFIED-LOCAL" in t}
+    if not EVIDENCE.exists():
+        assert not claims, f"VERIFIED-LOCAL claimed in {sorted(claims)} but {EVIDENCE_REL} is missing"
+        return
+    ev = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+    required = {"m1/architecture", "m1/meta", "m1/schema", "m1/property", "m1/migration", "m1/core", "m1/integration", "m1/observation", "m1/diag",
+                "m1/bridge", "m1/control", "m1/security", "m1/concurrency", "m1/fault", "m1/e2e", "m1/adapters", "unit/m1", "m1/package", "m1/soak"}
+    assert ev["cells"], "evidence file has no cells"
+    for c in ev["cells"]:
+        assert (c["python"], c["os"]) in ci_cells, f"evidence cell {c['python']}/{c['os']} is not a declared matrix cell"
+        assert set(c["dirs"]) == required, f"evidence for python {c['python']} misses {sorted(required - set(c['dirs']))}"
+        assert c["failed"] == 0 and all(not d.get("failed") and not d.get("error") and d.get("passed", 0) > 0 for d in c["dirs"].values())
+        assert c["sqlite_version"] and c["python_full"].startswith(c["python"] + ".")
+    assert claims, "evidence exists but no doc claims it"
+    for name, t in claims.items():
+        assert EVIDENCE_REL in t, f"{name} claims VERIFIED-LOCAL without citing {EVIDENCE_REL}"
+    # negative control: a cell without evidence is not VERIFIED-LOCAL
+    assert ("3.11", "ubuntu-latest") not in _verified_local()
 
 
 # ------------------------------------------------------------------------------------------- REL-011

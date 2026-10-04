@@ -14,7 +14,7 @@ Consultation (cx + ag consensus, DECISIONS.md "D-OWN-*"): A1, A3, B6, B7, B8 and
 | B6 legacy importer scope | Accepted: partial import with explicit unmapped report; guide `LEGACY_IMPORT_SCOPE.md` |
 | B7 real adapters | Accepted: no real resume/interrupt/terminate/steer in M1; fallback fresh generation + catch-up; `ADAPTER_CAPABILITIES.md` |
 | B8 cancel semantics | Accepted (D-W4-7, D-W4-9) |
-| C safe defaults | Accepted; Python/OS matrix cells not executed by CI are marked UNVERIFIED (TD-18) in README, ci.yml and CI-only skip reasons |
+| C safe defaults | Accepted; Python/OS matrix cells not executed by CI are marked UNVERIFIED (TD-18) in README, ci.yml and CI-only skip reasons; windows py3.11-3.13 now VERIFIED-LOCAL (docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json), ubuntu cells still UNVERIFIED |
 
 ## Still needs the owner
 Nothing blocking. Accepted by delegation, for later confirmation (no code change expected unless the owner disagrees):
