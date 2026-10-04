@@ -11,7 +11,7 @@ import sqlite3
 import threading
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
 
 import pytest
 
@@ -114,8 +114,26 @@ def test_two_real_callers_race_at_attempt_creation_one_loses_cleanly(
     before_leases, before_capabilities = _lease_and_capability_counts(store)
     barrier = threading.Barrier(2)
 
+    class _RacingService(DispatchService):
+        """Makes the race at attempt creation deterministic (thread scheduling differs per OS): both callers enter
+        create_attempt() together; the one whose attempt commits first (the winner) is held right after its commit until the
+        other (the loser) has observed the conflict, so the loser can never arrive after the winner moved past creation."""
+
+        def create_attempt(self, *args: Any, **kwargs: Any) -> Any:
+            attempt_barrier.wait(timeout=_RACE_WAIT_S)
+            try:
+                created = super().create_attempt(*args, **kwargs)
+            except BaseException:
+                loser_failed.set()
+                raise
+            loser_failed.wait(timeout=_RACE_WAIT_S)
+            return created
+
+    attempt_barrier = threading.Barrier(2)
+    loser_failed = threading.Event()
+
     def call(tag: str) -> MultiAttemptExecutionResult:
-        service = DispatchService(
+        service = _RacingService(
             store,
             clock=DeterministicClock(start=500),
             ids=_IntruderIds(tag),
