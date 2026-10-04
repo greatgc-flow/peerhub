@@ -1,0 +1,2 @@
+# The M1 spec package manifests hash these CSV files byte-for-byte (they are stored with CRLF): never let git rewrite line endings.
+docs/m1_spec/**/*.csv -text

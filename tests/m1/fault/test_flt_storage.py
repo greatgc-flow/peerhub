@@ -236,6 +236,15 @@ def test_flt_011_positive_control_limit_alone_does_not_break_reads_or_replays(tm
 
 
 # =========================================================================== FLT-012
+def make_writable(db: Path) -> None:
+    """Undo the read-only fault for the WHOLE database family: SQLite creates the -wal/-shm sidecars with the main file's mode
+    (0444 on POSIX), so restoring only the main file would leave the sidecars read-only."""
+    for suffix in ("", "-wal", "-shm"):
+        side = Path(str(db) + suffix)
+        if side.exists():
+            os.chmod(side, stat.S_IWRITE | stat.S_IREAD)
+
+
 @pytest.fixture
 def readonly_db(tmp_path):
     h = seeded(tmp_path)
@@ -245,7 +254,7 @@ def readonly_db(tmp_path):
     try:
         yield h, db
     finally:
-        os.chmod(db, stat.S_IWRITE | stat.S_IREAD)
+        make_writable(db)
 
 
 @pytest.mark.m1_id("FLT-012")
@@ -268,7 +277,7 @@ def test_flt_012_read_only_filesystem_rejects_mutation_without_replacing_the_dat
         assert conn.execute("SELECT COUNT(*) FROM records").fetchone()[0] == 3
     assert [r.body for r in CoreStore(db).read_records("s", 0, 10)] == ["m0", "m1", "m2"]
     # positive control: the same operations succeed once the file is writable again (failure was the read-only fault, nothing else)
-    os.chmod(db, stat.S_IWRITE | stat.S_IREAD)
+    make_writable(db)
     assert CoreStore(db).append_record(**req(body="x", key="ro")).position == 4
     assert CoreStore(db).cas_stream("s", 1, {"title": "t"}).revision == 2
 

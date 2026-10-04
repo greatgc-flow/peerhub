@@ -12,7 +12,7 @@ jobs:
     # Cells not yet executed by a CI run are UNVERIFIED, except windows py3.11/3.12/3.13/3.14 which are VERIFIED-LOCAL (evidence docs/m1_impl/matrix_evidence/windows-py3.11-3.13.json
     # for 3.11-3.13; 3.14 run live); all ubuntu cells are UNVERIFIED. A green CI run is what verifies a cell in CI.
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 60  # the full deterministic suite takes ~20 min on windows runners (process-spawn heavy)
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +55,22 @@ jobs:
           cp "$STUB_FILE" "$RUNNER_TEMP/fake-bin/$name"
           chmod +x "$RUNNER_TEMP/fake-bin/$name"
         done
+        if [ "$RUNNER_OS" = "Windows" ]; then
+          # a shell script is not runnable as .cmd/.exe on Windows: real batch stubs here, a real agy.exe in the next step
+          for name in claude.cmd codex.cmd; do
+            printf '%s\r\n' '@echo off' 'echo {"is_error": false, "result": "ok"}' 'exit /b 0' > "$RUNNER_TEMP/fake-bin/$name"
+          done
+          rm -f "$RUNNER_TEMP/fake-bin/agy.exe"
+        fi
         echo "$RUNNER_TEMP/fake-bin" >> "$GITHUB_PATH"
+
+    - name: Build fake agy.exe (Windows only)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $exe = Join-Path $env:RUNNER_TEMP 'fake-bin\agy.exe'
+        Add-Type -OutputType ConsoleApplication -OutputAssembly $exe -TypeDefinition 'public static class FakeAgy { public static int Main() { System.Console.WriteLine("{\"is_error\": false, \"result\": \"ok\"}"); return 0; } }'
+        & $exe
 
     - name: Run pyright
       if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
@@ -63,6 +78,6 @@ jobs:
         python -m pyright
 
     - name: Run pytest
-      timeout-minutes: 10
+      timeout-minutes: 45
       run: |
         python -u -m pytest -q

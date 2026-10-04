@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, process, run_bounded
+from peerhub.extensions.adapters.base import SPECS
 from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError
 from tests.m1.adapters.conftest import FAKE, calls
 from tests.m1.bridge_helpers import bseed, delivery_rows, kinds, offset_row, responses, sql
@@ -302,6 +303,7 @@ def test_t1_catch_up_is_in_prompt_and_bounded(mk):
     # W9: never truncated silently. stdin providers get the full history (within the inline limit); argv providers fail PRE-spawn
     drain(mk("cc").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="z" * 50_000, author_peer_id="a")]))
     assert calls(mk.log)[1]["prompt_len"] > 50_000
+    over = SPECS["ag"].max_prompt_bytes + 1  # the argv limit is platform specific (Windows 30_000, POSIX 120_000)
     with pytest.raises(PrespawnError, match="exceeding the ag inline limit"):
-        drain(mk("ag").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="z" * 50_000, author_peer_id="a")]))
+        drain(mk("ag").deliver("s", rec("now"), [SimpleNamespace(record_id="r0", body="z" * over, author_peer_id="a")]))
     assert len(calls(mk.log)) == 2
