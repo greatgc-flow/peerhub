@@ -238,6 +238,21 @@ _DDL = [
     """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_needs_marker BEFORE INSERT ON bridge_invocation_resolutions
         WHEN NOT EXISTS (SELECT 1 FROM bridge_invocations WHERE delivery_id = NEW.delivery_id AND invocation_no = NEW.invocation_no)
         BEGIN SELECT RAISE(ABORT, 'a resolution needs its invocation marker'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_rowid_replace BEFORE INSERT ON bridge_deliveries
+        WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_deliveries WHERE rowid = NEW.rowid)
+        BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_reconciliations_no_rowid_replace BEFORE INSERT ON bridge_reconciliations
+        WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_reconciliations WHERE rowid = NEW.rowid)
+        BEGIN SELECT RAISE(ABORT, 'bridge_reconciliations rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_controls_no_rowid_replace BEFORE INSERT ON bridge_controls
+        WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_controls WHERE rowid = NEW.rowid)
+        BEGIN SELECT RAISE(ABORT, 'bridge_controls rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocations_no_rowid_replace BEFORE INSERT ON bridge_invocations
+        WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_invocations WHERE rowid = NEW.rowid)
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocations rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_no_rowid_replace BEFORE INSERT ON bridge_invocation_resolutions
+        WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_invocation_resolutions WHERE rowid = NEW.rowid)
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocation_resolutions rows are never replaced'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_delete BEFORE DELETE ON bridge_deliveries
         BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never deleted'); END""",
 ]

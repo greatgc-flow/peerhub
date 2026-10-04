@@ -97,7 +97,7 @@ def _seed_legacy_v0(path):
     c.executemany("INSERT INTO peers (peer_id, created_at) VALUES (?, '2026-10-01T00:00:00Z')", [("a",), ("b",)])
     c.execute("INSERT INTO streams (stream_id, state, revision, created_at) VALUES ('s','OPEN',3,'2026-10-01T00:00:00Z')")
     c.executemany("INSERT INTO stream_members (stream_id, peer_id) VALUES ('s', ?)", [("b",), ("a",)])
-    for pos, body in ((1, "x"), (2, {"k": [1, 2]}), (5, "gap")):  # gaps are legal (TD-01)
+    for pos, body in ((1, "x"), (2, {"k": [1, 2, 3]}), (5, "gap")):  # gaps are legal (TD-01)
         request = dict(created_at="2026-10-01T00:00:00Z", stream_id="s", author_peer_id="a", kind="message", body=body,
                        targets=[], reply_to=None, refs=[], metadata={}, idempotency_key=f"k{pos}")
         c.execute(
@@ -117,8 +117,8 @@ def test_mig_002_committed_migration_preserves_core_data_and_invariants(tmp_path
     assert _version(db) == 0
     before = {t: _dump(db, t) for t in ("peers", "streams", "stream_members", "records", "offsets")}
     before_digest = compute_state_digest(db)
-    assert run_migrations(db) == [1, 2]  # advances v0 -> v2 in one atomic run
-    assert _version(db) == CURRENT_VERSION == 2
+    assert run_migrations(db) == [1, 2, 3]  # advances v0 -> v2 in one atomic run
+    assert _version(db) == CURRENT_VERSION == 3
     assert compute_state_digest(db) == before_digest  # logical data byte-identical
     assert {t: _dump(db, t) for t in before} == before
     store = CoreStore(db)
@@ -250,4 +250,4 @@ def test_td14_future_version_rejected_before_any_persistent_mutation(tmp_path):
         assert not (tmp_path / "nonwal.db-wal").exists()
     ok = tmp_path / "ok.db"  # control: a supported non-WAL database does migrate (and converts to WAL)
     sqlite3.connect(ok).close()
-    assert run_migrations(ok) == [1, 2]
+    assert run_migrations(ok) == [1, 2, 3]

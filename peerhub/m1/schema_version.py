@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-SUPPORTED_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSION = 3
 
 
 class SchemaVersionError(RuntimeError):

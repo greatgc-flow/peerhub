@@ -125,8 +125,22 @@ def _guard_v2(conn: sqlite3.Connection) -> None:
         conn.execute(stmt)
 
 
+# v3: INSERT OR REPLACE INTO records(rowid, ...) with an existing implicit rowid replaces the row without any declared-key collision.
+_GUARD_V3 = """
+CREATE TRIGGER IF NOT EXISTS records_no_rowid_replace BEFORE INSERT ON records
+WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM records WHERE rowid = NEW.rowid)
+BEGIN SELECT RAISE(ABORT, 'records are immutable (append only)'); END;
+"""
+
+
+def _guard_v3(conn: sqlite3.Connection) -> None:
+    for stmt in split_statements(_GUARD_V3):
+        conn.execute(stmt)
+
+
 MIGRATIONS: list[Migration] = [Migration(1, "baseline_core_tables", _baseline),
-                               Migration(2, "records_no_replace_guard", _guard_v2)]
+                               Migration(2, "records_no_replace_guard", _guard_v2),
+                               Migration(3, "records_no_rowid_replace_guard", _guard_v3)]
 CURRENT_VERSION: int = MIGRATIONS[-1].version
 assert CURRENT_VERSION == SUPPORTED_SCHEMA_VERSION, "bump schema_version.SUPPORTED_SCHEMA_VERSION together with MIGRATIONS"
 

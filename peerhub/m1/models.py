@@ -123,7 +123,7 @@ class _CoreModel(BaseModel):
 
 
 class Peer(_CoreModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     schema_version: Literal["1.0"] = Field(default="1.0", frozen=True)
     peer_id: str = Field(..., min_length=1)
@@ -134,7 +134,7 @@ class Peer(_CoreModel):
 
 
 class Stream(_CoreModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     schema_version: Literal["1.0"] = Field(default="1.0", frozen=True)
     stream_id: str = Field(..., min_length=1)
@@ -245,7 +245,7 @@ class AppendRequest(BaseModel):
 
 
 class Offset(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     schema_version: Literal["1.0"] = Field(default="1.0", frozen=True)
     peer_id: str = Field(..., min_length=1)

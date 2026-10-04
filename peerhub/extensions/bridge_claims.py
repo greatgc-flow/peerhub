@@ -80,6 +80,9 @@ class ClaimStore:
                          "WHEN EXISTS (SELECT 1 FROM bridge_finalizations WHERE stream_id = NEW.stream_id AND peer_id = NEW.peer_id "
                          "AND claim_generation = NEW.claim_generation) "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
+            conn.execute("CREATE TRIGGER bridge_finalizations_no_rowid_replace BEFORE INSERT ON bridge_finalizations "
+                         "WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM bridge_finalizations WHERE rowid = NEW.rowid) "
+                         "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
             conn.execute("CREATE TRIGGER bridge_finalizations_no_delete BEFORE DELETE ON bridge_finalizations "
                          "BEGIN SELECT RAISE(ABORT, 'bridge_finalizations is append-only'); END")
 

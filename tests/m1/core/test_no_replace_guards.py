@@ -40,6 +40,8 @@ DELIVERY = dict(delivery_id="d1", seq=1, stream_id="s", peer_id="p", record_id="
 EV = dict(seq=1, delivery_id="d", stream_id="s", peer_id="p", kind="k", detail="{}")
 SE = dict(seq=1, stream_id="s", peer_id="p", event="e", from_state="a", to_state="b", generation=1, detail="{}")
 CTL = dict(record_id="c", stream_id="s", peer_id="p", kind="k", position=1, effect="e")
+INV = dict(delivery_id="d1", invocation_no=1, stream_id="s", peer_id="p", claim_generation=1)
+RES = dict(delivery_id="d1", invocation_no=1, reason="r", claim_generation=1)
 FIN = dict(stream_id="s", peer_id="p", claim_generation=1, result_json="{}")
 
 # table -> (seed rows, row, colliding variants, non-colliding positive-control row or None)
@@ -55,6 +57,9 @@ CASES = {
                                [dict(delivery_id="d1", reconcile_record_id="rc", decision="X")], None),
     "bridge_controls": ([], CTL, [dict(CTL, position=9, effect="other")], dict(CTL, peer_id="p2")),
     "bridge_finalizations": ([], FIN, [dict(FIN, result_json='{"x":1}')], dict(FIN, claim_generation=2)),
+    "bridge_invocations": ([], INV, [dict(INV, claim_generation=9)], dict(INV, invocation_no=2)),
+    "bridge_invocation_resolutions": ([("bridge_invocations", INV), ("bridge_invocations", dict(INV, invocation_no=2)),
+                                       ("bridge_invocations", dict(INV, delivery_id="z"))], RES, [dict(RES, reason="X")], dict(RES, invocation_no=2)),
 }
 
 
@@ -123,10 +128,10 @@ def test_records_guard_is_migration_v2_and_old_store_upgrades(tmp_path):
         ins(c, "peers", dict(peer_id="a", created_at="t"))
         ins(c, "streams", dict(stream_id="s", state="OPEN", created_at="t"))
         ins(c, "records", REC)
-    assert run_migrations(db) == [2]
+    assert run_migrations(db) == [2, 3]
     assert run_migrations(db) == []  # idempotent
-    assert _version(db) == 2  # independent literal
-    assert "records_no_replace" in _triggers(db)
+    assert _version(db) == 3  # independent literal
+    assert {"records_no_replace", "records_no_rowid_replace"} <= _triggers(db)
     before = digest(db)
     with closing(raw(db)) as c, pytest.raises(sqlite3.IntegrityError):
         ins(c, "records", dict(REC, kind="evil"), "INSERT OR REPLACE")
@@ -145,4 +150,81 @@ def test_migration_v2_is_atomic(tmp_path):
     with pytest.raises(RuntimeError):
         run_migrations(db, fault=boom)
     assert _version(db) == 1 and "records_no_replace" not in _triggers(db)
-    assert run_migrations(db) == [2]
+    assert run_migrations(db) == [2, 3]
+
+
+def test_v2_store_upgrades_to_v3_atomically(tmp_path):
+    db = tmp_path / "v2.db"
+    assert run_migrations(db, MIGRATIONS[:2]) == [1, 2]
+    assert "records_no_rowid_replace" not in _triggers(db)
+
+    def boom(point):
+        if point == "migration.before_commit":
+            raise RuntimeError("crash")
+
+    with pytest.raises(RuntimeError):
+        run_migrations(db, fault=boom)
+    assert _version(db) == 2 and "records_no_rowid_replace" not in _triggers(db)
+    assert run_migrations(db) == [3] and run_migrations(db) == [] and _version(db) == 3
+    with closing(raw(db)) as c:
+        ins(c, "peers", dict(peer_id="a", created_at="t"))
+        ins(c, "streams", dict(stream_id="s", state="OPEN", created_at="t"))
+        ins(c, "records", REC)
+        with pytest.raises(sqlite3.IntegrityError):
+            ins(c, "records", dict(REC, rowid=1, record_id="z", position=5, idempotency_key="z"), "INSERT OR REPLACE")
+
+
+FRESH_KEYS = {
+    "records": dict(record_id="z", position=5, idempotency_key="z"),
+    "bridge_deliveries": dict(delivery_id="z", seq=5, attempt=5),
+    "bridge_reconciliations": None,
+    "bridge_controls": dict(record_id="z"),
+    "bridge_finalizations": dict(claim_generation=5),
+    "bridge_invocations": dict(delivery_id="z"),
+    "bridge_invocation_resolutions": dict(delivery_id="z"),
+}
+
+
+@pytest.mark.parametrize("table", list(FRESH_KEYS))
+@pytest.mark.parametrize("verb", ["INSERT OR REPLACE", "REPLACE"])
+def test_rowid_replace_guard(db, table, verb):
+    seeds, row, _, _ = CASES[table]
+    fresh = FRESH_KEYS[table]
+    if fresh is None:  # reconciliations: a second valid delivery/control pair is needed
+        seeds = seeds + [("records", dict(CONTROL_REC, record_id="rc2", position=3, idempotency_key="k3",
+                                          body_json=json.dumps({"decision": "RETRY", "delivery_id": "d2"}))),
+                         ("bridge_deliveries", dict(DELIVERY, delivery_id="d2", seq=2, attempt=2))]
+        bad = dict(row, rowid=1, delivery_id="d2", reconcile_record_id="rc2")
+    else:
+        bad = dict(row, rowid=1, **fresh)
+    with closing(raw(db)) as c:
+        for t, r in seeds:
+            ins(c, t, r)
+        ins(c, table, row)
+    before = digest(db)
+    with closing(raw(db)) as c, pytest.raises(sqlite3.IntegrityError):
+        ins(c, table, bad, verb)
+    assert digest(db) == before
+    with closing(raw(db)) as c:  # positive control: explicit unused rowid is fine
+        ins(c, table, dict(bad, rowid=77))
+
+
+def test_rowid_replace_guard_observation_tables(tmp_path):
+    db = tmp_path / "o.db"
+    ObservationStore(db)
+    pool = dict(resource_pool_id="p", provider="x", kind="k")
+    obs = dict(observation_id="o1", subject_ref="s", kind="k", source="x", state="OBSERVED", payload_json="{}",
+               observed_at="t", captured_at="t", effective_at_us=1)
+    with closing(raw(db)) as c:
+        ins(c, "resource_pools", pool)
+        ins(c, "observations", obs)
+        cols = [r[1] for r in c.execute("PRAGMA table_info(observations)")]
+    before = digest(db)
+    with closing(raw(db)) as c:
+        with pytest.raises(sqlite3.IntegrityError):
+            ins(c, "resource_pools", dict(pool, rowid=1, resource_pool_id="p2"), "INSERT OR REPLACE")
+        with pytest.raises(sqlite3.IntegrityError):
+            ins(c, "observations", dict(obs, capture_seq=1, observation_id="o2"), "INSERT OR REPLACE")
+    assert digest(db) == before
+    with closing(raw(db)) as c:
+        ins(c, "observations", dict(obs, capture_seq=9, observation_id="o3"))

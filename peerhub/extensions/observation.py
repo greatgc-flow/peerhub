@@ -69,6 +69,12 @@ _TRIGGERS = (
     "CREATE TRIGGER observations_no_replace BEFORE INSERT ON observations "
     "WHEN EXISTS (SELECT 1 FROM observations WHERE observation_id = NEW.observation_id) "
     "BEGIN SELECT RAISE(ABORT, 'observations are immutable evidence (append only)'); END",
+    "CREATE TRIGGER observations_no_seq_replace BEFORE INSERT ON observations "
+    "WHEN NEW.capture_seq IS NOT NULL AND EXISTS (SELECT 1 FROM observations WHERE capture_seq = NEW.capture_seq) "
+    "BEGIN SELECT RAISE(ABORT, 'observations are immutable evidence (append only)'); END",
+    "CREATE TRIGGER resource_pools_no_rowid_replace BEFORE INSERT ON resource_pools "
+    "WHEN NEW.rowid IS NOT NULL AND EXISTS (SELECT 1 FROM resource_pools WHERE rowid = NEW.rowid) "
+    "BEGIN SELECT RAISE(ABORT, 'resource pools are immutable (append only)'); END",
     "CREATE TRIGGER resource_pools_no_replace BEFORE INSERT ON resource_pools "
     "WHEN EXISTS (SELECT 1 FROM resource_pools WHERE resource_pool_id = NEW.resource_pool_id) "
     "BEGIN SELECT RAISE(ABORT, 'resource pools are immutable (append only)'); END",
@@ -158,6 +164,7 @@ class ObservationStore:
 
     def register_resource_pool(self, pool: ResourcePool) -> ResourcePool:
         """Idempotent for identical content; a different definition for an existing id is a conflict (pools are immutable)."""
+        pool = ResourcePool.model_validate(pool.model_dump())  # re-validate before the write tx (model_construct bypass)
         with self._tx() as conn:
             row = conn.execute("SELECT * FROM resource_pools WHERE resource_pool_id = ?", (pool.resource_pool_id,)).fetchone()
             if row is not None:
@@ -176,6 +183,7 @@ class ObservationStore:
 
     # ------------------------------------------------------------------ write path
     def _insert(self, obs: Observation, point: str) -> Observation:
+        obs = Observation.model_validate(obs.model_dump())  # re-validate before the write tx
         check_honesty(obs)
         with self._tx(point) as conn:
             self._require_pool(conn, obs.resource_pool_ref)  # binding validated before any mutation

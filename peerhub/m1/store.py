@@ -221,6 +221,7 @@ class CoreStore:
     # --- Peer
     def register_peer(self, peer: Peer) -> Peer:
         """Upsert by peer_id; identity and original created_at are never rewritten (CORE-001)."""
+        peer = Peer.model_validate(peer.model_dump())  # re-validate BEFORE the write tx (model may have been mutated after construction)
         with self._tx() as conn:
             conn.execute(
                 """
@@ -268,6 +269,7 @@ class CoreStore:
             conn.execute("INSERT INTO stream_members (stream_id, peer_id) VALUES (?, ?)", (stream_id, m))
 
     def create_stream(self, stream: Stream) -> Stream:
+        stream = Stream.model_validate(stream.model_dump())  # re-validate BEFORE the write tx
         with self._tx() as conn:
             if conn.execute("SELECT 1 FROM streams WHERE stream_id = ?", (stream.stream_id,)).fetchone():
                 raise AlreadyExistsError(f"stream {stream.stream_id!r} exists")
