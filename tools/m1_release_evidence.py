@@ -43,10 +43,13 @@ def _test_ids(name: str, ids: list[str]) -> list[str]:
 
 # accepted machine-readable skip reasons (live opt-in / provider availability / soak opt-in / CI-only); anything else is a plain skip
 ALLOWED_SKIP = re.compile(r"^(LIVE-OPT-IN|LIVE-PROVIDER-UNAVAILABLE|SOAK-OPT-IN|CI-ONLY)\[[^\]]*\]")
+# A matrix cell that cannot run in this job but whose execution is recorded as evidence in the repo (docs/m1_impl/matrix_evidence/*.json);
+# the claim itself is enforced by the REL-010 evidence tests, which must pass in the same run (see the aggregation below).
+EVIDENCE_SKIP = re.compile(r"^CI-ONLY\[[^\]]*\]: VERIFIED-(CI|LOCAL)")
 
 
 def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
-    """catalog id -> passed|failed|skipped|not_verified|error|missing. An id passes only if EVERY matching testcase passed.
+    """catalog id -> passed|failed|skipped|not_verified|evidence_verified|error|missing. An id passes only if EVERY matching testcase passed.
     `not_verified` = skipped with an accepted machine-readable reason; it is never a pass."""
     seen: dict[str, list[str]] = {}
     for p in paths:
@@ -57,7 +60,9 @@ def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
                 if tag in ("failure", "error", "skipped"):
                     outcome = "failed" if tag == "failure" else tag
                     if tag == "skipped":
-                        outcome = "not_verified" if ALLOWED_SKIP.match((child.get("message") or child.text or "").strip()) else "skipped"
+                        reason = (child.get("message") or child.text or "").strip()
+                        outcome = ("evidence_verified" if EVIDENCE_SKIP.match(reason) else
+                                   "not_verified" if ALLOWED_SKIP.match(reason) else "skipped")
                     break
             for tid in _test_ids(case.get("name", ""), ids):
                 seen.setdefault(tid, []).append(outcome)
@@ -67,7 +72,9 @@ def junit_outcomes(paths: list[Path], ids: list[str]) -> dict[str, str]:
         if not res:
             out[tid] = "missing"
         else:
-            out[tid] = "passed" if all(r == "passed" for r in res) else next(r for r in ("failed", "error", "skipped", "not_verified") if r in res)
+            # evidence_verified results count only next to at least one real pass of the same id (the test that validates the evidence)
+            ok = all(r in ("passed", "evidence_verified") for r in res) and "passed" in res
+            out[tid] = "passed" if ok else next(r for r in ("failed", "error", "skipped", "not_verified", "evidence_verified") if r in res)
     return out
 
 
