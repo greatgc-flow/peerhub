@@ -15,6 +15,7 @@ FIXED = ["한국어 테스트", "😀👨‍👩‍👧 é", "line1\r\nline2\nl
 
 
 @pytest.mark.m1_id("PROP-007")
+@pytest.mark.timeout(300)  # a fresh store (migrations) per example is slow on Windows CI runners (60 s global timeout killed the run)
 @settings(max_examples=60, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture])
 @given(extra=TEXT)
 def test_prop_007_unicode_free_text_round_trips(tmp_path_factory, extra):
