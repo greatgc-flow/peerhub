@@ -34,7 +34,7 @@
 - D-W3-7 (Q-W3-7): no ordinary-message fallback for control Records; until Wave 4, unsupported control Records stay pending or fail explicitly with no runtime delivery/ack.
 
 ## Wave 3 re-gate: ag.pro APPROVE at 2fbf4d2.
-- D-W3-8 (Q-W3-8): about_to_invoke marker (certainty MAY_HAVE_STARTED before invocation); adapter-reported PrespawnError is the single permitted return to NOT_STARTED. Safe: a crash before the revert persists leaves the conservative MAY_HAVE_STARTED. Needs spec-owner confirmation (report at the end).
+- D-W3-8 (Q-W3-8) [SUPERSEDED by D-OWN-A4: no certainty downgrade exists any more; the marker is a separate persisted invocation marker]: about_to_invoke marker (certainty MAY_HAVE_STARTED before invocation); adapter-reported PrespawnError is the single permitted return to NOT_STARTED. Safe: a crash before the revert persists leaves the conservative MAY_HAVE_STARTED. Needs spec-owner confirmation (report at the end).
 - Pending control Records block later Records for that peer/stream until Wave 4 (accepted as interim).
 
 ## Wave 4 gate (cx.pro, 2026-10-03): BLOCK on d1945ca; rulings (conservative; items marked OWNER need spec-owner confirmation at the end)

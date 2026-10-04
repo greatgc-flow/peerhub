@@ -1,7 +1,9 @@
 """Session Bridge (Wave 3): session mapping, execution certainty ledger, fenced delivery cycle, reconciliation.
 
 Extension-owned tables (Core never imports this module). Builds on `bridge_claims.ClaimStore` (TD-04/19/25).
-Certainty (TD-11/TD-26): NOT_STARTED -> {NOT_STARTED, MAY_HAVE_STARTED, STARTED}; STARTED -> {STARTED, TERMINAL};
+Certainty (TD-11/TD-26; D-OWN-A2/A4): NO downgrade ever. A separate invocation marker (bridge_invocations) is written before the invoke;
+an unresolved marker blocks replay and recovery promotes it to MAY_HAVE_STARTED; a proven pre-spawn failure / control halt resolves it.
+NOT_STARTED -> {NOT_STARTED, MAY_HAVE_STARTED, STARTED}; STARTED -> {STARTED, TERMINAL};
 MAY_HAVE_STARTED and TERMINAL never change. A `control.reconcile` RETRY authorizes a NEW attempt row; the old row is untouched.
 Wave 4 (control / context continuity): control Records (pause/resume/cancel/redirect, TD-05) are durable BEFORE any runtime effect;
 the bridge accepts the intent in `bridge_controls` (committed) and only then calls the best-effort effect (interrupt/terminate/steer).
@@ -49,6 +51,10 @@ class OffsetAckConflictError(RuntimeError):
     """Offset CAS conflicts exhausted the retry budget: the delivery is NOT acked (terminal truth stays, recovery re-acks)."""
 
 
+class InvocationMarkerError(ValueError):
+    """Invocation marker/resolution violates the marker protocol (no unresolved marker, or certainty is not NOT_STARTED); nothing was written."""
+
+
 class NoDeliveryError(LookupError):
     """No delivery exists for the claim scope."""
 
@@ -70,7 +76,7 @@ class RuntimeTargetError(RuntimeError):
 
 
 class PrespawnError(RuntimeTargetError):
-    """Failure before any process/session start (certainty stays NOT_STARTED)."""
+    """Failure proven to be before any process/session start (resolves the invocation marker; certainty stays NOT_STARTED)."""
 
 
 class ContextLostError(PrespawnError):
@@ -208,6 +214,30 @@ _DDL = [
     """CREATE TRIGGER IF NOT EXISTS bridge_controls_no_replace BEFORE INSERT ON bridge_controls
         WHEN EXISTS (SELECT 1 FROM bridge_controls WHERE record_id = NEW.record_id AND peer_id = NEW.peer_id)
         BEGIN SELECT RAISE(ABORT, 'bridge_controls rows are never replaced'); END""",
+    """CREATE TABLE IF NOT EXISTS bridge_invocations (
+        delivery_id TEXT NOT NULL, invocation_no INTEGER NOT NULL, stream_id TEXT NOT NULL, peer_id TEXT NOT NULL,
+        claim_generation INTEGER NOT NULL, external_session_id TEXT, session_generation INTEGER,
+        PRIMARY KEY (delivery_id, invocation_no))""",
+    """CREATE TABLE IF NOT EXISTS bridge_invocation_resolutions (
+        delivery_id TEXT NOT NULL, invocation_no INTEGER NOT NULL, reason TEXT NOT NULL, claim_generation INTEGER NOT NULL,
+        PRIMARY KEY (delivery_id, invocation_no))""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocations_no_update BEFORE UPDATE ON bridge_invocations
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocations is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocations_no_delete BEFORE DELETE ON bridge_invocations
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocations is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocations_no_replace BEFORE INSERT ON bridge_invocations
+        WHEN EXISTS (SELECT 1 FROM bridge_invocations WHERE delivery_id = NEW.delivery_id AND invocation_no = NEW.invocation_no)
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocations rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_no_update BEFORE UPDATE ON bridge_invocation_resolutions
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocation_resolutions is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_no_delete BEFORE DELETE ON bridge_invocation_resolutions
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocation_resolutions is append-only'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_no_replace BEFORE INSERT ON bridge_invocation_resolutions
+        WHEN EXISTS (SELECT 1 FROM bridge_invocation_resolutions WHERE delivery_id = NEW.delivery_id AND invocation_no = NEW.invocation_no)
+        BEGIN SELECT RAISE(ABORT, 'bridge_invocation_resolutions rows are never replaced'); END""",
+    """CREATE TRIGGER IF NOT EXISTS bridge_invocation_resolutions_needs_marker BEFORE INSERT ON bridge_invocation_resolutions
+        WHEN NOT EXISTS (SELECT 1 FROM bridge_invocations WHERE delivery_id = NEW.delivery_id AND invocation_no = NEW.invocation_no)
+        BEGIN SELECT RAISE(ABORT, 'a resolution needs its invocation marker'); END""",
     """CREATE TRIGGER IF NOT EXISTS bridge_deliveries_no_delete BEFORE DELETE ON bridge_deliveries
         BEGIN SELECT RAISE(ABORT, 'bridge_deliveries rows are never deleted'); END""",
 ]
@@ -277,17 +307,60 @@ class Bridge:
         with self.claims.fenced(token) as conn:
             self._transition_in(conn, delivery_id, to, kind, token=token, **detail)
 
-    def _revert_prespawn(self, token: ClaimToken, delivery_id: str, error: str, kind: str = "prespawn_failure") -> None:
-        """The adapter explicitly reports failure BEFORE any spawn: the only permitted return to NOT_STARTED (TD-11 text:
-        pre-spawn failure is NOT_STARTED). Requires the invoke-marker state and no start evidence."""
+    def _mark_invocation(self, token: ClaimToken, delivery_id: str, **detail: Any) -> int:
+        """D-OWN-A4: durable invocation marker BEFORE the runtime can act. Certainty stays NOT_STARTED while it is pending;
+        an unresolved marker blocks replay and recovery promotes it to MAY_HAVE_STARTED."""
         with self.claims.fenced(token) as conn:
             row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
+            if row is None:
+                raise NoDeliveryError(delivery_id)
             self._check_scope(row, token)
-            if row["certainty"] == MAY_HAVE_STARTED and row["execution_id"] is None:
-                conn.execute("UPDATE bridge_deliveries SET certainty=? WHERE delivery_id=?", (NOT_STARTED, delivery_id))
-            elif row["certainty"] != NOT_STARTED:
-                raise IllegalCertaintyTransition(f"{row['certainty']} cannot be reverted by a pre-spawn failure")
+            if row["certainty"] != NOT_STARTED or self._open_invocation(conn, delivery_id) is not None:
+                raise InvocationMarkerError(f"cannot mark an invocation for a {row['certainty']} delivery or one with an unresolved marker")
+            n = conn.execute("SELECT COALESCE(MAX(invocation_no),0)+1 FROM bridge_invocations WHERE delivery_id=?", (delivery_id,)).fetchone()[0]
+            conn.execute("INSERT INTO bridge_invocations (delivery_id, invocation_no, stream_id, peer_id, claim_generation, "
+                         "external_session_id, session_generation) VALUES (?,?,?,?,?,?,?)",
+                         (delivery_id, n, token.stream_id, token.peer_id, token.generation, detail.get("external_session_id"),
+                          detail.get("session_generation")))
+            self._evidence(conn, token.stream_id, token.peer_id, "about_to_invoke", delivery_id, NOT_STARTED, invocation_no=n, **detail)
+            return n
+
+    @staticmethod
+    def _open_invocation(conn: sqlite3.Connection, delivery_id: str) -> int | None:
+        r = conn.execute("SELECT i.invocation_no FROM bridge_invocations i WHERE i.delivery_id=? AND NOT EXISTS ("
+                         "SELECT 1 FROM bridge_invocation_resolutions r WHERE r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no) "
+                         "ORDER BY i.invocation_no DESC LIMIT 1", (delivery_id,)).fetchone()
+        return None if r is None else r[0]
+
+    def _resolve_invocation(self, token: ClaimToken, delivery_id: str, reason: str, error: str, kind: str) -> None:
+        """A fenced, PROVEN pre-spawn failure or a control halt before the invoke resolves the marker. Certainty is never touched."""
+        with self.claims.fenced(token) as conn:
+            row = conn.execute("SELECT * FROM bridge_deliveries WHERE delivery_id=?", (delivery_id,)).fetchone()
+            if row is None:
+                raise NoDeliveryError(delivery_id)
+            self._check_scope(row, token)
+            n = self._open_invocation(conn, delivery_id)
+            if row["certainty"] != NOT_STARTED or n is None or row["execution_id"] is not None:
+                raise InvocationMarkerError(f"no unresolved invocation marker to resolve on a {row['certainty']} delivery")
+            conn.execute("INSERT INTO bridge_invocation_resolutions (delivery_id, invocation_no, reason, claim_generation) VALUES (?,?,?,?)",
+                         (delivery_id, n, reason, token.generation))
             self._evidence(conn, row["stream_id"], row["peer_id"], kind, delivery_id, NOT_STARTED, error=error)
+        self._fire("bridge.after_invocation_resolved")
+
+    def _promote_unresolved(self, token: ClaimToken) -> None:
+        """Recovery: an unresolved marker means the runtime may have been invoked -> durable MAY_HAVE_STARTED with evidence."""
+        q = ("SELECT d.delivery_id, i.invocation_no FROM bridge_deliveries d JOIN bridge_invocations i ON i.delivery_id=d.delivery_id "
+             "WHERE d.stream_id=? AND d.peer_id=? AND d.certainty=? AND NOT EXISTS (SELECT 1 FROM bridge_invocation_resolutions r "
+             "WHERE r.delivery_id=i.delivery_id AND r.invocation_no=i.invocation_no)")
+        args = (token.stream_id, token.peer_id, NOT_STARTED)
+        with self.claims._tx() as conn:
+            if not conn.execute(q, args).fetchall():
+                return  # nothing dangling: a read-only (possibly stale) cycle writes nothing
+        with self.claims.fenced(token) as conn:
+            for did, n in conn.execute(q, args).fetchall():
+                self._transition_in(conn, did, MAY_HAVE_STARTED, "invocation_unresolved_recovered", token=token, invocation_no=n)
+                conn.execute("INSERT INTO bridge_invocation_resolutions (delivery_id, invocation_no, reason, claim_generation) VALUES (?,?,?,?)",
+                             (did, n, "promoted_may_have_started", token.generation))
 
     def begin_attempt(self, token: ClaimToken, record, *, reconcile_of: str | None = None) -> str:
         """Create (or, for NOT_STARTED retry, reuse) the attempt row for `record`; returns delivery_id."""
@@ -550,6 +623,7 @@ class Bridge:
 
     def _run_cycle(self, token: ClaimToken, runtime: RuntimeTarget) -> CycleResult:
         peer, stream = token.peer_id, token.stream_id
+        self._promote_unresolved(token)  # D-OWN-A4: recovery never re-invokes; a dangling invocation marker is MAY_HAVE_STARTED
         self._handle_unread_controls(token, runtime)  # durable intent first: before any session/runtime side effect
         infl = self._inflight(token)
         reconcile_of = None
@@ -630,8 +704,9 @@ class Bridge:
         started = False
         terminal: Any = None
         have_terminal = False
-        # TD-11: durable 'about to invoke' marker BEFORE the runtime can possibly act; a crash from here on is MAY_HAVE_STARTED
-        self.transition(token, did, MAY_HAVE_STARTED, "about_to_invoke", external_session_id=ext, session_generation=gen)
+        # D-OWN-A4/TD-11: durable invocation marker BEFORE the runtime can possibly act; certainty stays NOT_STARTED while pending,
+        # an unresolved marker after a crash is promoted to MAY_HAVE_STARTED by recovery (never re-invoked)
+        self._mark_invocation(token, did, external_session_id=ext, session_generation=gen)
         self._fire("bridge.before_runtime_invoke")
         gated = self._gate(token, runtime, rec, did, after_marker=True)  # intent committed up to the very invoke still wins
         if gated is not None:
@@ -668,7 +743,7 @@ class Bridge:
                 if isinstance(e, ContextLostError):
                     self._mark_lost(token, "context_lost")
                 return CycleResult("uncertain", rec.record_id, did, STARTED, session_generation=gen)
-            self._revert_prespawn(token, did, str(e))
+            self._resolve_invocation(token, did, "prespawn_failure", str(e), "prespawn_failure")
             if isinstance(e, ContextLostError):  # explicit pre-run loss: safe retry on a fresh generation (catch-up, not blind replay)
                 self._mark_lost(token, "context_lost")
             return CycleResult("failed_not_started", rec.record_id, did, NOT_STARTED, session_generation=gen, detail={"error": str(e)})
@@ -1008,8 +1083,8 @@ class Bridge:
         cancel = None if st["paused"] else self._cancel_applies(token, rec, did)
         if not st["paused"] and cancel is None:
             return None
-        if after_marker:  # the invoke marker is already durable: explicitly revert it (nothing was invoked)
-            self._revert_prespawn(token, did, "halted by control intent before invoke", kind="control_halt")
+        if after_marker:  # the invoke marker is already durable: RESOLVE it (nothing was invoked); certainty is untouched
+            self._resolve_invocation(token, did, "control_halt", "halted by control intent before invoke", "control_halt")
         if st["paused"]:
             return CycleResult("paused", rec.record_id, did, NOT_STARTED, detail={"pause_record_id": st["pause_record_id"]})
         self._cancel_attempt(token, rec, did, cancel)

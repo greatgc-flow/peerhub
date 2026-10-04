@@ -65,7 +65,7 @@ def test_brg_007_execution_evidence_records_certainty_and_runtime_ids(bridge_h):
         ("TERMINAL", "exec-9", "ext-1", 1, 1)
     # independent oracle: the scripted lifecycle NOT_STARTED -> STARTED -> TERMINAL, in order
     assert [(e["kind"], e["certainty"]) for e in ev["events"]] == [
-        ("attempt_created", "NOT_STARTED"), ("about_to_invoke", "MAY_HAVE_STARTED"), ("started", "STARTED"), ("output", "STARTED"), ("output", "STARTED"),
+        ("attempt_created", "NOT_STARTED"), ("about_to_invoke", "NOT_STARTED"), ("started", "STARTED"), ("output", "STARTED"), ("output", "STARTED"),
         ("terminal", "TERMINAL"), ("response_appended", "TERMINAL"), ("offset_acked", "TERMINAL")]
     started = [e for e in ev["events"] if e["kind"] == "started"][0]["detail"]
     assert started == {"execution_id": "exec-9", "external_session_id": "ext-1", "session_generation": 1}

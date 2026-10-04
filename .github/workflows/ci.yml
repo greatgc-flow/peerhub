@@ -9,6 +9,7 @@ on:
 jobs:
   build:
     # The declared support matrix (pyproject classifiers / requires-python) is exactly this cross product (REL-010/011, TD-18).
+    # Cells not yet executed by a CI run are UNVERIFIED (only py3.14/windows was executed locally); a green CI run is what verifies a cell.
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     strategy:

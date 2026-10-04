@@ -16,6 +16,9 @@ STATES = (NS, MAY, ST, TERM)
 # Independent oracle (STATE_MACHINE_COVERAGE.json STM-030..038 + TD-11 "never downgrades"): the ONLY legal edges.
 # D-W3-3: forward edges on late evidence (MAY->STARTED/TERMINAL) are legal; downgrades and TERMINAL overwrites are not.
 LEGAL = {(NS, NS), (NS, MAY), (NS, ST), (ST, ST), (ST, TERM), (MAY, MAY), (MAY, ST), (MAY, TERM), (TERM, TERM)}
+# D-OWN-A2/A4: independent literal of the FORBIDDEN edges (no downgrade anywhere, NOT_STARTED -> TERMINAL forbidden)
+FORBIDDEN = {(NS, TERM), (MAY, NS), (ST, NS), (ST, MAY), (TERM, NS), (TERM, MAY), (TERM, ST)}
+assert not LEGAL & FORBIDDEN and len(LEGAL) + len(FORBIDDEN) == 16
 
 
 def _reconcile(h, did, decision="RETRY", kind="control.reconcile", key="rc1", stream="s"):

@@ -40,8 +40,9 @@ def test_brg_012_crash_after_invoke_before_start_evidence_never_replays(tmp_path
                         h.clock.now()) == 17  # real process death at the exact point
     h2 = BridgeHarness(tmp_path / "ws", h.clock)
     (d,) = delivery_rows(h2, rec.record_id)
-    assert d[7] == MAY and "about_to_invoke" in kinds(h2, d[0])  # durable marker already says MAY_HAVE_STARTED
+    assert d[7] == NS and "about_to_invoke" in kinds(h2, d[0])  # D-OWN-A4: durable (unresolved) marker, certainty still NOT_STARTED
     rt = FakeRuntimeTarget()
+    h2.clock.advance(31)
     for _ in range(2):
         res = h2.delivery_cycle("b", "s", rt)
         assert res.status == "blocked_uncertain" and res.certainty == MAY
@@ -55,10 +56,11 @@ def test_brg_012_marker_is_durable_before_runtime_acts_and_pre_marker_crash_is_r
     (rec,) = bseed(h)
     seen = {}
     rt = FakeRuntimeTarget()
-    rt.script_deliver(("call", lambda: seen.update(certainty=delivery_rows(h, rec.record_id)[0][7])), ("started", "e1"),
+    rt.script_deliver(("call", lambda: seen.update(certainty=delivery_rows(h, rec.record_id)[0][7], markers=sql(h, "SELECT COUNT(*) FROM bridge_invocations")[0][0],
+                                                       resolved=sql(h, "SELECT COUNT(*) FROM bridge_invocation_resolutions")[0][0])), ("started", "e1"),
                       ("terminal", {"response": "ok"}))
     assert h.delivery_cycle("b", "s", rt).status == "delivered"
-    assert seen["certainty"] == MAY  # observed from inside the runtime invocation
+    assert (seen["certainty"], seen["markers"], seen["resolved"]) == (NS, 1, 0)  # inside the invocation: unresolved marker, no downgrade
     # positive control: a crash BEFORE the marker (claim acquired) leaves NOT_STARTED and recovery executes normally
     h2 = BridgeHarness(tmp_path / "ws2")
     bseed(h2)

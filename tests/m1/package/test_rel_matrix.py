@@ -65,7 +65,7 @@ def _cell_params():
         runnable = py == local_py and os_ == local_os  # a cell is executed only if BOTH axes match this machine
         marks = [pytest.mark.ci_only(python=py, os=os_)] if not runnable else []
         if not runnable:
-            marks.append(pytest.mark.skip(reason=f"CI-ONLY[python={py};os={os_}]: not runnable on local python {local_py} / {local_os}; "
+            marks.append(pytest.mark.skip(reason=f"CI-ONLY[python={py};os={os_}]: UNVERIFIED here (TD-18); not runnable on local python {local_py} / {local_os}; "
                                                  f"exercised by the .github/workflows/ci.yml matrix job"))
         params.append(pytest.param(py, os_, id=f"py{py}-{os_}", marks=marks))
     return params

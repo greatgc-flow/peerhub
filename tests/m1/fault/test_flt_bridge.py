@@ -84,13 +84,16 @@ def test_flt_004_may_have_started_blocks_every_automatic_retry_until_explicit_re
     (rec,) = bseed(h)
     assert crash(ws, "bridge.before_runtime_invoke") == CRASH_EXIT  # persisted ambiguous evidence (marker before invoke)
     (row,) = delivery_rows(h, rec.record_id)
-    assert row[7] == MAY
+    assert row[7] == NS  # D-OWN-A4: pending marker, certainty not yet promoted (recovery does that, durably)
     did = row[0]
-    state = {t: d for t, d in table_hashes(h).items() if t != "bridge_claims"}  # lease bookkeeping may move; delivery state may not
+    state = None
     for hours in (0, 1, 10 ** 6):  # restart / reschedule automatically, however much time passes
         h.clock.advance(hours * 3600)
         out = restart_cycles(ws, clock=h.clock.now(), max_cycles=2)
         assert out["statuses"] == ["blocked_uncertain"] and out["calls"] == []
+        if state is None:  # first recovery promoted the unresolved marker; from now on delivery state may not move
+            assert delivery_rows(h, rec.record_id)[0][7] == MAY
+            state = {t: d for t, d in table_hashes(h).items() if t != "bridge_claims"}  # lease bookkeeping may move
     assert {t: d for t, d in table_hashes(h).items() if t != "bridge_claims"} == state  # nothing else written by scheduler passes
     # a forged reconciliation by the bridged peer itself does not clear the block
     forged = reconcile(h, did, key="forged", author="b")
@@ -133,21 +136,21 @@ def test_flt_005_crash_after_terminal_evidence_before_offset_ack_resumes_without
 
 
 # =========================================================================== FLT-006
-@pytest.mark.parametrize("point,expected", [("bridge.before_runtime_invoke", MAY), ("bridge.after_runtime_start", ST),
-                                            ("bridge.after_partial_output", ST)])
+@pytest.mark.parametrize("point,expected,recovered", [("bridge.before_runtime_invoke", NS, MAY), ("bridge.after_runtime_start", ST, ST),
+                                                      ("bridge.after_partial_output", ST, ST)])
 @pytest.mark.m1_id("FLT-006")
-def test_flt_006_crash_after_start_never_recovers_as_not_started(tmp_path, point, expected):
+def test_flt_006_crash_after_start_never_recovers_as_not_started(tmp_path, point, expected, recovered):
     ws = tmp_path / "ws"
     h = BridgeHarness(ws)
     (rec,) = bseed(h)
     script = [["started", "e1"], ["output", "partial"], ["terminal", {"response": "R"}]]
     assert crash(ws, point, script) == CRASH_EXIT
     (row,) = delivery_rows(h, rec.record_id)
-    assert row[7] == expected and row[7] != NS  # per durable evidence: never downgraded
+    assert row[7] == expected  # before recovery: start evidence STARTED; a bare invocation marker keeps NOT_STARTED (D-OWN-A4)
     out = restart_cycles(ws, max_cycles=2)
     assert out["statuses"] == ["blocked_uncertain"] and out["calls"] == []  # no second start
     (row2,) = delivery_rows(h, rec.record_id)
-    assert row2[7] == expected and responses(h) == [] and offset_row(h) == (0, 1)
+    assert row2[7] == recovered and row2[7] != NS and responses(h) == [] and offset_row(h) == (0, 1)  # recovered, never NOT_STARTED
     assert "terminal" not in kinds(h, row[0])  # no fabricated terminal response
 
 

@@ -24,7 +24,8 @@ Tools: `python tools/m1_traceability.py [--upto N] [-v]`, `python docs/m1_spec/t
 Run tests by directory under `tests/m1/<dir>` (+ `tests/unit/m1`); live/soak/CI-only parts are opt-in or skipped with machine-readable reasons.
 
 ## Open items
-- cx.pro consolidated final review is pending (cx circuit was open on 2026-10-04). Prompt and checklist: `docs/m1_impl/CX_FINAL_CHECKLIST.md`.
-- Spec-owner decisions: `docs/m1_impl/OWNER_DECISIONS_NEEDED.md` (errata PROP-002, transition-contract gaps, importer scope, real-adapter resume/interrupt/steer).
-- Not in M1: real session resume / interrupt / steer for real providers; Diag views of bridge tables; full-scale soak; CI-only matrix cells.
+- Owner decisions: all resolved or accepted by delegation, nothing blocking (`docs/m1_impl/OWNER_DECISIONS_NEEDED.md`). A2/A4 implemented (separate invocation marker, no certainty downgrade; `final_ownerdecisions_report.md`).
+- cx.pro consolidated final review is still pending. Prompt and checklist: `docs/m1_impl/CX_FINAL_CHECKLIST.md`.
+- New docs: `SPEC_FEEDBACK_RECORD.md`, `LEGACY_IMPORT_SCOPE.md`, `ADAPTER_CAPABILITIES.md`.
+- Not in M1: real session resume / interrupt / steer for real providers; Diag views of bridge tables; full-scale soak; matrix cells not executed by CI are UNVERIFIED (TD-18).
 - T0 done: `peerhub ask` admission failures now carry a reason (peerhub/application/admission_reason.py).

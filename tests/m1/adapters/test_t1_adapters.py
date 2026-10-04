@@ -13,7 +13,7 @@ import pytest
 from peerhub.extensions.adapters import CliRuntimeTarget, Sanitizer, process, run_bounded
 from peerhub.extensions.bridge import PrespawnError, RuntimeTargetError
 from tests.m1.adapters.conftest import FAKE, calls
-from tests.m1.bridge_helpers import bseed, delivery_rows, kinds, offset_row, responses
+from tests.m1.bridge_helpers import bseed, delivery_rows, kinds, offset_row, responses, sql
 from tests.m1.control_helpers import ctl, running
 from tests.m1.harness.bridge import BridgeHarness
 
@@ -240,6 +240,21 @@ def test_t1_bridge_control_effects_report_unsupported_not_done(tmp_path, mk):
     # positive control: a runtime that supports interrupt gets it applied
     from tests.m1.fakes import FakeRuntimeTarget
     c2 = ctl(h, "control.pause", "p2")
+    assert h.handle_control(c2.record_id, FakeRuntimeTarget(), "b").runtime_outcome == "done"
+
+
+@pytest.mark.parametrize("kind", ["cc", "cx", "ag"])
+def test_t1_unsupported_cancel_never_claims_process_termination(tmp_path, mk, kind):
+    h = BridgeHarness(tmp_path / "ws")
+    bseed(h)
+    running(h)
+    c = ctl(h, "control.cancel", "c1")
+    res = h.handle_control(c.record_id, mk(kind), "b")
+    assert res.runtime_outcome == "unsupported" and not calls(mk.log)  # nothing was spawned or signalled
+    ev = [r for r in sql(h, "SELECT kind, detail FROM bridge_evidence WHERE kind='control_applied'") if '"control_kind": "control.cancel"' in r[1]]
+    assert len(ev) == 1 and '"runtime_outcome": "unsupported"' in ev[0][1] and "terminated" not in ev[0][1].lower()
+    from tests.m1.fakes import FakeRuntimeTarget  # positive control: only a runtime that implements terminate reports done
+    c2 = ctl(h, "control.cancel", "c2")
     assert h.handle_control(c2.record_id, FakeRuntimeTarget(), "b").runtime_outcome == "done"
 
 

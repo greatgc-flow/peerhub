@@ -33,3 +33,24 @@ def control_crash_worker(ws_path: str, record_id: str, peer_id: str, crash_point
     h = BridgeHarness(ws_path, ManualClock(start_clock), fault_hook=hook)
     h.handle_control(record_id, FakeRuntimeTarget(), peer_id)
     os._exit(0)  # reached only if the crash point never fired
+
+
+def halt_crash_worker(ws_path: str, peer_id: str, stream_id: str, halt_kind: str, crash_point: str, start_clock: float) -> None:
+    """Child process: a control Record commits between the invocation marker and the invoke, then the process dies at `crash_point`."""
+    from tests.m1.control_helpers import ctl
+    from tests.m1.fakes import FakeRuntimeTarget
+    from tests.m1.harness.bridge import BridgeHarness
+    from tests.m1.harness.clock import ManualClock
+
+    fired: list[str] = []
+
+    def hook(point: str) -> None:
+        if point == "bridge.before_runtime_invoke" and not fired:
+            fired.append(point)
+            ctl(h, halt_kind, "late")
+        if point == crash_point:
+            os._exit(17)
+
+    h = BridgeHarness(ws_path, ManualClock(start_clock), fault_hook=hook)
+    h.delivery_cycle(peer_id, stream_id, FakeRuntimeTarget())
+    os._exit(0)
