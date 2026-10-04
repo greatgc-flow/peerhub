@@ -1,0 +1,61 @@
+{
+ "schema": 1,
+ "workflow": "CI (.github/workflows/ci.yml)",
+ "run_id": "37189754726",
+ "run_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726",
+ "head_sha": "26af402ee75d33a195bef5e38cd662678cbdf2ff",
+ "event": "pull_request (draft PR #14, branch feat/m1-very-simple-renewal)",
+ "created_at": "2026-10-04T08:41:49Z",
+ "steps": "pip install -e .[dev]; fake AI-CLI stubs; pyright (ubuntu py3.11); python -u -m pytest -q (repo root, default addopts)",
+ "cells": [
+  {
+   "python": "3.11",
+   "os": "ubuntu-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399296874"
+  },
+  {
+   "python": "3.12",
+   "os": "ubuntu-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399297065"
+  },
+  {
+   "python": "3.13",
+   "os": "ubuntu-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399296952"
+  },
+  {
+   "python": "3.14",
+   "os": "ubuntu-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399297019"
+  },
+  {
+   "python": "3.11",
+   "os": "windows-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399296964"
+  },
+  {
+   "python": "3.12",
+   "os": "windows-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399297005"
+  },
+  {
+   "python": "3.13",
+   "os": "windows-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399296989"
+  },
+  {
+   "python": "3.14",
+   "os": "windows-latest",
+   "conclusion": "success",
+   "job_url": "https://github.com/greatgc-flow/peerhub/actions/runs/37189754726/job/111399297007"
+  }
+ ],
+ "not_covered": "live-provider-validation job (self-hosted) stays pending: needs the self-hosted runner and real provider CLIs"
+}

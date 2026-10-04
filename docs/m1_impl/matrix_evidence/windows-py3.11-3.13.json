@@ -1,0 +1,212 @@
+{
+ "schema": 1,
+ "os": "windows-latest-equivalent (Windows 11 Enterprise 10.0.26200, local machine)",
+ "date": "2026-10-04",
+ "method": "uv-managed CPython in throwaway venvs; pip install -e .[dev]; pytest -q by directory with default addopts (soak/e2e markers deselected)",
+ "cells": [
+  {
+   "python": "3.11",
+   "os": "windows-latest",
+   "python_full": "3.11.17",
+   "sqlite_version": "3.53.1",
+   "dirs": {
+    "m1/architecture": {
+     "passed": 5
+    },
+    "m1/meta": {
+     "passed": 6
+    },
+    "m1/schema": {
+     "passed": 16
+    },
+    "m1/property": {
+     "passed": 13
+    },
+    "m1/migration": {
+     "passed": 66
+    },
+    "m1/core": {
+     "passed": 77
+    },
+    "m1/integration": {
+     "passed": 22
+    },
+    "m1/observation": {
+     "passed": 32
+    },
+    "m1/diag": {
+     "passed": 14
+    },
+    "m1/bridge": {
+     "passed": 125
+    },
+    "m1/control": {
+     "passed": 134
+    },
+    "m1/security": {
+     "passed": 13
+    },
+    "m1/concurrency": {
+     "passed": 21
+    },
+    "m1/fault": {
+     "passed": 43
+    },
+    "m1/e2e": {
+     "passed": 12
+    },
+    "m1/adapters": {
+     "passed": 61
+    },
+    "unit/m1": {
+     "passed": 12
+    },
+    "m1/package": {
+     "passed": 87,
+     "skipped": 14
+    },
+    "m1/soak": {
+     "passed": 9,
+     "deselected": 2
+    }
+   },
+   "failed": 0
+  },
+  {
+   "python": "3.12",
+   "os": "windows-latest",
+   "python_full": "3.12.15",
+   "sqlite_version": "3.53.1",
+   "dirs": {
+    "m1/package": {
+     "passed": 87,
+     "skipped": 14
+    },
+    "m1/architecture": {
+     "passed": 5
+    },
+    "m1/meta": {
+     "passed": 6
+    },
+    "m1/schema": {
+     "passed": 16
+    },
+    "m1/property": {
+     "passed": 13
+    },
+    "m1/migration": {
+     "passed": 66
+    },
+    "m1/core": {
+     "passed": 77
+    },
+    "m1/integration": {
+     "passed": 22
+    },
+    "m1/observation": {
+     "passed": 32
+    },
+    "m1/diag": {
+     "passed": 14
+    },
+    "m1/bridge": {
+     "passed": 125
+    },
+    "m1/control": {
+     "passed": 134
+    },
+    "m1/security": {
+     "passed": 13
+    },
+    "m1/concurrency": {
+     "passed": 21
+    },
+    "m1/fault": {
+     "passed": 43
+    },
+    "m1/e2e": {
+     "passed": 12
+    },
+    "m1/adapters": {
+     "passed": 61
+    },
+    "unit/m1": {
+     "passed": 12
+    },
+    "m1/soak": {
+     "passed": 9,
+     "deselected": 2
+    }
+   },
+   "failed": 0
+  },
+  {
+   "python": "3.13",
+   "os": "windows-latest",
+   "python_full": "3.13.16",
+   "sqlite_version": "3.53.1",
+   "dirs": {
+    "m1/architecture": {
+     "passed": 5
+    },
+    "m1/meta": {
+     "passed": 6
+    },
+    "m1/schema": {
+     "passed": 16
+    },
+    "m1/property": {
+     "passed": 13
+    },
+    "m1/migration": {
+     "passed": 66
+    },
+    "m1/core": {
+     "passed": 77
+    },
+    "m1/integration": {
+     "passed": 22
+    },
+    "m1/observation": {
+     "passed": 32
+    },
+    "m1/diag": {
+     "passed": 14
+    },
+    "m1/bridge": {
+     "passed": 125
+    },
+    "m1/control": {
+     "passed": 134
+    },
+    "m1/security": {
+     "passed": 13
+    },
+    "m1/concurrency": {
+     "passed": 21
+    },
+    "m1/fault": {
+     "passed": 43
+    },
+    "m1/e2e": {
+     "passed": 12
+    },
+    "m1/adapters": {
+     "passed": 61
+    },
+    "unit/m1": {
+     "passed": 12
+    },
+    "m1/soak": {
+     "passed": 9,
+     "deselected": 2
+    },
+    "m1/package": {
+     "passed": 87,
+     "skipped": 14
+    }
+   },
+   "failed": 0
+  }
+ ]
+}

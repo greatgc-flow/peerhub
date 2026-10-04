@@ -1,0 +1,184 @@
+"""Bounded catch-up projection (TD-12, TD-22).
+
+A fresh session generation receives an ordered, bounded projection of the Stream instead of the whole transcript.
+The projection is the longest contiguous ordered SUFFIX of the candidate window `(after_position, before_position)` that fits the
+injected `CatchUpBudget`; it never reorders or skips inside the window. Truncation is explicit metadata (`boundary()`).
+
+Size accounting (documented contract): a Record is serialized as canonical JSON of
+`{position, record_id, author_peer_id, kind, body}`; the projection payload is the items joined by "," so
+`used_bytes = sum(len(item)) + (n - 1)` UTF-8 bytes for n > 0 and 0 for the empty projection. Tokens are
+`sum(token_estimator(item))` with the estimator injected (it is RuntimeTarget-specific, TD-12 Option).
+"""
+from __future__ import annotations
+
+import json
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterable, Iterator
+
+_Entry = tuple[Any, int, int]  # (record, bytes, tokens)
+
+
+def _is_int(v: object) -> bool:
+    """Untyped-boundary check: a real int, never a bool."""
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _check_count(name: str, v: Any) -> None:
+    if v is not None and (not _is_int(v) or v < 0):
+        raise ValueError(f"{name} must be a non-negative int or None, got {v!r}")
+
+
+@dataclass(frozen=True)
+class CatchUpBudget:
+    max_records: int | None = None
+    max_bytes: int | None = None
+    max_tokens: int | None = None
+    token_estimator: Callable[[str], int] | None = None
+
+    def __post_init__(self) -> None:
+        for n in ("max_records", "max_bytes", "max_tokens"):
+            _check_count(n, getattr(self, n))
+        if self.max_tokens is not None and self.token_estimator is None:
+            raise ValueError("max_tokens requires an injected token_estimator")
+
+    def describe(self) -> dict[str, Any]:
+        return {"max_records": self.max_records, "max_bytes": self.max_bytes, "max_tokens": self.max_tokens}
+
+
+def item_json(record: Any) -> str:
+    return json.dumps({"position": record.position, "record_id": record.record_id, "author_peer_id": record.author_peer_id,
+                       "kind": record.kind, "body": record.body}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+@dataclass(frozen=True)
+class CatchUpProjection:
+    records: tuple[Any, ...]
+    truncated: bool
+    omitted_count: int
+    omitted_through_position: int | None
+    first_position: int | None
+    last_position: int | None
+    candidates: int
+    used_bytes: int
+    used_tokens: int
+    after_position: int
+    before_position: int | None
+    budget: dict[str, Any] = field(default_factory=dict[str, Any])
+    pinned_count: int = 0
+
+    @property
+    def used_records(self) -> int:
+        return len(self.records)
+
+    def payload(self) -> str:
+        return ",".join(item_json(r) for r in self.records)
+
+    def boundary(self) -> dict[str, Any]:
+        """JSON-able boundary/truncation metadata (also persisted in context.boundary Records)."""
+        return {"after_position": self.after_position, "before_position": self.before_position, "candidates": self.candidates,
+                "included_count": len(self.records), "first_position": self.first_position, "last_position": self.last_position,
+                "omitted_count": self.omitted_count, "omitted_through_position": self.omitted_through_position,
+                "truncated": self.truncated, "pinned_count": self.pinned_count, "used_bytes": self.used_bytes, "used_tokens": self.used_tokens, "budget": dict(self.budget)}
+
+
+class ProjectedRecords(list[Any]):
+    """The list handed to RuntimeTarget.deliver(): the projected Records plus `.boundary` metadata."""
+
+    boundary: dict[str, Any] | None = None
+
+
+def project_catch_up(records: Iterable[Any], budget: CatchUpBudget, *, after_position: int = 0,
+                     before_position: int | None = None, pin: Callable[[Any], bool] | None = None) -> CatchUpProjection:
+    """Longest contiguous ordered suffix of the window that fits the budget. With `pin`, Records matching the predicate (e.g. unseen
+    redirect intent) are candidates regardless of `after_position` and are RESERVED first (newest first, budget-bounded); the rest of the
+    budget is filled with the newest non-pinned suffix. The result is ordered by position and `pinned_count` reports the pinned share."""
+    window: deque[_Entry] = deque()  # non-pinned: (record, bytes, tokens); only ever holds a suffix that fits the budget on its own
+    pins: list[_Entry] = []
+    est = budget.token_estimator
+    nbytes = ntokens = candidates = 0
+    omitted_through: int | None = None
+    last_seen: int | None = None
+
+    def over() -> bool:
+        return ((budget.max_records is not None and len(window) > budget.max_records)
+                or (budget.max_bytes is not None and nbytes > budget.max_bytes)
+                or (budget.max_tokens is not None and ntokens > budget.max_tokens))
+
+    for r in records:
+        if last_seen is not None and r.position <= last_seen:
+            raise ValueError("records must be strictly increasing by position")
+        last_seen = r.position
+        if before_position is not None and r.position >= before_position:
+            continue
+        is_pin = pin is not None and pin(r)
+        if r.position <= after_position and not is_pin:
+            continue
+        candidates += 1
+        item = item_json(r)
+        b, t = len(item.encode("utf-8")), (est(item) if est is not None else 0)
+        if is_pin:
+            pins.append((r, b, t))
+            continue
+        window.append((r, b, t))
+        nbytes += b + (1 if len(window) > 1 else 0)
+        ntokens += t
+        while window and over():  # drop the OLDEST until the suffix fits (the newest may itself be dropped: no gaps)
+            old, ob, ot = window.popleft()
+            nbytes -= ob + (1 if window else 0)
+            ntokens -= ot
+            omitted_through = old.position if omitted_through is None else max(omitted_through, old.position)
+    chosen: list[_Entry] = []
+    n = cb = ct = 0
+
+    def take(entry: _Entry) -> bool:
+        nonlocal n, cb, ct
+        _, b, t = entry
+        nb, nt = cb + b + (1 if n else 0), ct + t
+        if ((budget.max_records is not None and n + 1 > budget.max_records) or (budget.max_bytes is not None and nb > budget.max_bytes)
+                or (budget.max_tokens is not None and nt > budget.max_tokens)):
+            return False
+        chosen.append(entry)
+        n, cb, ct = n + 1, nb, nt
+        return True
+
+    pinned_taken = 0
+    left: list[_Entry] = []
+    for entry in reversed(pins):
+        if left or not take(entry):
+            left.append(entry)
+        else:
+            pinned_taken += 1
+    wleft: list[_Entry] = []
+    for entry in reversed(window):
+        if wleft or not take(entry):
+            wleft.append(entry)
+    for entry in left + wleft:
+        omitted_through = entry[0].position if omitted_through is None else max(omitted_through, entry[0].position)
+    chosen.sort(key=lambda e: e[0].position)
+    recs = tuple(e[0] for e in chosen)
+    omitted = candidates - len(recs)
+    return CatchUpProjection(recs, omitted > 0, omitted, omitted_through if omitted else None, recs[0].position if recs else None,
+                             recs[-1].position if recs else None, candidates, cb if recs else 0, ct, after_position, before_position,
+                             budget.describe(), pinned_taken)
+
+
+def build_catch_up(store: Any, stream_id: str, budget: CatchUpBudget, *, after_position: int = 0,
+                   before_position: int | None = None, page: int = 200, pin: Callable[[Any], bool] | None = None) -> CatchUpProjection:
+    """Read the Stream in pages (TD-22, exclusive of the cursor) and project; memory stays bounded by the budget (+ pinned Records)."""
+    if not _is_int(page) or page <= 0:
+        raise ValueError("page must be a positive int")
+
+    def pages() -> Iterator[Any]:
+        cursor = 0 if pin is not None else after_position  # pinned Records may sit at/below the cursor
+        while True:
+            batch = store.read_records(stream_id, cursor, page)
+            if not batch:
+                return
+            for r in batch:
+                if before_position is not None and r.position >= before_position:
+                    return
+                yield r
+            cursor = batch[-1].position
+
+    return project_catch_up(pages(), budget, after_position=after_position, before_position=before_position, pin=pin)

@@ -1,0 +1,118 @@
+{
+  "capacity_thresholds": null,
+  "config": {
+    "authors": 4,
+    "claim_keys": 50,
+    "claim_threads": 8,
+    "members": 8,
+    "peers": 2000,
+    "records": 20000,
+    "restarts": 4,
+    "stream_records": 5,
+    "streams": 400
+  },
+  "correctness": {
+    "diag": {
+      "core_sections": {
+        "peers": "OK",
+        "streams": "OK"
+      },
+      "records_after_write": 20001,
+      "records_before_write": 20000,
+      "snapshot_head": 20000,
+      "snapshot_is_pre_write": true,
+      "snapshot_records_total": 20000,
+      "status": "PARTIAL",
+      "writer_committed": true,
+      "writer_errors": []
+    },
+    "head_before_diag_write": 20000,
+    "offset_beyond_head_rejected": true,
+    "offsets_written": {
+      "author-0": 5000,
+      "author-1": 10000,
+      "author-2": 15000,
+      "author-3": 20000
+    },
+    "records_expected": 20001,
+    "records_scanned_before_diag_write": 20000,
+    "retries_conflicting_payload_rejected": 4,
+    "retries_same_payload_returned_same_record": 1019,
+    "violations": []
+  },
+  "evidence_only": true,
+  "measurements": {
+    "append": {
+      "count": 20000,
+      "max_ms": 64.4409,
+      "mean_ms": 9.3141,
+      "min_ms": 4.4422,
+      "p50_ms": 8.8082,
+      "p95_ms": 13.9463,
+      "p99_ms": 16.8038
+    },
+    "db_bytes_per_record": 335.45,
+    "diag_snapshot_ms": 109.12,
+    "full_scan_total_ms": 1087.21,
+    "idempotent_retry": {
+      "count": 939,
+      "max_ms": 11.151,
+      "mean_ms": 5.159,
+      "min_ms": 2.462,
+      "p50_ms": 4.8519,
+      "p95_ms": 7.9452,
+      "p99_ms": 9.9452
+    },
+    "offset_advance": {
+      "count": 4,
+      "max_ms": 17.9675,
+      "mean_ms": 10.1117,
+      "min_ms": 6.6931,
+      "p50_ms": 8.0031,
+      "p95_ms": 17.9675,
+      "p99_ms": 17.9675
+    },
+    "read_page_1000": {
+      "count": 21,
+      "max_ms": 73.3321,
+      "mean_ms": 51.5557,
+      "min_ms": 3.0913,
+      "p50_ms": 51.1183,
+      "p95_ms": 69.9906,
+      "p99_ms": 73.3321
+    },
+    "read_point_limit1": {
+      "count": 200,
+      "max_ms": 4.2421,
+      "mean_ms": 2.4279,
+      "min_ms": 1.571,
+      "p50_ms": 2.4642,
+      "p95_ms": 3.407,
+      "p99_ms": 3.8395
+    },
+    "restart_open": {
+      "count": 4,
+      "max_ms": 29.3947,
+      "mean_ms": 21.3201,
+      "min_ms": 11.7813,
+      "p50_ms": 23.761,
+      "p95_ms": 29.3947,
+      "p99_ms": 29.3947
+    },
+    "sizes_after_append": {
+      "db_bytes": 6709248,
+      "shm_bytes": 0,
+      "wal_bytes": 0
+    },
+    "sizes_end": {
+      "db_bytes": 6709248,
+      "shm_bytes": 0,
+      "wal_bytes": 0
+    },
+    "wal_peak_bytes_sampled": 0
+  },
+  "scale": "moderate",
+  "schema": "peerhub.m1.soak.evidence/1",
+  "seed": 20261004,
+  "test_id": "SOAK-001"
+}

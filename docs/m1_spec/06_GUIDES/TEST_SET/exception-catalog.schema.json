@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://peerhub.example/schemas/exception-catalog.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_on",
+    "allowed_status",
+    "exceptions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "generated_on": {
+      "type": "string",
+      "format": "date"
+    },
+    "allowed_status": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "exceptions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "category",
+          "case",
+          "status",
+          "tests",
+          "rationale",
+          "trigger"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1
+          },
+          "case": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tests": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "rationale": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

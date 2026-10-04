@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "observation_id": "obs-1",
+  "subject_ref": "peer:cx-01",
+  "resource_pool_ref": "pool:provider-account",
+  "kind": "quota",
+  "source": "runtime-adapter",
+  "observed_at": "2026-10-01T00:00:00Z",
+  "captured_at": "2026-10-01T00:00:01Z",
+  "state": "MEASURED",
+  "payload": {
+    "remaining_fraction": 0.5
+  }
+}

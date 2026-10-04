@@ -1,0 +1,261 @@
+{
+  "schema_version": "1.0",
+  "reviewed_on": "2026-10-01",
+  "standards": [
+    {
+      "id": "json-schema",
+      "name": "JSON Schema",
+      "version": "Draft 2020-12",
+      "category": "structured-contract",
+      "status": "published/current",
+      "official_urls": [
+        "https://json-schema.org/specification",
+        "https://json-schema.org/draft/2020-12/"
+      ],
+      "fact": "The official specification page identifies Draft 2020-12 as the current published JSON Schema version.",
+      "general_decision": "ADOPT",
+      "peerhub_decision": "ADOPT",
+      "use": "Machine-readable schemas for catalogs, manifests, records at external/data boundaries.",
+      "prune": "Do not turn every internal Python object into JSON Schema; use it where machine-readable contracts add value.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "agent-skills",
+      "name": "Agent Skills",
+      "version": "Open Agent Skills specification (reviewed 2026-10-01)",
+      "category": "procedural-knowledge",
+      "status": "open-standard",
+      "official_urls": [
+        "https://agentskills.io/specification",
+        "https://developers.openai.com/api/docs/guides/tools-skills"
+      ],
+      "fact": "A Skill is a directory centered on SKILL.md with progressive disclosure; OpenAI documents compatibility with the open Agent Skills standard.",
+      "general_decision": "ADOPT",
+      "peerhub_decision": "ADOPT",
+      "use": "Reusable on-demand procedures, not mutable factual catalogs or global instructions.",
+      "prune": "Avoid giant always-on AGENTS.md/CLAUDE.md instruction databases.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "mcp",
+      "name": "Model Context Protocol",
+      "version": "2026-07-28",
+      "category": "tool-data-context-boundary",
+      "status": "published",
+      "official_urls": [
+        "https://modelcontextprotocol.io/specification/2026-07-28",
+        "https://blog.modelcontextprotocol.io/posts/2026-07-28/",
+        "https://tasks.extensions.modelcontextprotocol.io/specification/draft/tasks",
+        "https://skills.extensions.modelcontextprotocol.io/specification/stable/skills"
+      ],
+      "fact": "The 2026-07-28 MCP core is stateless, uses JSON-RPC 2.0, and defines tools/resources/prompts plus opt-in extensions such as Tasks and Skills.",
+      "general_decision": "BOUNDARY_ONLY",
+      "peerhub_decision": "BOUNDARY_ONLY",
+      "use": "Agent-to-tool/data/context integration when a real MCP boundary exists.",
+      "prune": "Do not model the application's internal architecture as MCP.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "a2a",
+      "name": "Agent2Agent (A2A) Protocol",
+      "version": "1.0.0",
+      "category": "remote-agent-boundary",
+      "status": "latest-released",
+      "official_urls": [
+        "https://a2a-protocol.org/v1.0.0/",
+        "https://a2a-protocol.org/dev/specification/"
+      ],
+      "fact": "Official A2A documentation identifies 1.0.0 as the latest released version and positions A2A as an interoperability protocol for independent agents.",
+      "general_decision": "CONDITIONAL",
+      "peerhub_decision": "BOUNDARY_ONLY",
+      "use": "Remote independent agent interoperability.",
+      "prune": "Do not use A2A for local in-process or CLI-internal boundaries.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "openapi",
+      "name": "OpenAPI Specification",
+      "version": "3.2.1",
+      "category": "http-api-boundary",
+      "status": "published 2026-09-10",
+      "official_urls": [
+        "https://spec.openapis.org/oas/latest.html",
+        "https://spec.openapis.org/oas/v3.2.1.html"
+      ],
+      "fact": "OpenAPI 3.2.1 is the latest published OpenAPI specification as reviewed on 2026-10-01.",
+      "general_decision": "CONDITIONAL",
+      "peerhub_decision": "DEFER",
+      "use": "Machine-readable HTTP API contract only when a public HTTP API exists.",
+      "prune": "Do not add an HTTP service merely to justify OpenAPI.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "asyncapi",
+      "name": "AsyncAPI Specification",
+      "version": "3.1.0",
+      "category": "event-api-boundary",
+      "status": "published",
+      "official_urls": [
+        "https://www.asyncapi.com/docs/reference/specification/v3.1.0",
+        "https://www.asyncapi.com/blog/release-notes-3.1.0"
+      ],
+      "fact": "AsyncAPI 3.1.0 describes message-driven APIs in a protocol-agnostic machine-readable form.",
+      "general_decision": "CONDITIONAL",
+      "peerhub_decision": "DEFER",
+      "use": "External event-driven API contracts.",
+      "prune": "Do not add AsyncAPI for an internal SQLite append log.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "cloudevents",
+      "name": "CloudEvents",
+      "version": "1.0.2 stable",
+      "category": "event-envelope",
+      "status": "stable-release",
+      "official_urls": [
+        "https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md",
+        "https://github.com/cloudevents/spec/blob/main/README.md"
+      ],
+      "fact": "The CloudEvents repository identifies v1.0.2 as the stable released core specification while main contains work in progress.",
+      "general_decision": "CONDITIONAL",
+      "peerhub_decision": "DEFER",
+      "use": "Cross-system event envelope when interoperability is actually required.",
+      "prune": "Do not wrap every internal domain record in CloudEvents.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "otel",
+      "name": "OpenTelemetry Semantic Conventions",
+      "version": "current docs; overall status Development",
+      "category": "observability",
+      "status": "development",
+      "official_urls": [
+        "https://opentelemetry.io/docs/specs/otel/semantic-conventions/",
+        "https://opentelemetry.io/docs/concepts/semantic-conventions/"
+      ],
+      "fact": "OpenTelemetry semantic conventions provide common trace/metric/log/resource names and the current specification page is marked Development.",
+      "general_decision": "CONDITIONAL",
+      "peerhub_decision": "EXPORT_ONLY",
+      "use": "Exporter/bridge for observability, never the application's authoritative schema.",
+      "prune": "Keep internal observation contracts stable and map to OTel at the edge.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "cyclonedx",
+      "name": "CycloneDX",
+      "version": "1.7",
+      "category": "supply-chain-sbom",
+      "status": "published",
+      "official_urls": [
+        "https://cyclonedx.org/specification/overview/"
+      ],
+      "fact": "CycloneDX 1.7 is the current published CycloneDX specification in the reviewed official documentation.",
+      "general_decision": "CONDITIONAL",
+      "peerhub_decision": "CONDITIONAL",
+      "use": "SBOM generation when the build/release platform does not already provide an equivalent artifact.",
+      "prune": "Prefer CI/package-manager generated SBOMs over hand-maintained BOM files.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "sigstore",
+      "name": "Sigstore Cosign",
+      "version": "current official tooling",
+      "category": "artifact-signing",
+      "status": "maintained",
+      "official_urls": [
+        "https://docs.sigstore.dev/quickstart/quickstart-cosign/",
+        "https://docs.sigstore.dev/cosign/"
+      ],
+      "fact": "Cosign is Sigstore's recommended CLI for artifact signing and verification.",
+      "general_decision": "CONDITIONAL",
+      "peerhub_decision": "CONDITIONAL",
+      "use": "Release artifact signing/verification if the distribution channel benefits from it.",
+      "prune": "Prefer platform-native trusted publishing/attestations first; do not add bespoke key infrastructure.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "openai-agents-api",
+      "name": "OpenAI Agents API",
+      "version": "public beta/current 2026",
+      "category": "managed-agent-harness",
+      "status": "current",
+      "official_urls": [
+        "https://developers.openai.com/api/docs/guides/agents-api/overview"
+      ],
+      "fact": "The Agents API models Agent, Environment, Session, and Events/items and supports continuing or steering durable sessions.",
+      "general_decision": "REFERENCE_ONLY",
+      "peerhub_decision": "FUTURE_RUNTIME_ADAPTER",
+      "use": "Managed harness/runtime option.",
+      "prune": "Do not copy its session/task model into PeerHub Core.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "openai-agents-sdk",
+      "name": "OpenAI Agents SDK",
+      "version": "current 2026 docs",
+      "category": "code-agent-harness",
+      "status": "current",
+      "official_urls": [
+        "https://developers.openai.com/api/docs/guides/agents/sdk"
+      ],
+      "fact": "The Agents SDK provides code-first agent runtime patterns with tools and context across steps.",
+      "general_decision": "REFERENCE_ONLY",
+      "peerhub_decision": "FUTURE_RUNTIME_ADAPTER",
+      "use": "Code-owned harness option.",
+      "prune": "Use only when the project needs a code-owned harness; do not add by default.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "claude-managed-agents",
+      "name": "Claude Managed Agents",
+      "version": "managed-agents-2026-04-01 beta",
+      "category": "managed-agent-harness",
+      "status": "beta",
+      "official_urls": [
+        "https://platform.claude.com/docs/en/managed-agents/quickstart",
+        "https://platform.claude.com/docs/en/managed-agents/sessions"
+      ],
+      "fact": "Claude Managed Agents separates Agent, Environment, Session and Events, and Agent definitions can include tools, MCP servers and Skills.",
+      "general_decision": "REFERENCE_ONLY",
+      "peerhub_decision": "FUTURE_RUNTIME_ADAPTER",
+      "use": "Managed Claude runtime option.",
+      "prune": "Keep vendor Agent/system-prompt configuration outside PeerHub Core.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "microsoft-agent-framework",
+      "name": "Microsoft Agent Framework / Harness Agent",
+      "version": "current 2026 docs",
+      "category": "agent-harness",
+      "status": "current",
+      "official_urls": [
+        "https://learn.microsoft.com/en-us/agent-framework/overview/",
+        "https://learn.microsoft.com/en-us/agent-framework/concepts/harness"
+      ],
+      "fact": "Agent Framework distinguishes Agents, Harness Agents, Workflows and Integrations; Harness adds long-task scaffolding such as context compaction, memory, file access and observability.",
+      "general_decision": "REFERENCE_ONLY",
+      "peerhub_decision": "FUTURE_RUNTIME_ADAPTER",
+      "use": "Reference/option for long-running harness capabilities.",
+      "prune": "Do not recreate every harness capability inside PeerHub.",
+      "reviewed_on": "2026-10-01"
+    },
+    {
+      "id": "google-adk-agents-cli",
+      "name": "Google ADK / agents-cli",
+      "version": "current 2026 docs",
+      "category": "agent-framework-eval",
+      "status": "current",
+      "official_urls": [
+        "https://google.github.io/agents-cli/",
+        "https://google.github.io/agents-cli/reference/skills/",
+        "https://google.github.io/adk-docs/"
+      ],
+      "fact": "Google's agent tooling supports Skills and a broader build/evaluate/deploy/observe workflow around agent projects.",
+      "general_decision": "REFERENCE_ONLY",
+      "peerhub_decision": "REFERENCE_ONLY",
+      "use": "Reference for agent development, eval, deployment and Skill workflows.",
+      "prune": "Do not depend on ADK unless it becomes a real runtime target.",
+      "reviewed_on": "2026-10-01"
+    }
+  ]
+}

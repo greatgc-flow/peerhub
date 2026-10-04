@@ -12,6 +12,7 @@ import os
 import secrets
 import sqlite3
 
+from peerhub.application.admission_reason import describe_admission_denial
 from peerhub.adapters.prompt_transport import (
     remove_staged_prompt,
     stage_prompt,
@@ -626,7 +627,9 @@ def execute_direct_ask(
         )
 
         if not admission_result.dispatch_admission:
-            raise RuntimeError("request was not admitted")
+            raise RuntimeError(
+                f"request was not admitted: {describe_admission_denial(admission_result)}"
+            )
             
         admitted_request = admission_result.dispatch_admission[0]
         command_id = admitted_request.command_id

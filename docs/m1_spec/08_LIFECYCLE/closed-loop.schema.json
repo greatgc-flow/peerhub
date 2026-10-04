@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PeerHub closed-loop lifecycle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "entry_stage",
+    "stages",
+    "invariants",
+    "closure_requirements",
+    "terminal_dispositions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "entry_stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stages": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "purpose",
+          "outputs",
+          "next",
+          "failure_routes"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outputs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "next": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "failure_routes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "invariants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "statement",
+          "on_breach",
+          "requirements"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "on_breach": {
+            "enum": [
+              "HOLD_OR_ROLLBACK",
+              "INCIDENT"
+            ]
+          },
+          "requirements": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "pattern": "^REQ-[A-Z0-9-]+$"
+            }
+          }
+        }
+      }
+    },
+    "closure_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "terminal_dispositions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "FIXED",
+          "ROLLED_BACK",
+          "MITIGATED",
+          "ACCEPTED_RISK",
+          "DEFERRED_WITH_TRIGGER",
+          "INVALID_OR_NOT_REPRODUCED",
+          "DUPLICATE_LINKED",
+          "NO_CHANGE_REQUIRED"
+        ]
+      }
+    }
+  }
+}

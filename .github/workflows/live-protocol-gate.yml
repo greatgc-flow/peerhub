@@ -12,6 +12,7 @@ on:
       - "tests/integration/adapters/**"
       - "tests/integration/telemetry/test_real_quota_polling.py"
       - "tests/e2e/**"
+      - "tests/m1/live/**"
       - ".github/workflows/live-protocol-gate.yml"
 
 permissions:
@@ -47,6 +48,10 @@ jobs:
           Get-Command agy.exe -ErrorAction Stop
           Get-Command claude.cmd -ErrorAction Stop
           Get-Command codex.cmd -ErrorAction Stop
+      - name: Run M1 live canaries (opt-in PEERHUB_M1_LIVE=1, marker live)
+        env:
+          PEERHUB_M1_LIVE: "1"
+        run: python -u -m pytest -q -m live tests/m1/live
       - name: Run real adapter and quota probes
         run: python -u -m pytest -q -m slow
       - name: Run genuine dispatch scenarios

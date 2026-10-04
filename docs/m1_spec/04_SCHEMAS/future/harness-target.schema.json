@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://peerhub.example/schemas/future/harness-target.schema.json",
+  "title": "HarnessTarget",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "runtime_id",
+    "runtime_kind",
+    "capabilities"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "runtime_id": {
+      "type": "string"
+    },
+    "runtime_kind": {
+      "enum": [
+        "LOCAL_CLI",
+        "OPENAI_AGENTS_API",
+        "OPENAI_AGENTS_SDK",
+        "CLAUDE_MANAGED",
+        "MS_AGENT_FRAMEWORK",
+        "GOOGLE_ADK",
+        "A2A",
+        "CUSTOM"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "CREATE_SESSION",
+          "RESUME_SESSION",
+          "INTERRUPT",
+          "STEER",
+          "STREAM_EVENTS",
+          "QUERY_USAGE",
+          "ARTIFACTS"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "metadata": {
+      "type": "object"
+    }
+  }
+}

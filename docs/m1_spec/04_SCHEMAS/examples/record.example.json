@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0",
+  "record_id": "rec-1",
+  "stream_id": "peerhub-m1",
+  "position": 1,
+  "author_peer_id": "human:owner",
+  "kind": "message",
+  "body": "Review M1 Core.",
+  "targets": [
+    "cx-01"
+  ],
+  "reply_to": null,
+  "refs": [],
+  "metadata": {},
+  "idempotency_key": "example-1",
+  "payload_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "created_at": "2026-10-01T00:00:00Z",
+  "appended_at": "2026-10-01T00:00:00Z"
+}

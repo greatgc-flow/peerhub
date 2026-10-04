@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "signals": [
+    {
+      "id": "SIG-001",
+      "class": "runtime defect/regression",
+      "first_route": "INCIDENT",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-002",
+      "class": "provider/model/CLI drift",
+      "first_route": "CATALOG_REFRESH",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-003",
+      "class": "migration/storage anomaly",
+      "first_route": "INCIDENT",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-004",
+      "class": "performance/capacity degradation",
+      "first_route": "PERFORMANCE_TRIAGE",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-005",
+      "class": "security/integrity anomaly",
+      "first_route": "SECURITY_TRIAGE",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-006",
+      "class": "usability/operational friction",
+      "first_route": "FEEDBACK_TRIAGE",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-007",
+      "class": "diagnostic/observation gap",
+      "first_route": "PROBLEM",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-008",
+      "class": "documentation/process drift",
+      "first_route": "DOC_PROCESS_TRIAGE",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-009",
+      "class": "upstream standard change",
+      "first_route": "DOC_PROCESS_TRIAGE",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    },
+    {
+      "id": "SIG-010",
+      "class": "feature request",
+      "first_route": "EXTENSION_REVIEW",
+      "requires_evidence": true,
+      "possible_outcomes": [
+        "FIXED",
+        "ROLLED_BACK",
+        "MITIGATED",
+        "ACCEPTED_RISK",
+        "DEFERRED_WITH_TRIGGER",
+        "INVALID_OR_NOT_REPRODUCED",
+        "DUPLICATE_LINKED",
+        "NO_CHANGE_REQUIRED"
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "id": "INCIDENT",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/INCIDENT_PROBLEM_CHANGE.md",
+      "runbook": "08_LIFECYCLE/RUNBOOKS/INCIDENT_RUNBOOK.md"
+    },
+    {
+      "id": "CATALOG_REFRESH",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/FEEDBACK_TRIAGE_AND_LEARNING.md",
+      "runbook": "08_LIFECYCLE/RUNBOOKS/PROVIDER_MODEL_DRIFT_RUNBOOK.md"
+    },
+    {
+      "id": "PERFORMANCE_TRIAGE",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/OPERATIONS_OBSERVABILITY_SLO.md",
+      "runbook": null
+    },
+    {
+      "id": "SECURITY_TRIAGE",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/EVIDENCE_RETENTION_AND_AUDIT.md",
+      "runbook": "08_LIFECYCLE/RUNBOOKS/INCIDENT_RUNBOOK.md"
+    },
+    {
+      "id": "FEEDBACK_TRIAGE",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/FEEDBACK_TRIAGE_AND_LEARNING.md",
+      "runbook": null
+    },
+    {
+      "id": "PROBLEM",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/INCIDENT_PROBLEM_CHANGE.md",
+      "runbook": null
+    },
+    {
+      "id": "DOC_PROCESS_TRIAGE",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/FEEDBACK_TRIAGE_AND_LEARNING.md",
+      "runbook": null
+    },
+    {
+      "id": "EXTENSION_REVIEW",
+      "lifecycle_stage": "L8",
+      "guide": "08_LIFECYCLE/DEPRECATION_EXTENSION_LIFECYCLE.md",
+      "runbook": null
+    }
+  ]
+}

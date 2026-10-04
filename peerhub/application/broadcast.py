@@ -6,6 +6,7 @@ import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 
+from peerhub.application.admission_reason import describe_admission_denial
 from peerhub.adapters.contract import AdapterRequest, SessionAction
 from peerhub.adapters.registry import ResolvedPeerTarget, resolve_peer_target
 from peerhub.application.direct_ask import _DirectAskRouteRequestFactory  # pyright: ignore[reportPrivateUsage]
@@ -286,7 +287,10 @@ class BroadcastCoordinator:
             heartbeat_timeout_ms=30000,
         )
         if admission_result.dispatch_admission is None:
-            raise RuntimeError(f"broadcast leg {leg_target} was not admitted")
+            raise RuntimeError(
+                f"broadcast leg {leg_target} was not admitted: "
+                f"{describe_admission_denial(admission_result)}"
+            )
         if admission_result.route is None:
             raise RuntimeError(f"broadcast leg {leg_target} has no route plan")
 
