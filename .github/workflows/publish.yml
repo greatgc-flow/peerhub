@@ -95,10 +95,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.release.tag_name || github.ref }}
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
-        with:
-          python-version: "3.11"
-          cache: "pip"
+      - name: Use an isolated venv from the runner's own Python
+        # actions/setup-python cannot install into a self-hosted toolcache without admin rights (it hung on this runner), and
+        # `pip install -e .[dev]` into the runner's own environment would replace its peerhub install: build a throwaway venv.
+        shell: pwsh
+        run: |
+          python -c "import sys; assert sys.version_info >= (3, 11), sys.version"
+          python -m virtualenv "$env:RUNNER_TEMP\peerhub-live-venv"
+          "$env:RUNNER_TEMP\peerhub-live-venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Install test dependencies
         run: python -m pip install -e ".[dev]"
       - name: Verify authenticated provider CLIs
