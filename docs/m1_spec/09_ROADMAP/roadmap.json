@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "roadmap_policy": "M1-M3 are the required baseline roadmap. After M3, all work is opt-in evidence-triggered capability tracks, not mandatory sequential milestones.",
+  "core_contract": {
+    "concepts": [
+      "Peer",
+      "Stream",
+      "Record",
+      "Offset"
+    ],
+    "frozen_through": "ALL_REQUIRED_AND_OPTIONAL_TRACKS",
+    "extension_imports_into_core": false,
+    "rule": "The four-concept Core remains frozen through M1-M3 and every optional M4 track; new capabilities are Extensions/Adapters unless a demonstrated communication invariant cannot be expressed through Peer/Stream/Record/Offset."
+  },
+  "milestones": [
+    {
+      "id": "M1",
+      "name": "Durable Communication",
+      "required": true,
+      "status": "DESIGN_FROZEN",
+      "core_delta": false,
+      "goal": "Preserve and deliver collaboration truth across AI CLI process/session/context/model/quota changes.",
+      "entry_gate": "Architecture/contract RED may start from the frozen R3 M1 package.",
+      "exit_gate": "Core + Session Bridge + Observation + Readonly Diag pass deterministic, crash/concurrency, fake-runtime, real-provider, package and release gates.",
+      "capabilities": [
+        "Peer",
+        "Stream",
+        "Record",
+        "Offset",
+        "Session Bridge",
+        "Observation",
+        "Runtime Target Catalog (minimal facts)",
+        "Readonly Diag"
+      ],
+      "submilestones": [
+        "M1.0 contracts/schema",
+        "M1.1 Core persistence",
+        "M1.2 concurrency/crash",
+        "M1.3 Session Bridge",
+        "M1.4 Observation/Diag",
+        "M1.5 fake E2E",
+        "M1.6 real-provider/package/release"
+      ],
+      "non_goals": [
+        "Task engine",
+        "Memory/RAG",
+        "Routing",
+        "Orchestration",
+        "Consensus/Governance",
+        "Role/Leadership",
+        "MCP/A2A internal architecture"
+      ],
+      "design_depth": "TDD_READY"
+    },
+    {
+      "id": "M2",
+      "name": "Durable Work Continuity",
+      "required": true,
+      "status": "PLANNED",
+      "core_delta": false,
+      "goal": "Continue long-running work, artifacts, procedures and evidence without expanding the communication Core.",
+      "entry_gate": "M1 exit gate PASS. M2 design may proceed earlier, but M2 production merge/promotion waits for M1.",
+      "exit_gate": "Artifact provenance, Work projection rebuild, Skill/Catalog SSOT, MCP boundary, backup/restore/rebuild and Eval feedback all pass deterministic plus clean-runtime gates.",
+      "capabilities": [
+        "Generic Extension Host",
+        "Artifact",
+        "Work/Task Projection",
+        "General Skill/Capability Catalog",
+        "MCP Surface",
+        "Backup/Recovery",
+        "Eval/Telemetry"
+      ],
+      "submilestones": [
+        "M2.0 Generic Extension Host",
+        "M2.1 Artifact",
+        "M2.2 Work/Task Projection",
+        "M2.3 Skill + General Capability Catalog",
+        "M2.4 MCP Surface",
+        "M2.5 Backup/Recovery",
+        "M2.6 Eval/Telemetry"
+      ],
+      "non_goals": [
+        "Automatic intelligent routing",
+        "Planner/fan-out orchestration",
+        "Long-term semantic memory",
+        "Remote-agent federation",
+        "Advanced governance"
+      ],
+      "design_depth": "ROADMAP_FROZEN_PRE_TDD_REQUIRED"
+    },
+    {
+      "id": "M3",
+      "name": "Federated Intelligent Collaboration",
+      "required": true,
+      "status": "PLANNED",
+      "core_delta": false,
+      "goal": "Enable retrieval, memory, remote peers and policy-driven intelligent collaboration as replaceable Extensions.",
+      "entry_gate": "M2 exit gate PASS. M3 design/contracts may freeze earlier, but runtime activation waits for M2 foundations.",
+      "exit_gate": "Search provenance, Memory supersession, A2A mapping, quota-aware Routing, bounded Orchestration, basic approval and the Remote Runtime port/adapter contract pass deterministic/fake-loopback failure-isolation tests plus release gates. A real cross-machine runtime is not required unless activated by evidence.",
+      "capabilities": [
+        "Search/Retrieval",
+        "Memory/Second Brain",
+        "A2A Adapter",
+        "Routing",
+        "Orchestration",
+        "Basic Approval/Governance",
+        "Remote Runtime Port/Adapter Contract"
+      ],
+      "submilestones": [
+        "M3.0 Search/Retrieval",
+        "M3.1 Memory/Second Brain",
+        "M3.2 A2A Adapter",
+        "M3.3 Routing",
+        "M3.4 Orchestration",
+        "M3.5 Basic Approval/Governance",
+        "M3.6 Remote Runtime Port/Adapter Contract"
+      ],
+      "non_goals": [
+        "Mandatory HA cluster",
+        "Enterprise SSO/RBAC",
+        "Role/Leadership engine",
+        "All-provider auto-recovery",
+        "Mandatory UI"
+      ],
+      "design_depth": "ROADMAP_FROZEN_PRE_TDD_REQUIRED"
+    }
+  ],
+  "optional_tracks": [
+    {
+      "id": "M4-A",
+      "name": "Advanced Health & Recovery",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "stuck/dead runtime detection",
+        "safe restart/rebind",
+        "degraded mode",
+        "recovery evidence"
+      ],
+      "depends_on_capabilities": [
+        "M1 Observation/Diag",
+        "M3 Routing only if automated reroute is enabled"
+      ]
+    },
+    {
+      "id": "M4-B",
+      "name": "Resource Coordination",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "quota pool allocation",
+        "concurrency budget",
+        "backpressure",
+        "admission control"
+      ],
+      "depends_on_capabilities": [
+        "M1 Observation",
+        "M2 Work",
+        "M3 Routing"
+      ]
+    },
+    {
+      "id": "M4-C",
+      "name": "Advanced Governance",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "RBAC-like policy",
+        "authority delegation",
+        "separation of duty",
+        "advanced approval/consensus"
+      ],
+      "depends_on_capabilities": [
+        "M3 Basic Approval/Governance"
+      ]
+    },
+    {
+      "id": "M4-D",
+      "name": "Role / Duty / Leadership",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "optional role assignment",
+        "duty lifecycle",
+        "leadership policy"
+      ],
+      "depends_on_capabilities": [
+        "M2 Work",
+        "M3 Orchestration"
+      ]
+    },
+    {
+      "id": "M4-E",
+      "name": "Notification",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "Slack/Teams/Mail/Webhook/Desktop notifications"
+      ],
+      "depends_on_capabilities": [
+        "M1 Record/Observation"
+      ]
+    },
+    {
+      "id": "M4-F",
+      "name": "UI / TUI / Web",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "TUI",
+        "Web UI",
+        "Desktop projection"
+      ],
+      "depends_on_capabilities": [
+        "M1-M3 public read ports"
+      ]
+    },
+    {
+      "id": "M4-G",
+      "name": "Enterprise / Multi-user",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "SSO/OIDC",
+        "tenant isolation",
+        "secrets policy",
+        "audit export"
+      ],
+      "depends_on_capabilities": [
+        "M2 Extension Host",
+        "M3 Approval/Governance"
+      ]
+    },
+    {
+      "id": "M4-H",
+      "name": "Advanced Eval / Optimization",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "quality/latency/cost comparison",
+        "routing-policy optimization",
+        "continuous regression eval"
+      ],
+      "depends_on_capabilities": [
+        "M2 Eval/Telemetry",
+        "M3 Routing"
+      ]
+    },
+    {
+      "id": "M4-I",
+      "name": "HA / Federation",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "replication",
+        "failover",
+        "split-brain protection",
+        "cross-site DR"
+      ],
+      "depends_on_capabilities": [
+        "M3 Remote Runtime port/adapter contract"
+      ]
+    },
+    {
+      "id": "M4-J",
+      "name": "Extension Ecosystem",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "SDK",
+        "registry",
+        "signing",
+        "compatibility certification"
+      ],
+      "depends_on_capabilities": [
+        "M2 Generic Extension Host"
+      ]
+    },
+    {
+      "id": "M4-K",
+      "name": "Advanced Second Brain",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "entity/fact graph",
+        "temporal reconciliation",
+        "decision lineage",
+        "confidence/provenance"
+      ],
+      "depends_on_capabilities": [
+        "M3 Memory/Second Brain"
+      ]
+    },
+    {
+      "id": "M4-L",
+      "name": "Connectors / Business Apps",
+      "required": false,
+      "activation": "EVIDENCE_TRIGGERED",
+      "capabilities": [
+        "GitHub",
+        "Drive/OneDrive",
+        "Mail/Calendar",
+        "Slack/Teams",
+        "Jira/Confluence/Notion/Obsidian"
+      ],
+      "depends_on_capabilities": [
+        "M2 Generic Extension Host",
+        "M3 Search/Retrieval as applicable"
+      ]
+    }
+  ],
+  "capability_anchors": [
+    {
+      "capability": "quota observation/display",
+      "milestone": "M1",
+      "owner": "Observation + Readonly Diag",
+      "rule": "Diag reads evidence; it does not refresh, route or mutate."
+    },
+    {
+      "capability": "quota-aware peer/runtime selection",
+      "milestone": "M3",
+      "owner": "Routing",
+      "rule": "UNKNOWN quota is never treated as unlimited."
+    },
+    {
+      "capability": "quota/resource allocation across work",
+      "milestone": "M4-B",
+      "owner": "Resource Coordination",
+      "rule": "Optional; activated only by measured contention."
+    },
+    {
+      "capability": "artifact durability/provenance",
+      "milestone": "M2",
+      "owner": "Artifact",
+      "rule": "Core stores opaque refs; artifact content is immutable/digest-addressed."
+    },
+    {
+      "capability": "task/work lifecycle",
+      "milestone": "M2",
+      "owner": "Work/Task Projection",
+      "rule": "Record remains authoritative; projection is rebuildable."
+    },
+    {
+      "capability": "second brain baseline",
+      "milestone": "M3",
+      "owner": "Memory/Second Brain",
+      "rule": "Memory never rewrites source Record/Artifact."
+    },
+    {
+      "capability": "advanced second brain",
+      "milestone": "M4-K",
+      "owner": "Advanced Second Brain",
+      "rule": "Optional semantic/temporal/entity layer over provenance-preserving sources."
+    },
+    {
+      "capability": "runtime target catalog",
+      "milestone": "M1",
+      "owner": "Session Bridge/Observation",
+      "rule": "Minimal runtime/model/profile facts required to address RuntimeTarget; not the generalized M2 skill/capability catalog."
+    },
+    {
+      "capability": "general skill/capability catalog",
+      "milestone": "M2",
+      "owner": "Skill/Catalog Extension",
+      "rule": "General HOW/WHAT catalog and generated vendor projections; does not own runtime operational truth."
+    },
+    {
+      "capability": "remote runtime port/adapter contract",
+      "milestone": "M3",
+      "owner": "Remote Runtime Adapter",
+      "rule": "Required M3 scope is public port/adapter contract plus deterministic fake/loopback failure isolation; real cross-machine activation is evidence-triggered and HA stays M4-I."
+    }
+  ],
+  "cross_milestone_rules": [
+    "Core remains Peer/Stream/Record/Offset through M3 and optional tracks.",
+    "Core never imports an Extension.",
+    "Extension operational stores are rebuildable projections where practical; collaboration truth remains Record/Artifact provenance.",
+    "M2/M3 may be designed in parallel, but production promotion follows M1 -> M2 -> M3 exit gates.",
+    "After M3 the required roadmap ends; optional tracks require observed evidence, a 5-Whys rationale, explicit RED tests and an opt-in activation decision.",
+    "Unknown/stale/unavailable observations are never coerced into healthy, zero or unlimited.",
+    "Gate validity requires exact candidate identity plus fresh PASS evidence; queued/running/cancelled/stale/unavailable cannot satisfy blocking gates.",
+    "M1 first-party modules are statically assembled boundaries; M2.0 is the first generic manifest/version/enable-disable/migration/failure-isolation Extension Host.",
+    "M3.6 is a Remote Runtime Port/Adapter Contract with deterministic fake/loopback proof, not mandatory real cross-machine runtime or cluster/HA. HA/Federation remains M4-I.",
+    "Historical lesson/directive/task/leadership command names are disposition evidence, not requirements to recreate historical domains.",
+    "Conformance/design-depth and implementation maturity are separate: M1 design_depth is TDD_READY and current implementation maturity is tracked independently; M2/M3 are ROADMAP_FROZEN_PRE_TDD_REQUIRED and require per-slice pre-TDD contracts before implementation.",
+    "M3.6 mandatory scope is the Remote Runtime public port/adapter contract plus deterministic/fake-loopback failure isolation; real cross-machine activation is optional/evidence-triggered.",
+    "M1 implementation completion and default public CLI cutover are separate maturity/gates.",
+    "Before M1 public CLI cutover, quota/rate-limit Observation display must remain available through readonly Diag; existing legacy quota telemetry may not disappear during cutover."
+  ]
+}

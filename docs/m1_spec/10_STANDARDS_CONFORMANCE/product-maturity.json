@@ -1,0 +1,75 @@
+{
+  "schema_version": 2,
+  "product": "PeerHub",
+  "as_of": "2026-10-05",
+  "items": [
+    {
+      "id": "UNIFIED-MAP",
+      "name": "Unified package standard mapping",
+      "scope": "target architecture documentation",
+      "status": "DESIGN_FROZEN",
+      "evidence": [
+        "10_STANDARDS_CONFORMANCE/product-conformance.json"
+      ],
+      "notes": "Standard 1.2 mapping; not implementation claim."
+    },
+    {
+      "id": "M1-IMPLEMENTATION",
+      "name": "M1 Durable Communication implementation",
+      "scope": "Peer/Stream/Record/Offset + Session Bridge/Observation/Readonly Diag",
+      "status": "VERIFIED",
+      "candidate_identity": {
+        "type": "git_sha",
+        "value": "4a6994e7f73933a30c5d4e8ee538cd7d736f06ce"
+      },
+      "evidence": [
+        "07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json",
+        "01_M1/ACCEPTANCE_DOD.md",
+        "06_GUIDES/TEST_SET/test-catalog.json"
+      ],
+      "notes": "Exact current main: CI 37210765163 and release-gate workflow 37210767689 are SUCCESS, including live validation and evidence bundle."
+    },
+    {
+      "id": "M1-PUBLIC-CLI-CUTOVER",
+      "name": "M1 default public CLI cutover",
+      "scope": "make M1 surface canonical peerhub UX without quota/diag regression",
+      "status": "IMPLEMENTING",
+      "evidence": [
+        "09_ROADMAP/M1_PUBLIC_CLI_CUTOVER_GATE.md"
+      ],
+      "notes": "peerhub-m1 remains side-by-side; legacy peerhub is still default."
+    },
+    {
+      "id": "M2",
+      "name": "Durable Work Continuity",
+      "scope": "required roadmap",
+      "status": "PLANNED",
+      "evidence": [
+        "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+        "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md"
+      ],
+      "notes": "Roadmap frozen; slice contracts required before implementation."
+    },
+    {
+      "id": "M3",
+      "name": "Federated Intelligent Collaboration",
+      "scope": "required roadmap",
+      "status": "PLANNED",
+      "evidence": [
+        "09_ROADMAP/M3_FEDERATED_INTELLIGENT_COLLABORATION.md",
+        "09_ROADMAP/M3_DETAILED_PRE_TDD_REVIEW.md"
+      ],
+      "notes": "Roadmap frozen; not implementation-ready until slice contracts close."
+    },
+    {
+      "id": "M4",
+      "name": "Optional Capability Tracks",
+      "scope": "evidence-triggered roadmap",
+      "status": "PLANNED",
+      "evidence": [
+        "09_ROADMAP/OPTIONAL_CAPABILITY_TRACKS.md"
+      ],
+      "notes": "Not mandatory backlog."
+    }
+  ]
+}

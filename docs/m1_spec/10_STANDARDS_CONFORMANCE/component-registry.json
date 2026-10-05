@@ -1,0 +1,343 @@
+{
+  "schema_version": 1,
+  "product": "PeerHub",
+  "as_of": "2026-10-05",
+  "components": [
+    {
+      "id": "m1-core",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "CORE",
+      "product_subtype": "M1_CORE",
+      "required_for": [
+        "M1",
+        "M2",
+        "M3"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "VERIFIED",
+      "state_ownership": [
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "AUTHORITATIVE"
+        }
+      ],
+      "notes": "Peer/Stream/Record/Offset + public ports/persistence authority."
+    },
+    {
+      "id": "session-bridge",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "MODULE",
+      "product_subtype": "STATIC_M1_MODULE",
+      "required_for": [
+        "M1"
+      ],
+      "boundary_roles": [
+        "ADAPTER"
+      ],
+      "maturity": "VERIFIED",
+      "state_ownership": [
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "AUTHORITATIVE"
+        },
+        {
+          "kind": "EVIDENCE",
+          "recovery_class": "AUTHORITATIVE"
+        }
+      ],
+      "notes": "Static first-party M1 module; not retrofitted into the M2 Generic Extension Host."
+    },
+    {
+      "id": "observation",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "MODULE",
+      "product_subtype": "STATIC_M1_MODULE",
+      "required_for": [
+        "M1"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "VERIFIED",
+      "state_ownership": [
+        {
+          "kind": "EVIDENCE",
+          "recovery_class": "AUTHORITATIVE"
+        }
+      ],
+      "notes": "Quota/rate/runtime facts with freshness/UNKNOWN semantics."
+    },
+    {
+      "id": "diag",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "MODULE",
+      "product_subtype": "STATIC_M1_MODULE",
+      "required_for": [
+        "M1"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "VERIFIED",
+      "state_ownership": [],
+      "notes": "Readonly projection/module; owns no authoritative state. Public M1 CLI quota parity remains a cutover gate."
+    },
+    {
+      "id": "artifact",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M2"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "AUTHORITATIVE"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "work",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M2"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "REBUILDABLE"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "skill-catalog",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M2"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "AUTHORITATIVE"
+        },
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "REBUILDABLE"
+        }
+      ],
+      "notes": "Canonical Skill/Capability source is durable; generated indexes/views are rebuildable. Policy remains separate."
+    },
+    {
+      "id": "mcp",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M2"
+      ],
+      "boundary_roles": [
+        "ADAPTER"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "EXTERNAL_REF",
+          "recovery_class": "EXTERNAL"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "backup-recovery",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M2"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "BACKUP",
+          "recovery_class": "DURABLE_DERIVED"
+        },
+        {
+          "kind": "EVIDENCE",
+          "recovery_class": "DURABLE_DERIVED"
+        }
+      ],
+      "notes": "Backup copies/manifests are durable derived recovery state; original Core/Artifact authority remains authoritative."
+    },
+    {
+      "id": "eval-telemetry",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M2"
+      ],
+      "boundary_roles": [
+        "EXPORTER"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "EVIDENCE",
+          "recovery_class": "DURABLE_DERIVED"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "search",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M3"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "REBUILDABLE"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "memory",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M3"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "DOMAIN_DATA",
+          "recovery_class": "DURABLE_DERIVED"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "a2a",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M3"
+      ],
+      "boundary_roles": [
+        "ADAPTER"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "EXTERNAL_REF",
+          "recovery_class": "EXTERNAL"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "routing",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M3"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "EVIDENCE",
+          "recovery_class": "DURABLE_DERIVED"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "orchestration",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M3"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "EVIDENCE",
+          "recovery_class": "DURABLE_DERIVED"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "approval",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M3"
+      ],
+      "boundary_roles": [
+        "NONE"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "EVIDENCE",
+          "recovery_class": "DURABLE_DERIVED"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    },
+    {
+      "id": "execution-runtime",
+      "plane": "PRODUCT_RUNTIME",
+      "component_class": "EXTENSION",
+      "required_for": [
+        "M3"
+      ],
+      "boundary_roles": [
+        "PROVIDER"
+      ],
+      "maturity": "PLANNED",
+      "state_ownership": [
+        {
+          "kind": "EXTERNAL_REF",
+          "recovery_class": "EXTERNAL"
+        }
+      ],
+      "notes": "Target roadmap component; requires slice Pre-TDD contract."
+    }
+  ]
+}

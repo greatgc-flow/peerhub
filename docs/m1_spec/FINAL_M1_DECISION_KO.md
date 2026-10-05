@@ -65,7 +65,7 @@ Telemetry export -> OTel Adapter
 
 ## 현행 repo delta 확인
 
-2026-10-03 재검증한 main HEAD `57a137cd...`의 109 leaf commands와 model-profile 변경을 전수 분류했으며, **Core 계약 변경은 없습니다.** `workspace reset`/`backup global`은 Backup/Recovery future extension으로 유지합니다.
+2026-10-04 현재 main `4a6994e7...`에는 M1 구현이 병합되었습니다. 과거 109-command 표는 legacy migration/disposition 증적으로 유지하며, 새 `peerhub-m1` side-by-side CLI와 기본 `peerhub` public cutover는 별도 maturity/gate로 관리합니다. **Core 계약은 Peer/Stream/Record/Offset 그대로입니다.** `workspace reset`/`backup global`은 Backup/Recovery future extension으로 유지합니다.
 
 ## TDD-ready test baseline
 
@@ -83,10 +83,22 @@ M1 계약은 `06_GUIDES/TEST_SET/`의 **88 requirements / 210 test cases**로 �
 
 개발/테스트 완료 후에는 `08_LIFECYCLE/`의 **Done → Released → Operated → Closed** 모델을 적용합니다. Correctness invariant 위반은 즉시 release hold/rollback 후보이며, 운영 signal은 evidence→triage→reproduce→requirement/regression→release→recurrence watch로 다시 개발 입력에 귀환합니다. 성능/용량 threshold는 코드나 문서에 고정하지 않고 baseline을 측정한 뒤 환경별 config로 관리합니다.
 
-## 종·횡 최종 교차점검 R2
+## 종·횡 최종 교차점검 R3
 
 - invariant SSOT 8/8 requirement 역추적
 - test→release gate 210/210 machine mapping
 - release gate DAG explicit/fail-closed
 - signal route→lifecycle/runbook resolvability
 - rollback 후 unresolved Problem follow-up closure 규칙
+
+## 전체 Roadmap 귀속 — R4
+
+M1 이후 필수 roadmap은 `M2 Durable Work Continuity -> M3 Federated Intelligent Collaboration`로 확정했습니다.
+M4 이후는 mandatory milestone이 아니라 Optional Capability Track입니다.
+전체 SSOT와 상세 Gate는 `09_ROADMAP/roadmap.json` 및 `09_ROADMAP/PEERHUB_MASTER_ROADMAP_KO.md`를 참조합니다.
+기존 `diag`의 quota 조회는 M1 Observation + Readonly Diag 책임으로 유지됩니다.
+
+
+## 2026-10-04 implementation rebaseline
+
+M1 code is now present upstream. However default `peerhub` is still the legacy CLI and `peerhub-m1 diag health` does not yet expose quota/rate-limit Observation views. M1 public cutover therefore remains separate and MUST preserve quota/rate-limit display parity before promotion.

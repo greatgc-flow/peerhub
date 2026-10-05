@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://peerhub.dev/schema/roadmap-v1.json",
+  "title": "PeerHub Master Roadmap",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "roadmap_policy",
+    "core_contract",
+    "milestones",
+    "optional_tracks",
+    "capability_anchors",
+    "cross_milestone_rules"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "roadmap_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "core_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "concepts",
+        "frozen_through",
+        "extension_imports_into_core",
+        "rule"
+      ],
+      "properties": {
+        "concepts": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "Peer"
+            },
+            {
+              "const": "Stream"
+            },
+            {
+              "const": "Record"
+            },
+            {
+              "const": "Offset"
+            }
+          ],
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "frozen_through": {
+          "const": "ALL_REQUIRED_AND_OPTIONAL_TRACKS"
+        },
+        "extension_imports_into_core": {
+          "const": false
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "milestones": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "required",
+          "status",
+          "core_delta",
+          "goal",
+          "entry_gate",
+          "exit_gate",
+          "capabilities",
+          "submilestones",
+          "non_goals",
+          "design_depth"
+        ],
+        "properties": {
+          "id": {
+            "enum": [
+              "M1",
+              "M2",
+              "M3"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "const": true
+          },
+          "status": {
+            "enum": [
+              "DESIGN_FROZEN",
+              "PLANNED",
+              "IMPLEMENTING",
+              "COMPLETE"
+            ]
+          },
+          "core_delta": {
+            "const": false
+          },
+          "goal": {
+            "type": "string"
+          },
+          "entry_gate": {
+            "type": "string"
+          },
+          "exit_gate": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "submilestones": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "non_goals": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "design_depth": {
+            "enum": [
+              "TDD_READY",
+              "ROADMAP_FROZEN_PRE_TDD_REQUIRED"
+            ]
+          }
+        }
+      }
+    },
+    "optional_tracks": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "required",
+          "activation",
+          "capabilities",
+          "depends_on_capabilities"
+        ],
+        "properties": {
+          "id": {
+            "pattern": "^M4-[A-L]$"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "const": false
+          },
+          "activation": {
+            "const": "EVIDENCE_TRIGGERED"
+          },
+          "capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "depends_on_capabilities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "capability_anchors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "capability",
+          "milestone",
+          "owner",
+          "rule"
+        ],
+        "properties": {
+          "capability": {
+            "type": "string"
+          },
+          "milestone": {
+            "pattern": "^(M[123]|M4-[A-L])$"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "cross_milestone_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

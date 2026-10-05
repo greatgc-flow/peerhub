@@ -1,14 +1,29 @@
-# PeerHub M1 Very Simple Renewal — FINAL
+# PeerHub Very Simple Master Roadmap — FINAL R4
 
-## M1 한 문장
+## 한 문장
 
-> **PeerHub은 Peer를 식별하고 공유 Stream을 통해 Record를 신뢰성 있게 보존·전달하여,
-> AI CLI의 프로세스·세션·컨텍스트·모델·쿼터가 바뀌어도 협업을 이어가게 하는
-> 최소 durable communication layer다.**
+> **PeerHub는 Peer/Stream/Record/Offset의 작은 durable communication Core를 유지하면서, M2에서 장기 Work를, M3에서 지능형/원격 협업을 Extension으로 확장하고, 이후 기능은 실제 필요가 증명될 때만 선택한다.**
 
-Core는 **Peer / Stream / Record / Offset** 네 개뿐입니다.
+## 필수 로드맵
 
-M1 first-party extension:
+```text
+M1 Durable Communication
+→ M2 Durable Work Continuity
+→ M3 Federated Intelligent Collaboration
+→ Required Roadmap Complete
+```
+
+M4 이후는 `Optional Capability Tracks`입니다.
+
+## M1의 핵심
+
+Core:
+
+```text
+Peer / Stream / Record / Offset
+```
+
+First-party Modules:
 
 ```text
 Session Bridge
@@ -16,37 +31,42 @@ Observation
 Readonly Diag
 ```
 
-그 외 기존 기능은 모두 `02_EXTENSIONS/`로 이관하여 N차 milestone에서 따로 논의합니다.
+**quota / rate-limit 조회는 M1 Observation + Diag에 이미 포함됩니다.**
 
-현행 repo evidence freeze: `greatgc-flow/peerhub` main HEAD `57a137cd6a0cc7e89124ea2b87b72995087627a5`, 기존 leaf command는 **109/109 disposition 완료**입니다.
+## 읽는 순서
 
-## 시작 순서
-
-1. `FINAL_M1_DECISION_KO.md`
-2. `USAGE_GUIDE_KO.md`
-3. `01_M1/CORE_CONTRACT.md`
-4. `01_M1/LONG_HORIZON_CONTINUITY.md`
-5. `01_M1/SESSION_BRIDGE.md`
-6. `01_M1/OBSERVATION_AND_DIAG.md`
-7. `01_M1/SKILLS_CATALOG_SECOND_BRAIN.md`
-8. `02_EXTENSIONS/EXTENSION_CATALOG.md`
-9. `03_STANDARDS/STANDARDS_DECISION_TABLE.md`
+1. `FINAL_ROADMAP_DECISION_KO.md`
+2. `09_ROADMAP/PEERHUB_MASTER_ROADMAP_KO.md`
+3. `09_ROADMAP/CAPABILITY_MILESTONE_MATRIX.md`
+4. `01_M1/CORE_CONTRACT.md`
+5. `01_M1/OBSERVATION_AND_DIAG.md`
+6. `09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md`
+7. `09_ROADMAP/M3_FEDERATED_INTELLIGENT_COLLABORATION.md`
+8. `09_ROADMAP/OPTIONAL_CAPABILITY_TRACKS.md`
+9. `02_EXTENSIONS/109_COMMAND_DISPOSITION.md`
 10. `06_GUIDES/TEST_SET/README.md`
-11. `06_GUIDES/TEST_SET/RED_SEQUENCE.md`
-12. `08_LIFECYCLE/README.md`
-13. `08_LIFECYCLE/CLOSED_LOOP_OPERATING_MODEL.md`
-14. `07_AUDIT/FINAL_RECURSIVE_AUDIT.md`
+11. `08_LIFECYCLE/README.md`
+12. `07_AUDIT/FINAL_RECURSIVE_AUDIT.md`
 
-전역 `AGENTS.md`는 의도적으로 포함하지 않습니다.
+## 기준선
 
-테스트 설계 freeze: **88 requirements / 210 tests / recursive-MECE closure enforced**. 구현은 Wave 0 META/contract RED부터 시작합니다.
+- Repo evidence: `greatgc-flow/peerhub` main `4a6994e7f73933a30c5d4e8ee538cd7d736f06ce`
+- legacy v0 leaf commands: **109/109 assigned** (migration baseline)
+- current M1 side-by-side CLI: **11 leaf commands**; default `peerhub` cutover is separate
+- M1 test baseline: **88 requirements / 210 tests**
+- global `AGENTS.md`: intentionally absent
 
-개발/테스트 이후 lifecycle도 freeze 대상입니다. 배포 이후에는 `08_LIFECYCLE/`의 release → observe → learn → improve → close → next intake 순환을 사용합니다.
+## 개발 시작
 
-## 종·횡 최종 교차점검 R2
+M1 **설계계약은 TDD-ready/frozen**이고, current main `4a6994e7...`의 waves 0-9 구현은 exact-head CI/live/package/invariant/evidence gate까지 `VERIFIED`입니다. 다만 default `peerhub` public CLI cutover는 별도 maturity/gate입니다.
+M2/M3 설계는 병렬로 구체화할 수 있지만 production promotion은 이전 milestone Exit PASS 이후에만 합니다.
 
-- invariant SSOT 8/8 requirement 역추적
-- test→release gate 210/210 machine mapping
-- release gate DAG explicit/fail-closed
-- signal route→lifecycle/runbook resolvability
-- rollback 후 unresolved Problem follow-up closure 규칙
+## Unified Package Standard
+이 패키지는 일반용 `VS-UNIFIED-PACKAGE-STANDARD 1.2.0`에 대한 제품 conformance map을 `10_STANDARDS_CONFORMANCE/`에 포함합니다. 공통 semantics를 따르되 제품 고유 topology를 억지로 동일화하지 않습니다.
+
+
+## Conformance와 Maturity
+표준 대응(`COMPLY/ADAPT/...`)은 목표 구조의 정합성이고 현재 구현 완료를 의미하지 않습니다. 설계 깊이 기준 M1은 TDD_READY이며, 실제 구현 maturity는 VERIFIED입니다. M2·M3의 formal maturity는 PLANNED이고 roadmap 방향은 frozen 상태입니다. 실제 상태는 `10_STANDARDS_CONFORMANCE/product-maturity.json`이 SSOT입니다.
+
+- Current implementation snapshot: `07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json`
+- Public cutover gate: `09_ROADMAP/M1_PUBLIC_CLI_CUTOVER_GATE.md`
