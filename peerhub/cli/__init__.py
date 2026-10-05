@@ -20,28 +20,32 @@ def _load_legacy() -> types.ModuleType:
     return importlib.import_module(_LEGACY)
 
 
+def _own(name: str, value: Any = None) -> bool:
+    """Names that belong to the dispatcher itself (never forwarded): dunders, its own helpers, and submodule bindings."""
+    return (name.startswith("__") or name in _OWN
+            or (isinstance(value, types.ModuleType) and value.__name__.startswith("peerhub.cli.")))
+
+
 class _CliModule(types.ModuleType):
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("__") or name == "_LEGACY":
+        if _own(name):
             raise AttributeError(name)
         return getattr(_load_legacy(), name)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        own = (name in self.__dict__ or name.startswith("__") or name in _OWN or _LEGACY not in sys.modules
-               or (isinstance(value, types.ModuleType) and value.__name__.startswith("peerhub.cli.")))  # submodule bindings
-        if own:
+        if _own(name, value):
             super().__setattr__(name, value)
         else:
-            setattr(sys.modules[_LEGACY], name, value)  # e.g. patch("peerhub.cli.create_runtime") must reach the legacy globals
+            setattr(_load_legacy(), name, value)  # patch("peerhub.cli.X") must reach the legacy globals even before legacy is imported
 
     def __delattr__(self, name: str) -> None:
-        if name not in self.__dict__ and _LEGACY in sys.modules and hasattr(sys.modules[_LEGACY], name):
-            delattr(sys.modules[_LEGACY], name)
-        else:
+        if _own(name):
             super().__delattr__(name)
+        else:
+            delattr(_load_legacy(), name)
 
 
-_OWN = {"main", "legacy_main", "os", "sys", "types", "Any"}
+_OWN = {"main", "legacy_main", "os", "sys", "types", "Any", "_LEGACY", "_load_legacy", "_CliModule", "_OWN", "_own"}
 sys.modules[__name__].__class__ = _CliModule
 
 

@@ -144,3 +144,16 @@ def test_cut_009_legacy_selector_loads_the_legacy_cli_and_compat_paths_still_wor
     cp = subprocess.run([sys.executable, "-c", code], cwd=str(tmp_path), capture_output=True, text=True,
                         env={**os.environ, "PYTHONPATH": str(REPO)})
     assert cp.stdout.strip() == "ok", cp.stderr
+
+
+def test_cut_010_attribute_patches_before_any_legacy_import_reach_the_legacy_module(tmp_path):
+    code = ("import sys\nimport peerhub.cli as c\nassert 'peerhub.cli._legacy' not in sys.modules\n"
+            "c.get_cli_version = lambda: 'PATCHED-VERSION'\n"  # no legacy import has happened yet
+            "assert 'peerhub.cli._legacy' in sys.modules\n"
+            "import peerhub.cli._legacy as L\nassert L.get_cli_version() == 'PATCHED-VERSION' and 'get_cli_version' not in vars(c)\n"
+            "try:\n    c.legacy_main(['--version'])\nexcept SystemExit:\n    pass\n"
+            "del c.get_cli_version\nassert not hasattr(L, 'get_cli_version')\n")
+    cp = subprocess.run([sys.executable, "-c", code], cwd=str(tmp_path), capture_output=True, text=True,
+                        env={**{k: v for k, v in os.environ.items() if not k.startswith("PEERHUB_CLI")}, "PYTHONPATH": str(REPO)})
+    assert cp.returncode == 0, cp.stderr
+    assert "PATCHED-VERSION" in cp.stdout  # the dispatcher's legacy path really used the patched value

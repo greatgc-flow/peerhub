@@ -33,7 +33,7 @@ PROP = "candidate."  # JUnit <property> namespace written by stamp_junit
 # scope and requires equality, so a stripped or edited property, a forged id or swapped wheels all fail. Tests of the package gate (G4)
 # only count from package-scoped files.
 PACKAGE_GATE = "G4"
-REQUIRED_BINDING = ("source_revision", "selector_default", "policy_sha256", "gate_definition_sha256", "stamped_at", "id")
+REQUIRED_BINDING = ("source_revision", "selector_default", "policy_sha256", "gate_definition_sha256", "stamped_at", "id", "gate")
 
 
 def _sha(p: Path) -> str:
@@ -109,15 +109,26 @@ def candidate_fields(*, commit: str, package_sha256: list[str], selector: str, p
             "gate_definition_sha256": _sha(Path(gates_path))}
 
 
-def load_ttl(release_policy: Path | None) -> int:
-    """Freshness threshold from the repo-owned release policy; there is no default: a missing or invalid value is an error."""
+def load_release_policy(release_policy: Path | None) -> tuple[int, int]:
+    """(policy_ttl_seconds, max_clock_skew_seconds) from the repo-owned release policy. No defaults: missing or invalid is an error."""
     if release_policy is None:
         raise ValueError("a release policy file (--release-policy) is required in candidate mode")
     data = json.loads(Path(release_policy).read_text(encoding="utf-8"))
-    ttl = data.get("policy_ttl_seconds") if isinstance(data, dict) else None
-    if data.get("schema_version") != 1 or isinstance(ttl, bool) or not isinstance(ttl, int) or ttl <= 0:
-        raise ValueError(f"{release_policy}: needs schema_version 1 and a positive integer policy_ttl_seconds")
-    return ttl
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise ValueError(f"{release_policy}: needs schema_version 1")
+    out = []
+    for key, low in (("policy_ttl_seconds", 1), ("max_clock_skew_seconds", 0)):
+        v = data.get(key)
+        if isinstance(v, bool) or not isinstance(v, int) or v < low:
+            raise ValueError(f"{release_policy}: {key} must be an integer >= {low}")
+        out.append(v)
+    return out[0], out[1]
+
+
+def file_gate(name: str) -> str | None:
+    """The gate a JUnit file is evaluated as, from its name (junit/g1.xml, g3-slow.xml -> G1, G3)."""
+    m = re.match(r"g(\d+)(?![0-9])", name.lower())
+    return f"G{m.group(1)}" if m else None
 
 
 def scoped_fields(fields: dict, package_scope: bool) -> dict:
@@ -132,11 +143,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def stamp_junit(path: Path, *, commit: str, repo_root: Path = ROOT, dist_dir: Path | None = None, policy_path: Path | None = None,
+def stamp_junit(path: Path, *, commit: str, gate: str, repo_root: Path = ROOT, dist_dir: Path | None = None, policy_path: Path | None = None,
                 at: datetime | None = None) -> None:
     """Bind a JUnit file to the candidate inputs known where it was produced (<property name="candidate.*">) and record when."""
     policy_path = Path(policy_path) if policy_path else Path(repo_root) / POLICY_REL
-    props = {"source_revision": commit, "selector_default": selector_default(Path(repo_root)), "policy_sha256": _sha(policy_path),
+    if not re.fullmatch(r"G[0-9]", gate):
+        raise ValueError(f"gate must look like G0..G9, not {gate!r}")
+    props = {"gate": gate, "source_revision": commit, "selector_default": selector_default(Path(repo_root)), "policy_sha256": _sha(policy_path),
              "gate_definition_sha256": _sha(Path(repo_root) / GATES_REL),
              "stamped_at": (at or _now()).astimezone(timezone.utc).isoformat()}
     pkgs = _package_shas(dist_dir) if dist_dir is not None else []
@@ -173,7 +186,7 @@ def _bound_props(path: Path) -> dict[str, str] | None:
     return seen[0]
 
 
-def assess_evidence(junit_paths: list[Path], cand: dict, ttl: int, now: datetime) -> list[dict]:
+def assess_evidence(junit_paths: list[Path], cand: dict, ttl: int, skew: int, now: datetime) -> list[dict]:
     """One verdict per JUnit file: accepted | stale | mismatched | unbound | missing, with the reason and scope (source|package).
     Only `accepted` is evidence. The expected id is recomputed here from the candidate inputs of THIS run."""
     out = []
@@ -186,6 +199,10 @@ def assess_evidence(junit_paths: list[Path], cand: dict, ttl: int, now: datetime
         if props is None or miss:
             out.append({"file": p.name, "status": "unbound", "scope": None,
                         "reason": "missing candidate binding" + (": " + ", ".join(miss) if miss else "")})
+            continue
+        if props["gate"] != file_gate(p.name):
+            out.append({"file": p.name, "status": "mismatched", "scope": None,
+                        "reason": f"stamped for gate {props['gate']} but evaluated as gate {file_gate(p.name)} (file name)"})
             continue
         pkg = "package_sha256" in props
         scope = "package" if pkg else "source"
@@ -202,8 +219,12 @@ def assess_evidence(junit_paths: list[Path], cand: dict, ttl: int, now: datetime
         except (ValueError, TypeError):
             out.append({"file": p.name, "status": "unbound", "scope": scope, "reason": f"unparseable candidate.stamped_at {props['stamped_at']!r}"})
             continue
-        if age > ttl or age < -ttl:  # a timestamp from the far future is not fresh either
-            out.append({"file": p.name, "status": "stale", "scope": scope, "reason": f"evidence age {int(age)}s outside policy_ttl_seconds {ttl}"})
+        if age > ttl:
+            out.append({"file": p.name, "status": "stale", "scope": scope, "reason": f"evidence age {int(age)}s exceeds policy_ttl_seconds {ttl}"})
+            continue
+        if age < -skew:
+            out.append({"file": p.name, "status": "future", "scope": scope,
+                        "reason": f"stamped {int(-age)}s in the future, beyond max_clock_skew_seconds {skew}"})
             continue
         out.append({"file": p.name, "status": "accepted", "scope": scope, "reason": "current and bound to the candidate"})
     return out
@@ -233,10 +254,10 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
                                   policy_path=pol_path, gates_path=Path(repo_root) / GATES_REL)
         cid = candidate_id(fields)
         cand_block = {**fields, "candidate_id": cid}
-        bindings = assess_evidence(used_junit, fields, load_ttl(release_policy), now or _now())
+        bindings = assess_evidence(used_junit, fields, *load_release_policy(release_policy), now or _now())
         action = str(pol.get("on_stale", "HOLD"))
         holds += [f"{action}: evidence {b['file']} is {b['status']}: {b['reason']}" for b in bindings if b["status"] != "accepted"]
-        pkg_junit = [p for p, b in zip(used_junit, bindings) if b["status"] == "accepted" and b["scope"] == "package"]
+        pkg_junit = [p for p, b in zip(used_junit, bindings) if b["status"] == "accepted" and b["scope"] == "package" and file_gate(p.name) == PACKAGE_GATE]
         used_junit = [p for p, b in zip(used_junit, bindings) if b["status"] == "accepted"]
         if not pkg_junit:
             holds.append(f"HOLD: no current JUnit carries the package digests of the dist being released (gate {PACKAGE_GATE} evidence)")
@@ -262,8 +283,8 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
         blockers.append(f"blocking test {i} (gate {gates[i]}) is {st}" + (" (not verified; an accepted skip is never a pass)" if st == "not_verified" else ""))
     uncovered, uncovered_p0 = [], []
     for r in reqs:
-        linked = [t for t in r["tests"] if t in blocking]
-        if not all(outcomes[t] == "passed" for t in linked):
+        linked = [t for t in r.get("tests") or [] if t in blocking]
+        if not r.get("tests") or not all(outcomes[t] == "passed" for t in linked):  # no linked tests at all = uncovered, never a crash
             uncovered.append(r["id"])
             if r["priority"] == "P0":
                 uncovered_p0.append(r["id"])
@@ -283,8 +304,8 @@ def build_manifest(*, repo_root: Path, junit_paths: list[Path], dist_dir: Path, 
         valid = set(pol["normalized_states"]["valid"])
         for g in [g["id"] for g in json.loads((Path(repo_root) / GATES_REL).read_text(encoding="utf-8"))["gates"] if g.get("blocking")]:
             gids = [i for i in ids if gates[i] == g]
-            if gids and not any(outcomes[i] == "passed" and "PASS" in valid for i in gids):
-                blockers.append(f"HOLD: blocking gate {g} has no current PASS evidence bound to the candidate")
+            if gids and not all(outcomes[i] == "passed" and "PASS" in valid for i in gids):
+                blockers.append(f"HOLD: blocking gate {g} has no complete current PASS evidence bound to the candidate (every test of the gate must pass)")
     extra = {"candidate": cand_block, "evidence_bindings": bindings, "hold_reasons": [b for b in blockers if b.startswith(("HOLD", "REVERIFY"))]} if candidate else {}
     return {**extra, "schema_version": 1, "commit": commit, "version": version, "deterministic_suite": suite, "live_canaries": live, "unverified_blocking_tests": unverified,
             "packages": packages, "requirement_coverage": {"total": len(reqs), "covered": len(reqs) - len(uncovered),
@@ -345,18 +366,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--commit", default=None)
     ap.add_argument("--candidate", action="store_true", help="bind to the cutover candidate identity and enforce freshness from the policy file")
     ap.add_argument("--policy-file", type=Path, default=None, help="gate evidence policy (default: the spec's gate-evidence-policy.json)")
+    ap.add_argument("--gate", default=None, help="gate id (G0..G4) the stamped JUnit files belong to; evidence is accepted only for the gate its file name says")
     ap.add_argument("--release-policy", type=Path, default=None, help="repo-owned release policy with policy_ttl_seconds (required with --candidate)")
     ap.add_argument("--stamp-junit", type=Path, action="append", default=None,
                     help="bind this JUnit file to the candidate inputs (needs --commit; repeatable) and exit; a missing file is skipped with a warning")
     a = ap.parse_args(argv)
     if a.stamp_junit is not None:
-        if not a.commit:
-            ap.error("--stamp-junit requires --commit")
+        if not a.commit or not a.gate:
+            ap.error("--stamp-junit requires --commit and --gate")
         for f in a.stamp_junit:
             if not f.is_file():
                 print(f"::warning::{f} was not produced; it cannot become evidence (the gate will HOLD)", file=sys.stderr)
                 continue
-            stamp_junit(f, commit=a.commit, dist_dir=a.dist, policy_path=a.policy_file)
+            stamp_junit(f, commit=a.commit, gate=a.gate, dist_dir=a.dist, policy_path=a.policy_file)
         return 0
     if not (a.junit and a.dist and a.out):
         ap.error("--junit, --dist and --out are required")

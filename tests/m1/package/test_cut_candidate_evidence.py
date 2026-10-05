@@ -70,11 +70,11 @@ class Env:
         self.policy = POLICY
         self.n = 0
 
-    def evidence(self, outcomes=None, *, age=0, commit=SHA, dist="same", repo=REPO, stamp=True, policy=None):
+    def evidence(self, outcomes=None, *, age=0, commit=SHA, dist="same", repo=REPO, stamp=True, policy=None, gate="G4", stamp_gate=None):
         self.n += 1
-        j = junit(self.tmp / f"j{self.n}.xml", outcomes or {i: "passed" for i in all_ids(live=True)})
+        j = junit(self.tmp / f"{gate.lower()}-{self.n}.xml", outcomes or {i: "passed" for i in all_ids(live=True)})  # the name says which gate
         if stamp:
-            ev.stamp_junit(j, commit=commit, repo_root=repo, dist_dir=self.dist if dist == "same" else dist,
+            ev.stamp_junit(j, commit=commit, gate=stamp_gate or gate, repo_root=repo, dist_dir=self.dist if dist == "same" else dist,
                            policy_path=policy or self.policy, at=NOW - timedelta(seconds=age))
         return j
 
@@ -104,7 +104,7 @@ def test_cut_010_positive_control_current_bound_all_green_is_release_ready(env):
 def test_cut_011_stale_evidence_holds_with_an_explicit_reason(env):
     ttl = TTL
     m = env.manifest([env.evidence(age=ttl + 1)])
-    assert m["release_ready"] is False and "is stale" in holds(m) and "j1.xml" in holds(m) and str(ttl) in holds(m)
+    assert m["release_ready"] is False and "is stale" in holds(m) and "g4-1.xml" in holds(m) and str(ttl) in holds(m)
     assert m["evidence_bindings"][0]["status"] == "stale"
     assert env.manifest([env.evidence(age=ttl - 5)])["release_ready"] is True  # just inside the window
 
@@ -131,7 +131,7 @@ def test_cut_013_missing_blocking_gate_evidence_holds_naming_the_gate(env):
         (REPO / "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json").read_text(encoding="utf-8"))["entries"]}
     outcomes = {i: "passed" for i in all_ids(live=True) if gate_of[i] != "G1"}
     m = env.manifest([env.evidence(outcomes, age=1)])
-    assert m["release_ready"] is False and "HOLD: blocking gate G1 has no current PASS evidence" in holds(m)
+    assert m["release_ready"] is False and "HOLD: blocking gate G1 has no complete current PASS evidence" in holds(m)
     assert "gate G0 " not in holds(m)
 
 
@@ -186,10 +186,10 @@ def test_cut_018_manifest_without_candidate_mode_is_unchanged(env):
 
 
 def test_cut_019_cli_flow_stamp_then_candidate_with_policy_file(env, tmp_path):
-    j = junit(tmp_path / "g.xml", {i: "passed" for i in all_ids(live=True)})
+    j = junit(tmp_path / "g4.xml", {i: "passed" for i in all_ids(live=True)})
     rp = ["--release-policy", str(RELEASE_POLICY)]
     run = lambda *a: subprocess.run([sys.executable, "-m", "tools.m1_release_evidence", *a], cwd=REPO, capture_output=True, text=True)
-    assert run("--stamp-junit", str(j), "--commit", SHA, "--dist", str(env.dist)).returncode == 0
+    assert run("--stamp-junit", str(j), "--gate", "G4", "--commit", SHA, "--dist", str(env.dist)).returncode == 0
     ok = run("--junit", str(j), "--dist", str(env.dist), "--out", str(tmp_path / "o1"), "--commit", SHA, "--candidate", "--policy-file", str(POLICY), *rp)
     assert ok.returncode == 0, ok.stdout + ok.stderr
     assert json.loads((tmp_path / "o1/evidence.json").read_text(encoding="utf-8"))["candidate"]["source_revision"] == SHA
@@ -198,7 +198,7 @@ def test_cut_019_cli_flow_stamp_then_candidate_with_policy_file(env, tmp_path):
     assert run("--ttl-seconds", "5").returncode == 2  # no time threshold on the command line
     no_rp = run("--junit", str(j), "--dist", str(env.dist), "--out", str(tmp_path / "o3"), "--commit", SHA, "--candidate")
     assert no_rp.returncode == 2 and "--release-policy" in no_rp.stderr  # no threshold default in code
-    missing = run("--stamp-junit", str(tmp_path / "nope.xml"), "--commit", SHA)
+    missing = run("--stamp-junit", str(tmp_path / "nope.xml"), "--gate", "G4", "--commit", SHA)
     assert missing.returncode == 0 and "was not produced" in missing.stderr  # a gate that wrote no junit must not crash the stamp step
 
 
@@ -208,8 +208,8 @@ def test_cut_020_no_hard_coded_time_threshold_in_the_tool():
     assert str(ttl) not in src and "--ttl" not in src and not re.search(r"timedelta\(|\b(3600|86400|604800)\b", src)
 
 
-GATE_JOBS = (("gate-g0-fast", ["g0"]), ("gate-g1-core", ["g1"]), ("gate-g2-m1", ["g2"]), ("live-validation", ["g3", "g3-slow", "g3-e2e"]),
-             ("build", ["g4"]))
+GATE_JOBS = (("gate-g0-fast", "G0", ["g0"]), ("gate-g1-core", "G1", ["g1"]), ("gate-g2-m1", "G2", ["g2"]),
+             ("live-validation", "G3", ["g3", "g3-slow", "g3-e2e"]), ("build", "G4", ["g4"]))
 
 
 def workflow_problems(wf):
@@ -221,7 +221,7 @@ def workflow_problems(wf):
             bad.append(f"evidence step lacks {need}")
     if "--ttl" in ev_run:
         bad.append("evidence step passes a ttl")
-    for job, names in GATE_JOBS:
+    for job, gate, names in GATE_JOBS:
         steps = wf["jobs"][job]["steps"]
         idx_stamp = [i for i, st in enumerate(steps) if "--stamp-junit" in st.get("run", "")]
         if len(idx_stamp) != 1:
@@ -230,7 +230,12 @@ def workflow_problems(wf):
         st = steps[idx_stamp[0]]
         if st.get("if") != "always()":
             bad.append(f"{job}: stamp step must run if: always()")
+        if f"--gate {gate} " not in st["run"]:
+            bad.append(f"{job}: stamp step must pass --gate {gate}")
         for n in names:
+            writers = [x for x in steps[:idx_stamp[0]] if f"--junitxml=junit/{n}.xml" in x.get("run", "")]
+            if n.startswith("g3-") and (len(writers) != 1 or writers[0].get("if") != "always()" or writers[0]["run"].count("pytest") != 1):
+                bad.append(f"{job}: junit/{n}.xml must come from its own step with if: always()")
             if f"--stamp-junit junit/{n}.xml" not in st["run"]:
                 bad.append(f"{job}: junit/{n}.xml is not stamped")
             if not any(f"--junitxml=junit/{n}.xml" in x.get("run", "") for x in steps[:idx_stamp[0]]):
@@ -244,6 +249,19 @@ def workflow_problems(wf):
             build = [i for i, x in enumerate(steps) if "python -m build" in x.get("run", "")]
             if not build or idx_stamp[0] < build[0] or "--dist dist" not in st["run"]:
                 bad.append("build: G4 must be stamped after the build with --dist dist")
+    pub = wf["jobs"]["publish"]
+    cond = str(pub.get("if", ""))
+    if "needs.release-evidence.result == 'success'" not in cond or "github.event_name == 'release'" not in cond:
+        bad.append("publish must require a release event and a successful release-evidence job")
+    if any(f in cond for f in ("always()", "failure()", "cancelled()", "!cancelled()")):
+        bad.append("publish must not override the implicit success() of its needs")
+    if "release-evidence" not in pub["needs"] or not set(j for j, _, _ in GATE_JOBS) | {"gate-g7-invariant"} <= set(pub["needs"]):
+        bad.append("publish must need every gate job and release-evidence")
+    evj = wf["jobs"]["release-evidence"]
+    if str(evj.get("if", "")) != "always()" or evj.get("continue-on-error"):
+        bad.append("release-evidence must run if: always() and must fail when the manifest is not ready")
+    if any(st.get("continue-on-error") for st in evj["steps"] if "m1_release_evidence" in st.get("run", "")):
+        bad.append("the evidence step must not continue-on-error")
     return bad
 
 
@@ -274,13 +292,34 @@ def _mutate(kind):
         build.insert(j, build.pop(i))
     elif kind == "g4-no-dist":
         next(st for st in build if "--stamp-junit" in st.get("run", ""))["run"] = "python -m tools.m1_release_evidence --stamp-junit junit/g4.xml --commit X"
+    elif kind == "no-gate-arg":
+        st = next(st for st in build if "--stamp-junit" in st.get("run", ""))
+        st["run"] = st["run"].replace("--gate G4 ", "")
+    elif kind == "g3-slow-and-e2e-one-step":
+        i = next(i for i, st in enumerate(live) if "-m slow" in st.get("run", ""))
+        live[i]["run"] += chr(10) + live[i + 1]["run"]
+        del live[i + 1]
+    elif kind == "g3-e2e-not-always":
+        next(st for st in live if "-m e2e" in st.get("run", "")).pop("if")
+    elif kind == "evidence-not-always":
+        wf["jobs"]["release-evidence"].pop("if")
+    elif kind == "publish-always":
+        wf["jobs"]["publish"]["if"] = "always() && " + wf["jobs"]["publish"]["if"]
+    elif kind == "publish-ignores-evidence-result":
+        wf["jobs"]["publish"]["if"] = "github.event_name == 'release'"
+    elif kind == "publish-drops-evidence-need":
+        wf["jobs"]["publish"]["needs"].remove("release-evidence")
+    elif kind == "evidence-continue-on-error":
+        wf["jobs"]["release-evidence"]["continue-on-error"] = True
     elif kind == "evidence-skips-g3-slow":
         ev_step["run"] = ev_step["run"].replace("--junit junit/g3-slow.xml", "")
     return wf
 
 
 @pytest.mark.parametrize("kind", ["no-release-policy", "g3-junit-not-written", "stamp-not-always", "g4-stamp-before-build",
-                                  "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow"])
+                                  "g4-upload-before-stamp", "g4-no-dist", "evidence-skips-g3-slow", "no-gate-arg", "g3-slow-and-e2e-one-step",
+                                  "g3-e2e-not-always", "evidence-not-always", "publish-always", "publish-ignores-evidence-result",
+                                  "publish-drops-evidence-need", "evidence-continue-on-error"])
 def test_cut_022_mutated_workflows_are_caught(kind):
     assert workflow_problems(_mutate(kind)), kind
 
@@ -326,14 +365,14 @@ def test_cut_025_wheel_swapped_after_stamping_and_g4_reused_across_candidates(en
 
 
 def test_cut_026_source_scoped_evidence_alone_cannot_satisfy_the_package_gate(env):
-    src = env.evidence(age=5, dist=None)  # stamped without package digests (like G0-G3)
+    src = env.evidence(age=5, dist=None, gate="G0")  # stamped without package digests (like G0-G3)
     props = ev._bound_props(src)
     assert "package_sha256" not in props and re.fullmatch(r"[0-9a-f]{64}", props["id"])
     m = env.manifest([src])
     assert m["evidence_bindings"][0]["status"] == "accepted" and m["evidence_bindings"][0]["scope"] == "source"
     assert m["release_ready"] is False and "package digests of the dist being released" in holds(m)
     assert any("blocking test" in b and "(gate G4)" in b for b in m["blockers"])  # G4 tests need package-scoped files
-    both = [env.evidence(age=5, dist=None), env.evidence(age=5)]
+    both = [env.evidence(age=5, dist=None, gate="G0"), env.evidence(age=5)]
     assert env.manifest(both)["release_ready"] is True  # positive control: a package-scoped file is also present
 
 
@@ -341,3 +380,90 @@ def test_cut_027_missing_junit_file_is_a_hold_not_a_crash(env, tmp_path):
     m = env.manifest([env.evidence(age=5), tmp_path / "g3.xml"])
     assert [b["status"] for b in m["evidence_bindings"]] == ["accepted", "missing"] and "g3.xml is missing" in holds(m)
     assert m["release_ready"] is False
+
+
+GATE_OF = {e["test_id"]: e["primary_gate"] for e in json.loads(
+    (REPO / "docs/m1_spec/06_GUIDES/TEST_SET/TEST_RELEASE_GATE_MAP.json").read_text(encoding="utf-8"))["entries"]}
+
+
+def test_cut_028_future_timestamps_are_rejected_beyond_the_policy_skew_tolerance(env, tmp_path):
+    skew = json.loads(RELEASE_POLICY.read_text(encoding="utf-8"))["max_clock_skew_seconds"]
+    assert skew > 0
+    assert env.manifest([env.evidence(age=-3600)])["evidence_bindings"][0]["status"] == "future"  # one hour ahead
+    m = env.manifest([env.evidence(age=-(skew + 1))])
+    assert m["release_ready"] is False and "in the future" in holds(m) and str(skew) in holds(m)
+    assert env.manifest([env.evidence(age=-(skew - 1))])["release_ready"] is True  # inside the tolerance
+    j = env.evidence(age=-600)  # the tolerance comes from the policy file only
+    assert env.manifest([j], release=release_policy(tmp_path, "skew0.json", max_clock_skew_seconds=0))["release_ready"] is False
+    assert env.manifest([j], release=release_policy(tmp_path, "skew1h.json", max_clock_skew_seconds=3600))["release_ready"] is True
+
+
+@pytest.mark.parametrize("bad", [None, -1, "300", True])
+def test_cut_029_invalid_skew_tolerance_is_refused(env, tmp_path, bad):
+    p = json.loads(RELEASE_POLICY.read_text(encoding="utf-8"))
+    if bad is None:
+        p.pop("max_clock_skew_seconds")
+    else:
+        p["max_clock_skew_seconds"] = bad
+    f = tmp_path / "rp.json"
+    f.write_text(json.dumps(p), encoding="utf-8")
+    with pytest.raises(ValueError, match="max_clock_skew_seconds"):
+        env.manifest([env.evidence(age=1)], release=f)
+
+
+def test_cut_030_evidence_is_bound_to_its_gate(env, tmp_path):
+    ids = all_ids(live=True)
+    g0 = env.evidence({i: "passed" for i in ids}, gate="G0", dist=None, age=5)
+    assert env.manifest([g0, env.evidence(age=5)])["release_ready"] is True  # control: G0 file under its own name
+    renamed = tmp_path / "g1-renamed.xml"
+    shutil.copy2(g0, renamed)  # a G0-stamped file presented as G1 evidence
+    m = env.manifest([renamed, env.evidence(age=5)])
+    assert m["evidence_bindings"][0]["status"] == "mismatched" and "gate G0" in holds(m) and "gate G1" in holds(m)
+    wrong = env.evidence({i: "passed" for i in ids}, gate="G1", stamp_gate="G2", dist=None, age=5)  # stamped with the wrong --gate
+    assert env.manifest([wrong])["evidence_bindings"][0]["status"] == "mismatched"
+    nogate = env.evidence(gate="G0", dist=None, age=5)
+    edit_props(nogate, lambda h: [h.remove(e) for e in list(h) if e.get("name") == "candidate.gate"])
+    m = env.manifest([nogate])
+    assert m["evidence_bindings"][0]["status"] == "unbound" and "gate" in m["evidence_bindings"][0]["reason"]
+    anon = tmp_path / "evidence.xml"  # a name that does not say which gate it is
+    shutil.copy2(g0, anon)
+    assert env.manifest([anon])["evidence_bindings"][0]["status"] == "mismatched"
+    with pytest.raises(ValueError, match="gate"):
+        ev.stamp_junit(g0, commit=SHA, gate="nonsense")
+    # package digests count only from a G4 file
+    g3 = env.evidence({i: "passed" for i in ids}, gate="G3", age=5)  # stamped with --dist but evaluated as G3
+    m = env.manifest([g3])
+    assert m["evidence_bindings"][0]["scope"] == "package" and "package digests of the dist being released" in holds(m)
+
+
+def test_cut_031_a_gate_needs_every_one_of_its_tests_to_pass(env):
+    g1 = [i for i in all_ids(live=True) if GATE_OF[i] == "G1"]
+    assert len(g1) >= 2
+    for kind in ("failed", "missing"):
+        outcomes = {i: "passed" for i in all_ids(live=True)}
+        if kind == "failed":
+            outcomes[g1[0]] = "failed"
+        else:
+            del outcomes[g1[0]]
+        m = env.manifest([env.evidence(outcomes, age=5)])
+        assert m["release_ready"] is False
+        assert "HOLD: blocking gate G1 has no complete current PASS evidence" in holds(m), kind  # other G1 tests still pass
+
+
+def test_cut_032_requirement_without_linked_tests_is_uncovered_not_a_crash(tmp_path):
+    root = tmp_path / "repo"
+    shutil.copytree(REPO / "docs/m1_spec/06_GUIDES/TEST_SET", root / "docs/m1_spec/06_GUIDES/TEST_SET")
+    (root / "peerhub").mkdir()
+    shutil.copy2(REPO / "peerhub/_version.py", root / "peerhub/_version.py")
+    rp = root / "docs/m1_spec/06_GUIDES/TEST_SET/requirements.json"
+    data = json.loads(rp.read_text(encoding="utf-8"))
+    victim = data["requirements"][0]["id"]
+    del data["requirements"][0]["tests"]
+    rp.write_text(json.dumps(data), encoding="utf-8")
+    dist = make_dist(tmp_path / "dist")
+    j = junit(tmp_path / "junit.xml", {i: "passed" for i in all_ids(live=True)})
+    m = ev.build_manifest(repo_root=root, junit_paths=[j], dist_dir=dist, commit=SHA)
+    assert victim in m["requirement_coverage"]["uncovered"] and m["release_ready"] is False
+    data["requirements"][0]["tests"] = []
+    rp.write_text(json.dumps(data), encoding="utf-8")
+    assert victim in ev.build_manifest(repo_root=root, junit_paths=[j], dist_dir=dist, commit=SHA)["requirement_coverage"]["uncovered"]
