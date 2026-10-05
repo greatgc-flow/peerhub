@@ -680,6 +680,114 @@
       "risk_tags": [
         "FAILURE_ISOLATION"
       ]
+    },
+    {
+      "id": "REQ-BCK-001",
+      "area": "BackupRecovery",
+      "statement": "Authoritative backup creation bundles core store and physical artifact blobs sealed with cryptographic manifest and reopen proof.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-001"
+      ],
+      "required_dimensions": [
+        "backup",
+        "integrity"
+      ],
+      "risk_tags": [
+        "DURABILITY"
+      ]
+    },
+    {
+      "id": "REQ-BCK-002",
+      "area": "BackupRecovery",
+      "statement": "Invariant 11: Restoration strictly starts from authoritative state and rebuilds derived projections.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-002",
+        "BCK-005"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "recovery"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-BCK-003",
+      "area": "BackupRecovery",
+      "statement": "Generation fencing increments epoch on restore, invalidating stale writers and protecting against write regressions.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-004",
+        "BCK-008"
+      ],
+      "required_dimensions": [
+        "fencing",
+        "concurrency"
+      ],
+      "risk_tags": [
+        "CORRUPTION"
+      ]
+    },
+    {
+      "id": "REQ-BCK-004",
+      "area": "BackupRecovery",
+      "statement": "Replaying restored authoritative stream records completely reconstructs 100% logically equivalent work projections and offsets.",
+      "source": "09_ROADMAP/M2_DURABLE_WORK_CONTINUITY.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-003"
+      ],
+      "required_dimensions": [
+        "projection",
+        "rebuild"
+      ],
+      "risk_tags": [
+        "EQUIVALENCE"
+      ]
+    },
+    {
+      "id": "REQ-BCK-005",
+      "area": "BackupRecovery",
+      "statement": "Corrupted backups and missing manifests are rejected pre-emptively without leaving partial mutations on disk.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-006",
+        "BCK-007",
+        "BCK-010"
+      ],
+      "required_dimensions": [
+        "fault",
+        "tamper"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-BCK-006",
+      "area": "BackupRecovery",
+      "statement": "Secrets and credentials are excluded by default from backup bundles, and backup operations run without blocking core store.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "BCK-009",
+        "BCK-011",
+        "BCK-012"
+      ],
+      "required_dimensions": [
+        "security",
+        "isolation"
+      ],
+      "risk_tags": [
+        "SECURITY"
+      ]
     }
   ]
 }

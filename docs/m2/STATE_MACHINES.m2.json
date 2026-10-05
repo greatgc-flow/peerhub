@@ -2,19 +2,103 @@
   "schema_version": 1,
   "entities": {
     "Extension": {
-      "states": ["DISCOVERED", "VALIDATED", "ENABLED", "DISABLED", "FAILED", "MIGRATING"],
+      "states": [
+        "DISCOVERED",
+        "VALIDATED",
+        "ENABLED",
+        "DISABLED",
+        "FAILED",
+        "MIGRATING"
+      ],
       "transitions": [
-        {"from": "DISCOVERED", "to": "VALIDATED", "allowed": true, "tests": ["EXT-007"]},
-        {"from": "DISCOVERED", "to": "FAILED", "allowed": true, "tests": ["EXT-022"]},
-        {"from": "VALIDATED", "to": "ENABLED", "allowed": true, "tests": ["GAP-EXT-TRANS-01"]},
-        {"from": "ENABLED", "to": "DISABLED", "allowed": true, "tests": ["EXT-004"]},
-        {"from": "DISABLED", "to": "ENABLED", "allowed": true, "tests": ["GAP-EXT-TRANS-02"]},
-        {"from": "ENABLED", "to": "MIGRATING", "allowed": true, "tests": ["EXT-020"]},
-        {"from": "MIGRATING", "to": "ENABLED", "allowed": true, "tests": ["EXT-020"]},
-        {"from": "MIGRATING", "to": "FAILED", "allowed": true, "tests": ["EXT-008"]},
-        {"from": "ENABLED", "to": "FAILED", "allowed": true, "tests": ["EXT-013"]},
-        {"from": "ENABLED", "to": "VALIDATED", "allowed": false, "tests": ["EXT-010"]},
-        {"from": "FAILED", "to": "ENABLED", "allowed": false, "tests": ["EXT-011"]}
+        {
+          "from": "DISCOVERED",
+          "to": "VALIDATED",
+          "allowed": true,
+          "tests": [
+            "EXT-007"
+          ]
+        },
+        {
+          "from": "DISCOVERED",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "EXT-022"
+          ]
+        },
+        {
+          "from": "VALIDATED",
+          "to": "ENABLED",
+          "allowed": true,
+          "tests": [
+            "GAP-EXT-TRANS-01"
+          ]
+        },
+        {
+          "from": "ENABLED",
+          "to": "DISABLED",
+          "allowed": true,
+          "tests": [
+            "EXT-004"
+          ]
+        },
+        {
+          "from": "DISABLED",
+          "to": "ENABLED",
+          "allowed": true,
+          "tests": [
+            "GAP-EXT-TRANS-02"
+          ]
+        },
+        {
+          "from": "ENABLED",
+          "to": "MIGRATING",
+          "allowed": true,
+          "tests": [
+            "EXT-020"
+          ]
+        },
+        {
+          "from": "MIGRATING",
+          "to": "ENABLED",
+          "allowed": true,
+          "tests": [
+            "EXT-020"
+          ]
+        },
+        {
+          "from": "MIGRATING",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "EXT-008"
+          ]
+        },
+        {
+          "from": "ENABLED",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "EXT-013"
+          ]
+        },
+        {
+          "from": "ENABLED",
+          "to": "VALIDATED",
+          "allowed": false,
+          "tests": [
+            "EXT-010"
+          ]
+        },
+        {
+          "from": "FAILED",
+          "to": "ENABLED",
+          "allowed": false,
+          "tests": [
+            "EXT-011"
+          ]
+        }
       ],
       "gaps": [
         "GAP-EXT-TRANS-01: VALIDATED -> ENABLED: Needs test coverage for nominal enablement after valid discovery.",
@@ -22,17 +106,89 @@
       ]
     },
     "Artifact": {
-      "states": ["STAGED", "DIGESTED", "VERIFIED", "COMMITTED", "REFERENCED", "TAMPERED", "ORPHANED"],
+      "states": [
+        "STAGED",
+        "DIGESTED",
+        "VERIFIED",
+        "COMMITTED",
+        "REFERENCED",
+        "TAMPERED",
+        "ORPHANED"
+      ],
       "transitions": [
-        {"from": "STAGED", "to": "DIGESTED", "allowed": true, "tests": ["ART-020"]},
-        {"from": "DIGESTED", "to": "VERIFIED", "allowed": true, "tests": ["ART-021"]},
-        {"from": "VERIFIED", "to": "COMMITTED", "allowed": true, "tests": ["ART-022"]},
-        {"from": "COMMITTED", "to": "REFERENCED", "allowed": true, "tests": ["ART-029"]},
-        {"from": "COMMITTED", "to": "TAMPERED", "allowed": true, "tests": ["ART-009", "ART-010"]},
-        {"from": "COMMITTED", "to": "ORPHANED", "allowed": true, "tests": ["ART-028"]},
-        {"from": "STAGED", "to": "COMMITTED", "allowed": false, "tests": ["ART-023"]},
-        {"from": "DIGESTED", "to": "COMMITTED", "allowed": false, "tests": ["GAP-ART-TRANS-01"]},
-        {"from": "TAMPERED", "to": "VERIFIED", "allowed": false, "tests": ["GAP-ART-TRANS-02"]}
+        {
+          "from": "STAGED",
+          "to": "DIGESTED",
+          "allowed": true,
+          "tests": [
+            "ART-020"
+          ]
+        },
+        {
+          "from": "DIGESTED",
+          "to": "VERIFIED",
+          "allowed": true,
+          "tests": [
+            "ART-021"
+          ]
+        },
+        {
+          "from": "VERIFIED",
+          "to": "COMMITTED",
+          "allowed": true,
+          "tests": [
+            "ART-022"
+          ]
+        },
+        {
+          "from": "COMMITTED",
+          "to": "REFERENCED",
+          "allowed": true,
+          "tests": [
+            "ART-029"
+          ]
+        },
+        {
+          "from": "COMMITTED",
+          "to": "TAMPERED",
+          "allowed": true,
+          "tests": [
+            "ART-009",
+            "ART-010"
+          ]
+        },
+        {
+          "from": "COMMITTED",
+          "to": "ORPHANED",
+          "allowed": true,
+          "tests": [
+            "ART-028"
+          ]
+        },
+        {
+          "from": "STAGED",
+          "to": "COMMITTED",
+          "allowed": false,
+          "tests": [
+            "ART-023"
+          ]
+        },
+        {
+          "from": "DIGESTED",
+          "to": "COMMITTED",
+          "allowed": false,
+          "tests": [
+            "GAP-ART-TRANS-01"
+          ]
+        },
+        {
+          "from": "TAMPERED",
+          "to": "VERIFIED",
+          "allowed": false,
+          "tests": [
+            "GAP-ART-TRANS-02"
+          ]
+        }
       ],
       "gaps": [
         "GAP-ART-TRANS-01: DIGESTED -> COMMITTED (Forbidden): Needs test proving commit fails if verification was skipped.",
@@ -40,50 +196,409 @@
       ]
     },
     "Work": {
-      "states": ["OPEN", "ACTIVE", "PAUSED", "BLOCKED", "DONE", "FAILED", "CANCELLED"],
+      "states": [
+        "OPEN",
+        "ACTIVE",
+        "PAUSED",
+        "BLOCKED",
+        "DONE",
+        "FAILED",
+        "CANCELLED"
+      ],
       "transitions": [
-        {"from": "OPEN", "to": "ACTIVE", "allowed": true, "tests": ["WRK-003"]},
-        {"from": "OPEN", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
-        {"from": "ACTIVE", "to": "PAUSED", "allowed": true, "tests": ["WRK-003"]},
-        {"from": "PAUSED", "to": "ACTIVE", "allowed": true, "tests": ["WRK-003"]},
-        {"from": "ACTIVE", "to": "BLOCKED", "allowed": true, "tests": ["WRK-003"]},
-        {"from": "BLOCKED", "to": "ACTIVE", "allowed": true, "tests": ["WRK-003"]},
-        {"from": "ACTIVE", "to": "DONE", "allowed": true, "tests": ["WRK-003"]},
-        {"from": "ACTIVE", "to": "FAILED", "allowed": true, "tests": ["WRK-003"]},
-        {"from": "ACTIVE", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
-        {"from": "PAUSED", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
-        {"from": "BLOCKED", "to": "CANCELLED", "allowed": true, "tests": ["WRK-004"]},
-        {"from": "DONE", "to": "ACTIVE", "allowed": false, "tests": ["WRK-006"]},
-        {"from": "FAILED", "to": "ACTIVE", "allowed": false, "tests": ["WRK-006"]},
-        {"from": "CANCELLED", "to": "ACTIVE", "allowed": false, "tests": ["WRK-006"]},
-        {"from": "OPEN", "to": "DONE", "allowed": false, "tests": ["WRK-006"]}
+        {
+          "from": "OPEN",
+          "to": "ACTIVE",
+          "allowed": true,
+          "tests": [
+            "WRK-003"
+          ]
+        },
+        {
+          "from": "OPEN",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "WRK-004"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "PAUSED",
+          "allowed": true,
+          "tests": [
+            "WRK-003"
+          ]
+        },
+        {
+          "from": "PAUSED",
+          "to": "ACTIVE",
+          "allowed": true,
+          "tests": [
+            "WRK-003"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "BLOCKED",
+          "allowed": true,
+          "tests": [
+            "WRK-003"
+          ]
+        },
+        {
+          "from": "BLOCKED",
+          "to": "ACTIVE",
+          "allowed": true,
+          "tests": [
+            "WRK-003"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "DONE",
+          "allowed": true,
+          "tests": [
+            "WRK-003"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "WRK-003"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "WRK-004"
+          ]
+        },
+        {
+          "from": "PAUSED",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "WRK-004"
+          ]
+        },
+        {
+          "from": "BLOCKED",
+          "to": "CANCELLED",
+          "allowed": true,
+          "tests": [
+            "WRK-004"
+          ]
+        },
+        {
+          "from": "DONE",
+          "to": "ACTIVE",
+          "allowed": false,
+          "tests": [
+            "WRK-006"
+          ]
+        },
+        {
+          "from": "FAILED",
+          "to": "ACTIVE",
+          "allowed": false,
+          "tests": [
+            "WRK-006"
+          ]
+        },
+        {
+          "from": "CANCELLED",
+          "to": "ACTIVE",
+          "allowed": false,
+          "tests": [
+            "WRK-006"
+          ]
+        },
+        {
+          "from": "OPEN",
+          "to": "DONE",
+          "allowed": false,
+          "tests": [
+            "WRK-006"
+          ]
+        }
       ],
       "gaps": []
     },
     "Skill": {
-      "states": ["DISCOVERED", "VALIDATED", "ACTIVE", "SUSPENDED", "RETIRED"],
+      "states": [
+        "DISCOVERED",
+        "VALIDATED",
+        "ACTIVE",
+        "SUSPENDED",
+        "RETIRED"
+      ],
       "transitions": [
-        {"from": "DISCOVERED", "to": "VALIDATED", "allowed": true, "tests": ["SKL-001"]},
-        {"from": "VALIDATED", "to": "ACTIVE", "allowed": true, "tests": ["SKL-002"]},
-        {"from": "ACTIVE", "to": "SUSPENDED", "allowed": true, "tests": ["SKL-003"]},
-        {"from": "SUSPENDED", "to": "ACTIVE", "allowed": true, "tests": ["SKL-004"]},
-        {"from": "ACTIVE", "to": "RETIRED", "allowed": true, "tests": ["SKL-005"]},
-        {"from": "SUSPENDED", "to": "RETIRED", "allowed": true, "tests": ["SKL-005"]},
-        {"from": "DISCOVERED", "to": "ACTIVE", "allowed": false, "tests": ["SKL-006"]},
-        {"from": "RETIRED", "to": "ACTIVE", "allowed": false, "tests": ["SKL-006"]}
+        {
+          "from": "DISCOVERED",
+          "to": "VALIDATED",
+          "allowed": true,
+          "tests": [
+            "SKL-001"
+          ]
+        },
+        {
+          "from": "VALIDATED",
+          "to": "ACTIVE",
+          "allowed": true,
+          "tests": [
+            "SKL-002"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "SUSPENDED",
+          "allowed": true,
+          "tests": [
+            "SKL-003"
+          ]
+        },
+        {
+          "from": "SUSPENDED",
+          "to": "ACTIVE",
+          "allowed": true,
+          "tests": [
+            "SKL-004"
+          ]
+        },
+        {
+          "from": "ACTIVE",
+          "to": "RETIRED",
+          "allowed": true,
+          "tests": [
+            "SKL-005"
+          ]
+        },
+        {
+          "from": "SUSPENDED",
+          "to": "RETIRED",
+          "allowed": true,
+          "tests": [
+            "SKL-005"
+          ]
+        },
+        {
+          "from": "DISCOVERED",
+          "to": "ACTIVE",
+          "allowed": false,
+          "tests": [
+            "SKL-006"
+          ]
+        },
+        {
+          "from": "RETIRED",
+          "to": "ACTIVE",
+          "allowed": false,
+          "tests": [
+            "SKL-006"
+          ]
+        }
       ],
       "gaps": []
     },
     "EvalRun": {
-      "states": ["PENDING", "RUNNING", "PASSED", "FAILED", "INCONCLUSIVE"],
+      "states": [
+        "PENDING",
+        "RUNNING",
+        "PASSED",
+        "FAILED",
+        "INCONCLUSIVE"
+      ],
       "transitions": [
-        {"from": "PENDING", "to": "RUNNING", "allowed": true, "tests": ["EVL-003"]},
-        {"from": "RUNNING", "to": "PASSED", "allowed": true, "tests": ["EVL-003"]},
-        {"from": "RUNNING", "to": "FAILED", "allowed": true, "tests": ["EVL-003"]},
-        {"from": "RUNNING", "to": "INCONCLUSIVE", "allowed": true, "tests": ["EVL-004"]},
-        {"from": "PASSED", "to": "RUNNING", "allowed": false, "tests": ["EVL-005"]},
-        {"from": "FAILED", "to": "RUNNING", "allowed": false, "tests": ["EVL-005"]},
-        {"from": "INCONCLUSIVE", "to": "RUNNING", "allowed": false, "tests": ["EVL-005"]}
+        {
+          "from": "PENDING",
+          "to": "RUNNING",
+          "allowed": true,
+          "tests": [
+            "EVL-003"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "PASSED",
+          "allowed": true,
+          "tests": [
+            "EVL-003"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "EVL-003"
+          ]
+        },
+        {
+          "from": "RUNNING",
+          "to": "INCONCLUSIVE",
+          "allowed": true,
+          "tests": [
+            "EVL-004"
+          ]
+        },
+        {
+          "from": "PASSED",
+          "to": "RUNNING",
+          "allowed": false,
+          "tests": [
+            "EVL-005"
+          ]
+        },
+        {
+          "from": "FAILED",
+          "to": "RUNNING",
+          "allowed": false,
+          "tests": [
+            "EVL-005"
+          ]
+        },
+        {
+          "from": "INCONCLUSIVE",
+          "to": "RUNNING",
+          "allowed": false,
+          "tests": [
+            "EVL-005"
+          ]
+        }
+      ],
+      "gaps": []
+    },
+    "Backup": {
+      "states": [
+        "STAGING",
+        "INTEGRITY_CHECK",
+        "MANIFEST_SEALED",
+        "READY",
+        "FAILED"
+      ],
+      "transitions": [
+        {
+          "from": "STAGING",
+          "to": "INTEGRITY_CHECK",
+          "allowed": true,
+          "tests": [
+            "BCK-001"
+          ]
+        },
+        {
+          "from": "INTEGRITY_CHECK",
+          "to": "MANIFEST_SEALED",
+          "allowed": true,
+          "tests": [
+            "BCK-001"
+          ]
+        },
+        {
+          "from": "MANIFEST_SEALED",
+          "to": "READY",
+          "allowed": true,
+          "tests": [
+            "BCK-001"
+          ]
+        },
+        {
+          "from": "INTEGRITY_CHECK",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "BCK-006"
+          ]
+        },
+        {
+          "from": "MANIFEST_SEALED",
+          "to": "FAILED",
+          "allowed": true,
+          "tests": [
+            "BCK-006"
+          ]
+        },
+        {
+          "from": "READY",
+          "to": "STAGING",
+          "allowed": false,
+          "tests": [
+            "BCK-005"
+          ]
+        }
+      ],
+      "gaps": []
+    },
+    "Restore": {
+      "states": [
+        "VERIFY_MANIFEST",
+        "RESTORE_AUTHORITATIVE",
+        "GENERATION_FENCED",
+        "REBUILD_PROJECTIONS",
+        "RESTORED",
+        "ABORTED"
+      ],
+      "transitions": [
+        {
+          "from": "VERIFY_MANIFEST",
+          "to": "RESTORE_AUTHORITATIVE",
+          "allowed": true,
+          "tests": [
+            "BCK-002"
+          ]
+        },
+        {
+          "from": "RESTORE_AUTHORITATIVE",
+          "to": "GENERATION_FENCED",
+          "allowed": true,
+          "tests": [
+            "BCK-004"
+          ]
+        },
+        {
+          "from": "GENERATION_FENCED",
+          "to": "REBUILD_PROJECTIONS",
+          "allowed": true,
+          "tests": [
+            "BCK-003"
+          ]
+        },
+        {
+          "from": "REBUILD_PROJECTIONS",
+          "to": "RESTORED",
+          "allowed": true,
+          "tests": [
+            "BCK-003"
+          ]
+        },
+        {
+          "from": "VERIFY_MANIFEST",
+          "to": "ABORTED",
+          "allowed": true,
+          "tests": [
+            "BCK-007"
+          ]
+        },
+        {
+          "from": "RESTORE_AUTHORITATIVE",
+          "to": "ABORTED",
+          "allowed": true,
+          "tests": [
+            "BCK-006"
+          ]
+        },
+        {
+          "from": "VERIFY_MANIFEST",
+          "to": "REBUILD_PROJECTIONS",
+          "allowed": false,
+          "tests": [
+            "BCK-005"
+          ]
+        }
       ],
       "gaps": []
     }
