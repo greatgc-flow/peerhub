@@ -238,7 +238,7 @@ class ArtifactStore:
             try:
                 if path.is_file():
                     try:
-                        os.chmod(path, stat.S_IWRITE)
+                        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
                     except OSError:
                         pass
                     path.unlink()
