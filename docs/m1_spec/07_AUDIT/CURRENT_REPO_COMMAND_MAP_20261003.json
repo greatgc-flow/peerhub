@@ -556,5 +556,9 @@
       "path": "session close",
       "effect": "MUTATING"
     }
-  ]
+  ],
+  "evidence_role": "LEGACY_V0_FROZEN_COMMAND_BASELINE",
+  "current_as_of": "2026-10-03 historical baseline only; NOT the complete 2026-10-04 installed CLI surface after M1 merge",
+  "superseded_for_current_repo_by": "07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json",
+  "notes": "Filename retained because the frozen 88/210 M1 test catalog references it. Its 109 rows remain migration/disposition evidence for the legacy `peerhub` CLI, not a claim that current repository has only 109 installed leaf commands."
 }

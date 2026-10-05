@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "product": "PeerHub",
+  "as_of": "2026-10-05",
+  "items": [
+    {
+      "id": "github-v0.11.0",
+      "artifact_identity": "tag:v0.11.0@fa460c491264941bdf127a28b5c36cd34625310e",
+      "status": "PUBLISHED",
+      "channel": "GitHub Release",
+      "evidence": [
+        "07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json"
+      ],
+      "notes": "Published before later release-gate fixes; do not reinterpret as PROMOTED by current-head evidence."
+    },
+    {
+      "id": "main-4a6994",
+      "artifact_identity": "git:4a6994e7f73933a30c5d4e8ee538cd7d736f06ce",
+      "status": "CANDIDATE",
+      "channel": "main/current validated candidate",
+      "evidence": [
+        "07_AUDIT/CURRENT_M1_IMPLEMENTATION_SNAPSHOT_20261005.json"
+      ],
+      "notes": "All current-head gates passed; publish job skipped because no new release publication event. A future tag may promote this exact identity or a later exact candidate after re-gating."
+    }
+  ]
+}

@@ -1,61 +1,73 @@
-# PeerHub M1 사용방법
+# PeerHub 사용/발전 가이드
 
-이 문서는 목표 UX를 설명합니다. 기존 v0.x CLI 문법을 그대로 보장하는 문서가 아닙니다.
+이 문서는 목표 UX와 milestone별 사용 가능 범위를 설명합니다. 기존 v0.x CLI 문법을 그대로 보장하는 문서가 아닙니다.
 
-## 기본
+## M1 — 기본 협업
 
 ```text
-1. workspace 초기화
-2. Peer 발견/등록
-3. Stream 생성 및 members 지정
-4. Record append
-5. Session Bridge가 대상 Peer runtime에 전달
-6. 응답을 Record로 append
-7. Offset으로 catch-up/read 위치 관리
+workspace
+→ Peer 발견/등록
+→ Stream 생성
+→ immutable Record append
+→ Session Bridge 전달/응답
+→ Offset catch-up
 ```
 
-## 장기 작업
+장기 작업 제어:
+- 진행현황: Record/Observation/log 우선 조회;
+- pause: durable control Record 먼저 저장 후 best-effort interrupt;
+- resume: provider session이 호환되면 재개, 아니면 fresh session + bounded catch-up;
+- redirect: 최종 목적이 같으면 같은 Stream;
+- major goal change: old Stream close + new Stream reference.
 
-- **진행현황**: 먼저 Record/Observation/log에서 zero-token 조회.
-- **잠깐 중단**: pause Record를 먼저 저장하고 Bridge가 best-effort interrupt.
-- **재개**: 같은 provider session이 호환되면 resume, 아니면 fresh session + catch-up.
-- **방향 수정**: 최종 목적이 같으면 같은 Stream에 redirect Record.
-- **완전한 방향 전환**: old Stream close + new Stream + reference.
-- **쿼터 소진**: Core에는 영향 없음. Observation만 갱신.
-- **Peer 교체**: Stream 유지, 새 Peer가 Offset 이후 catch-up.
+### quota / diag
 
-## 같은 CLI Peer 여러 개
+```text
+M1 Observation -> quota/rate/resource-pool evidence
+M1 Diag        -> strict read-only 표시
+```
 
-Claude/Codex/Agy 각각 `0..N` Peer를 허용합니다.
-동일 provider account의 quota/rate pool은 공유될 수 있으므로 Observation에서 resource pool로 표현합니다.
+관측되지 않은 값은 0/healthy/unlimited로 만들지 않습니다.
 
-## 검증
+## M2 — 실제 Work 지속
+
+Artifact, Work View, Skill/Catalog, MCP, Backup/Recovery, Eval을 사용합니다.
+Record/Artifact provenance가 authoritative이고 Work/Search 같은 View는 재구축 가능해야 합니다.
+
+## M3 — 지능형/원격 협업
+
+Search/Memory/A2A/Routing/Orchestration/Approval/Remote Runtime Port·Adapter를 조합합니다. 실제 multi-node/HA는 M4-I가 활성화될 때만 추가합니다.
+Routing은 M1 Observation의 quota/health evidence를 사용할 수 있지만 Core를 변경하지 않습니다.
+
+## M4+ — Optional
+
+필요한 Track만 opt-in합니다. UI/Notification/Enterprise/HA/Role 등은 M3 완료의 조건이 아닙니다.
+
+## 패키지 검증
 
 ```powershell
 python .\tools\validate_package.py
 ```
 
-결과는 화면과 `PACKAGE_VALIDATION.txt`에 동일하게 남습니다.
+화면 결과와 `PACKAGE_VALIDATION.txt`가 동일하게 남습니다.
 
-## 개발/테스트 이후
+## 개발/운영 closed loop
 
 ```text
-개발 GREEN
-→ package / clean install
-→ real-provider canary
-→ release
-→ stabilization observation
-→ feedback/incident/drift triage
-→ regression/requirement update
-→ 다음 RED
+Requirement
+→ RED
+→ Minimum Implementation
+→ deterministic/live/package GREEN
+→ Release
+→ Observe
+→ Learn
+→ next Requirement
+↺
 ```
 
-운영 절차와 rollback/incident/evidence/post-release review는 `08_LIFECYCLE/README.md`에서 시작합니다.
+Gate는 exact candidate-bound fresh PASS만 유효합니다. queued/running/cancelled/stale/unavailable은 blocking gate를 만족시키지 않습니다.
 
-## 종·횡 최종 교차점검 R2
 
-- invariant SSOT 8/8 requirement 역추적
-- test→release gate 210/210 machine mapping
-- release gate DAG explicit/fail-closed
-- signal route→lifecycle/runbook resolvability
-- rollback 후 unresolved Problem follow-up closure 규칙
+## 2026-10-04 current implementation note
+
+PeerHub main `4a6994e7...` now contains the M1 implementation. The legacy 109-command table is migration evidence; `peerhub-m1` is currently side-by-side and default `peerhub` cutover remains gated.

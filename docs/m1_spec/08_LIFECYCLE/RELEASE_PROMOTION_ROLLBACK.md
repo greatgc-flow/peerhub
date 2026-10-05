@@ -59,3 +59,7 @@ G2 → G6 Soak (non-blocking by default)
 
 프로젝트 규모에 따라 `preview`, `candidate`, `stable` 등을 선택할 수 있습니다.
 채널 이름은 Core 계약이 아니며 설정/CI pipeline 수준에서 관리합니다.
+
+## Evidence validity before promotion
+
+`G5 publish`는 dependency gate가 단순히 존재하는지가 아니라, 동일 candidate identity에 대해 최신 `PASS`인지 확인해야 합니다. 취소/대기/오래된 canary 결과는 publish 승인으로 승계하지 않습니다.

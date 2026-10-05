@@ -14,7 +14,7 @@
       "markers": [
         "architecture"
       ],
-      "setup": "Install package with Core and first-party extensions present; expose import graph/static dependency checker.",
+      "setup": "Install package with Core and first-party modules present; expose import graph/static dependency checker.",
       "action": "Traverse imports reachable from Core package entrypoints.",
       "oracle": "No Core module imports Session Bridge, Observation, Diag, or future Extension package.",
       "failure_injection": "none",
@@ -2762,7 +2762,7 @@
     {
       "id": "E2E-009",
       "tier": "e2e",
-      "title": "Core remains useful with all first-party extensions disabled",
+      "title": "Core remains useful with all first-party modules disabled",
       "requirements": [
         "REQ-ARCH-001",
         "REQ-PERSIST-002"

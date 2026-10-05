@@ -15,7 +15,10 @@
 | model profile refresh procedure | current manifest `instructions`/`tier_rules` | mutable fact JSON에 혼합하지 않고 Agent Skill + policy로 SUPERSEDE |
 | one-source consistency | `test_model_profiles_manifest.py` | Catalog↔config↔docs drift test 패턴 ABSORB |
 | lifecycle safety | restore dry-run/`--apply`, reset safety snapshot | future Backup/Recovery extension evidence로 RETAIN |
-| legacy command inventory | current production call-map @ `57a137cd...` | **109/109 disposition**, 0 unclassified |
+| legacy v0 command inventory | frozen call-map @ `57a137cd...` | **109/109 disposition**, 0 unclassified; migration evidence, not complete current installed CLI surface |
 | global prompt context injection | ask-context-injection design | M1에서 제거 |
 | role/consensus/routing/task | 현행 domain services | future Extensions |
 | current build health | GitHub Actions CI run `37027768347` | HEAD pyright + pytest success evidence |
+
+| current M1 implementation | main `4a6994e7...` | waves 0-9 implemented; `peerhub-m1` side-by-side; exact current-head CI/live/package/invariant/release-evidence gates PASS |
+| current CLI cutover | `pyproject.toml`, `peerhub/__main__.py`, `peerhub/m1_cli.py` | legacy `peerhub` default + 11-leaf `peerhub-m1`; quota Diag parity required before cutover |

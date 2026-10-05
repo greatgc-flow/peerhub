@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:verysimple:gate-evidence-policy:v1",
+  "title": "Gate evidence freshness and aging policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "normalized_states",
+    "candidate_identity_fields",
+    "freshness_triggers",
+    "thresholds_externalized",
+    "threshold_config_ref",
+    "on_stale",
+    "on_timeout",
+    "rule"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "normalized_states": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "valid",
+        "invalid_as_evidence"
+      ],
+      "properties": {
+        "valid": {
+          "const": [
+            "PASS"
+          ]
+        },
+        "invalid_as_evidence": {
+          "type": "array",
+          "minItems": 6,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "PENDING",
+              "CANCELLED",
+              "FAIL",
+              "STALE",
+              "UNAVAILABLE",
+              "UNKNOWN",
+              "SKIPPED"
+            ]
+          }
+        }
+      }
+    },
+    "candidate_identity_fields": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "freshness_triggers": {
+      "type": "array",
+      "minItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "thresholds_externalized": {
+      "const": true
+    },
+    "threshold_config_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "on_stale": {
+      "enum": [
+        "HOLD",
+        "REVERIFY"
+      ]
+    },
+    "on_timeout": {
+      "enum": [
+        "HOLD",
+        "ESCALATE"
+      ]
+    },
+    "rule": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

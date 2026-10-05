@@ -7,7 +7,7 @@
 - Tier/Priority/Type: `architecture` / `P0` / `negative`
 - Requirements: REQ-ARCH-001
 - Dimensions: architecture, negative
-- Setup: Install package with Core and first-party extensions present; expose import graph/static dependency checker.
+- Setup: Install package with Core and first-party modules present; expose import graph/static dependency checker.
 - Action: Traverse imports reachable from Core package entrypoints.
 - Oracle: No Core module imports Session Bridge, Observation, Diag, or future Extension package.
 - Failure injection: none
@@ -1102,7 +1102,7 @@
 - Failure injection: none
 - Live provider: False
 
-## E2E-009 — Core remains useful with all first-party extensions disabled
+## E2E-009 — Core remains useful with all first-party modules disabled
 
 - Tier/Priority/Type: `e2e` / `P0` / `positive`
 - Requirements: REQ-ARCH-001, REQ-PERSIST-002

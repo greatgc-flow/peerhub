@@ -18,8 +18,8 @@
 - **A2A boundary — PASS**: Remote Peer only, future adapter.
 - **Standards pruning — PASS**: Only JSON Schema/Agent Skills default-adopted.
 - **OSS/platform pruning — PASS**: No Kafka/Redis/workflow/plugin framework in M1.
-- **Existing 109 functions — PASS**: 109/109 dispositioned, 0 unclassified; disposition order/effect is validated against the embedded current call-map evidence snapshot.
-- **Repo delta closure — PASS**: 6-commit / 18-file delta from `39b8949...` to `57a137cd...` classified without changing M1 Core.
+- **Legacy v0 109-command disposition — PASS**: 109/109 dispositioned, 0 unclassified; disposition order/effect is validated against the embedded frozen legacy call-map evidence snapshot.
+- **Historical v0 delta closure — PASS**: the earlier 6-commit / 18-file v0 delta (`39b8949...` → `57a137cd...`) remains classified as legacy evidence; current M1 implementation is rebaselined separately below.
 - **Current HEAD CI — PASS**: GitHub Actions run `37027768347`; pyright and pytest successful.
 - **TDD vertical completeness — PASS**: architecture→live/install covered.
 - **Deployment loop — PASS**: build/package/install/live and CI graph check included.
@@ -28,7 +28,7 @@
 - **Global AGENTS.md avoidance — PASS**: No AGENTS.md included.
 - **Package text hygiene — PASS**: Validator rejects hidden C0 control characters; prior usage-guide path control character corrected.
 
-결론: M1은 Core/Extension/외부표준/문서/TDD/배포/Feedback의 종·횡 경계가 닫혔습니다. 현재 main delta는 Core를 확대할 이유가 없으며, 새로 확인된 lifecycle 기능은 Backup/Recovery extension으로, model-profile 변화는 Catalog/Schema/Skill/Policy 분리 원칙으로 흡수했습니다.
+결론: M1 설계계약의 Core/Module/외부표준/문서/TDD/배포/Feedback 종·횡 경계는 닫혀 있고, current main에는 구현도 병합되었습니다. 현행 구현 변화 역시 Core를 확대할 이유가 없으며 public CLI cutover·quota Diag parity·exact-head verification은 별도 lifecycle gate로 관리합니다.
 ## 2026-10-03 Recursive MECE test-set re-audit
 
 - Previous test baseline: 40 requirements / 114 tests.
@@ -58,5 +58,28 @@
 - **Invariant drift removed — PASS**: 문서의 migration identity/provenance invariant가 machine SSOT에 누락된 문제를 INV-008로 보완하고 모든 invariant를 requirement/test에 역추적 가능하게 함.
 - **Signal route resolvability — PASS**: 모든 signal first_route가 lifecycle stage와 guide/runbook으로 기계적으로 resolve됨.
 - **Rollback semantic closure — PASS**: ROLLED_BACK은 Change terminal일 수 있으나 unresolved Incident/Problem의 자동 종료가 아니며 follow-up link/rationale를 closure requirement로 강제.
-- **External baseline recheck — PASS**: greatgc-flow/peerhub main은 여전히 `57a137cd...`; 기준 HEAD와 identical.
 
+
+## 2026-10-04 최종 보완 R3
+
+- **Gate evidence freshness — PASS**: blocking gate는 exact candidate에 묶인 fresh PASS만 인정합니다.
+- **Cancelled/queued evidence rejection — PASS**: current v0.x workflow history의 cancelled publish/live-provider runs를 근거로 `CANCELLED/QUEUED/STALE/UNAVAILABLE`을 비증거 상태로 명시했습니다.
+- **No Core expansion — PASS**: 이 보완은 release assurance 메타계약이며 Peer/Stream/Record/Offset 또는 M1 extension 경계를 변경하지 않습니다.
+
+## R4 — 전체 Milestone 종·횡 귀속
+
+- M1→M2→M3 required roadmap을 `09_ROADMAP/roadmap.json` SSOT로 확정.
+- M4-A~L은 evidence-triggered Optional Capability Track으로 분리.
+- Core는 전 구간 `Peer/Stream/Record/Offset` 네 개로 freeze.
+- 109/109 legacy commands의 임시 `N` milestone을 제거하고 M1/M2/M3/Optional Track에 전수 귀속.
+- `diag`의 quota/rate 조회는 M1 Observation + Readonly Diag에 고정; M3는 routing 활용, M4-B는 실제 resource allocation만 담당.
+- validator가 roadmap schema/order/optional activation/Core boundary/legacy-command assignment를 검사.
+
+## 2026-10-04 current-main rebaseline
+
+- Current main is `4a6994e7...`, with M1 implementation merged.
+- Frozen 109-command evidence is now explicitly legacy/migration evidence, not the complete current CLI inventory.
+- M1 implementation and M1 public default-CLI cutover are separate maturity items.
+- ReadonlyDiag's Observation/resource-pool capability exists, but M1 side-by-side CLI quota display parity is a cutover gate.
+- Exact merge-head CI evidence freshness is required before `VERIFIED`; an in-progress/queued/stale/cancelled run is never PASS.
+- No reason was found to expand the four-concept Core.

@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "normalized_states": {
+    "valid": [
+      "PASS"
+    ],
+    "invalid_as_evidence": [
+      "QUEUED",
+      "RUNNING",
+      "PENDING",
+      "CANCELLED",
+      "FAIL",
+      "STALE",
+      "UNAVAILABLE",
+      "UNKNOWN",
+      "SKIPPED"
+    ]
+  },
+  "candidate_identity_fields": [
+    "source_revision",
+    "artifact_digest_if_applicable",
+    "provider_cli_versions",
+    "model_catalog_revision",
+    "gate_definition_revision"
+  ],
+  "freshness_triggers": [
+    "candidate_changed",
+    "provider_cli_versions_changed",
+    "model_catalog_changed",
+    "environment_profile_changed",
+    "gate_definition_changed",
+    "policy_ttl_expired"
+  ],
+  "thresholds_externalized": true,
+  "threshold_config_ref": "PeerHub release/CI policy; timing thresholds remain outside Core",
+  "on_stale": "HOLD",
+  "on_timeout": "HOLD",
+  "rule": "A blocking gate is satisfied only by a current PASS bound to the exact candidate identity; queued/running/pending/cancelled/stale/unavailable/unknown/skipped states are never passing evidence."
+}
