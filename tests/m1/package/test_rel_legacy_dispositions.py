@@ -15,7 +15,7 @@ SPEC = REPO / "docs/m1_spec"
 CSV_PATH = SPEC / "02_EXTENSIONS/109_COMMAND_DISPOSITION.csv"
 MD_PATH = SPEC / "02_EXTENSIONS/109_COMMAND_DISPOSITION.md"
 EVIDENCE = SPEC / "07_AUDIT/CURRENT_REPO_COMMAND_MAP_20261003.json"
-DISPOSITIONS = {"ABSORB_M1": 16, "SUPERSEDE_M1": 5, "M1_EXTENSION": 12, "FUTURE_EXTENSION": 76}  # literal oracle (shell uniq -c of the CSV)
+DISPOSITIONS = {"ABSORB_M1": 16, "SUPERSEDE_M1": 5, "SUPERSEDE": 33, "M1_MODULE": 12, "FUTURE_EXTENSION": 43}  # literal oracle (R9 package; counted from the CSV outside this test)
 
 
 class _Captured(Exception):
@@ -62,7 +62,8 @@ def load_evidence():
 def md_rows():
     rows = []
     for line in MD_PATH.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|\s*(\w+)\s*\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*(\w+)\s*\|$", line)
+        # R9 table: | # | `command` | Effect | Disposition | Target | Milestone | Reason |  (milestones like M4-A contain a hyphen)
+        m = re.match(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|\s*(\w+)\s*\|\s*(\w+)\s*\|\s*([^|]+?)\s*\|\s*([\w-]+)\s*\|.*\|$", line)
         if m:
             rows.append(m.groups())
     return rows
