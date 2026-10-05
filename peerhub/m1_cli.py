@@ -1,11 +1,11 @@
 """PeerHub M1 Very Simple CLI Entrypoint.
 
-Commands:
-  peer list / register
-  stream list / create / show
+Commands (canonical inventory: docs/m1_impl/command_inventory.json, derived from this parser by tools/m1_command_inventory.py):
+  peer register / get
+  stream create / show
   record append / read
   offset get / advance
-  diag health
+  diag health / quota   (read-only; quota never refreshes evidence)
   legacy-import dry-run / apply   (explicit side-by-side importer of a legacy v0.x store; MIGRATION_CUTOVER step 7)
 Exit codes: 0 ok, 1 error, 2 idempotency conflict, 3 CAS lost, 4 storage fault, 5 diag unavailable, 6 schema version, 7 legacy import refused.
 """
@@ -90,7 +90,21 @@ def build_parser() -> argparse.ArgumentParser:
     
     d_health = diag_sub.add_parser("health", help="Inspect stream health (read-only)")
     d_health.add_argument("--stream", required=True, dest="stream_id")
-    d_health.add_argument("--obs-db", default=".peerhub_obs.db")
+    d_health.add_argument("--obs-db", default=None, metavar="PATH",
+                          help="Read the observations summary from this OTHER M1 workspace database (opened read-only, never created); "
+                               "default: the --db database. The stream part always comes from --db.")
+    d_health.epilog = "example: peerhub-m1 --db ws.db diag health --stream s1 [--obs-db other_ws.db]"
+
+    d_quota = diag_sub.add_parser("quota", help="Show current quota/rate-limit evidence (read-only, never refreshes)",
+                                  description="Latest quota/rate_limit Observation per subject/pool exactly as Diag evaluates it "
+                                              "(MEASURED/STALE/UNKNOWN/UNAVAILABLE). Missing evidence is UNKNOWN, never unlimited. "
+                                              "Exit: 0 ok, 4 storage fault/corrupt evidence, 5 database or observation tables unavailable, 6 schema version.")
+    d_quota.add_argument("--obs-db", default=None, metavar="PATH",
+                         help="Read observations from this OTHER M1 workspace database (opened read-only, never created); default: the --db database")
+    d_quota.add_argument("--peer", default=None, help="Only this subject_ref (exact match)")
+    d_quota.add_argument("--pool", default=None, help="Only this resource_pool_ref (exact match)")
+    d_quota.add_argument("--json", action="store_true", help="Machine-readable output (schema_version 1.0) instead of the table")
+    d_quota.epilog = "examples: peerhub-m1 --db ws.db diag quota --json | peerhub-m1 --db ws.db diag quota --pool P --obs-db other_ws.db"
 
     # legacy import (the --db option is the M1 TARGET store; --source is the legacy v0.x database, opened read-only)
     legacy_parser = subparsers.add_parser("legacy-import", help="Import a legacy v0.x store (dry-run first)")
@@ -129,9 +143,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.subcommand == "diag":  # optional first-party extension: Core must work without it (E2E-009)
             try:
                 from peerhub.extensions.diag import ReadonlyDiag
+                from peerhub.extensions import diag_quota
             except ImportError as e:
                 print(f"ERROR: the diagnostics extension is unavailable ({e})", file=sys.stderr)
                 return 5
+            if args.action == "quota":  # pure reader: no CoreStore (it would create/migrate the database)
+                rep = diag_quota.quota_report(args.obs_db or args.db, peer=args.peer, pool=args.pool)
+                code = {**diag_quota.EXIT_BY_STATUS, "PARTIAL": 4}[rep["status"]]
+                print(json.dumps(rep, indent=2, ensure_ascii=True) if args.json else diag_quota.format_quota_table(rep))
+                if code and not args.json:
+                    print(f"DIAG QUOTA {rep['status']}: {rep['error']}", file=sys.stderr)
+                return code
         store = CoreStore(args.db)
         if args.subcommand == "peer":
             if args.action == "register":
@@ -209,9 +231,11 @@ def main(argv: list[str] | None = None) -> int:
 
         elif args.subcommand == "diag":
             if args.action == "health":
-                from peerhub.extensions.diag import ReadonlyDiag  # availability already checked above
+                from peerhub.extensions import diag_quota  # availability already checked above
+                from peerhub.extensions.diag import ReadonlyDiag
                 diag = ReadonlyDiag(args.db)
                 result = diag.inspect_stream_health(args.stream_id)
+                result["observations"] = diag_quota.observations_summary(args.obs_db or args.db)
                 print(json.dumps(result, indent=2, ensure_ascii=True))
 
         return 0

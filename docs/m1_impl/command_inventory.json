@@ -1,0 +1,373 @@
+{
+  "commands": [
+    {
+      "command": "diag health",
+      "options": [
+        {
+          "default": null,
+          "dest": "obs_db",
+          "flags": [
+            "--obs-db"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--stream"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "diag quota",
+      "options": [
+        {
+          "default": false,
+          "dest": "json",
+          "flags": [
+            "--json"
+          ],
+          "required": false,
+          "takes_value": false
+        },
+        {
+          "default": null,
+          "dest": "obs_db",
+          "flags": [
+            "--obs-db"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "peer",
+          "flags": [
+            "--peer"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "pool",
+          "flags": [
+            "--pool"
+          ],
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "legacy-import apply",
+      "options": [
+        {
+          "default": null,
+          "dest": "plan_digest",
+          "flags": [
+            "--plan-digest"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "source",
+          "flags": [
+            "--source"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "legacy-import dry-run",
+      "options": [
+        {
+          "default": null,
+          "dest": "source",
+          "flags": [
+            "--source"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "offset advance",
+      "options": [
+        {
+          "default": null,
+          "dest": "peer_id",
+          "flags": [
+            "--peer"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "new_position",
+          "flags": [
+            "--position"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "expected_revision",
+          "flags": [
+            "--revision"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--stream"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "offset get",
+      "options": [
+        {
+          "default": null,
+          "dest": "peer_id",
+          "flags": [
+            "--peer"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--stream"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "peer get",
+      "options": [
+        {
+          "default": null,
+          "dest": "peer_id",
+          "flags": [
+            "--id"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "peer register",
+      "options": [
+        {
+          "default": null,
+          "dest": "adapter_ref",
+          "flags": [
+            "--adapter"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "peer_id",
+          "flags": [
+            "--id"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "display_name",
+          "flags": [
+            "--name"
+          ],
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "record append",
+      "options": [
+        {
+          "default": null,
+          "dest": "author_peer_id",
+          "flags": [
+            "--author"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "body",
+          "flags": [
+            "--body"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "created_at",
+          "flags": [
+            "--created-at"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "idemp_key",
+          "flags": [
+            "--idemp-key"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "kind",
+          "flags": [
+            "--kind"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--stream"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": "[]",
+          "dest": "targets",
+          "flags": [
+            "--targets"
+          ],
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "record read",
+      "options": [
+        {
+          "default": 0,
+          "dest": "after",
+          "flags": [
+            "--after"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": 50,
+          "dest": "limit",
+          "flags": [
+            "--limit"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--stream"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "stream create",
+      "options": [
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--id"
+          ],
+          "required": true,
+          "takes_value": true
+        },
+        {
+          "default": "[]",
+          "dest": "members",
+          "flags": [
+            "--members"
+          ],
+          "required": false,
+          "takes_value": true
+        },
+        {
+          "default": null,
+          "dest": "title",
+          "flags": [
+            "--title"
+          ],
+          "required": false,
+          "takes_value": true
+        }
+      ]
+    },
+    {
+      "command": "stream show",
+      "options": [
+        {
+          "default": null,
+          "dest": "stream_id",
+          "flags": [
+            "--id"
+          ],
+          "required": true,
+          "takes_value": true
+        }
+      ]
+    }
+  ],
+  "global_options": [
+    {
+      "default": ".peerhub_m1.db",
+      "dest": "db",
+      "flags": [
+        "--db"
+      ],
+      "required": false,
+      "takes_value": true
+    }
+  ],
+  "program": "peerhub-m1"
+}

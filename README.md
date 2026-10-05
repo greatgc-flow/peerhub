@@ -150,6 +150,13 @@ the authoritative arguments and description at any depth.
 | Inspect terminal duty | `peerhub duty status --workspace ./peerhub-demo --room-id docs-room` |
 | Open a participant session | `peerhub session open --workspace ./peerhub-demo --workspace-scope-id demo --room-id docs-room --actor-principal-id cx --instance-id cx-1 --profile-id standard --session-fingerprint cx-1-demo` |
 
+### M1 CLI quota evidence (read-only)
+
+`peerhub-m1 --db ws.db diag quota [--json] [--peer REF] [--pool REF] [--obs-db OTHER_WS.db]` shows the current
+quota/rate-limit Observation evidence (MEASURED/STALE/UNKNOWN/UNAVAILABLE) without probing or refreshing it;
+`peerhub-m1 --db ws.db diag health --stream ID [--obs-db OTHER_WS.db]` adds an observations summary.
+The command list is `docs/m1_impl/command_inventory.json`; gate status is `docs/m1_impl/CUTOVER_GATE_STATUS.md`.
+
 ### Feedback loop
 
 Use `feedback add → list → resolve` for product/process gaps, `error report →
