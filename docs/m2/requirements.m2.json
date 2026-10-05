@@ -788,6 +788,114 @@
       "risk_tags": [
         "SECURITY"
       ]
+    },
+    {
+      "id": "REQ-MCP-001",
+      "area": "MCP",
+      "statement": "Invariant 10: MCP never writes storage directly; all operations route through public core and extension ports.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MCP-001"
+      ],
+      "required_dimensions": [
+        "invariant",
+        "architecture"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-MCP-002",
+      "area": "MCP",
+      "statement": "Standard JSON-RPC 2.0 stdio message framing and server lifecycle capability negotiation.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MCP-002",
+        "MCP-008"
+      ],
+      "required_dimensions": [
+        "protocol",
+        "stdio"
+      ],
+      "risk_tags": [
+        "COMPATIBILITY"
+      ]
+    },
+    {
+      "id": "REQ-MCP-003",
+      "area": "MCP",
+      "statement": "MCP tool discovery and execution strictly validate parameters and map to public ports.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MCP-003",
+        "MCP-004"
+      ],
+      "required_dimensions": [
+        "tools",
+        "execution"
+      ],
+      "risk_tags": [
+        "VALIDATION"
+      ]
+    },
+    {
+      "id": "REQ-MCP-004",
+      "area": "MCP",
+      "statement": "MCP resource provider and prompt templates expose peerhub:// URIs and formatted context safely.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MCP-005",
+        "MCP-006"
+      ],
+      "required_dimensions": [
+        "resources",
+        "prompts"
+      ],
+      "risk_tags": [
+        "REPRESENTATION"
+      ]
+    },
+    {
+      "id": "REQ-MCP-005",
+      "area": "MCP",
+      "statement": "Session handles are isolated from transport connection state and verified per sensitive operation.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MCP-007",
+        "MCP-009"
+      ],
+      "required_dimensions": [
+        "session",
+        "isolation"
+      ],
+      "risk_tags": [
+        "SECURITY"
+      ]
+    },
+    {
+      "id": "REQ-MCP-006",
+      "area": "MCP",
+      "statement": "Secret masking, clean extension disablement, and zero dev-dependency standard library implementation.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "MCP-010",
+        "MCP-011",
+        "MCP-012"
+      ],
+      "required_dimensions": [
+        "security",
+        "packaging"
+      ],
+      "risk_tags": [
+        "SECURITY"
+      ]
     }
   ]
 }

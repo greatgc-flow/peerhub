@@ -508,6 +508,58 @@
       "tests": [
         "BCK-009"
       ]
+    },
+    {
+      "id": "EXC-051",
+      "name": "MCPDirectStorageAccessError",
+      "trigger": "Attempted direct storage or database write bypassing public core and extension ports.",
+      "disposition": "REJECTED",
+      "rationale": "Invariant 10: MCP never writes storage directly.",
+      "tests": [
+        "MCP-001"
+      ]
+    },
+    {
+      "id": "EXC-052",
+      "name": "MCPProtocolError",
+      "trigger": "Malformed JSON-RPC 2.0 framing or protocol message syntax.",
+      "disposition": "REJECTED",
+      "rationale": "Strict JSON-RPC 2.0 protocol validation.",
+      "tests": [
+        "MCP-002",
+        "MCP-008"
+      ]
+    },
+    {
+      "id": "EXC-053",
+      "name": "MCPMethodNotFoundError",
+      "trigger": "Requested MCP tool, resource, or prompt method is not registered.",
+      "disposition": "REJECTED",
+      "rationale": "Standard JSON-RPC 2.0 method not found (-32601).",
+      "tests": [
+        "MCP-003"
+      ]
+    },
+    {
+      "id": "EXC-054",
+      "name": "MCPInvalidParamsError",
+      "trigger": "MCP tool or resource arguments failed validation against expected schema.",
+      "disposition": "REJECTED",
+      "rationale": "Standard JSON-RPC 2.0 invalid parameters (-32602).",
+      "tests": [
+        "MCP-003",
+        "MCP-004"
+      ]
+    },
+    {
+      "id": "EXC-055",
+      "name": "MCPSessionInvalidError",
+      "trigger": "Session handle is unauthenticated, expired, or invalid for sensitive MCP operations.",
+      "disposition": "REJECTED",
+      "rationale": "Explicit session handle isolation per invocation.",
+      "tests": [
+        "MCP-007"
+      ]
     }
   ]
 }

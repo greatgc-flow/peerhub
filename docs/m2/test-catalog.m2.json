@@ -2704,6 +2704,303 @@
       ],
       "case_type": "positive",
       "deterministic": true
+    },
+    {
+      "id": "MCP-001",
+      "tier": "architecture",
+      "title": "Invariant 10: direct storage write attempt from MCP layer is blocked / all writes route through public ports",
+      "requirements": [
+        "REQ-MCP-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "invariant"
+      ],
+      "setup": "MCPServer instance with CoreStore port.",
+      "action": "Attempt to bypass public port or execute unmediated SQL/file mutation.",
+      "oracle": "Raises MCPDirectStorageAccessError or is structurally disallowed; CoreStore integrity preserved.",
+      "failure_injection": "direct storage write",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "isolation"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-002",
+      "tier": "protocol",
+      "title": "JSON-RPC 2.0 stdio message framing and initialize capability handshake",
+      "requirements": [
+        "REQ-MCP-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "protocol",
+        "lifecycle"
+      ],
+      "setup": "MCPServer instance with stdio streams.",
+      "action": "Send initialize request with client capabilities.",
+      "oracle": "Returns JSON-RPC 2.0 result with server capabilities (tools, resources, prompts) and serverInfo.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "protocol",
+        "framing"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-003",
+      "tier": "tools",
+      "title": "tools/list returns canonical schemas and tools/call validates parameters",
+      "requirements": [
+        "REQ-MCP-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "tools",
+        "validation"
+      ],
+      "setup": "Active MCPServer session.",
+      "action": "Invoke tools/list followed by invalid tools/call.",
+      "oracle": "tools/list yields registered tools with JSON schemas; invalid call returns MCPInvalidParamsError (-32602).",
+      "failure_injection": "invalid params",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "tools",
+        "schema"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-004",
+      "tier": "tools",
+      "title": "tools/call executes peerhub_append_record and returns valid offset via CoreStore port",
+      "requirements": [
+        "REQ-MCP-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "tools",
+        "execution"
+      ],
+      "setup": "Active MCPServer session with operational CoreStore.",
+      "action": "Call peerhub_append_record with stream, record_type, and payload.",
+      "oracle": "Record is committed authoritatively and offset is returned in JSON-RPC tool result.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "tools",
+        "core_port"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-005",
+      "tier": "resources",
+      "title": "resources/list and resources/read safely expose peerhub:// URIs",
+      "requirements": [
+        "REQ-MCP-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "resources"
+      ],
+      "setup": "CoreStore with existing stream records and artifacts.",
+      "action": "Invoke resources/list and resources/read for peerhub://stream/<name>.",
+      "oracle": "Returns serialized records without exposing raw OS filesystem paths.",
+      "failure_injection": "path traversal",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "resources",
+        "security"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-006",
+      "tier": "prompts",
+      "title": "prompts/list and prompts/get render parameterized system prompt templates",
+      "requirements": [
+        "REQ-MCP-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "prompts"
+      ],
+      "setup": "Active MCPServer session.",
+      "action": "Invoke prompts/list and prompts/get with argument parameters.",
+      "oracle": "Returns rendered prompt messages containing agent instructions and parameter interpolation.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "prompts",
+        "templating"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-007",
+      "tier": "session",
+      "title": "Session handle isolation rejects invalid or unauthenticated session tokens",
+      "requirements": [
+        "REQ-MCP-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "session",
+        "security"
+      ],
+      "setup": "MCPServer instance.",
+      "action": "Attempt sensitive tool call with unauthenticated or revoked session_id.",
+      "oracle": "Returns MCPSessionInvalidError; unauthorized mutation blocked.",
+      "failure_injection": "invalid session",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "session",
+        "auth"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-008",
+      "tier": "fault",
+      "title": "Malformed JSON-RPC payload returns ParseError (-32700) without crashing stdio loop",
+      "requirements": [
+        "REQ-MCP-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "protocol"
+      ],
+      "setup": "Active MCPServer stdio handler.",
+      "action": "Feed invalid JSON text into stream.",
+      "oracle": "Emits standard -32700 ParseError response; subsequent valid requests succeed normally.",
+      "failure_injection": "malformed json",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "robustness"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-009",
+      "tier": "fault",
+      "title": "Tool execution exception returns JSON-RPC error response and preserves session",
+      "requirements": [
+        "REQ-MCP-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "fault",
+        "isolation"
+      ],
+      "setup": "Active MCPServer session.",
+      "action": "Trigger tool execution error (e.g. non-existent stream slice error).",
+      "oracle": "Server responds with error message in tool result or JSON-RPC error, session remains active.",
+      "failure_injection": "tool exception",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "fault",
+        "isolation"
+      ],
+      "case_type": "fault",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-010",
+      "tier": "security",
+      "title": "Secret masking in MCP tool outputs and serialized representations",
+      "requirements": [
+        "REQ-MCP-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "secrets"
+      ],
+      "setup": "Record or payload containing api_key or secret tokens.",
+      "action": "Query stream or tool result via MCP.",
+      "oracle": "Secret keys and token values are masked in response output.",
+      "failure_injection": "secret leak",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "privacy"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-011",
+      "tier": "lifecycle",
+      "title": "Clean extension disablement: disabling MCP preserves storage and frees server bindings",
+      "requirements": [
+        "REQ-MCP-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle"
+      ],
+      "setup": "MCPServer running alongside ExtensionHost.",
+      "action": "Shutdown or disable MCP extension.",
+      "oracle": "Sessions closed, resources freed, CoreStore remains completely functional.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "lifecycle",
+        "independence"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "MCP-012",
+      "tier": "architecture",
+      "title": "Zero dev-dependency violation: MCP implementation runs on standard library (REL-009)",
+      "requirements": [
+        "REQ-MCP-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "architecture",
+        "dependencies"
+      ],
+      "setup": "Minimal Python runtime.",
+      "action": "Import peerhub.m2.mcp.",
+      "oracle": "Module imports only standard library packages and internal public peerhub ports.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "packaging"
+      ],
+      "case_type": "positive",
+      "deterministic": true
     }
   ]
 }
