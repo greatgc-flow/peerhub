@@ -98,3 +98,72 @@ class ArtifactStore:
 
         if not src.is_file():
             raise FileNotFoundError(f"Source file not found: {src}")
+
+    def stage_bytes(self, data: bytes) -> StagedArtifact:
+        """Stage in-memory bytes into a temporary staging file with synchronous fsync."""
+        import hashlib
+        import tempfile
+
+        self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path_str = tempfile.mkstemp(dir=self.tmp_dir, prefix="stage-")
+        tmp_path = Path(tmp_path_str)
+
+        hasher = hashlib.sha256()
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(data)
+                hasher.update(data)
+                f.flush()
+                os.fsync(f.fileno())
+        except BaseException:
+            if tmp_path.exists():
+                tmp_path.unlink()
+            raise
+
+        digest = hasher.hexdigest()
+        return StagedArtifact(path=tmp_path, digest=digest, size=len(data))
+
+    def commit_staged(self, staged: StagedArtifact) -> str:
+        """Atomically commit a staged artifact to its final sharded destination."""
+        target_path = self.resolve_path(staged.digest)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Atomic replacement / move
+        try:
+            os.replace(staged.path, target_path)
+        except FileExistsError:
+            # Idempotent deduplication: file already exists with same digest
+            if staged.path.exists():
+                staged.path.unlink()
+
+        return staged.digest
+
+    def read_bytes(self, digest: str) -> bytes:
+        """Read artifact content with read-time cryptographic verification."""
+        import hashlib
+
+        target_path = self.resolve_path(digest)
+        if not target_path.is_file():
+            raise ArtifactNotFoundError(f"Artifact {digest} not found on disk at {target_path}")
+
+        data = target_path.read_bytes()
+        actual_digest = hashlib.sha256(data).hexdigest()
+        if actual_digest != digest:
+            raise ArtifactTamperedError(
+                f"Artifact digest mismatch: expected {digest}, got {actual_digest} (tampered or truncated)"
+            )
+
+        return data
+
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class StagedArtifact:
+    """Represents a temporary staged artifact file before atomic commit."""
+
+    path: Path
+    digest: str
+    size: int
+
