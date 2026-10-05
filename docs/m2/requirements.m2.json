@@ -462,6 +462,116 @@
       "risk_tags": [
         "REBUILDABILITY"
       ]
+    },
+    {
+      "id": "REQ-SKL-001",
+      "area": "SkillCatalog",
+      "statement": "Skill directory indexing computes a canonical deterministic SHA-256 tree digest over all relative paths and contents.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-001"
+      ],
+      "required_dimensions": [
+        "schema",
+        "durability"
+      ],
+      "risk_tags": [
+        "INTEGRITY"
+      ]
+    },
+    {
+      "id": "REQ-SKL-002",
+      "area": "SkillCatalog",
+      "statement": "Skill lifecycle enforces DISCOVERED -> VALIDATED -> ACTIVE <-> SUSPENDED -> RETIRED transitions; terminal RETIRED cannot transition further.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-002",
+        "SKL-003",
+        "SKL-004",
+        "SKL-005",
+        "SKL-006"
+      ],
+      "required_dimensions": [
+        "state-machine",
+        "negative"
+      ],
+      "risk_tags": [
+        "LIFECYCLE"
+      ]
+    },
+    {
+      "id": "REQ-SKL-003",
+      "area": "SkillCatalog",
+      "statement": "Post-index file modification inside a skill directory is detected upon verification or execution and rejected as tampered.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-009"
+      ],
+      "required_dimensions": [
+        "security",
+        "fault"
+      ],
+      "risk_tags": [
+        "SECURITY"
+      ]
+    },
+    {
+      "id": "REQ-SKL-004",
+      "area": "SkillCatalog",
+      "statement": "Discovery does not grant execution authorization; unvalidated or suspended skills cannot be invoked.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-010"
+      ],
+      "required_dimensions": [
+        "security",
+        "policy"
+      ],
+      "risk_tags": [
+        "SECURITY"
+      ]
+    },
+    {
+      "id": "REQ-SKL-005",
+      "area": "SkillCatalog",
+      "statement": "Capability catalog maintains curated declared facts; volatile runtime measurements (quota, rate-limit) are strictly rejected.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-011",
+        "SKL-012",
+        "SKL-013"
+      ],
+      "required_dimensions": [
+        "architecture",
+        "schema"
+      ],
+      "risk_tags": [
+        "INVARIANT"
+      ]
+    },
+    {
+      "id": "REQ-SKL-006",
+      "area": "SkillCatalog",
+      "statement": "Wiping SQLite skill index and replaying stream records + directory scan reconstructs 100% equivalent state.",
+      "source": "09_ROADMAP/M2_DETAILED_PRE_TDD_REVIEW.md",
+      "priority": "P0",
+      "tests": [
+        "SKL-007",
+        "SKL-008",
+        "SKL-014"
+      ],
+      "required_dimensions": [
+        "durability",
+        "recovery"
+      ],
+      "risk_tags": [
+        "REBUILDABILITY"
+      ]
     }
   ]
 }

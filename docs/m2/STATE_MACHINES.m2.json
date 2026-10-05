@@ -59,6 +59,20 @@
         {"from": "OPEN", "to": "DONE", "allowed": false, "tests": ["WRK-006"]}
       ],
       "gaps": []
+    },
+    "Skill": {
+      "states": ["DISCOVERED", "VALIDATED", "ACTIVE", "SUSPENDED", "RETIRED"],
+      "transitions": [
+        {"from": "DISCOVERED", "to": "VALIDATED", "allowed": true, "tests": ["SKL-001"]},
+        {"from": "VALIDATED", "to": "ACTIVE", "allowed": true, "tests": ["SKL-002"]},
+        {"from": "ACTIVE", "to": "SUSPENDED", "allowed": true, "tests": ["SKL-003"]},
+        {"from": "SUSPENDED", "to": "ACTIVE", "allowed": true, "tests": ["SKL-004"]},
+        {"from": "ACTIVE", "to": "RETIRED", "allowed": true, "tests": ["SKL-005"]},
+        {"from": "SUSPENDED", "to": "RETIRED", "allowed": true, "tests": ["SKL-005"]},
+        {"from": "DISCOVERED", "to": "ACTIVE", "allowed": false, "tests": ["SKL-006"]},
+        {"from": "RETIRED", "to": "ACTIVE", "allowed": false, "tests": ["SKL-006"]}
+      ],
+      "gaps": []
     }
   }
 }

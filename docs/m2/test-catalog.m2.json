@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "generated_on": "2026-10-05",
-  "count": 60,
+  "count": 86,
   "tests": [
     {
       "id": "EXT-001",
@@ -1460,16 +1460,24 @@
       "id": "WRK-001",
       "tier": "integration",
       "title": "Stream records append successfully before projection updates",
-      "requirements": ["REQ-WRK-001"],
+      "requirements": [
+        "REQ-WRK-001"
+      ],
       "priority": "P0",
-      "markers": ["durability", "work"],
+      "markers": [
+        "durability",
+        "work"
+      ],
       "setup": "Active core stream and work engine.",
       "action": "Append m2.work.created record to stream.",
       "oracle": "Stream record is durable; projection reduces it to OPEN state with revision 1.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["durability", "positive"],
+      "dimensions": [
+        "durability",
+        "positive"
+      ],
       "case_type": "positive",
       "deterministic": true
     },
@@ -1477,16 +1485,25 @@
       "id": "WRK-002",
       "tier": "integration",
       "title": "Replaying ordered stream records reconstructs identical work projection state",
-      "requirements": ["REQ-WRK-001", "REQ-WRK-005"],
+      "requirements": [
+        "REQ-WRK-001",
+        "REQ-WRK-005"
+      ],
       "priority": "P0",
-      "markers": ["recovery", "work"],
+      "markers": [
+        "recovery",
+        "work"
+      ],
       "setup": "Multiple work items with transitions in stream.",
       "action": "Drop projection DB and run rebuild_projection.",
       "oracle": "Projection restored to 100% identical state, revisions, and status.",
       "failure_injection": "database loss",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["recovery", "durability"],
+      "dimensions": [
+        "recovery",
+        "durability"
+      ],
       "case_type": "positive",
       "deterministic": true
     },
@@ -1494,16 +1511,24 @@
       "id": "WRK-003",
       "tier": "unit",
       "title": "Work lifecycle transitions OPEN -> ACTIVE <-> BLOCKED/PAUSED -> DONE/FAILED",
-      "requirements": ["REQ-WRK-002"],
+      "requirements": [
+        "REQ-WRK-002"
+      ],
       "priority": "P0",
-      "markers": ["lifecycle", "work"],
+      "markers": [
+        "lifecycle",
+        "work"
+      ],
       "setup": "Open work item.",
       "action": "Perform nominal lifecycle state transitions.",
       "oracle": "Each valid transition succeeds and increments revision by 1.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["state_machine", "positive"],
+      "dimensions": [
+        "state_machine",
+        "positive"
+      ],
       "case_type": "positive",
       "deterministic": true
     },
@@ -1511,16 +1536,24 @@
       "id": "WRK-004",
       "tier": "unit",
       "title": "Work cancellation from non-terminal states succeeds",
-      "requirements": ["REQ-WRK-002"],
+      "requirements": [
+        "REQ-WRK-002"
+      ],
       "priority": "P0",
-      "markers": ["lifecycle", "work"],
+      "markers": [
+        "lifecycle",
+        "work"
+      ],
       "setup": "Work item in OPEN, ACTIVE, or PAUSED state.",
       "action": "Transition to CANCELLED.",
       "oracle": "State moves to CANCELLED and revision increments.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["state_machine", "positive"],
+      "dimensions": [
+        "state_machine",
+        "positive"
+      ],
       "case_type": "positive",
       "deterministic": true
     },
@@ -1528,16 +1561,24 @@
       "id": "WRK-005",
       "tier": "concurrency",
       "title": "Concurrent transition on same revision rejects second caller with WorkRevisionConflictError",
-      "requirements": ["REQ-WRK-003"],
+      "requirements": [
+        "REQ-WRK-003"
+      ],
       "priority": "P0",
-      "markers": ["concurrency", "work"],
+      "markers": [
+        "concurrency",
+        "work"
+      ],
       "setup": "Work item at revision R.",
       "action": "Two callers attempt transition expecting revision R simultaneously.",
       "oracle": "First caller succeeds to revision R+1; second caller receives WorkRevisionConflictError.",
       "failure_injection": "concurrency race",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["concurrency", "negative"],
+      "dimensions": [
+        "concurrency",
+        "negative"
+      ],
       "case_type": "negative",
       "deterministic": true
     },
@@ -1545,16 +1586,24 @@
       "id": "WRK-006",
       "tier": "unit",
       "title": "Forbidden transition from terminal states raises ForbiddenTransitionError",
-      "requirements": ["REQ-WRK-002"],
+      "requirements": [
+        "REQ-WRK-002"
+      ],
       "priority": "P0",
-      "markers": ["lifecycle", "work"],
+      "markers": [
+        "lifecycle",
+        "work"
+      ],
       "setup": "Work item in DONE, FAILED, or CANCELLED state.",
       "action": "Attempt transition to ACTIVE or PAUSED.",
       "oracle": "Raises ForbiddenTransitionError; work item remains unchanged.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["state_machine", "negative"],
+      "dimensions": [
+        "state_machine",
+        "negative"
+      ],
       "case_type": "negative",
       "deterministic": true
     },
@@ -1562,16 +1611,24 @@
       "id": "WRK-007",
       "tier": "unit",
       "title": "Querying or mutating non-existent work_id raises WorkNotFoundError",
-      "requirements": ["REQ-WRK-001"],
+      "requirements": [
+        "REQ-WRK-001"
+      ],
       "priority": "P1",
-      "markers": ["unit", "work"],
+      "markers": [
+        "unit",
+        "work"
+      ],
       "setup": "Empty projection.",
       "action": "Query or transition unknown work_id.",
       "oracle": "Raises WorkNotFoundError cleanly.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["unit", "negative"],
+      "dimensions": [
+        "unit",
+        "negative"
+      ],
       "case_type": "negative",
       "deterministic": true
     },
@@ -1579,16 +1636,24 @@
       "id": "WRK-008",
       "tier": "fault",
       "title": "Malformed record payload in stream is gracefully ignored by reducer",
-      "requirements": ["REQ-WRK-001"],
+      "requirements": [
+        "REQ-WRK-001"
+      ],
       "priority": "P1",
-      "markers": ["fault", "work"],
+      "markers": [
+        "fault",
+        "work"
+      ],
       "setup": "Stream containing a corrupted work record payload.",
       "action": "Run reducer / projection replay.",
       "oracle": "Corrupted record is skipped without crashing; valid work items remain intact.",
       "failure_injection": "data corruption",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["fault", "durability"],
+      "dimensions": [
+        "fault",
+        "durability"
+      ],
       "case_type": "negative",
       "deterministic": true
     },
@@ -1596,16 +1661,24 @@
       "id": "WRK-009",
       "tier": "unit",
       "title": "Duplicate work creation with identical ID is rejected",
-      "requirements": ["REQ-WRK-001"],
+      "requirements": [
+        "REQ-WRK-001"
+      ],
       "priority": "P1",
-      "markers": ["unit", "work"],
+      "markers": [
+        "unit",
+        "work"
+      ],
       "setup": "Existing work item 'w1'.",
       "action": "Attempt create_work with same id 'w1'.",
       "oracle": "Raises WorkAlreadyExistsError.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["unit", "negative"],
+      "dimensions": [
+        "unit",
+        "negative"
+      ],
       "case_type": "negative",
       "deterministic": true
     },
@@ -1613,16 +1686,24 @@
       "id": "WRK-010",
       "tier": "integration",
       "title": "Checkpoints save intermediate execution state and increment revision",
-      "requirements": ["REQ-WRK-004"],
+      "requirements": [
+        "REQ-WRK-004"
+      ],
       "priority": "P1",
-      "markers": ["integration", "work"],
+      "markers": [
+        "integration",
+        "work"
+      ],
       "setup": "Active work item.",
       "action": "Add checkpoint payload.",
       "oracle": "Checkpoint stored in projection; revision incremented.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["integration", "positive"],
+      "dimensions": [
+        "integration",
+        "positive"
+      ],
       "case_type": "positive",
       "deterministic": true
     },
@@ -1630,16 +1711,24 @@
       "id": "WRK-011",
       "tier": "integration",
       "title": "Linking artifact digest to work item attaches digest reference immutably",
-      "requirements": ["REQ-WRK-004"],
+      "requirements": [
+        "REQ-WRK-004"
+      ],
       "priority": "P1",
-      "markers": ["integration", "work"],
+      "markers": [
+        "integration",
+        "work"
+      ],
       "setup": "Committed artifact digest in ArtifactStore.",
       "action": "Call link_artifact on work item.",
       "oracle": "Artifact digest appears in work item artifacts list and revision increments.",
       "failure_injection": "none",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["integration", "positive"],
+      "dimensions": [
+        "integration",
+        "positive"
+      ],
       "case_type": "positive",
       "deterministic": true
     },
@@ -1647,16 +1736,374 @@
       "id": "WRK-012",
       "tier": "durability",
       "title": "Wiping projection SQLite table and calling rebuild_projection restores full state",
-      "requirements": ["REQ-WRK-005"],
+      "requirements": [
+        "REQ-WRK-005"
+      ],
       "priority": "P0",
-      "markers": ["durability", "work"],
+      "markers": [
+        "durability",
+        "work"
+      ],
       "setup": "Rich history of work items, transitions, checkpoints, and artifacts.",
       "action": "Execute DROP TABLE on all ext_work tables, then replay all stream records.",
       "oracle": "Full projection accurately reconstructed matching pre-wipe state.",
       "failure_injection": "table drop",
       "evidence": "pytest result",
       "live_provider": false,
-      "dimensions": ["durability", "positive"],
+      "dimensions": [
+        "durability",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-001",
+      "tier": "schema",
+      "title": "Skill directory indexing computes canonical deterministic SHA-256 tree digest",
+      "requirements": [
+        "REQ-SKL-001"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "skill"
+      ],
+      "setup": "Valid skill directory with SKILL.md frontmatter, script, and prompt file.",
+      "action": "Call index_skill on the directory.",
+      "oracle": "SkillItem created with computed content digest, parsed name, and declared tags.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "schema",
+        "durability"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-002",
+      "tier": "state",
+      "title": "Skill lifecycle transitions DISCOVERED -> VALIDATED -> ACTIVE",
+      "requirements": [
+        "REQ-SKL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle",
+        "skill"
+      ],
+      "setup": "Skill in DISCOVERED state.",
+      "action": "Validate skill and activate it with expected_revision.",
+      "oracle": "Skill state advances to ACTIVE with incremented revision.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-machine",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-003",
+      "tier": "state",
+      "title": "Suspending an active skill moves it to SUSPENDED",
+      "requirements": [
+        "REQ-SKL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle",
+        "skill"
+      ],
+      "setup": "Skill in ACTIVE state.",
+      "action": "Call suspend_skill with reason.",
+      "oracle": "Skill state becomes SUSPENDED; revision increments.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-machine",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-004",
+      "tier": "state",
+      "title": "Resuming a suspended skill restores ACTIVE state",
+      "requirements": [
+        "REQ-SKL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle",
+        "skill"
+      ],
+      "setup": "Skill in SUSPENDED state.",
+      "action": "Call activate_skill on suspended skill.",
+      "oracle": "Skill state returns to ACTIVE.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-machine",
+        "positive"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-005",
+      "tier": "state",
+      "title": "Retiring a skill moves it to terminal RETIRED state",
+      "requirements": [
+        "REQ-SKL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lifecycle",
+        "skill"
+      ],
+      "setup": "Skill in ACTIVE or SUSPENDED state.",
+      "action": "Call retire_skill.",
+      "oracle": "Skill state becomes RETIRED; further transitions raise ForbiddenTransitionError.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "state-machine",
+        "negative"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-006",
+      "tier": "state",
+      "title": "Forbidden direct transition DISCOVERED to ACTIVE is rejected",
+      "requirements": [
+        "REQ-SKL-002"
+      ],
+      "priority": "P0",
+      "markers": [
+        "state-machine",
+        "skill"
+      ],
+      "setup": "Skill in DISCOVERED state.",
+      "action": "Attempt to directly transition to ACTIVE without VALIDATED.",
+      "oracle": "ForbiddenTransitionError raised; state unchanged.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "state-machine"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-007",
+      "tier": "lookup",
+      "title": "Querying non-existent skill raises SkillNotFoundError",
+      "requirements": [
+        "REQ-SKL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "lookup",
+        "skill"
+      ],
+      "setup": "Empty or initialized skill catalog.",
+      "action": "Call get_skill for unknown ID.",
+      "oracle": "SkillNotFoundError raised.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "negative",
+        "lookup"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-008",
+      "tier": "schema",
+      "title": "Malformed SKILL.md frontmatter raises SkillManifestError",
+      "requirements": [
+        "REQ-SKL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "schema",
+        "skill"
+      ],
+      "setup": "Skill directory with broken YAML frontmatter or missing required name field.",
+      "action": "Attempt to index directory.",
+      "oracle": "SkillManifestError raised; directory not indexed.",
+      "failure_injection": "malformed manifest",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "schema",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-009",
+      "tier": "security",
+      "title": "Post-index file modification detected as tampered",
+      "requirements": [
+        "REQ-SKL-003"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "integrity"
+      ],
+      "setup": "Indexed skill directory.",
+      "action": "Modify file in skill dir on disk and call verify_skill_integrity.",
+      "oracle": "Raises SkillTamperedError due to content hash mismatch.",
+      "failure_injection": "file mutation",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "fault"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-010",
+      "tier": "security",
+      "title": "Attempt to invoke inactive skill raises UnauthorizedSkillError",
+      "requirements": [
+        "REQ-SKL-004"
+      ],
+      "priority": "P0",
+      "markers": [
+        "security",
+        "policy"
+      ],
+      "setup": "Skill in DISCOVERED or SUSPENDED state.",
+      "action": "Attempt to invoke or select skill for work execution.",
+      "oracle": "UnauthorizedSkillError raised (discovery != authorization).",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "security",
+        "policy"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-011",
+      "tier": "catalog",
+      "title": "Capability catalog records declared capabilities with CAS revision gating",
+      "requirements": [
+        "REQ-SKL-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "catalog",
+        "capability"
+      ],
+      "setup": "Initialized capability catalog store.",
+      "action": "Declare capability and mutate with expected revision.",
+      "oracle": "Capability registered and revision advanced monotonically.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "positive",
+        "catalog"
+      ],
+      "case_type": "positive",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-012",
+      "tier": "catalog",
+      "title": "Conflicting capability declaration is rejected",
+      "requirements": [
+        "REQ-SKL-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "catalog",
+        "concurrency"
+      ],
+      "setup": "Existing capability with revision 1.",
+      "action": "Declare capability with mismatched revision.",
+      "oracle": "CapabilityConflictError raised.",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "concurrency",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-013",
+      "tier": "invariant",
+      "title": "Volatile runtime measurements in capability catalog are strictly rejected",
+      "requirements": [
+        "REQ-SKL-005"
+      ],
+      "priority": "P0",
+      "markers": [
+        "invariant",
+        "architecture"
+      ],
+      "setup": "Attempt to declare capability containing quota, rate_limit, or live ping keys.",
+      "action": "Call declare_capability.",
+      "oracle": "VolatileFactRejectedError raised (Invariant 9).",
+      "failure_injection": "none",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "architecture",
+        "negative"
+      ],
+      "case_type": "negative",
+      "deterministic": true
+    },
+    {
+      "id": "SKL-014",
+      "tier": "durability",
+      "title": "Wiping SQLite skill index and replaying stream records + directory scan reconstructs full state",
+      "requirements": [
+        "REQ-SKL-006"
+      ],
+      "priority": "P0",
+      "markers": [
+        "durability",
+        "recovery"
+      ],
+      "setup": "Multiple skills and capabilities with transitions.",
+      "action": "Wipe index tables and call rebuild_index.",
+      "oracle": "Index accurately restored matching pre-wipe state.",
+      "failure_injection": "table drop",
+      "evidence": "pytest result",
+      "live_provider": false,
+      "dimensions": [
+        "durability",
+        "recovery"
+      ],
       "case_type": "positive",
       "deterministic": true
     }
