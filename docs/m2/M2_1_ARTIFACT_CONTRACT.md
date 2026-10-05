@@ -3,8 +3,9 @@
 ## 1. Authority & Storage Layout
 - **Authority:** Artifact references committed to the Core Event Stream dictate the lifecycle of artifacts. Physical files with no pointing Core reference are ORPHANS subject to garbage collection (ART-028).
 - **Storage Layout:**
-  - `artifacts/`: Flat directory storing files named strictly by their SHA-256 lowercase hex digest.
+  - `artifacts/<digest[:2]>/<digest>`: 2-tier sharded directory hierarchy using the first 2 characters of the lowercase SHA-256 hex digest to circumvent OS flat-directory file limits (Decision #5).
   - `artifacts/.tmp/`: Directory for STAGED/DIGESTED files during upload (via `mkstemp`).
+  - **Garbage Collection (GC):** Staged `.tmp` files older than 24 hours (stranded by process crashes mid-stage) are swept cleanly upon Host boot (Decision #2, ART-030).
 
 ## 2. Port Protocols & Error Types
 - `stage(stream) -> StagedArtifact`: Writes chunked bytes to `.tmp`. Errors: `IOError_ENOSPC`, `MemoryError`, `PartialReadError`.
@@ -16,10 +17,11 @@
 1. **Stage** stream fully to `.tmp` file (64KB chunks to prevent OOM).
 2. **Digest** simultaneously to compute SHA-256.
 3. **Verify** limits (e.g. disk capacity constraints).
-4. **Atomic Blob Commit** via `os.rename` to `artifacts/<hash>`.
+4. **Atomic Blob Commit** via `os.rename` to `artifacts/<digest[:2]>/<digest>`.
 5. **Metadata Write** to ArtifactStore index DB.
 6. **Core Record Reference** appended.
-- **Idempotency:** Uploading identical payloads yields the same hash; the final atomic rename catches `FileExistsError` and safely returns the existing reference, averting redundant IO (ART-016, ART-017).
+- **Idempotency & Deduplication:** If two peers commit identical payloads independently, the physical disk blob is content-addressed and deduplicated via atomic rename catch of `FileExistsError`. Meanwhile, the Core event stream records strictly maintain each peer's unique provenance record (Decision #3, ART-016, ART-017).
+- **Disabled Extension Passthrough:** When the Artifact extension is OFF, the M1 bridge treats `m2.artifact.reference` payload as an opaque map, gracefully degrading to raw view without stream read crash (Decision #6, ART-012).
 
 ## 4. Crash Matrix & Recovery
 | Crash Point | Resulting State | Recovery Action | Covering Test |

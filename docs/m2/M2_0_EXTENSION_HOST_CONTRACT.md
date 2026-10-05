@@ -34,7 +34,9 @@ The Extension Host exposes a strictly typed API boundary:
 ## 4. Ordering & Idempotency Rules
 - **Idempotency:** Calling `enable(A)` when `A` is already `ENABLED` results in an immediate no-op returning the current state without DB mutations (Test EXT-009).
 - **Ordering:** Discovery MUST precede Validation; Validation MUST precede Enablement.
+- **Boot & Discovery Timing:** At Host boot (`boot()`), all extension manifests in `extensions/` are parsed into a lightweight in-memory metadata index. However, zero Python code is imported or instantiated for extensions that are disabled or unvalidated. Code evaluation only occurs upon explicit `enable()` (Decision #1).
 - **Transactions:** Schema migrations run in strict, isolated SQLite WAL transactions. Concurrent enables block cleanly via timeouts (EXT-017).
+- **Version Dependencies:** Manifest dependencies require exact-version matches only; SemVer constraint solvers are explicitly non-goals for M2.0 (Decision #8). Unmet dependencies reject with `MissingDependencyError`.
 
 ## 5. Crash Matrix & Recovery
 | Crash Point | Resulting State | Recovery Action | Covering Test |
@@ -55,7 +57,7 @@ The Extension Host exposes a strictly typed API boundary:
 
 ## 8. Migration, Rebuild, Disable, Rollback
 - **Disable:** Unloads modules (via `sys.modules` eviction & GC) and stops hooks. Data tables strictly preserved (EXT-004, EXT-016).
-- **Rollback (Downgrade):** Strictly forbidden. Loading older manifest than DB version raises `DowngradeNotSupportedError` (EXT-024).
+- **Rollback (Downgrade):** Strictly forbidden. Loading an older manifest than the DB's recorded `schema_version` immediately raises `DowngradeNotSupportedError` and halts loading, mirroring M1's strict Exit 6 policy (Decision #4, EXT-024).
 
 ## 9. Security & Trust Boundary
 - Core code never natively trusts extension output. Events are passed via strictly typed proxy interfaces.
